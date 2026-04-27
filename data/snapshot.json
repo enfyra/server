@@ -590,6 +590,35 @@
         "description": "When enabled, the backend redirects back to the Enfyra Nuxt app /api/auth/set-cookies endpoint and lets Nitro set auth cookies before redirecting to the requested page."
       },
       {
+        "name": "sourceCode",
+        "type": "code",
+        "isSystem": true,
+        "isNullable": true,
+        "defaultValue": null,
+        "description": "Optional script that returns an object merged into newly created OAuth users. Existing identity fields take precedence."
+      },
+      {
+        "name": "scriptLanguage",
+        "type": "enum",
+        "options": [
+          "typescript",
+          "javascript"
+        ],
+        "isSystem": true,
+        "isNullable": false,
+        "defaultValue": "typescript",
+        "description": "Language used by sourceCode before server compilation"
+      },
+      {
+        "name": "compiledCode",
+        "type": "code",
+        "isSystem": true,
+        "isNullable": true,
+        "isGenerated": true,
+        "isUpdatable": false,
+        "description": "Server-compiled JavaScript code executed by the OAuth user provisioning runtime"
+      },
+      {
         "name": "isEnabled",
         "type": "boolean",
         "isNullable": false,

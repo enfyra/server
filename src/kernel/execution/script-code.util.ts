@@ -17,6 +17,7 @@ export interface ExecutableScriptResult {
 }
 
 const SCRIPT_TABLE_LEGACY_FIELDS: Record<string, string> = {
+  oauth_config_definition: '',
   route_handler_definition: 'logic',
   pre_hook_definition: 'code',
   post_hook_definition: 'code',

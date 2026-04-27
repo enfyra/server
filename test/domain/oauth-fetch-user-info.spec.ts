@@ -7,6 +7,9 @@ function makeService(): OAuthService {
     oauthConfigCacheService: {} as any,
     envService: {} as any,
     cacheService: {} as any,
+    executorEngineService: {} as any,
+    dynamicContextFactory: {} as any,
+    repoRegistryService: {} as any,
   });
 }
 
@@ -156,5 +159,83 @@ describe('OAuthService.fetchUserInfo — provider mapping', () => {
     await expect(
       (service as any).fetchUserInfo('https://u', 'tok', 'twitter' as any),
     ).rejects.toThrow(/Unsupported OAuth provider/);
+  });
+
+  it('accepts object results from user provisioning scripts', async () => {
+    service = new OAuthService({
+      queryBuilderService: {} as any,
+      oauthConfigCacheService: {} as any,
+      envService: {} as any,
+      cacheService: {} as any,
+      executorEngineService: {
+        run: vi.fn().mockResolvedValue({ role: { id: 2 } }),
+      } as any,
+      dynamicContextFactory: {
+        createBase: vi.fn().mockReturnValue({}),
+      } as any,
+      repoRegistryService: {
+        createReposProxy: vi.fn().mockReturnValue({}),
+      } as any,
+    });
+
+    await expect(
+      (service as any).runUserProvisioningScript({
+        sourceCode: 'return { role: { id: 2 } }',
+        compiledCode: 'return { role: { id: 2 } }',
+        scriptLanguage: 'typescript',
+      }),
+    ).resolves.toEqual({ role: { id: 2 } });
+  });
+
+  it('allows empty user provisioning scripts', async () => {
+    const run = vi.fn();
+    service = new OAuthService({
+      queryBuilderService: {} as any,
+      oauthConfigCacheService: {} as any,
+      envService: {} as any,
+      cacheService: {} as any,
+      executorEngineService: { run } as any,
+      dynamicContextFactory: {
+        createBase: vi.fn().mockReturnValue({}),
+      } as any,
+      repoRegistryService: {
+        createReposProxy: vi.fn().mockReturnValue({}),
+      } as any,
+    });
+
+    await expect(
+      (service as any).runUserProvisioningScript({
+        sourceCode: null,
+        compiledCode: null,
+        scriptLanguage: 'typescript',
+      }),
+    ).resolves.toEqual({});
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-object results from user provisioning scripts', async () => {
+    service = new OAuthService({
+      queryBuilderService: {} as any,
+      oauthConfigCacheService: {} as any,
+      envService: {} as any,
+      cacheService: {} as any,
+      executorEngineService: {
+        run: vi.fn().mockResolvedValue(null),
+      } as any,
+      dynamicContextFactory: {
+        createBase: vi.fn().mockReturnValue({}),
+      } as any,
+      repoRegistryService: {
+        createReposProxy: vi.fn().mockReturnValue({}),
+      } as any,
+    });
+
+    await expect(
+      (service as any).runUserProvisioningScript({
+        sourceCode: 'return null',
+        compiledCode: 'return null',
+        scriptLanguage: 'typescript',
+      }),
+    ).rejects.toThrow(/must return an object/);
   });
 });

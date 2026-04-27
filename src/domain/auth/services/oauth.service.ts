@@ -8,6 +8,12 @@ import { IOAuthConfigCache } from '../../shared/interfaces/oauth-config-cache.in
 import { ICache } from '../../shared/interfaces/cache.interface';
 import { EnvService } from '../../../shared/services';
 import {
+  ExecutorEngineService,
+  resolveExecutableScript,
+} from '../../../kernel/execution';
+import { DynamicContextFactory } from '../../../shared/services';
+import { RepoRegistryService } from '../../../engine/cache';
+import {
   loadUserWithRole,
   userCacheKey,
   USER_CACHE_TTL_MS,
@@ -27,6 +33,9 @@ export class OAuthService {
   private readonly oauthConfigCacheService: IOAuthConfigCache;
   private readonly envService: EnvService;
   private readonly cacheService: ICache;
+  private readonly executorEngineService: ExecutorEngineService;
+  private readonly dynamicContextFactory: DynamicContextFactory;
+  private readonly repoRegistryService: RepoRegistryService;
 
   private readonly providerUrls: Record<
     OAuthProvider,
@@ -58,11 +67,17 @@ export class OAuthService {
     oauthConfigCacheService: IOAuthConfigCache;
     envService: EnvService;
     cacheService: ICache;
+    executorEngineService: ExecutorEngineService;
+    dynamicContextFactory: DynamicContextFactory;
+    repoRegistryService: RepoRegistryService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.oauthConfigCacheService = deps.oauthConfigCacheService;
     this.envService = deps.envService;
     this.cacheService = deps.cacheService;
+    this.executorEngineService = deps.executorEngineService;
+    this.dynamicContextFactory = deps.dynamicContextFactory;
+    this.repoRegistryService = deps.repoRegistryService;
   }
 
   getAuthorizationUrl(provider: OAuthProvider, state: string): string {
@@ -135,7 +150,7 @@ export class OAuthService {
       throw new BadRequestException('Email is required from OAuth provider');
     }
 
-    const user = await this.findOrCreateUser(provider, userInfo);
+    const user = await this.findOrCreateUser(provider, userInfo, config);
 
     const session = await this.createSession(user, provider);
 
@@ -230,6 +245,7 @@ export class OAuthService {
   private async findOrCreateUser(
     provider: OAuthProvider,
     userInfo: OAuthUserInfo,
+    config: ReturnType<IOAuthConfigCache['getDirectConfigByProvider']>,
   ): Promise<any> {
     const isMongoDB = this.queryBuilderService.isMongoDb();
 
@@ -264,22 +280,27 @@ export class OAuthService {
     });
 
     if (!user) {
-      try {
-        const userData: any = isMongoDB
-          ? {
-              email: userInfo.email,
-              password: null,
-              isRootAdmin: false,
-              isSystem: false,
-            }
-          : {
-              id: randomUUID(),
-              email: userInfo.email,
-              password: null,
-              isRootAdmin: false,
-              isSystem: false,
-            };
+      const baseUserData: any = isMongoDB
+        ? {
+            email: userInfo.email,
+            password: null,
+            isRootAdmin: false,
+            isSystem: false,
+          }
+        : {
+            id: randomUUID(),
+            email: userInfo.email,
+            password: null,
+            isRootAdmin: false,
+            isSystem: false,
+          };
+      const provisioningData = await this.runUserProvisioningScript(config);
+      const userData = {
+        ...provisioningData,
+        ...baseUserData,
+      };
 
+      try {
         user = await this.queryBuilderService.insert(
           'user_definition',
           userData,
@@ -315,6 +336,38 @@ export class OAuthService {
     }
 
     return user;
+  }
+
+  private async runUserProvisioningScript(
+    config: ReturnType<IOAuthConfigCache['getDirectConfigByProvider']>,
+  ): Promise<Record<string, any>> {
+    if (!config?.sourceCode?.trim()) {
+      return {};
+    }
+
+    const executable = resolveExecutableScript(config).code;
+    if (!executable) {
+      return {};
+    }
+
+    const ctx = this.dynamicContextFactory.createBase({
+      cache: this.cacheService as any,
+      helpers: {},
+      user: null,
+    });
+    ctx.$repos = this.repoRegistryService.createReposProxy(
+      ctx,
+      'user_definition',
+    );
+
+    const result = await this.executorEngineService.run(executable, ctx);
+    if (!isPlainObject(result)) {
+      throw new BadRequestException(
+        'OAuth user provisioning script must return an object',
+      );
+    }
+
+    return result;
   }
 
   private async createSession(
@@ -408,4 +461,12 @@ export class OAuthService {
       loginProvider,
     };
   }
+}
+
+function isPlainObject(value: unknown): value is Record<string, any> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
