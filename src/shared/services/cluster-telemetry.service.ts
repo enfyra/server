@@ -1,11 +1,6 @@
 import { Redis } from 'ioredis';
 import { InstanceService } from './instance.service';
-
-type ClusterTelemetryRecord<T> = {
-  instanceId: string;
-  sampledAt: string;
-  payload: T;
-};
+import type { ClusterTelemetryRecord } from '../types';
 
 export class ClusterTelemetryService {
   private readonly redis: Redis;

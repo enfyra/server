@@ -1,23 +1,7 @@
 import { Queue } from 'bullmq';
+import type { RuntimeQueueStats } from '../../../shared/types';
 
 type QueueLike = Queue | undefined | null;
-
-export type RuntimeQueueStats = {
-  waiting: number;
-  active: number;
-  delayed: number;
-  failed: number;
-  failedJobs: Array<{
-    id: string;
-    name: string;
-    flowId?: string | number;
-    flowName?: string;
-    failedReason?: string;
-    attemptsMade: number;
-    timestamp?: number;
-    finishedOn?: number;
-  }>;
-} | null;
 
 export class RuntimeQueueMetricsService {
   private readonly flowQueue: QueueLike;

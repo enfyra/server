@@ -69,7 +69,13 @@ export class FlowExecutionQueueService {
     this.worker = new Worker(
       SYSTEM_QUEUES.FLOW_EXECUTION,
       async (job: Job<FlowJobData>) => {
-        return await this.process(job);
+        if (!this.runtimeMetricsCollectorService) {
+          return await this.process(job);
+        }
+        return await this.runtimeMetricsCollectorService.runWithQueryContext(
+          'flow',
+          () => this.process(job),
+        );
       },
       {
         prefix: `${nodeName}:`,

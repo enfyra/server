@@ -7,26 +7,7 @@ import {
   getEffectiveCpuCount,
   getEffectiveMemoryBytes,
 } from '../../../kernel/execution/executor-engine/utils/engine-tuning.util';
-
-export type RuntimeAverageSample = {
-  rssMb: number;
-  heapUsedMb: number;
-  heapTotalMb: number;
-  externalMb: number;
-  eventLoopLagMs: number;
-  cpuRatio: number;
-  executorActiveTasks: number;
-  executorWaitingTasks: number;
-  executorP95TaskMs: number;
-  executorP99TaskMs: number;
-  executorMaxHeapRatio: number;
-  websocketConnections: number;
-  queueDepth: number;
-  queueFailed: number;
-  dbUsed: number;
-  dbFree: number;
-  dbPending: number;
-};
+import type { RuntimeAverageSample } from '../../../shared/types';
 
 const AVERAGE_FIELDS: Array<keyof RuntimeAverageSample> = [
   'rssMb',

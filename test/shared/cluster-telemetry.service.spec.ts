@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ClusterTelemetryService } from 'src/shared/services';
+import { ClusterTelemetryService } from '../../src/shared/services';
 
 class FakeRedis {
   values = new Map<string, string>();

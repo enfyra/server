@@ -1,49 +1,11 @@
-type RouteMetric = {
-  method: string;
-  route: string;
-  count: number;
-  status2xx: number;
-  status3xx: number;
-  status4xx: number;
-  status5xx: number;
-  totalMs: number;
-  latencies: number[];
-};
-
-type QueryMetric = {
-  op: string;
-  table: string;
-  count: number;
-  errors: number;
-  poolAcquireTimeouts: number;
-  slow: number;
-  totalMs: number;
-  latencies: number[];
-};
-
-type CacheReloadMetric = {
-  flow: string;
-  table: string;
-  scope?: string;
-  status: 'success' | 'failed';
-  durationMs: number;
-  steps: Array<{ name: string; durationMs: number; status: 'success' | 'failed'; error?: string }>;
-  startedAt: string;
-  completedAt: string;
-  error?: string;
-};
-
-type FlowMetric = {
-  flowId: string | number;
-  flowName: string;
-  running: number;
-  completed: number;
-  failed: number;
-  totalMs: number;
-  latencies: number[];
-  failedSteps: Record<string, number>;
-  stepLatencies: Record<string, number[]>;
-};
+import { AsyncLocalStorage } from 'async_hooks';
+import type {
+  QueryMetricContext,
+  RuntimeCacheReloadMetric,
+  RuntimeFlowMetric,
+  RuntimeQueryMetric,
+  RuntimeRouteMetric,
+} from '../types/runtime-metrics.types';
 
 const MAX_LATENCIES = 256;
 const MAX_RECENT = 20;
@@ -72,10 +34,11 @@ function isPoolAcquireTimeout(error: unknown) {
 }
 
 export class RuntimeMetricsCollectorService {
-  private readonly requests = new Map<string, RouteMetric>();
-  private readonly queries = new Map<string, QueryMetric>();
-  private readonly flows = new Map<string, FlowMetric>();
-  private recentCacheReloads: CacheReloadMetric[] = [];
+  private readonly queryContext = new AsyncLocalStorage<QueryMetricContext>();
+  private readonly requests = new Map<string, RuntimeRouteMetric>();
+  private readonly queries = new Map<string, RuntimeQueryMetric>();
+  private readonly flows = new Map<string, RuntimeFlowMetric>();
+  private recentCacheReloads: RuntimeCacheReloadMetric[] = [];
   private startedAt = Date.now();
 
   recordRequest(input: {
@@ -109,16 +72,19 @@ export class RuntimeMetricsCollectorService {
   }
 
   recordQuery(input: {
+    context?: QueryMetricContext;
     op: string;
     table?: string;
     durationMs: number;
     error?: unknown;
   }) {
+    const context = input.context ?? this.getQueryContext();
     const table = input.table || 'unknown';
-    const key = `${input.op}:${table}`;
+    const key = `${context}:${input.op}:${table}`;
     const current =
       this.queries.get(key) ??
       {
+        context,
         op: input.op,
         table,
         count: 0,
@@ -138,7 +104,7 @@ export class RuntimeMetricsCollectorService {
   }
 
   async trackQuery<T>(
-    input: { op: string; table?: string },
+    input: { op: string; table?: string; context?: QueryMetricContext },
     callback: () => Promise<T>,
   ): Promise<T> {
     const startedAt = performance.now();
@@ -159,7 +125,18 @@ export class RuntimeMetricsCollectorService {
     }
   }
 
-  recordCacheReload(metric: CacheReloadMetric) {
+  runWithQueryContext<T>(
+    context: QueryMetricContext,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    return this.queryContext.run(context, callback);
+  }
+
+  getQueryContext(): QueryMetricContext {
+    return this.queryContext.getStore() ?? 'runtime';
+  }
+
+  recordCacheReload(metric: RuntimeCacheReloadMetric) {
     this.recentCacheReloads.unshift(metric);
     if (this.recentCacheReloads.length > MAX_RECENT) {
       this.recentCacheReloads = this.recentCacheReloads.slice(0, MAX_RECENT);
@@ -224,6 +201,7 @@ export class RuntimeMetricsCollectorService {
       .map((item) => ({
         op: item.op,
         table: item.table,
+        context: item.context,
         count: item.count,
         errors: item.errors,
         poolAcquireTimeouts: item.poolAcquireTimeouts,
@@ -284,7 +262,10 @@ export class RuntimeMetricsCollectorService {
     };
   }
 
-  private getFlowMetric(flowId: string | number, flowName: string): FlowMetric {
+  private getFlowMetric(
+    flowId: string | number,
+    flowName: string,
+  ): RuntimeFlowMetric {
     const key = String(flowId);
     const current =
       this.flows.get(key) ??

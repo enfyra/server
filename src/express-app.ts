@@ -90,7 +90,9 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
         durationMs: performance.now() - startedAt,
       });
     });
-    next();
+    c.runtimeMetricsCollectorService
+      .runWithQueryContext('runtime', async () => next())
+      .catch(next);
   });
 
   app.use(bodyParserMiddleware(c.settingCacheService));

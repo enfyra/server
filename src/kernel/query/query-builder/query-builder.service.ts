@@ -13,6 +13,7 @@ import { SqlQueryExecutor } from './executors/sql-query-executor';
 import { QueryPlanner } from '../query-dsl/query-planner';
 import { DatabaseConfigService } from '../../../shared/services';
 import { RuntimeMetricsCollectorService } from '../../../shared/services';
+import type { QueryMetricContext } from '../../../shared/types';
 import type { Cradle } from '../../../container';
 import { DebugTrace } from '../../../shared/utils/debug-trace.util';
 import { normalizeMongoDocument } from '../../../engine/mongo';
@@ -78,6 +79,17 @@ export class QueryBuilderService implements IQueryBuilder {
       return this.mongoService.runWithFieldPermissionCheck(checker, callback);
     }
     return callback();
+  }
+
+  async runWithTelemetryContext<T>(
+    context: QueryMetricContext,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    if (!this.runtimeMetricsCollectorService) return await callback();
+    return await this.runtimeMetricsCollectorService.runWithQueryContext(
+      context,
+      callback,
+    );
   }
 
   getDbType(): DatabaseType {

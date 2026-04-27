@@ -307,7 +307,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     }
 
     let elapsed = 0;
-    this.reloadLock = (async () => {
+    const runReload = async () => {
       const start = Date.now();
       const startedAt = new Date(start).toISOString();
       const stepTimings: string[] = [];
@@ -395,7 +395,10 @@ export class CacheOrchestratorService implements LifecycleAware {
       this.logger.log(
         `${payload.scope === 'partial' ? 'Partial' : 'Full'} chain [${stepTimings.join(' → ')}] for ${payload.table} in ${elapsed}ms`,
       );
-    })();
+    };
+    this.reloadLock = this.runtimeMetricsCollectorService
+      ? this.runtimeMetricsCollectorService.runWithQueryContext('cache', runReload)
+      : runReload();
 
     try {
       await this.reloadLock;
@@ -574,6 +577,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   }
 
   private async reloadAllLocal(notify = false): Promise<void> {
+    const runReload = async () => {
     const start = Date.now();
     const startedAt = new Date(start).toISOString();
     const steps = [
@@ -663,6 +667,15 @@ export class CacheOrchestratorService implements LifecycleAware {
       });
     }
     this.logger.log(`Admin reload ALL: ${Date.now() - start}ms`);
+    };
+    if (this.runtimeMetricsCollectorService) {
+      await this.runtimeMetricsCollectorService.runWithQueryContext(
+        'cache',
+        runReload,
+      );
+      return;
+    }
+    await runReload();
   }
 
   private subscribeToRedis(): void {

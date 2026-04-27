@@ -67,6 +67,16 @@ export class DataMigrationService {
       return;
     }
 
+    if (this.queryBuilderService.runWithTelemetryContext) {
+      await this.queryBuilderService.runWithTelemetryContext('migration', () =>
+        this.runMigrationBatch(),
+      );
+      return;
+    }
+    await this.runMigrationBatch();
+  }
+
+  private async runMigrationBatch(): Promise<void> {
     this.logger.log('Running data migrations from data-migration.json...');
 
     if (
