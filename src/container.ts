@@ -129,6 +129,9 @@ import { SqlFunctionService } from './engine/sql';
 
 import { LogReaderService } from './modules/admin';
 import { RuntimeMonitorService } from './modules/admin';
+import { RuntimeDbMetricsService } from './modules/admin';
+import { RuntimeProcessMetricsService } from './modules/admin';
+import { RuntimeQueueMetricsService } from './modules/admin';
 
 import { DynamicService } from './modules/dynamic-api';
 import { DynamicApiTableValidationService } from './modules/dynamic-api';
@@ -173,6 +176,7 @@ import { EnvService } from './shared/services';
 import { InstanceService } from './shared/services';
 import { DynamicContextFactory } from './shared/services';
 import { RuntimeMetricsCollectorService } from './shared/services';
+import { ClusterTelemetryService } from './shared/services';
 
 export interface Cradle {
   envService: EnvService;
@@ -184,6 +188,7 @@ export interface Cradle {
   instanceService: InstanceService;
   dynamicContextFactory: DynamicContextFactory;
   runtimeMetricsCollectorService: RuntimeMetricsCollectorService;
+  clusterTelemetryService: ClusterTelemetryService;
   configService: any;
   lazyRef: Cradle;
   bcryptService: BcryptService;
@@ -269,6 +274,9 @@ export interface Cradle {
 
   logReaderService: LogReaderService;
   runtimeMonitorService: RuntimeMonitorService;
+  runtimeDbMetricsService: RuntimeDbMetricsService;
+  runtimeProcessMetricsService: RuntimeProcessMetricsService;
+  runtimeQueueMetricsService: RuntimeQueueMetricsService;
   meService: MeService;
   graphqlService: GraphqlService;
   dynamicResolver: DynamicResolver;
@@ -376,6 +384,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     runtimeMetricsCollectorService: asClass(
       RuntimeMetricsCollectorService,
     ).singleton(),
+    clusterTelemetryService: asClass(ClusterTelemetryService).singleton(),
     bcryptService: asClass(BcryptService).singleton(),
     authService: asClass(AuthService).singleton(),
     oauthService: asClass(OAuthService).singleton(),
@@ -513,6 +522,11 @@ export function buildContainer(): AwilixContainer<Cradle> {
     uploadFileHelper: asClass(UploadFileHelper).singleton(),
 
     logReaderService: asClass(LogReaderService).singleton(),
+    runtimeDbMetricsService: asClass(RuntimeDbMetricsService).singleton(),
+    runtimeProcessMetricsService: asClass(RuntimeProcessMetricsService)
+      .singleton()
+      .disposer((service) => service.disable()),
+    runtimeQueueMetricsService: asClass(RuntimeQueueMetricsService).singleton(),
     runtimeMonitorService: asClass(RuntimeMonitorService)
       .singleton()
       .disposer((service) => service.onDestroy()),

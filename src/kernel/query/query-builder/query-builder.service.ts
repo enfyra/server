@@ -407,12 +407,11 @@ export class QueryBuilderService implements IQueryBuilder {
     pipeline?: any[];
     maxQueryDepth?: number;
   }): Promise<any> {
-    const startedAt = performance.now();
-    try {
+    return this.trackQueryMetric('find', options.table, async () => {
       const filter =
         options.filter ||
         (options.where ? this.whereToFilter(options.where) : undefined);
-      const result = await this.select({
+      return await this.select({
         tableName: options.table,
         filter,
         fields: options.fields,
@@ -427,12 +426,7 @@ export class QueryBuilderService implements IQueryBuilder {
         pipeline: options.pipeline,
         maxQueryDepth: options.maxQueryDepth,
       });
-      this.recordQueryMetric('find', options.table, startedAt);
-      return result;
-    } catch (error) {
-      this.recordQueryMetric('find', options.table, startedAt, error);
-      throw error;
-    }
+    });
   }
 
   async findOne(options: {
@@ -449,23 +443,16 @@ export class QueryBuilderService implements IQueryBuilder {
   }
 
   async insert(table: string, data: Record<string, any>): Promise<any> {
-    const startedAt = performance.now();
-    try {
+    return this.trackQueryMetric('insert', table, async () => {
       if (this.dbType === 'mongodb') {
         const result = await this.mongoService.insertOne(table, data);
-        this.recordQueryMetric('insert', table, startedAt);
         return normalizeMongoDocument(result);
       }
       const insertedId = await this.knexService.insertWithCascade(table, data);
       const knex = this.knexService.getKnex();
       const recordId = insertedId || data.id;
-      const result = await knex(table).where('id', recordId).first();
-      this.recordQueryMetric('insert', table, startedAt);
-      return result;
-    } catch (error) {
-      this.recordQueryMetric('insert', table, startedAt, error);
-      throw error;
-    }
+      return await knex(table).where('id', recordId).first();
+    });
   }
 
   async update(
@@ -473,52 +460,35 @@ export class QueryBuilderService implements IQueryBuilder {
     id: any,
     data: Record<string, any>,
   ): Promise<any> {
-    const startedAt = performance.now();
-    try {
+    return this.trackQueryMetric('update', table, async () => {
       if (id && typeof id === 'object' && 'where' in id) {
-        const result = await this.updateWithOptions({ table, where: id.where, data });
-        this.recordQueryMetric('update', table, startedAt);
-        return result;
+        return await this.updateWithOptions({ table, where: id.where, data });
       }
 
       if (this.dbType === 'mongodb') {
         const result = await this.mongoService.updateOne(table, id, data);
-        this.recordQueryMetric('update', table, startedAt);
         return normalizeMongoDocument(result);
       }
       await this.knexService.updateWithCascade(table, id, data);
       const knex = this.knexService.getKnex();
-      const result = await knex(table).where('id', id).first();
-      this.recordQueryMetric('update', table, startedAt);
-      return result;
-    } catch (error) {
-      this.recordQueryMetric('update', table, startedAt, error);
-      throw error;
-    }
+      return await knex(table).where('id', id).first();
+    });
   }
 
   async delete(table: string, id: any): Promise<boolean> {
-    const startedAt = performance.now();
-    try {
+    return this.trackQueryMetric('delete', table, async () => {
       if (id && typeof id === 'object' && 'where' in id) {
         const count = await this.deleteWithOptions({ table, where: id.where });
-        this.recordQueryMetric('delete', table, startedAt);
         return count > 0;
       }
 
       if (this.dbType === 'mongodb') {
-        const result = await this.mongoService.deleteOne(table, id);
-        this.recordQueryMetric('delete', table, startedAt);
-        return result;
+        return await this.mongoService.deleteOne(table, id);
       }
       const knex = this.knexService.getKnex();
       const deleted = await knex(table).where('id', id).delete();
-      this.recordQueryMetric('delete', table, startedAt);
       return deleted > 0;
-    } catch (error) {
-      this.recordQueryMetric('delete', table, startedAt, error);
-      throw error;
-    }
+    });
   }
 
   async countRecords(table: string, filter?: any): Promise<number> {
@@ -639,47 +609,39 @@ export class QueryBuilderService implements IQueryBuilder {
   }
 
   async raw(query: string | any, bindings?: any): Promise<any> {
-    const startedAt = performance.now();
-    try {
+    const table = this.dbType === 'mongodb' ? 'mongodb' : 'sql';
+    return this.trackQueryMetric('raw', table, async () => {
       if (this.dbType === 'mongodb') {
         const db = this.mongoService.getDb();
         if (typeof query === 'string') {
           if (query.toLowerCase().includes('select 1')) {
-            const result = await db.command({ ping: 1 });
-            this.recordQueryMetric('raw', 'mongodb', startedAt);
-            return result;
+            return await db.command({ ping: 1 });
           }
           throw new Error(
             'String queries not supported for MongoDB. Use db.command() object instead.',
           );
         }
-        const result = await db.command(query);
-        this.recordQueryMetric('raw', 'mongodb', startedAt);
-        return result;
+        return await db.command(query);
       }
 
       const knex = this.knexService.getKnex();
-      const result = await knex.raw(query, bindings);
-      this.recordQueryMetric('raw', 'sql', startedAt);
-      return result;
-    } catch (error) {
-      this.recordQueryMetric('raw', this.dbType === 'mongodb' ? 'mongodb' : 'sql', startedAt, error);
-      throw error;
-    }
+      return await knex.raw(query, bindings);
+    });
   }
 
-  private recordQueryMetric(
+  private async trackQueryMetric<T>(
     op: string,
     table: string | undefined,
-    startedAt: number,
-    error?: unknown,
-  ) {
-    this.runtimeMetricsCollectorService?.recordQuery({
-      op,
-      table,
-      durationMs: performance.now() - startedAt,
-      error,
-    });
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    if (this.runtimeMetricsCollectorService) {
+      return await this.runtimeMetricsCollectorService.trackQuery(
+        { op, table },
+        callback,
+      );
+    }
+
+    return await callback();
   }
 
   getConnection(): any {

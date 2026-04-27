@@ -137,6 +137,28 @@ export class RuntimeMetricsCollectorService {
     this.queries.set(key, current);
   }
 
+  async trackQuery<T>(
+    input: { op: string; table?: string },
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    const startedAt = performance.now();
+    try {
+      const result = await callback();
+      this.recordQuery({
+        ...input,
+        durationMs: performance.now() - startedAt,
+      });
+      return result;
+    } catch (error) {
+      this.recordQuery({
+        ...input,
+        durationMs: performance.now() - startedAt,
+        error,
+      });
+      throw error;
+    }
+  }
+
   recordCacheReload(metric: CacheReloadMetric) {
     this.recentCacheReloads.unshift(metric);
     if (this.recentCacheReloads.length > MAX_RECENT) {
