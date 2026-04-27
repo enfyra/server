@@ -1,4 +1,8 @@
-import { executeBatch, CodeBlock } from '../helpers/spawn-worker';
+import {
+  executeBatch,
+  executeBatchSequence,
+  CodeBlock,
+} from '../helpers/spawn-worker';
 
 const REALISTIC_ROUTE_BLOCKS: CodeBlock[] = [
   {
@@ -223,6 +227,93 @@ describe('Batch execution: correctness', () => {
     expect(r.value.data.user).toBe('John');
     expect(r.value.data.limit).toBe(10);
     expect(r.value.meta.timestamp).toBe('now');
+  });
+
+  it('reused worker context does not leak explicit global properties', async () => {
+    const [first, second] = await executeBatchSequence([
+      {
+        codeBlocks: [
+          {
+            code: 'globalThis.__leakedValue = "from-first"; return globalThis.__leakedValue;',
+            type: 'handler',
+          },
+        ],
+        snapshot: baseSnapshot(),
+        isolatePoolSize: 1,
+      },
+      {
+        codeBlocks: [
+          {
+            code: 'return typeof globalThis.__leakedValue;',
+            type: 'handler',
+          },
+        ],
+        snapshot: baseSnapshot(),
+        isolatePoolSize: 1,
+      },
+    ]);
+
+    expect(first.value).toBe('from-first');
+    expect(second.value).toBe('undefined');
+  });
+
+  it('reused worker context does not leak prototype pollution', async () => {
+    const [first, second] = await executeBatchSequence([
+      {
+        codeBlocks: [
+          {
+            code: 'Object.prototype.__polluted = "yes"; Array.prototype.__arrPolluted = "yes"; return { ok: true };',
+            type: 'handler',
+          },
+        ],
+        snapshot: baseSnapshot(),
+        isolatePoolSize: 1,
+      },
+      {
+        codeBlocks: [
+          {
+            code: 'return { object: ({}).__polluted, array: [].__arrPolluted };',
+            type: 'handler',
+          },
+        ],
+        snapshot: baseSnapshot(),
+        isolatePoolSize: 1,
+      },
+    ]);
+
+    expect(first.value.ok).toBe(true);
+    expect(second.value.object).toBeUndefined();
+    expect(second.value.array).toBeUndefined();
+  });
+
+  it('reused worker context keeps request body and logs isolated', async () => {
+    const [first, second] = await executeBatchSequence([
+      {
+        codeBlocks: [
+          {
+            code: '$ctx.$body.created = true; $ctx.$logs("first"); return { body: $ctx.$body, logs: $ctx.$share.$logs };',
+            type: 'handler',
+          },
+        ],
+        snapshot: baseSnapshot({ $body: { request: 1 }, $share: {} }),
+        isolatePoolSize: 1,
+      },
+      {
+        codeBlocks: [
+          {
+            code: 'return { body: $ctx.$body, logs: $ctx.$share.$logs };',
+            type: 'handler',
+          },
+        ],
+        snapshot: baseSnapshot({ $body: { request: 2 }, $share: {} }),
+        isolatePoolSize: 1,
+      },
+    ]);
+
+    expect(first.value.body).toEqual({ request: 1, created: true });
+    expect(first.value.logs).toEqual(['first']);
+    expect(second.value.body).toEqual({ request: 2 });
+    expect(second.value.logs).toEqual([]);
   });
 
   it('error in pre-hook stops execution', async () => {

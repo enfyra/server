@@ -105,20 +105,26 @@ export class ReplicationManager implements LifecycleAware {
     }
   }
 
-  onDestroy(): void {
+  async onDestroy(): Promise<void> {
     if (this.healthCheckInterval) {
       clearInterval(this.healthCheckInterval);
     }
+    const destroyTasks: Promise<void>[] = [];
     for (const node of this.replicaNodes) {
-      try {
-        void node.knex.destroy();
-      } catch (error) {
-        this.logger.error(`Error destroying replica: ${node.uri}`, error);
-      }
+      destroyTasks.push(
+        node.knex.destroy().catch((error) => {
+          this.logger.error(`Error destroying replica: ${node.uri}`, error);
+        }),
+      );
     }
     if (this.masterKnex) {
-      void this.masterKnex.destroy();
+      destroyTasks.push(
+        this.masterKnex.destroy().catch((error) => {
+          this.logger.error('Error destroying master connection', error);
+        }),
+      );
     }
+    await Promise.all(destroyTasks);
   }
 
   private createKnexInstance(
@@ -206,6 +212,33 @@ export class ReplicationManager implements LifecycleAware {
     const m = Math.max(0, Math.min(min, M));
     p.min = m;
     p.max = M;
+  }
+
+  private readPoolStats(instance: Knex) {
+    const pool = instance?.client?.pool;
+    if (!pool) return null;
+    return {
+      used: typeof pool.numUsed === 'function' ? pool.numUsed() : 0,
+      free: typeof pool.numFree === 'function' ? pool.numFree() : 0,
+      pending:
+        typeof pool.numPendingAcquires === 'function'
+          ? pool.numPendingAcquires()
+          : 0,
+      min: typeof pool.min === 'number' ? pool.min : null,
+      max: typeof pool.max === 'number' ? pool.max : null,
+    };
+  }
+
+  getPoolStats() {
+    return {
+      master: this.masterKnex ? this.readPoolStats(this.masterKnex) : null,
+      replicas: this.replicaNodes.map((node) => ({
+        healthy: node.isHealthy,
+        errorCount: node.errorCount,
+        connectionCount: node.connectionCount,
+        pool: this.readPoolStats(node.knex),
+      })),
+    };
   }
 
   getMasterKnex(): Knex {

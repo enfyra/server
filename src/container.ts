@@ -12,6 +12,23 @@ import { Queue } from 'bullmq';
 import { env } from './env';
 import { SYSTEM_QUEUES } from './shared/utils/constant';
 
+type QueueWithConnection = Queue & { __enfyraConnection?: Redis };
+
+function createRuntimeQueue(name: string): QueueWithConnection {
+  const connection = new Redis(env.REDIS_URI);
+  const queue = new Queue(name, {
+    prefix: `${env.NODE_NAME}:`,
+    connection,
+  }) as QueueWithConnection;
+  queue.__enfyraConnection = connection;
+  return queue;
+}
+
+async function closeRuntimeQueue(queue: QueueWithConnection): Promise<void> {
+  await queue.close();
+  queue.__enfyraConnection?.disconnect();
+}
+
 import { BcryptService } from './domain/auth';
 import { AuthService } from './domain/auth';
 import { OAuthService } from './domain/auth';
@@ -111,6 +128,7 @@ import { SqlQueryEngine } from './kernel/query';
 import { SqlFunctionService } from './engine/sql';
 
 import { LogReaderService } from './modules/admin';
+import { RuntimeMonitorService } from './modules/admin';
 
 import { DynamicService } from './modules/dynamic-api';
 import { DynamicApiTableValidationService } from './modules/dynamic-api';
@@ -154,6 +172,7 @@ import { UploadFileHelper } from './shared/helpers';
 import { EnvService } from './shared/services';
 import { InstanceService } from './shared/services';
 import { DynamicContextFactory } from './shared/services';
+import { RuntimeMetricsCollectorService } from './shared/services';
 
 export interface Cradle {
   envService: EnvService;
@@ -164,6 +183,7 @@ export interface Cradle {
   databaseConfigService: DatabaseConfigService;
   instanceService: InstanceService;
   dynamicContextFactory: DynamicContextFactory;
+  runtimeMetricsCollectorService: RuntimeMetricsCollectorService;
   configService: any;
   lazyRef: Cradle;
   bcryptService: BcryptService;
@@ -248,6 +268,7 @@ export interface Cradle {
   uploadFileHelper: UploadFileHelper;
 
   logReaderService: LogReaderService;
+  runtimeMonitorService: RuntimeMonitorService;
   meService: MeService;
   graphqlService: GraphqlService;
   dynamicResolver: DynamicResolver;
@@ -326,42 +347,41 @@ export function buildContainer(): AwilixContainer<Cradle> {
     eventEmitter: asValue(
       new EventEmitter2({ wildcard: true, maxListeners: 50 }),
     ),
-    redis: asValue(new Redis(env.REDIS_URI)),
+    redis: asFunction(() => new Redis(env.REDIS_URI))
+      .singleton()
+      .disposer((redis) => redis.disconnect()),
 
-    flowQueue: asValue(
-      new Queue(SYSTEM_QUEUES.FLOW_EXECUTION, {
-        prefix: `${env.NODE_NAME}:`,
-        connection: new Redis(env.REDIS_URI),
-      }),
-    ),
-    wsConnectionQueue: asValue(
-      new Queue(SYSTEM_QUEUES.WS_CONNECTION, {
-        prefix: `${env.NODE_NAME}:`,
-        connection: new Redis(env.REDIS_URI),
-      }),
-    ),
-    wsEventQueue: asValue(
-      new Queue(SYSTEM_QUEUES.WS_EVENT, {
-        prefix: `${env.NODE_NAME}:`,
-        connection: new Redis(env.REDIS_URI),
-      }),
-    ),
-    cleanupQueue: asValue(
-      new Queue(SYSTEM_QUEUES.SESSION_CLEANUP, {
-        prefix: `${env.NODE_NAME}:`,
-        connection: new Redis(env.REDIS_URI),
-      }),
-    ),
+    flowQueue: asFunction(() => createRuntimeQueue(SYSTEM_QUEUES.FLOW_EXECUTION))
+      .singleton()
+      .disposer((queue) => closeRuntimeQueue(queue)),
+    wsConnectionQueue: asFunction(() =>
+      createRuntimeQueue(SYSTEM_QUEUES.WS_CONNECTION),
+    )
+      .singleton()
+      .disposer((queue) => closeRuntimeQueue(queue)),
+    wsEventQueue: asFunction(() => createRuntimeQueue(SYSTEM_QUEUES.WS_EVENT))
+      .singleton()
+      .disposer((queue) => closeRuntimeQueue(queue)),
+    cleanupQueue: asFunction(() =>
+      createRuntimeQueue(SYSTEM_QUEUES.SESSION_CLEANUP),
+    )
+      .singleton()
+      .disposer((queue) => closeRuntimeQueue(queue)),
 
     commonService: asClass(CommonService).singleton(),
     databaseConfigService: asClass(DatabaseConfigService).singleton(),
     lazyRef: asFunction((cradle) => cradle).singleton(),
     instanceService: asClass(InstanceService).singleton(),
     dynamicContextFactory: asClass(DynamicContextFactory).singleton(),
+    runtimeMetricsCollectorService: asClass(
+      RuntimeMetricsCollectorService,
+    ).singleton(),
     bcryptService: asClass(BcryptService).singleton(),
     authService: asClass(AuthService).singleton(),
     oauthService: asClass(OAuthService).singleton(),
-    sessionCleanupService: asClass(SessionCleanupService).singleton(),
+    sessionCleanupService: asClass(SessionCleanupService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     userRevocationService: asClass(UserRevocationService).singleton(),
     loggingService: asClass(LoggingService).singleton(),
     policyService: asClass(PolicyService).singleton(),
@@ -370,7 +390,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     ).singleton(),
     systemSafetyAuditorService: asClass(SystemSafetyAuditorService).singleton(),
 
-    mongoService: asClass(MongoService).singleton(),
+    mongoService: asClass(MongoService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     mongoSchemaMigrationService: asClass(
       MongoSchemaMigrationService,
     ).singleton(),
@@ -387,7 +409,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
           instanceService: cradle.instanceService,
           cacheService: cradle.cacheService,
         }),
-    ).singleton(),
+    )
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     mongoOperationLogService: asClass(MongoOperationLogService).singleton(),
     mongoMigrationJournalService: asClass(
       MongoMigrationJournalService,
@@ -397,17 +421,21 @@ export function buildContainer(): AwilixContainer<Cradle> {
       MongoRelationManagerService,
     ).singleton(),
 
-    knexService: asClass(KnexService).singleton(),
+    knexService: asClass(KnexService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     knexHookManagerService: asClass(KnexHookManagerService).singleton(),
-    replicationManager: asClass(ReplicationManager).singleton(),
+    replicationManager: asClass(ReplicationManager)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     sqlSchemaMigrationService: asClass(SqlSchemaMigrationService).singleton(),
     sqlSchemaDiffService: asClass(SqlSchemaDiffService).singleton(),
     migrationJournalService: asClass(MigrationJournalService).singleton(),
     databaseSchemaService: asClass(DatabaseSchemaService).singleton(),
     schemaMigrationLockService: asClass(SchemaMigrationLockService).singleton(),
-    sqlPoolClusterCoordinatorService: asClass(
-      SqlPoolClusterCoordinatorService,
-    ).singleton(),
+    sqlPoolClusterCoordinatorService: asClass(SqlPoolClusterCoordinatorService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     sqlFunctionService: asClass(SqlFunctionService).singleton(),
 
     queryBuilderService: asClass(QueryBuilderService).singleton(),
@@ -415,11 +443,15 @@ export function buildContainer(): AwilixContainer<Cradle> {
     sqlQueryEngine: asClass(SqlQueryEngine).singleton(),
     mongoQueryEngine: asClass(MongoQueryEngine).singleton(),
 
-    isolatedExecutorService: asClass(IsolatedExecutorService).singleton(),
+    isolatedExecutorService: asClass(IsolatedExecutorService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     executorEngineService: asClass(ExecutorEngineService).singleton(),
 
     cacheService: asClass(CacheService).singleton(),
-    redisPubSubService: asClass(RedisPubSubService).singleton(),
+    redisPubSubService: asClass(RedisPubSubService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     metadataCacheService: asClass(MetadataCacheService).singleton(),
     routeCacheService: asClass(RouteCacheService).singleton(),
     packageCacheService: asClass(PackageCacheService).singleton(),
@@ -440,7 +472,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     gqlDefinitionCacheService: asClass(GqlDefinitionCacheService).singleton(),
     repoRegistryService: asClass(RepoRegistryService).singleton(),
     dynamicRepositoryFactory: asClass(DynamicRepositoryFactory).singleton(),
-    cacheOrchestratorService: asClass(CacheOrchestratorService).singleton(),
+    cacheOrchestratorService: asClass(CacheOrchestratorService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
 
     tableHandlerService: asClass(TableHandlerService)
       .singleton()
@@ -479,6 +513,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     uploadFileHelper: asClass(UploadFileHelper).singleton(),
 
     logReaderService: asClass(LogReaderService).singleton(),
+    runtimeMonitorService: asClass(RuntimeMonitorService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     meService: asClass(MeService).singleton(),
     graphqlService: asClass(GraphqlService).singleton(),
     dynamicResolver: asClass(DynamicResolver).singleton(),
@@ -490,10 +527,16 @@ export function buildContainer(): AwilixContainer<Cradle> {
       .disposer((service) => service.onDestroy()),
 
     builtInSocketRegistry: asClass(BuiltInSocketRegistry).singleton(),
-    dynamicWebSocketGateway: asClass(DynamicWebSocketGateway).singleton(),
+    dynamicWebSocketGateway: asClass(DynamicWebSocketGateway)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     websocketGatewayFactory: asClass(WebsocketGatewayFactory).singleton(),
-    connectionQueueService: asClass(ConnectionQueueService).singleton(),
-    eventQueueService: asClass(EventQueueService).singleton(),
+    connectionQueueService: asClass(ConnectionQueueService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
+    eventQueueService: asClass(EventQueueService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     websocketEmitService: asClass(WebsocketEmitService).singleton(),
     websocketContextFactory: asClass(WebsocketContextFactory).singleton(),
 

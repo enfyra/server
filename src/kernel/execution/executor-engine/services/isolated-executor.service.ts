@@ -48,11 +48,14 @@ interface TaskReg {
 }
 
 export interface PoolEntry {
+  id: number;
   worker: Worker;
   tasks: Map<string, TaskReg>;
   draining: boolean;
   spawnedAt: number;
   drainTimeout?: ReturnType<typeof setTimeout>;
+  lastHeapRatio?: number;
+  contextStats?: Record<string, number>;
 }
 
 export class WorkerPool {
@@ -66,6 +69,8 @@ export class WorkerPool {
   private cachedMemoryOk = true;
   private lastMemoryCheckMs = 0;
   private readonly memorySampleIntervalMs = 200;
+  private destroying = false;
+  private entryCounter = 0;
 
   constructor(
     poolSize: number,
@@ -95,6 +100,7 @@ export class WorkerPool {
   private spawnEntry(): PoolEntry {
     const worker = new Worker(this.scriptPath);
     const entry: PoolEntry = {
+      id: ++this.entryCounter,
       worker,
       tasks: new Map(),
       draining: false,
@@ -105,6 +111,8 @@ export class WorkerPool {
       const reg = entry.tasks.get(msg.id);
       if (!reg) return;
       if (msg.type === 'result') {
+        if (typeof msg.heapRatio === 'number') entry.lastHeapRatio = msg.heapRatio;
+        if (msg.contextStats) entry.contextStats = msg.contextStats;
         reg.onResult(msg);
         if (
           !entry.draining &&
@@ -120,6 +128,7 @@ export class WorkerPool {
 
     worker.on('exit', () => {
       const wasDraining = entry.draining;
+      const wasDestroying = this.destroying;
       if (entry.drainTimeout) {
         clearTimeout(entry.drainTimeout);
         entry.drainTimeout = undefined;
@@ -129,13 +138,15 @@ export class WorkerPool {
         reg.onResult({
           type: 'result',
           success: false,
-          error: { message: 'Worker crashed' },
+          error: {
+            message: wasDestroying ? 'Worker terminated' : 'Worker crashed',
+          },
         });
       }
       entry.tasks.clear();
       const idx = this.entries.indexOf(entry);
       if (idx !== -1) this.entries.splice(idx, 1);
-      if (!wasDraining) {
+      if (!wasDraining && !wasDestroying) {
         if (this.onCrash) this.onCrash();
         if (this.entries.length < this.max) this.spawnEntry();
       }
@@ -239,7 +250,24 @@ export class WorkerPool {
     return n;
   }
 
+  getMetrics() {
+    return {
+      max: this.max,
+      activeTasks: this.getTotalActiveTasks(),
+      waitingTasks: this.waiting.length,
+      workers: this.entries.map((entry) => ({
+        id: entry.id,
+        activeTasks: entry.tasks.size,
+        draining: entry.draining,
+        ageMs: Date.now() - entry.spawnedAt,
+        lastHeapRatio: entry.lastHeapRatio ?? 0,
+        contextStats: entry.contextStats ?? {},
+      })),
+    };
+  }
+
   destroyAll(): void {
+    this.destroying = true;
     for (const e of this.entries) e.worker.terminate();
     this.entries.length = 0;
     this.waiting.length = 0;
@@ -282,11 +310,16 @@ export class IsolatedExecutorService {
     WORKER_DISPATCH_RSS_CEILING,
     this.isolationTuning.tasksPerWorkerCap,
     WORKER_SCRIPT,
-    () => this.logger.warn('Worker crashed, replacement spawned'),
-    ({ reason, ageMs }) =>
+    () => {
+      this.crashesTotal++;
+      this.logger.warn('Worker crashed, replacement spawned');
+    },
+    ({ reason, ageMs }) => {
+      this.rotationsTotal++;
       this.logger.log(
         `Worker rotation: reason=${reason} age=${Math.round(ageMs / 1000)}s`,
-      ),
+      );
+    },
   );
   private readonly ceiling = this.isolationTuning.maxConcurrentWorkers;
   private prevCpuUsage = process.cpuUsage();
@@ -295,6 +328,12 @@ export class IsolatedExecutorService {
   private pressureTicks = 0;
   private recoveryTicks = 0;
   private taskCounter = 0;
+  private taskDoneTotal = 0;
+  private taskErrorTotal = 0;
+  private taskTimeoutTotal = 0;
+  private rotationsTotal = 0;
+  private crashesTotal = 0;
+  private readonly taskDurationsMs: number[] = [];
 
   constructor(deps: {
     packageCacheService: PackageCacheService;
@@ -429,6 +468,7 @@ export class IsolatedExecutorService {
     return (async () => {
       const entry = await this.pool.dispatch();
       const taskId = `t_${++this.taskCounter}`;
+      const taskStart = Date.now();
 
       return new Promise<any>((resolve, reject) => {
         let settled = false;
@@ -439,6 +479,7 @@ export class IsolatedExecutorService {
           settled = true;
           abortController.abort();
           this.pool.unregisterTask(entry, taskId);
+          this.taskTimeoutTotal++;
           appendIsolatedExecutorRuntimeLog({
             event: 'task_timeout',
             id: taskId,
@@ -460,8 +501,10 @@ export class IsolatedExecutorService {
             settled = true;
             clearTimeout(timer);
             this.pool.unregisterTask(entry, taskId);
+            this.recordTaskDuration(Date.now() - taskStart);
 
             if (msg.success) {
+              this.taskDoneTotal++;
               appendIsolatedExecutorRuntimeLog({
                 event: 'task_done',
                 id: taskId,
@@ -475,6 +518,7 @@ export class IsolatedExecutorService {
               if (msg.shortCircuit) resolved.shortCircuit = true;
               resolve(resolved);
             } else {
+              this.taskErrorTotal++;
               appendIsolatedExecutorRuntimeLog({
                 event: 'task_done',
                 id: taskId,
@@ -814,6 +858,47 @@ export class IsolatedExecutorService {
     return {
       value: result.valueAbsent ? undefined : result.value,
       shortCircuit: result.shortCircuit === true,
+    };
+  }
+
+  private recordTaskDuration(durationMs: number): void {
+    this.taskDurationsMs.push(durationMs);
+    if (this.taskDurationsMs.length > 512) this.taskDurationsMs.shift();
+  }
+
+  private percentile(values: number[], p: number): number {
+    if (values.length === 0) return 0;
+    const sorted = [...values].sort((a, b) => a - b);
+    const index = Math.min(
+      sorted.length - 1,
+      Math.max(0, Math.ceil((p / 100) * sorted.length) - 1),
+    );
+    return sorted[index];
+  }
+
+  getMetrics() {
+    const poolMetrics = this.pool.getMetrics();
+    const durations = this.taskDurationsMs;
+    const avgTaskMs =
+      durations.length === 0
+        ? 0
+        : durations.reduce((sum, value) => sum + value, 0) / durations.length;
+
+    return {
+      tuning: this.isolationTuning,
+      pool: poolMetrics,
+      taskDoneTotal: this.taskDoneTotal,
+      taskErrorTotal: this.taskErrorTotal,
+      taskTimeoutTotal: this.taskTimeoutTotal,
+      rotationsTotal: this.rotationsTotal,
+      crashesTotal: this.crashesTotal,
+      avgTaskMs,
+      p95TaskMs: this.percentile(durations, 95),
+      p99TaskMs: this.percentile(durations, 99),
+      maxHeapRatio: Math.max(
+        0,
+        ...poolMetrics.workers.map((worker) => worker.lastHeapRatio || 0),
+      ),
     };
   }
 }

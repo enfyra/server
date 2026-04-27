@@ -239,4 +239,27 @@ describe('WorkerPool rotation (heap-driven)', () => {
 
     expect(crashCount).toBe(0);
   });
+
+  it('destroyAll terminates workers without crash replacement', async () => {
+    let crashCount = 0;
+    pool = new WorkerPool(
+      2,
+      GB,
+      RSS_CEILING,
+      TASKS_CAP,
+      FAKE_WORKER,
+      () => crashCount++,
+    );
+    await sleep(50);
+
+    expect(pool.getEntries().length).toBe(2);
+
+    pool.destroyAll();
+
+    await sleep(100);
+
+    expect(crashCount).toBe(0);
+    expect(pool.getEntries().length).toBe(0);
+    pool = null;
+  });
 });

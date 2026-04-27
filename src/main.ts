@@ -37,6 +37,7 @@ async function main() {
     });
     gateway.server = io;
     await gateway.afterInit(io);
+    container.cradle.runtimeMonitorService?.start?.();
   }
 
   try {
@@ -69,16 +70,19 @@ async function main() {
   logger.log(`Cold Start completed! Total: ${Date.now() - startTime}ms`);
 
   if (!process.env.DEV_WATCH) {
+    let shuttingDown = false;
     for (const sig of ['SIGINT', 'SIGTERM'] as const) {
       process.on(sig, async () => {
+        if (shuttingDown) return;
+        shuttingDown = true;
         logger.log(`Received ${sig}, shutting down gracefully...`);
 
         let shutdownHandled = false;
-        const handleShutdown = (force = false) => {
+        const handleShutdown = (closedByForce = false) => {
           if (shutdownHandled) return;
           shutdownHandled = true;
-          if (force) {
-            logger.warn('Forcing shutdown after timeout');
+          if (closedByForce) {
+            logger.warn('Closing active HTTP connections for shutdown');
           }
           shutdown(container)
             .then(() => {
@@ -95,8 +99,7 @@ async function main() {
           logger.log('HTTP server closed');
           handleShutdown(false);
         });
-
-        setTimeout(() => handleShutdown(true), 5000);
+        server.closeIdleConnections?.();
       });
     }
   }

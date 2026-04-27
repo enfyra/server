@@ -185,6 +185,9 @@ export class KnexService implements LifecycleAware {
   }
 
   async onDestroy(): Promise<void> {
+    if (this.coordinatesPoolViaReplication()) {
+      return;
+    }
     this.logger.log('Destroying Knex connection...');
     if (this.knexInstance) {
       await this.knexInstance.destroy();
@@ -318,6 +321,21 @@ export class KnexService implements LifecycleAware {
     p.min = nextMin;
     p.max = nextMax;
     this.logger.log(`SQL pool coordinated: max=${nextMax} min=${nextMin}`);
+  }
+
+  getPoolStats() {
+    const pool = this.knexInstance?.client?.pool;
+    if (!pool) return null;
+    return {
+      used: typeof pool.numUsed === 'function' ? pool.numUsed() : 0,
+      free: typeof pool.numFree === 'function' ? pool.numFree() : 0,
+      pending:
+        typeof pool.numPendingAcquires === 'function'
+          ? pool.numPendingAcquires()
+          : 0,
+      min: typeof pool.min === 'number' ? pool.min : null,
+      max: typeof pool.max === 'number' ? pool.max : null,
+    };
   }
 
   getKnex(): ExtendedKnex {

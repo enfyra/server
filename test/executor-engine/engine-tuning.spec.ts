@@ -83,7 +83,7 @@ describe('computeEngineTuning', () => {
     expect(veryLarge.tasksPerWorkerCap).toBe(256);
   });
 
-  it('derives isolatePoolSize from 25% ram budget, clamped [2,8]', () => {
+  it('derives isolatePoolSize from 25% ram budget, clamped to the warm pool size', () => {
     const tiny = computeEngineTuning({
       logicalCpuCount: 2,
       totalMemoryBytes: 256 * 1024 * 1024,
@@ -94,22 +94,22 @@ describe('computeEngineTuning', () => {
       logicalCpuCount: 2,
       totalMemoryBytes: 2 * 1024 * 1024 * 1024,
     });
-    // budget = 512mb, memLimit=51, workers=2 → floor(512/102) = 5
-    expect(small.isolatePoolSize).toBe(5);
+    // budget = 512mb, memLimit=51, workers=2 -> floor(512/102) = 5, capped to 2
+    expect(small.isolatePoolSize).toBe(2);
 
     const mid = computeEngineTuning({
       logicalCpuCount: 2,
       totalMemoryBytes: 8 * 1024 * 1024 * 1024,
     });
-    // budget = 2048mb, memLimit=128, workers=2 → floor(2048/256) = 8
-    expect(mid.isolatePoolSize).toBe(8);
+    // budget = 2048mb, memLimit=128, workers=2 -> floor(2048/256) = 8, capped to 2
+    expect(mid.isolatePoolSize).toBe(2);
 
     const huge = computeEngineTuning({
       logicalCpuCount: 32,
       totalMemoryBytes: 64 * 1024 * 1024 * 1024,
     });
-    // would be 64 but clamped to 8 (matches bench sweet spot at workers=2)
-    expect(huge.isolatePoolSize).toBe(8);
+    // would be 64 but capped to 2 to reserve memory for the main runtime.
+    expect(huge.isolatePoolSize).toBe(2);
   });
 
   it('isolatePoolSize total cap never exceeds 25% effective memory', () => {

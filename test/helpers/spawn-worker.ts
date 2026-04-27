@@ -28,6 +28,7 @@ export function executeBatch(opts: {
   snapshot: Record<string, any>;
   timeoutMs?: number;
   memoryLimitMb?: number;
+  isolatePoolSize?: number;
   ctx?: Record<string, any>;
 }): Promise<any> {
   return spawnWorker(
@@ -38,6 +39,7 @@ export function executeBatch(opts: {
       snapshot: opts.snapshot,
       timeoutMs: opts.timeoutMs ?? 10000,
       memoryLimitMb: opts.memoryLimitMb ?? 128,
+      isolatePoolSize: opts.isolatePoolSize,
     },
     opts.ctx ?? {},
     opts.timeoutMs ?? 10000,
@@ -50,6 +52,7 @@ export function executeSingle(opts: {
   snapshot: Record<string, any>;
   timeoutMs?: number;
   memoryLimitMb?: number;
+  isolatePoolSize?: number;
   ctx?: Record<string, any>;
 }): Promise<any> {
   return spawnWorker(
@@ -60,10 +63,100 @@ export function executeSingle(opts: {
       snapshot: opts.snapshot,
       timeoutMs: opts.timeoutMs ?? 10000,
       memoryLimitMb: opts.memoryLimitMb ?? 128,
+      isolatePoolSize: opts.isolatePoolSize,
     },
     opts.ctx ?? {},
     opts.timeoutMs ?? 10000,
   );
+}
+
+export function executeBatchSequence(
+  requests: Array<{
+    codeBlocks: CodeBlock[];
+    snapshot: Record<string, any>;
+    pkgSources?: any[];
+    timeoutMs?: number;
+    memoryLimitMb?: number;
+    isolatePoolSize?: number;
+  }>,
+): Promise<any[]> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(WORKER_SCRIPT);
+    const results: any[] = [];
+    let index = 0;
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      worker.terminate();
+    };
+
+    const rejectOnce = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+
+    const sendNext = () => {
+      if (index >= requests.length) {
+        settled = true;
+        cleanup();
+        resolve(results);
+        return;
+      }
+      if (timer) clearTimeout(timer);
+      const req = requests[index];
+      const timeoutMs = req.timeoutMs ?? 10000;
+      timer = setTimeout(() => {
+        rejectOnce(new Error(`Script execution timed out after ${timeoutMs}ms`));
+      }, timeoutMs + 5000);
+      worker.postMessage({
+        type: 'executeBatch',
+        id: `seq_${index}`,
+        codeBlocks: req.codeBlocks,
+        pkgSources: req.pkgSources ?? [],
+        snapshot: req.snapshot,
+        timeoutMs,
+        memoryLimitMb: req.memoryLimitMb ?? 128,
+        isolatePoolSize: req.isolatePoolSize ?? 1,
+      });
+    };
+
+    worker.on('message', (msg) => {
+      if (msg.type !== 'result') return;
+      if (timer) clearTimeout(timer);
+      if (msg.success) {
+        const res: any = {
+          value: msg.value,
+          valueAbsent: msg.valueAbsent === true,
+          ctxChanges: msg.ctxChanges,
+        };
+        if (msg.shortCircuit) res.shortCircuit = true;
+        results.push(res);
+        index++;
+        sendNext();
+      } else {
+        const err: any = new Error(
+          msg.error?.message || 'Handler execution failed',
+        );
+        err.statusCode = msg.error?.statusCode;
+        err.code = msg.error?.code;
+        err.details = msg.error?.details;
+        if (msg.error?.stack) err.stack = msg.error.stack;
+        rejectOnce(err);
+      }
+    });
+
+    worker.on('error', rejectOnce);
+    worker.on('exit', (code) => {
+      if (settled) return;
+      rejectOnce(new Error(`Worker exited unexpectedly with code ${code}`));
+    });
+
+    sendNext();
+  });
 }
 
 function spawnWorker(

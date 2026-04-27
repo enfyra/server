@@ -18,6 +18,7 @@ import {
 import { executeStepCore } from '../utils/step-executor.util';
 import { DynamicContextFactory } from '../../../shared/services';
 import { EnvService } from '../../../shared/services';
+import { RuntimeMetricsCollectorService } from '../../../shared/services';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 
 export type { FlowJobData } from '../../../shared/types/flow.types';
@@ -35,6 +36,7 @@ export class FlowExecutionQueueService {
   private readonly websocketEmitService: WebsocketEmitService;
   private readonly dynamicContextFactory: DynamicContextFactory;
   private readonly envService: EnvService;
+  private readonly runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
   private readonly flowQueue: Queue;
   private worker?: Worker;
 
@@ -46,6 +48,7 @@ export class FlowExecutionQueueService {
     websocketEmitService: WebsocketEmitService;
     dynamicContextFactory: DynamicContextFactory;
     envService: EnvService;
+    runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
     flowQueue: Queue;
   }) {
     this.executorEngineService = deps.executorEngineService;
@@ -55,6 +58,7 @@ export class FlowExecutionQueueService {
     this.websocketEmitService = deps.websocketEmitService;
     this.dynamicContextFactory = deps.dynamicContextFactory;
     this.envService = deps.envService;
+    this.runtimeMetricsCollectorService = deps.runtimeMetricsCollectorService;
     this.flowQueue = deps.flowQueue;
   }
 
@@ -155,6 +159,7 @@ export class FlowExecutionQueueService {
     });
 
     const startTime = Date.now();
+    this.runtimeMetricsCollectorService?.startFlow(flow.id, flow.name);
 
     try {
       await this.updateExecution(executionId, {
@@ -200,6 +205,12 @@ export class FlowExecutionQueueService {
           `Cleanup failed for flow ${flow.name}: ${err.message}`,
         ),
       );
+      this.runtimeMetricsCollectorService?.completeFlow({
+        flowId: flow.id,
+        flowName: flow.name,
+        durationMs: Date.now() - startTime,
+        status: 'completed',
+      });
       return { success: true, executionId, context: result.context };
     } catch (error) {
       await this.updateExecution(executionId, {
@@ -223,6 +234,12 @@ export class FlowExecutionQueueService {
           `Cleanup failed for flow ${flow.name}: ${getErrorMessage(err)}`,
         ),
       );
+      this.runtimeMetricsCollectorService?.completeFlow({
+        flowId: flow.id,
+        flowName: flow.name,
+        durationMs: Date.now() - startTime,
+        status: 'failed',
+      });
       return { success: false, executionId, error: getErrorMessage(error) };
     }
   }
@@ -406,7 +423,20 @@ export class FlowExecutionQueueService {
           currentStep: step.key,
           totalSteps: allSteps.length,
         });
+        this.runtimeMetricsCollectorService?.recordFlowStep({
+          flowId: flow.id,
+          flowName: flow.name,
+          stepKey: step.key,
+          durationMs: Date.now() - stepStart,
+        });
       } catch (error: any) {
+        this.runtimeMetricsCollectorService?.recordFlowStep({
+          flowId: flow.id,
+          flowName: flow.name,
+          stepKey: step.key,
+          durationMs: Date.now() - stepStart,
+          failed: true,
+        });
         if (step.onError === 'retry' && (step as any).retryAttempts > 0) {
           const retryAttempts = (step as any).retryAttempts as number;
           let retrySuccess = false;

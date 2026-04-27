@@ -10,6 +10,7 @@ import { WebsocketCacheService } from '../../../engine/cache';
 import { BuiltInSocketRegistry } from '../services/built-in-socket.registry';
 import { EnvService } from '../../../shared/services';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
 
 interface SocketData extends Socket {
   data: {
@@ -358,6 +359,9 @@ export class DynamicWebSocketGateway {
 
   async onDestroy() {
     try {
+      this.server?.close();
+    } catch {}
+    try {
       this.redisPubClient?.disconnect();
     } catch {}
     try {
@@ -419,6 +423,37 @@ export class DynamicWebSocketGateway {
     for (const path of this.registeredGateways) {
       this.server.of(path).emit(event, data);
     }
+  }
+
+  getConnectionStats() {
+    if (!this.server) {
+      return { total: 0, namespaces: [] };
+    }
+
+    const paths = new Set([
+      ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+      ...this.registeredGateways,
+    ]);
+    const namespaces = Array.from(paths).map((path) => {
+      const namespace = this.server.of(path);
+      const userIds = new Set<string>();
+      for (const socket of namespace.sockets.values()) {
+        const userId = (socket as SocketData).data?.userId;
+        if (userId !== undefined && userId !== null) {
+          userIds.add(String(userId));
+        }
+      }
+      return {
+        path,
+        connected: namespace.sockets.size,
+        users: userIds.size,
+      };
+    });
+
+    return {
+      total: namespaces.reduce((sum, item) => sum + item.connected, 0),
+      namespaces,
+    };
   }
 
   async roomSize(room: string): Promise<number> {

@@ -22,6 +22,7 @@ import { DynamicWebSocketGateway } from '../../../modules/websocket';
 import { GraphqlService } from '../../../modules/graphql';
 import { BootstrapScriptService } from '../../../domain/bootstrap';
 import { LifecycleAware } from '../../../shared/interfaces/lifecycle-aware.interface';
+import { RuntimeMetricsCollectorService } from '../../../shared/services';
 
 const COLOR = '\x1b[33m';
 const RESET = '\x1b[0m';
@@ -122,9 +123,13 @@ export class CacheOrchestratorService implements LifecycleAware {
   private readonly graphqlService: GraphqlService;
   private readonly bootstrapScriptService: BootstrapScriptService;
   private readonly dynamicWebSocketGateway: DynamicWebSocketGateway;
+  private readonly runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
   private stepMap: Record<string, ReloadStep>;
   private messageHandler: ((channel: string, message: string) => void) | null =
     null;
+  private readonly invalidationHandler: (
+    payload: TCacheInvalidationPayload,
+  ) => Promise<void>;
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private debounceResolvers: Array<() => void> = [];
@@ -152,6 +157,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     graphqlService: GraphqlService;
     bootstrapScriptService: BootstrapScriptService;
     dynamicWebSocketGateway: DynamicWebSocketGateway;
+    runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
   }) {
     this.redisPubSubService = deps.redisPubSubService;
     this.instanceService = deps.instanceService;
@@ -172,6 +178,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     this.graphqlService = deps.graphqlService;
     this.bootstrapScriptService = deps.bootstrapScriptService;
     this.dynamicWebSocketGateway = deps.dynamicWebSocketGateway;
+    this.runtimeMetricsCollectorService = deps.runtimeMetricsCollectorService;
 
     this.stepMap = {
       metadata: (p) => this.reloadMetadata(p),
@@ -193,14 +200,24 @@ export class CacheOrchestratorService implements LifecycleAware {
       bootstrap: () => this.reloadBootstrapScripts(),
     };
 
-    deps.eventEmitter.on(
-      CACHE_EVENTS.INVALIDATE,
-      this.handleInvalidation.bind(this),
-    );
+    this.invalidationHandler = this.handleInvalidation.bind(this);
+    deps.eventEmitter.on(CACHE_EVENTS.INVALIDATE, this.invalidationHandler);
   }
 
   async init() {
     this.subscribeToRedis();
+  }
+
+  onDestroy(): void {
+    this.eventEmitter.off(CACHE_EVENTS.INVALIDATE, this.invalidationHandler);
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    const resolvers = this.debounceResolvers.splice(0);
+    resolvers.forEach((resolve) => resolve());
+    this.pendingPayload = null;
+    this.messageHandler = null;
   }
 
   private handleInvalidation(
@@ -292,32 +309,86 @@ export class CacheOrchestratorService implements LifecycleAware {
     let elapsed = 0;
     this.reloadLock = (async () => {
       const start = Date.now();
+      const startedAt = new Date(start).toISOString();
       const stepTimings: string[] = [];
+      const steps: Array<{
+        name: string;
+        durationMs: number;
+        status: 'success' | 'failed';
+        error?: string;
+      }> = [];
+      let reloadError: unknown = null;
 
-      if (chain.includes('metadata')) {
+      const runStep = async (name: string, fn: () => Promise<void>) => {
         const s = Date.now();
-        await this.stepMap['metadata'](payload);
-        stepTimings.push(`metadata:${Date.now() - s}ms`);
-      }
+        try {
+          await fn();
+          const durationMs = Date.now() - s;
+          steps.push({ name, durationMs, status: 'success' });
+          return durationMs;
+        } catch (error: any) {
+          const durationMs = Date.now() - s;
+          steps.push({
+            name,
+            durationMs,
+            status: 'failed',
+            error: error?.message || String(error),
+          });
+          throw error;
+        }
+      };
 
-      const middleSteps = chain.filter(
-        (s) => s !== 'metadata' && s !== 'graphql',
-      );
-      if (middleSteps.length > 0) {
-        const s = Date.now();
-        await Promise.all(
-          middleSteps.map(async (step) => {
-            const fn = this.stepMap[step];
-            if (fn) await fn(payload);
-          }),
+      try {
+        if (chain.includes('metadata')) {
+          const durationMs = await runStep('metadata', () =>
+            this.stepMap['metadata'](payload),
+          );
+          stepTimings.push(`metadata:${durationMs}ms`);
+        }
+
+        const middleSteps = chain.filter(
+          (s) => s !== 'metadata' && s !== 'graphql',
         );
-        stepTimings.push(`[${middleSteps.join('+')}]:${Date.now() - s}ms`);
-      }
+        if (middleSteps.length > 0) {
+          const s = Date.now();
+          await Promise.all(
+            middleSteps.map(async (step) => {
+              const fn = this.stepMap[step];
+              if (fn) {
+                await runStep(step, () => fn(payload));
+              }
+            }),
+          );
+          stepTimings.push(`[${middleSteps.join('+')}]:${Date.now() - s}ms`);
+        }
 
-      if (chain.includes('graphql')) {
-        const s = Date.now();
-        await this.stepMap['graphql'](payload);
-        stepTimings.push(`graphql:${Date.now() - s}ms`);
+        if (chain.includes('graphql')) {
+          const durationMs = await runStep('graphql', () =>
+            this.stepMap['graphql'](payload),
+          );
+          stepTimings.push(`graphql:${durationMs}ms`);
+        }
+      } catch (error) {
+        reloadError = error;
+        throw error;
+      } finally {
+        const completedAt = new Date().toISOString();
+        const durationMs = Date.now() - start;
+        this.runtimeMetricsCollectorService?.recordCacheReload({
+          flow,
+          table: payload.table,
+          scope: payload.scope,
+          status: reloadError ? 'failed' : 'success',
+          durationMs,
+          steps,
+          startedAt,
+          completedAt,
+          error: reloadError
+            ? reloadError instanceof Error
+              ? reloadError.message
+              : String(reloadError)
+            : undefined,
+        });
       }
 
       elapsed = Date.now() - start;
@@ -504,6 +575,7 @@ export class CacheOrchestratorService implements LifecycleAware {
 
   private async reloadAllLocal(notify = false): Promise<void> {
     const start = Date.now();
+    const startedAt = new Date(start).toISOString();
     const steps = [
       'metadata',
       'repoRegistry',
@@ -519,31 +591,76 @@ export class CacheOrchestratorService implements LifecycleAware {
       'fieldPermission',
       'graphql',
     ];
-    if (notify) this.notifyClients('pending', 'all', steps);
-    await this.metadataCacheService.reload();
-    await Promise.all([
-      this.reloadRepoRegistry(),
-      this.routeCacheService.reload(false),
-      this.guardCacheService.reload(false),
-      this.flowCacheService.reload(false),
-      this.websocketCacheService.reload(false),
-      this.packageCacheService.reload(false),
-      this.settingCacheService.reload(false),
-      this.storageConfigCacheService.reload(false),
-      this.oauthConfigCacheService.reload(false),
-      this.folderTreeCacheService.reload(false),
-      this.fieldPermissionCacheService.reload(false),
-      this.columnRuleCacheService.reload(false),
-    ]);
-    if (this.graphqlService) {
-      await this.graphqlService.reloadSchema();
-    }
-    if (notify) {
-      const elapsed = Date.now() - start;
-      if (elapsed < 200) {
-        await new Promise((r) => setTimeout(r, 200 - elapsed));
+    const stepMetrics: Array<{
+      name: string;
+      durationMs: number;
+      status: 'success' | 'failed';
+      error?: string;
+    }> = [];
+    let reloadError: unknown = null;
+    const runStep = async (name: string, fn: () => Promise<void>) => {
+      const s = Date.now();
+      try {
+        await fn();
+        stepMetrics.push({ name, durationMs: Date.now() - s, status: 'success' });
+      } catch (error: any) {
+        stepMetrics.push({
+          name,
+          durationMs: Date.now() - s,
+          status: 'failed',
+          error: error?.message || String(error),
+        });
+        throw error;
       }
-      this.notifyClients('done', 'all', steps);
+    };
+    try {
+      if (notify) this.notifyClients('pending', 'all', steps);
+      await runStep('metadata', () => this.metadataCacheService.reload());
+      await Promise.all([
+        runStep('repoRegistry', () => this.reloadRepoRegistry()),
+        runStep('route', () => this.routeCacheService.reload(false)),
+        runStep('guard', () => this.guardCacheService.reload(false)),
+        runStep('flow', () => this.flowCacheService.reload(false)),
+        runStep('websocket', () => this.websocketCacheService.reload(false)),
+        runStep('package', () => this.packageCacheService.reload(false)),
+        runStep('setting', () => this.settingCacheService.reload(false)),
+        runStep('storage', () => this.storageConfigCacheService.reload(false)),
+        runStep('oauth', () => this.oauthConfigCacheService.reload(false)),
+        runStep('folder', () => this.folderTreeCacheService.reload(false)),
+        runStep('fieldPermission', () =>
+          this.fieldPermissionCacheService.reload(false),
+        ),
+        runStep('columnRule', () => this.columnRuleCacheService.reload(false)),
+      ]);
+      if (this.graphqlService) {
+        await runStep('graphql', () => this.graphqlService.reloadSchema());
+      }
+      if (notify) {
+        const elapsed = Date.now() - start;
+        if (elapsed < 200) {
+          await new Promise((r) => setTimeout(r, 200 - elapsed));
+        }
+        this.notifyClients('done', 'all', steps);
+      }
+    } catch (error) {
+      reloadError = error;
+      throw error;
+    } finally {
+      this.runtimeMetricsCollectorService?.recordCacheReload({
+        flow: 'all',
+        table: '__admin_reload_all',
+        scope: 'full',
+        status: reloadError ? 'failed' : 'success',
+        durationMs: Date.now() - start,
+        steps: stepMetrics,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        error: reloadError
+          ? reloadError instanceof Error
+            ? reloadError.message
+            : String(reloadError)
+          : undefined,
+      });
     }
     this.logger.log(`Admin reload ALL: ${Date.now() - start}ms`);
   }

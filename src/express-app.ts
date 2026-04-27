@@ -74,6 +74,25 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
 
   const c = container.cradle;
 
+  app.use((req: any, res, next) => {
+    const startedAt = performance.now();
+    res.on('finish', () => {
+      const route =
+        req.routeData?.path ||
+        req.route?.path ||
+        req.path ||
+        req.originalUrl?.split('?')?.[0] ||
+        'unknown';
+      c.runtimeMetricsCollectorService.recordRequest({
+        method: req.method,
+        route,
+        statusCode: res.statusCode,
+        durationMs: performance.now() - startedAt,
+      });
+    });
+    next();
+  });
+
   app.use(bodyParserMiddleware(c.settingCacheService));
   app.use(parseQueryMiddleware);
   app.use(fileUploadMiddleware(c.settingCacheService));
