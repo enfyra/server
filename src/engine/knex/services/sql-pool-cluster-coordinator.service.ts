@@ -4,6 +4,7 @@ import { createHash } from 'crypto';
 import { Redis } from 'ioredis';
 import {
   DatabaseConfigService,
+  EnvService,
   InstanceService,
 } from '../../../shared/services';
 import { KnexService } from '../knex.service';
@@ -33,6 +34,7 @@ export class SqlPoolClusterCoordinatorService {
   private readonly _redis: Redis;
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly instanceService: InstanceService;
+  private readonly envService: EnvService;
   private readonly knexService: KnexService;
   private readonly eventEmitter: EventEmitter2;
   private readonly replicationManager?: ReplicationManager;
@@ -40,6 +42,7 @@ export class SqlPoolClusterCoordinatorService {
   constructor(deps: {
     redis: Redis;
     databaseConfigService: DatabaseConfigService;
+    envService: EnvService;
     instanceService: InstanceService;
     knexService: KnexService;
     eventEmitter: EventEmitter2;
@@ -47,18 +50,21 @@ export class SqlPoolClusterCoordinatorService {
   }) {
     this._redis = deps.redis;
     this.databaseConfigService = deps.databaseConfigService;
+    this.envService = deps.envService;
     this.instanceService = deps.instanceService;
     this.knexService = deps.knexService;
     this.eventEmitter = deps.eventEmitter;
     this.replicationManager = deps.replicationManager;
-    this.zsetKey = `enfyra:coord:sql:pool:${this.resolveDbServerHash()}:instances`;
+    this.zsetKey = `${this.getNodeName()}:coord:sql:pool:${this.resolveDbServerHash()}:instances`;
     this.instanceId = this.instanceService.getInstanceId();
   }
 
+  private getNodeName(): string {
+    return this.envService.get('NODE_NAME') || 'enfyra';
+  }
+
   private resolveDbServerHash(): string {
-    const dbUri =
-      (this as any).configService?.get?.('DB_URI') ||
-      (global as any).__env?.DB_URI;
+    const dbUri = this.envService.get('DB_URI');
     let host: string;
     let port: number;
     if (dbUri) {

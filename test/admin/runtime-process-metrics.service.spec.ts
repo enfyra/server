@@ -57,7 +57,8 @@ const sample = {
   queueDepth: 6,
   queueFailed: 7,
   dbUsed: 8,
-  dbFree: 9,
+  dbAvailable: 9,
+  dbIdle: 2,
   dbPending: 10,
 };
 
@@ -79,7 +80,12 @@ describe('RuntimeProcessMetricsService', () => {
     await appB.pushAverageSample({ ...sample, rssMb: 30 });
 
     await expect(appA.getAverages()).resolves.toEqual(
-      expect.objectContaining({ samples: 1, rssMb: 10 }),
+      expect.objectContaining({
+        samples: 1,
+        rssMb: 10,
+        dbAvailable: 9,
+        dbIdle: 2,
+      }),
     );
     await expect(appB.getAverages()).resolves.toEqual(
       expect.objectContaining({ samples: 1, rssMb: 30 }),
