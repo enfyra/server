@@ -10,6 +10,7 @@ import { SettingCacheService } from '../../../engine/cache';
 import { FieldPermissionCacheService } from '../../../engine/cache';
 import { UserRevocationService } from '../../../domain/auth';
 import { TDynamicContext } from '../../../shared/types';
+import { FlowQueueMaintenanceService } from '../../flow';
 
 export class DynamicRepositoryFactory {
   private readonly tableHandlerService: TableHandlerService;
@@ -21,6 +22,7 @@ export class DynamicRepositoryFactory {
   private readonly settingCacheService: SettingCacheService;
   private readonly fieldPermissionCacheService: FieldPermissionCacheService;
   private readonly userRevocationService: UserRevocationService;
+  private readonly flowQueueMaintenanceService: FlowQueueMaintenanceService;
   private readonly eventEmitter: EventEmitter2;
 
   constructor(deps: {
@@ -33,6 +35,7 @@ export class DynamicRepositoryFactory {
     settingCacheService: SettingCacheService;
     fieldPermissionCacheService: FieldPermissionCacheService;
     userRevocationService: UserRevocationService;
+    flowQueueMaintenanceService: FlowQueueMaintenanceService;
     eventEmitter: EventEmitter2;
   }) {
     this.tableHandlerService = deps.tableHandlerService;
@@ -44,6 +47,7 @@ export class DynamicRepositoryFactory {
     this.settingCacheService = deps.settingCacheService;
     this.fieldPermissionCacheService = deps.fieldPermissionCacheService;
     this.userRevocationService = deps.userRevocationService;
+    this.flowQueueMaintenanceService = deps.flowQueueMaintenanceService;
     this.eventEmitter = deps.eventEmitter;
   }
 
@@ -65,6 +69,7 @@ export class DynamicRepositoryFactory {
       settingCacheService: this.settingCacheService,
       fieldPermissionCacheService: this.fieldPermissionCacheService,
       userRevocationService: this.userRevocationService,
+      flowQueueMaintenanceService: this.flowQueueMaintenanceService,
       eventEmitter: this.eventEmitter,
     });
   }

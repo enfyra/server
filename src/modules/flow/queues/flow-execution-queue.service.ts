@@ -361,12 +361,16 @@ export class FlowExecutionQueueService {
           ? await this.flowCacheService.getFlowById(flowIdOrName)
           : await this.flowCacheService.getFlowByName(String(flowIdOrName));
       if (!targetFlow) throw new Error(`Flow "${flowIdOrName}" not found`);
+      const sourceStepKey = (ctx as any).$flow?.$meta?.currentStep;
       await this.flowQueue.add(`flow:${targetFlow.name}`, {
         flowId: targetFlow.id,
         flowName: targetFlow.name,
         payload: triggerPayload,
         depth: depth + 1,
         visitedFlowIds,
+        sourceFlowId: flow.id,
+        sourceFlowName: flow.name,
+        sourceStepKey,
       });
       return {
         triggered: true,
@@ -393,6 +397,7 @@ export class FlowExecutionQueueService {
       if (!step.isEnabled) return;
 
       await this.updateExecution(executionId, { currentStep: step.key });
+      flowContext.$meta.currentStep = step.key;
       const stepStart = Date.now();
 
       try {
@@ -436,6 +441,14 @@ export class FlowExecutionQueueService {
           durationMs: Date.now() - stepStart,
         });
       } catch (error: any) {
+        try {
+          await job.updateProgress({
+            completedSteps,
+            currentStep: step.key,
+            failedStep: step.key,
+            totalSteps: allSteps.length,
+          });
+        } catch {}
         this.runtimeMetricsCollectorService?.recordFlowStep({
           flowId: flow.id,
           flowName: flow.name,
@@ -529,6 +542,9 @@ export class FlowExecutionQueueService {
         payload: childPayload,
         depth: currentDepth + 1,
         visitedFlowIds,
+        sourceFlowId: (ctx as any).$flow?.$meta?.flowId,
+        sourceFlowName: (ctx as any).$flow?.$meta?.flowName,
+        sourceStepKey: step.key,
       });
       return {
         triggered: true,

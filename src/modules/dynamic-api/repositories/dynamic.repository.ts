@@ -35,6 +35,7 @@ import {
   normalizeScriptPatch,
   normalizeScriptRecord,
 } from '../../../kernel/execution';
+import { FlowQueueMaintenanceService } from '../../flow';
 
 export class DynamicRepository {
   public context: TDynamicContext;
@@ -49,6 +50,7 @@ export class DynamicRepository {
   private eventEmitter: EventEmitter2;
   private fieldPermissionCacheService?: FieldPermissionCacheService;
   private userRevocationService?: UserRevocationService;
+  private flowQueueMaintenanceService?: FlowQueueMaintenanceService;
   private enforceFieldPermission: boolean;
   private tableMetadata: any;
 
@@ -65,6 +67,7 @@ export class DynamicRepository {
     eventEmitter,
     fieldPermissionCacheService,
     userRevocationService,
+    flowQueueMaintenanceService,
     enforceFieldPermission,
   }: {
     context: TDynamicContext;
@@ -79,6 +82,7 @@ export class DynamicRepository {
     eventEmitter: EventEmitter2;
     fieldPermissionCacheService?: FieldPermissionCacheService;
     userRevocationService?: UserRevocationService;
+    flowQueueMaintenanceService?: FlowQueueMaintenanceService;
     enforceFieldPermission?: boolean;
   }) {
     this.context = context;
@@ -93,6 +97,7 @@ export class DynamicRepository {
     this.eventEmitter = eventEmitter;
     this.fieldPermissionCacheService = fieldPermissionCacheService;
     this.userRevocationService = userRevocationService;
+    this.flowQueueMaintenanceService = flowQueueMaintenanceService;
     this.enforceFieldPermission = enforceFieldPermission === true;
   }
 
@@ -954,6 +959,12 @@ export class DynamicRepository {
         (tbl, op, d) => this.cascadePolicyCheck(tbl, op, d),
         () => this.queryBuilderService.delete(this.tableName, id),
       );
+      if (this.tableName === 'flow_definition') {
+        await this.flowQueueMaintenanceService?.removeFlowJobs({
+          id,
+          name: exists.name,
+        });
+      }
       await this.reload({ ids: [id] });
       if (this.tableName === 'user_definition' && this.userRevocationService) {
         await this.userRevocationService.publish(id);

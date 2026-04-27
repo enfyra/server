@@ -89,6 +89,10 @@ export type RuntimeQueueStats = {
     name: string;
     flowId?: string | number;
     flowName?: string;
+    failedStepKey?: string;
+    sourceFlowId?: string | number;
+    sourceFlowName?: string;
+    sourceStepKey?: string;
     failedReason?: string;
     attemptsMade: number;
     timestamp?: number;

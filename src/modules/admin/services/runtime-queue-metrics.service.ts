@@ -35,11 +35,19 @@ export class RuntimeQueueMetricsService {
         const jobs = await queue.getFailed(0, 14);
         for (const job of jobs) {
           const data = job.data as any;
+          const progress =
+            job.progress && typeof job.progress === 'object'
+              ? (job.progress as any)
+              : null;
           failedJobs.push({
             id: String(job.id ?? ''),
             name: job.name,
             flowId: data?.flowId,
             flowName: data?.flowName,
+            failedStepKey: progress?.failedStep ?? progress?.currentStep,
+            sourceFlowId: data?.sourceFlowId,
+            sourceFlowName: data?.sourceFlowName,
+            sourceStepKey: data?.sourceStepKey,
             failedReason: job.failedReason,
             attemptsMade: job.attemptsMade,
             timestamp: job.timestamp,

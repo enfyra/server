@@ -145,6 +145,7 @@ import { S3StorageService } from './modules/file-management';
 import { StorageFactoryService } from './modules/file-management';
 
 import { FlowExecutionQueueService } from './modules/flow';
+import { FlowQueueMaintenanceService } from './modules/flow';
 import { FlowSchedulerService } from './modules/flow';
 import { FlowService } from './modules/flow';
 
@@ -282,6 +283,7 @@ export interface Cradle {
   dynamicResolver: DynamicResolver;
 
   flowService: FlowService;
+  flowQueueMaintenanceService: FlowQueueMaintenanceService;
   flowSchedulerService: FlowSchedulerService;
   flowExecutionQueueService: FlowExecutionQueueService;
 
@@ -535,6 +537,8 @@ export function buildContainer(): AwilixContainer<Cradle> {
     dynamicResolver: asClass(DynamicResolver).singleton(),
 
     flowService: asClass(FlowService).singleton(),
+    flowQueueMaintenanceService: asClass(FlowQueueMaintenanceService)
+      .singleton(),
     flowSchedulerService: asClass(FlowSchedulerService).singleton(),
     flowExecutionQueueService: asClass(FlowExecutionQueueService)
       .singleton()
