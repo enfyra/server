@@ -24,6 +24,7 @@ import {
 
 const SAMPLE_INTERVAL_MS = 2000;
 const AVERAGE_TTL_MS = SAMPLE_INTERVAL_MS * 10;
+const CLUSTER_APP_TTL_MS = SAMPLE_INTERVAL_MS * 5;
 
 type QueueLike = Queue | undefined | null;
 type QueueFailedJob = {
@@ -252,6 +253,14 @@ export class RuntimeMonitorService {
     return `runtime-monitor:${this.instanceService.getInstanceId()}:averages`;
   }
 
+  private appKey(instanceId = this.instanceService.getInstanceId()) {
+    return `runtime-monitor:${instanceId}:app`;
+  }
+
+  private appInstancesKey() {
+    return 'runtime-monitor:app-instances';
+  }
+
   private emptyAverages(samples = 0) {
     return {
       onlineMs: process.uptime() * 1000,
@@ -305,6 +314,62 @@ export class RuntimeMonitorService {
     return averages;
   }
 
+  async publishAppTelemetrySnapshot(app: any, sampledAt: string) {
+    const instanceId = this.instanceService.getInstanceId();
+    const now = Date.now();
+    const pipeline = this.redis.pipeline();
+    pipeline.set(
+      this.appKey(instanceId),
+      JSON.stringify({ instanceId, sampledAt, app }),
+      'PX',
+      CLUSTER_APP_TTL_MS,
+    );
+    pipeline.zadd(this.appInstancesKey(), now, instanceId);
+    pipeline.zremrangebyscore(this.appInstancesKey(), 0, now - CLUSTER_APP_TTL_MS);
+    pipeline.pexpire(this.appInstancesKey(), CLUSTER_APP_TTL_MS);
+    await pipeline.exec();
+  }
+
+  async getAppTelemetryClusterSnapshot() {
+    const now = Date.now();
+    await this.redis.zremrangebyscore(
+      this.appInstancesKey(),
+      0,
+      now - CLUSTER_APP_TTL_MS,
+    );
+    const instanceIds = await this.redis.zrangebyscore(
+      this.appInstancesKey(),
+      now - CLUSTER_APP_TTL_MS,
+      '+inf',
+    );
+    if (instanceIds.length === 0) {
+      return { ttlMs: CLUSTER_APP_TTL_MS, instances: [] };
+    }
+    const values = await this.redis.mget(instanceIds.map((id) => this.appKey(id)));
+    return {
+      ttlMs: CLUSTER_APP_TTL_MS,
+      instances: values
+        .map((value) => {
+          if (!value) return null;
+          try {
+            return JSON.parse(value);
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean),
+    };
+  }
+
+  async captureAppTelemetry(sampledAt: string) {
+    const app = this.runtimeMetricsCollectorService.snapshot();
+    await this.publishAppTelemetrySnapshot(app, sampledAt);
+    return {
+      app,
+      appCluster: await this.getAppTelemetryClusterSnapshot(),
+    };
+  }
+
   async getSnapshot() {
     await this.averageReset;
     const memory = process.memoryUsage();
@@ -346,9 +411,12 @@ export class RuntimeMonitorService {
       dbPending: dbTotals.pending,
     });
 
+    const sampledAt = new Date().toISOString();
+    const appTelemetry = await this.captureAppTelemetry(sampledAt);
+
     return {
       kind: 'runtime-metrics',
-      sampledAt: new Date().toISOString(),
+      sampledAt,
       intervalMs: SAMPLE_INTERVAL_MS,
       averages: await this.getAverages(),
       hardware: {
@@ -377,7 +445,7 @@ export class RuntimeMonitorService {
       websocket,
       db,
       cluster: await this.getClusterStats(),
-      app: this.runtimeMetricsCollectorService.snapshot(),
+      ...appTelemetry,
     };
   }
 

@@ -4,6 +4,7 @@ import { QueryBuilderService } from '../../../kernel/query';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getErrorMessage } from '../../../shared/utils/error.util';
+import { ObjectId } from 'mongodb';
 
 interface InitOld {
   [tableName: string]: any | any[];
@@ -175,6 +176,7 @@ export class DataMigrationService {
           tableName,
           oldRecord,
         );
+        await this.normalizeRouteMainTable(tableName, newRecord);
 
         await this.queryBuilderService.update(
           tableName,
@@ -217,6 +219,31 @@ export class DataMigrationService {
     }
 
     return { newRecord: data, relationUpdates };
+  }
+
+  private async normalizeRouteMainTable(
+    tableName: string,
+    data: any,
+  ): Promise<void> {
+    if (tableName === 'route_definition' && data.mainTable) {
+      const mainTable = await this.queryBuilderService.findOne({
+        table: 'table_definition',
+        where: { name: data.mainTable },
+      });
+      if (!mainTable) {
+        this.logger.warn(
+          `Table '${data.mainTable}' not found for route data migration`,
+        );
+        delete data.mainTable;
+      } else if (DatabaseConfigService.instanceIsMongoDb()) {
+        const mainTableId = mainTable._id ?? mainTable.id;
+        data.mainTable =
+          typeof mainTableId === 'string' ? new ObjectId(mainTableId) : mainTableId;
+      } else {
+        data.mainTableId = mainTable.id;
+        delete data.mainTable;
+      }
+    }
   }
 
   private async updateRelations(
