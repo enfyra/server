@@ -97,6 +97,7 @@ export function registerAdminRoutes(
     const result = await runTest(
       req.body,
       req.scope?.cradle ?? container.cradle,
+      req.user ?? null,
     );
     res.json(result);
   });
@@ -105,12 +106,13 @@ export function registerAdminRoutes(
     const result = await runTest(
       req.body,
       req.scope?.cradle ?? container.cradle,
+      req.user ?? null,
     );
     res.json(result);
   });
 }
 
-async function runTest(body: any, cradle: any) {
+async function runTest(body: any, cradle: any, currentUser: any = null) {
   const kind = String(body?.kind || '').trim();
 
   if (kind === 'flow_step') {
@@ -191,6 +193,58 @@ async function runTest(body: any, cradle: any) {
         },
         logs: ctx.$share?.$logs?.length ? ctx.$share.$logs : [],
         emitted,
+      };
+    }
+  }
+
+  if (kind === 'script') {
+    const script = String(body?.script || '').trim();
+    const timeoutMs = Number(body?.timeoutMs ?? body?.timeout ?? 5000);
+    const tableName = String(body?.tableName || '').trim() || undefined;
+
+    if (!script) {
+      return {
+        success: false,
+        error: { code: 'MISSING_SCRIPT', message: 'script is required' },
+      };
+    }
+
+    const handlerExecutorService = cradle.executorEngineService;
+    const repoRegistryService = cradle.repoRegistryService;
+    const dynamicContextFactory = cradle.dynamicContextFactory;
+    const cacheService = cradle.cacheService;
+
+    const ctx = dynamicContextFactory.createBase({
+      body: body?.body ?? {},
+      data: body?.data,
+      params: body?.params ?? {},
+      query: body?.query ?? {},
+      user: body?.user ?? currentUser,
+      cache: cacheService,
+    });
+    ctx.$repos = repoRegistryService.createReposProxy(ctx, tableName);
+
+    try {
+      const transformed = compileScriptSource(script, body?.scriptLanguage);
+      const result = await handlerExecutorService.run(
+        transformed || '',
+        ctx,
+        timeoutMs,
+      );
+      return {
+        success: true,
+        result,
+        logs: ctx.$share?.$logs?.length ? ctx.$share.$logs : [],
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: {
+          code: error?.errorCode || error?.code || 'TEST_FAILED',
+          message: error?.message || 'Test failed',
+          details: error?.details,
+        },
+        logs: ctx.$share?.$logs?.length ? ctx.$share.$logs : [],
       };
     }
   }

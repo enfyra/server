@@ -4,6 +4,9 @@ export interface IOAuthConfig {
   redirectUri: string;
   appCallbackUrl?: string | null;
   autoSetCookies?: boolean;
+  sourceCode?: string | null;
+  scriptLanguage?: string | null;
+  compiledCode?: string | null;
   isEnabled: boolean;
 }
 
