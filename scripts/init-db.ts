@@ -1,4 +1,3 @@
-import 'reflect-metadata';
 import * as dotenv from 'dotenv';
 import { resolveDbTypeFromEnv } from '../src/shared/utils/resolve-db-type';
 
@@ -29,5 +28,3 @@ if (require.main === module) {
 }
 
 export { initializeDatabase };
-
-

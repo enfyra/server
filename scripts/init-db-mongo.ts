@@ -1,11 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
-import { MongoClient, Db } from 'mongodb';
+import { MongoClient, type Db } from 'mongodb';
 import {
-  ColumnDef,
-  RelationDef,
-  TableDef,
+  type ColumnDef,
+  type TableDef,
 } from '../src/shared/types/database-init.types';
 import {
   loadSchemaMigration,
@@ -15,7 +14,7 @@ import {
 import {
   buildJunctionDefs,
   createJunctionCollections,
-} from 'src/engine/mongo';
+} from '../src/engine/mongo';
 dotenv.config();
 function getBsonType(columnDef: ColumnDef): string {
   const typeMap: Record<string, string> = {
@@ -39,7 +38,10 @@ function getBsonType(columnDef: ColumnDef): string {
   };
   return typeMap[columnDef.type] || 'string';
 }
-function createValidationSchema(tableDef: TableDef, allTables: Record<string, TableDef>): any {
+function createValidationSchema(
+  tableDef: TableDef,
+  _allTables: Record<string, TableDef>,
+): any {
   const properties: any = {};
   const required: string[] = [];
   for (const col of tableDef.columns) {
@@ -105,7 +107,9 @@ async function createIndexes(
           unique: true,
           partialFilterExpression: partialFilter,
         });
-        console.log(`  Created unique partial index on: ${uniqueGroup.join(', ')}`);
+        console.log(
+          `  Created unique partial index on: ${uniqueGroup.join(', ')}`,
+        );
       }
     }
   }
@@ -121,16 +125,16 @@ async function createIndexes(
       }
     }
   }
-  const dateTimeFields = tableDef.columns.filter(col =>
-    col.type === 'datetime' || col.type === 'timestamp' || col.type === 'date'
+  const dateTimeFields = tableDef.columns.filter(
+    (col) =>
+      col.type === 'datetime' ||
+      col.type === 'timestamp' ||
+      col.type === 'date',
   );
   for (const field of dateTimeFields) {
     const indexName = `${collectionName}_${field.name}_idx`;
     try {
-      await collection.createIndex(
-        { [field.name]: -1 },
-        { name: indexName }
-      );
+      await collection.createIndex({ [field.name]: -1 }, { name: indexName });
       console.log(`  Created index on datetime field: ${field.name}`);
     } catch (error: any) {
       if (error.code === 85 || error.code === 86) {
@@ -140,14 +144,14 @@ async function createIndexes(
       }
     }
   }
-  const hasCreatedAt = tableDef.columns.some(col => col.name === 'createdAt');
-  const hasUpdatedAt = tableDef.columns.some(col => col.name === 'updatedAt');
+  const hasCreatedAt = tableDef.columns.some((col) => col.name === 'createdAt');
+  const hasUpdatedAt = tableDef.columns.some((col) => col.name === 'updatedAt');
   if (hasCreatedAt && hasUpdatedAt) {
     const indexName = `${collectionName}_timestamps_idx`;
     try {
       await collection.createIndex(
         { createdAt: -1, updatedAt: -1 },
-        { name: indexName }
+        { name: indexName },
       );
       console.log(`  Created compound index: createdAt + updatedAt`);
     } catch (error: any) {
@@ -164,10 +168,7 @@ async function createIndexes(
         const fieldName = relation.propertyName;
         const indexName = `${collectionName}_${fieldName}_fk_idx`;
         try {
-          await collection.createIndex(
-            { [fieldName]: 1 },
-            { name: indexName }
-          );
+          await collection.createIndex({ [fieldName]: 1 }, { name: indexName });
           console.log(`  Created index on M2O/O2O field: ${fieldName}`);
         } catch (error: any) {
           if (error.code === 85 || error.code === 86) {
@@ -189,21 +190,33 @@ async function backfillDefaults(db: Db, tableDef: TableDef): Promise<void> {
         { $set: { [col.name]: col.defaultValue } },
       );
       if (result.modifiedCount > 0) {
-        console.log(`  Backfilled ${result.modifiedCount} rows: ${tableDef.name}.${col.name} = ${col.defaultValue}`);
+        console.log(
+          `  Backfilled ${result.modifiedCount} rows: ${tableDef.name}.${col.name} = ${col.defaultValue}`,
+        );
       }
     }
   }
 }
-async function createCollection(db: Db, tableDef: TableDef, allTables: Record<string, TableDef>): Promise<void> {
+async function createCollection(
+  db: Db,
+  tableDef: TableDef,
+  allTables: Record<string, TableDef>,
+): Promise<void> {
   const collectionName = tableDef.name;
   console.log(`📝 Creating collection: ${collectionName}`);
-  const collections = await db.listCollections({ name: collectionName }).toArray();
+  const collections = await db
+    .listCollections({ name: collectionName })
+    .toArray();
   if (collections.length > 0) {
     console.log(`⏩ Collection already exists: ${collectionName}`);
     await backfillDefaults(db, tableDef);
     return;
   }
-  const METADATA_TABLES = ['table_definition', 'column_definition', 'relation_definition'];
+  const METADATA_TABLES = [
+    'table_definition',
+    'column_definition',
+    'relation_definition',
+  ];
   if (METADATA_TABLES.includes(collectionName)) {
     await db.createCollection(collectionName);
     console.log(`✅ Created collection (no validation): ${collectionName}`);
@@ -241,7 +254,9 @@ export async function initializeDatabaseMongo(): Promise<void> {
 
     // Apply schema migrations (dangerous operations: remove, modify)
     if (schemaMigration && hasSchemaMigrations(schemaMigration)) {
-      console.log('📋 Applying schema migrations from snapshot-migration.json...');
+      console.log(
+        '📋 Applying schema migrations from snapshot-migration.json...',
+      );
       await applyMongoSchemaMigrations(db, schemaMigration);
     }
 

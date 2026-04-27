@@ -2,8 +2,10 @@ import { Logger } from '../../../shared/logger';
 import { EventEmitter2 } from 'eventemitter2';
 import { createHash } from 'crypto';
 import { Redis } from 'ioredis';
-import { DatabaseConfigService } from '../../../shared/services';
-import { InstanceService } from '../../../shared/services';
+import {
+  DatabaseConfigService,
+  InstanceService,
+} from '../../../shared/services';
 import { KnexService } from '../knex.service';
 import { ReplicationManager } from './replication-manager.service';
 import { parseDatabaseUri } from '../utils/uri-parser';
@@ -180,12 +182,7 @@ export class SqlPoolClusterCoordinatorService {
       '-inf',
       now - SQL_COORD_STALE_MS,
     );
-    const rows = await this.redis.zrange(
-      this.zsetKey,
-      0,
-      -1,
-      'WITHSCORES',
-    );
+    const rows = await this.redis.zrange(this.zsetKey, 0, -1, 'WITHSCORES');
     const instances: Array<{ id: string; lastSeenAt: string; ageMs: number }> =
       [];
     for (let i = 0; i < rows.length; i += 2) {

@@ -9,28 +9,27 @@ import * as path from 'path';
 import {
   BaseTableProcessor,
   UpsertResult,
+  UserDefinitionProcessor,
+  MenuDefinitionProcessor,
+  RouteDefinitionProcessor,
+  RouteHandlerDefinitionProcessor,
+  MethodDefinitionProcessor,
+  PreHookDefinitionProcessor,
+  PostHookDefinitionProcessor,
+  FieldPermissionDefinitionProcessor,
+  SettingDefinitionProcessor,
+  ExtensionDefinitionProcessor,
+  FolderDefinitionProcessor,
+  BootstrapScriptDefinitionProcessor,
+  RoutePermissionDefinitionProcessor,
+  WebsocketDefinitionProcessor,
+  WebsocketEventDefinitionProcessor,
+  FlowDefinitionProcessor,
+  FlowStepDefinitionProcessor,
+  FlowExecutionDefinitionProcessor,
+  GenericTableProcessor,
+  GraphQLDefinitionProcessor,
 } from '../../../domain/bootstrap';
-import { UserDefinitionProcessor } from '../../../domain/bootstrap';
-import { MenuDefinitionProcessor } from '../../../domain/bootstrap';
-import { RouteDefinitionProcessor } from '../../../domain/bootstrap';
-import { RouteHandlerDefinitionProcessor } from '../../../domain/bootstrap';
-import { MethodDefinitionProcessor } from '../../../domain/bootstrap';
-import { PreHookDefinitionProcessor } from '../../../domain/bootstrap';
-import { PostHookDefinitionProcessor } from '../../../domain/bootstrap';
-import { FieldPermissionDefinitionProcessor } from '../../../domain/bootstrap';
-import { SettingDefinitionProcessor } from '../../../domain/bootstrap';
-import { ExtensionDefinitionProcessor } from '../../../domain/bootstrap';
-import { FolderDefinitionProcessor } from '../../../domain/bootstrap';
-import { BootstrapScriptDefinitionProcessor } from '../../../domain/bootstrap';
-import { RoutePermissionDefinitionProcessor } from '../../../domain/bootstrap';
-import { WebsocketDefinitionProcessor } from '../../../domain/bootstrap';
-import { WebsocketEventDefinitionProcessor } from '../../../domain/bootstrap';
-import { FlowDefinitionProcessor } from '../../../domain/bootstrap';
-import { FlowStepDefinitionProcessor } from '../../../domain/bootstrap';
-import { FlowExecutionDefinitionProcessor } from '../../../domain/bootstrap';
-import { GenericTableProcessor } from '../../../domain/bootstrap';
-import { GraphQLDefinitionProcessor } from '../../../domain/bootstrap';
-
 const initJson = JSON.parse(
   fs.readFileSync(path.join(process.cwd(), 'data/default-data.json'), 'utf8'),
 );

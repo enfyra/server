@@ -1,13 +1,14 @@
 import { Logger } from '../../../shared/logger';
-import { QueryBuilderService } from '../../../kernel/query';
-import { ObjectId } from 'mongodb';
-import { BaseTableProcessor } from '../../../domain/bootstrap';
-import { loadRelationRenameMap } from '../../../domain/bootstrap';
 import {
+  QueryBuilderService,
   getJunctionTableName,
   getJunctionColumnNames,
 } from '../../../kernel/query';
-
+import { ObjectId } from 'mongodb';
+import {
+  BaseTableProcessor,
+  loadRelationRenameMap,
+} from '../../../domain/bootstrap';
 class TableDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[]): Promise<any[]> {
     const now = new Date();

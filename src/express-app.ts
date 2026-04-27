@@ -2,8 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import qs from 'qs';
 import type { AwilixContainer } from 'awilix';
-import type { Cradle } from './container';
-import { buildRequestScope } from './container';
+import { buildRequestScope, type Cradle } from './container';
 import { globalExceptionMiddleware } from './domain/exceptions';
 
 import { routeDetectMiddleware } from './http/middleware/route-detect.middleware';

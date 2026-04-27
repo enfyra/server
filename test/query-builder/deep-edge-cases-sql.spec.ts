@@ -2,9 +2,8 @@ import knex, { Knex } from 'knex';
 import {
   executeBatchFetches,
   BatchFetchDescriptor,
+  BatchTrace,
 } from 'src/kernel/query';
-import { BatchTrace } from 'src/kernel/query';
-
 let db: Knex;
 
 const META: Record<string, any> = {

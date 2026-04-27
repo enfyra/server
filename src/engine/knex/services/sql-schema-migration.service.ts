@@ -1,14 +1,14 @@
 import { Logger } from '../../../shared/logger';
 import { KnexService } from '../knex.service';
 import { MetadataCacheService } from '../../cache';
-import { QueryBuilderService } from '../../../kernel/query';
-import { getErrorMessage } from '../../../shared/utils/error.util';
 import {
+  QueryBuilderService,
   getForeignKeyColumnName,
   getShortFkName,
   getShortIndexName,
   getShortPkName,
 } from '../../../kernel/query';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 import { addColumnToTable } from '../utils/migration/column-operations';
 import { dropAllForeignKeysReferencingTable } from '../utils/migration/foreign-key-operations';
 import {

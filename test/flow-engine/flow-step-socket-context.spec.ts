@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FlowExecutionQueueService } from 'src/modules/flow';
-import { FlowService } from 'src/modules/flow';
+import { FlowExecutionQueueService, FlowService } from 'src/modules/flow';
 import { transformCode } from 'src/kernel/execution';
 import { WebsocketContextFactory } from 'src/modules/websocket';
 import { DynamicContextFactory } from 'src/shared/services';
@@ -33,11 +32,14 @@ describe('flow step socket context', () => {
   it('injects $socket into runtime flow script steps', async () => {
     const emitted: Array<{ method: string; args: any[] }> = [];
     const dynamicWebSocketGateway = {
-      emitToUser: (...args: any[]) => emitted.push({ method: 'emitToUser', args }),
-      emitToRoom: (...args: any[]) => emitted.push({ method: 'emitToRoom', args }),
+      emitToUser: (...args: any[]) =>
+        emitted.push({ method: 'emitToUser', args }),
+      emitToRoom: (...args: any[]) =>
+        emitted.push({ method: 'emitToRoom', args }),
       emitToNamespace: (...args: any[]) =>
         emitted.push({ method: 'emitToGateway', args }),
-      emitToAll: (...args: any[]) => emitted.push({ method: 'broadcast', args }),
+      emitToAll: (...args: any[]) =>
+        emitted.push({ method: 'broadcast', args }),
       roomSize: async () => 3,
     };
     const dynamicContextFactory = createDynamicContextFactory(

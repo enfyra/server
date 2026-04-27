@@ -3,8 +3,10 @@ import { AsyncLocalStorage } from 'async_hooks';
 import * as path from 'path';
 import { Worker } from 'worker_threads';
 import { TDynamicContext } from '../../../../shared/types';
-import { PackageCacheService } from '../../../../engine/cache';
-import { PackageCdnLoaderService } from '../../../../engine/cache';
+import {
+  PackageCacheService,
+  PackageCdnLoaderService,
+} from '../../../../engine/cache';
 import { ErrorHandler } from '../utils/error-handler';
 import { ScriptTimeoutException } from '../../../../domain/exceptions';
 import { appendIsolatedExecutorRuntimeLog } from '../utils/executor-runtime-log';
@@ -111,7 +113,8 @@ export class WorkerPool {
       const reg = entry.tasks.get(msg.id);
       if (!reg) return;
       if (msg.type === 'result') {
-        if (typeof msg.heapRatio === 'number') entry.lastHeapRatio = msg.heapRatio;
+        if (typeof msg.heapRatio === 'number')
+          entry.lastHeapRatio = msg.heapRatio;
         if (msg.contextStats) entry.contextStats = msg.contextStats;
         reg.onResult(msg);
         if (

@@ -3,8 +3,10 @@ import { RouteDefinitionProcessor } from '../../../domain/bootstrap';
 import { CommonService } from '../../../shared/common';
 import { QueryBuilderService } from '../../../kernel/query';
 import { MigrationJournalService } from '../../knex';
-import { MongoMigrationJournalService } from '../../mongo';
-import { MongoSchemaMigrationService } from '../../mongo';
+import {
+  MongoMigrationJournalService,
+  MongoSchemaMigrationService,
+} from '../../mongo';
 
 export class ProvisionService {
   private readonly logger = new Logger(ProvisionService.name);

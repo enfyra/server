@@ -1,5 +1,5 @@
 import { KnexService } from '../../../engine/knex';
-import { MongoService } from '../../../engine/mongo';
+import { MongoService, normalizeMongoDocument } from '../../../engine/mongo';
 import {
   DatabaseType,
   WhereCondition,
@@ -11,12 +11,13 @@ import {
 import { MongoQueryExecutor } from './executors/mongo-query-executor';
 import { SqlQueryExecutor } from './executors/sql-query-executor';
 import { QueryPlanner } from '../query-dsl/query-planner';
-import { DatabaseConfigService } from '../../../shared/services';
-import { RuntimeMetricsCollectorService } from '../../../shared/services';
+import {
+  DatabaseConfigService,
+  RuntimeMetricsCollectorService,
+} from '../../../shared/services';
 import type { QueryMetricContext } from '../../../shared/types';
 import type { Cradle } from '../../../container';
 import { DebugTrace } from '../../../shared/utils/debug-trace.util';
-import { normalizeMongoDocument } from '../../../engine/mongo';
 import { whereToMongoFilter } from './utils/mongo/filter-builder';
 import { applyWhereToKnex as applyWhereToKnexComplete } from './utils/sql/sql-where-builder';
 import { IQueryBuilder } from '../../../domain/shared/interfaces/query-builder.interface';

@@ -1,16 +1,18 @@
 import { Logger } from '../../../shared/logger';
-import { QueryBuilderService } from '../../../kernel/query';
-import { DatabaseConfigService } from '../../../shared/services';
-import { SqlSchemaMigrationService } from '../../knex';
 import {
+  QueryBuilderService,
   getJunctionTableName,
   getForeignKeyColumnName,
 } from '../../../kernel/query';
+import { DatabaseConfigService } from '../../../shared/services';
+import {
+  SqlSchemaMigrationService,
+  parseSnapshotToSchema,
+  syncTable,
+  syncJunctionTables,
+  createAllTables,
+} from '../../knex';
 import { loadRelationRenameMap } from '../../../domain/bootstrap';
-import { parseSnapshotToSchema } from '../../knex';
-import { syncTable } from '../../knex';
-import { syncJunctionTables } from '../../knex';
-import { createAllTables } from '../../knex';
 
 export class MetadataProvisionSqlService {
   private readonly logger = new Logger(MetadataProvisionSqlService.name);

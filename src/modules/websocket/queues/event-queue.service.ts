@@ -4,8 +4,7 @@ import { ExecutorEngineService } from '../../../kernel/execution';
 import { RepoRegistryService } from '../../../engine/cache';
 import { FlowService } from '../../flow';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
-import { EnvService } from '../../../shared/services';
-import { DynamicContextFactory } from '../../../shared/services';
+import { EnvService, DynamicContextFactory } from '../../../shared/services';
 
 export interface EventJobData {
   requestId: string;

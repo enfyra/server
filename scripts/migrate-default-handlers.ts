@@ -29,7 +29,11 @@ const BUILTIN_PATHS = [
   '/admin/flow/run',
 ];
 
-async function migrate(connectionString: string, dbType: string, label: string) {
+async function migrate(
+  connectionString: string,
+  dbType: string,
+  label: string,
+) {
   const client = dbType === 'mysql' ? 'mysql2' : dbType;
   const db = knex.default({ client, connection: connectionString });
 
@@ -44,7 +48,9 @@ async function migrate(connectionString: string, dbType: string, label: string) 
     console.log(`Found ${routes.length} dynamic routes (excluding built-in)`);
 
     const methods = await db('method_definition').select('id', 'method');
-    const httpMethods = methods.filter((m: any) => ['GET', 'POST', 'PATCH', 'DELETE'].includes(m.method));
+    const httpMethods = methods.filter((m: any) =>
+      ['GET', 'POST', 'PATCH', 'DELETE'].includes(m.method),
+    );
 
     let created = 0;
     let skipped = 0;
@@ -83,7 +89,9 @@ async function migrate(connectionString: string, dbType: string, label: string) 
         .whereNull('timeout')
         .orWhere('timeout', 0)
         .update({ timeout: DEFAULT_TIMEOUT });
-      console.log(`  Backfilled timeout for ${existingWithoutTimeout.length} existing handlers`);
+      console.log(
+        `  Backfilled timeout for ${existingWithoutTimeout.length} existing handlers`,
+      );
     }
 
     console.log(`Done: ${created} created, ${skipped} skipped (already exist)`);
@@ -124,5 +132,11 @@ async function main() {
 }
 
 main()
-  .then(() => { console.log('\nAll done!'); process.exit(0); })
-  .catch((err) => { console.error('Failed:', err.message); process.exit(1); });
+  .then(() => {
+    console.log('\nAll done!');
+    process.exit(0);
+  })
+  .catch((err) => {
+    console.error('Failed:', err.message);
+    process.exit(1);
+  });

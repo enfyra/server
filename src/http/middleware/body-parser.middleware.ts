@@ -1,5 +1,8 @@
-import { Request, Response, NextFunction } from 'express';
-import * as express from 'express';
+import express, {
+  type Request,
+  type Response,
+  type NextFunction,
+} from 'express';
 import { SettingCacheService } from '../../engine/cache';
 
 export function bodyParserMiddleware(settingCacheService: SettingCacheService) {

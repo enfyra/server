@@ -1,6 +1,5 @@
 import knex, { Knex } from 'knex';
-import { SqlQueryExecutor } from 'src/kernel/query';
-import { QueryPlanner } from 'src/kernel/query';
+import { SqlQueryExecutor, QueryPlanner } from 'src/kernel/query';
 
 let db: Knex;
 

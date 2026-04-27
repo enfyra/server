@@ -1,6 +1,6 @@
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
-import { LoggingService } from '../../../../domain/exceptions';
 import {
+  LoggingService,
   DatabaseQueryException,
   ResourceNotFoundException,
 } from '../../../../domain/exceptions';

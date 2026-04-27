@@ -2,9 +2,8 @@ import knex, { Knex } from 'knex';
 import {
   executeBatchFetches,
   BatchFetchDescriptor,
+  BatchTrace,
 } from 'src/kernel/query';
-import { BatchTrace } from 'src/kernel/query';
-
 const PREFIX = `__dit_${Date.now()}_`;
 const T = {
   users: `${PREFIX}users`,

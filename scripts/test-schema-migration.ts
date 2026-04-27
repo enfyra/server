@@ -1,10 +1,9 @@
-import 'reflect-metadata';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { knex } from 'knex';
 import { MongoClient } from 'mongodb';
-import { parseDatabaseUri } from 'src/engine/knex';
+import { parseDatabaseUri } from '../src/engine/knex';
 import { resolveDbTypeFromEnv } from '../src/shared/utils/resolve-db-type';
 
 dotenv.config();
@@ -14,7 +13,10 @@ const MONGO_DB_URI = DB_TYPE === 'mongodb' ? process.env.DB_URI : null;
 
 const TEST_TABLE = '_migration_test';
 const SNAPSHOT_PATH = path.resolve(process.cwd(), 'data/snapshot.json');
-const SNAPSHOT_OLD_PATH = path.resolve(process.cwd(), 'data/snapshot-migration.json');
+const SNAPSHOT_OLD_PATH = path.resolve(
+  process.cwd(),
+  'data/snapshot-migration.json',
+);
 
 let originalSnapshot: any;
 let originalSnapshotOld: any;
@@ -26,7 +28,10 @@ function backupFiles() {
 
 function restoreFiles() {
   fs.writeFileSync(SNAPSHOT_PATH, JSON.stringify(originalSnapshot, null, 4));
-  fs.writeFileSync(SNAPSHOT_OLD_PATH, JSON.stringify(originalSnapshotOld, null, 2));
+  fs.writeFileSync(
+    SNAPSHOT_OLD_PATH,
+    JSON.stringify(originalSnapshotOld, null, 2),
+  );
 }
 
 function addTestTableToSnapshot() {
@@ -36,11 +41,17 @@ function addTestTableToSnapshot() {
     description: 'Test table for migration testing',
     isSystem: false,
     columns: [
-      { name: 'id', type: 'int', isPrimary: true, isGenerated: true, isNullable: false },
+      {
+        name: 'id',
+        type: 'int',
+        isPrimary: true,
+        isGenerated: true,
+        isNullable: false,
+      },
       { name: 'name', type: 'varchar', isNullable: false },
-      { name: 'status', type: 'varchar', isNullable: true }
+      { name: 'status', type: 'varchar', isNullable: true },
     ],
-    relations: []
+    relations: [],
   };
   fs.writeFileSync(SNAPSHOT_PATH, JSON.stringify(snapshot, null, 4));
 }
@@ -51,7 +62,7 @@ function addColumnToTestTable() {
     snapshot[TEST_TABLE].columns.push({
       name: 'newColumn',
       type: 'varchar',
-      isNullable: true
+      isNullable: true,
     });
     fs.writeFileSync(SNAPSHOT_PATH, JSON.stringify(snapshot, null, 4));
   }
@@ -64,7 +75,7 @@ function addRelationToTestTable() {
       propertyName: 'user',
       type: 'many-to-one',
       targetTable: 'user_definition',
-      isSystem: false
+      isSystem: false,
     });
     fs.writeFileSync(SNAPSHOT_PATH, JSON.stringify(snapshot, null, 4));
   }
@@ -84,18 +95,15 @@ function addTableToDeletedTables() {
   }
 }
 
-function clearDeletedTables() {
-  const snapshotOld = JSON.parse(fs.readFileSync(SNAPSHOT_OLD_PATH, 'utf8'));
-  snapshotOld.deletedTables = [];
-  fs.writeFileSync(SNAPSHOT_OLD_PATH, JSON.stringify(snapshotOld, null, 2));
-}
-
 async function runInitScript(): Promise<void> {
   const { initializeDatabase } = await import('./init-db');
   await initializeDatabase();
 }
 
-async function testSqlMigrations(): Promise<{ passed: string[]; failed: string[] }> {
+async function testSqlMigrations(): Promise<{
+  passed: string[];
+  failed: string[];
+}> {
   const results = { passed: [] as string[], failed: [] as string[] };
 
   const DB_URI = process.env.DB_URI;
@@ -183,7 +191,8 @@ async function testSqlMigrations(): Promise<{ passed: string[]; failed: string[]
           AND kcu.column_name = 'userId'
           AND tc.constraint_type = 'FOREIGN KEY'
       `);
-      const fkCount = DB_TYPE === 'postgres' ? fkCheck.rows[0].count : fkCheck[0][0].count;
+      const fkCount =
+        DB_TYPE === 'postgres' ? fkCheck.rows[0].count : fkCheck[0][0].count;
       if (Number(fkCount) > 0) {
         results.passed.push('Add relation with FK');
         console.log('   ✅ PASSED: userId column + FK constraint created');
@@ -202,7 +211,8 @@ async function testSqlMigrations(): Promise<{ passed: string[]; failed: string[]
     await knexInstance('setting_definition').update({ isInit: false });
     await runInitScript();
 
-    const tableExistsAfterDelete = await knexInstance.schema.hasTable(TEST_TABLE);
+    const tableExistsAfterDelete =
+      await knexInstance.schema.hasTable(TEST_TABLE);
     if (!tableExistsAfterDelete) {
       results.passed.push('Delete table via deletedTables');
       console.log('   ✅ PASSED: Table dropped');
@@ -210,10 +220,10 @@ async function testSqlMigrations(): Promise<{ passed: string[]; failed: string[]
       results.failed.push('Delete table via deletedTables');
       console.log('   ❌ FAILED: Table still exists');
     }
-
   } catch (error) {
-    console.error('   ❌ ERROR:', error.message);
-    results.failed.push(`SQL tests error: ${error.message}`);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('   ❌ ERROR:', message);
+    results.failed.push(`SQL tests error: ${message}`);
   } finally {
     await knexInstance.destroy();
   }
@@ -221,11 +231,16 @@ async function testSqlMigrations(): Promise<{ passed: string[]; failed: string[]
   return results;
 }
 
-async function testMongoMigrations(): Promise<{ passed: string[]; failed: string[] }> {
+async function testMongoMigrations(): Promise<{
+  passed: string[];
+  failed: string[];
+}> {
   const results = { passed: [] as string[], failed: [] as string[] };
 
   if (!MONGO_DB_URI) {
-    console.log('\n⏩ MongoDB: DB_URI not set or not mongodb://, skipping tests');
+    console.log(
+      '\n⏩ MongoDB: DB_URI not set or not mongodb://, skipping tests',
+    );
     return results;
   }
 
@@ -243,13 +258,19 @@ async function testMongoMigrations(): Promise<{ passed: string[]; failed: string
 
     console.log('\n1️⃣  Test: Create new collection');
     addTestTableToSnapshot();
-    await db.collection('setting_definition').updateOne({}, { $set: { isInit: false } });
+    await db
+      .collection('setting_definition')
+      .updateOne({}, { $set: { isInit: false } });
     await runInitScript();
 
-    const collections = await db.listCollections({ name: TEST_TABLE }).toArray();
+    const collections = await db
+      .listCollections({ name: TEST_TABLE })
+      .toArray();
     if (collections.length > 0) {
       const indexes = await db.collection(TEST_TABLE).indexes();
-      const hasIdIndex = indexes.some((idx: any) => idx.key && idx.key._id === 1);
+      const hasIdIndex = indexes.some(
+        (idx: any) => idx.key && idx.key._id === 1,
+      );
       if (hasIdIndex) {
         results.passed.push('Create new collection');
         console.log('   ✅ PASSED: Collection created with indexes');
@@ -264,7 +285,9 @@ async function testMongoMigrations(): Promise<{ passed: string[]; failed: string
 
     console.log('\n2️⃣  Test: Add new column');
     addColumnToTestTable();
-    await db.collection('setting_definition').updateOne({}, { $set: { isInit: false } });
+    await db
+      .collection('setting_definition')
+      .updateOne({}, { $set: { isInit: false } });
     await runInitScript();
 
     results.passed.push('Add new column (schema updated)');
@@ -273,10 +296,14 @@ async function testMongoMigrations(): Promise<{ passed: string[]; failed: string
     console.log('\n3️⃣  Test: Delete collection via deletedTables');
     removeTestTableFromSnapshot();
     addTableToDeletedTables();
-    await db.collection('setting_definition').updateOne({}, { $set: { isInit: false } });
+    await db
+      .collection('setting_definition')
+      .updateOne({}, { $set: { isInit: false } });
     await runInitScript();
 
-    const collectionsAfterDelete = await db.listCollections({ name: TEST_TABLE }).toArray();
+    const collectionsAfterDelete = await db
+      .listCollections({ name: TEST_TABLE })
+      .toArray();
     if (collectionsAfterDelete.length === 0) {
       results.passed.push('Delete collection via deletedTables');
       console.log('   ✅ PASSED: Collection dropped');
@@ -284,10 +311,10 @@ async function testMongoMigrations(): Promise<{ passed: string[]; failed: string
       results.failed.push('Delete collection via deletedTables');
       console.log('   ❌ FAILED: Collection still exists');
     }
-
   } catch (error) {
-    console.error('   ❌ ERROR:', error.message);
-    results.failed.push(`MongoDB tests error: ${error.message}`);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('   ❌ ERROR:', message);
+    results.failed.push(`MongoDB tests error: ${message}`);
   } finally {
     await client.close();
   }
@@ -313,7 +340,6 @@ async function main(): Promise<void> {
     if (MONGO_DB_URI || DB_TYPE === 'mongodb') {
       mongoResults = await testMongoMigrations();
     }
-
   } finally {
     restoreFiles();
     console.log('\n📋 Restored original snapshot files');
@@ -323,20 +349,23 @@ async function main(): Promise<void> {
   console.log('  TEST RESULTS SUMMARY');
   console.log('='.repeat(50));
 
-  if (DB_TYPE !== 'mongodb' && sqlResults.passed.length + sqlResults.failed.length > 0) {
+  if (
+    DB_TYPE !== 'mongodb' &&
+    sqlResults.passed.length + sqlResults.failed.length > 0
+  ) {
     console.log(`\n🗄️  SQL (${DB_TYPE}):`);
     console.log(`   Passed: ${sqlResults.passed.length}`);
     console.log(`   Failed: ${sqlResults.failed.length}`);
-    sqlResults.passed.forEach(p => console.log(`   ✅ ${p}`));
-    sqlResults.failed.forEach(f => console.log(`   ❌ ${f}`));
+    sqlResults.passed.forEach((p) => console.log(`   ✅ ${p}`));
+    sqlResults.failed.forEach((f) => console.log(`   ❌ ${f}`));
   }
 
   if (mongoResults.passed.length + mongoResults.failed.length > 0) {
     console.log('\n🍃 MongoDB:');
     console.log(`   Passed: ${mongoResults.passed.length}`);
     console.log(`   Failed: ${mongoResults.failed.length}`);
-    mongoResults.passed.forEach(p => console.log(`   ✅ ${p}`));
-    mongoResults.failed.forEach(f => console.log(`   ❌ ${f}`));
+    mongoResults.passed.forEach((p) => console.log(`   ✅ ${p}`));
+    mongoResults.failed.forEach((f) => console.log(`   ❌ ${f}`));
   }
 
   const totalPassed = sqlResults.passed.length + mongoResults.passed.length;

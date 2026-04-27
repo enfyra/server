@@ -4,18 +4,24 @@ import {
   ForbiddenException,
 } from '../../../domain/exceptions';
 import { EventEmitter2 } from 'eventemitter2';
-import { QueryBuilderService } from '../../../kernel/query';
+import {
+  QueryBuilderService,
+  QueryEngine,
+  validateDeepOptions,
+  rewriteFilterDenyingFields,
+  rewriteSortDroppingDenied,
+} from '../../../kernel/query';
 import { TableHandlerService } from '../../table-management';
-import { QueryEngine } from '../../../kernel/query';
-import { PolicyService } from '../../../domain/policy';
-import { isPolicyDeny } from '../../../domain/policy';
+import { PolicyService, isPolicyDeny } from '../../../domain/policy';
 import { DynamicApiTableValidationService } from '../services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
-import { MetadataCacheService } from '../../../engine/cache';
-import { SettingCacheService } from '../../../engine/cache';
+import {
+  MetadataCacheService,
+  SettingCacheService,
+  FieldPermissionCacheService,
+} from '../../../engine/cache';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
-import { FieldPermissionCacheService } from '../../../engine/cache';
 import {
   buildRequestedShapeFromQuery,
   sanitizeFieldPermissionsResult,
@@ -25,11 +31,6 @@ import {
   formatFieldPermissionErrorMessage,
 } from '../../../shared/utils/field-permission.util';
 import { UserRevocationService } from '../../../domain/auth';
-import { validateDeepOptions } from '../../../kernel/query';
-import {
-  rewriteFilterDenyingFields,
-  rewriteSortDroppingDenied,
-} from '../../../kernel/query';
 import {
   normalizeFlowStepScriptConfig,
   normalizeScriptPatch,

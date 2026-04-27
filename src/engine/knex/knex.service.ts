@@ -6,7 +6,7 @@ import { ExtendedKnex } from './types/knex-extended.types';
 import { KnexEntityManager } from './entity-manager';
 import { FieldStripper } from './utils/field-stripper';
 import { parseDatabaseUri } from './utils/uri-parser';
-import { DatabaseConfigService } from '../../shared/services';
+import { DatabaseConfigService, EnvService } from '../../shared/services';
 import { ReplicationManager } from './services/replication-manager.service';
 import { KnexHookManagerService } from './services/knex-hook-manager.service';
 import { LifecycleAware } from '../../shared/interfaces/lifecycle-aware.interface';
@@ -15,7 +15,6 @@ import {
   SQL_BOOTSTRAP_POOL_MAX_TOTAL,
   SQL_BOOTSTRAP_POOL_MIN,
 } from '../../shared/utils/auto-scaling.constants';
-import { EnvService } from '../../shared/services';
 
 export class KnexService implements LifecycleAware {
   private knexInstance: Knex;

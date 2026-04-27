@@ -1,7 +1,9 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    "types": ["node"]
   },
-  "include": ["src/**/*", "test/**/*.ts", "scripts/init-db.ts"]
+  "include": ["src/**/*", "test/**/*.ts", "scripts/**/*.ts"],
+  "exclude": ["node_modules", "dist", "build-entities.ts", "src_bak"]
 }

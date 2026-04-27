@@ -2,9 +2,8 @@ import { MongoClient, Db, ObjectId } from 'mongodb';
 import {
   executeMongoBatchFetches,
   MongoBatchFetchDescriptor,
+  BatchTrace,
 } from 'src/kernel/query';
-import { BatchTrace } from 'src/kernel/query';
-
 const MONGO_URI =
   process.env.MONGO_TEST_URI ||
   'mongodb://enfyra_admin:enfyra_password_123@localhost:27017/?authSource=admin';

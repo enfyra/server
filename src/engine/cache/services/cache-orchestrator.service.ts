@@ -1,7 +1,10 @@
 import { Logger } from '../../../shared/logger';
 import { EventEmitter2 } from 'eventemitter2';
 import { RedisPubSubService } from './redis-pubsub.service';
-import { InstanceService } from '../../../shared/services';
+import {
+  InstanceService,
+  RuntimeMetricsCollectorService,
+} from '../../../shared/services';
 import { MetadataCacheService } from './metadata-cache.service';
 import { RouteCacheService } from './route-cache.service';
 import { GuardCacheService } from './guard-cache.service';
@@ -22,7 +25,6 @@ import { DynamicWebSocketGateway } from '../../../modules/websocket';
 import { GraphqlService } from '../../../modules/graphql';
 import { BootstrapScriptService } from '../../../domain/bootstrap';
 import { LifecycleAware } from '../../../shared/interfaces/lifecycle-aware.interface';
-import { RuntimeMetricsCollectorService } from '../../../shared/services';
 
 const COLOR = '\x1b[33m';
 const RESET = '\x1b[0m';
@@ -397,7 +399,10 @@ export class CacheOrchestratorService implements LifecycleAware {
       );
     };
     this.reloadLock = this.runtimeMetricsCollectorService
-      ? this.runtimeMetricsCollectorService.runWithQueryContext('cache', runReload)
+      ? this.runtimeMetricsCollectorService.runWithQueryContext(
+          'cache',
+          runReload,
+        )
       : runReload();
 
     try {
@@ -578,95 +583,103 @@ export class CacheOrchestratorService implements LifecycleAware {
 
   private async reloadAllLocal(notify = false): Promise<void> {
     const runReload = async () => {
-    const start = Date.now();
-    const startedAt = new Date(start).toISOString();
-    const steps = [
-      'metadata',
-      'repoRegistry',
-      'route',
-      'guard',
-      'flow',
-      'websocket',
-      'package',
-      'setting',
-      'storage',
-      'oauth',
-      'folder',
-      'fieldPermission',
-      'graphql',
-    ];
-    const stepMetrics: Array<{
-      name: string;
-      durationMs: number;
-      status: 'success' | 'failed';
-      error?: string;
-    }> = [];
-    let reloadError: unknown = null;
-    const runStep = async (name: string, fn: () => Promise<void>) => {
-      const s = Date.now();
-      try {
-        await fn();
-        stepMetrics.push({ name, durationMs: Date.now() - s, status: 'success' });
-      } catch (error: any) {
-        stepMetrics.push({
-          name,
-          durationMs: Date.now() - s,
-          status: 'failed',
-          error: error?.message || String(error),
-        });
-        throw error;
-      }
-    };
-    try {
-      if (notify) this.notifyClients('pending', 'all', steps);
-      await runStep('metadata', () => this.metadataCacheService.reload());
-      await Promise.all([
-        runStep('repoRegistry', () => this.reloadRepoRegistry()),
-        runStep('route', () => this.routeCacheService.reload(false)),
-        runStep('guard', () => this.guardCacheService.reload(false)),
-        runStep('flow', () => this.flowCacheService.reload(false)),
-        runStep('websocket', () => this.websocketCacheService.reload(false)),
-        runStep('package', () => this.packageCacheService.reload(false)),
-        runStep('setting', () => this.settingCacheService.reload(false)),
-        runStep('storage', () => this.storageConfigCacheService.reload(false)),
-        runStep('oauth', () => this.oauthConfigCacheService.reload(false)),
-        runStep('folder', () => this.folderTreeCacheService.reload(false)),
-        runStep('fieldPermission', () =>
-          this.fieldPermissionCacheService.reload(false),
-        ),
-        runStep('columnRule', () => this.columnRuleCacheService.reload(false)),
-      ]);
-      if (this.graphqlService) {
-        await runStep('graphql', () => this.graphqlService.reloadSchema());
-      }
-      if (notify) {
-        const elapsed = Date.now() - start;
-        if (elapsed < 200) {
-          await new Promise((r) => setTimeout(r, 200 - elapsed));
+      const start = Date.now();
+      const startedAt = new Date(start).toISOString();
+      const steps = [
+        'metadata',
+        'repoRegistry',
+        'route',
+        'guard',
+        'flow',
+        'websocket',
+        'package',
+        'setting',
+        'storage',
+        'oauth',
+        'folder',
+        'fieldPermission',
+        'graphql',
+      ];
+      const stepMetrics: Array<{
+        name: string;
+        durationMs: number;
+        status: 'success' | 'failed';
+        error?: string;
+      }> = [];
+      let reloadError: unknown = null;
+      const runStep = async (name: string, fn: () => Promise<void>) => {
+        const s = Date.now();
+        try {
+          await fn();
+          stepMetrics.push({
+            name,
+            durationMs: Date.now() - s,
+            status: 'success',
+          });
+        } catch (error: any) {
+          stepMetrics.push({
+            name,
+            durationMs: Date.now() - s,
+            status: 'failed',
+            error: error?.message || String(error),
+          });
+          throw error;
         }
-        this.notifyClients('done', 'all', steps);
+      };
+      try {
+        if (notify) this.notifyClients('pending', 'all', steps);
+        await runStep('metadata', () => this.metadataCacheService.reload());
+        await Promise.all([
+          runStep('repoRegistry', () => this.reloadRepoRegistry()),
+          runStep('route', () => this.routeCacheService.reload(false)),
+          runStep('guard', () => this.guardCacheService.reload(false)),
+          runStep('flow', () => this.flowCacheService.reload(false)),
+          runStep('websocket', () => this.websocketCacheService.reload(false)),
+          runStep('package', () => this.packageCacheService.reload(false)),
+          runStep('setting', () => this.settingCacheService.reload(false)),
+          runStep('storage', () =>
+            this.storageConfigCacheService.reload(false),
+          ),
+          runStep('oauth', () => this.oauthConfigCacheService.reload(false)),
+          runStep('folder', () => this.folderTreeCacheService.reload(false)),
+          runStep('fieldPermission', () =>
+            this.fieldPermissionCacheService.reload(false),
+          ),
+          runStep('columnRule', () =>
+            this.columnRuleCacheService.reload(false),
+          ),
+        ]);
+        if (this.graphqlService) {
+          await runStep('graphql', () => this.graphqlService.reloadSchema());
+        }
+        if (notify) {
+          const elapsed = Date.now() - start;
+          if (elapsed < 200) {
+            await new Promise((r) => setTimeout(r, 200 - elapsed));
+          }
+          this.notifyClients('done', 'all', steps);
+        }
+      } catch (error) {
+        reloadError = error;
+        throw error;
+      } finally {
+        this.runtimeMetricsCollectorService?.recordCacheReload({
+          flow: 'all',
+          table: '__admin_reload_all',
+          scope: 'full',
+          status: reloadError ? 'failed' : 'success',
+          durationMs: Date.now() - start,
+          steps: stepMetrics,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          error: reloadError
+            ? reloadError instanceof Error
+              ? reloadError.message
+              : String(reloadError)
+            : undefined,
+        });
       }
-    } catch (error) {
-      reloadError = error;
-      throw error;
-    } finally {
-      this.runtimeMetricsCollectorService?.recordCacheReload({
-        flow: 'all',
-        table: '__admin_reload_all',
-        scope: 'full',
-        status: reloadError ? 'failed' : 'success',
-        durationMs: Date.now() - start,
-        steps: stepMetrics,
-        startedAt,
-        completedAt: new Date().toISOString(),
-        error: reloadError
-          ? reloadError instanceof Error
-            ? reloadError.message
-            : String(reloadError)
-          : undefined,
-      });
-    }
-    this.logger.log(`Admin reload ALL: ${Date.now() - start}ms`);
+      this.logger.log(`Admin reload ALL: ${Date.now() - start}ms`);
     };
     if (this.runtimeMetricsCollectorService) {
       await this.runtimeMetricsCollectorService.runWithQueryContext(

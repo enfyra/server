@@ -1,5 +1,5 @@
-import { HttpException } from '../../../../domain/exceptions';
 import {
+  HttpException,
   ScriptTimeoutException,
   ScriptExecutionException,
   AuthenticationException,
@@ -19,7 +19,6 @@ import {
   FileNotFoundException,
   FileSizeExceededException,
 } from '../../../../domain/exceptions';
-
 export class ErrorHandler {
   static createException(
     errorPath?: string,

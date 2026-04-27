@@ -1,23 +1,29 @@
 import { Logger } from '../../../shared/logger';
 import { ObjectId } from 'mongodb';
-import { QueryBuilderService } from '../../../kernel/query';
-import { MongoSchemaMigrationService } from '../../../engine/mongo';
-import { MongoService } from '../../../engine/mongo';
-import { MongoSchemaMigrationLockService } from '../../../engine/mongo';
+import {
+  QueryBuilderService,
+  getJunctionTableName,
+  getJunctionColumnNames,
+} from '../../../kernel/query';
+import {
+  MongoSchemaMigrationService,
+  MongoService,
+  MongoSchemaMigrationLockService,
+} from '../../../engine/mongo';
 import { MetadataCacheService } from '../../../engine/cache';
-import { LoggingService } from '../../../domain/exceptions';
-import { PolicyService } from '../../../domain/policy';
-import { TDynamicContext } from '../../../shared/types';
 import {
-  isPolicyDeny,
-  isPolicyPreview,
-} from '../../../domain/policy';
-import {
+  LoggingService,
   DatabaseException,
   DuplicateResourceException,
   ResourceNotFoundException,
   ValidationException,
 } from '../../../domain/exceptions';
+import {
+  PolicyService,
+  isPolicyDeny,
+  isPolicyPreview,
+} from '../../../domain/policy';
+import { TDynamicContext } from '../../../shared/types';
 import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
 import { DatabaseConfigService } from '../../../shared/services';
 import { getDeletedIds } from '../utils/get-deleted-ids';
@@ -25,10 +31,6 @@ import { TCreateTableBody } from '../types/table-handler.types';
 import { generateDefaultRecord } from '../utils/generate-default-record';
 import { DEFAULT_REST_HANDLER_LOGIC } from '../../../domain/bootstrap';
 import { compileScriptSource } from '../../../kernel/execution';
-import {
-  getJunctionTableName,
-  getJunctionColumnNames,
-} from '../../../kernel/query';
 import { TableManagementValidationService } from './table-validation.service';
 import { MongoMetadataSnapshotService } from './mongo-metadata-snapshot.service';
 export class MongoTableHandlerService {
