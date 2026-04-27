@@ -75,7 +75,8 @@ export type RuntimeAverageSample = {
   queueDepth: number;
   queueFailed: number;
   dbUsed: number;
-  dbFree: number;
+  dbAvailable: number;
+  dbIdle: number;
   dbPending: number;
 };
 

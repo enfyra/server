@@ -43,7 +43,7 @@ export class RuntimeDbMetricsService {
 
   getDbPoolTotals(db: any) {
     const pool = db?.pool;
-    if (!pool) return { used: 0, free: 0, pending: 0 };
+    if (!pool) return { used: 0, idle: 0, available: 0, pending: 0 };
     const rows =
       pool.master || Array.isArray(pool.replicas)
         ? [
@@ -53,12 +53,21 @@ export class RuntimeDbMetricsService {
         : [pool];
 
     return rows.reduce(
-      (sum: { used: number; free: number; pending: number }, row: any) => ({
+      (
+        sum: {
+          used: number;
+          idle: number;
+          available: number;
+          pending: number;
+        },
+        row: any,
+      ) => ({
         used: sum.used + (row?.used ?? 0),
-        free: sum.free + (row?.free ?? 0),
+        idle: sum.idle + (row?.idle ?? 0),
+        available: sum.available + (row?.available ?? 0),
         pending: sum.pending + (row?.pending ?? 0),
       }),
-      { used: 0, free: 0, pending: 0 },
+      { used: 0, idle: 0, available: 0, pending: 0 },
     );
   }
 }

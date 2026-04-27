@@ -25,7 +25,8 @@ const AVERAGE_FIELDS: Array<keyof RuntimeAverageSample> = [
   'queueDepth',
   'queueFailed',
   'dbUsed',
-  'dbFree',
+  'dbAvailable',
+  'dbIdle',
   'dbPending',
 ];
 const DEFAULT_AVERAGE_TTL_MS = 20_000;
@@ -84,7 +85,8 @@ export class RuntimeProcessMetricsService {
       queueDepth: 0,
       queueFailed: 0,
       dbUsed: 0,
-      dbFree: 0,
+      dbAvailable: 0,
+      dbIdle: 0,
       dbPending: 0,
     };
   }

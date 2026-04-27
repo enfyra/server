@@ -48,9 +48,13 @@ export class RuntimeMonitorService {
   start(): void {
     if (this.timer) return;
     this.runtimeProcessMetricsService.enable();
-    this.averageReset = this.runtimeProcessMetricsService.resetAverages().catch((error) => {
-      this.logger.warn(`Runtime metrics average reset failed: ${error.message}`);
-    });
+    this.averageReset = this.runtimeProcessMetricsService
+      .resetAverages()
+      .catch((error) => {
+        this.logger.warn(
+          `Runtime metrics average reset failed: ${error.message}`,
+        );
+      });
     this.timer = setInterval(() => {
       this.emitSample().catch((error) => {
         this.logger.warn(`Runtime metrics sample failed: ${error.message}`);
@@ -125,7 +129,8 @@ export class RuntimeMonitorService {
       queueDepth: queueTotals.depth,
       queueFailed: queueTotals.failed,
       dbUsed: dbTotals.used,
-      dbFree: dbTotals.free,
+      dbAvailable: dbTotals.available,
+      dbIdle: dbTotals.idle,
       dbPending: dbTotals.pending,
     });
 

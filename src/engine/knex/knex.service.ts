@@ -306,13 +306,20 @@ export class KnexService implements LifecycleAware {
     }
     const pool = this.knexInstance.client.pool;
     const used = typeof pool?.numUsed === 'function' ? pool.numUsed() : '?';
-    const free = typeof pool?.numFree === 'function' ? pool.numFree() : '?';
+    const idle = typeof pool?.numFree === 'function' ? pool.numFree() : '?';
     const pending =
       typeof pool?.numPendingAcquires === 'function'
         ? pool.numPendingAcquires()
         : '?';
+    const max = typeof pool?.max === 'number' ? pool.max : '?';
+    const available =
+      typeof max === 'number' &&
+      typeof used === 'number' &&
+      typeof pending === 'number'
+        ? Math.max(0, max - used - pending)
+        : '?';
     this.logger.debug(
-      `Pool before resize: used=${used} free=${free} pending=${pending}`,
+      `Pool before resize: used=${used} available=${available} idle=${idle} pending=${pending} max=${max}`,
     );
     const p = pool as { min?: number; max: number };
     const nextMax = Math.max(1, Math.trunc(poolMax));
@@ -325,15 +332,21 @@ export class KnexService implements LifecycleAware {
   getPoolStats() {
     const pool = this.knexInstance?.client?.pool;
     if (!pool) return null;
+    const used = typeof pool.numUsed === 'function' ? pool.numUsed() : 0;
+    const idle = typeof pool.numFree === 'function' ? pool.numFree() : 0;
+    const pending =
+      typeof pool.numPendingAcquires === 'function'
+        ? pool.numPendingAcquires()
+        : 0;
+    const max = typeof pool.max === 'number' ? pool.max : null;
+    const available = max == null ? idle : Math.max(0, max - used - pending);
     return {
-      used: typeof pool.numUsed === 'function' ? pool.numUsed() : 0,
-      free: typeof pool.numFree === 'function' ? pool.numFree() : 0,
-      pending:
-        typeof pool.numPendingAcquires === 'function'
-          ? pool.numPendingAcquires()
-          : 0,
+      used,
+      idle,
+      available,
+      pending,
       min: typeof pool.min === 'number' ? pool.min : null,
-      max: typeof pool.max === 'number' ? pool.max : null,
+      max,
     };
   }
 

@@ -107,16 +107,27 @@ describe('RuntimeMonitorService', () => {
       },
       runtimeQueueMetricsService: {
         getQueues: vi.fn().mockResolvedValue({
-          flow: { waiting: 1, active: 0, delayed: 0, failed: 0, failedJobs: [] },
+          flow: {
+            waiting: 1,
+            active: 0,
+            delayed: 0,
+            failed: 0,
+            failedJobs: [],
+          },
         }),
         getQueueTotals: vi.fn().mockReturnValue({ depth: 1, failed: 0 }),
       },
       runtimeDbMetricsService: {
         getDbStats: vi.fn().mockReturnValue({
           type: 'mysql',
-          pool: { used: 1, free: 2, pending: 0 },
+          pool: { used: 1, available: 2, idle: 1, pending: 0 },
         }),
-        getDbPoolTotals: vi.fn().mockReturnValue({ used: 1, free: 2, pending: 0 }),
+        getDbPoolTotals: vi.fn().mockReturnValue({
+          used: 1,
+          available: 2,
+          idle: 1,
+          pending: 0,
+        }),
         getClusterStats: vi.fn().mockResolvedValue({
           instances: [{ instanceId: 'a' }, { instanceId: 'b' }],
         }),
