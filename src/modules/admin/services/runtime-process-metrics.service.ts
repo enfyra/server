@@ -2,7 +2,7 @@ import { monitorEventLoopDelay } from 'perf_hooks';
 import { getHeapStatistics } from 'v8';
 import * as os from 'os';
 import { Redis } from 'ioredis';
-import { InstanceService } from '../../../shared/services';
+import { EnvService, InstanceService } from '../../../shared/services';
 import {
   getEffectiveCpuCount,
   getEffectiveMemoryBytes,
@@ -33,6 +33,7 @@ const DEFAULT_AVERAGE_TTL_MS = 20_000;
 export class RuntimeProcessMetricsService {
   private readonly redis: Redis;
   private readonly instanceService: InstanceService;
+  private readonly nodeName: string;
   private readonly eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
   private prevCpuUsage = process.cpuUsage();
   private prevCpuTime = process.hrtime.bigint();
@@ -41,9 +42,11 @@ export class RuntimeProcessMetricsService {
   constructor(deps: {
     redis: Redis;
     instanceService: InstanceService;
+    envService: EnvService;
   }) {
     this.redis = deps.redis;
     this.instanceService = deps.instanceService;
+    this.nodeName = deps.envService.get('NODE_NAME') || 'enfyra';
   }
 
   enable() {
@@ -59,7 +62,7 @@ export class RuntimeProcessMetricsService {
   }
 
   private averageKey() {
-    return `runtime-monitor:${this.instanceService.getInstanceId()}:averages`;
+    return `${this.nodeName}:runtime-monitor:${this.instanceService.getInstanceId()}:averages`;
   }
 
   private emptyAverages(samples = 0) {
