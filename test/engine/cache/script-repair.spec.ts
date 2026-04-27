@@ -6,6 +6,7 @@ describe('script cache repair', () => {
     const update = vi.fn().mockResolvedValue(undefined);
     const service = new RouteCacheService({
       queryBuilderService: { update } as any,
+      metadataCacheService: {} as any,
       eventEmitter: new EventEmitter2(),
     });
 
@@ -30,6 +31,7 @@ describe('script cache repair', () => {
     const update = vi.fn().mockResolvedValue(undefined);
     const service = new RouteCacheService({
       queryBuilderService: { update } as any,
+      metadataCacheService: {} as any,
       eventEmitter: new EventEmitter2(),
     });
 

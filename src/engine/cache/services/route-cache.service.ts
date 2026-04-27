@@ -2,6 +2,7 @@ import { DatabaseConfigService } from '../../../shared/services';
 import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../../kernel/query';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
+import { MetadataCacheService } from './metadata-cache.service';
 import { EnfyraRouteEngine } from '../../../shared/utils/enfyra-route-engine';
 import {
   normalizeScriptRecord,
@@ -24,19 +25,87 @@ interface RouteData {
   methods: string[];
 }
 
+const ROUTE_CACHE_ROUTE_FIELDS = [
+  'id',
+  'path',
+  'isEnabled',
+  'isSystem',
+  'icon',
+  'description',
+  'createdAt',
+  'updatedAt',
+  'mainTable',
+  'handlers.id',
+  'handlers.timeout',
+  'handlers.description',
+  'handlers.sourceCode',
+  'handlers.scriptLanguage',
+  'handlers.compiledCode',
+  'handlers.method',
+  'routePermissions.id',
+  'routePermissions.isEnabled',
+  'routePermissions.description',
+  'routePermissions.role.id',
+  'routePermissions.methods',
+  'routePermissions.allowedUsers.id',
+  'preHooks.id',
+  'preHooks.name',
+  'preHooks.priority',
+  'preHooks.isEnabled',
+  'preHooks.isGlobal',
+  'preHooks.description',
+  'preHooks.isSystem',
+  'preHooks.sourceCode',
+  'preHooks.scriptLanguage',
+  'preHooks.compiledCode',
+  'preHooks.methods',
+  'postHooks.id',
+  'postHooks.name',
+  'postHooks.priority',
+  'postHooks.isEnabled',
+  'postHooks.isGlobal',
+  'postHooks.description',
+  'postHooks.isSystem',
+  'postHooks.sourceCode',
+  'postHooks.scriptLanguage',
+  'postHooks.compiledCode',
+  'postHooks.methods',
+  'publishedMethods',
+  'skipRoleGuardMethods',
+  'availableMethods',
+];
+
+const ROUTE_CACHE_HOOK_FIELDS = [
+  'id',
+  'name',
+  'priority',
+  'isEnabled',
+  'isGlobal',
+  'description',
+  'isSystem',
+  'sourceCode',
+  'scriptLanguage',
+  'compiledCode',
+  'methods',
+];
+
 export class RouteCacheService extends BaseCacheService<RouteData> {
   private readonly queryBuilderService: QueryBuilderService;
+  private readonly metadataCacheService: MetadataCacheService;
   private routeEngine: EnfyraRouteEngine;
   private allMethods: string[] = [];
+  private methodById = new Map<string, any>();
   private globalPreHooks: any[] = [];
   private globalPostHooks: any[] = [];
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
+    metadataCacheService: MetadataCacheService;
     eventEmitter: EventEmitter2;
   }) {
     super(ROUTE_CONFIG, deps.eventEmitter);
     this.queryBuilderService = deps.queryBuilderService;
+    this.metadataCacheService = deps.metadataCacheService;
     this.routeEngine = new EnfyraRouteEngine(false);
     this.cache = { routes: [], methods: [] };
   }
@@ -163,25 +232,13 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       filter: {
         _and: [{ isEnabled: { _eq: true } }, { [idField]: { _in: routeIds } }],
       },
-      fields: [
-        '*',
-        'mainTable.*',
-        'handlers.*',
-        'handlers.method.*',
-        'routePermissions.*',
-        'routePermissions.role.*',
-        'preHooks.*',
-        'preHooks.methods.method',
-        'postHooks.*',
-        'postHooks.methods.method',
-        'publishedMethods.*',
-        'skipRoleGuardMethods.*',
-        'availableMethods.*',
-      ],
+      fields: ROUTE_CACHE_ROUTE_FIELDS,
     });
 
     const updatedRoutes = result.data;
     for (const route of updatedRoutes) {
+      this.hydrateRouteMainTable(route);
+      this.hydrateRouteMethods(route);
       this.mergeHooks(
         route,
         this.globalPreHooks,
@@ -307,27 +364,14 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   protected async loadFromDb(): Promise<any> {
     const methodsResult = await this.queryBuilderService.find({
       table: 'method_definition',
+      fields: ['id', 'method'],
     });
-    this.allMethods = methodsResult.data.map((m: any) => m.method);
+    this.setMethodCache(methodsResult.data);
 
     const result = await this.queryBuilderService.find({
       table: 'route_definition',
       filter: { isEnabled: { _eq: true } },
-      fields: [
-        '*',
-        'mainTable.*',
-        'handlers.*',
-        'handlers.method.*',
-        'routePermissions.*',
-        'routePermissions.role.*',
-        'preHooks.*',
-        'preHooks.methods.method',
-        'postHooks.*',
-        'postHooks.methods.method',
-        'publishedMethods.*',
-        'skipRoleGuardMethods.*',
-        'availableMethods.*',
-      ],
+      fields: ROUTE_CACHE_ROUTE_FIELDS,
     });
 
     const routes = result.data;
@@ -342,6 +386,8 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     this.globalPostHooks = globalPostHooks;
 
     for (const route of routes) {
+      this.hydrateRouteMainTable(route);
+      this.hydrateRouteMethods(route);
       this.mergeHooks(route, globalPreHooks, globalPostHooks, isMongoDB);
 
       await this.transformRouteCode(route);
@@ -356,19 +402,22 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       filter: {
         _and: [{ isEnabled: { _eq: true } }, { isGlobal: { _eq: true } }],
       },
-      fields: ['*', 'methods.method'],
+      fields: ROUTE_CACHE_HOOK_FIELDS,
       sort: ['priority'],
     });
 
-    return Promise.all(result.data.map(async (hook: any) => {
-      const normalized = normalizeScriptRecord(tableName, hook);
-      Object.assign(hook, normalized);
-      const code = await this.resolveAndRepairScript(tableName, hook);
-      if (code) {
-        hook.code = code;
-      }
-      return hook;
-    }));
+    return Promise.all(
+      result.data.map(async (hook: any) => {
+        this.hydrateMethodList(hook.methods);
+        const normalized = normalizeScriptRecord(tableName, hook);
+        Object.assign(hook, normalized);
+        const code = await this.resolveAndRepairScript(tableName, hook);
+        if (code) {
+          hook.code = code;
+        }
+        return hook;
+      }),
+    );
   }
 
   private mergeHooks(
@@ -406,6 +455,67 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
           return hId === hookId;
         }),
     );
+  }
+
+  private setMethodCache(methods: any[]): void {
+    this.methodById = new Map();
+    this.allMethods = [];
+    for (const method of methods || []) {
+      const id = DatabaseConfigService.getRecordId(method);
+      if (id == null || !method?.method) continue;
+      const normalized = { id, method: method.method };
+      this.methodById.set(String(id), normalized);
+      this.allMethods.push(method.method);
+    }
+  }
+
+  private hydrateMethodRef(ref: any): any {
+    const id = DatabaseConfigService.getRecordId(ref);
+    if (id == null) return ref;
+    return this.methodById.get(String(id)) ?? ref;
+  }
+
+  private hydrateMethodList(items: any[]): void {
+    if (!Array.isArray(items)) return;
+    for (let i = 0; i < items.length; i++) {
+      items[i] = this.hydrateMethodRef(items[i]);
+    }
+  }
+
+  private hydrateRouteMethods(route: any): void {
+    this.hydrateMethodList(route.availableMethods);
+    this.hydrateMethodList(route.publishedMethods);
+    this.hydrateMethodList(route.skipRoleGuardMethods);
+
+    for (const handler of route.handlers || []) {
+      handler.method = this.hydrateMethodRef(handler.method);
+    }
+    for (const permission of route.routePermissions || []) {
+      this.hydrateMethodList(permission.methods);
+    }
+    for (const hook of route.preHooks || []) {
+      this.hydrateMethodList(hook.methods);
+    }
+    for (const hook of route.postHooks || []) {
+      this.hydrateMethodList(hook.methods);
+    }
+  }
+
+  private hydrateRouteMainTable(route: any): void {
+    const metadata = this.metadataCacheService.getDirectMetadata();
+    if (!metadata?.tablesList?.length || !route?.mainTable) return;
+
+    const mainTableId = DatabaseConfigService.getRecordId(route.mainTable);
+    if (mainTableId == null) return;
+
+    const tableMeta = metadata.tablesList.find((table: any) => {
+      const tableId = DatabaseConfigService.getRecordId(table);
+      return String(tableId) === String(mainTableId);
+    });
+
+    if (tableMeta) {
+      route.mainTable = tableMeta;
+    }
   }
 
   private async transformRouteCode(route: any): Promise<void> {
