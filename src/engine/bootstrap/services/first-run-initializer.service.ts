@@ -1,10 +1,11 @@
 import { Logger } from '../../../shared/logger';
-import { DatabaseConfigService } from '../../../shared/services';
+import {
+  DatabaseConfigService,
+  InstanceService,
+} from '../../../shared/services';
 import { CommonService } from '../../../shared/common';
 import { QueryBuilderService } from '../../../kernel/query';
-import { CacheService } from '../../cache';
-import { InstanceService } from '../../../shared/services';
-import { MetadataCacheService } from '../../cache';
+import { CacheService, MetadataCacheService } from '../../cache';
 import { MetadataProvisionService } from './metadata-provision.service';
 import { MetadataMigrationService } from './metadata-migration.service';
 import { DataProvisionService } from './data-provision.service';

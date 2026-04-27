@@ -6,7 +6,10 @@ import { ICache } from '../../shared/interfaces/cache.interface';
 import { IRepoRegistry } from '../../shared/interfaces/repo-registry.interface';
 import { TDynamicContext } from '../../../shared/types';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
-import { InstanceService } from '../../../shared/services';
+import {
+  InstanceService,
+  DatabaseConfigService,
+} from '../../../shared/services';
 import { createFetchHelper } from '../../../shared/helpers';
 import {
   BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
@@ -16,7 +19,6 @@ import {
   normalizeScriptRecord,
   resolveExecutableScript,
 } from '../../../kernel/execution';
-import { DatabaseConfigService } from '../../../shared/services';
 
 export class BootstrapScriptService {
   private readonly logger = new Logger(BootstrapScriptService.name);
@@ -143,9 +145,13 @@ export class BootstrapScriptService {
         script.compiledCode = resolved.compiledCode;
         const id = DatabaseConfigService.getRecordId(script);
         if (id != null) {
-          await this.queryBuilderService.update('bootstrap_script_definition', id, {
-            compiledCode: resolved.compiledCode,
-          });
+          await this.queryBuilderService.update(
+            'bootstrap_script_definition',
+            id,
+            {
+              compiledCode: resolved.compiledCode,
+            },
+          );
         }
       }
       scripts[i] = script;

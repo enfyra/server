@@ -1,26 +1,15 @@
-import 'reflect-metadata';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
-import { Knex, knex } from 'knex';
-import {
-  KnexTableSchema,
-} from '../src/shared/types/database-init.types';
+import { knex } from 'knex';
 import {
   parseSnapshotToSchema,
-} from 'src/engine/knex';
-import { ensureDatabaseExists } from 'src/engine/knex';
-import {
-  createTable,
+  ensureDatabaseExists,
+  syncTable,
+  parseDatabaseUri,
   createAllTables,
-} from 'src/engine/knex';
-import { addForeignKeys } from 'src/engine/knex';
-import {
-  createJunctionTables,
   syncJunctionTables,
-} from 'src/engine/knex';
-import { syncTable } from 'src/engine/knex';
-import { parseDatabaseUri } from 'src/engine/knex';
+} from '../src/engine/knex';
 import {
   loadSchemaMigration,
   hasSchemaMigrations,
@@ -29,12 +18,6 @@ import {
 import { resolveDbTypeFromEnv } from '../src/shared/utils/resolve-db-type';
 
 dotenv.config();
-
-
-
-
-
-
 
 export async function initializeDatabaseSql(): Promise<void> {
   const dbType = resolveDbTypeFromEnv();
@@ -67,9 +50,8 @@ export async function initializeDatabaseSql(): Promise<void> {
   });
 
   try {
-    const hasSettingTable = await knexInstance.schema.hasTable(
-      'setting_definition',
-    );
+    const hasSettingTable =
+      await knexInstance.schema.hasTable('setting_definition');
 
     if (hasSettingTable) {
       const result = await knexInstance('setting_definition')
@@ -86,7 +68,9 @@ export async function initializeDatabaseSql(): Promise<void> {
 
     // Apply schema migrations (dangerous operations: remove, modify)
     if (schemaMigration && hasSchemaMigrations(schemaMigration)) {
-      console.log('📋 Applying schema migrations from snapshot-migration.json...');
+      console.log(
+        '📋 Applying schema migrations from snapshot-migration.json...',
+      );
       await applySqlSchemaMigrations(knexInstance, schemaMigration);
     }
 
@@ -126,5 +110,3 @@ if (require.main === module) {
       process.exit(1);
     });
 }
-
-

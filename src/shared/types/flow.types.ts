@@ -49,6 +49,9 @@ export interface FlowJobData {
   executionId?: number | string;
   depth?: number;
   visitedFlowIds?: (number | string)[];
+  sourceFlowId?: number | string;
+  sourceFlowName?: string;
+  sourceStepKey?: string;
 }
 
 export interface FlowContext {

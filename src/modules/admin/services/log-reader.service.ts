@@ -6,34 +6,7 @@ import {
 import * as fs from 'fs';
 import * as readline from 'readline';
 import * as path from 'path';
-
-export interface LogFile {
-  name: string;
-  size: number;
-  createdAt: Date;
-  lastModified: Date;
-}
-
-export interface ParsedLogEntry {
-  id: string;
-  timestamp: string;
-  level: string;
-  context?: string;
-  correlationId?: string;
-  message: string;
-  data?: any;
-  trace?: string;
-  stack?: string;
-}
-
-export interface LogContent {
-  file: string;
-  lines: ParsedLogEntry[];
-  rawLines?: string[];
-  page: number;
-  pageSize: number;
-  hasMore: boolean;
-}
+import type { LogContent, LogFile, ParsedLogEntry } from '../types';
 
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE = 1000;

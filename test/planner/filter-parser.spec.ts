@@ -1,6 +1,4 @@
-import { parseFilter } from 'src/kernel/query';
-import { JoinRegistry } from 'src/kernel/query';
-import { FilterNode } from 'src/kernel/query';
+import { parseFilter, JoinRegistry, FilterNode } from 'src/kernel/query';
 import { BadRequestException } from 'src/domain/exceptions';
 
 const META = {

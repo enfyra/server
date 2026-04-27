@@ -1,7 +1,9 @@
 import knex, { Knex } from 'knex';
-import { separateFilters } from 'src/kernel/query';
-import { hasLogicalOperators } from 'src/kernel/query';
-import { SqlQueryExecutor } from 'src/kernel/query';
+import {
+  separateFilters,
+  hasLogicalOperators,
+  SqlQueryExecutor,
+} from 'src/kernel/query';
 import {
   buildOracleStressFilters,
   oracleExtensionRowIds,

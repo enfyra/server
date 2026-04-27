@@ -1,13 +1,12 @@
 import { Logger } from '../../../shared/logger';
-import { QueryBuilderService } from '../../../kernel/query';
-import { MetadataCacheService } from '../../../engine/cache';
-import { TCreateTableBody } from '../types/table-handler.types';
 import {
+  QueryBuilderService,
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
 } from '../../../kernel/query';
-
+import { MetadataCacheService } from '../../../engine/cache';
+import { TCreateTableBody } from '../types/table-handler.types';
 export class SqlTableMetadataBuilderService {
   private readonly logger = new Logger(SqlTableMetadataBuilderService.name);
   private readonly queryBuilderService: QueryBuilderService;

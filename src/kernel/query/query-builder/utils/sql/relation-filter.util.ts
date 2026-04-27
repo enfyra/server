@@ -1,7 +1,6 @@
 import { Knex } from 'knex';
-import { TableMetadata } from '../../../../../engine/knex';
+import { TableMetadata, quoteIdentifier } from '../../../../../engine/knex';
 import { buildWhereClause } from './build-where-clause';
-import { quoteIdentifier } from '../../../../../engine/knex';
 import { separateFilters } from '../shared/filter-separator.util';
 
 export { separateFilters };

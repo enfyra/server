@@ -50,7 +50,7 @@ export function getEffectiveCpuCount(): number {
 
 const ISOLATE_POOL_BUDGET_FRACTION = 0.25;
 const ISOLATE_POOL_MIN = 2;
-const ISOLATE_POOL_MAX = 8;
+const ISOLATE_POOL_MAX = 2;
 
 export function computeEngineTuning(spec: {
   logicalCpuCount: number;

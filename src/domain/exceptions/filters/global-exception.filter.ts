@@ -1,13 +1,13 @@
-import { HttpException } from '../custom-exceptions';
-import { Request, Response, NextFunction } from 'express';
-import { GraphQLError } from 'graphql';
-import { Logger } from '../../../shared/logger';
 import {
+  HttpException,
   isCustomException,
   getErrorCode,
   ScriptExecutionException,
   ScriptTimeoutException,
 } from '../custom-exceptions';
+import { Request, Response, NextFunction } from 'express';
+import { GraphQLError } from 'graphql';
+import { Logger } from '../../../shared/logger';
 import { AppError } from '../../../shared/errors';
 
 export interface ErrorResponse {

@@ -1,5 +1,5 @@
 import { KnexService } from '../../../engine/knex';
-import { MongoService } from '../../../engine/mongo';
+import { MongoService, normalizeMongoDocument } from '../../../engine/mongo';
 import {
   DatabaseType,
   WhereCondition,
@@ -11,10 +11,13 @@ import {
 import { MongoQueryExecutor } from './executors/mongo-query-executor';
 import { SqlQueryExecutor } from './executors/sql-query-executor';
 import { QueryPlanner } from '../query-dsl/query-planner';
-import { DatabaseConfigService } from '../../../shared/services';
+import {
+  DatabaseConfigService,
+  RuntimeMetricsCollectorService,
+} from '../../../shared/services';
+import type { QueryMetricContext } from '../../../shared/types';
 import type { Cradle } from '../../../container';
 import { DebugTrace } from '../../../shared/utils/debug-trace.util';
-import { normalizeMongoDocument } from '../../../engine/mongo';
 import { whereToMongoFilter } from './utils/mongo/filter-builder';
 import { applyWhereToKnex as applyWhereToKnexComplete } from './utils/sql/sql-where-builder';
 import { IQueryBuilder } from '../../../domain/shared/interfaces/query-builder.interface';
@@ -25,6 +28,7 @@ export class QueryBuilderService implements IQueryBuilder {
   private readonly knexService?: KnexService;
   private readonly mongoService?: any;
   private readonly databaseConfigService: DatabaseConfigService;
+  private readonly runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
   private readonly lazyRef: Cradle;
   private dbType: DatabaseType;
   private debugLog: any[] = [];
@@ -33,11 +37,13 @@ export class QueryBuilderService implements IQueryBuilder {
     knexService?: KnexService;
     mongoService?: MongoService;
     databaseConfigService: DatabaseConfigService;
+    runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
     lazyRef: Cradle;
   }) {
     this.knexService = deps.knexService;
     this.mongoService = deps.mongoService;
     this.databaseConfigService = deps.databaseConfigService;
+    this.runtimeMetricsCollectorService = deps.runtimeMetricsCollectorService;
     this.lazyRef = deps.lazyRef;
     this.dbType = this.databaseConfigService.getDbType();
   }
@@ -74,6 +80,17 @@ export class QueryBuilderService implements IQueryBuilder {
       return this.mongoService.runWithFieldPermissionCheck(checker, callback);
     }
     return callback();
+  }
+
+  async runWithTelemetryContext<T>(
+    context: QueryMetricContext,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    if (!this.runtimeMetricsCollectorService) return await callback();
+    return await this.runtimeMetricsCollectorService.runWithQueryContext(
+      context,
+      callback,
+    );
   }
 
   getDbType(): DatabaseType {
@@ -403,23 +420,25 @@ export class QueryBuilderService implements IQueryBuilder {
     pipeline?: any[];
     maxQueryDepth?: number;
   }): Promise<any> {
-    const filter =
-      options.filter ||
-      (options.where ? this.whereToFilter(options.where) : undefined);
-    return this.select({
-      tableName: options.table,
-      filter,
-      fields: options.fields,
-      sort: options.sort,
-      page: options.page,
-      limit: options.limit,
-      meta: options.meta as any,
-      deep: options.deep,
-      debugMode: options.debugMode,
-      debugLog: options.debugLog,
-      debugTrace: options.debugTrace,
-      pipeline: options.pipeline,
-      maxQueryDepth: options.maxQueryDepth,
+    return this.trackQueryMetric('find', options.table, async () => {
+      const filter =
+        options.filter ||
+        (options.where ? this.whereToFilter(options.where) : undefined);
+      return await this.select({
+        tableName: options.table,
+        filter,
+        fields: options.fields,
+        sort: options.sort,
+        page: options.page,
+        limit: options.limit,
+        meta: options.meta as any,
+        deep: options.deep,
+        debugMode: options.debugMode,
+        debugLog: options.debugLog,
+        debugTrace: options.debugTrace,
+        pipeline: options.pipeline,
+        maxQueryDepth: options.maxQueryDepth,
+      });
     });
   }
 
@@ -437,14 +456,16 @@ export class QueryBuilderService implements IQueryBuilder {
   }
 
   async insert(table: string, data: Record<string, any>): Promise<any> {
-    if (this.dbType === 'mongodb') {
-      const result = await this.mongoService.insertOne(table, data);
-      return normalizeMongoDocument(result);
-    }
-    const insertedId = await this.knexService.insertWithCascade(table, data);
-    const knex = this.knexService.getKnex();
-    const recordId = insertedId || data.id;
-    return await knex(table).where('id', recordId).first();
+    return this.trackQueryMetric('insert', table, async () => {
+      if (this.dbType === 'mongodb') {
+        const result = await this.mongoService.insertOne(table, data);
+        return normalizeMongoDocument(result);
+      }
+      const insertedId = await this.knexService.insertWithCascade(table, data);
+      const knex = this.knexService.getKnex();
+      const recordId = insertedId || data.id;
+      return await knex(table).where('id', recordId).first();
+    });
   }
 
   async update(
@@ -452,31 +473,35 @@ export class QueryBuilderService implements IQueryBuilder {
     id: any,
     data: Record<string, any>,
   ): Promise<any> {
-    if (id && typeof id === 'object' && 'where' in id) {
-      return this.updateWithOptions({ table, where: id.where, data });
-    }
+    return this.trackQueryMetric('update', table, async () => {
+      if (id && typeof id === 'object' && 'where' in id) {
+        return await this.updateWithOptions({ table, where: id.where, data });
+      }
 
-    if (this.dbType === 'mongodb') {
-      const result = await this.mongoService.updateOne(table, id, data);
-      return normalizeMongoDocument(result);
-    }
-    await this.knexService.updateWithCascade(table, id, data);
-    const knex = this.knexService.getKnex();
-    return await knex(table).where('id', id).first();
+      if (this.dbType === 'mongodb') {
+        const result = await this.mongoService.updateOne(table, id, data);
+        return normalizeMongoDocument(result);
+      }
+      await this.knexService.updateWithCascade(table, id, data);
+      const knex = this.knexService.getKnex();
+      return await knex(table).where('id', id).first();
+    });
   }
 
   async delete(table: string, id: any): Promise<boolean> {
-    if (id && typeof id === 'object' && 'where' in id) {
-      const count = await this.deleteWithOptions({ table, where: id.where });
-      return count > 0;
-    }
+    return this.trackQueryMetric('delete', table, async () => {
+      if (id && typeof id === 'object' && 'where' in id) {
+        const count = await this.deleteWithOptions({ table, where: id.where });
+        return count > 0;
+      }
 
-    if (this.dbType === 'mongodb') {
-      return this.mongoService.deleteOne(table, id);
-    }
-    const knex = this.knexService.getKnex();
-    const deleted = await knex(table).where('id', id).delete();
-    return deleted > 0;
+      if (this.dbType === 'mongodb') {
+        return await this.mongoService.deleteOne(table, id);
+      }
+      const knex = this.knexService.getKnex();
+      const deleted = await knex(table).where('id', id).delete();
+      return deleted > 0;
+    });
   }
 
   async countRecords(table: string, filter?: any): Promise<number> {
@@ -597,21 +622,39 @@ export class QueryBuilderService implements IQueryBuilder {
   }
 
   async raw(query: string | any, bindings?: any): Promise<any> {
-    if (this.dbType === 'mongodb') {
-      const db = this.mongoService.getDb();
-      if (typeof query === 'string') {
-        if (query.toLowerCase().includes('select 1')) {
-          return db.command({ ping: 1 });
+    const table = this.dbType === 'mongodb' ? 'mongodb' : 'sql';
+    return this.trackQueryMetric('raw', table, async () => {
+      if (this.dbType === 'mongodb') {
+        const db = this.mongoService.getDb();
+        if (typeof query === 'string') {
+          if (query.toLowerCase().includes('select 1')) {
+            return await db.command({ ping: 1 });
+          }
+          throw new Error(
+            'String queries not supported for MongoDB. Use db.command() object instead.',
+          );
         }
-        throw new Error(
-          'String queries not supported for MongoDB. Use db.command() object instead.',
-        );
+        return await db.command(query);
       }
-      return db.command(query);
+
+      const knex = this.knexService.getKnex();
+      return await knex.raw(query, bindings);
+    });
+  }
+
+  private async trackQueryMetric<T>(
+    op: string,
+    table: string | undefined,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    if (this.runtimeMetricsCollectorService) {
+      return await this.runtimeMetricsCollectorService.trackQuery(
+        { op, table },
+        callback,
+      );
     }
 
-    const knex = this.knexService.getKnex();
-    return knex.raw(query, bindings);
+    return await callback();
   }
 
   getConnection(): any {

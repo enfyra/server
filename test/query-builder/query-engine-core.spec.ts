@@ -6,8 +6,7 @@
  */
 
 import knex, { Knex } from 'knex';
-import { buildWhereClause } from 'src/kernel/query';
-import { hasLogicalOperators } from 'src/kernel/query';
+import { buildWhereClause, hasLogicalOperators } from 'src/kernel/query';
 
 let db: Knex;
 

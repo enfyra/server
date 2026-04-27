@@ -1294,6 +1294,20 @@
       }
     },
     {
+      "type": "Menu",
+      "label": "Runtime Monitor",
+      "icon": "lucide:activity",
+      "path": "/settings/admin/runtime",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Live runtime metrics",
+      "order": 14,
+      "parent": "Settings",
+      "permission": {
+        "rootAdmin": true
+      }
+    },
+    {
       "type": "Dropdown Menu",
       "label": "Packages",
       "icon": "lucide:package",

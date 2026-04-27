@@ -1,7 +1,9 @@
 import { Knex } from 'knex';
 import { getForeignKeyColumnName } from '../../../query-dsl/utils/sql-schema-naming.util';
-import { getPrimaryKeyColumn } from '../../../../../engine/knex';
-import { quoteIdentifier } from '../../../../../engine/knex';
+import {
+  getPrimaryKeyColumn,
+  quoteIdentifier,
+} from '../../../../../engine/knex';
 import {
   BatchFetchAdapter,
   BatchFetchDescriptor,

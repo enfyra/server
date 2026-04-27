@@ -1,8 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import { Job, Queue, Worker } from 'bullmq';
 import { ExecutorEngineService } from '../../../kernel/execution';
-import { RepoRegistryService } from '../../../engine/cache';
-import { FlowCacheService } from '../../../engine/cache';
+import { RepoRegistryService, FlowCacheService } from '../../../engine/cache';
 import {
   getErrorMessage,
   getErrorStack,
@@ -16,8 +15,11 @@ import {
   FlowJobData,
 } from '../../../shared/types/flow.types';
 import { executeStepCore } from '../utils/step-executor.util';
-import { DynamicContextFactory } from '../../../shared/services';
-import { EnvService } from '../../../shared/services';
+import {
+  DynamicContextFactory,
+  EnvService,
+  RuntimeMetricsCollectorService,
+} from '../../../shared/services';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 
 export type { FlowJobData } from '../../../shared/types/flow.types';
@@ -35,6 +37,7 @@ export class FlowExecutionQueueService {
   private readonly websocketEmitService: WebsocketEmitService;
   private readonly dynamicContextFactory: DynamicContextFactory;
   private readonly envService: EnvService;
+  private readonly runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
   private readonly flowQueue: Queue;
   private worker?: Worker;
 
@@ -46,6 +49,7 @@ export class FlowExecutionQueueService {
     websocketEmitService: WebsocketEmitService;
     dynamicContextFactory: DynamicContextFactory;
     envService: EnvService;
+    runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
     flowQueue: Queue;
   }) {
     this.executorEngineService = deps.executorEngineService;
@@ -55,6 +59,7 @@ export class FlowExecutionQueueService {
     this.websocketEmitService = deps.websocketEmitService;
     this.dynamicContextFactory = deps.dynamicContextFactory;
     this.envService = deps.envService;
+    this.runtimeMetricsCollectorService = deps.runtimeMetricsCollectorService;
     this.flowQueue = deps.flowQueue;
   }
 
@@ -65,7 +70,13 @@ export class FlowExecutionQueueService {
     this.worker = new Worker(
       SYSTEM_QUEUES.FLOW_EXECUTION,
       async (job: Job<FlowJobData>) => {
-        return await this.process(job);
+        if (!this.runtimeMetricsCollectorService) {
+          return await this.process(job);
+        }
+        return await this.runtimeMetricsCollectorService.runWithQueryContext(
+          'flow',
+          () => this.process(job),
+        );
       },
       {
         prefix: `${nodeName}:`,
@@ -155,6 +166,7 @@ export class FlowExecutionQueueService {
     });
 
     const startTime = Date.now();
+    this.runtimeMetricsCollectorService?.startFlow(flow.id, flow.name);
 
     try {
       await this.updateExecution(executionId, {
@@ -200,6 +212,12 @@ export class FlowExecutionQueueService {
           `Cleanup failed for flow ${flow.name}: ${err.message}`,
         ),
       );
+      this.runtimeMetricsCollectorService?.completeFlow({
+        flowId: flow.id,
+        flowName: flow.name,
+        durationMs: Date.now() - startTime,
+        status: 'completed',
+      });
       return { success: true, executionId, context: result.context };
     } catch (error) {
       await this.updateExecution(executionId, {
@@ -223,6 +241,12 @@ export class FlowExecutionQueueService {
           `Cleanup failed for flow ${flow.name}: ${getErrorMessage(err)}`,
         ),
       );
+      this.runtimeMetricsCollectorService?.completeFlow({
+        flowId: flow.id,
+        flowName: flow.name,
+        durationMs: Date.now() - startTime,
+        status: 'failed',
+      });
       return { success: false, executionId, error: getErrorMessage(error) };
     }
   }
@@ -338,12 +362,16 @@ export class FlowExecutionQueueService {
           ? await this.flowCacheService.getFlowById(flowIdOrName)
           : await this.flowCacheService.getFlowByName(String(flowIdOrName));
       if (!targetFlow) throw new Error(`Flow "${flowIdOrName}" not found`);
+      const sourceStepKey = (ctx as any).$flow?.$meta?.currentStep;
       await this.flowQueue.add(`flow:${targetFlow.name}`, {
         flowId: targetFlow.id,
         flowName: targetFlow.name,
         payload: triggerPayload,
         depth: depth + 1,
         visitedFlowIds,
+        sourceFlowId: flow.id,
+        sourceFlowName: flow.name,
+        sourceStepKey,
       });
       return {
         triggered: true,
@@ -370,6 +398,7 @@ export class FlowExecutionQueueService {
       if (!step.isEnabled) return;
 
       await this.updateExecution(executionId, { currentStep: step.key });
+      flowContext.$meta.currentStep = step.key;
       const stepStart = Date.now();
 
       try {
@@ -406,7 +435,28 @@ export class FlowExecutionQueueService {
           currentStep: step.key,
           totalSteps: allSteps.length,
         });
+        this.runtimeMetricsCollectorService?.recordFlowStep({
+          flowId: flow.id,
+          flowName: flow.name,
+          stepKey: step.key,
+          durationMs: Date.now() - stepStart,
+        });
       } catch (error: any) {
+        try {
+          await job.updateProgress({
+            completedSteps,
+            currentStep: step.key,
+            failedStep: step.key,
+            totalSteps: allSteps.length,
+          });
+        } catch {}
+        this.runtimeMetricsCollectorService?.recordFlowStep({
+          flowId: flow.id,
+          flowName: flow.name,
+          stepKey: step.key,
+          durationMs: Date.now() - stepStart,
+          failed: true,
+        });
         if (step.onError === 'retry' && (step as any).retryAttempts > 0) {
           const retryAttempts = (step as any).retryAttempts as number;
           let retrySuccess = false;
@@ -493,6 +543,9 @@ export class FlowExecutionQueueService {
         payload: childPayload,
         depth: currentDepth + 1,
         visitedFlowIds,
+        sourceFlowId: (ctx as any).$flow?.$meta?.flowId,
+        sourceFlowName: (ctx as any).$flow?.$meta?.flowName,
+        sourceStepKey: step.key,
       });
       return {
         triggered: true,

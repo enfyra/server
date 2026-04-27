@@ -1,7 +1,9 @@
 import knex, { Knex } from 'knex';
-import { SqlQueryExecutor } from 'src/kernel/query';
-import { MongoQueryExecutor } from 'src/kernel/query';
-import { QueryPlanner } from 'src/kernel/query';
+import {
+  SqlQueryExecutor,
+  MongoQueryExecutor,
+  QueryPlanner,
+} from 'src/kernel/query';
 import { MongoClient, Db, ObjectId } from 'mongodb';
 
 const MONGO_URI =

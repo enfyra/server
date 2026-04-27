@@ -1,6 +1,8 @@
 import { Knex } from 'knex';
-import { quoteIdentifier } from '../../../../../engine/knex';
-import { getPrimaryKeyColumn } from '../../../../../engine/knex';
+import {
+  quoteIdentifier,
+  getPrimaryKeyColumn,
+} from '../../../../../engine/knex';
 import { getForeignKeyColumnName } from '../../../query-dsl/utils/sql-schema-naming.util';
 
 export async function expandFieldsToSelect(

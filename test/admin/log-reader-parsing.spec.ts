@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import pino from 'pino';
-import { LogReaderService } from 'src/modules/admin';
+import { LogReaderService } from '../../src/modules/admin';
 
 function makeTempLogDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'enfyra-log-'));

@@ -1,32 +1,36 @@
 import { Logger } from '../../../shared/logger';
-import { getIoAbortSignal } from '../../../kernel/execution';
-import { QueryBuilderService } from '../../../kernel/query';
-import { SqlSchemaMigrationService } from '../../../engine/knex';
-import { SchemaMigrationLockService } from '../../../engine/knex';
+import {
+  getIoAbortSignal,
+  compileScriptSource,
+} from '../../../kernel/execution';
+import {
+  QueryBuilderService,
+  getForeignKeyColumnName,
+  getJunctionTableName,
+  getJunctionColumnNames,
+} from '../../../kernel/query';
+import {
+  SqlSchemaMigrationService,
+  SchemaMigrationLockService,
+} from '../../../engine/knex';
 import { MetadataCacheService } from '../../../engine/cache';
-import { LoggingService } from '../../../domain/exceptions';
-import { PolicyService } from '../../../domain/policy';
-import { TDynamicContext } from '../../../shared/types';
 import {
-  isPolicyDeny,
-  isPolicyPreview,
-} from '../../../domain/policy';
-import {
+  LoggingService,
   DatabaseException,
   DuplicateResourceException,
   ResourceNotFoundException,
   ValidationException,
 } from '../../../domain/exceptions';
+import {
+  PolicyService,
+  isPolicyDeny,
+  isPolicyPreview,
+} from '../../../domain/policy';
+import { TDynamicContext } from '../../../shared/types';
 import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
 import { TCreateTableBody } from '../types/table-handler.types';
-import {
-  getForeignKeyColumnName,
-  getJunctionTableName,
-  getJunctionColumnNames,
-} from '../../../kernel/query';
 import { generateDefaultRecord } from '../utils/generate-default-record';
 import { DEFAULT_REST_HANDLER_LOGIC } from '../../../domain/bootstrap';
-import { compileScriptSource } from '../../../kernel/execution';
 import { TableManagementValidationService } from './table-validation.service';
 import { SqlTableMetadataBuilderService } from './sql-table-metadata-builder.service';
 import { SqlTableMetadataWriterService } from './sql-table-metadata-writer.service';

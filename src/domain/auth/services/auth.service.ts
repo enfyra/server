@@ -1,4 +1,4 @@
-import { DatabaseConfigService } from '../../../shared/services';
+import { DatabaseConfigService, EnvService } from '../../../shared/services';
 import { randomUUID, createHash } from 'crypto';
 import { ObjectId } from 'mongodb';
 import ms, { type StringValue } from 'ms';
@@ -7,7 +7,6 @@ import * as jwt from 'jsonwebtoken';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { ICache } from '../../shared/interfaces/cache.interface';
 import { BcryptService } from './bcrypt.service';
-import { EnvService } from '../../../shared/services';
 import {
   loadUserWithRole,
   userCacheKey,

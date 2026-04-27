@@ -2,8 +2,10 @@ import { Logger } from '../../../shared/logger';
 import { EventEmitter2 } from 'eventemitter2';
 import { createHash } from 'crypto';
 import { Redis } from 'ioredis';
-import { DatabaseConfigService } from '../../../shared/services';
-import { InstanceService } from '../../../shared/services';
+import {
+  DatabaseConfigService,
+  InstanceService,
+} from '../../../shared/services';
 import { KnexService } from '../knex.service';
 import { ReplicationManager } from './replication-manager.service';
 import { parseDatabaseUri } from '../utils/uri-parser';
@@ -25,6 +27,9 @@ export class SqlPoolClusterCoordinatorService {
   private heartbeatTimer?: ReturnType<typeof setInterval>;
   private reconcileTimer?: ReturnType<typeof setInterval>;
   private lastAppliedTarget = -1;
+  private lastServerMaxConnections: number | null = null;
+  private lastReserveConnections: number | null = null;
+  private lastReconciledAt: string | null = null;
   private readonly _redis: Redis;
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly instanceService: InstanceService;
@@ -134,6 +139,80 @@ export class SqlPoolClusterCoordinatorService {
     return Math.max(1, n);
   }
 
+  async getClusterStats(): Promise<{
+    enabled: boolean;
+    key: string;
+    instanceId: string;
+    activeCount: number;
+    staleAfterMs: number;
+    heartbeatIntervalMs: number;
+    reconcileIntervalMs: number;
+    instances: Array<{ id: string; lastSeenAt: string; ageMs: number }>;
+    serverMaxConnections: number | null;
+    reserveConnections: number | null;
+    targetPoolMax: number | null;
+    lastReconciledAt: string | null;
+  }> {
+    if (this.databaseConfigService.isMongoDb() || !this.redis) {
+      return {
+        enabled: false,
+        key: this.zsetKey,
+        instanceId: this.instanceId,
+        activeCount: 1,
+        staleAfterMs: SQL_COORD_STALE_MS,
+        heartbeatIntervalMs: SQL_COORD_HEARTBEAT_MS,
+        reconcileIntervalMs: SQL_COORD_RECONCILE_INTERVAL_MS,
+        instances: [
+          {
+            id: this.instanceId,
+            lastSeenAt: new Date().toISOString(),
+            ageMs: 0,
+          },
+        ],
+        serverMaxConnections: null,
+        reserveConnections: null,
+        targetPoolMax: null,
+        lastReconciledAt: null,
+      };
+    }
+
+    const now = Date.now();
+    await this.redis.zremrangebyscore(
+      this.zsetKey,
+      '-inf',
+      now - SQL_COORD_STALE_MS,
+    );
+    const rows = await this.redis.zrange(this.zsetKey, 0, -1, 'WITHSCORES');
+    const instances: Array<{ id: string; lastSeenAt: string; ageMs: number }> =
+      [];
+    for (let i = 0; i < rows.length; i += 2) {
+      const id = rows[i];
+      const score = Number(rows[i + 1]);
+      if (!id || !Number.isFinite(score)) continue;
+      instances.push({
+        id,
+        lastSeenAt: new Date(score).toISOString(),
+        ageMs: Math.max(0, now - score),
+      });
+    }
+
+    return {
+      enabled: true,
+      key: this.zsetKey,
+      instanceId: this.instanceId,
+      activeCount: Math.max(1, instances.length),
+      staleAfterMs: SQL_COORD_STALE_MS,
+      heartbeatIntervalMs: SQL_COORD_HEARTBEAT_MS,
+      reconcileIntervalMs: SQL_COORD_RECONCILE_INTERVAL_MS,
+      instances,
+      serverMaxConnections: this.lastServerMaxConnections,
+      reserveConnections: this.lastReserveConnections,
+      targetPoolMax:
+        this.lastAppliedTarget >= 0 ? this.lastAppliedTarget : null,
+      lastReconciledAt: this.lastReconciledAt,
+    };
+  }
+
   private async fetchServerMaxConnections(): Promise<number | null> {
     try {
       if (this.databaseConfigService.isPostgres()) {
@@ -176,10 +255,12 @@ export class SqlPoolClusterCoordinatorService {
         return;
       }
       const activeCount = await this.countActiveInstances();
+      this.lastServerMaxConnections = serverMax;
       const reserve = Math.max(
         SQL_COORD_RESERVE_MIN,
         Math.floor(serverMax * SQL_COORD_RESERVE_RATIO),
       );
+      this.lastReserveConnections = reserve;
       let target = computeCoordinatedPoolMax({
         serverMaxConnections: serverMax,
         activeInstanceCount: activeCount,
@@ -191,9 +272,11 @@ export class SqlPoolClusterCoordinatorService {
         target = Math.max(minPerProcess, target);
       }
       if (target === this.lastAppliedTarget) {
+        this.lastReconciledAt = new Date().toISOString();
         return;
       }
       this.lastAppliedTarget = target;
+      this.lastReconciledAt = new Date().toISOString();
       if (
         this.replicationManager &&
         this.knexService.coordinatesPoolViaReplication()

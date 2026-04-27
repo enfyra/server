@@ -1,8 +1,10 @@
 import { Logger } from '../../../shared/logger';
 import { KnexService } from '../knex.service';
 import { MetadataCacheService } from '../../cache';
-import { QueryBuilderService } from '../../../kernel/query';
-import { getForeignKeyColumnName } from '../../../kernel/query';
+import {
+  QueryBuilderService,
+  getForeignKeyColumnName,
+} from '../../../kernel/query';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { analyzeRelationChanges } from '../utils/migration/relation-changes';
 import {

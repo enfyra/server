@@ -6,7 +6,7 @@ import { ExtendedKnex } from './types/knex-extended.types';
 import { KnexEntityManager } from './entity-manager';
 import { FieldStripper } from './utils/field-stripper';
 import { parseDatabaseUri } from './utils/uri-parser';
-import { DatabaseConfigService } from '../../shared/services';
+import { DatabaseConfigService, EnvService } from '../../shared/services';
 import { ReplicationManager } from './services/replication-manager.service';
 import { KnexHookManagerService } from './services/knex-hook-manager.service';
 import { LifecycleAware } from '../../shared/interfaces/lifecycle-aware.interface';
@@ -15,7 +15,6 @@ import {
   SQL_BOOTSTRAP_POOL_MAX_TOTAL,
   SQL_BOOTSTRAP_POOL_MIN,
 } from '../../shared/utils/auto-scaling.constants';
-import { EnvService } from '../../shared/services';
 
 export class KnexService implements LifecycleAware {
   private knexInstance: Knex;
@@ -185,6 +184,9 @@ export class KnexService implements LifecycleAware {
   }
 
   async onDestroy(): Promise<void> {
+    if (this.coordinatesPoolViaReplication()) {
+      return;
+    }
     this.logger.log('Destroying Knex connection...');
     if (this.knexInstance) {
       await this.knexInstance.destroy();
@@ -318,6 +320,21 @@ export class KnexService implements LifecycleAware {
     p.min = nextMin;
     p.max = nextMax;
     this.logger.log(`SQL pool coordinated: max=${nextMax} min=${nextMin}`);
+  }
+
+  getPoolStats() {
+    const pool = this.knexInstance?.client?.pool;
+    if (!pool) return null;
+    return {
+      used: typeof pool.numUsed === 'function' ? pool.numUsed() : 0,
+      free: typeof pool.numFree === 'function' ? pool.numFree() : 0,
+      pending:
+        typeof pool.numPendingAcquires === 'function'
+          ? pool.numPendingAcquires()
+          : 0,
+      min: typeof pool.min === 'number' ? pool.min : null,
+      max: typeof pool.max === 'number' ? pool.max : null,
+    };
   }
 
   getKnex(): ExtendedKnex {

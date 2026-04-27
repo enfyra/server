@@ -1,7 +1,6 @@
 import { createHash } from 'crypto';
 import * as jwt from 'jsonwebtoken';
-import { AuthService } from 'src/domain/auth';
-import { BcryptService } from 'src/domain/auth';
+import { AuthService, BcryptService } from 'src/domain/auth';
 import { QueryBuilderService } from 'src/kernel/query';
 import { EnvService } from 'src/shared/services';
 

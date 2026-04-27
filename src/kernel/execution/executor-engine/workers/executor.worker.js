@@ -21,7 +21,17 @@ let packageRuntimeCounter = 0;
 
 const SCRIPT_CACHE_MAX = 500;
 const HEAP_SAMPLE_INTERVAL_MS = 5_000;
+const CONTEXT_POOL_MAX_PER_ISOLATE = 32;
 const isolateCaches = new WeakMap();
+const contextPackageKeys = new WeakMap();
+const contextPackageMaps = new WeakMap();
+const contextStats = {
+  created: 0,
+  reused: 0,
+  released: 0,
+  evicted: 0,
+  scrubFailed: 0,
+};
 let isolatePool = null;
 let isolatePoolIdx = 0;
 let lastHeapSampleAt = 0;
@@ -33,12 +43,13 @@ async function sampleHeapRatio() {
   lastHeapSampleAt = now;
   if (!isolatePool) return 0;
   let max = 0;
-  for (const iso of isolatePool) {
+  for (const entry of isolatePool) {
+    const iso = entry?.isolate;
     if (!iso || iso.isDisposed) continue;
     try {
       const s = await iso.getHeapStatistics();
       const limit = s.heap_size_limit || 1;
-      const ratio = s.total_heap_size / limit;
+      const ratio = s.used_heap_size / limit;
       if (ratio > max) max = ratio;
     } catch {}
   }
@@ -48,7 +59,16 @@ async function sampleHeapRatio() {
 
 async function postResultMessage(msg) {
   msg.heapRatio = await sampleHeapRatio();
+  msg.contextStats = getContextStats();
   parentPort.postMessage(msg);
+}
+
+function getContextStats() {
+  let idle = 0;
+  if (isolatePool) {
+    for (const entry of isolatePool) idle += entry?.idleContexts?.length || 0;
+  }
+  return { ...contextStats, idle };
 }
 
 function getOrCreateIsolate(memoryLimitMb, poolSize) {
@@ -57,12 +77,15 @@ function getOrCreateIsolate(memoryLimitMb, poolSize) {
     isolatePool = new Array(size).fill(null);
   }
   const idx = isolatePoolIdx++ % isolatePool.length;
-  let isolate = isolatePool[idx];
-  if (!isolate || isolate.isDisposed) {
-    isolate = new ivm.Isolate({ memoryLimit: memoryLimitMb });
-    isolatePool[idx] = isolate;
+  let entry = isolatePool[idx];
+  if (!entry || !entry.isolate || entry.isolate.isDisposed) {
+    entry = {
+      isolate: new ivm.Isolate({ memoryLimit: memoryLimitMb }),
+      idleContexts: [],
+    };
+    isolatePool[idx] = entry;
   }
-  return isolate;
+  return entry;
 }
 
 async function getCachedScript(isolate, code, filename) {
@@ -257,10 +280,10 @@ async function loadEsmPackageIntoContext(isolate, context, sourceCode, safeName)
 
 const SETUP_CODE_TEMPLATE = `
 "use strict";
-const $ctx = __snapshot;
-const $pkgs = {};
-%%PKG_SETUP%%
-$ctx.$pkgs = $pkgs;
+let $ctx = {};
+let $pkgs = {};
+let __taskId = null;
+let __logs = [];
 
 const __applyOpts = { result: { promise: true, copy: true } };
 
@@ -276,7 +299,7 @@ function __parseMainThreadResult(s) {
 }
 
 async function __call(type, dataJson) {
-  const r = await __callRef.apply(undefined, [type, dataJson], __applyOpts);
+  const r = await __callRef.apply(undefined, [__taskId, type, dataJson], __applyOpts);
   return __parseMainThreadResult(r);
 }
 
@@ -306,57 +329,7 @@ function __extractResult(result, isAbsent) {
   return JSON.stringify(out);
 }
 
-$ctx.$repos = new Proxy({}, {
-  get: (_, table) => new Proxy({}, {
-    get: (_, method) => async (...args) =>
-      __call('repoCall', JSON.stringify({ table: String(table), method: String(method), argsJson: JSON.stringify(args) }))
-  })
-});
-
-$ctx.$helpers = new Proxy({}, {
-  get: (_, name) => {
-    const basePath = String(name);
-    const fn = async (...args) =>
-      __call('helpersCall', JSON.stringify({ name: basePath, argsJson: JSON.stringify(args) }));
-    return new Proxy(fn, {
-      get: (_, subName) => async (...args) =>
-        __call('helpersCall', JSON.stringify({ name: basePath + '.' + String(subName), argsJson: JSON.stringify(args) }))
-    });
-  }
-});
-
-$ctx.$socket = new Proxy({}, {
-  get: (_, method) => async (...args) =>
-    __call('socketCall', JSON.stringify({ method: String(method), argsJson: JSON.stringify(args) }))
-});
-
-$ctx.$cache = new Proxy({}, {
-  get: (_, method) => async (...args) =>
-    __call('cacheCall', JSON.stringify({ method: String(method), argsJson: JSON.stringify(args) }))
-});
-
-$ctx.$trigger = async (...args) =>
-  __call('dispatchCall', JSON.stringify({ method: 'trigger', argsJson: JSON.stringify(args) }));
-
 const __throwDefaults = { 400: 'Bad request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not found', 409: 'Conflict', 422: 'Validation failed', 429: 'Too many requests', 500: 'Internal server error', 503: 'Service unavailable' };
-$ctx.$throw = new Proxy({}, {
-  get: (_, status) => (message, details) => {
-    const code = parseInt(String(status));
-    const msg = (message !== undefined && message !== null && message !== '') ? String(message) : (__throwDefaults[code] || 'Error');
-    const payload = JSON.stringify({ __userThrow: true, statusCode: code, message: msg, details: details || null });
-    throw new Error(payload);
-  }
-});
-
-const __logs = [];
-$ctx.$logs = (...args) => {
-  for (const a of args) {
-    try { __logs.push(JSON.parse(JSON.stringify(a))); }
-    catch { __logs.push(String(a)); }
-  }
-};
-$ctx.$share = $ctx.$share || {};
-$ctx.$share.$logs = __logs;
 
 function __createPkgHandleProxy(handlePromise, path) {
   const fn = function (...args) {
@@ -418,9 +391,99 @@ const console = {
   error: (...a) => $ctx.$logs(...a),
   info: (...a) => $ctx.$logs(...a),
 };
+
+function __resetTask(snapshot, taskId) {
+  $ctx = snapshot || {};
+  $pkgs = {};
+  __taskId = taskId;
+  __logs = [];
+  %%PKG_SETUP%%
+  $ctx.$pkgs = $pkgs;
+  $ctx.$share = $ctx.$share || {};
+  $ctx.$share.$logs = __logs;
+  $ctx.$repos = new Proxy({}, {
+    get: (_, table) => new Proxy({}, {
+      get: (_, method) => async (...args) =>
+        __call('repoCall', JSON.stringify({ table: String(table), method: String(method), argsJson: JSON.stringify(args) }))
+    })
+  });
+  $ctx.$helpers = new Proxy({}, {
+    get: (_, name) => {
+      const basePath = String(name);
+      const fn = async (...args) =>
+        __call('helpersCall', JSON.stringify({ name: basePath, argsJson: JSON.stringify(args) }));
+      return new Proxy(fn, {
+        get: (_, subName) => async (...args) =>
+          __call('helpersCall', JSON.stringify({ name: basePath + '.' + String(subName), argsJson: JSON.stringify(args) }))
+      });
+    }
+  });
+  $ctx.$socket = new Proxy({}, {
+    get: (_, method) => async (...args) =>
+      __call('socketCall', JSON.stringify({ method: String(method), argsJson: JSON.stringify(args) }))
+  });
+  $ctx.$cache = new Proxy({}, {
+    get: (_, method) => async (...args) =>
+      __call('cacheCall', JSON.stringify({ method: String(method), argsJson: JSON.stringify(args) }))
+  });
+  $ctx.$trigger = async (...args) =>
+    __call('dispatchCall', JSON.stringify({ method: 'trigger', argsJson: JSON.stringify(args) }));
+  $ctx.$throw = new Proxy({}, {
+    get: (_, status) => (message, details) => {
+      const code = parseInt(String(status));
+      const msg = (message !== undefined && message !== null && message !== '') ? String(message) : (__throwDefaults[code] || 'Error');
+      const payload = JSON.stringify({ __userThrow: true, statusCode: code, message: msg, details: details || null });
+      throw new Error(payload);
+    }
+  });
+  $ctx.$logs = (...args) => {
+    for (const a of args) {
+      try { __logs.push(JSON.parse(JSON.stringify(a))); }
+      catch { __logs.push(String(a)); }
+    }
+  };
+}
+
+const __baselineGlobalKeys = new Set(Reflect.ownKeys(globalThis));
+const __baselineObjectPrototypeKeys = new Set(Reflect.ownKeys(Object.prototype));
+const __baselineArrayPrototypeKeys = new Set(Reflect.ownKeys(Array.prototype));
+const __baselineFunctionPrototypeKeys = new Set(Reflect.ownKeys(Function.prototype));
+
+function __deleteExtraKeys(target, baseline) {
+  for (const key of Reflect.ownKeys(target)) {
+    if (baseline.has(key)) continue;
+    try { delete target[key]; } catch {}
+  }
+}
+
+function __cleanupTask() {
+  __deleteExtraKeys(globalThis, __baselineGlobalKeys);
+  __deleteExtraKeys(Object.prototype, __baselineObjectPrototypeKeys);
+  __deleteExtraKeys(Array.prototype, __baselineArrayPrototypeKeys);
+  __deleteExtraKeys(Function.prototype, __baselineFunctionPrototypeKeys);
+  $ctx = {};
+  $pkgs = {};
+  __taskId = null;
+  __logs = [];
+  return true;
+}
 `;
 
-async function prepareContext(isolate, id, pkgSources, snapshot) {
+function getPackageKey(pkgSources) {
+  const hashString = (value) => {
+    let hash = 2166136261;
+    for (let i = 0; i < value.length; i++) {
+      hash ^= value.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  };
+  return pkgSources
+    .map((pkg) => `${pkg.name}:${pkg.version || ''}:${hashString(pkg.sourceCode || '')}`)
+    .join('|');
+}
+
+async function createPreparedContext(isolate, id, pkgSources) {
   const context = await isolate.createContext();
   const jail = context.global;
   await jail.set('global', jail.derefInto());
@@ -442,24 +505,22 @@ async function prepareContext(isolate, id, pkgSources, snapshot) {
   }
   taskPackages.set(id, packageMap);
 
-  await jail.set('__snapshot', new ivm.ExternalCopy(snapshot).copyInto());
-
   await jail.set(
     '__callRef',
-    new ivm.Reference(async (type, dataJson) => {
+    new ivm.Reference(async (taskId, type, dataJson) => {
       const data = JSON.parse(dataJson);
       if (type === 'pkgCall') {
-        return JSON.stringify(await executePackageRuntimeCall(id, data));
+        return JSON.stringify(await executePackageRuntimeCall(taskId, data));
       }
-      return callMain(id, type, data);
+      return callMain(taskId, type, data);
     }),
   );
 
   await jail.set(
     '__fireRef',
-    new ivm.Reference((type, dataJson) => {
+    new ivm.Reference((taskId, type, dataJson) => {
       const data = JSON.parse(dataJson);
-      fireMain(id, type, data);
+      fireMain(taskId, type, data);
     }),
   );
 
@@ -476,7 +537,70 @@ async function prepareContext(isolate, id, pkgSources, snapshot) {
   const setupScript = await getCachedScript(isolate, setupCode, 'setup.js');
   await setupScript.run(context, { timeout: 5000 });
 
+  contextPackageKeys.set(context, getPackageKey(pkgSources));
+  contextPackageMaps.set(context, packageMap);
   return context;
+}
+
+async function prepareContext(entry, id, pkgSources, snapshot) {
+  const isolate = entry.isolate;
+  const pkgKey = getPackageKey(pkgSources);
+  let context = null;
+  for (let i = entry.idleContexts.length - 1; i >= 0; i--) {
+    const candidate = entry.idleContexts[i];
+    entry.idleContexts.splice(i, 1);
+    if (contextPackageKeys.get(candidate) === pkgKey) {
+      context = candidate;
+      contextStats.reused++;
+      break;
+    }
+    try {
+      candidate.release();
+    } catch {}
+  }
+  if (!context) {
+    context = await createPreparedContext(isolate, id, pkgSources);
+    contextStats.created++;
+  }
+
+  taskPackages.set(id, contextPackageMaps.get(context) || new Map());
+  const jail = context.global;
+  await jail.set('__snapshot', new ivm.ExternalCopy(snapshot).copyInto());
+  await jail.set('__nextTaskId', id);
+  const resetScript = await getCachedScript(
+    isolate,
+    '__resetTask(__snapshot, __nextTaskId);',
+    'reset-task.js',
+  );
+  await resetScript.run(context, { timeout: 5000 });
+  return context;
+}
+
+async function releaseContext(entry, context) {
+  if (!context || entry.isolate.isDisposed) return;
+  try {
+    const cleanupScript = await getCachedScript(
+      entry.isolate,
+      '__cleanupTask();',
+      'cleanup-task.js',
+    );
+    await cleanupScript.run(context, { timeout: 5000 });
+  } catch {
+    contextStats.scrubFailed++;
+    try {
+      context.release();
+    } catch {}
+    return;
+  }
+  if (entry.idleContexts.length >= CONTEXT_POOL_MAX_PER_ISOLATE) {
+    try {
+      context.release();
+    } catch {}
+    contextStats.evicted++;
+    return;
+  }
+  entry.idleContexts.push(context);
+  contextStats.released++;
 }
 
 function extractThrowInfo(error) {
@@ -547,8 +671,9 @@ async function postError(id, error) {
 async function handleExecute(msg) {
   const { id, code, pkgSources, snapshot, memoryLimitMb, isolatePoolSize } = msg;
   const timeoutMs = Math.max(1, Math.trunc(Number(msg.timeoutMs) || 30000));
-  const isolate = getOrCreateIsolate(memoryLimitMb, isolatePoolSize);
-  const context = await prepareContext(isolate, id, pkgSources, snapshot);
+  const entry = getOrCreateIsolate(memoryLimitMb, isolatePoolSize);
+  const isolate = entry.isolate;
+  const context = await prepareContext(entry, id, pkgSources, snapshot);
 
   try {
     const wrappedCode = `
@@ -566,6 +691,7 @@ async function handleExecute(msg) {
   } catch (error) {
     await postError(id, error);
   } finally {
+    await releaseContext(entry, context);
     cleanupTaskPackages(id);
   }
 }
@@ -573,8 +699,9 @@ async function handleExecute(msg) {
 async function handleExecuteBatch(msg) {
   const { id, codeBlocks, pkgSources, snapshot, memoryLimitMb, isolatePoolSize } = msg;
   const totalTimeoutMs = Math.max(1, Math.trunc(Number(msg.timeoutMs) || 30000));
-  const isolate = getOrCreateIsolate(memoryLimitMb, isolatePoolSize);
-  const context = await prepareContext(isolate, id, pkgSources, snapshot);
+  const entry = getOrCreateIsolate(memoryLimitMb, isolatePoolSize);
+  const isolate = entry.isolate;
+  const context = await prepareContext(entry, id, pkgSources, snapshot);
 
   const preHooksAndHandler = [];
   const postHooks = [];
@@ -731,6 +858,7 @@ if ($ctx.$api) {
   } catch (error) {
     await postError(id, error);
   } finally {
+    await releaseContext(entry, context);
     cleanupTaskPackages(id);
   }
 }

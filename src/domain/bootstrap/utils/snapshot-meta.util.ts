@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import type { FkRelationInfo } from '../types';
 
 let cachedSnapshot: Record<string, any> | null = null;
 
@@ -12,13 +13,6 @@ export function getSnapshot(): Record<string, any> {
 
 export function getTableDef(tableName: string): any | null {
   return getSnapshot()[tableName] ?? null;
-}
-
-export interface FkRelationInfo {
-  propertyName: string;
-  targetTable: string;
-  type: string;
-  lookupKey: string;
 }
 
 const LOOKUP_KEY_MAP: Record<string, string> = {

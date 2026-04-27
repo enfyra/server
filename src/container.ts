@@ -12,148 +12,201 @@ import { Queue } from 'bullmq';
 import { env } from './env';
 import { SYSTEM_QUEUES } from './shared/utils/constant';
 
-import { BcryptService } from './domain/auth';
-import { AuthService } from './domain/auth';
-import { OAuthService } from './domain/auth';
-import { SessionCleanupService } from './domain/auth';
-import { UserRevocationService } from './domain/auth';
+type QueueWithConnection = Queue & { __enfyraConnection?: Redis };
 
-import { BootstrapScriptDefinitionProcessor } from './domain/bootstrap';
-import { ExtensionDefinitionProcessor } from './domain/bootstrap';
-import { FlowDefinitionProcessor } from './domain/bootstrap';
-import { FlowExecutionDefinitionProcessor } from './domain/bootstrap';
-import { FlowStepDefinitionProcessor } from './domain/bootstrap';
-import { FolderDefinitionProcessor } from './domain/bootstrap';
-import { GenericTableProcessor } from './domain/bootstrap';
-import { GraphQLDefinitionProcessor } from './domain/bootstrap';
-import { HookDefinitionProcessor } from './domain/bootstrap';
-import { MenuDefinitionProcessor } from './domain/bootstrap';
-import { MethodDefinitionProcessor } from './domain/bootstrap';
-import { PostHookDefinitionProcessor } from './domain/bootstrap';
-import { PreHookDefinitionProcessor } from './domain/bootstrap';
-import { FieldPermissionDefinitionProcessor } from './domain/bootstrap';
-import { RouteDefinitionProcessor } from './domain/bootstrap';
-import { RouteHandlerDefinitionProcessor } from './domain/bootstrap';
-import { RoutePermissionDefinitionProcessor } from './domain/bootstrap';
-import { SettingDefinitionProcessor } from './domain/bootstrap';
-import { UserDefinitionProcessor } from './domain/bootstrap';
-import { WebsocketDefinitionProcessor } from './domain/bootstrap';
-import { WebsocketEventDefinitionProcessor } from './domain/bootstrap';
+function createRuntimeQueue(name: string): QueueWithConnection {
+  const connection = new Redis(env.REDIS_URI);
+  const queue = new Queue(name, {
+    prefix: `${env.NODE_NAME}:`,
+    connection,
+  }) as QueueWithConnection;
+  queue.__enfyraConnection = connection;
+  return queue;
+}
 
-import { BootstrapScriptService } from './domain/bootstrap';
-import { DataMigrationService } from './engine/bootstrap';
-import { DataProvisionService } from './engine/bootstrap';
-import { FirstRunInitializer } from './engine/bootstrap';
-import { MetadataMigrationService } from './engine/bootstrap';
-import { MetadataProvisionMongoService } from './engine/bootstrap';
-import { MetadataProvisionSqlService } from './engine/bootstrap';
-import { MetadataProvisionService } from './engine/bootstrap';
-import { MetadataRepairService } from './engine/bootstrap';
-import { ProvisionService } from './engine/bootstrap';
+async function closeRuntimeQueue(queue: QueueWithConnection): Promise<void> {
+  await queue.close();
+  queue.__enfyraConnection?.disconnect();
+}
+
+import {
+  BcryptService,
+  AuthService,
+  OAuthService,
+  SessionCleanupService,
+  UserRevocationService,
+} from './domain/auth';
+
+import {
+  BootstrapScriptDefinitionProcessor,
+  ExtensionDefinitionProcessor,
+  FlowDefinitionProcessor,
+  FlowExecutionDefinitionProcessor,
+  FlowStepDefinitionProcessor,
+  FolderDefinitionProcessor,
+  GenericTableProcessor,
+  GraphQLDefinitionProcessor,
+  HookDefinitionProcessor,
+  MenuDefinitionProcessor,
+  MethodDefinitionProcessor,
+  PostHookDefinitionProcessor,
+  PreHookDefinitionProcessor,
+  FieldPermissionDefinitionProcessor,
+  RouteDefinitionProcessor,
+  RouteHandlerDefinitionProcessor,
+  RoutePermissionDefinitionProcessor,
+  SettingDefinitionProcessor,
+  UserDefinitionProcessor,
+  WebsocketDefinitionProcessor,
+  WebsocketEventDefinitionProcessor,
+  BootstrapScriptService,
+} from './domain/bootstrap';
+
+import {
+  DataMigrationService,
+  DataProvisionService,
+  FirstRunInitializer,
+  MetadataMigrationService,
+  MetadataProvisionMongoService,
+  MetadataProvisionSqlService,
+  MetadataProvisionService,
+  MetadataRepairService,
+  ProvisionService,
+} from './engine/bootstrap';
 
 import { LoggingService } from './domain/exceptions';
 
-import { PolicyService } from './domain/policy';
-import { SchemaMigrationValidatorService } from './domain/policy';
-import { SystemSafetyAuditorService } from './domain/policy';
+import {
+  PolicyService,
+  SchemaMigrationValidatorService,
+  SystemSafetyAuditorService,
+} from './domain/policy';
 
-import { CacheOrchestratorService } from './engine/cache';
-import { CacheService } from './engine/cache';
-import { FieldPermissionCacheService } from './engine/cache';
-import { ColumnRuleCacheService } from './engine/cache';
-import { FlowCacheService } from './engine/cache';
-import { FolderTreeCacheService } from './engine/cache';
-import { GqlDefinitionCacheService } from './engine/cache';
-import { GuardCacheService } from './engine/cache';
-import { GuardEvaluatorService } from './engine/cache';
-import { MetadataCacheService } from './engine/cache';
-import { OAuthConfigCacheService } from './engine/cache';
-import { PackageCacheService } from './engine/cache';
-import { PackageCdnLoaderService } from './engine/cache';
-import { RateLimitService } from './engine/cache';
-import { RedisPubSubService } from './engine/cache';
-import { RepoRegistryService } from './engine/cache';
-import { DynamicRepositoryFactory } from './modules/dynamic-api';
-import { RouteCacheService } from './engine/cache';
-import { SettingCacheService } from './engine/cache';
-import { StorageConfigCacheService } from './engine/cache';
-import { WebsocketCacheService } from './engine/cache';
+import {
+  CacheOrchestratorService,
+  CacheService,
+  FieldPermissionCacheService,
+  ColumnRuleCacheService,
+  FlowCacheService,
+  FolderTreeCacheService,
+  GqlDefinitionCacheService,
+  GuardCacheService,
+  GuardEvaluatorService,
+  MetadataCacheService,
+  OAuthConfigCacheService,
+  PackageCacheService,
+  PackageCdnLoaderService,
+  RateLimitService,
+  RedisPubSubService,
+  RepoRegistryService,
+  RouteCacheService,
+  SettingCacheService,
+  StorageConfigCacheService,
+  WebsocketCacheService,
+} from './engine/cache';
+import {
+  DynamicRepositoryFactory,
+  DynamicService,
+  DynamicApiTableValidationService,
+} from './modules/dynamic-api';
 
-import { ExecutorEngineService } from './kernel/execution';
-import { IsolatedExecutorService } from './kernel/execution';
+import {
+  ExecutorEngineService,
+  IsolatedExecutorService,
+} from './kernel/execution';
 
-import { KnexService } from './engine/knex';
-import { KnexHookManagerService } from './engine/knex';
-import { MigrationJournalService } from './engine/knex';
-import { ReplicationManager } from './engine/knex';
-import { SchemaMigrationLockService } from './engine/knex';
-import { SqlPoolClusterCoordinatorService } from './engine/knex';
-import { SqlSchemaDiffService } from './engine/knex';
-import { SqlSchemaMigrationService } from './engine/knex';
-import { DatabaseSchemaService } from './engine/knex';
+import {
+  KnexService,
+  KnexHookManagerService,
+  MigrationJournalService,
+  ReplicationManager,
+  SchemaMigrationLockService,
+  SqlPoolClusterCoordinatorService,
+  SqlSchemaDiffService,
+  SqlSchemaMigrationService,
+  DatabaseSchemaService,
+} from './engine/knex';
 
-import { MongoMigrationJournalService } from './engine/mongo';
-import { MongoOperationLogService } from './engine/mongo';
-import { MongoRelationManagerService } from './engine/mongo';
-import { MongoSagaCoordinator } from './engine/mongo';
-import { MongoSagaLockService } from './engine/mongo';
-import { MongoSchemaDiffService } from './engine/mongo';
-import { MongoSchemaMigrationLockService } from './engine/mongo';
-import { MongoSchemaMigrationService } from './engine/mongo';
-import { MongoService } from './engine/mongo';
+import {
+  MongoMigrationJournalService,
+  MongoOperationLogService,
+  MongoRelationManagerService,
+  MongoSagaCoordinator,
+  MongoSagaLockService,
+  MongoSchemaDiffService,
+  MongoSchemaMigrationLockService,
+  MongoSchemaMigrationService,
+  MongoService,
+} from './engine/mongo';
 
-import { QueryBuilderService } from './kernel/query';
-
-import { MongoQueryEngine } from './kernel/query';
-import { QueryEngine } from './kernel/query';
-import { SqlQueryEngine } from './kernel/query';
+import {
+  QueryBuilderService,
+  MongoQueryEngine,
+  QueryEngine,
+  SqlQueryEngine,
+} from './kernel/query';
 
 import { SqlFunctionService } from './engine/sql';
 
-import { LogReaderService } from './modules/admin';
+import {
+  LogReaderService,
+  RuntimeMonitorService,
+  RuntimeDbMetricsService,
+  RuntimeProcessMetricsService,
+  RuntimeQueueMetricsService,
+} from './modules/admin';
 
-import { DynamicService } from './modules/dynamic-api';
-import { DynamicApiTableValidationService } from './modules/dynamic-api';
+import {
+  FileManagementService,
+  FileAssetsService,
+  GCSStorageService,
+  LocalStorageService,
+  R2StorageService,
+  S3StorageService,
+  StorageFactoryService,
+} from './modules/file-management';
 
-import { FileManagementService } from './modules/file-management';
-import { FileAssetsService } from './modules/file-management';
-import { GCSStorageService } from './modules/file-management';
-import { LocalStorageService } from './modules/file-management';
-import { R2StorageService } from './modules/file-management';
-import { S3StorageService } from './modules/file-management';
-import { StorageFactoryService } from './modules/file-management';
+import {
+  FlowExecutionQueueService,
+  FlowQueueMaintenanceService,
+  FlowSchedulerService,
+  FlowService,
+} from './modules/flow';
 
-import { FlowExecutionQueueService } from './modules/flow';
-import { FlowSchedulerService } from './modules/flow';
-import { FlowService } from './modules/flow';
-
-import { GraphqlService } from './modules/graphql';
-import { DynamicResolver } from './modules/graphql';
+import { GraphqlService, DynamicResolver } from './modules/graphql';
 
 import { MeService } from './modules/me';
 
-import { MongoMetadataSnapshotService } from './modules/table-management';
-import { MongoTableHandlerService } from './modules/table-management';
-import { SqlTableHandlerService } from './modules/table-management';
-import { SqlTableMetadataBuilderService } from './modules/table-management';
-import { SqlTableMetadataWriterService } from './modules/table-management';
-import { TableHandlerService } from './modules/table-management';
-import { TableManagementValidationService } from './modules/table-management';
+import {
+  MongoMetadataSnapshotService,
+  MongoTableHandlerService,
+  SqlTableHandlerService,
+  SqlTableMetadataBuilderService,
+  SqlTableMetadataWriterService,
+  TableHandlerService,
+  TableManagementValidationService,
+} from './modules/table-management';
 
-import { WebsocketGatewayFactory } from './modules/websocket';
-import { DynamicWebSocketGateway } from './modules/websocket';
-import { ConnectionQueueService } from './modules/websocket';
-import { EventQueueService } from './modules/websocket';
-import { BuiltInSocketRegistry } from './modules/websocket';
-import { WebsocketEmitService } from './modules/websocket';
-import { WebsocketContextFactory } from './modules/websocket';
+import {
+  WebsocketGatewayFactory,
+  DynamicWebSocketGateway,
+  ConnectionQueueService,
+  EventQueueService,
+  BuiltInSocketRegistry,
+  WebsocketEmitService,
+  WebsocketContextFactory,
+} from './modules/websocket';
 
 import { CommonService } from './shared/common';
-import { DatabaseConfigService } from './shared/services';
+import {
+  DatabaseConfigService,
+  EnvService,
+  InstanceService,
+  DynamicContextFactory,
+  RuntimeMetricsCollectorService,
+  ClusterTelemetryService,
+} from './shared/services';
 import { UploadFileHelper } from './shared/helpers';
-import { EnvService } from './shared/services';
-import { InstanceService } from './shared/services';
-import { DynamicContextFactory } from './shared/services';
 
 export interface Cradle {
   envService: EnvService;
@@ -164,6 +217,8 @@ export interface Cradle {
   databaseConfigService: DatabaseConfigService;
   instanceService: InstanceService;
   dynamicContextFactory: DynamicContextFactory;
+  runtimeMetricsCollectorService: RuntimeMetricsCollectorService;
+  clusterTelemetryService: ClusterTelemetryService;
   configService: any;
   lazyRef: Cradle;
   bcryptService: BcryptService;
@@ -248,11 +303,16 @@ export interface Cradle {
   uploadFileHelper: UploadFileHelper;
 
   logReaderService: LogReaderService;
+  runtimeMonitorService: RuntimeMonitorService;
+  runtimeDbMetricsService: RuntimeDbMetricsService;
+  runtimeProcessMetricsService: RuntimeProcessMetricsService;
+  runtimeQueueMetricsService: RuntimeQueueMetricsService;
   meService: MeService;
   graphqlService: GraphqlService;
   dynamicResolver: DynamicResolver;
 
   flowService: FlowService;
+  flowQueueMaintenanceService: FlowQueueMaintenanceService;
   flowSchedulerService: FlowSchedulerService;
   flowExecutionQueueService: FlowExecutionQueueService;
 
@@ -326,42 +386,44 @@ export function buildContainer(): AwilixContainer<Cradle> {
     eventEmitter: asValue(
       new EventEmitter2({ wildcard: true, maxListeners: 50 }),
     ),
-    redis: asValue(new Redis(env.REDIS_URI)),
+    redis: asFunction(() => new Redis(env.REDIS_URI))
+      .singleton()
+      .disposer((redis) => redis.disconnect()),
 
-    flowQueue: asValue(
-      new Queue(SYSTEM_QUEUES.FLOW_EXECUTION, {
-        prefix: `${env.NODE_NAME}:`,
-        connection: new Redis(env.REDIS_URI),
-      }),
-    ),
-    wsConnectionQueue: asValue(
-      new Queue(SYSTEM_QUEUES.WS_CONNECTION, {
-        prefix: `${env.NODE_NAME}:`,
-        connection: new Redis(env.REDIS_URI),
-      }),
-    ),
-    wsEventQueue: asValue(
-      new Queue(SYSTEM_QUEUES.WS_EVENT, {
-        prefix: `${env.NODE_NAME}:`,
-        connection: new Redis(env.REDIS_URI),
-      }),
-    ),
-    cleanupQueue: asValue(
-      new Queue(SYSTEM_QUEUES.SESSION_CLEANUP, {
-        prefix: `${env.NODE_NAME}:`,
-        connection: new Redis(env.REDIS_URI),
-      }),
-    ),
+    flowQueue: asFunction(() =>
+      createRuntimeQueue(SYSTEM_QUEUES.FLOW_EXECUTION),
+    )
+      .singleton()
+      .disposer((queue) => closeRuntimeQueue(queue)),
+    wsConnectionQueue: asFunction(() =>
+      createRuntimeQueue(SYSTEM_QUEUES.WS_CONNECTION),
+    )
+      .singleton()
+      .disposer((queue) => closeRuntimeQueue(queue)),
+    wsEventQueue: asFunction(() => createRuntimeQueue(SYSTEM_QUEUES.WS_EVENT))
+      .singleton()
+      .disposer((queue) => closeRuntimeQueue(queue)),
+    cleanupQueue: asFunction(() =>
+      createRuntimeQueue(SYSTEM_QUEUES.SESSION_CLEANUP),
+    )
+      .singleton()
+      .disposer((queue) => closeRuntimeQueue(queue)),
 
     commonService: asClass(CommonService).singleton(),
     databaseConfigService: asClass(DatabaseConfigService).singleton(),
     lazyRef: asFunction((cradle) => cradle).singleton(),
     instanceService: asClass(InstanceService).singleton(),
     dynamicContextFactory: asClass(DynamicContextFactory).singleton(),
+    runtimeMetricsCollectorService: asClass(
+      RuntimeMetricsCollectorService,
+    ).singleton(),
+    clusterTelemetryService: asClass(ClusterTelemetryService).singleton(),
     bcryptService: asClass(BcryptService).singleton(),
     authService: asClass(AuthService).singleton(),
     oauthService: asClass(OAuthService).singleton(),
-    sessionCleanupService: asClass(SessionCleanupService).singleton(),
+    sessionCleanupService: asClass(SessionCleanupService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     userRevocationService: asClass(UserRevocationService).singleton(),
     loggingService: asClass(LoggingService).singleton(),
     policyService: asClass(PolicyService).singleton(),
@@ -370,7 +432,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     ).singleton(),
     systemSafetyAuditorService: asClass(SystemSafetyAuditorService).singleton(),
 
-    mongoService: asClass(MongoService).singleton(),
+    mongoService: asClass(MongoService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     mongoSchemaMigrationService: asClass(
       MongoSchemaMigrationService,
     ).singleton(),
@@ -387,7 +451,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
           instanceService: cradle.instanceService,
           cacheService: cradle.cacheService,
         }),
-    ).singleton(),
+    )
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     mongoOperationLogService: asClass(MongoOperationLogService).singleton(),
     mongoMigrationJournalService: asClass(
       MongoMigrationJournalService,
@@ -397,17 +463,21 @@ export function buildContainer(): AwilixContainer<Cradle> {
       MongoRelationManagerService,
     ).singleton(),
 
-    knexService: asClass(KnexService).singleton(),
+    knexService: asClass(KnexService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     knexHookManagerService: asClass(KnexHookManagerService).singleton(),
-    replicationManager: asClass(ReplicationManager).singleton(),
+    replicationManager: asClass(ReplicationManager)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     sqlSchemaMigrationService: asClass(SqlSchemaMigrationService).singleton(),
     sqlSchemaDiffService: asClass(SqlSchemaDiffService).singleton(),
     migrationJournalService: asClass(MigrationJournalService).singleton(),
     databaseSchemaService: asClass(DatabaseSchemaService).singleton(),
     schemaMigrationLockService: asClass(SchemaMigrationLockService).singleton(),
-    sqlPoolClusterCoordinatorService: asClass(
-      SqlPoolClusterCoordinatorService,
-    ).singleton(),
+    sqlPoolClusterCoordinatorService: asClass(SqlPoolClusterCoordinatorService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     sqlFunctionService: asClass(SqlFunctionService).singleton(),
 
     queryBuilderService: asClass(QueryBuilderService).singleton(),
@@ -415,11 +485,15 @@ export function buildContainer(): AwilixContainer<Cradle> {
     sqlQueryEngine: asClass(SqlQueryEngine).singleton(),
     mongoQueryEngine: asClass(MongoQueryEngine).singleton(),
 
-    isolatedExecutorService: asClass(IsolatedExecutorService).singleton(),
+    isolatedExecutorService: asClass(IsolatedExecutorService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     executorEngineService: asClass(ExecutorEngineService).singleton(),
 
     cacheService: asClass(CacheService).singleton(),
-    redisPubSubService: asClass(RedisPubSubService).singleton(),
+    redisPubSubService: asClass(RedisPubSubService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     metadataCacheService: asClass(MetadataCacheService).singleton(),
     routeCacheService: asClass(RouteCacheService).singleton(),
     packageCacheService: asClass(PackageCacheService).singleton(),
@@ -440,7 +514,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     gqlDefinitionCacheService: asClass(GqlDefinitionCacheService).singleton(),
     repoRegistryService: asClass(RepoRegistryService).singleton(),
     dynamicRepositoryFactory: asClass(DynamicRepositoryFactory).singleton(),
-    cacheOrchestratorService: asClass(CacheOrchestratorService).singleton(),
+    cacheOrchestratorService: asClass(CacheOrchestratorService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
 
     tableHandlerService: asClass(TableHandlerService)
       .singleton()
@@ -479,21 +555,38 @@ export function buildContainer(): AwilixContainer<Cradle> {
     uploadFileHelper: asClass(UploadFileHelper).singleton(),
 
     logReaderService: asClass(LogReaderService).singleton(),
+    runtimeDbMetricsService: asClass(RuntimeDbMetricsService).singleton(),
+    runtimeProcessMetricsService: asClass(RuntimeProcessMetricsService)
+      .singleton()
+      .disposer((service) => service.disable()),
+    runtimeQueueMetricsService: asClass(RuntimeQueueMetricsService).singleton(),
+    runtimeMonitorService: asClass(RuntimeMonitorService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     meService: asClass(MeService).singleton(),
     graphqlService: asClass(GraphqlService).singleton(),
     dynamicResolver: asClass(DynamicResolver).singleton(),
 
     flowService: asClass(FlowService).singleton(),
+    flowQueueMaintenanceService: asClass(
+      FlowQueueMaintenanceService,
+    ).singleton(),
     flowSchedulerService: asClass(FlowSchedulerService).singleton(),
     flowExecutionQueueService: asClass(FlowExecutionQueueService)
       .singleton()
       .disposer((service) => service.onDestroy()),
 
     builtInSocketRegistry: asClass(BuiltInSocketRegistry).singleton(),
-    dynamicWebSocketGateway: asClass(DynamicWebSocketGateway).singleton(),
+    dynamicWebSocketGateway: asClass(DynamicWebSocketGateway)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     websocketGatewayFactory: asClass(WebsocketGatewayFactory).singleton(),
-    connectionQueueService: asClass(ConnectionQueueService).singleton(),
-    eventQueueService: asClass(EventQueueService).singleton(),
+    connectionQueueService: asClass(ConnectionQueueService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
+    eventQueueService: asClass(EventQueueService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     websocketEmitService: asClass(WebsocketEmitService).singleton(),
     websocketContextFactory: asClass(WebsocketContextFactory).singleton(),
 

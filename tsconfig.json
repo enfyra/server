@@ -7,8 +7,11 @@
     "esModuleInterop": true,
     "target": "ES2022",
     "sourceMap": false,
+    "rootDir": "./src",
     "outDir": "./dist",
-    "baseUrl": "./",
+    "paths": {
+      "src/*": ["./src/*"]
+    },
     "incremental": true,
     "skipLibCheck": true,
     "strictNullChecks": false,
