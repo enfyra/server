@@ -77,18 +77,31 @@ describe('ClusterTelemetryService', () => {
     const serviceA = new ClusterTelemetryService({
       redis: redis as any,
       instanceService: { getInstanceId: () => 'a' } as any,
+      envService: { get: () => 'app-a' } as any,
     });
     const serviceB = new ClusterTelemetryService({
       redis: redis as any,
       instanceService: { getInstanceId: () => 'b' } as any,
+      envService: { get: () => 'app-a' } as any,
     });
 
-    await serviceA.publish('runtime', { requests: 1 }, { ttlMs: 5000, sampledAt: 't1' });
-    await serviceB.publish('runtime', { requests: 2 }, { ttlMs: 5000, sampledAt: 't2' });
+    await serviceA.publish(
+      'runtime',
+      { requests: 1 },
+      { ttlMs: 5000, sampledAt: 't1' },
+    );
+    await serviceB.publish(
+      'runtime',
+      { requests: 2 },
+      { ttlMs: 5000, sampledAt: 't2' },
+    );
 
-    const cluster = await serviceA.readCluster<{ requests: number }>('runtime', {
-      ttlMs: 5000,
-    });
+    const cluster = await serviceA.readCluster<{ requests: number }>(
+      'runtime',
+      {
+        ttlMs: 5000,
+      },
+    );
     expect(cluster.instances).toEqual([
       { instanceId: 'a', sampledAt: 't1', payload: { requests: 1 } },
       { instanceId: 'b', sampledAt: 't2', payload: { requests: 2 } },
@@ -100,14 +113,70 @@ describe('ClusterTelemetryService', () => {
     const service = new ClusterTelemetryService({
       redis: redis as any,
       instanceService: { getInstanceId: () => 'a' } as any,
+      envService: { get: () => 'app-a' } as any,
     });
 
     vi.spyOn(Date, 'now').mockReturnValue(1000);
-    await service.publish('runtime', { ok: true }, { ttlMs: 1000, sampledAt: 't1' });
+    await service.publish(
+      'runtime',
+      { ok: true },
+      { ttlMs: 1000, sampledAt: 't1' },
+    );
 
     vi.spyOn(Date, 'now').mockReturnValue(2501);
     const cluster = await service.readCluster('runtime', { ttlMs: 1000 });
 
     expect(cluster.instances).toEqual([]);
+  });
+
+  it('isolates telemetry by NODE_NAME when apps share Redis', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1000);
+    const redis = new FakeRedis();
+    const appA = new ClusterTelemetryService({
+      redis: redis as any,
+      instanceService: { getInstanceId: () => 'same-instance' } as any,
+      envService: { get: () => 'app-a' } as any,
+    });
+    const appB = new ClusterTelemetryService({
+      redis: redis as any,
+      instanceService: { getInstanceId: () => 'same-instance' } as any,
+      envService: { get: () => 'app-b' } as any,
+    });
+
+    await appA.publish(
+      'runtime',
+      { app: 'a' },
+      { ttlMs: 5000, sampledAt: 't1' },
+    );
+    await appB.publish(
+      'runtime',
+      { app: 'b' },
+      { ttlMs: 5000, sampledAt: 't2' },
+    );
+
+    await expect(appA.readCluster('runtime', { ttlMs: 5000 })).resolves.toEqual(
+      {
+        ttlMs: 5000,
+        instances: [
+          {
+            instanceId: 'same-instance',
+            sampledAt: 't1',
+            payload: { app: 'a' },
+          },
+        ],
+      },
+    );
+    await expect(appB.readCluster('runtime', { ttlMs: 5000 })).resolves.toEqual(
+      {
+        ttlMs: 5000,
+        instances: [
+          {
+            instanceId: 'same-instance',
+            sampledAt: 't2',
+            payload: { app: 'b' },
+          },
+        ],
+      },
+    );
   });
 });

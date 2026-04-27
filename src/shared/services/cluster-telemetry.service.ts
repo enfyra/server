@@ -1,22 +1,33 @@
 import { Redis } from 'ioredis';
 import { InstanceService } from './instance.service';
+import { EnvService } from './env.service';
 import type { ClusterTelemetryRecord } from '../types';
 
 export class ClusterTelemetryService {
   private readonly redis: Redis;
   private readonly instanceService: InstanceService;
+  private readonly nodeName: string;
 
-  constructor(deps: { redis: Redis; instanceService: InstanceService }) {
+  constructor(deps: {
+    redis: Redis;
+    instanceService: InstanceService;
+    envService: EnvService;
+  }) {
     this.redis = deps.redis;
     this.instanceService = deps.instanceService;
+    this.nodeName = deps.envService.get('NODE_NAME') || 'enfyra';
+  }
+
+  private keyPrefix() {
+    return `${this.nodeName}:cluster-telemetry`;
   }
 
   private payloadKey(namespace: string, instanceId: string) {
-    return `cluster-telemetry:${namespace}:${instanceId}:payload`;
+    return `${this.keyPrefix()}:${namespace}:${instanceId}:payload`;
   }
 
   private instancesKey(namespace: string) {
-    return `cluster-telemetry:${namespace}:instances`;
+    return `${this.keyPrefix()}:${namespace}:instances`;
   }
 
   async publish<T>(
@@ -24,7 +35,8 @@ export class ClusterTelemetryService {
     payload: T,
     options: { ttlMs: number; sampledAt?: string; instanceId?: string },
   ): Promise<void> {
-    const instanceId = options.instanceId ?? this.instanceService.getInstanceId();
+    const instanceId =
+      options.instanceId ?? this.instanceService.getInstanceId();
     const sampledAt = options.sampledAt ?? new Date().toISOString();
     const now = Date.now();
     const instancesKey = this.instancesKey(namespace);
