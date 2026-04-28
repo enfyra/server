@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import { EventEmitter2 } from 'eventemitter2';
 import { PackageCacheService, PackageCdnLoaderService } from '../../src/engines/cache';
+import { CACHE_EVENTS } from '../../src/shared/utils/cache-events.constants';
 
 function response(body: string, ok = true, status = 200) {
   return {
@@ -115,6 +116,52 @@ describe('PackageCdnLoaderService', () => {
 });
 
 describe('PackageCacheService CDN preload', () => {
+  it('does not start CDN preload during cache reload until the system is ready', async () => {
+    const eventEmitter = new EventEmitter2();
+    const queryBuilderService = {
+      find: vi.fn(async (args: any) => {
+        if (args.fields?.includes('name') && !args.fields?.includes('version')) {
+          return { data: [{ name: 'node-ssh' }] };
+        }
+        return {
+          data: [
+            {
+              id: 7,
+              name: 'node-ssh',
+              version: '13.2.1',
+              status: 'installing',
+            },
+          ],
+        };
+      }),
+      update: vi.fn(async () => undefined),
+    };
+    const packageCdnLoaderService = {
+      isLoaded: vi.fn(() => false),
+      loadPackage: vi.fn(async () => ({})),
+    };
+    const packageCache = new PackageCacheService({
+      queryBuilderService: queryBuilderService as any,
+      eventEmitter,
+      packageCdnLoaderService: packageCdnLoaderService as any,
+      lazyRef: { dynamicWebSocketGateway: {} } as any,
+    });
+
+    await packageCache.reload();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(packageCdnLoaderService.loadPackage).not.toHaveBeenCalled();
+
+    eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
+    await new Promise((resolve) => setImmediate(resolve));
+    await vi.waitFor(() => {
+      expect(packageCdnLoaderService.loadPackage).toHaveBeenCalledWith(
+        'node-ssh',
+        '13.2.1',
+      );
+    });
+  });
+
   it('retries packages left in installing state and marks them installed', async () => {
     const queryBuilderService = {
       find: vi.fn(async () => ({

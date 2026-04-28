@@ -1,10 +1,23 @@
 'use strict';
 
+const { createPackageRuntimeCodec } = require('./package-runtime-codec');
+
 const moduleCache = new Map();
 const handles = new Map();
 const pendingCallbackCalls = new Map();
 let handleCounter = 0;
 let callbackCounter = 0;
+
+const {
+  createPackageHandle,
+  deserializePackageArg,
+  deserializePackageArgs,
+  serializePackageValue,
+} = createPackageRuntimeCodec({
+  handles,
+  createHandleId: (taskId) => `${taskId}:pkg_${++handleCounter}`,
+  callIsolateCallback,
+});
 
 async function importPackage(pkg) {
   const cacheKey = pkg.fileUrl || pkg.name;
@@ -47,88 +60,23 @@ function resolvePackageTarget(root, path) {
   return { target: current, receiver };
 }
 
-function serializePackageValue(taskId, value) {
-  if (value === undefined || value === null) return value;
-  const valueType = typeof value;
-  if (valueType === 'string' || valueType === 'number' || valueType === 'boolean') return value;
-  if (Array.isArray(value)) return value;
-  if (valueType === 'object' && isPlainObject(value)) {
-    try {
-      JSON.stringify(value);
-      return value;
-    } catch {}
-  }
-  const handleId = `${taskId}:pkg_${++handleCounter}`;
-  handles.set(handleId, value);
-  return { __pkgHandle: handleId };
-}
-
-function isPlainObject(value) {
-  if (value === null || typeof value !== 'object') return false;
-  const proto = Object.getPrototypeOf(value);
-  if (proto !== Object.prototype && proto !== null) return false;
-  return !Object.values(value).some((item) => typeof item === 'function');
-}
-
-function createPackageHandle(taskId, value) {
-  const handleId = `${taskId}:pkg_${++handleCounter}`;
-  handles.set(handleId, value);
-  return { __pkgHandle: handleId };
-}
-
 function callIsolateCallback(taskId, callbackId, args) {
   return new Promise((resolve, reject) => {
     const id = `cb_${++callbackCounter}`;
-    pendingCallbackCalls.set(id, { resolve, reject });
+    pendingCallbackCalls.set(id, { resolve, reject, taskId });
     try {
       process.send?.({
         type: 'pkgCallbackCall',
         id,
         taskId,
         callbackId,
-        argsJson: JSON.stringify(args),
+        argsJson: JSON.stringify(args.map((arg) => serializePackageValue(taskId, arg))),
       });
     } catch (error) {
       pendingCallbackCalls.delete(id);
       reject(error);
     }
   });
-}
-
-function deserializePackageArg(taskId, value) {
-  if (!value || typeof value !== 'object') return value;
-  if (value.__fnRef) {
-    return (...args) => callIsolateCallback(taskId, value.__fnRef, args);
-  }
-  if (value.__pkgHandleArg) {
-    const handle = handles.get(value.__pkgHandleArg);
-    if (!handle) throw new Error(`Package argument handle not found: ${value.__pkgHandleArg}`);
-    return handle;
-  }
-  if (value.__date) {
-    return new Date(value.__date);
-  }
-  if (value.__typedArray) {
-    const Ctor = globalThis[value.__typedArray] || Uint8Array;
-    return new Ctor(value.data || []);
-  }
-  if (value.__arrayBuffer) {
-    return Uint8Array.from(value.__arrayBuffer).buffer;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => deserializePackageArg(taskId, item));
-  }
-  const out = {};
-  for (const [key, item] of Object.entries(value)) {
-    out[key] = deserializePackageArg(taskId, item);
-  }
-  return out;
-}
-
-function deserializePackageArgs(taskId, argsJson) {
-  return JSON.parse(argsJson || '[]').map((arg) =>
-    deserializePackageArg(taskId, arg),
-  );
 }
 
 async function executePackageCall(msg) {
@@ -143,6 +91,16 @@ async function executePackageCall(msg) {
     }
     const result = await target.apply(receiver || root, args);
     return serializePackageValue(msg.taskId, result);
+  }
+
+  if (msg.op === 'handleGet') {
+    const root = handles.get(msg.handleId);
+    if (!root) throw new Error(`Package handle not found: ${msg.handleId}`);
+    const { target, receiver } = resolvePackageTarget(root, msg.path || []);
+    return serializePackageValue(
+      msg.taskId,
+      typeof target === 'function' && receiver ? target.bind(receiver) : target,
+    );
   }
 
   const mod = await importPackage(msg.package);
@@ -176,7 +134,7 @@ process.on('message', async (msg) => {
     if (!pending) return;
     pendingCallbackCalls.delete(msg.id);
     if (msg.type === 'pkgCallbackResult') {
-      pending.resolve(msg.value);
+      pending.resolve(deserializePackageArg(pending.taskId, msg.value));
     } else {
       pending.reject(new Error(msg.error?.message || 'Package callback failed'));
     }

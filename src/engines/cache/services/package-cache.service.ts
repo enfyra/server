@@ -7,7 +7,10 @@ import {
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
 import { getErrorMessage } from '../../../shared/utils/error.util';
-import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+import {
+  CACHE_EVENTS,
+  CACHE_IDENTIFIERS,
+} from '../../../shared/utils/cache-events.constants';
 import type { Cradle } from '../../../container';
 
 const PACKAGE_CONFIG: CacheConfig = {
@@ -22,6 +25,10 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   private readonly queryBuilderService: QueryBuilderService;
   private readonly packageCdnLoaderService: PackageCdnLoaderService;
   private readonly lazyRef: Cradle;
+  private systemReady = false;
+  private preloadScheduled = false;
+  private preloadRunning = false;
+  private preloadRequested = false;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
@@ -33,6 +40,12 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     this.queryBuilderService = deps.queryBuilderService;
     this.lazyRef = deps.lazyRef;
     this.packageCdnLoaderService = deps.packageCdnLoaderService;
+    deps.eventEmitter.once(CACHE_EVENTS.SYSTEM_READY, () => {
+      this.systemReady = true;
+      if (this.preloadRequested) {
+        this.schedulePackagePreload();
+      }
+    });
   }
 
   protected async loadFromDb(): Promise<string[]> {
@@ -58,8 +71,31 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   }
 
   protected async afterTransform(): Promise<void> {
-    this.preloadPackagesFromCdn().catch((error) => {
-      this.logger.error(`CDN preload failed (non-blocking): ${error.message}`);
+    this.schedulePackagePreload();
+  }
+
+  private schedulePackagePreload(): void {
+    this.preloadRequested = true;
+    if (!this.systemReady) return;
+    if (this.preloadScheduled || this.preloadRunning) return;
+
+    this.preloadScheduled = true;
+    setImmediate(() => {
+      this.preloadScheduled = false;
+      this.preloadRunning = true;
+      this.preloadRequested = false;
+      this.preloadPackagesFromCdn()
+        .catch((error) => {
+          this.logger.error(
+            `CDN preload failed (non-blocking): ${getErrorMessage(error)}`,
+          );
+        })
+        .finally(() => {
+          this.preloadRunning = false;
+          if (this.preloadRequested) {
+            this.schedulePackagePreload();
+          }
+        });
     });
   }
 

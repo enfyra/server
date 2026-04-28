@@ -3,7 +3,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { pathToFileURL } from 'url';
-import { createHash } from 'crypto';
+import {
+  applyDependencyHintToCdnSpecifier,
+  getCdnDependencyFilePath,
+  injectNodeEsmGlobals,
+  isNativeCdnImport,
+  NATIVE_CDN_STUB_SOURCE,
+  parseCdnPackageSpecifier,
+  resolveCdnImportSpecifier,
+  suppressMissingModuleConsoleErrors,
+  toRelativeImport,
+  type CdnDependencyHints,
+} from '../utils/package-cdn-loader.util';
 
 const CDN_BASE = 'https://esm.sh';
 const CACHE_DIR = path.join(os.tmpdir(), 'enfyra-pkg-cache');
@@ -12,16 +23,8 @@ const DEPS_DIR = 'deps';
 const MANIFEST_FILE = 'manifest.json';
 const CDN_FETCH_TIMEOUT_MS = 20_000;
 const CDN_IMPORT_TIMEOUT_MS = 10_000;
-const NATIVE_CDN_STUB_SOURCE =
-  'export function getCPUInfo() { return {}; }\nexport default { getCPUInfo };\n';
 type CdnBundleTarget = 'node' | 'es2022';
-type CdnDependencyHints = Map<string, string>;
-type ParsedCdnPackageSpecifier = {
-  name: string;
-  version: string | null;
-  packagePath: string;
-  query: string;
-};
+type CdnPreparedModules = Map<string, Promise<string>>;
 
 export function extractErrorMessage(error: any): string {
   const parts: string[] = [];
@@ -243,6 +246,7 @@ export class PackageCdnLoaderService {
       tempDir,
       tempDir,
       new Set<string>(),
+      new Map<string, Promise<string>>(),
       dependencyHints,
     );
 
@@ -269,64 +273,62 @@ export class PackageCdnLoaderService {
     fs.renameSync(tempDir, packageDir);
   }
 
-  private getCdnDependencyFilePath(
-    specifier: string,
-    name: string,
-    version: string,
-    packageDir = this.getPackageArtifactDir(name, version),
-  ): string {
-    const withoutQuery = specifier.split('?')[0] || specifier;
-    const basename = path.basename(withoutQuery) || 'index';
-    const safeBase = basename.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const hash = createHash('sha1')
-      .update(specifier)
-      .digest('hex')
-      .slice(0, 12);
-    return path.join(packageDir, DEPS_DIR, `cdn-${hash}-${safeBase}.mjs`);
-  }
-
   private async fetchAndPrepareCdnModule(
     specifier: string,
     name: string,
     version: string,
     packageDir = this.getPackageArtifactDir(name, version),
     currentDir = packageDir,
-    seen = new Set<string>(),
+    activeStack = new Set<string>(),
+    preparedModules: CdnPreparedModules = new Map(),
     dependencyHints: CdnDependencyHints = new Map(),
   ): Promise<string> {
-    specifier = this.applyDependencyHintToCdnSpecifier(
+    specifier = applyDependencyHintToCdnSpecifier(
       specifier,
       dependencyHints,
     );
-    if (seen.has(specifier)) {
-      const existingPath = this.getCdnDependencyFilePath(
+    if (activeStack.has(specifier)) {
+      const existingPath = getCdnDependencyFilePath(
         specifier,
-        name,
-        version,
         packageDir,
+        DEPS_DIR,
       );
       if (fs.existsSync(existingPath)) {
         return fs.readFileSync(existingPath, 'utf-8');
       }
       return '';
     }
-    seen.add(specifier);
+    const existingPrepare = preparedModules.get(specifier);
+    if (existingPrepare) return existingPrepare;
 
-    let code = await this.loadModuleSource(specifier);
-    await this.collectDependencyHintsForSpecifier(specifier, dependencyHints);
-    code = this.suppressMissingModuleConsoleErrors(code);
-    code = this.injectNodeEsmGlobals(code);
-    code = await this.rewriteCdnSpecifiers(
-      code,
-      specifier,
-      name,
-      version,
-      packageDir,
-      currentDir,
-      seen,
-      dependencyHints,
-    );
-    return code;
+    const prepare = (async () => {
+      activeStack.add(specifier);
+      try {
+        let code = await this.loadModuleSource(specifier);
+        await this.collectDependencyHintsForSpecifier(
+          specifier,
+          dependencyHints,
+        );
+        code = suppressMissingModuleConsoleErrors(code);
+        code = injectNodeEsmGlobals(code);
+        code = await this.rewriteCdnSpecifiers(
+          code,
+          specifier,
+          name,
+          version,
+          packageDir,
+          currentDir,
+          activeStack,
+          preparedModules,
+          dependencyHints,
+        );
+        return code;
+      } finally {
+        activeStack.delete(specifier);
+      }
+    })();
+    preparedModules.set(specifier, prepare);
+    return prepare;
   }
 
   private async loadModuleSource(specifier: string): Promise<string> {
@@ -371,7 +373,8 @@ export class PackageCdnLoaderService {
     version: string,
     packageDir: string,
     currentDir: string,
-    seen: Set<string>,
+    activeStack: Set<string>,
+    preparedModules: CdnPreparedModules,
     dependencyHints: CdnDependencyHints,
   ): Promise<string> {
     const importPattern =
@@ -381,30 +384,31 @@ export class PackageCdnLoaderService {
       specifiers.add(match[2]);
     }
 
-    for (const specifier of specifiers) {
-      const resolvedSpecifier = this.resolveCdnImportSpecifier(
-        specifier,
-        sourceSpecifier,
-      );
-      await this.collectDependencyHintsForSpecifier(
-        resolvedSpecifier,
-        dependencyHints,
-      );
-    }
+    await Promise.all(
+      [...specifiers].map((specifier) => {
+        const resolvedSpecifier = resolveCdnImportSpecifier(
+          specifier,
+          sourceSpecifier,
+        );
+        return this.collectDependencyHintsForSpecifier(
+          resolvedSpecifier,
+          dependencyHints,
+        );
+      }),
+    );
 
     const replacements = new Map<string, string>();
-    for (const specifier of specifiers) {
-      const resolvedSpecifier = this.applyDependencyHintToCdnSpecifier(
-        this.resolveCdnImportSpecifier(specifier, sourceSpecifier),
+    await Promise.all([...specifiers].map(async (specifier) => {
+      const resolvedSpecifier = applyDependencyHintToCdnSpecifier(
+        resolveCdnImportSpecifier(specifier, sourceSpecifier),
         dependencyHints,
       );
-      const depPath = this.getCdnDependencyFilePath(
+      const depPath = getCdnDependencyFilePath(
         resolvedSpecifier,
-        name,
-        version,
         packageDir,
+        DEPS_DIR,
       );
-      if (this.isNativeCdnImport(resolvedSpecifier)) {
+      if (isNativeCdnImport(resolvedSpecifier)) {
         fs.writeFileSync(depPath, NATIVE_CDN_STUB_SOURCE, 'utf-8');
       } else if (!fs.existsSync(depPath)) {
         const depCode = await this.fetchAndPrepareCdnModule(
@@ -413,13 +417,14 @@ export class PackageCdnLoaderService {
           version,
           packageDir,
           path.dirname(depPath),
-          seen,
+          new Set(activeStack),
+          preparedModules,
           dependencyHints,
         );
         fs.writeFileSync(depPath, depCode, 'utf-8');
       }
-      replacements.set(specifier, this.toRelativeImport(depPath, currentDir));
-    }
+      replacements.set(specifier, toRelativeImport(depPath, currentDir));
+    }));
 
     return code.replace(importPattern, (full, prefix, specifier, suffix) => {
       const replacement = replacements.get(specifier);
@@ -427,81 +432,11 @@ export class PackageCdnLoaderService {
     });
   }
 
-  private resolveCdnImportSpecifier(
-    specifier: string,
-    sourceSpecifier: string,
-  ): string {
-    if (!specifier.startsWith('./') && !specifier.startsWith('../')) {
-      return specifier;
-    }
-    if (sourceSpecifier.startsWith('file://')) {
-      const sourceUrl = new URL(sourceSpecifier);
-      const resolved = new URL(specifier, sourceUrl);
-      return resolved.href;
-    }
-    const [sourcePath, sourceQuery] = sourceSpecifier.split('?');
-    const resolvedPath = path.posix.normalize(
-      path.posix.join(path.posix.dirname(sourcePath || '/'), specifier),
-    );
-    return sourceQuery ? `${resolvedPath}?${sourceQuery}` : resolvedPath;
-  }
-
-  private isNativeCdnImport(specifier: string): boolean {
-    return specifier.split('?')[0].endsWith('.node');
-  }
-
-  private parseCdnPackageSpecifier(
-    specifier: string,
-  ): ParsedCdnPackageSpecifier | null {
-    if (!specifier.startsWith('/')) return null;
-    const [packagePath, query = ''] = specifier.split('?');
-    const parts = packagePath.split('/').filter(Boolean);
-    if (parts.length === 0) return null;
-
-    let name: string;
-    let version: string | null = null;
-    if (parts[0].startsWith('@')) {
-      if (!parts[1]) return null;
-      const versionIndex = parts[1].lastIndexOf('@');
-      name =
-        versionIndex > 0
-          ? `${parts[0]}/${parts[1].slice(0, versionIndex)}`
-          : `${parts[0]}/${parts[1]}`;
-      version = versionIndex > 0 ? parts[1].slice(versionIndex + 1) : null;
-    } else {
-      const versionIndex = parts[0].lastIndexOf('@');
-      name = versionIndex > 0 ? parts[0].slice(0, versionIndex) : parts[0];
-      version = versionIndex > 0 ? parts[0].slice(versionIndex + 1) : null;
-    }
-
-    return { name, version, packagePath, query };
-  }
-
-  private applyDependencyHintToCdnSpecifier(
-    specifier: string,
-    dependencyHints: CdnDependencyHints,
-  ): string {
-    const parsed = this.parseCdnPackageSpecifier(specifier);
-    if (!parsed || parsed.version) return specifier;
-
-    const hintedVersion = dependencyHints.get(parsed.name);
-    if (!hintedVersion) return specifier;
-
-    const prefix = parsed.name.startsWith('@')
-      ? `/${parsed.name}@${hintedVersion}`
-      : `/${parsed.name}@${hintedVersion}`;
-    const nameParts = parsed.name.split('/');
-    const pathParts = parsed.packagePath.split('/').filter(Boolean);
-    const rest = pathParts.slice(nameParts.length).join('/');
-    const hintedPath = rest ? `${prefix}/${rest}` : prefix;
-    return parsed.query ? `${hintedPath}?${parsed.query}` : hintedPath;
-  }
-
   private async collectDependencyHintsForSpecifier(
     specifier: string,
     dependencyHints: CdnDependencyHints,
   ): Promise<void> {
-    const parsed = this.parseCdnPackageSpecifier(specifier);
+    const parsed = parseCdnPackageSpecifier(specifier);
     if (!parsed?.version) return;
     const cacheKey = `${parsed.name}@${parsed.version}`;
     let dependencies = this.dependencyManifestCache.get(cacheKey);
@@ -524,11 +459,6 @@ export class PackageCdnLoaderService {
         dependencyHints.set(dependencyName, dependencyVersion);
       }
     }
-  }
-
-  private toRelativeImport(depPath: string, currentDir: string): string {
-    const relative = path.relative(currentDir, depPath);
-    return relative.startsWith('.') ? relative : `./${relative}`;
   }
 
   private shouldFallbackToWorkerRuntime(error: any): boolean {
@@ -559,13 +489,16 @@ export class PackageCdnLoaderService {
     try {
       return await this.importFromFile(filePath, name);
     } catch (retryError) {
-      if (target === 'node' && this.isEsmReExportCycleError(retryError)) {
+      if (target === 'node') {
         this.deletePackageArtifacts(name);
         await this.fetchAndWriteBundle(name, version, 'es2022');
         try {
           return await this.importFromFile(filePath, name);
         } catch (es2022Error) {
-          if (this.shouldFallbackToWorkerRuntime(es2022Error)) {
+          if (
+            this.shouldFallbackToWorkerRuntime(retryError) ||
+            this.shouldFallbackToWorkerRuntime(es2022Error)
+          ) {
             return { __enfyraRuntime: 'worker', name, version };
           }
           throw es2022Error;
@@ -576,26 +509,6 @@ export class PackageCdnLoaderService {
       }
       throw retryError;
     }
-  }
-
-  private suppressMissingModuleConsoleErrors(code: string): string {
-    return code.replace(
-      /default:console\.error\('module "'\+n\+'" not found'\);return null;/g,
-      'default:return null;',
-    );
-  }
-
-  private injectNodeEsmGlobals(code: string): string {
-    if (!code.includes('__dirname') && !code.includes('__filename')) {
-      return code;
-    }
-    return [
-      'import { fileURLToPath as __enfyraFileURLToPath } from "node:url";',
-      'import { dirname as __enfyraDirname } from "node:path";',
-      'const __filename = __enfyraFileURLToPath(import.meta.url);',
-      'const __dirname = __enfyraDirname(__filename);',
-      code,
-    ].join('\n');
   }
 
   private async importFromFile(filePath: string, name: string): Promise<any> {
