@@ -124,7 +124,6 @@ import {
   SqlPoolClusterCoordinatorService,
   SqlSchemaDiffService,
   SqlSchemaMigrationService,
-  DatabaseSchemaService,
 } from './engines/knex';
 
 import {
@@ -242,7 +241,6 @@ export interface Cradle {
   sqlSchemaMigrationService: SqlSchemaMigrationService;
   sqlSchemaDiffService: SqlSchemaDiffService;
   migrationJournalService: MigrationJournalService;
-  databaseSchemaService: DatabaseSchemaService;
   schemaMigrationLockService: SchemaMigrationLockService;
   sqlPoolClusterCoordinatorService: SqlPoolClusterCoordinatorService;
   sqlFunctionService: SqlFunctionService;
@@ -465,7 +463,6 @@ export function buildContainer(): AwilixContainer<Cradle> {
     sqlSchemaMigrationService: asClass(SqlSchemaMigrationService).singleton(),
     sqlSchemaDiffService: asClass(SqlSchemaDiffService).singleton(),
     migrationJournalService: asClass(MigrationJournalService).singleton(),
-    databaseSchemaService: asClass(DatabaseSchemaService).singleton(),
     schemaMigrationLockService: asClass(SchemaMigrationLockService).singleton(),
     sqlPoolClusterCoordinatorService: asClass(SqlPoolClusterCoordinatorService)
       .singleton()

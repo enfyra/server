@@ -1,4 +1,3 @@
-export * from './database-schema.service';
 export * from './knex-hook-manager.service';
 export * from './migration-journal.service';
 export * from './replication-manager.service';

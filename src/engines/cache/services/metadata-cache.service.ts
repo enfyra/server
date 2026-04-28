@@ -1,7 +1,6 @@
 import { DatabaseConfigService } from '../../../shared/services';
 import { Logger } from '../../../shared/logger';
 import type { Cradle } from '../../../container';
-import { DatabaseSchemaService } from '../../knex';
 import {
   getJunctionTableName,
   getForeignKeyColumnName,
@@ -26,16 +25,13 @@ export class MetadataCacheService implements IMetadataCache {
   private inMemoryCache: EnfyraMetadata | null = null;
   private isLoading: boolean = false;
   private loadingPromise: Promise<void> | null = null;
-  private readonly databaseSchemaService: DatabaseSchemaService;
   private readonly dbType: string;
   private readonly lazyRef: Cradle;
 
   constructor(deps: {
-    databaseSchemaService: DatabaseSchemaService;
     databaseConfigService: DatabaseConfigService;
     lazyRef: Cradle;
   }) {
-    this.databaseSchemaService = deps.databaseSchemaService;
     this.dbType = deps.databaseConfigService.getDbType();
     this.lazyRef = deps.lazyRef;
   }
@@ -166,13 +162,6 @@ export class MetadataCacheService implements IMetadataCache {
       this.loadRelationsBySourceTableIds(uniqueTableIds, isMongoDB),
     ]);
 
-    let schemasForTables: Map<string, any> | null = null;
-    if (!isMongoDB) {
-      const tableNames = tables.map((t: any) => t.name);
-      schemasForTables =
-        await this.databaseSchemaService.getTableSchemas(tableNames);
-    }
-
     const allRelations = relationsResult;
     const relationIdMap = new Map<string, any>();
     for (const rel of allRelations) {
@@ -226,7 +215,6 @@ export class MetadataCacheService implements IMetadataCache {
         columnsByTable,
         relationsBySource,
         globalTableIdToName,
-        schemasForTables,
         isMongoDB,
       );
       if (!metadata) continue;
@@ -270,21 +258,9 @@ export class MetadataCacheService implements IMetadataCache {
     columnsByTable: Map<string, any[]>,
     relationsBySource: Map<string, any[]>,
     tableIdToName: Map<string, string>,
-    schemasForTables: Map<string, any> | null,
     isMongoDB: boolean,
   ): any | null {
     try {
-      let actualSchema = null;
-      if (!isMongoDB) {
-        actualSchema = schemasForTables?.get(table.name);
-        if (!actualSchema) {
-          this.logger.warn(
-            `Table ${table.name} not found in database, skipping...`,
-          );
-          return null;
-        }
-      }
-
       let uniques = [];
       let indexes = [];
       if (table.uniques) {
@@ -375,13 +351,7 @@ export class MetadataCacheService implements IMetadataCache {
           if (rel.mappedBy) {
             relationMetadata.isInverse = true;
           } else {
-            const fkColumn = isMongoDB
-              ? rel.propertyName
-              : getForeignKeyColumnName(rel.propertyName);
-            const hasFkColumn = actualSchema?.columns?.some(
-              (col: any) => col.name === fkColumn,
-            );
-            relationMetadata.isInverse = !hasFkColumn;
+            relationMetadata.isInverse = false;
           }
         } else {
           relationMetadata.isInverse = false;
@@ -440,64 +410,33 @@ export class MetadataCacheService implements IMetadataCache {
 
       const combinedColumns = [...parsedExplicitColumns];
 
-      if (!isMongoDB && actualSchema) {
-        for (const rel of relations) {
-          if (['many-to-one', 'one-to-one'].includes(rel.type)) {
-            const fkColumn = rel.foreignKeyColumn;
-            const existsInExplicit = parsedExplicitColumns.some(
-              (col) => col.name === fkColumn,
-            );
-            if (!existsInExplicit) {
-              const actualFkColumn = actualSchema.columns.find(
-                (col: any) => col.name === fkColumn,
-              );
-              if (actualFkColumn) {
-                combinedColumns.push({
-                  ...actualFkColumn,
-                  isForeignKey: true,
-                  relationPropertyName: rel.propertyName,
-                  isUpdatable: rel.isUpdatable !== false,
-                  description: `FK column for ${rel.propertyName} relation`,
-                });
-              }
-            } else {
-              const explicitFkColumn = combinedColumns.find(
-                (col) => col.name === fkColumn,
-              );
-              if (explicitFkColumn && rel.isUpdatable === false) {
-                explicitFkColumn.isUpdatable = false;
-              }
-            }
-          }
-        }
+      if (!isMongoDB) {
+        this.ensureSqlSystemColumns(combinedColumns);
 
-        const hasCreatedAt = combinedColumns.some(
-          (col) => col.name === 'createdAt',
-        );
-        const hasUpdatedAt = combinedColumns.some(
-          (col) => col.name === 'updatedAt',
-        );
-        if (!hasCreatedAt) {
-          const actualCreatedAt = actualSchema.columns.find(
-            (col: any) => col.name === 'createdAt',
+        for (const rel of relations) {
+          if (
+            !['many-to-one', 'one-to-one'].includes(rel.type) ||
+            rel.isInverse
+          ) {
+            continue;
+          }
+
+          const fkColumn = rel.foreignKeyColumn;
+          const explicitFkColumn = combinedColumns.find(
+            (col) => col.name === fkColumn,
           );
-          if (actualCreatedAt)
-            combinedColumns.push({
-              ...actualCreatedAt,
-              isSystem: true,
-              isUpdatable: false,
-            });
-        }
-        if (!hasUpdatedAt) {
-          const actualUpdatedAt = actualSchema.columns.find(
-            (col: any) => col.name === 'updatedAt',
+          if (explicitFkColumn) {
+            if (rel.isUpdatable === false) {
+              explicitFkColumn.isUpdatable = false;
+            }
+            explicitFkColumn.isForeignKey = true;
+            explicitFkColumn.relationPropertyName = rel.propertyName;
+            continue;
+          }
+
+          combinedColumns.push(
+            this.buildForeignKeyColumn(rel, columnsByTable, tableIdToName),
           );
-          if (actualUpdatedAt)
-            combinedColumns.push({
-              ...actualUpdatedAt,
-              isSystem: true,
-              isUpdatable: false,
-            });
         }
       }
 
@@ -527,6 +466,74 @@ export class MetadataCacheService implements IMetadataCache {
     }
   }
 
+  private ensureSqlSystemColumns(columns: any[]): void {
+    this.ensureColumn(columns, {
+      name: 'createdAt',
+      type: 'datetime',
+      isPrimary: false,
+      isGenerated: false,
+      isNullable: true,
+      isSystem: true,
+      isUpdatable: false,
+      isPublished: true,
+      defaultValue: 'now',
+    });
+    this.ensureColumn(columns, {
+      name: 'updatedAt',
+      type: 'datetime',
+      isPrimary: false,
+      isGenerated: false,
+      isNullable: true,
+      isSystem: true,
+      isUpdatable: false,
+      isPublished: true,
+      defaultValue: 'now',
+    });
+  }
+
+  private ensureColumn(columns: any[], column: any): void {
+    const existing = columns.find((col) => col.name === column.name);
+    if (existing) {
+      if (column.isSystem === true) existing.isSystem = true;
+      if (column.isUpdatable === false) existing.isUpdatable = false;
+      return;
+    }
+    columns.push(column);
+  }
+
+  private buildForeignKeyColumn(
+    relation: any,
+    columnsByTable: Map<string, any[]>,
+    tableIdToName: Map<string, string>,
+  ): any {
+    const targetTableId =
+      relation.targetTableId != null
+        ? String(relation.targetTableId)
+        : [...tableIdToName.entries()].find(
+            ([, name]) => name === relation.targetTableName,
+          )?.[0];
+    const targetColumns = targetTableId
+      ? columnsByTable.get(String(targetTableId)) || []
+      : [];
+    const targetPrimaryColumn = targetColumns.find((col: any) => col.isPrimary);
+
+    return {
+      name: relation.foreignKeyColumn,
+      type: targetPrimaryColumn?.type || 'int',
+      isPrimary: false,
+      isGenerated: false,
+      isNullable: relation.isNullable !== false,
+      isSystem: false,
+      isUpdatable: relation.isUpdatable !== false,
+      isPublished: relation.isPublished !== false,
+      defaultValue: null,
+      options: targetPrimaryColumn?.options ?? null,
+      isForeignKey: true,
+      relationPropertyName: relation.propertyName,
+      description: `FK column for ${relation.propertyName} relation`,
+    };
+  }
+
   private async loadMetadataFromDb(): Promise<EnfyraMetadata> {
     const isMongoDB = this.dbType === 'mongodb';
 
@@ -535,11 +542,6 @@ export class MetadataCacheService implements IMetadataCache {
       this.loadAllColumns(isMongoDB),
       this.loadAllRelations(isMongoDB),
     ]);
-
-    let allSchemas: Map<string, any> | null = null;
-    if (!isMongoDB) {
-      allSchemas = await this.databaseSchemaService.getAllTableSchemas();
-    }
 
     const relationIdMap = new Map<string, any>();
     for (const rel of allRelations) {
@@ -581,7 +583,6 @@ export class MetadataCacheService implements IMetadataCache {
         columnsByTable,
         relationsBySource,
         tableIdToName,
-        allSchemas,
         isMongoDB,
       );
       if (!metadata) continue;
