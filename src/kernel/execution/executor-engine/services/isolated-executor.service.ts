@@ -6,7 +6,7 @@ import { TDynamicContext } from '../../../../shared/types';
 import {
   PackageCacheService,
   PackageCdnLoaderService,
-} from '../../../../engine/cache';
+} from '../../../../engines/cache';
 import { ErrorHandler } from '../utils/error-handler';
 import { ScriptTimeoutException } from '../../../../domain/exceptions';
 import { appendIsolatedExecutorRuntimeLog } from '../utils/executor-runtime-log';

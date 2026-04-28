@@ -9,7 +9,7 @@ import {
   parseDatabaseUri,
   createAllTables,
   syncJunctionTables,
-} from '../src/engine/knex';
+} from '../src/engines/knex';
 import {
   loadSchemaMigration,
   hasSchemaMigrations,

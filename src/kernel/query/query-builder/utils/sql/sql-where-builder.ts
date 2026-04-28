@@ -1,5 +1,5 @@
 import { WhereCondition } from '../../../../../shared/types/query-builder.types';
-import { quoteIdentifier } from '../../../../../engine/knex';
+import { quoteIdentifier } from '../../../../../engines/knex';
 
 export function applyWhereToKnex(
   query: any,

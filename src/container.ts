@@ -72,7 +72,7 @@ import {
   MetadataProvisionService,
   MetadataRepairService,
   ProvisionService,
-} from './engine/bootstrap';
+} from './engines/bootstrap';
 
 import { LoggingService } from './domain/exceptions';
 
@@ -103,7 +103,7 @@ import {
   SettingCacheService,
   StorageConfigCacheService,
   WebsocketCacheService,
-} from './engine/cache';
+} from './engines/cache';
 import {
   DynamicRepositoryFactory,
   DynamicService,
@@ -125,7 +125,7 @@ import {
   SqlSchemaDiffService,
   SqlSchemaMigrationService,
   DatabaseSchemaService,
-} from './engine/knex';
+} from './engines/knex';
 
 import {
   MongoMigrationJournalService,
@@ -137,7 +137,7 @@ import {
   MongoSchemaMigrationLockService,
   MongoSchemaMigrationService,
   MongoService,
-} from './engine/mongo';
+} from './engines/mongo';
 
 import {
   QueryBuilderService,
@@ -146,7 +146,7 @@ import {
   SqlQueryEngine,
 } from './kernel/query';
 
-import { SqlFunctionService } from './engine/sql';
+import { SqlFunctionService } from './engines/sql';
 
 import {
   LogReaderService,

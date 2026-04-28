@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { knex } from 'knex';
 import { MongoClient } from 'mongodb';
-import { parseDatabaseUri } from '../src/engine/knex';
+import { parseDatabaseUri } from '../src/engines/knex';
 import { resolveDbTypeFromEnv } from '../src/shared/utils/resolve-db-type';
 
 dotenv.config();

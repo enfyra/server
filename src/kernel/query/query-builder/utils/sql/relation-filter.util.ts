@@ -1,5 +1,5 @@
 import { Knex } from 'knex';
-import { TableMetadata, quoteIdentifier } from '../../../../../engine/knex';
+import { TableMetadata, quoteIdentifier } from '../../../../../engines/knex';
 import { buildWhereClause } from './build-where-clause';
 import { separateFilters } from '../shared/filter-separator.util';
 

@@ -6,7 +6,7 @@ import {
   fixtureMenuRows,
   fixtureUserRows,
 } from './filter-dsl-metadata';
-import { installMysqlUnaccent } from 'src/engine/sql';
+import { installMysqlUnaccent } from 'src/engines/sql';
 
 export function makeSafeDbName(): string {
   return `enfyra_f_${randomBytes(8).toString('hex')}`;

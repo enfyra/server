@@ -1,5 +1,5 @@
 import { EventEmitter2 } from 'eventemitter2';
-import { CacheOrchestratorService } from 'src/engine/cache';
+import { CacheOrchestratorService } from 'src/engines/cache';
 
 function cacheMock(overrides: Record<string, any> = {}) {
   return {

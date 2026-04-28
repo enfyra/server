@@ -11,7 +11,7 @@ import {
   RepoRegistryService,
   GuardCacheService,
   GuardEvaluatorService,
-} from '../../../engine/cache';
+} from '../../../engines/cache';
 import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
 import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
 import { loadUserWithRole } from '../../../shared/utils/load-user-with-role.util';

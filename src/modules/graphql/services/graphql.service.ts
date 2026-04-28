@@ -13,7 +13,7 @@ import {
   RouteCacheService,
   SettingCacheService,
   GqlDefinitionCacheService,
-} from '../../../engine/cache';
+} from '../../../engines/cache';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { DynamicResolver } from '../resolvers/dynamic.resolver';
 import {

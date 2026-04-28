@@ -2,7 +2,7 @@ import { computeEngineTuning } from 'src/kernel/execution';
 import {
   computeCoordinatedPoolMax,
   splitSqlPoolAcrossReplication,
-} from 'src/engine/knex';
+} from 'src/engines/knex';
 import {
   WORKER_RSS_HIGH,
   WORKER_RSS_LOW,

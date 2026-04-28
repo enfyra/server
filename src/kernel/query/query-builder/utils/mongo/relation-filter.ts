@@ -3,7 +3,7 @@ import {
   hasAnyRelations,
 } from '../shared/filter-separator.util';
 import { renderRawFilterToMongo } from './render-filter';
-import { resolveMongoJunctionInfo } from '../../../../../engine/mongo';
+import { resolveMongoJunctionInfo } from '../../../../../engines/mongo';
 
 export async function buildRelationLookupPipeline(
   metadata: any,

@@ -1,6 +1,6 @@
 import { DatabaseType } from '../../../../../shared/types/query-builder.types';
 import { getForeignKeyColumnName } from '../../../query-dsl/utils/sql-schema-naming.util';
-import { quoteIdentifier } from '../../../../../engine/knex';
+import { quoteIdentifier } from '../../../../../engines/knex';
 import { BatchFetchDescriptor } from './batch-relation-fetcher';
 
 interface FieldExpansionResult {

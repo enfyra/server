@@ -9,8 +9,8 @@ import {
   MongoSchemaMigrationService,
   MongoService,
   MongoSchemaMigrationLockService,
-} from '../../../engine/mongo';
-import { MetadataCacheService } from '../../../engine/cache';
+} from '../../../engines/mongo';
+import { MetadataCacheService } from '../../../engines/cache';
 import {
   LoggingService,
   DatabaseException,

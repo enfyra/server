@@ -1,7 +1,7 @@
 import * as jwt from 'jsonwebtoken';
 import { TDynamicContext } from '../types';
 import { BcryptService } from '../../domain/auth';
-import { CacheService } from '../../engine/cache';
+import { CacheService } from '../../engines/cache';
 import { createFetchHelper } from '../helpers';
 import { autoSlug } from '../utils/auto-slug.helper';
 import { ScriptErrorFactory } from '../utils/script-error-factory';

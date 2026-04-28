@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventEmitter2 } from 'eventemitter2';
-import { RELOAD_CHAINS } from 'src/engine/cache';
+import { RELOAD_CHAINS } from 'src/engines/cache';
 import {
   CACHE_INVALIDATION_MAP,
   CACHE_IDENTIFIERS,
@@ -47,7 +47,7 @@ describe('bodyValidationMiddleware — schema cache invalidation on column-rule 
 
   it('listens for column-rule_LOADED and clears the schema cache', async () => {
     const { bodyValidationMiddleware, invalidateBodyValidationCache } =
-      await import('../../src/http/middleware/body-validation.middleware');
+      await import('../../src/http/middlewares/body-validation.middleware');
 
     const invalidateSpy = vi.fn();
     emitter.on('column-rule_LOADED', invalidateSpy);

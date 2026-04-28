@@ -1,4 +1,4 @@
-import type { FieldPermissionCacheService } from '../../engine/cache';
+import type { FieldPermissionCacheService } from '../../engines/cache';
 import type { PolicyService } from '../../domain/policy';
 import { decideFieldPermission } from './field-permission.util';
 

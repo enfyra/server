@@ -13,7 +13,7 @@ import {
   separateFilters,
   applyRelationFilters,
 } from '../utils/sql/relation-filter.util';
-import { quoteIdentifier, KnexService } from '../../../../engine/knex';
+import { quoteIdentifier, KnexService } from '../../../../engines/knex';
 import { QueryPlan, ResolvedSortItem } from '../../query-dsl/query-plan.types';
 import { renderFilterToKnex } from '../utils/sql/render-filter';
 import { validateFilterShape } from '../../query-dsl/filter-sanitizer.util';

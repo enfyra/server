@@ -7,7 +7,7 @@ import * as path from 'path';
 import { autoSlug } from '../../../shared/utils/auto-slug.helper';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { QueryBuilderService } from '../../../kernel/query';
-import { StorageConfigCacheService } from '../../../engine/cache';
+import { StorageConfigCacheService } from '../../../engines/cache';
 import { StorageFactoryService } from '../storage/storage-factory.service';
 import { Readable } from 'stream';
 

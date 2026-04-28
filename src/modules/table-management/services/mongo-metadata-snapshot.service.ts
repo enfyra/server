@@ -1,6 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { ObjectId } from 'mongodb';
-import { MongoService } from '../../../engine/mongo';
+import { MongoService } from '../../../engines/mongo';
 
 export class MongoMetadataSnapshotService {
   private readonly logger = new Logger(MongoMetadataSnapshotService.name);

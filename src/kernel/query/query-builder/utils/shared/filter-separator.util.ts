@@ -1,4 +1,4 @@
-import { TableMetadata } from '../../../../../engine/knex';
+import { TableMetadata } from '../../../../../engines/knex';
 
 export function hasAnyRelations(
   filter: any,

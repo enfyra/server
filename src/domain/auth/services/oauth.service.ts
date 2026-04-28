@@ -14,7 +14,7 @@ import {
   ExecutorEngineService,
   resolveExecutableScript,
 } from '../../../kernel/execution';
-import { RepoRegistryService } from '../../../engine/cache';
+import { RepoRegistryService } from '../../../engines/cache';
 import {
   loadUserWithRole,
   userCacheKey,

@@ -6,10 +6,9 @@ describe('computeEngineTuning', () => {
       logicalCpuCount: 2,
       totalMemoryBytes: 2 * 1024 * 1024 * 1024,
     });
-    expect(small.isolateMemoryLimitMb).toBe(51);
+    expect(small.isolateMemoryLimitMb).toBe(64);
     expect(small.maxConcurrentWorkers).toBe(2);
-    // 2048 / 51 / 2 = 20
-    expect(small.tasksPerWorkerCap).toBe(20);
+    expect(small.tasksPerWorkerCap).toBe(16);
 
     const mid = computeEngineTuning({
       logicalCpuCount: 2,
@@ -38,8 +37,7 @@ describe('computeEngineTuning', () => {
       totalMemoryBytes: 4 * 1024 * 1024 * 1024,
     });
     expect(t.maxConcurrentWorkers).toBe(1);
-    // 4096 / 102 / 1 = 40
-    expect(t.tasksPerWorkerCap).toBe(40);
+    expect(t.tasksPerWorkerCap).toBe(32);
   });
 
   it('handles missing cpu count — clamps to 1', () => {
@@ -50,15 +48,13 @@ describe('computeEngineTuning', () => {
     expect(t.maxConcurrentWorkers).toBe(1);
   });
 
-  it('clamps isolate mb between 16 and 128', () => {
+  it('clamps isolate mb between 40 and 128', () => {
     const tiny = computeEngineTuning({
       logicalCpuCount: 2,
       totalMemoryBytes: 512 * 1024 * 1024,
     });
-    expect(tiny.isolateMemoryLimitMb).toBeGreaterThanOrEqual(16);
-    expect(tiny.isolateMemoryLimitMb).toBeLessThanOrEqual(32);
-    // 512 / 13 / 2 = 19 (floor) → clamped to 19
-    expect(tiny.tasksPerWorkerCap).toBeGreaterThanOrEqual(16);
+    expect(tiny.isolateMemoryLimitMb).toBe(40);
+    expect(tiny.tasksPerWorkerCap).toBe(16);
 
     const huge = computeEngineTuning({
       logicalCpuCount: 4,
@@ -88,13 +84,21 @@ describe('computeEngineTuning', () => {
       logicalCpuCount: 2,
       totalMemoryBytes: 256 * 1024 * 1024,
     });
-    expect(tiny.isolatePoolSize).toBe(2);
+    expect(tiny.isolatePoolSize).toBe(1);
+
+    const starter = computeEngineTuning({
+      logicalCpuCount: 1,
+      totalMemoryBytes: 1 * 1024 * 1024 * 1024,
+    });
+    expect(starter.maxConcurrentWorkers).toBe(1);
+    expect(starter.isolateMemoryLimitMb).toBe(40);
+    expect(starter.tasksPerWorkerCap).toBe(25);
+    expect(starter.isolatePoolSize).toBe(1);
 
     const small = computeEngineTuning({
       logicalCpuCount: 2,
       totalMemoryBytes: 2 * 1024 * 1024 * 1024,
     });
-    // budget = 512mb, memLimit=51, workers=2 -> floor(512/102) = 5, capped to 2
     expect(small.isolatePoolSize).toBe(2);
 
     const mid = computeEngineTuning({
@@ -128,10 +132,7 @@ describe('computeEngineTuning', () => {
       const totalCapMb =
         t.isolatePoolSize * t.maxConcurrentWorkers * t.isolateMemoryLimitMb;
       const totalMb = bytes / (1024 * 1024);
-      // allow POOL_MIN=2 floor to breach 25% on extremely tiny machines
-      if (totalMb >= 1024) {
-        expect(totalCapMb).toBeLessThanOrEqual(totalMb * 0.25);
-      }
+      expect(totalCapMb).toBeLessThanOrEqual(totalMb * 0.25);
     }
   });
 });

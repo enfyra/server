@@ -1,6 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { Queue } from 'bullmq';
-import { FlowCacheService, RepoRegistryService } from '../../../engine/cache';
+import { FlowCacheService, RepoRegistryService } from '../../../engines/cache';
 import { FlowJobData } from '../../../shared/types/flow.types';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { ExecutorEngineService } from '../../../kernel/execution';

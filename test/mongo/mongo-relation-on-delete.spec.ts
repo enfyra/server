@@ -1,4 +1,4 @@
-import { normalizeRelationOnDelete } from 'src/engine/mongo';
+import { normalizeRelationOnDelete } from 'src/engines/mongo';
 
 describe('normalizeRelationOnDelete', () => {
   it('defaults to SET NULL', () => {

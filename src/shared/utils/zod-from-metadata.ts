@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TColumnRule } from '../../engine/cache';
+import { TColumnRule } from '../../engines/cache';
 
 export const ZOD_META_MAX_DEPTH = 10;
 

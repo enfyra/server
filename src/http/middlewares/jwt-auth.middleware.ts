@@ -5,7 +5,7 @@ import {
   InvalidTokenException,
 } from '../../domain/exceptions';
 import { QueryBuilderService } from '../../kernel/query';
-import { CacheService } from '../../engine/cache';
+import { CacheService } from '../../engines/cache';
 import {
   loadUserWithRole,
   userCacheKey,
