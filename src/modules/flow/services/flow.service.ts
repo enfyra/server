@@ -7,6 +7,18 @@ import { ExecutorEngineService } from '../../../kernel/execution';
 import { executeStepCore } from '../utils/step-executor.util';
 import { SocketEmitCapture } from '../../websocket';
 import { DynamicContextFactory } from '../../../shared/services';
+import type { FlowDefinition, FlowStep } from '../../../shared/types/flow.types';
+
+interface FlowStepTestInput {
+  id?: number | string;
+  stepId?: number | string;
+  flowId?: number | string;
+  flowName?: string;
+  type: string;
+  config: any;
+  timeout?: number;
+  key?: string;
+}
 
 export class FlowService {
   private readonly logger = new Logger(FlowService.name);
@@ -73,7 +85,7 @@ export class FlowService {
   }
 
   async testStep(
-    step: { type: string; config: any; timeout?: number; key?: string },
+    step: FlowStepTestInput,
     mockFlow?: any,
   ): Promise<{
     success: boolean;
@@ -81,6 +93,7 @@ export class FlowService {
     error?: string;
     duration: number;
     flowContext?: any;
+    logs?: any[];
     emitted?: SocketEmitCapture;
   }> {
     const startTime = Date.now();
@@ -114,7 +127,6 @@ export class FlowService {
     });
 
     const MAX_TEST_TIMEOUT = 5000;
-    const config = step.config || {};
     const rawTimeout = Number(step.timeout);
     const timeout =
       Number.isFinite(rawTimeout) && rawTimeout > 0
@@ -122,24 +134,38 @@ export class FlowService {
         : MAX_TEST_TIMEOUT;
 
     try {
+      const resolved = await this.resolveTestFlowStep(step);
+      const targetStep = resolved?.step ?? step;
+      const targetConfig = targetStep.config || {};
+
+      if (resolved) {
+        await this.primeFlowTestContext({
+          flow: resolved.flow,
+          targetStep,
+          flowContext,
+          ctx,
+          timeout,
+        });
+      }
+
       let result: any;
 
-      if (step.type === 'trigger_flow') {
+      if (targetStep.type === 'trigger_flow') {
         result = {
           triggered: true,
-          flowId: config.flowId,
-          flowName: config.flowName,
+          flowId: targetConfig.flowId,
+          flowName: targetConfig.flowName,
           note: 'test mode - not actually triggered',
         };
-      } else if (step.type === 'sleep') {
+      } else if (targetStep.type === 'sleep') {
         result = {
-          slept: config.ms || 1000,
+          slept: targetConfig.ms || 1000,
           note: 'test mode - not actually sleeping',
         };
       } else {
         result = await executeStepCore({
-          type: step.type,
-          config,
+          type: targetStep.type,
+          config: targetStep.config || {},
           timeout,
           ctx,
           executorEngineService: this.executorEngineService,
@@ -147,8 +173,8 @@ export class FlowService {
         });
       }
 
-      if (step.key) {
-        flowContext[step.key] = result;
+      if (targetStep.key) {
+        flowContext[targetStep.key] = result;
       }
       flowContext.$last = result;
 
@@ -157,6 +183,7 @@ export class FlowService {
         result,
         duration: Date.now() - startTime,
         flowContext,
+        logs: ctx.$share?.$logs ?? logs,
         emitted,
       };
     } catch (error) {
@@ -164,8 +191,171 @@ export class FlowService {
         success: false,
         error: getErrorMessage(error),
         duration: Date.now() - startTime,
+        logs: ctx.$share?.$logs ?? logs,
         emitted,
       };
     }
+  }
+
+  private async resolveTestFlowStep(
+    step: FlowStepTestInput,
+  ): Promise<{ flow: FlowDefinition; step: FlowStep } | null> {
+    const stepId = step.stepId ?? step.id;
+    const flowId = step.flowId;
+    const flowName = step.flowName;
+
+    let flows: FlowDefinition[] = [];
+    if (flowId !== undefined && flowId !== null) {
+      const flow = await this.flowCacheService.getFlowById(flowId);
+      if (flow) flows = [flow];
+    } else if (flowName) {
+      const flow = await this.flowCacheService.getFlowByName(flowName);
+      if (flow) flows = [flow];
+    } else if (
+      stepId !== undefined ||
+      step.key ||
+      this.getStepSourceCode(step.config)
+    ) {
+      if (typeof this.flowCacheService.getFlows !== 'function') return null;
+      flows = await this.flowCacheService.getFlows();
+    }
+
+    for (const flow of flows) {
+      const liveStep = (flow.steps || []).find((candidate) =>
+        this.isMatchingTestStep(candidate, step, stepId),
+      );
+      if (!liveStep) continue;
+
+      const mergedStep = {
+        ...liveStep,
+        type: step.type || liveStep.type,
+        config: step.config ?? liveStep.config,
+        timeout: step.timeout ?? liveStep.timeout,
+        key: liveStep.key,
+      } as FlowStep;
+
+      return {
+        flow: {
+          ...flow,
+          steps: flow.steps.map((candidate) =>
+            String(candidate.id) === String(liveStep.id)
+              ? mergedStep
+              : candidate,
+          ),
+        },
+        step: mergedStep,
+      };
+    }
+
+    return null;
+  }
+
+  private isMatchingTestStep(
+    candidate: FlowStep,
+    step: FlowStepTestInput,
+    stepId: number | string | undefined,
+  ): boolean {
+    if (stepId !== undefined && String(candidate.id) === String(stepId)) {
+      return true;
+    }
+
+    const candidateSource = this.getStepSourceCode(candidate.config);
+    const testSource = this.getStepSourceCode(step.config);
+    if (candidateSource && testSource && candidateSource === testSource) {
+      return true;
+    }
+
+    return !!step.key && candidate.key === step.key;
+  }
+
+  private getStepSourceCode(config: any): string {
+    if (!config || typeof config !== 'object') return '';
+    return String(config.sourceCode ?? config.code ?? config.compiledCode ?? '');
+  }
+
+  private async primeFlowTestContext(opts: {
+    flow: FlowDefinition;
+    targetStep: FlowStep | FlowStepTestInput;
+    flowContext: any;
+    ctx: any;
+    timeout: number;
+  }): Promise<void> {
+    const { flow, targetStep, flowContext, ctx, timeout } = opts;
+    let reachedTarget = false;
+    const allSteps = [...(flow.steps || [])]
+      .filter((step) => step.isEnabled)
+      .sort((a, b) => (a.stepOrder || 0) - (b.stepOrder || 0));
+    const rootSteps = allSteps.filter((step) => !step.parentId);
+    const getChildren = (parentId: number | string, branch: string) =>
+      allSteps.filter(
+        (step) =>
+          step.parentId &&
+          String(step.parentId) === String(parentId) &&
+          step.branch === branch,
+      );
+
+    const runStep = async (step: FlowStep): Promise<void> => {
+      if (reachedTarget) return;
+      if (this.isSameFlowStep(step, targetStep)) {
+        reachedTarget = true;
+        return;
+      }
+
+      const result = await this.executeTestStep(step, ctx, timeout);
+      flowContext[step.key] = result;
+      flowContext.$last = result;
+
+      if (step.type !== 'condition') return;
+      const branchSteps = getChildren(step.id, !!result ? 'true' : 'false');
+      for (const child of branchSteps) {
+        await runStep(child);
+      }
+    };
+
+    for (const step of rootSteps) {
+      await runStep(step);
+      if (reachedTarget) return;
+    }
+  }
+
+  private isSameFlowStep(
+    candidate: FlowStep,
+    target: FlowStep | FlowStepTestInput,
+  ): boolean {
+    const targetId = 'id' in target ? target.id : undefined;
+    if (targetId !== undefined && String(candidate.id) === String(targetId)) {
+      return true;
+    }
+    return !!target.key && candidate.key === target.key;
+  }
+
+  private async executeTestStep(
+    step: FlowStep,
+    ctx: any,
+    timeout: number,
+  ): Promise<any> {
+    const config = step.config || {};
+    if (step.type === 'trigger_flow') {
+      return {
+        triggered: true,
+        flowId: config.flowId,
+        flowName: config.flowName,
+        note: 'test mode - not actually triggered',
+      };
+    }
+    if (step.type === 'sleep') {
+      return {
+        slept: config.ms || 1000,
+        note: 'test mode - not actually sleeping',
+      };
+    }
+    return executeStepCore({
+      type: step.type,
+      config,
+      timeout,
+      ctx,
+      executorEngineService: this.executorEngineService,
+      shouldTransformCode: true,
+    });
   }
 }

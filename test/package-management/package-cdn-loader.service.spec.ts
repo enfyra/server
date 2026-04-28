@@ -38,10 +38,20 @@ describe('PackageCdnLoaderService', () => {
       }
       if (href.endsWith('/demo-pkg@1.0.0/node/demo.bundle.mjs')) {
         return response(`
+          import value from "./relative-child.mjs";
           export default {
-            value: globalThis.__enfyraTestDepLoaded ? 42 : 0
+            value: globalThis.__enfyraTestDepLoaded ? value : 0
           };
         `);
+      }
+      if (href.endsWith('/demo-pkg@1.0.0/node/relative-child.mjs')) {
+        return response('export default 42;');
+      }
+      if (
+        href.endsWith('/demo-pkg@1.0.0/package.json') ||
+        href.endsWith('/demo-dep@1.0.0/package.json')
+      ) {
+        return response('{ "dependencies": {} }');
       }
       return response('not found', false, 404);
     });
@@ -59,7 +69,48 @@ describe('PackageCdnLoaderService', () => {
     expect(code).not.toContain('file://');
     expect(code).not.toContain('"/demo-dep@1.0.0?target=node"');
     expect(code).not.toContain('"/demo-pkg@1.0.0/node/demo.bundle.mjs"');
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(code).not.toContain('./relative-child.mjs');
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/demo-pkg@1.0.0/package.json'),
+      expect.anything(),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/demo-dep@1.0.0/package.json'),
+      expect.anything(),
+    );
+  });
+
+  it('refetches with es2022 target when esm.sh node output has a re-export cycle', async () => {
+    const loader = new PackageCdnLoaderService();
+    loader.invalidateAll();
+    const fetchAndWriteBundle = vi
+      .spyOn(loader as any, 'fetchAndWriteBundle')
+      .mockResolvedValue(undefined);
+    const importFromFile = vi
+      .spyOn(loader as any, 'importFromFile')
+      .mockRejectedValueOnce(
+        new Error(
+          "Detected cycle while resolving name 'fileTypeFromTokenizer'",
+        ),
+      )
+      .mockResolvedValueOnce({ fileTypeFromBuffer: vi.fn() });
+
+    const mod = await loader.loadPackage('file-type', '19.5.0');
+
+    expect(mod).toHaveProperty('fileTypeFromBuffer');
+    expect(fetchAndWriteBundle).toHaveBeenNthCalledWith(
+      1,
+      'file-type',
+      '19.5.0',
+      'node',
+    );
+    expect(fetchAndWriteBundle).toHaveBeenNthCalledWith(
+      2,
+      'file-type',
+      '19.5.0',
+      'es2022',
+    );
+    expect(importFromFile).toHaveBeenCalledTimes(2);
   });
 });
 

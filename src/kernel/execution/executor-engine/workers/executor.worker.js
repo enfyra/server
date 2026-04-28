@@ -15,6 +15,7 @@ try {
 const pendingCallbacks = new Map();
 let callbackCounter = 0;
 const taskPackages = new Map();
+const activeTaskContexts = new Map();
 const pendingPackageRuntimeCalls = new Map();
 let packageRuntimeChild = null;
 let packageRuntimeCounter = 0;
@@ -174,6 +175,24 @@ function getPackageRuntimeChild() {
 
   child.on('message', (msg) => {
     if (!msg || !msg.id) return;
+    if (msg.type === 'pkgCallbackCall') {
+      executePackageCallback(msg)
+        .then((value) => {
+          try {
+            child.send({ type: 'pkgCallbackResult', id: msg.id, value });
+          } catch {}
+        })
+        .catch((error) => {
+          try {
+            child.send({
+              type: 'pkgCallbackError',
+              id: msg.id,
+              error: { message: error.message, stack: error.stack },
+            });
+          } catch {}
+        });
+      return;
+    }
     const pending = pendingPackageRuntimeCalls.get(msg.id);
     if (!pending) return;
     pendingPackageRuntimeCalls.delete(msg.id);
@@ -199,6 +218,25 @@ function getPackageRuntimeChild() {
   });
 
   return child;
+}
+
+async function executePackageCallback(msg) {
+  const context = activeTaskContexts.get(msg.taskId);
+  if (!context) throw new Error(`Package callback context not found: ${msg.taskId}`);
+  const callbackId = JSON.stringify(msg.callbackId);
+  const argsJson = JSON.stringify(msg.argsJson || '[]');
+  const script = await context.evalClosure(
+    `return __invokeRuntimeCallback(${callbackId}, ${argsJson});`,
+    [],
+    { arguments: { copy: true }, result: { promise: true, copy: true } },
+  );
+  return __parseCallbackResult(script);
+}
+
+function __parseCallbackResult(resultJson) {
+  const result = typeof resultJson === 'string' ? JSON.parse(resultJson) : resultJson;
+  if (result?.error) throw new Error(result.error);
+  return result?.value;
 }
 
 function callPackageRuntime(payload) {
@@ -284,6 +322,8 @@ let $ctx = {};
 let $pkgs = {};
 let __taskId = null;
 let __logs = [];
+let __runtimeCallbackCounter = 0;
+let __runtimeCallbacks = new Map();
 
 const __applyOpts = { result: { promise: true, copy: true } };
 
@@ -301,6 +341,53 @@ function __parseMainThreadResult(s) {
 async function __call(type, dataJson) {
   const r = await __callRef.apply(undefined, [__taskId, type, dataJson], __applyOpts);
   return __parseMainThreadResult(r);
+}
+
+async function __encodeRuntimeArg(value) {
+  if (typeof value === 'function') {
+    if (value.__pkgHandlePromise) {
+      return { __pkgHandleArg: await value.__pkgHandlePromise };
+    }
+    const id = 'fn_' + (++__runtimeCallbackCounter);
+    __runtimeCallbacks.set(id, value);
+    return { __fnRef: id };
+  }
+  if (value instanceof Date) return { __date: value.toISOString() };
+  if (ArrayBuffer.isView(value)) {
+    return {
+      __typedArray: value.constructor?.name || 'Uint8Array',
+      data: Array.from(value),
+    };
+  }
+  if (value instanceof ArrayBuffer) {
+    return { __arrayBuffer: Array.from(new Uint8Array(value)) };
+  }
+  if (Array.isArray(value)) return Promise.all(value.map(__encodeRuntimeArg));
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const key of Object.keys(value)) {
+      out[key] = await __encodeRuntimeArg(value[key]);
+    }
+    return out;
+  }
+  return value;
+}
+
+async function __stringifyRuntimeArgs(args) {
+  return JSON.stringify(await Promise.all(args.map(__encodeRuntimeArg)));
+}
+
+async function __invokeRuntimeCallback(id, argsJson) {
+  const fn = __runtimeCallbacks.get(id);
+  if (typeof fn !== 'function') {
+    return JSON.stringify({ error: 'Package callback not found: ' + id });
+  }
+  try {
+    const value = await fn(...JSON.parse(argsJson || '[]'));
+    return JSON.stringify({ value: __safeClone(value) });
+  } catch (error) {
+    return JSON.stringify({ error: error && error.message ? error.message : String(error) });
+  }
 }
 
 function __safeClone(v) {
@@ -331,10 +418,37 @@ function __extractResult(result, isAbsent) {
 
 const __throwDefaults = { 400: 'Bad request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not found', 409: 'Conflict', 422: 'Validation failed', 429: 'Too many requests', 500: 'Internal server error', 503: 'Service unavailable' };
 
+if (typeof TextEncoder === 'undefined') {
+  globalThis.TextEncoder = class TextEncoder {
+    encode(input = '') {
+      const encoded = unescape(encodeURIComponent(String(input)));
+      const out = new Uint8Array(encoded.length);
+      for (let i = 0; i < encoded.length; i++) out[i] = encoded.charCodeAt(i);
+      return out;
+    }
+  };
+}
+
+if (typeof TextDecoder === 'undefined') {
+  globalThis.TextDecoder = class TextDecoder {
+    decode(input = new Uint8Array()) {
+      const bytes = ArrayBuffer.isView(input) ? input : new Uint8Array(input);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      return decodeURIComponent(escape(binary));
+    }
+  };
+}
+
 function __createPkgHandleProxy(handlePromise, path) {
   const fn = function (...args) {
-    return handlePromise.then((handleId) =>
-      __call('pkgCall', JSON.stringify({ handleId, path, argsJson: JSON.stringify(args), kind: 'call' })),
+    return __createAsyncPkgResultProxy(
+      handlePromise.then((handleId) =>
+        __stringifyRuntimeArgs(args).then((argsJson) =>
+          __call('pkgCall', JSON.stringify({ handleId, path, argsJson, kind: 'call' })),
+        ),
+      ),
+      [],
     );
   };
   return new Proxy(fn, {
@@ -343,10 +457,124 @@ function __createPkgHandleProxy(handlePromise, path) {
       if (prop === '__pkgHandlePromise') return handlePromise;
       return __createPkgHandleProxy(handlePromise, path.concat(String(prop)));
     },
-    apply: async (_target, _thisArg, args) => {
-      const handleId = await handlePromise;
-      return __call('pkgCall', JSON.stringify({ handleId, path, argsJson: JSON.stringify(args), kind: 'call' }));
+    apply: (_target, _thisArg, args) =>
+      __createAsyncPkgResultProxy(
+        handlePromise.then((handleId) =>
+          __stringifyRuntimeArgs(args).then((argsJson) =>
+            __call('pkgCall', JSON.stringify({ handleId, path, argsJson, kind: 'call' })),
+          ),
+        ),
+        [],
+      )
+  });
+}
+
+function __resolvePkgResultPath(base, path) {
+  let current = base;
+  let receiver = undefined;
+  for (const key of path) {
+    if (current === undefined || current === null) {
+      throw new Error('Package result property not found: ' + path.join('.'));
     }
+    receiver = current;
+    current = current[key];
+  }
+  return { target: current, receiver };
+}
+
+function __createAsyncPkgResultProxy(valuePromise, path) {
+  const resolveValue = () => valuePromise.then(__wrapPkgValue);
+  const resolvePath = () =>
+    resolveValue().then((base) => __resolvePkgResultPath(base, path));
+  const promiseForPath = () =>
+    path.length === 0 ? resolveValue() : resolvePath().then(({ target }) => target);
+
+  const fn = function (...args) {
+    return __createAsyncPkgResultProxy(
+      resolvePath().then(({ target, receiver }) => {
+        if (typeof target !== 'function') {
+          throw new Error('Package result is not callable: ' + (path.join('.') || '<root>'));
+        }
+        return Reflect.apply(target, receiver, args);
+      }),
+      [],
+    );
+  };
+
+  return new Proxy(fn, {
+    get: (_target, prop) => {
+      if (prop === 'then') {
+        const promise = promiseForPath();
+        return promise.then.bind(promise);
+      }
+      if (prop === 'catch') {
+        const promise = promiseForPath();
+        return promise.catch.bind(promise);
+      }
+      if (prop === 'finally') {
+        const promise = promiseForPath();
+        return promise.finally.bind(promise);
+      }
+      return __createAsyncPkgResultProxy(valuePromise, path.concat(String(prop)));
+    },
+    apply: (_target, _thisArg, args) =>
+      __createAsyncPkgResultProxy(
+        resolvePath().then(({ target, receiver }) => {
+          if (typeof target !== 'function') {
+            throw new Error('Package result is not callable: ' + (path.join('.') || '<root>'));
+          }
+          return Reflect.apply(target, receiver, args);
+        }),
+        [],
+      )
+  });
+}
+
+function __createAsyncMainResultProxy(valuePromise, path) {
+  const resolveValue = () => valuePromise;
+  const resolvePath = () =>
+    resolveValue().then((base) => __resolvePkgResultPath(base, path));
+  const promiseForPath = () =>
+    path.length === 0 ? resolveValue() : resolvePath().then(({ target }) => target);
+
+  const fn = function (...args) {
+    return __createAsyncMainResultProxy(
+      resolvePath().then(({ target, receiver }) => {
+        if (typeof target !== 'function') {
+          throw new Error('Async result is not callable: ' + (path.join('.') || '<root>'));
+        }
+        return Reflect.apply(target, receiver, args);
+      }),
+      [],
+    );
+  };
+
+  return new Proxy(fn, {
+    get: (_target, prop) => {
+      if (prop === 'then') {
+        const promise = promiseForPath();
+        return promise.then.bind(promise);
+      }
+      if (prop === 'catch') {
+        const promise = promiseForPath();
+        return promise.catch.bind(promise);
+      }
+      if (prop === 'finally') {
+        const promise = promiseForPath();
+        return promise.finally.bind(promise);
+      }
+      return __createAsyncMainResultProxy(valuePromise, path.concat(String(prop)));
+    },
+    apply: (_target, _thisArg, args) =>
+      __createAsyncMainResultProxy(
+        resolvePath().then(({ target, receiver }) => {
+          if (typeof target !== 'function') {
+            throw new Error('Async result is not callable: ' + (path.join('.') || '<root>'));
+          }
+          return Reflect.apply(target, receiver, args);
+        }),
+        [],
+      )
   });
 }
 
@@ -359,18 +587,30 @@ function __wrapPkgValue(value) {
 
 function __createPkgProxy(packageName, path) {
   const fn = function (...args) {
-    return __call('pkgCall', JSON.stringify({ packageName, path, argsJson: JSON.stringify(args), kind: 'call' }))
-      .then(__wrapPkgValue);
+    return __createAsyncPkgResultProxy(
+      __stringifyRuntimeArgs(args).then((argsJson) =>
+        __call('pkgCall', JSON.stringify({ packageName, path, argsJson, kind: 'call' })),
+      ),
+      [],
+    );
   };
   return new Proxy(fn, {
     get: (_, prop) => {
       if (prop === 'then') return undefined;
       return __createPkgProxy(packageName, path.concat(String(prop)));
     },
-    apply: async (_target, _thisArg, args) =>
-      __wrapPkgValue(await __call('pkgCall', JSON.stringify({ packageName, path, argsJson: JSON.stringify(args), kind: 'call' }))),
+    apply: (_target, _thisArg, args) =>
+      __createAsyncPkgResultProxy(
+        __stringifyRuntimeArgs(args).then((argsJson) =>
+          __call('pkgCall', JSON.stringify({ packageName, path, argsJson, kind: 'call' })),
+        ),
+        [],
+      ),
     construct: (_target, args) => {
-      const handlePromise = __call('pkgCall', JSON.stringify({ packageName, path, argsJson: JSON.stringify(args), kind: 'construct' }))
+      const handlePromise = __stringifyRuntimeArgs(args)
+        .then((argsJson) =>
+          __call('pkgCall', JSON.stringify({ packageName, path, argsJson, kind: 'construct' })),
+        )
         .then((value) => {
           if (!value || !value.__pkgHandle) throw new Error('Package constructor did not return a handle');
           return value.__pkgHandle;
@@ -397,6 +637,8 @@ function __resetTask(snapshot, taskId) {
   $pkgs = {};
   __taskId = taskId;
   __logs = [];
+  __runtimeCallbackCounter = 0;
+  __runtimeCallbacks = new Map();
   %%PKG_SETUP%%
   $ctx.$pkgs = $pkgs;
   $ctx.$share = $ctx.$share || {};
@@ -410,11 +652,17 @@ function __resetTask(snapshot, taskId) {
   $ctx.$helpers = new Proxy({}, {
     get: (_, name) => {
       const basePath = String(name);
-      const fn = async (...args) =>
-        __call('helpersCall', JSON.stringify({ name: basePath, argsJson: JSON.stringify(args) }));
+      const fn = (...args) =>
+        __createAsyncMainResultProxy(
+          __call('helpersCall', JSON.stringify({ name: basePath, argsJson: JSON.stringify(args) })),
+          [],
+        );
       return new Proxy(fn, {
-        get: (_, subName) => async (...args) =>
-          __call('helpersCall', JSON.stringify({ name: basePath + '.' + String(subName), argsJson: JSON.stringify(args) }))
+        get: (_, subName) => (...args) =>
+          __createAsyncMainResultProxy(
+            __call('helpersCall', JSON.stringify({ name: basePath + '.' + String(subName), argsJson: JSON.stringify(args) })),
+            [],
+          )
       });
     }
   });
@@ -465,6 +713,8 @@ function __cleanupTask() {
   $pkgs = {};
   __taskId = null;
   __logs = [];
+  __runtimeCallbackCounter = 0;
+  __runtimeCallbacks = new Map();
   return true;
 }
 `;
@@ -674,6 +924,7 @@ async function handleExecute(msg) {
   const entry = getOrCreateIsolate(memoryLimitMb, isolatePoolSize);
   const isolate = entry.isolate;
   const context = await prepareContext(entry, id, pkgSources, snapshot);
+  activeTaskContexts.set(id, context);
 
   try {
     const wrappedCode = `
@@ -691,6 +942,7 @@ async function handleExecute(msg) {
   } catch (error) {
     await postError(id, error);
   } finally {
+    activeTaskContexts.delete(id);
     await releaseContext(entry, context);
     cleanupTaskPackages(id);
   }
@@ -702,6 +954,7 @@ async function handleExecuteBatch(msg) {
   const entry = getOrCreateIsolate(memoryLimitMb, isolatePoolSize);
   const isolate = entry.isolate;
   const context = await prepareContext(entry, id, pkgSources, snapshot);
+  activeTaskContexts.set(id, context);
 
   const preHooksAndHandler = [];
   const postHooks = [];
@@ -858,6 +1111,7 @@ if ($ctx.$api) {
   } catch (error) {
     await postError(id, error);
   } finally {
+    activeTaskContexts.delete(id);
     await releaseContext(entry, context);
     cleanupTaskPackages(id);
   }
