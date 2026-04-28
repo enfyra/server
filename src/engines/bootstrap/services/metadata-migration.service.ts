@@ -49,8 +49,8 @@ export class MetadataMigrationService {
   hasMigrations(): boolean {
     if (!this.migrations) return false;
     return (
-      this.migrations.tables?.length > 0 ||
-      this.migrations.tablesToDrop?.length > 0
+      (this.migrations.tables?.length ?? 0) > 0 ||
+      (this.migrations.tablesToDrop?.length ?? 0) > 0
     );
   }
 
@@ -71,11 +71,13 @@ export class MetadataMigrationService {
 
     const isMongoDB = this.queryBuilderService.isMongoDb();
 
-    if (this.migrations!.tablesToDrop?.length > 0) {
-      await this.dropTableMetadata(this.migrations!.tablesToDrop, isMongoDB);
+    const migrations = this.migrations!;
+    const tablesToDrop = migrations.tablesToDrop ?? [];
+    if (tablesToDrop.length > 0) {
+      await this.dropTableMetadata(tablesToDrop, isMongoDB);
     }
 
-    for (const tableMigration of this.migrations!.tables || []) {
+    for (const tableMigration of migrations.tables || []) {
       await this.migrateTableMetadata(tableMigration, isMongoDB);
     }
 
@@ -163,38 +165,43 @@ export class MetadataMigrationService {
 
     const { tableId, tableIdField } = found;
 
-    if (migration.columnsToModify?.length > 0) {
+    const columnsToModify = migration.columnsToModify ?? [];
+    const columnsToRemove = migration.columnsToRemove ?? [];
+    const relationsToModify = migration.relationsToModify ?? [];
+    const relationsToRemove = migration.relationsToRemove ?? [];
+
+    if (columnsToModify.length > 0) {
       await this.modifyColumnMetadata(
         tableId,
         tableIdField,
-        migration.columnsToModify,
+        columnsToModify,
         isMongoDB,
       );
     }
 
-    if (migration.columnsToRemove?.length > 0) {
+    if (columnsToRemove.length > 0) {
       await this.removeColumnMetadata(
         tableName,
         tableId,
         tableIdField,
-        migration.columnsToRemove,
+        columnsToRemove,
         isMongoDB,
       );
     }
 
-    if (migration.relationsToModify?.length > 0) {
+    if (relationsToModify.length > 0) {
       await this.modifyRelationMetadata(
         tableId,
         isMongoDB,
-        migration.relationsToModify,
+        relationsToModify,
       );
     }
 
-    if (migration.relationsToRemove?.length > 0) {
+    if (relationsToRemove.length > 0) {
       await this.removeRelationMetadata(
         tableId,
         isMongoDB,
-        migration.relationsToRemove,
+        relationsToRemove,
       );
     }
   }

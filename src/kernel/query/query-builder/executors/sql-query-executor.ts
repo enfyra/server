@@ -211,7 +211,7 @@ export class SqlQueryExecutor {
     const resolvedSortItems: ResolvedSortItem[] =
       options.plan?.sortItems ??
       (queryOptions.sort ?? []).map((s) => ({
-        joinId: null,
+        joinId: null as string | null,
         field: s.field,
         direction: s.direction,
         fullPath: s.field,
@@ -549,7 +549,7 @@ export class SqlQueryExecutor {
             const valueAny = value as any;
             if (valueAny.id !== undefined || valueAny.createdAt !== undefined) {
               const relation = tableMeta.relations?.find(
-                (r) => r.propertyName === key,
+                (r: any) => r.propertyName === key,
               );
               if (relation) {
                 parsed[key] = parseSimpleJsonFields(
@@ -566,7 +566,7 @@ export class SqlQueryExecutor {
             const firstItem = value[0] as any;
             if (firstItem.id !== undefined) {
               const relation = tableMeta.relations?.find(
-                (r) => r.propertyName === key,
+                (r: any) => r.propertyName === key,
               );
               if (relation) {
                 parsed[key] = (value as any[]).map((item) =>

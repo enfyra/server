@@ -3,8 +3,8 @@ import { EnvService } from '../../../shared/services';
 import { IRedisPubSub } from '../../../domain/shared/interfaces/redis-pubsub.interface';
 
 export class RedisPubSubService implements IRedisPubSub {
-  public pub: Redis;
-  public sub: Redis;
+  public pub!: Redis;
+  public sub!: Redis;
   private subscribedChannels = new Map<
     string,
     Array<(channel: string, message: string) => void>
@@ -95,7 +95,7 @@ export class RedisPubSubService implements IRedisPubSub {
 
     this.sub
       .subscribe(decoratedChannel)
-      .then(() => undefined)
+      .then((): undefined => undefined)
       .catch((err) => {
         console.error(
           `[RedisPubSub] Subscribe error for ${decoratedChannel}:`,

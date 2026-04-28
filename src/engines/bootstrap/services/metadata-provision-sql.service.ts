@@ -56,7 +56,7 @@ export class MetadataProvisionSqlService {
       if (!exists) {
         this.logger.log(`Creating core table: ${tableName}`);
         if (tableName === 'table_definition') {
-          await qb.schema.createTable(tableName, (table) => {
+          await qb.schema.createTable(tableName, (table: any) => {
             table.increments('id').primary();
             table.string('name').notNullable().unique();
             table.boolean('isSystem').notNullable().defaultTo(false);
@@ -70,7 +70,7 @@ export class MetadataProvisionSqlService {
             table.timestamp('updatedAt').defaultTo(qb.fn.now());
           });
         } else if (tableName === 'column_definition') {
-          await qb.schema.createTable(tableName, (table) => {
+          await qb.schema.createTable(tableName, (table: any) => {
             table.increments('id').primary();
             table
               .integer('tableId')
@@ -96,7 +96,7 @@ export class MetadataProvisionSqlService {
             table.timestamp('updatedAt').defaultTo(qb.fn.now());
           });
         } else if (tableName === 'relation_definition') {
-          await qb.schema.createTable(tableName, (table) => {
+          await qb.schema.createTable(tableName, (table: any) => {
             table.increments('id').primary();
             table
               .integer('sourceTableId')
@@ -144,7 +144,7 @@ export class MetadataProvisionSqlService {
   async createInitMetadata(snapshot: any): Promise<void> {
     const qb = this.queryBuilderService.getConnection();
     await this.ensureCoreTables();
-    await qb.transaction(async (trx) => {
+    await qb.transaction(async (trx: any) => {
       const tableNameToId: Record<string, number> = {};
       this.logger.log('Phase 1: Processing table definitions...');
       const tableEntries = Object.entries(snapshot);

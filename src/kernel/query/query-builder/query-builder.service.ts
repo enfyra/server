@@ -25,8 +25,8 @@ import { IQueryBuilder } from '../../../domain/shared/interfaces/query-builder.i
 import { ObjectId } from 'mongodb';
 
 export class QueryBuilderService implements IQueryBuilder {
-  private readonly knexService?: KnexService;
-  private readonly mongoService?: any;
+  private readonly knexService: KnexService;
+  private readonly mongoService: any;
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
   private readonly lazyRef: Cradle;
@@ -40,8 +40,8 @@ export class QueryBuilderService implements IQueryBuilder {
     runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
     lazyRef: Cradle;
   }) {
-    this.knexService = deps.knexService;
-    this.mongoService = deps.mongoService;
+    this.knexService = deps.knexService as KnexService;
+    this.mongoService = deps.mongoService as MongoService;
     this.databaseConfigService = deps.databaseConfigService;
     this.runtimeMetricsCollectorService = deps.runtimeMetricsCollectorService;
     this.lazyRef = deps.lazyRef;
@@ -153,7 +153,7 @@ export class QueryBuilderService implements IQueryBuilder {
           this.mongoService.applyTimestamps(processedData);
         const result = await collection.insertMany(dataWithTimestamps as any[]);
         return Object.values(result.insertedIds).map((id, idx) => ({
-          id: id.toString(),
+          id: (id as any).toString(),
           ...(dataWithTimestamps as any[])[idx],
         }));
       } else {
@@ -198,7 +198,7 @@ export class QueryBuilderService implements IQueryBuilder {
     const metadata =
       this.lazyRef.metadataCacheService?.getDirectMetadata?.() ?? {
         tables: new Map(),
-        tablesList: [],
+        tablesList: [] as any[],
       };
 
     const planStart = performance.now();

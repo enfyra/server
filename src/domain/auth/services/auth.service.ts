@@ -142,12 +142,12 @@ export class AuthService {
       refreshTokenHash: this.hashToken(refreshToken),
     });
 
-    const decoded: any = jwt.decode(accessToken);
+    const decoded = jwt.decode(accessToken) as jwt.JwtPayload;
     return {
       accessToken,
       refreshToken,
-      expTime: decoded.exp * 1000,
-      loginProvider: null,
+      expTime: decoded.exp! * 1000,
+      loginProvider: null as string | null,
     };
   }
 
@@ -293,7 +293,7 @@ export class AuthService {
       const knex = this.queryBuilder.getKnex();
       const affected = await knex('session_definition')
         .where('id', sessionId)
-        .andWhere(function () {
+        .andWhere(function (this: any) {
           this.where('refreshTokenHash', incomingHash).orWhereNull(
             'refreshTokenHash',
           );
@@ -308,11 +308,11 @@ export class AuthService {
 
     await this.seedUserCache(userId);
 
-    const accessTokenDecoded = jwt.decode(accessToken);
+    const accessTokenDecoded = jwt.decode(accessToken) as jwt.JwtPayload;
     return {
       accessToken,
       refreshToken,
-      expTime: accessTokenDecoded.exp * 1000,
+      expTime: accessTokenDecoded.exp! * 1000,
       loginProvider: loginProvider ?? null,
     };
   }

@@ -1,5 +1,5 @@
 /**
- * Mongo parity of query-engine-core.spec.ts.
+ * Mongo parity of query-builder-core.spec.ts.
  *
  * The SQL file exercises `buildWhereClause` directly with Knex/SQLite. On Mongo
  * the equivalent code path is `utils/mongo/render-filter.ts`, which is always

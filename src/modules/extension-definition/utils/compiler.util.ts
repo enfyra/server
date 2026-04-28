@@ -87,7 +87,7 @@ async function generateTailwindCss(
   css = css.replace(/@layer\s+properties\s*\{[\s\S]*?\}\s*\}\s*\}/g, '');
   css = css.replace(/@layer\s+[\w-]+\s*;/g, '');
   let rootBlock = '';
-  css = css.replace(/:root,?\s*:host\s*\{[^}]*\}/g, (match) => {
+  css = css.replace(/:root,?\s*:host\s*\{[^}]*\}/g, (match: string) => {
     rootBlock = match;
     return '';
   });

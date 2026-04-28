@@ -128,7 +128,7 @@ export class DatabaseSchemaService {
           .where('table_schema', 'public')
           .orderBy('ordinal_position'),
         knex('information_schema.table_constraints')
-          .join('information_schema.key_column_usage', function () {
+          .join('information_schema.key_column_usage', function (this: any) {
             this.on(
               'table_constraints.constraint_name',
               '=',
@@ -170,7 +170,7 @@ export class DatabaseSchemaService {
         isSystem: this.isSystemColumn(col.name),
         isUpdatable: true,
         defaultValue: col.defaultValue,
-        description: null,
+        description: null as string | null,
         options: {
           length: col.maxLength,
           precision: col.precision,
@@ -267,7 +267,7 @@ export class DatabaseSchemaService {
       .where('TABLE_NAME', tableName)
       .orderBy('ORDINAL_POSITION');
 
-    const transformedColumns = columns.map((col) => ({
+    const transformedColumns = columns.map((col: any) => ({
       name: col.name,
       type: this.mapMySQLDataType(col.type, col),
       isPrimary: col.columnKey === 'PRI',
@@ -344,7 +344,7 @@ export class DatabaseSchemaService {
       .where('table_name', tableName)
       .orderBy('ordinal_position');
 
-    const transformedColumns = columns.map((col) => ({
+    const transformedColumns = columns.map((col: any) => ({
       name: col.name,
       type: this.mapPostgreSQLDataType(col.type, col),
       isPrimary: false,
@@ -353,7 +353,7 @@ export class DatabaseSchemaService {
       isSystem: this.isSystemColumn(col.name),
       isUpdatable: true,
       defaultValue: col.defaultValue,
-      description: null,
+      description: null as string | null,
       options: {
         length: col.maxLength,
         precision: col.precision,
@@ -362,7 +362,7 @@ export class DatabaseSchemaService {
     }));
 
     const primaryKeys = await knex('information_schema.table_constraints')
-      .join('information_schema.key_column_usage', function () {
+      .join('information_schema.key_column_usage', function (this: any) {
         this.on(
           'table_constraints.constraint_name',
           '=',
@@ -378,8 +378,8 @@ export class DatabaseSchemaService {
       .where('table_constraints.table_name', tableName)
       .where('table_constraints.constraint_type', 'PRIMARY KEY');
 
-    primaryKeys.forEach((pk) => {
-      const col = transformedColumns.find((c) => c.name === pk.column_name);
+    primaryKeys.forEach((pk: any) => {
+      const col = transformedColumns.find((c: any) => c.name === pk.column_name);
       if (col) {
         col.isPrimary = true;
       }

@@ -17,10 +17,10 @@ import {
 } from '../../shared/utils/auto-scaling.constants';
 
 export class KnexService implements LifecycleAware {
-  private knexInstance: Knex;
+  private knexInstance!: Knex;
   private readonly logger = new Logger(KnexService.name);
   private columnTypesMap: Map<string, Map<string, string>> = new Map();
-  private dbType: string;
+  private dbType!: string;
   private readonly knexContext = new AsyncLocalStorage<
     Knex | Knex.Transaction
   >();
@@ -40,8 +40,8 @@ export class KnexService implements LifecycleAware {
     ) => Promise<void>;
   }>();
 
-  private fieldStripper: FieldStripper;
-  private hookManager: KnexHookManagerService;
+  private fieldStripper!: FieldStripper;
+  private hookManager!: KnexHookManagerService;
 
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly envService: EnvService;
@@ -265,7 +265,7 @@ export class KnexService implements LifecycleAware {
   private wrapQueryBuilder(qb: any, currentKnex?: Knex): any {
     return this.hookManager.wrapQueryBuilder(
       qb,
-      currentKnex,
+      currentKnex ?? this.knexInstance,
       () => this.getKnexForWrite(),
       this.knexContext,
       this.cascadeContext,
@@ -363,7 +363,7 @@ export class KnexService implements LifecycleAware {
 
     return new Proxy(baseKnex, {
       get(target, prop) {
-        const value = target[prop];
+        const value = (target as any)[prop];
 
         if (typeof value === 'function') {
           if (prop === 'table' || prop === 'from' || prop === 'queryBuilder') {
@@ -418,7 +418,7 @@ export class KnexService implements LifecycleAware {
   }
 
   async raw(sql: string, bindings?: any[]): Promise<any> {
-    return await this.knexInstance.raw(sql, bindings);
+    return await this.knexInstance.raw(sql, bindings ?? []);
   }
 
   async hasTable(tableName: string): Promise<boolean> {

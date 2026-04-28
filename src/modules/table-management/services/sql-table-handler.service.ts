@@ -1,4 +1,5 @@
 import { Logger } from '../../../shared/logger';
+import type { Knex } from 'knex';
 import {
   getIoAbortSignal,
   compileScriptSource,
@@ -171,9 +172,10 @@ export class SqlTableHandlerService {
         tableName: body?.name,
       });
     }
-    this.tableValidationService.validateRelations(body.relations);
+    const bodyRelations = body.relations ?? [];
+    this.tableValidationService.validateRelations(bodyRelations);
     const knex = this.queryBuilderService.getKnex();
-    let trx;
+    let trx!: Knex.Transaction;
     let schemaCreated = false;
     let createdMetadataSnapshot: any = null;
     try {
@@ -249,15 +251,15 @@ export class SqlTableHandlerService {
         );
       }
       try {
-        validateUniquePropertyNames(body.columns || [], body.relations || []);
+        validateUniquePropertyNames(body.columns || [], bodyRelations);
       } catch (error: any) {
         await trx.rollback();
         throw error;
       }
       const targetTableIds =
-        body.relations
-          ?.filter((rel: any) => rel.type === 'many-to-many')
-          ?.map((rel: any) =>
+        bodyRelations
+          .filter((rel: any) => rel.type === 'many-to-many')
+          .map((rel: any) =>
             typeof rel.targetTable === 'object'
               ? rel.targetTable.id
               : rel.targetTable,
@@ -275,7 +277,7 @@ export class SqlTableHandlerService {
       try {
         this.validateAllColumnsUnique(
           body.columns || [],
-          body.relations || [],
+          bodyRelations,
           body.name,
           targetTablesMap,
         );
@@ -295,7 +297,7 @@ export class SqlTableHandlerService {
           uniques: JSON.stringify(body.uniques || []),
           indexes: JSON.stringify(body.indexes || []),
         },
-        dbType === 'postgres' ? ['id'] : undefined,
+        dbType === 'postgres' ? ['id'] : (undefined as any),
       );
       const tableId =
         dbType === 'postgres' ? insertResult[0]?.id : insertResult[0];
@@ -323,8 +325,8 @@ export class SqlTableHandlerService {
         }));
         await trx('column_definition').insert(columnsToInsert);
       }
-      if (body.relations?.length > 0) {
-        const targetTableIds = body.relations
+      if (bodyRelations.length > 0) {
+        const targetTableIds = bodyRelations
           .map((rel: any) =>
             typeof rel.targetTable === 'object'
               ? rel.targetTable.id
@@ -340,8 +342,8 @@ export class SqlTableHandlerService {
             targetTablesMap.set(table.id, table.name);
           }
         }
-        const relationsToInsert = [];
-        for (const rel of body.relations) {
+        const relationsToInsert: Array<{ insertData: any; rel: any }> = [];
+        for (const rel of bodyRelations) {
           const targetTableId =
             typeof rel.targetTable === 'object'
               ? rel.targetTable.id
@@ -490,7 +492,12 @@ export class SqlTableHandlerService {
           const availableMethodsRel = routeTableMeta?.relations?.find(
             (r: any) => r.propertyName === 'availableMethods',
           );
-          if (availableMethodsRel?.junctionTableName && methods?.length > 0) {
+          if (
+            availableMethodsRel?.junctionTableName &&
+            availableMethodsRel.junctionSourceColumn &&
+            availableMethodsRel.junctionTargetColumn &&
+            methods?.length > 0
+          ) {
             await trx(availableMethodsRel.junctionTableName).insert(
               methods.map((m: any) => ({
                 [availableMethodsRel.junctionSourceColumn]: newRoute.id,
@@ -591,7 +598,7 @@ export class SqlTableHandlerService {
         try {
           await this.schemaMigrationService.dropTable(
             body.name,
-            createdMetadataSnapshot?.relations || body.relations || [],
+            createdMetadataSnapshot?.relations || bodyRelations,
           );
           this.logger.warn(
             `Rolled back physical table ${body.name} after failure`,
@@ -661,7 +668,8 @@ export class SqlTableHandlerService {
         tableName: body.name,
       });
     }
-    this.tableValidationService.validateRelations(body.relations);
+    const bodyRelations = body.relations ?? [];
+    this.tableValidationService.validateRelations(bodyRelations);
     stepLog(`STEP 2 name+relation validate done (+${lap()}ms)`);
 
     try {
@@ -671,12 +679,12 @@ export class SqlTableHandlerService {
       if (!exists) {
         throw new ResourceNotFoundException('table_definition', String(id));
       }
-      validateUniquePropertyNames(body.columns || [], body.relations || []);
+      validateUniquePropertyNames(body.columns || [], bodyRelations);
 
       const m2mTargetTableIds =
-        body.relations
-          ?.filter((rel: any) => rel.type === 'many-to-many')
-          ?.map((rel: any) =>
+        bodyRelations
+          .filter((rel: any) => rel.type === 'many-to-many')
+          .map((rel: any) =>
             typeof rel.targetTable === 'object'
               ? rel.targetTable.id
               : rel.targetTable,
@@ -693,7 +701,7 @@ export class SqlTableHandlerService {
       }
       this.validateAllColumnsUnique(
         body.columns || [],
-        body.relations || [],
+        bodyRelations,
         exists.name,
         m2mTargetTablesMap,
       );
@@ -708,8 +716,8 @@ export class SqlTableHandlerService {
 
       // Compute full target tables map (all relation targets)
       const allTargetTableIds =
-        body.relations
-          ?.map((rel: any) =>
+        bodyRelations
+          .map((rel: any) =>
             typeof rel.targetTable === 'object'
               ? rel.targetTable.id
               : rel.targetTable,
@@ -1044,7 +1052,7 @@ export class SqlTableHandlerService {
   ) {
     const knex = this.queryBuilderService.getKnex();
     const affectedTableNames = new Set<string>();
-    return await knex.transaction(async (trx) => {
+    return await knex.transaction(async (trx: Knex.Transaction) => {
       const abortSignal = getIoAbortSignal();
       if (abortSignal) {
         const onAbort = () => {
@@ -1140,7 +1148,7 @@ export class SqlTableHandlerService {
                   }
                 } catch (error: any) {}
                 try {
-                  await trx.schema.alterTable(sourceTable.name, (table) => {
+                  await trx.schema.alterTable(sourceTable.name, (table: any) => {
                     table.dropColumn(fkColumn);
                   });
                 } catch (error: any) {}

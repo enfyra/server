@@ -52,7 +52,7 @@ export function convertValueByType(
     return value;
   }
 
-  const column = tableMeta.columns.find((col) => col.name === field);
+  const column = tableMeta.columns.find((col: any) => col.name === field);
   if (!column) {
     const relation = tableMeta.relations?.find(
       (rel: any) =>

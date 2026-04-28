@@ -139,12 +139,7 @@ import {
   MongoService,
 } from './engines/mongo';
 
-import {
-  QueryBuilderService,
-  MongoQueryEngine,
-  QueryEngine,
-  SqlQueryEngine,
-} from './kernel/query';
+import { QueryBuilderService } from './kernel/query';
 
 import { SqlFunctionService } from './engines/sql';
 
@@ -253,9 +248,6 @@ export interface Cradle {
   sqlFunctionService: SqlFunctionService;
 
   queryBuilderService: QueryBuilderService;
-  queryEngine: QueryEngine;
-  sqlQueryEngine: SqlQueryEngine;
-  mongoQueryEngine: MongoQueryEngine;
 
   isolatedExecutorService: IsolatedExecutorService;
   executorEngineService: ExecutorEngineService;
@@ -481,9 +473,6 @@ export function buildContainer(): AwilixContainer<Cradle> {
     sqlFunctionService: asClass(SqlFunctionService).singleton(),
 
     queryBuilderService: asClass(QueryBuilderService).singleton(),
-    queryEngine: asClass(QueryEngine).singleton(),
-    sqlQueryEngine: asClass(SqlQueryEngine).singleton(),
-    mongoQueryEngine: asClass(MongoQueryEngine).singleton(),
 
     isolatedExecutorService: asClass(IsolatedExecutorService)
       .singleton()

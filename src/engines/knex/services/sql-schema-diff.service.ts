@@ -31,7 +31,7 @@ export class SqlSchemaDiffService {
   }
 
   async generateSchemaDiff(oldMetadata: any, newMetadata: any): Promise<any> {
-    const diff = {
+    const diff: any = {
       table: {
         create: null,
         update: null,

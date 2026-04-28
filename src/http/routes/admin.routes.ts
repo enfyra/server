@@ -62,21 +62,6 @@ export function registerAdminRoutes(
     res.json({ success: true, duration: `${Date.now() - start}ms` });
   });
 
-  app.post('/admin/flow/test-step', async (req: any, res: Response) => {
-    const flowService =
-      req.scope?.cradle?.flowService ?? container.cradle.flowService;
-    const result = await flowService.testStep(
-      {
-        type: req.body.type,
-        config: req.body.config,
-        timeout: req.body.timeout,
-        key: req.body.key,
-      },
-      req.body.mockFlow,
-    );
-    res.json(result);
-  });
-
   app.post('/admin/flow/trigger/:id', async (req: any, res: Response) => {
     const flowService =
       req.scope?.cradle?.flowService ?? container.cradle.flowService;
@@ -91,15 +76,6 @@ export function registerAdminRoutes(
       jobId: result.jobId,
       flowId: result.flowId,
     });
-  });
-
-  app.post('/admin/websocket/test-event', async (req: any, res: Response) => {
-    const result = await runTest(
-      req.body,
-      req.scope?.cradle ?? container.cradle,
-      req.user ?? null,
-    );
-    res.json(result);
   });
 
   app.post('/admin/test/run', async (req: any, res: Response) => {

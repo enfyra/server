@@ -6,7 +6,6 @@ import {
 import { EventEmitter2 } from 'eventemitter2';
 import {
   QueryBuilderService,
-  QueryEngine,
   validateDeepOptions,
   rewriteFilterDenyingFields,
   rewriteSortDroppingDenied,
@@ -41,7 +40,6 @@ import { FlowQueueMaintenanceService } from '../../flow';
 export class DynamicRepository {
   public context: TDynamicContext;
   private tableName: string;
-  private queryEngine: QueryEngine;
   private queryBuilderService: QueryBuilderService;
   private tableHandlerService: TableHandlerService;
   private policyService: PolicyService;
@@ -58,7 +56,6 @@ export class DynamicRepository {
   constructor({
     context,
     tableName,
-    queryEngine,
     queryBuilderService,
     tableHandlerService,
     policyService,
@@ -73,7 +70,6 @@ export class DynamicRepository {
   }: {
     context: TDynamicContext;
     tableName: string;
-    queryEngine: QueryEngine;
     queryBuilderService: QueryBuilderService;
     tableHandlerService: TableHandlerService;
     policyService: PolicyService;
@@ -88,7 +84,6 @@ export class DynamicRepository {
   }) {
     this.context = context;
     this.tableName = tableName;
-    this.queryEngine = queryEngine;
     this.queryBuilderService = queryBuilderService;
     this.tableHandlerService = tableHandlerService;
     this.policyService = policyService;
@@ -565,7 +560,7 @@ export class DynamicRepository {
       opt?.filter ?? opt?.where ?? this.context.$query?.filter ?? {};
     if (this.tableName === 'table_definition') {
     }
-    const result = await this.queryEngine.find({
+    const result = await this.queryBuilderService.find({
       table: this.tableName,
       fields: cleanFields || '',
       filter: filterValue,
@@ -574,12 +569,11 @@ export class DynamicRepository {
         opt && 'limit' in opt ? opt.limit : (this.context.$query?.limit ?? 10),
       meta: opt?.meta || this.context.$query?.meta,
       sort: opt?.sort || this.context.$query?.sort || this.getIdField(),
-      aggregate: this.context.$query?.aggregate || {},
       deep: cleanDeep || {},
       debugMode: debugMode,
       debugTrace: this.context.$debug || undefined,
       maxQueryDepth: this.settingCacheService.getMaxQueryDepth(),
-    } as any);
+    });
 
     if (!needsPostSql) {
       return result;
@@ -596,7 +590,7 @@ export class DynamicRepository {
       user: this.context.$user,
       action: 'read',
       metadataCacheService: this.metadataCacheService,
-      fieldPermissionCacheService: this.fieldPermissionCacheService,
+      fieldPermissionCacheService: this.fieldPermissionCacheService!,
       requested,
     });
 

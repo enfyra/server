@@ -221,9 +221,12 @@ export class DynamicResolver {
     if (!accessToken) {
       throwGqlError('401', 'Authentication required');
     }
-    let decoded;
+    let decoded: jwt.JwtPayload;
     try {
-      decoded = jwt.verify(accessToken, this.envService.get('SECRET_KEY'));
+      decoded = jwt.verify(
+        accessToken,
+        this.envService.get('SECRET_KEY'),
+      ) as jwt.JwtPayload;
     } catch {
       throwGqlError('401', 'Unauthorized');
     }

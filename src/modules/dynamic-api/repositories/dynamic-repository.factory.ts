@@ -1,7 +1,7 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { DynamicRepository } from './dynamic.repository';
 import { TableHandlerService } from '../../table-management';
-import { QueryBuilderService, QueryEngine } from '../../../kernel/query';
+import { QueryBuilderService } from '../../../kernel/query';
 import {
   MetadataCacheService,
   SettingCacheService,
@@ -16,7 +16,6 @@ import { FlowQueueMaintenanceService } from '../../flow';
 export class DynamicRepositoryFactory {
   private readonly tableHandlerService: TableHandlerService;
   private readonly queryBuilderService: QueryBuilderService;
-  private readonly queryEngine: QueryEngine;
   private readonly metadataCacheService: MetadataCacheService;
   private readonly policyService: PolicyService;
   private readonly tableValidationService: DynamicApiTableValidationService;
@@ -29,7 +28,6 @@ export class DynamicRepositoryFactory {
   constructor(deps: {
     tableHandlerService: TableHandlerService;
     queryBuilderService: QueryBuilderService;
-    queryEngine: QueryEngine;
     metadataCacheService: MetadataCacheService;
     policyService: PolicyService;
     tableValidationService: DynamicApiTableValidationService;
@@ -41,7 +39,6 @@ export class DynamicRepositoryFactory {
   }) {
     this.tableHandlerService = deps.tableHandlerService;
     this.queryBuilderService = deps.queryBuilderService;
-    this.queryEngine = deps.queryEngine;
     this.metadataCacheService = deps.metadataCacheService;
     this.policyService = deps.policyService;
     this.tableValidationService = deps.tableValidationService;
@@ -63,7 +60,6 @@ export class DynamicRepositoryFactory {
       enforceFieldPermission,
       tableHandlerService: this.tableHandlerService,
       queryBuilderService: this.queryBuilderService,
-      queryEngine: this.queryEngine,
       metadataCacheService: this.metadataCacheService,
       policyService: this.policyService,
       tableValidationService: this.tableValidationService,

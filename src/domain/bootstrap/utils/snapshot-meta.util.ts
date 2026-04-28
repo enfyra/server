@@ -8,7 +8,7 @@ export function getSnapshot(): Record<string, any> {
   if (cachedSnapshot) return cachedSnapshot;
   const filePath = path.join(process.cwd(), 'data/snapshot.json');
   cachedSnapshot = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  return cachedSnapshot;
+  return cachedSnapshot!;
 }
 
 export function getTableDef(tableName: string): any | null {

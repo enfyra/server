@@ -101,7 +101,7 @@ export function registerPackageRoutes(
     const result = await packageRepo.find({
       where: { id: { _eq: savedPackageId } },
     });
-    res.json(result);
+    return res.json(result);
   });
 
   app.patch('/package_definition/:id', async (req: any, res: Response) => {
@@ -175,7 +175,7 @@ export function registerPackageRoutes(
     });
 
     const result = await packageRepo.find({ where: { id: { _eq: id } } });
-    res.json(result);
+    return res.json(result);
   });
 
   app.delete('/package_definition/:id', async (req: any, res: Response) => {
@@ -225,7 +225,7 @@ export function registerPackageRoutes(
       id,
       name: packageRecord.name,
     });
-    res.json(result);
+    return res.json(result);
   });
 }
 

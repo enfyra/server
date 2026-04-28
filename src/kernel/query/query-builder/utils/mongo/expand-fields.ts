@@ -41,7 +41,7 @@ export async function expandFieldsMongo(
       fieldsByRelation.get(relationName)!.push(remainingPath);
     } else {
       const isRelation = baseMeta.relations?.some(
-        (r) => r.propertyName === field,
+        (r: any) => r.propertyName === field,
       );
 
       if (isRelation) {
@@ -79,7 +79,7 @@ export async function expandFieldsMongo(
         }
       }
     } else {
-      const fieldExists = baseMeta.columns?.some((c) => c.name === field);
+      const fieldExists = baseMeta.columns?.some((c: any) => c.name === field);
       if (fieldExists && !scalarFields.includes(field)) {
         scalarFields.push(field);
       }
@@ -90,14 +90,14 @@ export async function expandFieldsMongo(
     if (relationName === '') continue;
 
     const rel = baseMeta.relations?.find(
-      (r) => r.propertyName === relationName,
+      (r: any) => r.propertyName === relationName,
     );
     if (!rel) {
       continue;
     }
 
-    let localField: string;
-    let foreignField: string;
+    let localField = '';
+    let foreignField = '';
     let isInverse = false;
 
     if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {

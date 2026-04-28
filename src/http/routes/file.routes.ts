@@ -45,7 +45,7 @@ export function registerFileRoutes(
       },
       fileRepo,
     );
-    res.json(result);
+    return res.json(result);
   });
 
   app.get('/file_definition', async (req: any, res: Response) => {
@@ -60,7 +60,7 @@ export function registerFileRoutes(
     }
 
     const result = await fileRepo.find();
-    res.json(result);
+    return res.json(result);
   });
 
   app.patch('/file_definition/:id', async (req: any, res: Response) => {
@@ -261,7 +261,7 @@ export function registerFileRoutes(
     }
 
     const result = await fileRepo.update({ id, data: updateData });
-    res.json(result);
+    return res.json(result);
   });
 
   app.delete('/file_definition/:id', async (req: any, res: Response) => {
@@ -297,6 +297,6 @@ export function registerFileRoutes(
     );
 
     const result = await fileRepo.delete({ id });
-    res.json(result);
+    return res.json(result);
   });
 }

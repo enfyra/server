@@ -32,7 +32,7 @@ const RESET = '\x1b[0m';
 
 export class GraphqlService {
   private readonly logger = new Logger(`${COLOR}GraphQL${RESET}`);
-  private yogaApp: ReturnType<typeof createYoga>;
+  private yogaApp!: ReturnType<typeof createYoga>;
   private schema: GraphQLSchema | null = null;
 
   private tableDefCache = new Map<string, TableGraphQLDef>();

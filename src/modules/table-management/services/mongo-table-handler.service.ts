@@ -172,7 +172,8 @@ export class MongoTableHandlerService {
             },
           );
         }
-        this.tableValidationService.validateRelations(body.relations);
+        const bodyRelations = body.relations ?? [];
+        this.tableValidationService.validateRelations(bodyRelations);
         try {
           const db = this.queryBuilderService.getMongoDb();
           const collections = await db
@@ -296,8 +297,8 @@ export class MongoTableHandlerService {
           }
           const insertedRelationIds = [];
           try {
-            if (body.relations?.length > 0) {
-              for (const rel of body.relations) {
+            if (bodyRelations.length > 0) {
+              for (const rel of bodyRelations) {
                 let targetTableObjectId;
                 const targetTableIdFromObj =
                   typeof rel.targetTable === 'object'
@@ -654,7 +655,8 @@ export class MongoTableHandlerService {
           tableName: body.name,
         });
       }
-      this.tableValidationService.validateRelations(body.relations);
+      const bodyRelations = body.relations ?? [];
+      this.tableValidationService.validateRelations(bodyRelations);
       stepLog(`STEP 2 validated name+relations (+${lap()}ms)`);
       try {
         const queryId = typeof id === 'string' ? new ObjectId(id) : id;

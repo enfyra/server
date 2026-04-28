@@ -106,7 +106,7 @@ async function collectRelationSqlFragments(
               ? idFilter._in
               : [idFilter._in];
             const inStr = inValues
-              .map((v) => escapeSqlString(v, dbType))
+              .map((v: any) => escapeSqlString(v, dbType))
               .join(', ');
             subqueries.push(`${fkColumn} IN (${inStr})`);
           } else if (

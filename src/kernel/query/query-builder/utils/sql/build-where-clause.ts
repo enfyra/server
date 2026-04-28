@@ -422,9 +422,9 @@ function processFilter(
         }
       } else {
         if (logicalOperator === 'and') {
-          query.where(fullField, '=', value);
+          (query as any).where(fullField, '=', value);
         } else {
-          query.orWhere(fullField, '=', value);
+          (query as any).orWhere(fullField, '=', value);
         }
       }
     }

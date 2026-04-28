@@ -99,7 +99,7 @@ export class ImageProcessorHelper {
       },
       gif: () => processor.gif(),
     };
-    return formatMap[format]?.() || processor;
+    return (formatMap as Record<string, () => sharp.Sharp>)[format]?.() || processor;
   }
   static validateImageParams(
     width?: number,

@@ -69,7 +69,7 @@ export class FlowService {
     });
 
     this.logger.log(`Flow "${flow.name}" triggered, job ${job.id}`);
-    return { jobId: job.id, flowId: flow.id };
+    return { jobId: String(job.id), flowId: flow.id };
   }
 
   async testStep(

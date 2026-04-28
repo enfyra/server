@@ -26,7 +26,7 @@ export class RuntimeDbMetricsService {
 
   getDbStats() {
     if (this.databaseConfigService.isMongoDb()) {
-      return { type: 'mongodb', pool: null };
+      return { type: 'mongodb', pool: null as any };
     }
     return {
       type: this.databaseConfigService.getDbType(),

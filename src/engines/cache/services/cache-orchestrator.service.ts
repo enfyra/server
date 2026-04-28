@@ -710,7 +710,7 @@ export class CacheOrchestratorService implements LifecycleAware {
           }
           this.processedVersions.add(version);
           if (this.processedVersions.size > 1000) {
-            const first = this.processedVersions.values().next().value;
+            const first = this.processedVersions.values().next().value!;
             this.processedVersions.delete(first);
           }
           this.logger.log(
@@ -741,7 +741,7 @@ export class CacheOrchestratorService implements LifecycleAware {
       const version = `${this.instanceService.getInstanceId()}:${timestamp}:${payload.table}:${payload.scope || 'full'}:${payload.ids?.join(',') || 'all'}`;
       this.processedVersions.add(version);
       if (this.processedVersions.size > 1000) {
-        const first = this.processedVersions.values().next().value;
+        const first = this.processedVersions.values().next().value!;
         this.processedVersions.delete(first);
       }
       await this.redisPubSubService.publish(

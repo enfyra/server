@@ -21,7 +21,7 @@ interface SocketData extends Socket {
 }
 
 export class DynamicWebSocketGateway {
-  server: Server;
+  server!: Server;
   private readonly logger = new Logger(DynamicWebSocketGateway.name);
   private registeredGateways = new Set<string>();
   private gatewayConfigsByPath = new Map<string, any>();
@@ -173,8 +173,11 @@ export class DynamicWebSocketGateway {
           return next(err);
         }
         try {
-          const user = jwt.verify(token, this.envService.get('SECRET_KEY'));
-          socket.data.user = user;
+          const user = jwt.verify(
+            token,
+            this.envService.get('SECRET_KEY'),
+          ) as jwt.JwtPayload;
+          socket.data.user = user as any;
           socket.data.userId = user.id || user.userId;
           socket.data.gateway = gateway;
           next();
@@ -262,7 +265,7 @@ export class DynamicWebSocketGateway {
       socket.join(roomName);
       for (const event of gatewayData.events) {
         const eventName = event.eventName;
-        socket.on(eventName, async (payload, ack) => {
+        socket.on(eventName, async (payload: any, ack: any) => {
           const requestId = randomUUID();
           if (typeof ack === 'function') {
             ack({ queued: true, requestId, eventName });

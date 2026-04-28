@@ -449,7 +449,7 @@ export class MetadataCacheService implements IMetadataCache {
             );
             if (!existsInExplicit) {
               const actualFkColumn = actualSchema.columns.find(
-                (col) => col.name === fkColumn,
+                (col: any) => col.name === fkColumn,
               );
               if (actualFkColumn) {
                 combinedColumns.push({
@@ -479,7 +479,7 @@ export class MetadataCacheService implements IMetadataCache {
         );
         if (!hasCreatedAt) {
           const actualCreatedAt = actualSchema.columns.find(
-            (col) => col.name === 'createdAt',
+            (col: any) => col.name === 'createdAt',
           );
           if (actualCreatedAt)
             combinedColumns.push({
@@ -490,7 +490,7 @@ export class MetadataCacheService implements IMetadataCache {
         }
         if (!hasUpdatedAt) {
           const actualUpdatedAt = actualSchema.columns.find(
-            (col) => col.name === 'updatedAt',
+            (col: any) => col.name === 'updatedAt',
           );
           if (actualUpdatedAt)
             combinedColumns.push({
@@ -646,7 +646,7 @@ export class MetadataCacheService implements IMetadataCache {
   }
 
   getDirectMetadata(): EnfyraMetadata {
-    return this.inMemoryCache;
+    return this.inMemoryCache!;
   }
 
   isLoaded(): boolean {

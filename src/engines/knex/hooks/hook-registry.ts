@@ -12,6 +12,7 @@ export type HookEvent =
   | 'afterDelete'
   | 'beforeSelect'
   | 'afterSelect';
+type HookHandler<E extends HookEvent> = HookRegistry[E][number];
 export interface HookRegistry {
   beforeInsert: Array<(tableName: string, data: any) => any>;
   afterInsert: Array<(tableName: string, result: any) => any>;
@@ -68,11 +69,11 @@ export class KnexHookRegistry {
   getHooks(): HookRegistry {
     return this.hooks;
   }
-  addHook(event: HookEvent, handler: any): void {
+  addHook<E extends HookEvent>(event: E, handler: HookHandler<E>): void {
     if (!this.hooks[event]) throw new Error(`Unknown hook event: ${event}`);
-    this.hooks[event].push(handler);
+    (this.hooks[event] as HookHandler<E>[]).push(handler);
   }
-  removeHook(event: HookEvent, handler: any): void {
+  removeHook<E extends HookEvent>(event: E, handler: HookHandler<E>): void {
     const index = this.hooks[event].indexOf(handler);
     if (index > -1) this.hooks[event].splice(index, 1);
   }

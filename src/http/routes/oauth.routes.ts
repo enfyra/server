@@ -22,14 +22,17 @@ export function registerOAuthRoutes(
 
     const providers = oauthConfigCache
       .getAllProviders()
-      .filter((provider): provider is 'google' | 'facebook' | 'github' =>
+      .filter((provider: string): provider is 'google' | 'facebook' | 'github' =>
         VALID_OAUTH_PROVIDERS.includes(provider as any),
       )
       .sort(
-        (a, b) =>
+        (
+          a: 'google' | 'facebook' | 'github',
+          b: 'google' | 'facebook' | 'github',
+        ) =>
           VALID_OAUTH_PROVIDERS.indexOf(a) - VALID_OAUTH_PROVIDERS.indexOf(b),
       )
-      .map((provider) => ({ provider }));
+      .map((provider: 'google' | 'facebook' | 'github') => ({ provider }));
 
     return res.json({ data: providers });
   });

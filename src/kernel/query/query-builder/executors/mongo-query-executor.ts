@@ -14,7 +14,7 @@ export class MongoQueryExecutor {
   private debugLog: any[] = [];
   private readonly db: Db;
   private metadata: any;
-  private dbType: string;
+  private dbType!: string;
   private lastBuiltPipeline: any[] | null = null;
 
   constructor(private readonly mongoService: any) {
