@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { OAuthService } from 'src/domain/auth';
+import { OAuthService } from '../../src/domain/auth';
 
 function makeService(): OAuthService {
   return new OAuthService({

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SqlTableMetadataWriterService } from 'src/modules/table-management';
+import { SqlTableMetadataWriterService } from '../../src/modules/table-management';
 
 function createQueryRunner() {
   const inserts: Record<string, any[]> = {};

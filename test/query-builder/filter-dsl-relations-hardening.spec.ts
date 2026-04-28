@@ -3,7 +3,7 @@ import {
   separateFilters,
   hasLogicalOperators,
   SqlQueryExecutor,
-} from 'src/kernel/query';
+} from '../../src/kernel/query';
 import {
   buildOracleStressFilters,
   oracleExtensionRowIds,

@@ -1,4 +1,4 @@
-import { PolicyService } from 'src/domain/policy';
+import { PolicyService } from '../../src/domain/policy';
 
 describe('PolicyService.checkRequestAccess', () => {
   const policy = new PolicyService({} as any, {} as any);

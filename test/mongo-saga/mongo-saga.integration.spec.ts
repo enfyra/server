@@ -4,8 +4,8 @@ import {
   MongoSagaLockService,
   MongoOperationLogService,
   MongoSagaCoordinator,
-} from 'src/engines/mongo';
-import { InstanceService } from 'src/shared/services';
+} from '../../src/engines/mongo';
+import { InstanceService } from '../../src/shared/services';
 
 const MONGO_URI =
   'mongodb://enfyra_admin:enfyra_password_123@localhost:27017/enfyra_test?authSource=admin';

@@ -54,6 +54,7 @@ export class DynamicResolver {
       limit: number;
       meta: 'filterCount' | 'totalCount' | '*';
       sort: string | string[];
+      aggregate: any;
     },
     context: any,
     info: any,
@@ -83,6 +84,7 @@ export class DynamicResolver {
         limit: args.limit,
         meta: metaPicker.join(',') as any,
         sort: args.sort,
+        aggregate: args.aggregate,
       },
       query: {
         fields: fieldPicker.join(','),
@@ -91,6 +93,7 @@ export class DynamicResolver {
         limit: args.limit,
         meta: metaPicker.join(',') as any,
         sort: args.sort,
+        aggregate: args.aggregate,
       },
     });
     handlerCtx.$repos = this.repoRegistryService.createReposProxy(

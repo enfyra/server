@@ -1,7 +1,7 @@
 import {
   rewriteFilterDenyingFields,
   rewriteSortDroppingDenied,
-} from 'src/kernel/query';
+} from '../../src/kernel/query';
 
 const META: Record<string, any> = {
   posts: {

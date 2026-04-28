@@ -1,5 +1,6 @@
-import { generateGraphQLTypeDefsFromTables } from 'src/modules/graphql';
-import { DatabaseConfigService } from 'src/shared/services';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { generateGraphQLTypeDefsFromTables } from '../../src/modules/graphql';
+import { DatabaseConfigService } from '../../src/shared/services';
 
 function makeTable(name: string, columns: any[], relations: any[] = []): any {
   return { name, columns, relations };
@@ -16,6 +17,24 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
 
   afterAll(() => {
     DatabaseConfigService.resetForTesting();
+  });
+
+  describe('aggregate query argument', () => {
+    it('emits aggregate JSON arg and aggregate meta field for queryable tables', () => {
+      const schema = generateGraphQLTypeDefsFromTables(
+        [
+          makeTable('sales', [
+            makeColumn('id', 'uuid', { isPrimary: true }),
+            makeColumn('amount', 'integer'),
+          ]),
+        ],
+        new Set(['sales']),
+      );
+
+      expect(schema).toContain('aggregate: JSON');
+      expect(schema).toContain('type MetaResult');
+      expect(schema).toMatch(/type MetaResult \{[\s\S]*aggregate: JSON/);
+    });
   });
 
   describe('queryableTableNames allowlist', () => {

@@ -2,7 +2,7 @@ import knex, { Knex } from 'knex';
 import {
   executeBatchFetches,
   BatchFetchDescriptor,
-} from 'src/kernel/query';
+} from '../../src/kernel/query';
 
 let db: Knex;
 

@@ -1,5 +1,5 @@
-import { parseFilter, JoinRegistry, FilterNode } from 'src/kernel/query';
-import { BadRequestException } from 'src/domain/exceptions';
+import { parseFilter, JoinRegistry, FilterNode } from '../../src/kernel/query';
+import { BadRequestException } from '../../src/domain/exceptions';
 
 const META = {
   tables: new Map<string, any>([

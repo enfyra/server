@@ -2,7 +2,7 @@ process.env.LOG_DISABLE_FILES = process.env.LOG_DISABLE_FILES ?? '1';
 process.env.LOG_DISABLE_CONSOLE = process.env.LOG_DISABLE_CONSOLE ?? '1';
 
 import { vi } from 'vitest';
-import { DatabaseConfigService } from 'src/shared/services';
+import { DatabaseConfigService } from '../src/shared/services';
 
 DatabaseConfigService.overrideForTesting('mysql');
 

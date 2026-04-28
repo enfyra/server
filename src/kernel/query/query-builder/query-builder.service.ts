@@ -7,6 +7,7 @@ import {
   UpdateOptions,
   DeleteOptions,
   CountOptions,
+  AggregateQuery,
 } from '../../../shared/types/query-builder.types';
 import { MongoQueryExecutor } from './executors/mongo-query-executor';
 import { SqlQueryExecutor } from './executors/sql-query-executor';
@@ -192,6 +193,7 @@ export class QueryBuilderService implements IQueryBuilder {
     debugLog?: any[];
     debugTrace?: DebugTrace;
     pipeline?: any[];
+    aggregate?: AggregateQuery;
     maxQueryDepth?: number;
   }): Promise<any> {
     const selectStart = performance.now();
@@ -227,6 +229,7 @@ export class QueryBuilderService implements IQueryBuilder {
         metadata,
         dbType: this.dbType,
         plan,
+        aggregate: options.aggregate,
       });
     }
 
@@ -418,6 +421,7 @@ export class QueryBuilderService implements IQueryBuilder {
     debugLog?: any[];
     debugTrace?: DebugTrace;
     pipeline?: any[];
+    aggregate?: AggregateQuery;
     maxQueryDepth?: number;
   }): Promise<any> {
     return this.trackQueryMetric('find', options.table, async () => {
@@ -437,6 +441,7 @@ export class QueryBuilderService implements IQueryBuilder {
         debugLog: options.debugLog,
         debugTrace: options.debugTrace,
         pipeline: options.pipeline,
+        aggregate: options.aggregate,
         maxQueryDepth: options.maxQueryDepth,
       });
     });

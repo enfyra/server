@@ -1,4 +1,4 @@
-import { expandFieldsToJoinsAndSelect } from 'src/kernel/query';
+import { expandFieldsToJoinsAndSelect } from '../../src/kernel/query';
 
 function makeMeta(name: string, columns: any[], relations: any[] = []) {
   return {

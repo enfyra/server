@@ -1,8 +1,8 @@
-import { ValidationException } from 'src/domain/exceptions';
+import { ValidationException } from '../../src/domain/exceptions';
 import {
   getJunctionTableName,
   getJunctionColumnNames,
-} from 'src/kernel/query';
+} from '../../src/kernel/query';
 
 type TRelation = {
   id?: number;

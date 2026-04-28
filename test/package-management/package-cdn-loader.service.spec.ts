@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import { EventEmitter2 } from 'eventemitter2';
-import { PackageCacheService, PackageCdnLoaderService } from 'src/engines/cache';
+import { PackageCacheService, PackageCdnLoaderService } from '../../src/engines/cache';
 
 function response(body: string, ok = true, status = 200) {
   return {

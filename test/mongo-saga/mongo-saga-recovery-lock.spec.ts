@@ -3,8 +3,8 @@ import {
   MongoService,
   MongoSagaLockService,
   MongoOperationLogService,
-} from 'src/engines/mongo';
-import { InstanceService } from 'src/shared/services';
+} from '../../src/engines/mongo';
+import { InstanceService } from '../../src/shared/services';
 import {
   SAGA_ORPHAN_RECOVERY_LOCK_KEY,
   REDIS_TTL,

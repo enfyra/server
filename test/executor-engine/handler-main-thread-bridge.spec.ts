@@ -1,4 +1,4 @@
-import { encodeMainThreadToIsolate } from 'src/kernel/execution';
+import { encodeMainThreadToIsolate } from '../../src/kernel/execution';
 
 function unwrapMain(v: unknown): unknown {
   if (

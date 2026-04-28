@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter2 } from 'eventemitter2';
-import { ColumnRuleCacheService } from 'src/engines/cache';
+import { ColumnRuleCacheService } from '../../src/engines/cache';
 
 function makeQb(rows: any[]) {
   return {

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter2 } from 'eventemitter2';
-import { FieldPermissionCacheService } from 'src/engines/cache';
+import { FieldPermissionCacheService } from '../../src/engines/cache';
 
 function makeRow(overrides: any) {
   return {

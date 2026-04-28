@@ -4,7 +4,7 @@ import {
   formatZodErrors,
   parseOrBadRequest,
 } from '../../src/shared/utils/zod-parse.util';
-import { BadRequestException } from 'src/domain/exceptions';
+import { BadRequestException } from '../../src/domain/exceptions';
 
 describe('formatZodErrors — message strings', () => {
   it('missing required field → "<field> is required"', () => {

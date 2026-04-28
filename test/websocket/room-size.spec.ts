@@ -3,7 +3,7 @@ import { io as ioClient, Socket as ClientSocket } from 'socket.io-client';
 import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import { createServer, Server as HttpServer } from 'http';
-import { DynamicWebSocketGateway } from 'src/modules/websocket';
+import { DynamicWebSocketGateway } from '../../src/modules/websocket';
 
 const REDIS_URI = process.env.REDIS_URI || 'redis://localhost:6379';
 

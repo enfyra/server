@@ -517,6 +517,7 @@ export class DynamicRepository {
       limit?: number;
       sort?: string;
       meta?: string | string[];
+      aggregate?: any;
     } = {},
   ) {
     await this.ensureInit();
@@ -557,6 +558,7 @@ export class DynamicRepository {
       limit:
         opt && 'limit' in opt ? opt.limit : (this.context.$query?.limit ?? 10),
       meta: opt?.meta || this.context.$query?.meta,
+      aggregate: opt?.aggregate || this.context.$query?.aggregate,
       sort: opt?.sort || this.context.$query?.sort || this.getIdField(),
       deep: cleanDeep || {},
       debugMode: debugMode,

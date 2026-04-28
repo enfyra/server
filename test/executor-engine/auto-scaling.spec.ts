@@ -1,8 +1,8 @@
-import { computeEngineTuning } from 'src/kernel/execution';
+import { computeEngineTuning } from '../../src/kernel/execution';
 import {
   computeCoordinatedPoolMax,
   splitSqlPoolAcrossReplication,
-} from 'src/engines/knex';
+} from '../../src/engines/knex';
 import {
   WORKER_RSS_HIGH,
   WORKER_RSS_LOW,

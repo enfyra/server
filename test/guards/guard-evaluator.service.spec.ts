@@ -2,7 +2,7 @@ import {
   GuardEvaluatorService,
   type GuardNode,
   type GuardRuleNode,
-} from 'src/engines/cache';
+} from '../../src/engines/cache';
 class MockRateLimitService {
   results = new Map<
     string,
