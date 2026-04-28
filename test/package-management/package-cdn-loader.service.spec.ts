@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import { EventEmitter2 } from 'eventemitter2';
-import { PackageCacheService, PackageCdnLoaderService } from '../../src/engines/cache';
+import {
+  PackageCacheService,
+  PackageCdnLoaderService,
+} from '../../src/engines/cache';
 import { CACHE_EVENTS } from '../../src/shared/utils/cache-events.constants';
 
 function response(body: string, ok = true, status = 200) {
@@ -81,37 +84,37 @@ describe('PackageCdnLoaderService', () => {
     );
   });
 
-  it('refetches with es2022 target when esm.sh node output has a re-export cycle', async () => {
+  it('loads packages as disk descriptors without importing modules into main memory', async () => {
     const loader = new PackageCdnLoaderService();
     loader.invalidateAll();
-    const fetchAndWriteBundle = vi
-      .spyOn(loader as any, 'fetchAndWriteBundle')
-      .mockResolvedValue(undefined);
-    const importFromFile = vi
-      .spyOn(loader as any, 'importFromFile')
-      .mockRejectedValueOnce(
-        new Error(
-          "Detected cycle while resolving name 'fileTypeFromTokenizer'",
-        ),
-      )
-      .mockResolvedValueOnce({ fileTypeFromBuffer: vi.fn() });
 
-    const mod = await loader.loadPackage('file-type', '19.5.0');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL | Request) => {
+        const href = String(url);
+        if (href.endsWith('/file-type@19.5.0?bundle&target=node')) {
+          return response('export default { ok: true };');
+        }
+        if (href.endsWith('/file-type@19.5.0/package.json')) {
+          return response('{ "dependencies": {} }');
+        }
+        return response('not found', false, 404);
+      }),
+    );
 
-    expect(mod).toHaveProperty('fileTypeFromBuffer');
-    expect(fetchAndWriteBundle).toHaveBeenNthCalledWith(
-      1,
-      'file-type',
-      '19.5.0',
-      'node',
-    );
-    expect(fetchAndWriteBundle).toHaveBeenNthCalledWith(
-      2,
-      'file-type',
-      '19.5.0',
-      'es2022',
-    );
-    expect(importFromFile).toHaveBeenCalledTimes(2);
+    const descriptor = await loader.loadPackage('file-type', '19.5.0');
+
+    expect(descriptor).toMatchObject({
+      name: 'file-type',
+      safeName: 'file_type',
+      version: '19.5.0',
+    });
+    expect(descriptor.fileUrl).toContain('file://');
+    expect(fs.existsSync(descriptor.filePath)).toBe(true);
+    expect(loader.getLoadedPackages().get('file-type@19.5.0')).toMatchObject({
+      name: 'file-type',
+      version: '19.5.0',
+    });
   });
 });
 
@@ -120,7 +123,10 @@ describe('PackageCacheService CDN preload', () => {
     const eventEmitter = new EventEmitter2();
     const queryBuilderService = {
       find: vi.fn(async (args: any) => {
-        if (args.fields?.includes('name') && !args.fields?.includes('version')) {
+        if (
+          args.fields?.includes('name') &&
+          !args.fields?.includes('version')
+        ) {
           return { data: [{ name: 'node-ssh' }] };
         }
         return {

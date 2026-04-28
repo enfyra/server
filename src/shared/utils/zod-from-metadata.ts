@@ -45,7 +45,8 @@ function buildColumnZod(
   mode: 'create' | 'update',
   rulesForColumn: (columnId: string | number) => TColumnRule[],
 ): z.ZodType | null {
-  if (col.isGenerated || col.isPrimary) return null;
+  if (col.isPrimary) return null;
+  if (col.isGenerated && col.isNullable === false) return z.any().optional();
   if (AUTO_MANAGED_COLUMNS.has(col.name)) return null;
   if (mode === 'update' && col.isUpdatable === false) return null;
 

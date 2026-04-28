@@ -15,6 +15,7 @@ import {
   toRelativeImport,
   type CdnDependencyHints,
 } from '../utils/package-cdn-loader.util';
+import type { PackageRuntimeDescriptor } from '../../../shared/types';
 
 const CDN_BASE = 'https://esm.sh';
 const CACHE_DIR = path.join(os.tmpdir(), 'enfyra-pkg-cache');
@@ -22,7 +23,6 @@ const MAIN_FILE = 'main.mjs';
 const DEPS_DIR = 'deps';
 const MANIFEST_FILE = 'manifest.json';
 const CDN_FETCH_TIMEOUT_MS = 20_000;
-const CDN_IMPORT_TIMEOUT_MS = 10_000;
 type CdnBundleTarget = 'node' | 'es2022';
 type CdnPreparedModules = Map<string, Promise<string>>;
 
@@ -36,20 +36,8 @@ export function extractErrorMessage(error: any): string {
   return parts.join(' → ') || 'Unknown error';
 }
 
-const WORKER_RUNTIME_ERROR_PATTERNS = [
-  'Cannot find module',
-  'require is not defined',
-  'process is not defined',
-  'Unresolved import',
-  '.node',
-  'node-gyp',
-  'bindings',
-  'dynamic import callback',
-];
-
 export class PackageCdnLoaderService {
   private readonly logger = new Logger(PackageCdnLoaderService.name);
-  private readonly moduleCache = new Map<string, any>();
   private readonly dependencyManifestCache = new Map<
     string,
     Record<string, string>
@@ -61,45 +49,46 @@ export class PackageCdnLoaderService {
     }
   }
 
-  getLoadedPackages(): Map<string, any> {
-    return this.moduleCache;
+  getLoadedPackages(): Map<string, PackageRuntimeDescriptor> {
+    const loaded = new Map<string, PackageRuntimeDescriptor>();
+    try {
+      const files = fs.readdirSync(CACHE_DIR);
+      for (const file of files) {
+        const packageDir = path.join(CACHE_DIR, file);
+        const descriptor = this.getDescriptorFromArtifactDir(packageDir);
+        if (descriptor)
+          loaded.set(`${descriptor.name}@${descriptor.version}`, descriptor);
+      }
+    } catch {}
+    return loaded;
   }
 
-  isLoaded(name: string): boolean {
-    for (const key of this.moduleCache.keys()) {
-      if (key === name || key.startsWith(`${name}@`)) return true;
-    }
-    return false;
+  isLoaded(name: string, version?: string): boolean {
+    if (version) return fs.existsSync(this.getMainFilePath(name, version));
+    return this.findLatestPackageArtifactDir(name) !== null;
   }
 
-  getModule(name: string): any | undefined {
-    for (const [key, mod] of this.moduleCache) {
-      if (key === name || key.startsWith(`${name}@`)) return mod;
-    }
-    return undefined;
+  getModule(name: string): PackageRuntimeDescriptor | undefined {
+    return this.getPackageSources([name])[0];
   }
 
-  async loadPackage(name: string, version: string): Promise<any> {
-    const cacheKey = `${name}@${version}`;
-
-    if (this.moduleCache.has(cacheKey)) {
-      return this.moduleCache.get(cacheKey);
-    }
-
+  async loadPackage(
+    name: string,
+    version: string,
+  ): Promise<PackageRuntimeDescriptor> {
     const filePath = this.getMainFilePath(name, version);
 
     if (!fs.existsSync(filePath)) {
       await this.fetchAndWriteBundle(name, version, 'node');
     }
 
-    let mod: any;
-    try {
-      mod = await this.importFromFile(filePath, name);
-    } catch (error) {
-      mod = await this.refetchAndImportPackage(name, version, filePath, error);
+    const descriptor = this.getPackageDescriptor(name, version);
+    if (!descriptor) {
+      throw new Error(
+        `Package artifact missing after CDN load: ${name}@${version}`,
+      );
     }
-    this.moduleCache.set(cacheKey, mod);
-    return mod;
+    return descriptor;
   }
 
   async preloadPackages(
@@ -118,12 +107,6 @@ export class PackageCdnLoaderService {
   }
 
   async invalidatePackage(name: string, newVersion?: string): Promise<void> {
-    for (const key of this.moduleCache.keys()) {
-      if (key === name || key.startsWith(`${name}@`)) {
-        this.moduleCache.delete(key);
-      }
-    }
-
     this.deletePackageArtifacts(name);
 
     if (newVersion) {
@@ -137,43 +120,21 @@ export class PackageCdnLoaderService {
     }
   }
 
-  getPackageSources(names: string[]): Array<{
-    name: string;
-    safeName: string;
-    sourceCode: string;
-    filePath: string;
-    fileUrl: string;
-  }> {
-    const results: Array<{
-      name: string;
-      safeName: string;
-      sourceCode: string;
-      filePath: string;
-      fileUrl: string;
-    }> = [];
+  getPackageSources(names: string[]): PackageRuntimeDescriptor[] {
+    const results: PackageRuntimeDescriptor[] = [];
     for (const name of names) {
-      const safeName = name.replace(/[^a-zA-Z0-9]/g, '_');
       try {
         const packageDir = this.findLatestPackageArtifactDir(name);
-        if (packageDir) {
-          const filePath = path.join(packageDir, MAIN_FILE);
-          if (!fs.existsSync(filePath)) continue;
-          const sourceCode = fs.readFileSync(filePath, 'utf-8');
-          results.push({
-            name,
-            safeName,
-            sourceCode,
-            filePath,
-            fileUrl: pathToFileURL(filePath).href,
-          });
-        }
+        const descriptor = packageDir
+          ? this.getDescriptorFromArtifactDir(packageDir, name)
+          : null;
+        if (descriptor) results.push(descriptor);
       } catch {}
     }
     return results;
   }
 
   invalidateAll(): void {
-    this.moduleCache.clear();
     try {
       const files = fs.readdirSync(CACHE_DIR);
       for (const file of files) {
@@ -191,6 +152,56 @@ export class PackageCdnLoaderService {
     return path.join(this.getPackageArtifactDir(name, version), MAIN_FILE);
   }
 
+  private getPackageDescriptor(
+    name: string,
+    version: string,
+  ): PackageRuntimeDescriptor | null {
+    return this.getDescriptorFromArtifactDir(
+      this.getPackageArtifactDir(name, version),
+      name,
+      version,
+    );
+  }
+
+  private getDescriptorFromArtifactDir(
+    packageDir: string,
+    fallbackName?: string,
+    fallbackVersion?: string,
+  ): PackageRuntimeDescriptor | null {
+    const filePath = path.join(packageDir, MAIN_FILE);
+    if (!fs.existsSync(filePath)) return null;
+
+    let manifest: { name?: string; version?: string } = {};
+    try {
+      manifest = JSON.parse(
+        fs.readFileSync(path.join(packageDir, MANIFEST_FILE), 'utf-8'),
+      );
+    } catch {}
+
+    const stat = fs.statSync(filePath);
+    const name =
+      manifest.name ??
+      fallbackName ??
+      path.basename(packageDir).replace(/@[^@]+$/, '');
+    const version =
+      manifest.version ??
+      fallbackVersion ??
+      path.basename(packageDir).split('@').slice(1).join('@') ??
+      'latest';
+    const safeName = name.replace(/[^a-zA-Z0-9]/g, '_');
+
+    return {
+      name,
+      safeName,
+      version,
+      filePath,
+      fileUrl: pathToFileURL(filePath).href,
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+      cacheKey: `${name}@${version}:${stat.mtimeMs}:${stat.size}`,
+    };
+  }
+
   private getDepsDir(name: string, version: string): string {
     return path.join(this.getPackageArtifactDir(name, version), DEPS_DIR);
   }
@@ -199,12 +210,18 @@ export class PackageCdnLoaderService {
     const safeName = name.replace(/[^a-zA-Z0-9]/g, '_');
     const prefix = `${safeName}@`;
     const files = fs.readdirSync(CACHE_DIR);
-    const match = files.find((file) => {
-      const full = path.join(CACHE_DIR, file);
-      return (
-        file.startsWith(prefix) && fs.existsSync(path.join(full, MAIN_FILE))
-      );
-    });
+    const match = files
+      .filter((file) => {
+        const full = path.join(CACHE_DIR, file);
+        return (
+          file.startsWith(prefix) && fs.existsSync(path.join(full, MAIN_FILE))
+        );
+      })
+      .sort((a, b) => {
+        const aStat = fs.statSync(path.join(CACHE_DIR, a, MAIN_FILE));
+        const bStat = fs.statSync(path.join(CACHE_DIR, b, MAIN_FILE));
+        return bStat.mtimeMs - aStat.mtimeMs;
+      })[0];
     return match ? path.join(CACHE_DIR, match) : null;
   }
 
@@ -283,10 +300,7 @@ export class PackageCdnLoaderService {
     preparedModules: CdnPreparedModules = new Map(),
     dependencyHints: CdnDependencyHints = new Map(),
   ): Promise<string> {
-    specifier = applyDependencyHintToCdnSpecifier(
-      specifier,
-      dependencyHints,
-    );
+    specifier = applyDependencyHintToCdnSpecifier(specifier, dependencyHints);
     if (activeStack.has(specifier)) {
       const existingPath = getCdnDependencyFilePath(
         specifier,
@@ -398,33 +412,35 @@ export class PackageCdnLoaderService {
     );
 
     const replacements = new Map<string, string>();
-    await Promise.all([...specifiers].map(async (specifier) => {
-      const resolvedSpecifier = applyDependencyHintToCdnSpecifier(
-        resolveCdnImportSpecifier(specifier, sourceSpecifier),
-        dependencyHints,
-      );
-      const depPath = getCdnDependencyFilePath(
-        resolvedSpecifier,
-        packageDir,
-        DEPS_DIR,
-      );
-      if (isNativeCdnImport(resolvedSpecifier)) {
-        fs.writeFileSync(depPath, NATIVE_CDN_STUB_SOURCE, 'utf-8');
-      } else if (!fs.existsSync(depPath)) {
-        const depCode = await this.fetchAndPrepareCdnModule(
-          resolvedSpecifier,
-          name,
-          version,
-          packageDir,
-          path.dirname(depPath),
-          new Set(activeStack),
-          preparedModules,
+    await Promise.all(
+      [...specifiers].map(async (specifier) => {
+        const resolvedSpecifier = applyDependencyHintToCdnSpecifier(
+          resolveCdnImportSpecifier(specifier, sourceSpecifier),
           dependencyHints,
         );
-        fs.writeFileSync(depPath, depCode, 'utf-8');
-      }
-      replacements.set(specifier, toRelativeImport(depPath, currentDir));
-    }));
+        const depPath = getCdnDependencyFilePath(
+          resolvedSpecifier,
+          packageDir,
+          DEPS_DIR,
+        );
+        if (isNativeCdnImport(resolvedSpecifier)) {
+          fs.writeFileSync(depPath, NATIVE_CDN_STUB_SOURCE, 'utf-8');
+        } else if (!fs.existsSync(depPath)) {
+          const depCode = await this.fetchAndPrepareCdnModule(
+            resolvedSpecifier,
+            name,
+            version,
+            packageDir,
+            path.dirname(depPath),
+            new Set(activeStack),
+            preparedModules,
+            dependencyHints,
+          );
+          fs.writeFileSync(depPath, depCode, 'utf-8');
+        }
+        replacements.set(specifier, toRelativeImport(depPath, currentDir));
+      }),
+    );
 
     return code.replace(importPattern, (full, prefix, specifier, suffix) => {
       const replacement = replacements.get(specifier);
@@ -458,74 +474,6 @@ export class PackageCdnLoaderService {
       if (!dependencyHints.has(dependencyName)) {
         dependencyHints.set(dependencyName, dependencyVersion);
       }
-    }
-  }
-
-  private shouldFallbackToWorkerRuntime(error: any): boolean {
-    const message = extractErrorMessage(error);
-    return WORKER_RUNTIME_ERROR_PATTERNS.some((pattern) =>
-      message.includes(pattern),
-    );
-  }
-
-  private isEsmReExportCycleError(error: any): boolean {
-    return extractErrorMessage(error).includes(
-      'Detected cycle while resolving name',
-    );
-  }
-
-  private async refetchAndImportPackage(
-    name: string,
-    version: string,
-    filePath: string,
-    firstError: any,
-  ): Promise<any> {
-    const target: CdnBundleTarget = this.isEsmReExportCycleError(firstError)
-      ? 'es2022'
-      : 'node';
-    this.deletePackageArtifacts(name);
-    await this.fetchAndWriteBundle(name, version, target);
-
-    try {
-      return await this.importFromFile(filePath, name);
-    } catch (retryError) {
-      if (target === 'node') {
-        this.deletePackageArtifacts(name);
-        await this.fetchAndWriteBundle(name, version, 'es2022');
-        try {
-          return await this.importFromFile(filePath, name);
-        } catch (es2022Error) {
-          if (
-            this.shouldFallbackToWorkerRuntime(retryError) ||
-            this.shouldFallbackToWorkerRuntime(es2022Error)
-          ) {
-            return { __enfyraRuntime: 'worker', name, version };
-          }
-          throw es2022Error;
-        }
-      }
-      if (this.shouldFallbackToWorkerRuntime(retryError)) {
-        return { __enfyraRuntime: 'worker', name, version };
-      }
-      throw retryError;
-    }
-  }
-
-  private async importFromFile(filePath: string, name: string): Promise<any> {
-    try {
-      const stat = fs.statSync(filePath);
-      const fileUrl = `${pathToFileURL(filePath).href}?v=${stat.mtimeMs}-${stat.size}`;
-      const mod = (await this.withTimeout(
-        new Function('specifier', 'return import(specifier)')(fileUrl),
-        CDN_IMPORT_TIMEOUT_MS,
-        `CDN import timed out for ${name}`,
-      )) as any;
-      return mod.default !== undefined ? mod.default : mod;
-    } catch (error) {
-      this.logger.error(
-        `Failed to import ${name} from ${filePath}: ${extractErrorMessage(error)}`,
-      );
-      throw error;
     }
   }
 

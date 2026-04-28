@@ -129,6 +129,42 @@
       }
     }
   ],
+  "field_permission_definition": [
+    {
+      "_unique": {
+        "_and": [
+          {
+            "action": {
+              "_eq": "update"
+            }
+          },
+          {
+            "role": {
+              "_eq": null
+            }
+          },
+          {
+            "column": {
+              "name": {
+                "_eq": "password"
+              },
+              "table": {
+                "name": {
+                  "_eq": "user_definition"
+                }
+              }
+            }
+          },
+          {
+            "description": {
+              "_eq": "Allow authenticated user to update own password via /me"
+            }
+          }
+        ]
+      },
+      "isSystem": true
+    }
+  ],
   "menu_definition": [
     {
       "_unique": {

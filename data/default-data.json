@@ -1555,6 +1555,7 @@
   "field_permission_definition": [
     {
       "isEnabled": true,
+      "isSystem": true,
       "action": "update",
       "effect": "allow",
       "description": "Allow authenticated user to update own password via /me",

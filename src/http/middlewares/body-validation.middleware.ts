@@ -62,6 +62,13 @@ function stripNonUpdatableColumnsForPatch(body: any, tableMeta: any): any {
   return stripped;
 }
 
+function assignValidationBody(req: Request, routeData: any, body: any): void {
+  req.body = body;
+  if (routeData?.context) {
+    routeData.context.$body = body;
+  }
+}
+
 export function bodyValidationMiddleware(container: AwilixContainer<Cradle>) {
   const metadataCache = container.cradle.metadataCacheService;
   const ruleCache = container.cradle.columnRuleCacheService;
@@ -117,21 +124,23 @@ export function bodyValidationMiddleware(container: AwilixContainer<Cradle>) {
       return next(new BadRequestException(['body must be an object']));
     }
 
+    const validateBody = (validationBody: any) => {
+      if (validationBody !== body) {
+        assignValidationBody(req, routeData, validationBody);
+      }
+      parseOrBadRequest(schema, validationBody);
+    };
+
     try {
       const validationBody =
         mode === 'update'
           ? stripNonUpdatableColumnsForPatch(body, tableMeta)
           : body;
-      if (validationBody !== body) {
-        req.body = validationBody;
-        if (routeData?.context) {
-          routeData.context.$body = validationBody;
-        }
-      }
-      parseOrBadRequest(schema, validationBody);
+      validateBody(validationBody);
     } catch (err) {
       return next(err);
     }
+
     next();
   };
 }

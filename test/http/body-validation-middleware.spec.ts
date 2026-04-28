@@ -237,6 +237,30 @@ describe('bodyValidationMiddleware — POST validates on create', () => {
       );
     }
   });
+
+  it('non-null generated columns are not required by request validation', () => {
+    const generatedMeta = {
+      ...tableMeta,
+      columns: [
+        ...tableMeta.columns,
+        {
+          id: 'c3',
+          name: 'serverValue',
+          type: 'varchar',
+          isGenerated: true,
+          isNullable: false,
+        },
+      ],
+    };
+    const mw = bodyValidationMiddleware(makeContainer({ tableMeta: generatedMeta }));
+    const { req, res, next } = makeReqRes({
+      method: 'POST',
+      routeData: { mainTable: generatedMeta, path: '/' + generatedMeta.name },
+      body: { title: 'Hello' },
+    });
+    mw(req, res, next);
+    expect(next).toHaveBeenCalledWith();
+  });
 });
 
 describe('bodyValidationMiddleware — PATCH update mode', () => {

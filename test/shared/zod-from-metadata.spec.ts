@@ -112,15 +112,43 @@ describe('buildZodFromMetadata — column types', () => {
 });
 
 describe('buildZodFromMetadata — flags', () => {
-  it('isGenerated column skipped from validation (id accepted as auto-managed pass-through)', () => {
+  it('primary key column skipped from validation', () => {
     const s = build(
       makeMeta({
         columns: [col('id', 'int', { isGenerated: true, isPrimary: true })],
       }),
     );
     expect(s.safeParse({}).success).toBe(true);
-    // id is auto-managed → accepted as optional any (admin UIs echo it back)
     expect(s.safeParse({ id: 1 }).success).toBe(true);
+  });
+
+  it('nullable isGenerated validates type when provided', () => {
+    const s = build(
+      makeMeta({
+        columns: [
+          col('code', 'varchar', { isGenerated: true, isNullable: true }),
+        ],
+      }),
+    );
+    expect(s.safeParse({}).success).toBe(true);
+    expect(s.safeParse({ code: null }).success).toBe(true);
+    expect(s.safeParse({ code: 123 }).success).toBe(false);
+    expect(s.safeParse({ code: 'x' }).success).toBe(true);
+  });
+
+  it('non-null isGenerated is treated as server-generated and ignored', () => {
+    const s = build(
+      makeMeta({
+        columns: [
+          col('compiledCode', 'code', {
+            isGenerated: true,
+            isNullable: false,
+          }),
+        ],
+      }),
+    );
+    expect(s.safeParse({}).success).toBe(true);
+    expect(s.safeParse({ compiledCode: 123 }).success).toBe(true);
   });
 
   it('auto-managed columns (id/createdAt/updatedAt) skipped', () => {

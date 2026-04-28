@@ -1,6 +1,8 @@
 'use strict';
 
 const { parentPort } = require('worker_threads');
+const fs = require('fs');
+const { fileURLToPath } = require('url');
 const { createPackageRuntimeBridge } = require('./package-runtime-bridge');
 const { buildSetupCode } = require('./worker-setup-template');
 
@@ -8,7 +10,10 @@ let ivm;
 try {
   ivm = require('isolated-vm');
 } catch (err) {
-  parentPort.postMessage({ type: 'error', message: 'isolated-vm not available: ' + err.message });
+  parentPort.postMessage({
+    type: 'error',
+    message: 'isolated-vm not available: ' + err.message,
+  });
   process.exit(1);
 }
 
@@ -152,15 +157,43 @@ function callMain(taskId, type, data) {
 }
 
 function fireMain(taskId, type, data) {
-  parentPort.postMessage({ type, id: taskId, callId: `f_${++callbackCounter}`, ...data });
+  parentPort.postMessage({
+    type,
+    id: taskId,
+    callId: `f_${++callbackCounter}`,
+    ...data,
+  });
 }
 
-async function loadEsmPackageIntoContext(isolate, context, sourceCode, safeName) {
+function getPackageSourceCode(pkg) {
+  if (typeof pkg.sourceCode === 'string' && pkg.sourceCode.length > 0) {
+    return pkg.sourceCode;
+  }
+  let filePath = pkg.filePath;
+  if (
+    !filePath &&
+    typeof pkg.fileUrl === 'string' &&
+    pkg.fileUrl.startsWith('file://')
+  ) {
+    filePath = fileURLToPath(pkg.fileUrl);
+  }
+  if (!filePath || !fs.existsSync(filePath)) return null;
+  return fs.readFileSync(filePath, 'utf8');
+}
+
+async function loadEsmPackageIntoContext(isolate, context, pkg) {
   try {
-    const mod = await isolate.compileModule(sourceCode, { filename: `pkg:${safeName}` });
+    const sourceCode = getPackageSourceCode(pkg);
+    if (!sourceCode) return null;
+
+    const mod = await isolate.compileModule(sourceCode, {
+      filename: `pkg:${pkg.safeName}`,
+    });
 
     await mod.instantiate(context, (specifier) => {
-      throw new Error(`Unresolved import in package ${safeName}: ${specifier}`);
+      throw new Error(
+        `Unresolved import in package ${pkg.safeName}: ${specifier}`,
+      );
     });
 
     await mod.evaluate({ timeout: 10000 });
@@ -176,7 +209,7 @@ async function loadEsmPackageIntoContext(isolate, context, sourceCode, safeName)
   }
 }
 
-function getPackageKey(pkgSources) {
+function getPackageKey(pkgSources, isolatePackageNames) {
   const hashString = (value) => {
     let hash = 2166136261;
     for (let i = 0; i < value.length; i++) {
@@ -185,12 +218,45 @@ function getPackageKey(pkgSources) {
     }
     return (hash >>> 0).toString(36);
   };
+  const isolateNames = new Set(isolatePackageNames || []);
   return pkgSources
-    .map((pkg) => `${pkg.name}:${pkg.version || ''}:${hashString(pkg.sourceCode || '')}`)
+    .map((pkg) => {
+      const sourceKey =
+        pkg.cacheKey ||
+        `${pkg.filePath || ''}:${pkg.fileUrl || ''}:${pkg.mtimeMs || ''}:${pkg.size || ''}:${hashString(pkg.sourceCode || '')}`;
+      const mode = isolateNames.has(pkg.name) ? 'isolate' : 'proxy';
+      return `${pkg.name}:${pkg.version || ''}:${sourceKey}:${mode}`;
+    })
     .join('|');
 }
 
-async function createPreparedContext(isolate, id, pkgSources) {
+function collectReferencedPackageNames(codeText, pkgSources) {
+  const available = new Set(pkgSources.map((pkg) => pkg.name));
+  const referenced = new Set();
+  const text = String(codeText || '');
+  const bracketPattern = /\b(?:\$ctx\.)?\$pkgs\s*\[\s*(['"`])([^'"`]+)\1\s*\]/g;
+  const requirePattern = /\brequire\s*\(\s*(['"`])([^'"`]+)\1\s*\)/g;
+  const dotPattern = /\b(?:\$ctx\.)?\$pkgs\.([A-Za-z_$][\w$]*)/g;
+
+  for (const pattern of [bracketPattern, requirePattern]) {
+    for (const match of text.matchAll(pattern)) {
+      const name = match[2];
+      if (available.has(name)) referenced.add(name);
+    }
+  }
+  for (const match of text.matchAll(dotPattern)) {
+    const name = match[1];
+    if (available.has(name)) referenced.add(name);
+  }
+  return referenced;
+}
+
+async function createPreparedContext(
+  isolate,
+  id,
+  pkgSources,
+  isolatePackageNames,
+) {
   const context = await isolate.createContext();
   const jail = context.global;
   await jail.set('global', jail.derefInto());
@@ -200,8 +266,8 @@ async function createPreparedContext(isolate, id, pkgSources) {
   const packageMap = new Map();
   for (const pkg of pkgSources) {
     packageMap.set(pkg.name, pkg);
-    const pkgVal = pkg.sourceCode
-      ? await loadEsmPackageIntoContext(isolate, context, pkg.sourceCode, pkg.safeName)
+    const pkgVal = isolatePackageNames.has(pkg.name)
+      ? await loadEsmPackageIntoContext(isolate, context, pkg)
       : null;
     if (pkgVal !== null) {
       await jail.set(`__pkg_${pkg.safeName}`, pkgVal);
@@ -217,7 +283,9 @@ async function createPreparedContext(isolate, id, pkgSources) {
     new ivm.Reference(async (taskId, type, dataJson) => {
       const data = JSON.parse(dataJson);
       if (type === 'pkgCall') {
-        return JSON.stringify(await packageRuntimeBridge.executePackageRuntimeCall(taskId, data));
+        return JSON.stringify(
+          await packageRuntimeBridge.executePackageRuntimeCall(taskId, data),
+        );
       }
       return callMain(taskId, type, data);
     }),
@@ -235,7 +303,8 @@ async function createPreparedContext(isolate, id, pkgSources) {
     .map((p) => `$pkgs[${JSON.stringify(p.name)}] = __pkg_${p.safeName};`)
     .concat(
       proxiedPkgNames.map(
-        (p) => `$pkgs[${JSON.stringify(p.name)}] = __createPkgProxy(${JSON.stringify(p.name)}, []);`,
+        (p) =>
+          `$pkgs[${JSON.stringify(p.name)}] = __createPkgProxy(${JSON.stringify(p.name)}, []);`,
       ),
     )
     .join('\n');
@@ -244,14 +313,23 @@ async function createPreparedContext(isolate, id, pkgSources) {
   const setupScript = await getCachedScript(isolate, setupCode, 'setup.js');
   await setupScript.run(context, { timeout: 5000 });
 
-  contextPackageKeys.set(context, getPackageKey(pkgSources));
+  contextPackageKeys.set(
+    context,
+    getPackageKey(pkgSources, isolatePackageNames),
+  );
   contextPackageMaps.set(context, packageMap);
   return context;
 }
 
-async function prepareContext(entry, id, pkgSources, snapshot) {
+async function prepareContext(
+  entry,
+  id,
+  pkgSources,
+  snapshot,
+  isolatePackageNames,
+) {
   const isolate = entry.isolate;
-  const pkgKey = getPackageKey(pkgSources);
+  const pkgKey = getPackageKey(pkgSources, isolatePackageNames);
   let context = null;
   for (let i = entry.idleContexts.length - 1; i >= 0; i--) {
     const candidate = entry.idleContexts[i];
@@ -266,11 +344,19 @@ async function prepareContext(entry, id, pkgSources, snapshot) {
     } catch {}
   }
   if (!context) {
-    context = await createPreparedContext(isolate, id, pkgSources);
+    context = await createPreparedContext(
+      isolate,
+      id,
+      pkgSources,
+      isolatePackageNames,
+    );
     contextStats.created++;
   }
 
-  packageRuntimeBridge.setTaskPackages(id, contextPackageMaps.get(context) || new Map());
+  packageRuntimeBridge.setTaskPackages(
+    id,
+    contextPackageMaps.get(context) || new Map(),
+  );
   const jail = context.global;
   await jail.set('__snapshot', new ivm.ExternalCopy(snapshot).copyInto());
   await jail.set('__nextTaskId', id);
@@ -324,7 +410,13 @@ function extractThrowInfo(error) {
 }
 
 const WRAPPER_LINE_OFFSET = 3;
-const SKIP_FILENAMES = ['setup.js', 'extract.js', 'extract-error-ctx.js', 'set-status.js', 'populate-error.js'];
+const SKIP_FILENAMES = [
+  'setup.js',
+  'extract.js',
+  'extract-error-ctx.js',
+  'set-status.js',
+  'populate-error.js',
+];
 
 function parseUserCodeLocation(stack) {
   if (!stack) return null;
@@ -337,7 +429,11 @@ function parseUserCodeLocation(stack) {
     const rawLine = parseInt(m[2]);
     const userLine = rawLine - WRAPPER_LINE_OFFSET;
     if (userLine <= 0) continue;
-    return { line: userLine, column: parseInt(m[3]), phase: filename.replace('.js', '') };
+    return {
+      line: userLine,
+      column: parseInt(m[3]),
+      phase: filename.replace('.js', ''),
+    };
   }
   return null;
 }
@@ -376,11 +472,20 @@ async function postError(id, error) {
 }
 
 async function handleExecute(msg) {
-  const { id, code, pkgSources, snapshot, memoryLimitMb, isolatePoolSize } = msg;
+  const { id, code, pkgSources, snapshot, memoryLimitMb, isolatePoolSize } =
+    msg;
+  const packages = pkgSources || [];
   const timeoutMs = Math.max(1, Math.trunc(Number(msg.timeoutMs) || 30000));
+  const isolatePackageNames = collectReferencedPackageNames(code, packages);
   const entry = getOrCreateIsolate(memoryLimitMb, isolatePoolSize);
   const isolate = entry.isolate;
-  const context = await prepareContext(entry, id, pkgSources, snapshot);
+  const context = await prepareContext(
+    entry,
+    id,
+    packages,
+    snapshot,
+    isolatePackageNames,
+  );
   activeTaskContexts.set(id, context);
 
   try {
@@ -392,7 +497,10 @@ async function handleExecute(msg) {
 `;
 
     const script = await getCachedScript(isolate, wrappedCode, 'handler.js');
-    const jsonStr = await script.run(context, { timeout: timeoutMs, promise: true });
+    const jsonStr = await script.run(context, {
+      timeout: timeoutMs,
+      promise: true,
+    });
 
     const result = JSON.parse(jsonStr);
     await postResultMessage({ type: 'result', id, success: true, ...result });
@@ -406,11 +514,32 @@ async function handleExecute(msg) {
 }
 
 async function handleExecuteBatch(msg) {
-  const { id, codeBlocks, pkgSources, snapshot, memoryLimitMb, isolatePoolSize } = msg;
-  const totalTimeoutMs = Math.max(1, Math.trunc(Number(msg.timeoutMs) || 30000));
+  const {
+    id,
+    codeBlocks,
+    pkgSources,
+    snapshot,
+    memoryLimitMb,
+    isolatePoolSize,
+  } = msg;
+  const packages = pkgSources || [];
+  const totalTimeoutMs = Math.max(
+    1,
+    Math.trunc(Number(msg.timeoutMs) || 30000),
+  );
+  const isolatePackageNames = collectReferencedPackageNames(
+    (codeBlocks || []).map((block) => block.code || '').join('\n'),
+    packages,
+  );
   const entry = getOrCreateIsolate(memoryLimitMb, isolatePoolSize);
   const isolate = entry.isolate;
-  const context = await prepareContext(entry, id, pkgSources, snapshot);
+  const context = await prepareContext(
+    entry,
+    id,
+    packages,
+    snapshot,
+    isolatePackageNames,
+  );
   activeTaskContexts.set(id, context);
 
   const preHooksAndHandler = [];
@@ -430,7 +559,8 @@ async function handleExecuteBatch(msg) {
     for (let i = 0; i < preHooksAndHandler.length; i++) {
       const block = preHooksAndHandler[i];
       const blockType = block.type || 'handler';
-      const blockLabel = blockType === 'handler' ? 'handler' : `${blockType} #${i + 1}`;
+      const blockLabel =
+        blockType === 'handler' ? 'handler' : `${blockType} #${i + 1}`;
 
       let wrappedBlock;
       if (blockType === 'preHook') {
@@ -454,14 +584,31 @@ async function handleExecuteBatch(msg) {
       }
 
       try {
-        const script = await getCachedScript(isolate, wrappedBlock, `${blockLabel}.js`);
-        const rawResult = await script.run(context, { timeout: totalTimeoutMs, promise: true });
+        const script = await getCachedScript(
+          isolate,
+          wrappedBlock,
+          `${blockLabel}.js`,
+        );
+        const rawResult = await script.run(context, {
+          timeout: totalTimeoutMs,
+          promise: true,
+        });
 
         if (blockType === 'preHook' && typeof rawResult === 'string') {
           const parsed = JSON.parse(rawResult);
           if (parsed.__shortCircuit) {
-            const out = await extractFinalResult(isolate, context, parsed.value);
-            await postResultMessage({ type: 'result', id, success: true, ...out, shortCircuit: true });
+            const out = await extractFinalResult(
+              isolate,
+              context,
+              parsed.value,
+            );
+            await postResultMessage({
+              type: 'result',
+              id,
+              success: true,
+              ...out,
+              shortCircuit: true,
+            });
             return;
           }
         }
@@ -473,7 +620,11 @@ async function handleExecuteBatch(msg) {
 
     if (!caughtError && postHooks.length > 0) {
       const setStatusCode = `$ctx.$statusCode = 200; "__status_set__";`;
-      const statusScript = await getCachedScript(isolate, setStatusCode, 'set-status.js');
+      const statusScript = await getCachedScript(
+        isolate,
+        setStatusCode,
+        'set-status.js',
+      );
       await statusScript.run(context, { timeout: 5000 });
     }
 
@@ -503,7 +654,9 @@ if ($ctx.$api) {
   };
 }
 "__error_populated__";`;
-      const populateScript = await isolate.compileScript(populateErrorCode, { filename: 'populate-error.js' });
+      const populateScript = await isolate.compileScript(populateErrorCode, {
+        filename: 'populate-error.js',
+      });
       await populateScript.run(context, { timeout: 5000 });
     }
 
@@ -521,7 +674,11 @@ if ($ctx.$api) {
 });`;
 
       try {
-        const script = await getCachedScript(isolate, wrappedBlock, `${blockLabel}.js`);
+        const script = await getCachedScript(
+          isolate,
+          wrappedBlock,
+          `${blockLabel}.js`,
+        );
         await script.run(context, { timeout: totalTimeoutMs, promise: true });
       } catch (postHookError) {
         // Individual postHook failure should not stop other postHooks
@@ -543,7 +700,11 @@ if ($ctx.$api) {
           $api: __safeClone($ctx.$api),
           $statusCode: $ctx.$statusCode,
         })`;
-        const extractScript = await getCachedScript(isolate, extractCode, 'extract-error-ctx.js');
+        const extractScript = await getCachedScript(
+          isolate,
+          extractCode,
+          'extract-error-ctx.js',
+        );
         const json = await extractScript.run(context, { timeout: 5000 });
         ctxChanges = JSON.parse(json);
       } catch {}
@@ -587,7 +748,9 @@ process.on('exit', shutdownPackageRuntime);
 async function extractFinalResult(isolate, context, overrideValue) {
   if (overrideValue !== undefined) {
     const callCode = `__extractResult(${JSON.stringify(overrideValue)}, false)`;
-    const script = await isolate.compileScript(callCode, { filename: 'extract.js' });
+    const script = await isolate.compileScript(callCode, {
+      filename: 'extract.js',
+    });
     const jsonStr = await script.run(context, { timeout: 5000 });
     return JSON.parse(jsonStr);
   }

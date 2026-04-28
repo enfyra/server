@@ -137,7 +137,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     const packagesWithMeta = await this.loadPackagesForSync();
     const toPreload = packagesWithMeta.filter(
       (pkg) =>
-        !this.packageCdnLoaderService.isLoaded(pkg.name) &&
+        !this.packageCdnLoaderService.isLoaded(pkg.name, pkg.version) &&
         ['installed', 'failed', 'installing', 'updating'].includes(pkg.status),
     );
 
