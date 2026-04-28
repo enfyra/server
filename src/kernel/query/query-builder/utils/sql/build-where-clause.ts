@@ -1,5 +1,5 @@
 import { Knex } from 'knex';
-import { TableMetadata } from '../../../../../engine/knex';
+import { TableMetadata } from '../../../../../engines/knex';
 
 const FIELD_OPERATORS = [
   '_eq',

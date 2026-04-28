@@ -1,6 +1,5 @@
 import { monitorEventLoopDelay } from 'perf_hooks';
 import { getHeapStatistics } from 'v8';
-import * as os from 'os';
 import { Redis } from 'ioredis';
 import { EnvService, InstanceService } from '../../../shared/services';
 import {
@@ -128,17 +127,10 @@ export class RuntimeProcessMetricsService {
 
   getHardware() {
     const effectiveMemoryBytes = getEffectiveMemoryBytes();
-    const hostMemoryBytes = os.totalmem();
     const effectiveCpuCount = getEffectiveCpuCount();
-    const hostCpuCount = os.cpus()?.length || 1;
     return {
       effectiveMemoryMb: effectiveMemoryBytes / 1024 / 1024,
-      hostMemoryMb: hostMemoryBytes / 1024 / 1024,
       effectiveCpuCount,
-      hostCpuCount,
-      constrained:
-        effectiveMemoryBytes < hostMemoryBytes ||
-        effectiveCpuCount < hostCpuCount,
     };
   }
 

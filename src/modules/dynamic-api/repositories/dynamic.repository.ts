@@ -19,7 +19,7 @@ import {
   MetadataCacheService,
   SettingCacheService,
   FieldPermissionCacheService,
-} from '../../../engine/cache';
+} from '../../../engines/cache';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import {

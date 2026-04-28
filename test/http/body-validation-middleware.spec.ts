@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   bodyValidationMiddleware,
   invalidateBodyValidationCache,
-} from '../../src/http/middleware/body-validation.middleware';
+} from '../../src/http/middlewares/body-validation.middleware';
 
 function makeMetadata(tableMeta: any) {
   const tables = new Map([[tableMeta.name, tableMeta]]);

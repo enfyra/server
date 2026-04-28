@@ -6,7 +6,7 @@ import { renderFieldsToMongo } from '../utils/mongo/render-fields';
 import { validateFilterShape } from '../../query-dsl/filter-sanitizer.util';
 import { QueryPlanner } from '../../query-dsl/query-planner';
 import { QueryPlan } from '../../query-dsl/query-plan.types';
-import { normalizeMongoDocument } from '../../../../engine/mongo';
+import { normalizeMongoDocument } from '../../../../engines/mongo';
 import { renderFilterToMongo } from '../utils/mongo/render-filter';
 import { hasAnyRelations } from '../utils/shared/filter-separator.util';
 

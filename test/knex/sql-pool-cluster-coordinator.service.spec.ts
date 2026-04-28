@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SqlPoolClusterCoordinatorService } from '../../src/engine/knex';
+import { SqlPoolClusterCoordinatorService } from '../../src/engines/knex';
 
 class FakeRedis {
   zsets = new Map<string, Map<string, number>>();

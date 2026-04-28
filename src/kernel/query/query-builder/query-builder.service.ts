@@ -1,5 +1,5 @@
-import { KnexService } from '../../../engine/knex';
-import { MongoService, normalizeMongoDocument } from '../../../engine/mongo';
+import { KnexService } from '../../../engines/knex';
+import { MongoService, normalizeMongoDocument } from '../../../engines/mongo';
 import {
   DatabaseType,
   WhereCondition,

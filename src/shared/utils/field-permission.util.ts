@@ -2,7 +2,7 @@ import {
   FieldPermissionCacheService,
   TFieldPermissionAction,
   TFieldPermissionRule,
-} from '../../engine/cache';
+} from '../../engines/cache';
 import { matchFieldPermissionCondition } from './field-permission-condition.util';
 
 export type TFieldPermissionDecision = {

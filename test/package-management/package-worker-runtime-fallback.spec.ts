@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PackageCdnLoaderService } from 'src/engine/cache';
+import { PackageCdnLoaderService } from 'src/engines/cache';
 
 function response(body: string, ok = true, status = 200) {
   return {

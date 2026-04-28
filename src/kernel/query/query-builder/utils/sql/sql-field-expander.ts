@@ -2,7 +2,7 @@ import { Knex } from 'knex';
 import {
   quoteIdentifier,
   getPrimaryKeyColumn,
-} from '../../../../../engine/knex';
+} from '../../../../../engines/knex';
 import { getForeignKeyColumnName } from '../../../query-dsl/utils/sql-schema-naming.util';
 
 export async function expandFieldsToSelect(

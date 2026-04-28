@@ -6,7 +6,7 @@ import {
   MetadataCacheService,
   SettingCacheService,
   FieldPermissionCacheService,
-} from '../../../engine/cache';
+} from '../../../engines/cache';
 import { PolicyService } from '../../../domain/policy';
 import { DynamicApiTableValidationService } from '../services/table-validation.service';
 import { UserRevocationService } from '../../../domain/auth';

@@ -5,7 +5,7 @@ import {
   getJunctionTableName,
   getJunctionColumnNames,
 } from '../../../kernel/query';
-import { MetadataCacheService } from '../../../engine/cache';
+import { MetadataCacheService } from '../../../engines/cache';
 import { TCreateTableBody } from '../types/table-handler.types';
 export class SqlTableMetadataBuilderService {
   private readonly logger = new Logger(SqlTableMetadataBuilderService.name);

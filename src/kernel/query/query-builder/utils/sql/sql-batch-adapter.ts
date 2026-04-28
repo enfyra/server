@@ -3,7 +3,7 @@ import { getForeignKeyColumnName } from '../../../query-dsl/utils/sql-schema-nam
 import {
   getPrimaryKeyColumn,
   quoteIdentifier,
-} from '../../../../../engine/knex';
+} from '../../../../../engines/knex';
 import {
   BatchFetchAdapter,
   BatchFetchDescriptor,

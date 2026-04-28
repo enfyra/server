@@ -1,11 +1,12 @@
 import { EventEmitter2 } from 'eventemitter2';
-import { RouteCacheService } from 'src/engine/cache';
+import { RouteCacheService } from 'src/engines/cache';
 
 describe('script cache repair', () => {
   it('persists repaired compiledCode only when cached compiledCode is invalid', async () => {
     const update = vi.fn().mockResolvedValue(undefined);
     const service = new RouteCacheService({
       queryBuilderService: { update } as any,
+      metadataCacheService: {} as any,
       eventEmitter: new EventEmitter2(),
     });
 
@@ -30,6 +31,7 @@ describe('script cache repair', () => {
     const update = vi.fn().mockResolvedValue(undefined);
     const service = new RouteCacheService({
       queryBuilderService: { update } as any,
+      metadataCacheService: {} as any,
       eventEmitter: new EventEmitter2(),
     });
 

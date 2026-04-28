@@ -1,4 +1,4 @@
-import { DataMigrationService } from 'src/engine/bootstrap';
+import { DataMigrationService } from 'src/engines/bootstrap';
 import { DatabaseConfigService } from 'src/shared/services';
 
 function makeQueryBuilder(

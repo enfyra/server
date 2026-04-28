@@ -1,6 +1,6 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { Logger } from '../../src/shared/logger';
-import { GuardCacheService } from 'src/engine/cache';
+import { GuardCacheService } from 'src/engines/cache';
 
 async function loadGuardCache(
   guards: any[],

@@ -5,26 +5,26 @@ import type { AwilixContainer } from 'awilix';
 import { buildRequestScope, type Cradle } from './container';
 import { globalExceptionMiddleware } from './domain/exceptions';
 
-import { routeDetectMiddleware } from './http/middleware/route-detect.middleware';
-import { notFoundDetectMiddleware } from './http/middleware/not-found-detect.middleware';
+import { routeDetectMiddleware } from './http/middlewares/route-detect.middleware';
+import { notFoundDetectMiddleware } from './http/middlewares/not-found-detect.middleware';
 import {
   preAuthMetadataGuard,
   postAuthMetadataGuard,
-} from './http/middleware/metadata-guard.middleware';
-import { jwtAuthMiddleware } from './http/middleware/jwt-auth.middleware';
-import { roleGuardMiddleware } from './http/middleware/role-guard.middleware';
+} from './http/middlewares/metadata-guard.middleware';
+import { jwtAuthMiddleware } from './http/middlewares/jwt-auth.middleware';
+import { roleGuardMiddleware } from './http/middlewares/role-guard.middleware';
 import {
   requestLoggingBegin,
   requestLoggingEnd,
-} from './http/middleware/request-logging.middleware';
-import { bodyValidationMiddleware } from './http/middleware/body-validation.middleware';
+} from './http/middlewares/request-logging.middleware';
+import { bodyValidationMiddleware } from './http/middlewares/body-validation.middleware';
 import {
   dynamicInterceptorBegin,
   dynamicInterceptorEnd,
-} from './http/middleware/dynamic-interceptor.middleware';
-import { parseQueryMiddleware } from './http/middleware/parse-query.middleware';
-import { bodyParserMiddleware } from './http/middleware/body-parser.middleware';
-import { fileUploadMiddleware } from './http/middleware/file-upload.middleware';
+} from './http/middlewares/dynamic-interceptor.middleware';
+import { parseQueryMiddleware } from './http/middlewares/parse-query.middleware';
+import { bodyParserMiddleware } from './http/middlewares/body-parser.middleware';
+import { fileUploadMiddleware } from './http/middlewares/file-upload.middleware';
 
 import { registerAuthRoutes } from './http/routes/auth.routes';
 import { registerOAuthRoutes } from './http/routes/oauth.routes';

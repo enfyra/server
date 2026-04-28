@@ -20,7 +20,7 @@ export function getEffectiveMemoryBytes(): number {
 }
 
 export function getEffectiveCpuCount(): number {
-  const hostCpus = os.cpus()?.length || 1;
+  const hostCpus = os.availableParallelism?.() || os.cpus()?.length || 1;
   try {
     const raw = fs.readFileSync('/sys/fs/cgroup/cpu.max', 'utf8').trim();
     const [quotaStr, periodStr] = raw.split(/\s+/);
@@ -49,8 +49,11 @@ export function getEffectiveCpuCount(): number {
 }
 
 const ISOLATE_POOL_BUDGET_FRACTION = 0.25;
-const ISOLATE_POOL_MIN = 2;
 const ISOLATE_POOL_MAX = 2;
+const ISOLATE_POOL_SINGLE_WARM_THRESHOLD_MB = 2048;
+const ISOLATE_MEMORY_MIN_MB = 40;
+const ISOLATE_MEMORY_MAX_MB = 128;
+const ISOLATE_MEMORY_RAM_DIVISOR = 32;
 
 export function computeEngineTuning(spec: {
   logicalCpuCount: number;
@@ -65,11 +68,22 @@ export function computeEngineTuning(spec: {
   const totalMb = Math.max(1, spec.totalMemoryBytes / (1024 * 1024));
 
   const isolateMemoryLimitMb = Math.min(
-    128,
-    Math.max(16, Math.round(totalMb / 40)),
+    ISOLATE_MEMORY_MAX_MB,
+    Math.max(
+      ISOLATE_MEMORY_MIN_MB,
+      Math.round(totalMb / ISOLATE_MEMORY_RAM_DIVISOR),
+    ),
   );
 
-  const maxConcurrentWorkers = Math.max(1, Math.min(cpus, 2));
+  const isolateBudgetMb = totalMb * ISOLATE_POOL_BUDGET_FRACTION;
+  const memoryBoundWorkers = Math.max(
+    1,
+    Math.floor(isolateBudgetMb / isolateMemoryLimitMb),
+  );
+  const maxConcurrentWorkers = Math.max(
+    1,
+    Math.min(cpus, 2, memoryBoundWorkers),
+  );
 
   const tasksPerWorkerCap = Math.min(
     256,
@@ -79,11 +93,12 @@ export function computeEngineTuning(spec: {
     ),
   );
 
-  const isolateBudgetMb = totalMb * ISOLATE_POOL_BUDGET_FRACTION;
+  const isolatePoolMax =
+    totalMb < ISOLATE_POOL_SINGLE_WARM_THRESHOLD_MB ? 1 : ISOLATE_POOL_MAX;
   const isolatePoolSize = Math.max(
-    ISOLATE_POOL_MIN,
+    1,
     Math.min(
-      ISOLATE_POOL_MAX,
+      isolatePoolMax,
       Math.floor(
         isolateBudgetMb / (maxConcurrentWorkers * isolateMemoryLimitMb),
       ),

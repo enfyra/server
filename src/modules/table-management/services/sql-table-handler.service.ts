@@ -12,8 +12,8 @@ import {
 import {
   SqlSchemaMigrationService,
   SchemaMigrationLockService,
-} from '../../../engine/knex';
-import { MetadataCacheService } from '../../../engine/cache';
+} from '../../../engines/knex';
+import { MetadataCacheService } from '../../../engines/cache';
 import {
   LoggingService,
   DatabaseException,

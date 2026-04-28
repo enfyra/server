@@ -1,7 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import { Job, Worker } from 'bullmq';
 import { ExecutorEngineService } from '../../../kernel/execution';
-import { RepoRegistryService } from '../../../engine/cache';
+import { RepoRegistryService } from '../../../engines/cache';
 import { FlowService } from '../../flow';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import { EnvService, DynamicContextFactory } from '../../../shared/services';

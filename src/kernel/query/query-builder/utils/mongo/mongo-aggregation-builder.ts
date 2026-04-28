@@ -16,7 +16,7 @@ import {
   MongoBatchFetchDescriptor,
 } from './batch-relation-fetcher';
 import { renderFilterToMongo } from './render-filter';
-import { normalizeMongoDocument } from '../../../../../engine/mongo';
+import { normalizeMongoDocument } from '../../../../../engines/mongo';
 
 export interface AggregationResult {
   results: any[];

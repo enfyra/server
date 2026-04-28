@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { applyAlterColumnType } from 'src/engine/knex';
+import { applyAlterColumnType } from 'src/engines/knex';
 
 function makeAlterTableStub() {
   const calls: Array<{ method: string; args: any[] }> = [];

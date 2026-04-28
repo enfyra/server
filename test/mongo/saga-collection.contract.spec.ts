@@ -2,7 +2,7 @@ import { ObjectId } from 'mongodb';
 import {
   SagaCollection,
   MongoService,
-} from 'src/engine/mongo';
+} from 'src/engines/mongo';
 
 describe('SagaCollection (app-level saga)', () => {
   const rawColl = {

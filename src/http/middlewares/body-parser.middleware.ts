@@ -3,7 +3,7 @@ import express, {
   type Response,
   type NextFunction,
 } from 'express';
-import { SettingCacheService } from '../../engine/cache';
+import { SettingCacheService } from '../../engines/cache';
 
 export function bodyParserMiddleware(settingCacheService: SettingCacheService) {
   return (req: Request, res: Response, next: NextFunction) => {

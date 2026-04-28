@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import { getErrorMessage } from '../../../shared/utils/error.util';
-import { WebsocketCacheService } from '../../../engine/cache';
+import { WebsocketCacheService } from '../../../engines/cache';
 import { BuiltInSocketRegistry } from '../services/built-in-socket.registry';
 import { EnvService } from '../../../shared/services';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';

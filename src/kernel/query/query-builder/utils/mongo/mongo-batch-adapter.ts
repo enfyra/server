@@ -7,7 +7,7 @@ import {
   parseFields,
   PER_PARENT_CONCURRENCY,
 } from '../../../query-dsl/batch-fetch-engine';
-import { resolveMongoJunctionInfo } from '../../../../../engine/mongo';
+import { resolveMongoJunctionInfo } from '../../../../../engines/mongo';
 import { renderRawFilterToMongo } from './render-filter';
 import { perParentRun } from '../../../query-dsl/per-parent-runner.util';
 

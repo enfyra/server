@@ -4,7 +4,7 @@ import {
   MongoSagaLockService,
   MongoOperationLogService,
   MongoSagaCoordinator,
-} from 'src/engine/mongo';
+} from 'src/engines/mongo';
 import { InstanceService } from 'src/shared/services';
 
 const MONGO_URI =

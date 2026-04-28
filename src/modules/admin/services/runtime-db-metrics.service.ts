@@ -3,7 +3,7 @@ import {
   KnexService,
   ReplicationManager,
   SqlPoolClusterCoordinatorService,
-} from '../../../engine/knex';
+} from '../../../engines/knex';
 
 export class RuntimeDbMetricsService {
   private readonly databaseConfigService: DatabaseConfigService;
