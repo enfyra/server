@@ -83,7 +83,6 @@ export const MetaResultType = new GraphQLObjectType({
   fields: {
     totalCount: { type: GraphQLInt },
     filterCount: { type: GraphQLInt },
-    aggregate: { type: GraphQLJSON },
   },
 });
 
@@ -461,7 +460,6 @@ type ${typeName}Result {
 type MetaResult {
   totalCount: Int
   filterCount: Int
-  aggregate: JSON
 }
 `;
   const fullTypeDefs = `

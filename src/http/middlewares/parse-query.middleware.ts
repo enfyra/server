@@ -11,14 +11,7 @@ export function parseQueryMiddleware(
     const value = query[key];
     if (
       typeof value === 'string' &&
-      [
-        'filter',
-        'aggregate',
-        'deep',
-        '_filter',
-        '_aggregate',
-        '_deep',
-      ].includes(key)
+      ['filter', 'deep', '_filter', '_deep'].includes(key)
     ) {
       try {
         parsedQuery[key] = JSON.parse(value);

@@ -64,7 +64,6 @@ export interface QueryOptions {
   page?: number;
   limit?: number;
   meta?: string;
-  aggregate?: any;
   deep?: Record<string, any>;
 }
 

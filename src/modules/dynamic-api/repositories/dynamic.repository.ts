@@ -181,8 +181,6 @@ export class DynamicRepository {
 
     const filter = this.context.$query?.filter;
     const sort = this.context.$query?.sort;
-    const aggregate = this.context.$query?.aggregate;
-
     const walkFilter = (node: any) => {
       if (!node || typeof node !== 'object') return;
       if (Array.isArray(node)) {
@@ -220,15 +218,6 @@ export class DynamicRepository {
         if (first) checkRelation(first);
       } else {
         checkColumn(clean);
-      }
-    }
-
-    if (aggregate && typeof aggregate === 'object') {
-      for (const k of Object.keys(aggregate)) {
-        const val = aggregate[k];
-        if (val && typeof val === 'object') {
-          for (const colName of Object.keys(val)) checkColumn(colName);
-        }
       }
     }
 
