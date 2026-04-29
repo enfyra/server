@@ -339,13 +339,32 @@ export class MetadataMigrationService {
           }
         }
 
-        await this.dropPhysicalColumn(tableName, colName, isMongoDB);
+        if (
+          !isMongoDB ||
+          !(await this.isMongoRelationField(tableId, colName))
+        ) {
+          await this.dropPhysicalColumn(tableName, colName, isMongoDB);
+        }
       } catch (err) {
         this.logger.warn(
           `  Failed to remove column ${colName}: ${(err as Error).message}`,
         );
       }
     }
+  }
+
+  private async isMongoRelationField(
+    tableId: any,
+    propertyName: string,
+  ): Promise<boolean> {
+    const db = this.getMongoDb();
+    if (!db) return false;
+
+    const relation = await db.collection('relation_definition').findOne({
+      sourceTable: tableId,
+      propertyName,
+    });
+    return !!relation;
   }
 
   private getLegacyScriptTargetColumn(

@@ -8,6 +8,16 @@ import {
 } from '../utils/canonical-table-route.util';
 import { DatabaseConfigService } from '../../../shared/services';
 import { compileScriptSource } from '../../../kernel/execution';
+import {
+  getJunctionColumnNames,
+  getJunctionTableName,
+} from '../../../kernel/query';
+
+const ROUTE_METHOD_RELATION_FIELDS = [
+  'publishedMethods',
+  'skipRoleGuardMethods',
+  'availableMethods',
+] as const;
 
 export class RouteDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;
@@ -120,9 +130,41 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     isNew: boolean,
     _context?: any,
   ): Promise<void> {
-    if (!isNew) return;
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
+    if (!isMongoDB) {
+      await this.syncRouteMethodRelations(record);
+    }
+    if (!isNew) return;
     await this.ensureDefaultCrudHandlers(record, isMongoDB);
+  }
+
+  protected prepareRecordForWrite(record: any, tableName: string): any {
+    if (
+      tableName !== 'route_definition' ||
+      DatabaseConfigService.instanceIsMongoDb()
+    ) {
+      return record;
+    }
+
+    const prepared = { ...record };
+    for (const field of ROUTE_METHOD_RELATION_FIELDS) {
+      delete prepared[field];
+    }
+    return prepared;
+  }
+
+  private async syncRouteMethodRelations(record: any): Promise<void> {
+    const routeId = record.id;
+    if (!routeId) return;
+
+    for (const field of ROUTE_METHOD_RELATION_FIELDS) {
+      const methodIds = record[field];
+      if (!Array.isArray(methodIds)) continue;
+
+      await this.queryBuilderService.update('route_definition', routeId, {
+        [field]: [...new Set(methodIds.filter(Boolean))],
+      });
+    }
   }
 
   async ensureMissingHandlers(): Promise<void> {
@@ -253,22 +295,31 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
           : [...raw];
     } else {
       const junctionName =
-        'route_definition_availableMethods_method_definition';
+        getJunctionTableName(
+          'route_definition',
+          'availableMethods',
+          'method_definition',
+        );
+      const { sourceColumn, targetColumn } = getJunctionColumnNames(
+        'route_definition',
+        'availableMethods',
+        'method_definition',
+      );
       if (isMongoDB) {
         const mongoService = this.queryBuilderService.getMongoDb();
         const routeIdObj =
           typeof routeId === 'string' ? new ObjectId(routeId) : routeId;
         const rows = await mongoService
           .collection(junctionName)
-          .find({ route_definitionId: routeIdObj })
+          .find({ [sourceColumn]: routeIdObj })
           .toArray();
-        methodIds = rows.map((r: any) => r.method_definitionId);
+        methodIds = rows.map((r: any) => r[targetColumn]);
       } else {
         const knex = this.queryBuilderService.getKnex();
         const rows = await knex(junctionName)
-          .select('method_definitionId')
-          .where({ route_definitionId: routeId });
-        methodIds = rows.map((r: any) => r.method_definitionId);
+          .select(targetColumn)
+          .where({ [sourceColumn]: routeId });
+        methodIds = rows.map((r: any) => r[targetColumn]);
       }
     }
 

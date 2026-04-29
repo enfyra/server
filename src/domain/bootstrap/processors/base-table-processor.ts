@@ -118,6 +118,10 @@ export abstract class BaseTableProcessor {
     return getScalarColumns(tableName);
   }
 
+  protected prepareRecordForWrite(record: any, _tableName: string): any {
+    return record;
+  }
+
   async processWithQueryBuilder(
     records: any[],
     queryBuilder: any,
@@ -155,7 +159,11 @@ export abstract class BaseTableProcessor {
           const hasChanges = this.detectRecordChanges(record, existingRecord);
           if (hasChanges) {
             const existingId = existingRecord[idField];
-            await queryBuilder.update(tableName, existingId, record);
+            await queryBuilder.update(
+              tableName,
+              existingId,
+              this.prepareRecordForWrite(record, tableName),
+            );
             skippedCount++;
             this.logger.debug(
               `   Updated: ${this.getRecordIdentifier(record)}`,
@@ -174,8 +182,14 @@ export abstract class BaseTableProcessor {
             );
           }
         } else {
-          const inserted = await queryBuilder.insert(tableName, record);
-          const insertedId = inserted[idField];
+          const inserted = await queryBuilder.insert(
+            tableName,
+            this.prepareRecordForWrite(record, tableName),
+          );
+          const insertedId =
+            inserted && typeof inserted === 'object'
+              ? inserted[idField]
+              : inserted;
           createdCount++;
           this.logger.debug(`   Created: ${this.getRecordIdentifier(record)}`);
           if (this.afterUpsert) {

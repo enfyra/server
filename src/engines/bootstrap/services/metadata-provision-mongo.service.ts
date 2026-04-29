@@ -231,6 +231,16 @@ export class MetadataProvisionMongoService {
         if (!rel.propertyName || !rel.targetTable || !rel.type) continue;
         const targetTableId = tableNameToId[rel.targetTable];
         if (!targetTableId) continue;
+        if (rel.inversePropertyName && rel.type === 'one-to-many') {
+          pendingInverses.push({
+            tableName: rel.targetTable,
+            tableId: targetTableId,
+            rel,
+            owningTableName: tableName,
+            owningPropertyName: rel.propertyName,
+          });
+          continue;
+        }
         const directRelationRecord = this.buildRecordFromColumns(
           rel,
           relationDef.columns,
@@ -333,6 +343,65 @@ export class MetadataProvisionMongoService {
     }
     this.logger.log('Step 4: Upserting inverse relations...');
     const processedInverseRelations = new Set<string>();
+    const upsertGeneratedReverseOneToMany = async (
+      sourceTableName: string,
+      sourceTableId: ObjectId,
+      targetTableName: string,
+      targetTableId: ObjectId,
+      propertyName: string,
+      mappedById: ObjectId,
+      sourceRel: any,
+    ): Promise<void> => {
+      const existingReverse = await relationColl.findOne({
+        [sourceTableFieldName]: sourceTableId,
+        propertyName,
+      });
+      const reverseData = {
+        propertyName,
+        type: 'one-to-many',
+        isNullable: sourceRel.isNullable !== false,
+        isSystem: sourceRel.isSystem || false,
+        isUpdatable: sourceRel.isUpdatable !== false,
+        description: sourceRel.description,
+      };
+      if (existingReverse) {
+        const needsUpdate =
+          existingReverse.mappedBy?.toString() !== mappedById.toString() ||
+          existingReverse.type !== 'one-to-many' ||
+          existingReverse[targetTableFieldName]?.toString() !==
+            targetTableId.toString();
+        if (needsUpdate) {
+          await relationColl.updateOne(
+            { _id: existingReverse._id },
+            {
+              $set: {
+                ...reverseData,
+                [targetTableFieldName]: targetTableId,
+                mappedBy: mappedById,
+                updatedAt: new Date(),
+              },
+            },
+          );
+        }
+        return;
+      }
+
+      const reverseRelationRecord = this.buildRecordFromColumns(
+        reverseData,
+        relationDef.columns,
+      );
+      reverseRelationRecord[sourceTableFieldName] = sourceTableId;
+      reverseRelationRecord[targetTableFieldName] = targetTableId;
+      reverseRelationRecord.mappedBy = mappedById;
+      await relationProcessor.processMongo(
+        [reverseRelationRecord],
+        db,
+        'relation_definition',
+      );
+      this.logger.debug(
+        `Added generated reverse relation ${sourceTableName}.${propertyName} for ${targetTableName}`,
+      );
+    };
     for (const {
       tableName,
       tableId,
@@ -431,6 +500,19 @@ export class MetadataProvisionMongoService {
             { _id: snapshotRelId },
             { $set: { mappedBy: existing._id } },
           );
+        } else if (isGeneratedManyToOne && !snapshotRelId) {
+          const sourceTableId = tableNameToId[owningTableName];
+          if (sourceTableId) {
+            await upsertGeneratedReverseOneToMany(
+              owningTableName,
+              sourceTableId,
+              tableName,
+              tableId,
+              owningPropertyName,
+              existing._id,
+              rel,
+            );
+          }
         }
       } else {
         await relationProcessor.processMongo(
@@ -447,6 +529,23 @@ export class MetadataProvisionMongoService {
             await relationColl.updateOne(
               { _id: snapshotRelId },
               { $set: { mappedBy: insertedDoc._id } },
+            );
+          }
+        } else if (isGeneratedManyToOne) {
+          const insertedDoc = await relationColl.findOne({
+            [sourceTableFieldName]: tableId,
+            propertyName: rel.inversePropertyName,
+          });
+          const sourceTableId = tableNameToId[owningTableName];
+          if (insertedDoc && sourceTableId) {
+            await upsertGeneratedReverseOneToMany(
+              owningTableName,
+              sourceTableId,
+              tableName,
+              tableId,
+              owningPropertyName,
+              insertedDoc._id,
+              rel,
             );
           }
         }

@@ -1,4 +1,4 @@
-import { Db } from 'mongodb';
+import { Db, ObjectId } from 'mongodb';
 import {
   separateFilters,
   hasAnyRelations,
@@ -172,13 +172,14 @@ async function resolveM2oOrO2o(
 
   const directId = extractDirectIdMatch(inner);
   if (directId !== null) {
-    if (directId.op === 'eq') return { [fkField]: directId.value };
-    if (directId.op === 'neq') return { [fkField]: { $ne: directId.value } };
-    if (directId.op === 'in') return { [fkField]: { $in: directId.value } };
+    const value = normalizeMongoIdValue(directId.value);
+    if (directId.op === 'eq') return { [fkField]: value };
+    if (directId.op === 'neq') return { [fkField]: { $ne: value } };
+    if (directId.op === 'in') return { [fkField]: { $in: value } };
     if (directId.op === 'not_in')
       return {
         $and: [
-          { [fkField]: { $nin: directId.value } },
+          { [fkField]: { $nin: value } },
           { [fkField]: { $ne: null } },
         ],
       };
@@ -269,7 +270,8 @@ async function resolveM2m(
 
   const directId = extractDirectIdMatch(inner);
   if (directId !== null) {
-    const idArr = Array.isArray(directId) ? directId : [directId];
+    const value = normalizeMongoIdValue(directId.value);
+    const idArr = Array.isArray(value) ? value : [value];
     const parentIds = await collectParentIdsFromJunction(
       db,
       info,
@@ -385,6 +387,20 @@ function checkNullOnly(filter: any): boolean | null {
   if (k === '_eq') return v === null ? true : null;
   if (k === '_neq') return v === null ? false : null;
   return null;
+}
+
+function normalizeMongoIdValue(value: any): any {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeMongoIdValue(item));
+  }
+  if (typeof value !== 'string') {
+    return value;
+  }
+  try {
+    return new ObjectId(value);
+  } catch {
+    return value;
+  }
 }
 
 function extractDirectIdMatch(filter: any): { op: string; value: any } | null {

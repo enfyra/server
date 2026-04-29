@@ -136,15 +136,16 @@ export class QueryBuilderService implements IQueryBuilder {
     query: any,
     conditions: WhereCondition[],
     table?: string,
-  ): Promise<any> {
+  ): Promise<{ query: any }> {
     const metadata = await this.getMetadataForQuery();
-    return applyWhereToKnexComplete(
+    const appliedQuery = applyWhereToKnexComplete(
       query,
       conditions,
       table ?? '',
       metadata,
       this.dbType as 'postgres' | 'mysql' | 'sqlite',
     );
+    return { query: appliedQuery };
   }
 
   async insertWithOptions(options: InsertOptions): Promise<any> {
@@ -290,7 +291,11 @@ export class QueryBuilderService implements IQueryBuilder {
     let query: any = knex(options.table);
 
     if (options.where.length > 0) {
-      query = await this.applyWhereToKnex(query, options.where, options.table);
+      ({ query } = await this.applyWhereToKnex(
+        query,
+        options.where,
+        options.table,
+      ));
     }
 
     const recordsToUpdate = await query;
@@ -327,7 +332,11 @@ export class QueryBuilderService implements IQueryBuilder {
     let query: any = knex(options.table);
 
     if (options.where.length > 0) {
-      query = await this.applyWhereToKnex(query, options.where, options.table);
+      ({ query } = await this.applyWhereToKnex(
+        query,
+        options.where,
+        options.table,
+      ));
     }
 
     return await query.delete();
@@ -345,7 +354,11 @@ export class QueryBuilderService implements IQueryBuilder {
     let query: any = knex(options.table);
 
     if (options.where && options.where.length > 0) {
-      query = await this.applyWhereToKnex(query, options.where, options.table);
+      ({ query } = await this.applyWhereToKnex(
+        query,
+        options.where,
+        options.table,
+      ));
     }
 
     const result = await query.count('* as count').first();
@@ -524,7 +537,7 @@ export class QueryBuilderService implements IQueryBuilder {
 
     if (filter && Object.keys(filter).length > 0) {
       const where = this.filterToWhere(filter);
-      query = await this.applyWhereToKnex(query, where, table);
+      ({ query } = await this.applyWhereToKnex(query, where, table));
     }
 
     const result = await query.count('* as count').first();
