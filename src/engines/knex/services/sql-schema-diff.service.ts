@@ -3,7 +3,6 @@ import { KnexService } from '../knex.service';
 import { MetadataCacheService } from '../../cache';
 import {
   QueryBuilderService,
-  getForeignKeyColumnName,
 } from '../../../kernel/query';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { analyzeRelationChanges } from '../utils/migration/relation-changes';
@@ -13,6 +12,11 @@ import {
   executeBatchSQL,
   JournalContext,
 } from '../utils/migration/sql-diff-generator';
+import {
+  buildSqlIndexContracts,
+  buildSqlUniqueContracts,
+  getSqlRelationForeignKeyColumn,
+} from '../utils/sql-physical-schema-contract';
 
 export class SqlSchemaDiffService {
   private readonly logger = new Logger(SqlSchemaDiffService.name);
@@ -161,15 +165,13 @@ export class SqlSchemaDiffService {
     const newRelationFkMap = new Map<string, string>();
     for (const rel of oldMetadata.relations || []) {
       if (['many-to-one', 'one-to-one'].includes(rel.type)) {
-        const fkCol =
-          rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
+        const fkCol = getSqlRelationForeignKeyColumn(rel);
         oldRelationFkMap.set(rel.propertyName, fkCol);
       }
     }
     for (const rel of newMetadata.relations || []) {
       if (['many-to-one', 'one-to-one'].includes(rel.type)) {
-        const fkCol =
-          rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
+        const fkCol = getSqlRelationForeignKeyColumn(rel);
         newRelationFkMap.set(rel.propertyName, fkCol);
       }
     }
@@ -194,10 +196,10 @@ export class SqlSchemaDiffService {
         propertyNameRenames.set(oldRel.propertyName, newRel.propertyName);
         const oldFk =
           oldRelationFkMap.get(oldRel.propertyName) ||
-          getForeignKeyColumnName(oldRel.propertyName);
+          getSqlRelationForeignKeyColumn(oldRel);
         const newFk =
           newRelationFkMap.get(newRel.propertyName) ||
-          getForeignKeyColumnName(newRel.propertyName);
+          getSqlRelationForeignKeyColumn(newRel);
         if (oldFk !== newFk) {
           fkColumnRenames.set(oldFk, newFk);
         }
@@ -229,9 +231,13 @@ export class SqlSchemaDiffService {
 
       const finalUniques = updatedUniquesByProperty;
       const finalIndexes = updatedIndexesByProperty;
+      const finalPhysicalUniques = buildSqlUniqueContracts(
+        newMetadata.name,
+        { ...newMetadata, uniques: finalUniques },
+      ).map((unique) => unique.physicalColumns);
 
       if (JSON.stringify(finalUniques) !== JSON.stringify(oldUniques)) {
-        diff.constraints.uniques.update = finalUniques;
+        diff.constraints.uniques.update = finalPhysicalUniques;
         diff.metadataUpdate = diff.metadataUpdate || {};
         diff.metadataUpdate.uniques = finalUniques;
       }
@@ -245,14 +251,17 @@ export class SqlSchemaDiffService {
         diff.metadataUpdate.indexes = finalIndexes;
       }
     } else if (!this.arraysEqual(oldUniques, newUniques)) {
-      diff.constraints.uniques.update = newUniques;
+      diff.constraints.uniques.update = buildSqlUniqueContracts(
+        newMetadata.name,
+        newMetadata,
+      ).map((unique) => unique.physicalColumns);
     }
 
-    const oldIndexes = (oldMetadata.indexes || []).map((idx: any) =>
-      this.normalizeIndexColumns(idx),
+    const oldIndexes = buildSqlIndexContracts(oldMetadata.name, oldMetadata).map(
+      (index) => index.physicalColumns,
     );
-    const newIndexes = (newMetadata.indexes || []).map((idx: any) =>
-      this.normalizeIndexColumns(idx),
+    const newIndexes = buildSqlIndexContracts(newMetadata.name, newMetadata).map(
+      (index) => index.physicalColumns,
     );
     const oldIndexKeys = new Set(
       oldIndexes.map((cols: string[]) => this.indexKey(cols)),

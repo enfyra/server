@@ -1,3 +1,28 @@
+const MYSQL_DEFAULT_UNSUPPORTED_TYPES = new Set([
+  'array-select',
+  'blob',
+  'code',
+  'json',
+  'longtext',
+  'richtext',
+  'simple-json',
+  'text',
+]);
+
+export function supportsSqlColumnDefault(
+  col: any,
+  dbType: 'mysql' | 'postgres' | 'sqlite' | string = 'mysql',
+): boolean {
+  const normalizedDbType = dbType === 'pg' ? 'postgres' : dbType;
+  const type = String(col?.type || '').toLowerCase();
+
+  if (normalizedDbType === 'mysql') {
+    return !MYSQL_DEFAULT_UNSUPPORTED_TYPES.has(type);
+  }
+
+  return true;
+}
+
 export function generateColumnDefinition(
   col: any,
   dbType: 'mysql' | 'postgres' | 'sqlite' = 'mysql',
@@ -126,7 +151,11 @@ export function generateColumnDefinition(
   if (col.isNullable === false && !col.isPrimary) {
     definition += ' NOT NULL';
   }
-  if (col.defaultValue !== null && col.defaultValue !== undefined) {
+  if (
+    col.defaultValue !== null &&
+    col.defaultValue !== undefined &&
+    supportsSqlColumnDefault(col, dbType)
+  ) {
     const isBooleanColumn = String(col.type).toLowerCase() === 'boolean';
     let defaultVal = col.defaultValue;
     if (isBooleanColumn) {
@@ -139,7 +168,7 @@ export function generateColumnDefinition(
       }
     }
     if (typeof defaultVal === 'string' && !isBooleanColumn) {
-      definition += ` DEFAULT '${defaultVal}'`;
+      definition += ` DEFAULT '${defaultVal.replace(/'/g, "''")}'`;
     } else if (typeof defaultVal === 'boolean') {
       if (dbType === 'postgres') {
         definition += ` DEFAULT ${defaultVal ? 'true' : 'false'}`;

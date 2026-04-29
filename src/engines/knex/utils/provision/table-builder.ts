@@ -1,9 +1,14 @@
 import { Knex } from 'knex';
-import { getForeignKeyColumnName } from '../../../../kernel/query';
 import { KnexTableSchema } from '../../../../shared/types/database-init.types';
 import { getKnexColumnType, getPrimaryKeyType } from './schema-parser';
 import { addForeignKeys } from './foreign-keys';
 import { createJunctionTables } from './junction-tables';
+import {
+  buildSqlForeignKeyContracts,
+  buildSqlIndexContracts,
+  buildSqlUniqueContracts,
+} from '../sql-physical-schema-contract';
+import { supportsSqlColumnDefault } from '../migration/sql-generator';
 
 export function buildTableSchema(
   table: Knex.CreateTableBuilder,
@@ -13,7 +18,7 @@ export function buildTableSchema(
   knex: Knex,
 ): void {
   const { definition } = schema;
-  const indexedColumns = new Set<string>();
+  const { tableName } = schema;
 
   for (const col of definition.columns) {
     let column: Knex.ColumnBuilder;
@@ -78,7 +83,11 @@ export function buildTableSchema(
       column.nullable();
     }
 
-    if (col.defaultValue !== undefined && col.defaultValue !== null) {
+    if (
+      col.defaultValue !== undefined &&
+      col.defaultValue !== null &&
+      supportsSqlColumnDefault(col, dbType)
+    ) {
       if (
         typeof col.defaultValue === 'string' &&
         col.defaultValue.toLowerCase() === 'now'
@@ -109,40 +118,28 @@ export function buildTableSchema(
     }
   }
 
-  if (definition.relations) {
-    for (const relation of definition.relations) {
-      if (relation.type === 'many-to-many' || relation.type === 'one-to-many') {
-        continue;
-      }
+  const foreignKeys = buildSqlForeignKeyContracts(
+    schema.tableName,
+    definition.relations as any[],
+  );
+  for (const foreignKey of foreignKeys) {
+    const targetPkType = getPrimaryKeyType(schemas, foreignKey.targetTable);
 
-      if (
-        relation.type === 'one-to-one' &&
-        (relation as any)._isInverseGenerated
-      ) {
-        continue;
-      }
-
-      const foreignKeyColumn = getForeignKeyColumnName(relation.propertyName);
-      indexedColumns.add(foreignKeyColumn);
-
-      const targetPkType = getPrimaryKeyType(schemas, relation.targetTable);
-
-      let col;
-      if (targetPkType === 'uuid') {
-        if (dbType === 'postgres') {
-          col = table.uuid(foreignKeyColumn);
-        } else {
-          col = table.string(foreignKeyColumn, 36);
-        }
+    let col;
+    if (targetPkType === 'uuid') {
+      if (dbType === 'postgres') {
+        col = table.uuid(foreignKey.columnName);
       } else {
-        col = table.integer(foreignKeyColumn).unsigned();
+        col = table.string(foreignKey.columnName, 36);
       }
+    } else {
+      col = table.integer(foreignKey.columnName).unsigned();
+    }
 
-      if (relation.isNullable === false) {
-        col.notNullable();
-      } else {
-        col.nullable();
-      }
+    if (!foreignKey.nullable) {
+      col.notNullable();
+    } else {
+      col.nullable();
     }
   }
 
@@ -154,70 +151,12 @@ export function buildTableSchema(
     table.timestamp('updatedAt').defaultTo(knex.fn.now());
   }
 
-  if (definition.uniques && definition.uniques.length > 0) {
-    for (const uniqueGroup of definition.uniques) {
-      if (Array.isArray(uniqueGroup) && uniqueGroup.length > 0) {
-        const columnNames = uniqueGroup.map((fieldName) => {
-          const relation = definition.relations?.find(
-            (r) => r.propertyName === fieldName,
-          );
-          if (relation) {
-            return getForeignKeyColumnName(relation.propertyName);
-          }
-          return fieldName;
-        });
-        for (const c of columnNames) indexedColumns.add(c);
-        table.unique(columnNames);
-      }
-    }
+  for (const unique of buildSqlUniqueContracts(tableName, definition)) {
+    table.unique(unique.physicalColumns, unique.name);
   }
 
-  const tableName = schema.tableName;
-
-  if (definition.indexes && definition.indexes.length > 0) {
-    for (const indexGroup of definition.indexes) {
-      if (Array.isArray(indexGroup) && indexGroup.length > 0) {
-        const columnNames = indexGroup.map((fieldName) => {
-          const relation = definition.relations?.find(
-            (r) => r.propertyName === fieldName,
-          );
-          if (relation) {
-            return getForeignKeyColumnName(relation.propertyName);
-          }
-          return fieldName;
-        });
-        for (const c of columnNames) indexedColumns.add(c);
-        const physicalCols = columnNames.includes('id')
-          ? columnNames
-          : [...columnNames, 'id'];
-        table.index(physicalCols, `idx_${tableName}_${columnNames.join('_')}`);
-      }
-    }
-  }
-
-  for (const col of definition.columns) {
-    if (col.name === 'id') continue;
-    if (!col.name.endsWith('Id')) continue;
-    if (indexedColumns.has(col.name)) continue;
-    table.index([col.name, 'id'], `idx_${tableName}_${col.name}`);
-    indexedColumns.add(col.name);
-  }
-
-  table.index(['createdAt', 'id'], `idx_${tableName}_createdAt`);
-  indexedColumns.add('createdAt');
-  table.index(['updatedAt', 'id'], `idx_${tableName}_updatedAt`);
-  indexedColumns.add('updatedAt');
-
-  const timestampFields = definition.columns.filter(
-    (col) =>
-      col.type === 'datetime' ||
-      col.type === 'timestamp' ||
-      col.type === 'date',
-  );
-
-  for (const field of timestampFields) {
-    table.index([field.name, 'id'], `idx_${tableName}_${field.name}`);
-    indexedColumns.add(field.name);
+  for (const index of buildSqlIndexContracts(tableName, definition)) {
+    table.index(index.physicalColumns, index.name);
   }
 }
 

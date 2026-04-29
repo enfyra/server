@@ -1,7 +1,10 @@
 import { Knex } from 'knex';
+import { supportsSqlColumnDefault } from './sql-generator';
+
 export function addColumnToTable(
   table: Knex.CreateTableBuilder,
   col: any,
+  dbType: 'mysql' | 'postgres' | 'sqlite' | string = 'mysql',
 ): void {
   let column: Knex.ColumnBuilder;
   switch (col.type) {
@@ -65,7 +68,11 @@ export function addColumnToTable(
       column.notNullable();
     }
   }
-  if (col.defaultValue !== null && col.defaultValue !== undefined) {
+  if (
+    col.defaultValue !== null &&
+    col.defaultValue !== undefined &&
+    supportsSqlColumnDefault(col, dbType)
+  ) {
     column.defaultTo(col.defaultValue);
   }
 }

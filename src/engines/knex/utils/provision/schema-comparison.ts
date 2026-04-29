@@ -1,11 +1,15 @@
 import { Knex } from 'knex';
-import { getForeignKeyColumnName } from '../../../../kernel/query';
 import {
   ColumnDef,
   RelationDef,
   KnexTableSchema,
 } from '../../../../shared/types/database-init.types';
 import { getKnexColumnType } from './schema-parser';
+import {
+  buildSqlIndexContracts,
+  buildSqlUniqueContracts,
+  getSqlRelationForeignKeyColumn,
+} from '../sql-physical-schema-contract';
 function parsePgArray(val: any): string[] {
   if (Array.isArray(val)) return val;
   if (typeof val === 'string' && val.startsWith('{') && val.endsWith('}')) {
@@ -255,7 +259,7 @@ export function compareSchemas(
   if (snapshotSchema.definition.relations) {
     for (const rel of snapshotSchema.definition.relations) {
       if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-        const fkColumn = getForeignKeyColumnName(rel.propertyName);
+        const fkColumn = getSqlRelationForeignKeyColumn(rel as any);
         snapshotFkColumnNames.add(fkColumn);
       }
     }
@@ -325,7 +329,7 @@ export function compareSchemas(
   if (snapshotSchema.definition.relations) {
     for (const rel of snapshotSchema.definition.relations) {
       if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-        snapshotFkColumns.add(getForeignKeyColumnName(rel.propertyName));
+        snapshotFkColumns.add(getSqlRelationForeignKeyColumn(rel as any));
       }
     }
   }
@@ -336,7 +340,7 @@ export function compareSchemas(
   if (snapshotSchema.definition.relations) {
     for (const rel of snapshotSchema.definition.relations) {
       if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-        const fkColumn = getForeignKeyColumnName(rel.propertyName);
+        const fkColumn = getSqlRelationForeignKeyColumn(rel as any);
         if (
           !currentFkColumns.has(fkColumn) &&
           !currentColumnNames.has(fkColumn)
@@ -353,30 +357,18 @@ export function compareSchemas(
       diff.relationsToRemove.push(fk.column);
     }
   }
-  const resolveFieldName = (fieldName: string): string => {
-    const relation = snapshotSchema.definition.relations?.find(
-      (r) => r.propertyName === fieldName,
-    );
-    if (
-      relation &&
-      (relation.type === 'many-to-one' || relation.type === 'one-to-one')
-    ) {
-      return getForeignKeyColumnName(relation.propertyName);
-    }
-    return fieldName;
-  };
   const normalizeGroup = (cols: string[] | string): string => {
     const arr = Array.isArray(cols) ? cols : String(cols || '').split(',');
     return arr.map((c) => c.trim().toLowerCase()).join('|');
   };
-  const snapshotUniqueGroups =
-    snapshotSchema.definition.uniques?.map((group) =>
-      group.map(resolveFieldName),
-    ) || [];
-  const snapshotIndexGroups =
-    snapshotSchema.definition.indexes?.map((group) =>
-      group.map(resolveFieldName),
-    ) || [];
+  const snapshotUniqueGroups = buildSqlUniqueContracts(
+    snapshotSchema.tableName,
+    snapshotSchema.definition,
+  ).map((unique) => unique.physicalColumns);
+  const snapshotIndexGroups = buildSqlIndexContracts(
+    snapshotSchema.tableName,
+    snapshotSchema.definition,
+  ).map((index) => index.physicalColumns);
   const currentUniqueMap = new Map<
     string,
     { columns: string[]; name?: string }

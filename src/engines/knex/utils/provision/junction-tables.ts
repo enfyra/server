@@ -1,15 +1,47 @@
 import { Knex } from 'knex';
 import {
-  getShortFkName,
-  getShortIndexName,
-  getShortPkName,
-  getShortFkConstraintName,
-} from '../../../../kernel/query';
-import {
   JunctionTableDef,
   KnexTableSchema,
 } from '../../../../shared/types/database-init.types';
 import { getPrimaryKeyType } from './schema-parser';
+import { buildSqlJunctionTableContract } from '../sql-physical-schema-contract';
+
+function addJunctionTableColumns(
+  table: Knex.CreateTableBuilder,
+  junction: JunctionTableDef,
+  schemas: KnexTableSchema[],
+): void {
+  const contract = buildSqlJunctionTableContract(junction);
+  const sourcePkType = getPrimaryKeyType(schemas, contract.sourceTable);
+  const targetPkType = getPrimaryKeyType(schemas, contract.targetTable);
+
+  const sourceCol =
+    sourcePkType === 'uuid'
+      ? table.uuid(contract.sourceColumn).notNullable()
+      : table.integer(contract.sourceColumn).unsigned().notNullable();
+  sourceCol
+    .references('id')
+    .inTable(contract.sourceTable)
+    .onDelete(contract.onDelete)
+    .onUpdate(contract.onUpdate)
+    .withKeyName(contract.sourceForeignKeyName);
+
+  const targetCol =
+    targetPkType === 'uuid'
+      ? table.uuid(contract.targetColumn).notNullable()
+      : table.integer(contract.targetColumn).unsigned().notNullable();
+  targetCol
+    .references('id')
+    .inTable(contract.targetTable)
+    .onDelete(contract.onDelete)
+    .onUpdate(contract.onUpdate)
+    .withKeyName(contract.targetForeignKeyName);
+
+  table.primary([contract.sourceColumn, contract.targetColumn], contract.primaryKeyName);
+  table.index([contract.sourceColumn], contract.sourceIndexName);
+  table.index([contract.targetColumn], contract.targetIndexName);
+  table.index([contract.targetColumn, contract.sourceColumn], contract.reverseIndexName);
+}
 
 export async function createJunctionTables(
   knex: Knex,
@@ -46,82 +78,9 @@ export async function createJunctionTables(
   for (const junction of junctionsToCreate) {
     console.log(`📝 Creating junction table: ${junction.tableName}`);
 
-    const sourcePkType = getPrimaryKeyType(schemas, junction.sourceTable);
-    const targetPkType = getPrimaryKeyType(schemas, junction.targetTable);
-
     try {
       await knex.schema.createTable(junction.tableName, (table) => {
-        let sourceCol;
-        if (sourcePkType === 'uuid') {
-          sourceCol = table.uuid(junction.sourceColumn).notNullable();
-        } else {
-          sourceCol = table
-            .integer(junction.sourceColumn)
-            .unsigned()
-            .notNullable();
-        }
-
-        const sourceFk = sourceCol
-          .references('id')
-          .inTable(junction.sourceTable)
-          .onDelete('CASCADE')
-          .onUpdate('CASCADE');
-
-        const sourceFkName = getShortFkConstraintName(
-          junction.tableName,
-          junction.sourceColumn,
-          'src',
-        );
-        sourceFk.withKeyName(sourceFkName);
-
-        let targetCol;
-        if (targetPkType === 'uuid') {
-          targetCol = table.uuid(junction.targetColumn).notNullable();
-        } else {
-          targetCol = table
-            .integer(junction.targetColumn)
-            .unsigned()
-            .notNullable();
-        }
-
-        const targetFk = targetCol
-          .references('id')
-          .inTable(junction.targetTable)
-          .onDelete('CASCADE')
-          .onUpdate('CASCADE');
-
-        const targetFkName = getShortFkConstraintName(
-          junction.tableName,
-          junction.targetColumn,
-          'tgt',
-        );
-        targetFk.withKeyName(targetFkName);
-
-        const pkName = getShortPkName(junction.tableName);
-        table.primary([junction.sourceColumn, junction.targetColumn], pkName);
-
-        const sourceIndexName = getShortIndexName(
-          junction.sourceTable,
-          junction.sourcePropertyName,
-          'src',
-        );
-        const targetIndexName = getShortIndexName(
-          junction.sourceTable,
-          junction.sourcePropertyName,
-          'tgt',
-        );
-        const reverseIndexName = getShortIndexName(
-          junction.sourceTable,
-          junction.sourcePropertyName,
-          'rev',
-        );
-
-        table.index([junction.sourceColumn], sourceIndexName);
-        table.index([junction.targetColumn], targetIndexName);
-        table.index(
-          [junction.targetColumn, junction.sourceColumn],
-          reverseIndexName,
-        );
+        addJunctionTableColumns(table, junction, schemas);
       });
 
       console.log(`✅ Created junction table: ${junction.tableName}`);
@@ -162,81 +121,9 @@ export async function syncJunctionTables(
     if (!exists) {
       console.log(`  📝 Creating junction table: ${junction.tableName}`);
 
-      const sourcePkType = getPrimaryKeyType(schemas, junction.sourceTable);
-      const targetPkType = getPrimaryKeyType(schemas, junction.targetTable);
-
       try {
         await knex.schema.createTable(junction.tableName, (table) => {
-          const sourceFkName = getShortFkName(
-            junction.sourceTable,
-            junction.sourcePropertyName,
-            'src',
-          );
-          let sourceCol;
-          if (sourcePkType === 'uuid') {
-            sourceCol = table.uuid(junction.sourceColumn).notNullable();
-          } else {
-            sourceCol = table
-              .integer(junction.sourceColumn)
-              .unsigned()
-              .notNullable();
-          }
-
-          sourceCol
-            .references('id')
-            .inTable(junction.sourceTable)
-            .onDelete('CASCADE')
-            .onUpdate('CASCADE')
-            .withKeyName(sourceFkName);
-
-          const targetFkName = getShortFkName(
-            junction.sourceTable,
-            junction.sourcePropertyName,
-            'tgt',
-          );
-          let targetCol;
-          if (targetPkType === 'uuid') {
-            targetCol = table.uuid(junction.targetColumn).notNullable();
-          } else {
-            targetCol = table
-              .integer(junction.targetColumn)
-              .unsigned()
-              .notNullable();
-          }
-
-          targetCol
-            .references('id')
-            .inTable(junction.targetTable)
-            .onDelete('CASCADE')
-            .onUpdate('CASCADE')
-            .withKeyName(targetFkName);
-
-          const pkName = getShortPkName(junction.tableName);
-          table.primary([junction.sourceColumn, junction.targetColumn], pkName);
-
-          const sourceIndexName = getShortIndexName(
-            junction.sourceTable,
-            junction.sourcePropertyName,
-            'src',
-          );
-          const targetIndexName = getShortIndexName(
-            junction.sourceTable,
-            junction.sourcePropertyName,
-            'tgt',
-          );
-          const reverseIndexName = getShortIndexName(
-            junction.sourceTable,
-            junction.sourcePropertyName,
-            'rev',
-          );
-
-          table.index([junction.sourceColumn], sourceIndexName);
-          table.index([junction.targetColumn], targetIndexName);
-
-          table.index(
-            [junction.targetColumn, junction.sourceColumn],
-            reverseIndexName,
-          );
+          addJunctionTableColumns(table, junction, schemas);
         });
 
         console.log(`  ✅ Created junction table: ${junction.tableName}`);

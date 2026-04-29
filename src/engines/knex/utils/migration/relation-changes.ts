@@ -1,11 +1,14 @@
 import { Knex } from 'knex';
 import { Logger } from '../../../../shared/logger';
 import {
-  getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
 } from '../../../../kernel/query';
 import { getPrimaryKeyTypeForTable } from './pk-type.util';
+import {
+  getSqlRelationForeignKeyColumn,
+  resolveSqlRelationOnDelete,
+} from '../sql-physical-schema-contract';
 
 const logger = new Logger('RelationChanges');
 
@@ -195,7 +198,7 @@ async function handleDeletedRelations(
 
     if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
       const fkColumn =
-        rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
+        getSqlRelationForeignKeyColumn(rel);
       diff.columns.delete.push({
         name: fkColumn,
         isForeignKey: true,
@@ -258,7 +261,7 @@ async function handleCreatedRelations(
       continue;
     }
     if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-      const fkColumn = getForeignKeyColumnName(rel.propertyName);
+      const fkColumn = getSqlRelationForeignKeyColumn(rel);
 
       await validateFkColumnNotConflict(
         fkColumn,
@@ -284,7 +287,7 @@ async function handleCreatedRelations(
         foreignKeyTarget: rel.targetTableName,
         foreignKeyColumn: 'id',
         isUnique: rel.type === 'one-to-one',
-        onDelete: rel.onDelete || 'SET NULL',
+        onDelete: resolveSqlRelationOnDelete(rel),
       });
     } else if (rel.type === 'one-to-many') {
       const targetTableName = rel.targetTableName;
@@ -294,7 +297,7 @@ async function handleCreatedRelations(
         );
         continue;
       }
-      const fkColumn = getForeignKeyColumnName(rel.mappedBy);
+      const fkColumn = getSqlRelationForeignKeyColumn({ propertyName: rel.mappedBy });
 
       const sourcePkType = await getPrimaryKeyTypeForTable(
         knex,
@@ -330,7 +333,7 @@ async function handleCreatedRelations(
           isForeignKey: true,
           foreignKeyTarget: tableName,
           foreignKeyColumn: 'id',
-          onDelete: rel.onDelete || 'SET NULL',
+          onDelete: resolveSqlRelationOnDelete(rel),
         },
       });
     } else if (rel.type === 'many-to-many') {
@@ -473,8 +476,8 @@ async function handleRelationTargetAndPropertyChange(
 ): Promise<void> {
   const relationType = newRel.type;
   const oldFkColumn =
-    oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
-  const newFkColumn = getForeignKeyColumnName(newRel.propertyName);
+    getSqlRelationForeignKeyColumn(oldRel);
+  const newFkColumn = getSqlRelationForeignKeyColumn(newRel);
 
   if (relationType === 'many-to-one' || relationType === 'one-to-one') {
     const oldPkType = await getPrimaryKeyTypeForTable(
@@ -519,7 +522,7 @@ async function handleRelationTargetAndPropertyChange(
         foreignKey: {
           targetTable: newRel.targetTableName,
           targetColumn: 'id',
-          onDelete: newRel.onDelete || 'SET NULL',
+          onDelete: resolveSqlRelationOnDelete(newRel),
         },
       });
     } else {
@@ -539,7 +542,7 @@ async function handleRelationTargetAndPropertyChange(
         foreignKey: {
           targetTable: newRel.targetTableName,
           targetColumn: 'id',
-          onDelete: newRel.onDelete || 'SET NULL',
+          onDelete: resolveSqlRelationOnDelete(newRel),
         },
       });
     }
@@ -567,8 +570,8 @@ async function handleRelationPropertyNameChange(
     propertyNameChanged
   ) {
     const oldFkColumn =
-      oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
-    const newFkColumn = getForeignKeyColumnName(newRel.propertyName);
+      getSqlRelationForeignKeyColumn(oldRel);
+    const newFkColumn = getSqlRelationForeignKeyColumn(newRel);
 
     if (oldFkColumn !== newFkColumn) {
       if (!diff.columns.rename) {
@@ -599,8 +602,8 @@ async function handleRelationPropertyNameChange(
     }
 
     const oldFkColumn =
-      oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.mappedBy);
-    const newFkColumn = getForeignKeyColumnName(newRel.mappedBy);
+      getSqlRelationForeignKeyColumn({ propertyName: oldRel.mappedBy, foreignKeyColumn: oldRel.foreignKeyColumn });
+    const newFkColumn = getSqlRelationForeignKeyColumn({ propertyName: newRel.mappedBy });
 
     if (oldFkColumn !== newFkColumn) {
       if (!diff.crossTableOperations) {
@@ -679,7 +682,7 @@ async function handleRelationTypeChange(
     newType === 'many-to-many'
   ) {
     const oldFkColumn =
-      oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
+      getSqlRelationForeignKeyColumn(oldRel);
     diff.columns.delete.push({
       name: oldFkColumn,
       isForeignKey: true,
@@ -712,7 +715,7 @@ async function handleRelationTypeChange(
       reason: 'Relation type changed from M2M to M2O/O2O',
     });
 
-    const newFkColumn = getForeignKeyColumnName(newRel.propertyName);
+    const newFkColumn = getSqlRelationForeignKeyColumn(newRel);
 
     await validateFkColumnNotConflict(
       newFkColumn,
@@ -746,7 +749,7 @@ async function handleRelationTypeChange(
       );
     }
     const oldFkColumn =
-      oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.mappedBy);
+      getSqlRelationForeignKeyColumn({ propertyName: oldRel.mappedBy, foreignKeyColumn: oldRel.foreignKeyColumn });
     diff.crossTableOperations.push({
       operation: 'dropColumn',
       targetTable: oldRel.targetTableName,
@@ -783,7 +786,7 @@ async function handleRelationTypeChange(
         `O2M relation '${newRel.propertyName}' must have mappedBy to determine FK column name`,
       );
     }
-    const newFkColumn = getForeignKeyColumnName(newRel.mappedBy);
+    const newFkColumn = getSqlRelationForeignKeyColumn({ propertyName: newRel.mappedBy });
 
     const sourcePkType = await getPrimaryKeyTypeForTable(
       knex,
@@ -808,7 +811,7 @@ async function handleRelationTypeChange(
     newType === 'one-to-many'
   ) {
     const oldFkColumn =
-      oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
+      getSqlRelationForeignKeyColumn(oldRel);
     diff.columns.delete.push({
       name: oldFkColumn,
       isForeignKey: true,
@@ -819,7 +822,7 @@ async function handleRelationTypeChange(
         `O2M relation '${newRel.propertyName}' must have mappedBy to determine FK column name`,
       );
     }
-    const newFkColumn = getForeignKeyColumnName(newRel.mappedBy);
+    const newFkColumn = getSqlRelationForeignKeyColumn({ propertyName: newRel.mappedBy });
 
     const sourcePkType = await getPrimaryKeyTypeForTable(
       knex,
@@ -849,7 +852,7 @@ async function handleRelationTypeChange(
       );
     }
     const oldFkColumn =
-      oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.mappedBy);
+      getSqlRelationForeignKeyColumn({ propertyName: oldRel.mappedBy, foreignKeyColumn: oldRel.foreignKeyColumn });
     diff.crossTableOperations.push({
       operation: 'dropColumn',
       targetTable: oldRel.targetTableName,
@@ -857,7 +860,7 @@ async function handleRelationTypeChange(
       isForeignKey: true,
     });
 
-    const newFkColumn = getForeignKeyColumnName(newRel.propertyName);
+    const newFkColumn = getSqlRelationForeignKeyColumn(newRel);
 
     await validateFkColumnNotConflict(
       newFkColumn,
@@ -889,7 +892,7 @@ async function handleRelationTypeChange(
     (oldType === 'one-to-one' && newType === 'many-to-one')
   ) {
     const fkColumn =
-      newRel.foreignKeyColumn || getForeignKeyColumnName(newRel.propertyName);
+      getSqlRelationForeignKeyColumn(newRel);
 
     if (oldType === 'many-to-one' && newType === 'one-to-one') {
       diff.constraints.uniques.create.push([fkColumn]);
@@ -914,7 +917,7 @@ async function handleRelationTargetChange(
 
   if (relationType === 'many-to-one' || relationType === 'one-to-one') {
     const fkColumn =
-      oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
+      getSqlRelationForeignKeyColumn(oldRel);
 
     const oldPkType = await getPrimaryKeyTypeForTable(
       knex,
@@ -959,7 +962,7 @@ async function handleRelationTargetChange(
         foreignKey: {
           targetTable: newRel.targetTableName,
           targetColumn: 'id',
-          onDelete: newRel.onDelete || 'SET NULL',
+          onDelete: resolveSqlRelationOnDelete(newRel),
         },
       });
     } else {
@@ -969,7 +972,7 @@ async function handleRelationTargetChange(
         columnName: fkColumn,
         targetTable: newRel.targetTableName,
         targetColumn: 'id',
-        onDelete: newRel.onDelete || 'SET NULL',
+        onDelete: resolveSqlRelationOnDelete(newRel),
       });
     }
   } else if (relationType === 'one-to-many') {
@@ -980,7 +983,7 @@ async function handleRelationTargetChange(
       return;
     }
     const fkColumn =
-      oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.mappedBy);
+      getSqlRelationForeignKeyColumn({ propertyName: oldRel.mappedBy, foreignKeyColumn: oldRel.foreignKeyColumn });
     if (!diff.crossTableOperations) diff.crossTableOperations = [];
 
     diff.crossTableOperations.push({
@@ -1005,7 +1008,7 @@ async function handleRelationTargetChange(
         foreignKey: {
           targetTable: tableName,
           targetColumn: 'id',
-          onDelete: newRel.onDelete || 'SET NULL',
+          onDelete: resolveSqlRelationOnDelete(newRel),
         },
       },
     });
@@ -1052,7 +1055,7 @@ async function handleOnDeleteChange(
   const relationType = newRel.type;
 
   if (relationType === 'many-to-one' || relationType === 'one-to-one') {
-    const fkColumn = getForeignKeyColumnName(newRel.propertyName);
+    const fkColumn = getSqlRelationForeignKeyColumn(newRel);
 
     if (!diff.foreignKeys) {
       diff.foreignKeys = { recreate: [] };
@@ -1063,7 +1066,7 @@ async function handleOnDeleteChange(
       columnName: fkColumn,
       targetTable: newRel.targetTableName,
       targetColumn: 'id',
-      onDelete: newRel.onDelete || 'SET NULL',
+      onDelete: resolveSqlRelationOnDelete(newRel),
     });
   } else if (relationType === 'one-to-many') {
     if (!newRel.mappedBy) {
@@ -1073,7 +1076,7 @@ async function handleOnDeleteChange(
       return;
     }
 
-    const fkColumn = getForeignKeyColumnName(newRel.mappedBy);
+    const fkColumn = getSqlRelationForeignKeyColumn({ propertyName: newRel.mappedBy });
 
     if (!diff.foreignKeys) {
       diff.foreignKeys = { recreate: [] };
@@ -1084,7 +1087,7 @@ async function handleOnDeleteChange(
       columnName: fkColumn,
       targetTable: tableName,
       targetColumn: 'id',
-      onDelete: newRel.onDelete || 'SET NULL',
+      onDelete: resolveSqlRelationOnDelete(newRel),
     });
   }
 }

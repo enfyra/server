@@ -1,7 +1,8 @@
 import { Knex } from 'knex';
-import { getForeignKeyColumnName } from '../../../../kernel/query';
 import { KnexTableSchema } from '../../../../shared/types/database-init.types';
 import { getErrorMessage } from '../../../../shared/utils/error.util';
+import { buildSqlForeignKeyContracts } from '../sql-physical-schema-contract';
+import type { SqlForeignKeyContract } from '../../types/sql-physical-schema-contract.types';
 
 export async function addForeignKeys(
   knex: Knex,
@@ -10,12 +11,7 @@ export async function addForeignKeys(
 ): Promise<void> {
   console.log('🔗 Adding foreign key constraints...');
 
-  const fkOperations: Array<{
-    tableName: string;
-    foreignKeyColumn: string;
-    targetTable: string;
-    onDelete: string;
-  }> = [];
+  const fkOperations: SqlForeignKeyContract[] = [];
 
   for (const schema of schemas) {
     const { tableName, definition } = schema;
@@ -24,29 +20,9 @@ export async function addForeignKeys(
       continue;
     }
 
-    for (const relation of definition.relations) {
-      if (relation.type === 'many-to-many' || relation.type === 'one-to-many') {
-        continue;
-      }
-
-      if (
-        relation.type === 'one-to-one' &&
-        (relation as any)._isInverseGenerated
-      ) {
-        continue;
-      }
-
-      const foreignKeyColumn = getForeignKeyColumnName(relation.propertyName);
-      const targetTable = relation.targetTable;
-      const onDelete = (relation as any).onDelete || 'SET NULL';
-
-      fkOperations.push({
-        tableName,
-        foreignKeyColumn,
-        targetTable,
-        onDelete,
-      });
-    }
+    fkOperations.push(
+      ...buildSqlForeignKeyContracts(tableName, definition.relations as any[]),
+    );
   }
 
   if (fkOperations.length === 0) {
@@ -56,28 +32,28 @@ export async function addForeignKeys(
 
   for (const fkOp of fkOperations) {
     console.log(
-      `  Adding FK: ${fkOp.tableName}.${fkOp.foreignKeyColumn} → ${fkOp.targetTable}.id (onDelete: ${fkOp.onDelete})`,
+      `  Adding FK: ${fkOp.tableName}.${fkOp.columnName} → ${fkOp.targetTable}.id (onDelete: ${fkOp.onDelete})`,
     );
     try {
       await knex.schema.alterTable(fkOp.tableName, (table) => {
         const fk = table
-          .foreign(fkOp.foreignKeyColumn)
-          .references('id')
+          .foreign(fkOp.columnName)
+          .references(fkOp.targetColumn)
           .inTable(fkOp.targetTable);
 
         fk.onDelete(fkOp.onDelete).onUpdate('CASCADE');
 
-        table.index([fkOp.foreignKeyColumn]);
+        table.index([fkOp.columnName]);
       });
     } catch (error) {
       const msg = getErrorMessage(error).toLowerCase();
       if (msg.includes('already exists') || msg.includes('duplicate')) {
         console.log(
-          `  ⏩ FK already exists: ${fkOp.tableName}.${fkOp.foreignKeyColumn}`,
+          `  ⏩ FK already exists: ${fkOp.tableName}.${fkOp.columnName}`,
         );
       } else {
         console.error(
-          `  ❌ Failed to add FK ${fkOp.tableName}.${fkOp.foreignKeyColumn}: ${getErrorMessage(error)}`,
+          `  ❌ Failed to add FK ${fkOp.tableName}.${fkOp.columnName}: ${getErrorMessage(error)}`,
         );
       }
     }

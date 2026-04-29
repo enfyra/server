@@ -13,6 +13,10 @@ import {
   generateDropColumnSQL,
 } from './sql-dialect';
 import { getPrimaryKeyTypeForTable } from './pk-type.util';
+import {
+  buildSqlJunctionTableContract,
+  resolveSqlRelationOnDelete,
+} from '../sql-physical-schema-contract';
 
 const logger = new Logger('SqlDiffGenerator');
 function isIdempotentDDLError(err: any, dbType: string): boolean {
@@ -185,8 +189,7 @@ export async function generateSQLFromDiff(
       `ALTER TABLE ${qt(tableName)} ADD COLUMN ${qt(col.name)} ${columnDef}`,
     );
     if (col.isForeignKey && col.foreignKeyTarget) {
-      const onDelete =
-        col.onDelete || (col.isNullable === false ? 'RESTRICT' : 'SET NULL');
+      const onDelete = resolveSqlRelationOnDelete(col);
       sqlStatements.push(
         `ALTER TABLE ${qt(tableName)} ADD CONSTRAINT ${qt(`fk_${tableName}_${col.name}`)} FOREIGN KEY (${qt(col.name)}) REFERENCES ${qt(col.foreignKeyTarget)} (${qt(col.foreignKeyColumn || 'id')}) ON DELETE ${onDelete} ON UPDATE CASCADE`,
       );
@@ -267,13 +270,10 @@ export async function generateSQLFromDiff(
       : indexGroup?.value || [];
     if (cols.length === 0) continue;
     const indexName = `idx_${tableName}_${cols.join('_')}`;
-    const physicalCols = cols.includes('id') ? cols : [...cols, 'id'];
     sqlStatements.push(
-      generateAddIndexSQL(tableName, indexName, physicalCols, dbType),
+      generateAddIndexSQL(tableName, indexName, cols, dbType),
     );
-    logger.log(
-      `  Add index ${indexName} (columns: ${physicalCols.join(', ')})`,
-    );
+    logger.log(`  Add index ${indexName} (columns: ${cols.join(', ')})`);
   }
   for (const crossOp of crossTableOps) {
     if (crossOp.operation === 'createColumn') {
@@ -282,9 +282,7 @@ export async function generateSQLFromDiff(
         `ALTER TABLE ${qt(crossOp.targetTable)} ADD COLUMN ${qt(crossOp.column.name)} ${columnDef}`,
       );
       if (crossOp.column.isForeignKey) {
-        const onDelete =
-          crossOp.column.onDelete ||
-          (crossOp.column.isNullable !== false ? 'SET NULL' : 'RESTRICT');
+        const onDelete = resolveSqlRelationOnDelete(crossOp.column);
         sqlStatements.push(
           `ALTER TABLE ${qt(crossOp.targetTable)} ADD CONSTRAINT ${qt(`fk_${crossOp.targetTable}_${crossOp.column.name}`)} FOREIGN KEY (${qt(crossOp.column.name)}) REFERENCES ${qt(crossOp.column.foreignKeyTarget)} (${qt(crossOp.column.foreignKeyColumn)}) ON DELETE ${onDelete} ON UPDATE CASCADE`,
         );
@@ -325,6 +323,17 @@ export async function generateSQLFromDiff(
       sourceColumn,
       targetColumn,
     } = junctionCreate;
+    const junction = buildSqlJunctionTableContract({
+      tableName: junctionName,
+      sourceTable,
+      targetTable,
+      sourceColumn,
+      targetColumn,
+      sourcePropertyName:
+        junctionCreate.sourcePropertyName ||
+        junctionCreate.propertyName ||
+        targetTable,
+    });
     const tableExists = await knex.schema.hasTable(junctionName);
     if (tableExists) {
       logger.log(`  Junction table ${junctionName} already exists, skipping`);
@@ -383,9 +392,9 @@ export async function generateSQLFromDiff(
         CREATE TABLE ${qt(junctionName)} (
           ${qt(sourceColumn)} ${sourceColType} NOT NULL,
           ${qt(targetColumn)} ${targetColType} NOT NULL,
-          PRIMARY KEY (${qt(sourceColumn)}, ${qt(targetColumn)}),
-          FOREIGN KEY (${qt(sourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
-          FOREIGN KEY (${qt(targetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE
+          PRIMARY KEY (${qt(junction.sourceColumn)}, ${qt(junction.targetColumn)}),
+          FOREIGN KEY (${qt(junction.sourceColumn)}) REFERENCES ${qt(junction.sourceTable)} (${qt('id')}) ON DELETE ${junction.onDelete} ON UPDATE ${junction.onUpdate},
+          FOREIGN KEY (${qt(junction.targetColumn)}) REFERENCES ${qt(junction.targetTable)} (${qt('id')}) ON DELETE ${junction.onDelete} ON UPDATE ${junction.onUpdate}
         )
       `
         .trim()
@@ -395,9 +404,9 @@ export async function generateSQLFromDiff(
         CREATE TABLE ${qt(junctionName)} (
           ${qt(sourceColumn)} ${sourceColType} NOT NULL,
           ${qt(targetColumn)} ${targetColType} NOT NULL,
-          PRIMARY KEY (${qt(sourceColumn)}, ${qt(targetColumn)}),
-          FOREIGN KEY (${qt(sourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
-          FOREIGN KEY (${qt(targetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE
+          PRIMARY KEY (${qt(junction.sourceColumn)}, ${qt(junction.targetColumn)}),
+          FOREIGN KEY (${qt(junction.sourceColumn)}) REFERENCES ${qt(junction.sourceTable)} (${qt('id')}) ON DELETE ${junction.onDelete} ON UPDATE ${junction.onUpdate},
+          FOREIGN KEY (${qt(junction.targetColumn)}) REFERENCES ${qt(junction.targetTable)} (${qt('id')}) ON DELETE ${junction.onDelete} ON UPDATE ${junction.onUpdate}
         )
       `
         .trim()
@@ -407,12 +416,12 @@ export async function generateSQLFromDiff(
         CREATE TABLE ${qt(junctionName)} (
           ${qt(sourceColumn)} ${sourceColType} NOT NULL,
           ${qt(targetColumn)} ${targetColType} NOT NULL,
-          PRIMARY KEY (${qt(sourceColumn)}, ${qt(targetColumn)}),
-          KEY ${qt(`idx_${sourceColumn}`)} (${qt(sourceColumn)}),
-          KEY ${qt(`idx_${targetColumn}`)} (${qt(targetColumn)}),
-          KEY ${qt(`idx_${targetColumn}_${sourceColumn}`)} (${qt(targetColumn)}, ${qt(sourceColumn)}),
-          FOREIGN KEY (${qt(sourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
-          FOREIGN KEY (${qt(targetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE
+          PRIMARY KEY (${qt(junction.sourceColumn)}, ${qt(junction.targetColumn)}),
+          KEY ${qt(junction.sourceIndexName)} (${qt(junction.sourceColumn)}),
+          KEY ${qt(junction.targetIndexName)} (${qt(junction.targetColumn)}),
+          KEY ${qt(junction.reverseIndexName)} (${qt(junction.targetColumn)}, ${qt(junction.sourceColumn)}),
+          FOREIGN KEY (${qt(junction.sourceColumn)}) REFERENCES ${qt(junction.sourceTable)} (${qt('id')}) ON DELETE ${junction.onDelete} ON UPDATE ${junction.onUpdate},
+          FOREIGN KEY (${qt(junction.targetColumn)}) REFERENCES ${qt(junction.targetTable)} (${qt('id')}) ON DELETE ${junction.onDelete} ON UPDATE ${junction.onUpdate}
         )
       `
         .trim()
@@ -420,9 +429,9 @@ export async function generateSQLFromDiff(
     }
     sqlStatements.push(createJunctionSQL);
     if (dbType === 'postgres') {
-      const indexSourceSQL = `CREATE INDEX ${qt(`idx_${sourceColumn}`)} ON ${qt(junctionName)} (${qt(sourceColumn)})`;
-      const indexTargetSQL = `CREATE INDEX ${qt(`idx_${targetColumn}`)} ON ${qt(junctionName)} (${qt(targetColumn)})`;
-      const indexReverseSQL = `CREATE INDEX ${qt(`idx_${targetColumn}_${sourceColumn}`)} ON ${qt(junctionName)} (${qt(targetColumn)}, ${qt(sourceColumn)})`;
+      const indexSourceSQL = `CREATE INDEX ${qt(junction.sourceIndexName)} ON ${qt(junction.tableName)} (${qt(junction.sourceColumn)})`;
+      const indexTargetSQL = `CREATE INDEX ${qt(junction.targetIndexName)} ON ${qt(junction.tableName)} (${qt(junction.targetColumn)})`;
+      const indexReverseSQL = `CREATE INDEX ${qt(junction.reverseIndexName)} ON ${qt(junction.tableName)} (${qt(junction.targetColumn)}, ${qt(junction.sourceColumn)})`;
       sqlStatements.push(indexSourceSQL, indexTargetSQL, indexReverseSQL);
     }
   }

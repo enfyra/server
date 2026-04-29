@@ -162,9 +162,8 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   registerPackageRoutes(app, container);
   registerMeRoutes(app, container);
 
-  const graphqlService = c.graphqlService;
-  const yogaApp = graphqlService.getYogaApp();
   app.use('/graphql', (req: any, res: any, next: any) => {
+    const yogaApp = c.graphqlService.getYogaApp();
     return yogaApp(req, res, next);
   });
 

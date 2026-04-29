@@ -11,6 +11,7 @@ import {
   syncTable,
   syncJunctionTables,
   createAllTables,
+  supportsSqlColumnDefault,
 } from '../../knex';
 import { loadRelationRenameMap } from '../../../domain/bootstrap';
 
@@ -598,7 +599,11 @@ export class MetadataProvisionSqlService {
     if (col.isNullable === false && !col.isGenerated) {
       column = column.notNullable();
     }
-    if (col.defaultValue !== null && col.defaultValue !== undefined) {
+    if (
+      col.defaultValue !== null &&
+      col.defaultValue !== undefined &&
+      supportsSqlColumnDefault(col, this.dbType)
+    ) {
       if (col.defaultValue === 'now') {
         if (col.type === 'timestamp' || col.type === 'datetime') {
           column = column.defaultTo(

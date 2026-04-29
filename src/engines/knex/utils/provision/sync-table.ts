@@ -1,9 +1,14 @@
 import { Knex } from 'knex';
-import { getForeignKeyColumnName } from '../../../../kernel/query';
 import { KnexTableSchema } from '../../../../shared/types/database-init.types';
 import { getKnexColumnType, getPrimaryKeyType } from './schema-parser';
 import { compareSchemas, getCurrentDatabaseSchema } from './schema-comparison';
 import { getErrorMessage } from '../../../../shared/utils/error.util';
+import {
+  buildSqlForeignKeyContracts,
+  getSqlRelationForeignKeyColumn,
+  getSqlRelationTargetTable,
+  resolveSqlRelationOnDelete,
+} from '../sql-physical-schema-contract';
 
 /**
  * Apply ALTER COLUMN type change for the supported subset of knex column types.
@@ -110,7 +115,7 @@ export async function applyColumnMigrations(
           col.type === 'timestamp' ||
           col.type === 'date'
         ) {
-          table.index([col.name]);
+          table.index([col.name, 'id'], `idx_${tableName}_${col.name}`);
         }
       }
     });
@@ -581,9 +586,13 @@ export async function applyRelationMigrations(
         `  📝 Adding ${m2oRelations.length} relation(s) to ${tableName}:`,
       );
       for (const rel of m2oRelations) {
-        const fkColumn = getForeignKeyColumnName(rel.propertyName);
-        console.log(`    + ${fkColumn} → ${rel.targetTable}.id`);
-        const targetPkType = getPrimaryKeyType(schemas, rel.targetTable);
+        const [foreignKey] = buildSqlForeignKeyContracts(tableName, [
+          rel as any,
+        ]);
+        if (!foreignKey) continue;
+        const fkColumn = foreignKey.columnName;
+        console.log(`    + ${fkColumn} → ${foreignKey.targetTable}.id`);
+        const targetPkType = getPrimaryKeyType(schemas, foreignKey.targetTable);
         const dbType = knex.client.config.client;
         try {
           const hasCol = await knex.schema.hasColumn(tableName, fkColumn);
@@ -609,11 +618,10 @@ export async function applyRelationMigrations(
           await knex.schema.alterTable(tableName, (table) => {
             const fk = table
               .foreign(fkColumn)
-              .references('id')
-              .inTable(rel.targetTable);
-            const onDeleteAction = (rel as any).onDelete || 'SET NULL';
-            fk.onDelete(onDeleteAction).onUpdate('CASCADE');
-            table.index([fkColumn]);
+              .references(foreignKey.targetColumn)
+              .inTable(foreignKey.targetTable);
+            fk.onDelete(foreignKey.onDelete).onUpdate(foreignKey.onUpdate);
+            table.index([fkColumn, 'id'], `idx_${tableName}_${fkColumn}`);
           });
         } catch (error) {
           const msg = getErrorMessage(error).toLowerCase();
@@ -785,7 +793,7 @@ async function syncRelationOnDeleteChanges(
     if (!dbRel) {
       continue;
     }
-    const snapshotOnDelete = (snapshotRel as any).onDelete || 'SET NULL';
+    const snapshotOnDelete = resolveSqlRelationOnDelete(snapshotRel as any);
     const dbOnDelete = dbRel.onDelete || 'SET NULL';
     if (snapshotOnDelete !== dbOnDelete) {
       console.log(
@@ -795,8 +803,8 @@ async function syncRelationOnDeleteChanges(
         snapshotRel.type === 'many-to-one' ||
         snapshotRel.type === 'one-to-one'
       ) {
-        const fkColumn = getForeignKeyColumnName(snapshotRel.propertyName);
-        const targetTable = snapshotRel.targetTable;
+        const fkColumn = getSqlRelationForeignKeyColumn(snapshotRel as any);
+        const targetTable = getSqlRelationTargetTable(snapshotRel as any);
         if (dbType === 'pg') {
           const fkConstraints = await knex.raw(
             `

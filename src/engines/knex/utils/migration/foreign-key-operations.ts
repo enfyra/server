@@ -5,6 +5,7 @@ import {
   getForeignKeyConstraintsQuery,
   generateDropForeignKeySQL,
 } from './sql-dialect';
+import { resolveSqlRelationOnDelete } from '../sql-physical-schema-contract';
 const logger = new Logger('ForeignKeyOperations');
 export async function dropForeignKeyIfExists(
   knex: Knex,
@@ -173,7 +174,10 @@ export function generateForeignKeySQL(
   onDelete?: string,
 ): string {
   const qt = (id: string) => quoteIdentifier(id, dbType);
-  const onDeleteAction = onDelete || (isNullable ? 'SET NULL' : 'RESTRICT');
+  const onDeleteAction = resolveSqlRelationOnDelete({
+    onDelete,
+    isNullable,
+  });
   const fkName = `fk_${tableName}_${columnName}`;
   return `ALTER TABLE ${qt(tableName)} ADD CONSTRAINT ${qt(fkName)} FOREIGN KEY (${qt(columnName)}) REFERENCES ${qt(targetTable)} (${qt(targetColumn)}) ON DELETE ${onDeleteAction} ON UPDATE CASCADE`;
 }
