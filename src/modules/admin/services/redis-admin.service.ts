@@ -143,7 +143,7 @@ export class RedisAdminService {
     key: string,
     options?: { limit?: number },
   ): Promise<RedisAdminKeyDetail> {
-    const redisKey = this.resolveKey(key);
+    const redisKey = await this.resolveKeyForOperation(key);
     this.assertValidKey(redisKey);
     const summary = await this.describeKey(redisKey);
     const limit = this.clampCount(
@@ -170,7 +170,7 @@ export class RedisAdminService {
     value: any;
     ttlSeconds?: number | null;
   }): Promise<RedisAdminKeyDetail> {
-    const redisKey = this.resolveKey(input.key);
+    const redisKey = await this.resolveKeyForOperation(input.key);
     this.assertCanModify(redisKey);
     const type = input.type || 'string';
     const ttlMs = input.ttlSeconds == null ? 0 : Number(input.ttlSeconds) * 1000;
@@ -189,7 +189,7 @@ export class RedisAdminService {
   }
 
   async deleteKey(key: string): Promise<{ deleted: number }> {
-    const redisKey = this.resolveKey(key);
+    const redisKey = await this.resolveKeyForOperation(key);
     this.assertCanModify(redisKey);
     const existed = await this.redis.exists(redisKey);
     if (this.isUserCacheDataKey(redisKey)) {
@@ -204,7 +204,7 @@ export class RedisAdminService {
     key: string,
     ttlSeconds: number | null,
   ): Promise<RedisAdminKeySummary> {
-    const redisKey = this.resolveKey(key);
+    const redisKey = await this.resolveKeyForOperation(key);
     this.assertCanModify(redisKey);
     if (ttlSeconds == null) {
       await this.redis.persist(redisKey);
@@ -710,6 +710,29 @@ export class RedisAdminService {
       ].includes(key)
     ) {
       return key;
+    }
+    return `${this.nodeName}:user_cache:${key}`;
+  }
+
+  private async resolveKeyForOperation(key: string): Promise<string> {
+    this.assertValidKey(key);
+    if (key.startsWith(`${this.nodeName}:`)) return key;
+    if (this.isSystemPublicKey(key)) return `${this.nodeName}:${key}`;
+    if (key.startsWith('user_cache:') || key.startsWith('user_cache_meta:')) {
+      return `${this.nodeName}:${key}`;
+    }
+    if (
+      [
+        BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
+        PROVISION_LOCK_KEY,
+        SAGA_ORPHAN_RECOVERY_LOCK_KEY,
+      ].includes(key)
+    ) {
+      return key;
+    }
+    const currentNamespaceKey = `${this.nodeName}:${key}`;
+    if ((await this.redis.exists(currentNamespaceKey)) > 0) {
+      return currentNamespaceKey;
     }
     return `${this.nodeName}:user_cache:${key}`;
   }

@@ -350,6 +350,20 @@ describe('RedisAdminService', () => {
     expect(detail.value).toBe('enabled');
   });
 
+  it('modifies existing current namespace keys without forcing them into $cache', async () => {
+    const { redis, service } = makeService();
+    redis.setSync('app-a:user:0c94ba93-5440-4038-80f6-919e9787aabf', 'legacy');
+
+    const detail = await service.getKey('user:0c94ba93-5440-4038-80f6-919e9787aabf');
+    expect(detail.value).toBe('legacy');
+
+    await expect(
+      service.deleteKey('user:0c94ba93-5440-4038-80f6-919e9787aabf'),
+    ).resolves.toEqual({ deleted: 1 });
+    expect(redis.values.has('app-a:user:0c94ba93-5440-4038-80f6-919e9787aabf')).toBe(false);
+    expect(redis.values.has('app-a:user_cache:user:0c94ba93-5440-4038-80f6-919e9787aabf')).toBe(false);
+  });
+
   it('marks user cache quota trackers as editable user cache, not system', async () => {
     const { redis, service } = makeService();
     redis.hsetSync('app-a:user_cache_meta:sizes', 'feature', '7');
