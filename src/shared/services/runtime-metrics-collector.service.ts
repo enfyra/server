@@ -15,6 +15,7 @@ const MAX_RECENT = 20;
 const SLOW_QUERY_MS = 500;
 const LIVE_METRIC_TTL_MS = 10_000;
 const CACHE_RELOAD_TTL_MS = 60 * 60 * 1000;
+type RuntimeMetricsHashBucket = 'requests' | 'queries' | 'flows';
 
 function pushLatency(target: number[], value: number) {
   target.push(value);
@@ -38,19 +39,108 @@ function isPoolAcquireTimeout(error: unknown) {
   );
 }
 
+class RuntimeMetricsRedisStore {
+  private writeChain: Promise<void> = Promise.resolve();
+
+  constructor(
+    private readonly redis: Redis,
+    private readonly keys: {
+      requests: string;
+      queries: string;
+      flows: string;
+      cacheReloads: string;
+    },
+  ) {}
+
+  updateHash<T>(
+    bucket: RuntimeMetricsHashBucket,
+    field: string,
+    create: () => T,
+    update: (metric: T) => void,
+  ): void {
+    this.enqueue(async () => {
+      const key = this.keys[bucket];
+      const raw = await this.redis.hget(key, field);
+      const metric = raw ? (JSON.parse(raw) as T) : create();
+      update(metric);
+      await this.redis
+        .pipeline()
+        .hset(key, field, JSON.stringify(metric))
+        .pexpire(key, LIVE_METRIC_TTL_MS)
+        .exec();
+    });
+  }
+
+  pushCacheReload(record: RuntimeCacheReloadMetric): void {
+    this.enqueue(() =>
+      this.redis
+        .pipeline()
+        .lpush(this.keys.cacheReloads, JSON.stringify(record))
+        .ltrim(this.keys.cacheReloads, 0, MAX_RECENT - 1)
+        .pexpire(this.keys.cacheReloads, CACHE_RELOAD_TTL_MS)
+        .exec()
+        .then(() => undefined),
+    );
+  }
+
+  async readSnapshot(): Promise<{
+    requests: RuntimeRouteMetric[];
+    queries: RuntimeQueryMetric[];
+    flows: RuntimeFlowMetric[];
+    cacheReloads: RuntimeCacheReloadMetric[];
+  }> {
+    await this.writeChain;
+    const [requests, queries, flows, cacheReloads] = await Promise.all([
+      this.readHash<RuntimeRouteMetric>('requests'),
+      this.readHash<RuntimeQueryMetric>('queries'),
+      this.readHash<RuntimeFlowMetric>('flows'),
+      this.readCacheReloads(),
+    ]);
+    await this.redis
+      .pipeline()
+      .pexpire(this.keys.requests, LIVE_METRIC_TTL_MS)
+      .pexpire(this.keys.queries, LIVE_METRIC_TTL_MS)
+      .pexpire(this.keys.flows, LIVE_METRIC_TTL_MS)
+      .exec();
+    return { requests, queries, flows, cacheReloads };
+  }
+
+  async readCacheReloads(): Promise<RuntimeCacheReloadMetric[]> {
+    await this.writeChain;
+    return this.parseRows(
+      await this.redis.lrange(this.keys.cacheReloads, 0, MAX_RECENT - 1),
+    );
+  }
+
+  private enqueue(operation: () => Promise<void>): void {
+    this.writeChain = this.writeChain.then(operation).catch(() => {});
+  }
+
+  private async readHash<T>(bucket: RuntimeMetricsHashBucket): Promise<T[]> {
+    return this.parseRows(Object.values(await this.redis.hgetall(this.keys[bucket])));
+  }
+
+  private parseRows<T>(values: string[]): T[] {
+    return values
+      .map((value) => {
+        try {
+          return JSON.parse(value) as T;
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean) as T[];
+  }
+}
+
 export class RuntimeMetricsCollectorService {
   private readonly queryContext = new AsyncLocalStorage<QueryMetricContext>();
-  private readonly redis?: Redis;
-  private readonly requestKey?: string;
-  private readonly queryKey?: string;
-  private readonly flowKey?: string;
-  private readonly cacheReloadKey?: string;
+  private readonly redisStore?: RuntimeMetricsRedisStore;
   private readonly instanceId?: string;
   private readonly requests = new Map<string, RuntimeRouteMetric>();
   private readonly queries = new Map<string, RuntimeQueryMetric>();
   private readonly flows = new Map<string, RuntimeFlowMetric>();
   private recentCacheReloads: RuntimeCacheReloadMetric[] = [];
-  private redisWriteChain: Promise<void> = Promise.resolve();
   private startedAt = Date.now();
 
   constructor(
@@ -60,16 +150,17 @@ export class RuntimeMetricsCollectorService {
       instanceService?: InstanceService;
     } = {},
   ) {
-    this.redis = deps.redis;
     this.instanceId = deps.instanceService?.getInstanceId();
     const nodeName = deps.envService?.get('NODE_NAME') || 'enfyra';
-    if (this.redis) {
+    if (deps.redis) {
       const instanceId = this.instanceId || 'local';
       const baseKey = `${nodeName}:runtime-monitor:${instanceId}`;
-      this.requestKey = `${baseKey}:requests`;
-      this.queryKey = `${baseKey}:queries`;
-      this.flowKey = `${baseKey}:flows`;
-      this.cacheReloadKey = `${nodeName}:runtime-monitor:cache-reloads`;
+      this.redisStore = new RuntimeMetricsRedisStore(deps.redis, {
+        requests: `${baseKey}:requests`,
+        queries: `${baseKey}:queries`,
+        flows: `${baseKey}:flows`,
+        cacheReloads: `${nodeName}:runtime-monitor:cache-reloads`,
+      });
     }
   }
 
@@ -79,26 +170,23 @@ export class RuntimeMetricsCollectorService {
     statusCode: number;
     durationMs: number;
   }) {
-    if (this.redis && this.requestKey) {
-      const requestKey = this.requestKey;
+    if (this.redisStore) {
       const field = `${input.method}:${input.route}`;
-      this.enqueueRedisWrite(() =>
-        this.updateRedisHashMetric<RuntimeRouteMetric>(
-          requestKey,
-          field,
-          () => ({
-            method: input.method,
-            route: input.route,
-            count: 0,
-            status2xx: 0,
-            status3xx: 0,
-            status4xx: 0,
-            status5xx: 0,
-            totalMs: 0,
-            latencies: [],
-          }),
-          (current) => this.applyRequestMetric(current, input),
-        ),
+      this.redisStore.updateHash<RuntimeRouteMetric>(
+        'requests',
+        field,
+        () => ({
+          method: input.method,
+          route: input.route,
+          count: 0,
+          status2xx: 0,
+          status3xx: 0,
+          status4xx: 0,
+          status5xx: 0,
+          totalMs: 0,
+          latencies: [],
+        }),
+        (current) => this.applyRequestMetric(current, input),
       );
       return;
     }
@@ -130,26 +218,23 @@ export class RuntimeMetricsCollectorService {
   }) {
     const context = input.context ?? this.getQueryContext();
     const table = input.table || 'unknown';
-    if (this.redis && this.queryKey) {
-      const queryKey = this.queryKey;
+    if (this.redisStore) {
       const field = `${context}:${input.op}:${table}`;
-      this.enqueueRedisWrite(() =>
-        this.updateRedisHashMetric<RuntimeQueryMetric>(
-          queryKey,
-          field,
-          () => ({
-            context,
-            op: input.op,
-            table,
-            count: 0,
-            errors: 0,
-            poolAcquireTimeouts: 0,
-            slow: 0,
-            totalMs: 0,
-            latencies: [],
-          }),
-          (current) => this.applyQueryMetric(current, input),
-        ),
+      this.redisStore.updateHash<RuntimeQueryMetric>(
+        'queries',
+        field,
+        () => ({
+          context,
+          op: input.op,
+          table,
+          count: 0,
+          errors: 0,
+          poolAcquireTimeouts: 0,
+          slow: 0,
+          totalMs: 0,
+          latencies: [],
+        }),
+        (current) => this.applyQueryMetric(current, input),
       );
       return;
     }
@@ -210,18 +295,8 @@ export class RuntimeMetricsCollectorService {
       ...metric,
       instanceId: metric.instanceId ?? this.instanceId,
     };
-    if (this.redis && this.cacheReloadKey) {
-      const redis = this.redis;
-      const cacheReloadKey = this.cacheReloadKey;
-      this.enqueueRedisWrite(() =>
-        redis
-          .pipeline()
-          .lpush(cacheReloadKey, JSON.stringify(record))
-          .ltrim(cacheReloadKey, 0, MAX_RECENT - 1)
-          .pexpire(cacheReloadKey, CACHE_RELOAD_TTL_MS)
-          .exec()
-          .then(() => undefined),
-      );
+    if (this.redisStore) {
+      this.redisStore.pushCacheReload(record);
       return;
     }
 
@@ -232,42 +307,20 @@ export class RuntimeMetricsCollectorService {
   }
 
   async getRecentCacheReloads(): Promise<RuntimeCacheReloadMetric[]> {
-    if (!this.redis || !this.cacheReloadKey) {
-      return this.recentCacheReloads;
-    }
-    try {
-      const values = await this.redis.lrange(
-        this.cacheReloadKey,
-        0,
-        MAX_RECENT - 1,
-      );
-      const rows = values
-        .map((value) => {
-          try {
-            return JSON.parse(value) as RuntimeCacheReloadMetric;
-          } catch {
-            return null;
-          }
-        })
-        .filter(Boolean) as RuntimeCacheReloadMetric[];
-      return rows.length > 0 ? rows : this.recentCacheReloads;
-    } catch {
-      return this.recentCacheReloads;
-    }
+    return this.redisStore
+      ? await this.redisStore.readCacheReloads()
+      : this.recentCacheReloads;
   }
 
   startFlow(flowId: string | number, flowName: string) {
-    if (this.redis && this.flowKey) {
-      const flowKey = this.flowKey;
-      this.enqueueRedisWrite(() =>
-        this.updateRedisHashMetric<RuntimeFlowMetric>(
-          flowKey,
-          String(flowId),
-          () => this.createFlowMetric(flowId, flowName),
-          (metric) => {
-            metric.running++;
-          },
-        ),
+    if (this.redisStore) {
+      this.redisStore.updateHash<RuntimeFlowMetric>(
+        'flows',
+        String(flowId),
+        () => this.createFlowMetric(flowId, flowName),
+        (metric) => {
+          metric.running++;
+        },
       );
       return;
     }
@@ -281,15 +334,12 @@ export class RuntimeMetricsCollectorService {
     durationMs: number;
     status: 'completed' | 'failed';
   }) {
-    if (this.redis && this.flowKey) {
-      const flowKey = this.flowKey;
-      this.enqueueRedisWrite(() =>
-        this.updateRedisHashMetric<RuntimeFlowMetric>(
-          flowKey,
-          String(input.flowId),
-          () => this.createFlowMetric(input.flowId, input.flowName),
-          (metric) => this.applyFlowCompletion(metric, input),
-        ),
+    if (this.redisStore) {
+      this.redisStore.updateHash<RuntimeFlowMetric>(
+        'flows',
+        String(input.flowId),
+        () => this.createFlowMetric(input.flowId, input.flowName),
+        (metric) => this.applyFlowCompletion(metric, input),
       );
       return;
     }
@@ -304,15 +354,12 @@ export class RuntimeMetricsCollectorService {
     durationMs: number;
     failed?: boolean;
   }) {
-    if (this.redis && this.flowKey) {
-      const flowKey = this.flowKey;
-      this.enqueueRedisWrite(() =>
-        this.updateRedisHashMetric<RuntimeFlowMetric>(
-          flowKey,
-          String(input.flowId),
-          () => this.createFlowMetric(input.flowId, input.flowName),
-          (metric) => this.applyFlowStep(metric, input),
-        ),
+    if (this.redisStore) {
+      this.redisStore.updateHash<RuntimeFlowMetric>(
+        'flows',
+        String(input.flowId),
+        () => this.createFlowMetric(input.flowId, input.flowName),
+        (metric) => this.applyFlowStep(metric, input),
       );
       return;
     }
@@ -330,27 +377,14 @@ export class RuntimeMetricsCollectorService {
   }
 
   async snapshotAsync() {
-    if (
-      this.redis &&
-      this.requestKey &&
-      this.queryKey &&
-      this.flowKey &&
-      this.cacheReloadKey
-    ) {
-      await this.flushRedisWrites();
-      const [requests, queries, flows, recent] = await Promise.all([
-        this.readRedisHash<RuntimeRouteMetric>(this.requestKey),
-        this.readRedisHash<RuntimeQueryMetric>(this.queryKey),
-        this.readRedisHash<RuntimeFlowMetric>(this.flowKey),
-        this.getRecentCacheReloads(),
-      ]);
-      await this.redis
-        .pipeline()
-        .pexpire(this.requestKey, LIVE_METRIC_TTL_MS)
-        .pexpire(this.queryKey, LIVE_METRIC_TTL_MS)
-        .pexpire(this.flowKey, LIVE_METRIC_TTL_MS)
-        .exec();
-      return this.buildSnapshot(requests, queries, flows, recent);
+    if (this.redisStore) {
+      const snapshot = await this.redisStore.readSnapshot();
+      return this.buildSnapshot(
+        snapshot.requests,
+        snapshot.queries,
+        snapshot.flows,
+        snapshot.cacheReloads,
+      );
     }
 
     return this.snapshot();
@@ -545,44 +579,4 @@ export class RuntimeMetricsCollectorService {
     }
   }
 
-  private enqueueRedisWrite(operation: () => Promise<void>): void {
-    this.redisWriteChain = this.redisWriteChain
-      .then(operation)
-      .catch(() => {});
-  }
-
-  private async flushRedisWrites(): Promise<void> {
-    await this.redisWriteChain;
-  }
-
-  private async updateRedisHashMetric<T>(
-    key: string,
-    field: string,
-    create: () => T,
-    update: (metric: T) => void,
-  ): Promise<void> {
-    if (!this.redis) return;
-    const raw = await this.redis.hget(key, field);
-    const metric = raw ? (JSON.parse(raw) as T) : create();
-    update(metric);
-    await this.redis
-      .pipeline()
-      .hset(key, field, JSON.stringify(metric))
-      .pexpire(key, LIVE_METRIC_TTL_MS)
-      .exec();
-  }
-
-  private async readRedisHash<T>(key: string): Promise<T[]> {
-    if (!this.redis) return [];
-    const values = Object.values(await this.redis.hgetall(key));
-    return values
-      .map((value) => {
-        try {
-          return JSON.parse(value) as T;
-        } catch {
-          return null;
-        }
-      })
-      .filter(Boolean) as T[];
-  }
 }
