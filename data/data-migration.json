@@ -113,6 +113,14 @@
       }
     },
     {
+      "table": "menu_definition",
+      "filter": {
+        "path": {
+          "_eq": "/settings/routings"
+        }
+      }
+    },
+    {
       "table": "websocket_event_definition",
       "filter": {
         "eventName": {
@@ -223,16 +231,6 @@
           }
         ]
       }
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/settings/routings"
-        }
-      },
-      "label": "Routes",
-      "path": "/settings/routes",
-      "description": "Route management"
     },
     {
       "_unique": {
