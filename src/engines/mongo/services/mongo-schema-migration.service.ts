@@ -149,6 +149,11 @@ export class MongoSchemaMigrationService {
     rawBeforeSnapshot?: any,
   ): Promise<void> {
     try {
+      if (!rawBeforeSnapshot) {
+        throw new Error(
+          `Mongo migration saga for ${collectionName} requires rawBeforeSnapshot`,
+        );
+      }
       const diff = this.schemaDiffService.generateMongoSchemaDiff(
         oldMetadata,
         newMetadata,
@@ -164,22 +169,17 @@ export class MongoSchemaMigrationService {
           `indexes(+${diff.indexes.create.length}/-${diff.indexes.delete.length}/=${diff.indexes.unchanged.length}), ` +
           `junctions(+${diff.junctionCollections.create.length}/-${diff.junctionCollections.drop.length}/ren:${diff.junctionCollections.rename.length})`,
       );
-      let journalUuid: string | undefined;
-      try {
-        journalUuid = await this.migrationJournalService.record({
-          tableName: collectionName,
-          operation: 'update',
-          upDiff: diff,
-          downDiff,
-          beforeSnapshot: oldMetadata,
-          rawBeforeSnapshot: rawBeforeSnapshot || null,
-        });
-        await this.migrationJournalService.markRunning(journalUuid);
-      } catch (journalErr: any) {
-        this.logger.warn(
-          `Journal record failed (non-fatal): ${journalErr.message}`,
-        );
-      }
+      const journalUuid = await this.migrationJournalService.record({
+        tableName: collectionName,
+        operation: 'update',
+        upDiff: diff,
+        downDiff,
+        beforeSnapshot: oldMetadata,
+        afterSnapshot: newMetadata,
+        rawBeforeSnapshot,
+      });
+      await this.migrationJournalService.markRunning(journalUuid);
+
       try {
         await this.schemaDiffService.executeMongoSchemaDiff(
           collectionName,
@@ -187,27 +187,22 @@ export class MongoSchemaMigrationService {
           oldMetadata,
           newMetadata,
         );
-        if (journalUuid) {
-          await this.migrationJournalService
-            .markCompleted(journalUuid)
-            .catch(() => {});
-        }
+        await this.migrationJournalService.markCompleted(journalUuid);
       } catch (execError) {
-        if (journalUuid) {
-          this.logger.warn(
-            `Migration failed, executing rollback for ${journalUuid}`,
-          );
-          await this.migrationJournalService
-            .executeRolldown(journalUuid, (downDiffInner) =>
-              this.schemaDiffService.executeMongoSchemaDiff(
-                collectionName,
-                downDiffInner,
-                newMetadata,
-                oldMetadata,
-              ),
-            )
-            .catch(() => {});
-        }
+        this.logger.warn(
+          `Migration failed, executing rollback for ${journalUuid}`,
+        );
+        await this.migrationJournalService.executeRolldown(
+          journalUuid,
+          (downDiffInner) =>
+            this.schemaDiffService.executeMongoSchemaDiff(
+              collectionName,
+              downDiffInner,
+              newMetadata,
+              oldMetadata,
+            ),
+          (entry) => this.restoreMetadataFromRawSnapshot(entry),
+        );
         throw execError;
       }
     } catch (error) {
@@ -216,6 +211,19 @@ export class MongoSchemaMigrationService {
       );
       throw error;
     }
+  }
+
+  async recoverPendingMigrationSagas(): Promise<void> {
+    await this.migrationJournalService.recoverPending(
+      (diff, entry) =>
+        this.schemaDiffService.executeMongoSchemaDiff(
+          entry.tableName,
+          diff,
+          entry.afterSnapshot,
+          entry.beforeSnapshot,
+        ),
+      (entry) => this.restoreMetadataFromRawSnapshot(entry),
+    );
   }
   private async handleMetadataUpdates(
     collectionName: string,

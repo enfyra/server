@@ -68,22 +68,10 @@ export class ProvisionService {
     }
 
     try {
-      await this.mongoMigrationJournalService.recoverPending(
-        (diff) =>
-          (this.mongoSchemaMigrationService as any)['executeMongoSchemaDiff'](
-            diff.tableName || 'unknown',
-            diff,
-            null,
-            null,
-          ),
-        (entry) =>
-          this.mongoSchemaMigrationService.restoreMetadataFromRawSnapshot(
-            entry,
-          ),
-      );
+      await this.mongoSchemaMigrationService.recoverPendingMigrationSagas();
     } catch (error) {
       this.logger.warn(
-        `Mongo migration journal recovery failed (non-fatal): ${(error as Error).message}`,
+        `Mongo migration saga recovery failed (non-fatal): ${(error as Error).message}`,
       );
     }
     try {

@@ -208,11 +208,37 @@ describe('MongoDB Migration Compensation', () => {
         upDiff: { columns: { create: [], delete: [], update: [] } },
         downDiff: { columns: { create: [], delete: [], update: [] } },
         beforeSnapshot: { name: 'posts', columns: [], relations: [] },
+        afterSnapshot: { name: 'posts', columns: [], relations: [] },
         rawBeforeSnapshot: rawSnapshot,
       });
 
       expect(inserted.length).toBe(1);
       expect(inserted[0].rawBeforeSnapshot).toEqual(rawSnapshot);
+      expect(inserted[0].afterSnapshot).toEqual({
+        name: 'posts',
+        columns: [],
+        relations: [],
+      });
+    });
+
+    it('record requires rawBeforeSnapshot for update migration saga', async () => {
+      const mockMongoService = {
+        getDb: () => ({ collection: () => ({ insertOne: jest.fn() }) }),
+      };
+      const service = new MongoMigrationJournalService({
+        mongoService: mockMongoService as any,
+      });
+
+      await expect(
+        service.record({
+          tableName: 'posts',
+          operation: 'update',
+          upDiff: {},
+          downDiff: {},
+          beforeSnapshot: {},
+          afterSnapshot: {},
+        }),
+      ).rejects.toThrow('requires rawBeforeSnapshot');
     });
 
     it('recoverPending calls restoreMetadataFn with journal entry', async () => {
@@ -252,7 +278,68 @@ describe('MongoDB Migration Compensation', () => {
 
       await service.recoverPending(executeDiff, restoreFn);
 
+      expect(executeDiff).toHaveBeenCalledWith(entry.downDiff, entry);
       expect(restoreFn).toHaveBeenCalledWith(entry);
+    });
+
+    it('recoverPending uses Redis lock when available', async () => {
+      const entry = {
+        uuid: 'mj-test',
+        tableName: 'posts',
+        status: 'running',
+        downDiff: {},
+        beforeSnapshot: {},
+        rawBeforeSnapshot: {
+          table: { _id: new ObjectId(), name: 'posts' },
+          columns: [],
+          relations: [],
+          inverseRelations: [],
+        },
+      };
+      const mockCollection = {
+        find: jest.fn().mockReturnValue({
+          toArray: jest.fn().mockResolvedValue([entry]),
+        }),
+        findOne: jest.fn().mockResolvedValue(entry),
+        updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
+      };
+      const acquire = jest.fn().mockResolvedValue(true);
+      const release = jest.fn().mockResolvedValue(true);
+      const service = new MongoMigrationJournalService({
+        mongoService: {
+          getDb: () => ({ collection: () => mockCollection }),
+        } as any,
+        cacheService: { acquire, release } as any,
+        instanceService: { getInstanceId: () => 'instance-a' } as any,
+      });
+      const executeDiff = jest.fn();
+
+      await service.recoverPending(executeDiff, jest.fn());
+
+      expect(acquire).toHaveBeenCalled();
+      expect(release).toHaveBeenCalled();
+      expect(executeDiff).toHaveBeenCalledWith(entry.downDiff, entry);
+    });
+
+    it('recoverPending skips when Redis lock is held by another instance', async () => {
+      const mockCollection = {
+        find: jest.fn().mockReturnValue({
+          toArray: jest.fn().mockResolvedValue([{ uuid: 'mj-test' }]),
+        }),
+      };
+      const acquire = jest.fn().mockResolvedValue(false);
+      const service = new MongoMigrationJournalService({
+        mongoService: {
+          getDb: () => ({ collection: () => mockCollection }),
+        } as any,
+        cacheService: { acquire, release: jest.fn() } as any,
+        instanceService: { getInstanceId: () => 'instance-a' } as any,
+      });
+      const executeDiff = jest.fn();
+
+      await service.recoverPending(executeDiff);
+
+      expect(executeDiff).not.toHaveBeenCalled();
     });
 
     it('recoverPending without restoreMetadataFn still works', async () => {

@@ -2,7 +2,7 @@ import { MongoClient, Db, ObjectId } from 'mongodb';
 import {
   MongoService,
   MongoSagaLockService,
-  MongoOperationLogService,
+  MongoSagaSnapshotService,
   MongoSagaCoordinator,
 } from '../../src/engines/mongo';
 import { InstanceService } from '../../src/shared/services';
@@ -23,7 +23,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
   let db: Db;
   let mongoService: MongoService;
   let lockService: MongoSagaLockService;
-  let logService: MongoOperationLogService;
+  let snapshotService: MongoSagaSnapshotService;
   let coordinator: MongoSagaCoordinator;
   const benchmarkResults: IBenchmarkResult[] = [];
 
@@ -31,10 +31,10 @@ describe('MongoDB Saga System - Integration Tests', () => {
     orders: 'test_orders',
     products: 'test_products',
     users: 'test_users',
-    locks: 'system_transaction_locks',
-    meta: 'system_transaction_metadata',
-    logs: 'system_operation_logs',
-    counters: 'system_operation_counters',
+    locks: 'system_saga_locks',
+    meta: 'system_saga_sessions',
+    snapshots: 'system_saga_snapshots',
+    counters: 'system_saga_counters',
   };
 
   beforeAll(async () => {
@@ -67,12 +67,12 @@ describe('MongoDB Saga System - Integration Tests', () => {
     Object.defineProperty(mongoService, 'client', { value: mongoClient });
 
     lockService = new MongoSagaLockService({ mongoService });
-    logService = new MongoOperationLogService({ mongoService });
+    snapshotService = new MongoSagaSnapshotService({ mongoService });
 
     coordinator = new MongoSagaCoordinator({
       mongoService,
       lockService,
-      logService,
+      snapshotService,
       instanceService,
       cacheService: undefined,
     });
@@ -747,8 +747,8 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(result.success).toBe(false);
       expect(result.rollbackResult).toBeDefined();
       expect(result.rollbackResult!.success).toBe(true);
-      expect(result.rollbackResult!.rolledBackOperations.length).toBe(3);
-      expect(result.rollbackResult!.failedOperations).toHaveLength(0);
+      expect(result.rollbackResult!.rolledBackSnapshots.length).toBe(3);
+      expect(result.rollbackResult!.failedSnapshots).toHaveLength(0);
 
       const count = await db.collection(COLLECTIONS.orders).countDocuments();
       expect(count).toBe(0);
@@ -862,14 +862,14 @@ describe('MongoDB Saga System - Integration Tests', () => {
   });
 
   // ====================================================================
-  // __txId CLEANUP
+  // USER DOCUMENT SHAPE
   // ====================================================================
-  describe('__txId Cleanup on Commit', () => {
+  describe('User Document Shape', () => {
     beforeEach(async () => {
       await db.collection(COLLECTIONS.orders).deleteMany({});
     });
 
-    it('should remove __txId from inserted documents after commit', async () => {
+    it('should not add internal saga fields to inserted documents', async () => {
       const result = await coordinator.execute(async (tx) => {
         return tx.insertOne(COLLECTIONS.orders, { customerId: 'txid-cleanup' });
       });
@@ -881,7 +881,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(doc!.__txId).toBeUndefined();
     });
 
-    it('should remove __txId from updated documents after commit', async () => {
+    it('should not add internal saga fields to updated documents', async () => {
       const inserted = await db
         .collection(COLLECTIONS.orders)
         .insertOne({ customerId: 'before-update' });
@@ -899,7 +899,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(doc!.customerId).toBe('after-update');
     });
 
-    it('should remove __txId from batch operations after commit', async () => {
+    it('should not add internal saga fields to batch operations', async () => {
       const result = await coordinator.execute(async (tx) => {
         return tx.insertMany(COLLECTIONS.orders, [
           { customerId: 'batch-txid-1' },
@@ -913,7 +913,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(docs.every((d) => d.__txId === undefined)).toBe(true);
     });
 
-    it('should not leave __txId on cross-collection commit', async () => {
+    it('should not add internal saga fields across collections', async () => {
       await db.collection(COLLECTIONS.products).deleteMany({});
 
       await coordinator.execute(async (tx) => {
@@ -1174,14 +1174,14 @@ describe('MongoDB Saga System - Integration Tests', () => {
   });
 
   // ====================================================================
-  // __txId NEVER LEAKS TO RESPONSES
+  // USER DOCUMENT RESPONSE SHAPE
   // ====================================================================
-  describe('__txId Never Leaks to Responses', () => {
+  describe('User Document Response Shape', () => {
     beforeEach(async () => {
       await db.collection(COLLECTIONS.orders).deleteMany({});
     });
 
-    it('should strip __txId from insertOne return value', async () => {
+    it('should not add internal saga fields to insertOne return value', async () => {
       const result = await coordinator.execute(async (tx) => {
         return tx.insertOne(COLLECTIONS.orders, { customerId: 'leak-test' });
       });
@@ -1190,7 +1190,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(result.data.__txId).toBeUndefined();
     });
 
-    it('should strip __txId from updateOne return value', async () => {
+    it('should not add internal saga fields to updateOne return value', async () => {
       const ins = await db
         .collection(COLLECTIONS.orders)
         .insertOne({ customerId: 'leak-upd' });
@@ -1204,7 +1204,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(result.data.__txId).toBeUndefined();
     });
 
-    it('should strip __txId from findOne return value during transaction', async () => {
+    it('should not add internal saga fields to findOne return value during transaction', async () => {
       const result = await coordinator.execute(async (tx) => {
         const doc = await tx.insertOne(COLLECTIONS.orders, {
           customerId: 'leak-find',
@@ -1216,7 +1216,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(result.data.__txId).toBeUndefined();
     });
 
-    it('should strip __txId from find return values during transaction', async () => {
+    it('should not add internal saga fields to find return values during transaction', async () => {
       const result = await coordinator.execute(async (tx) => {
         await tx.insertOne(COLLECTIONS.orders, { customerId: 'leak-find-1' });
         await tx.insertOne(COLLECTIONS.orders, { customerId: 'leak-find-2' });
@@ -1227,7 +1227,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(result.data.every((d: any) => d.__txId === undefined)).toBe(true);
     });
 
-    it('should strip __txId from insertMany return values', async () => {
+    it('should not add internal saga fields to insertMany return values', async () => {
       const result = await coordinator.execute(async (tx) => {
         return tx.insertMany(COLLECTIONS.orders, [
           { customerId: 'leak-batch-1' },
@@ -1239,7 +1239,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(result.data.every((d: any) => d.__txId === undefined)).toBe(true);
     });
 
-    it('should strip __txId from updateMany return values', async () => {
+    it('should not add internal saga fields to updateMany return values', async () => {
       const ins = await db
         .collection(COLLECTIONS.orders)
         .insertMany([{ customerId: 'leak-um-1' }, { customerId: 'leak-um-2' }]);
@@ -1256,14 +1256,17 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(result.data.every((d: any) => d.__txId === undefined)).toBe(true);
     });
 
-    it('should strip __txId from parallelRead return values', async () => {
-      await db
-        .collection(COLLECTIONS.orders)
-        .insertOne({ customerId: 'leak-pr', __txId: 'stale-tx' });
+    it('should not add internal saga fields to parallelRead return values', async () => {
+      await db.collection(COLLECTIONS.orders).insertOne({
+        customerId: 'parallel-read-shape',
+      });
 
       const result = await coordinator.execute(async (tx) => {
         return tx.parallelRead([
-          { collection: COLLECTIONS.orders, filter: { customerId: 'leak-pr' } },
+          {
+            collection: COLLECTIONS.orders,
+            filter: { customerId: 'parallel-read-shape' },
+          },
         ]);
       });
 
@@ -1295,39 +1298,69 @@ describe('MongoDB Saga System - Integration Tests', () => {
   // ORPHAN RECOVERY
   // ====================================================================
   describe('Orphan Recovery', () => {
-    it('should recover stale __txId markers', async () => {
+    it('should rollback all open sessions during boot recovery', async () => {
       await db.collection(COLLECTIONS.orders).deleteMany({});
+      const existingId = new ObjectId();
+      const insertedId = new ObjectId();
+
       await db.collection(COLLECTIONS.orders).insertMany([
-        { customerId: 'orphan-1', __txId: 'tx-dead-1' },
-        { customerId: 'orphan-2', __txId: 'tx-dead-2' },
-        { customerId: 'clean', total: 100 },
+        { _id: existingId, customerId: 'boot-existing', status: 'original' },
+        {
+          _id: insertedId,
+          customerId: 'boot-inserted',
+          status: 'temporary',
+        },
       ]);
 
-      const result = await coordinator.recoverOrphanedSagas();
-      expect(result.recovered).toBeGreaterThanOrEqual(2);
+      const txId = await lockService.beginTransaction();
+      await snapshotService.createSnapshotsBatch(txId, [
+        {
+          op: 'update',
+          collection: COLLECTIONS.orders,
+          documentId: existingId,
+          before: {
+            _id: existingId,
+            customerId: 'boot-existing',
+            status: 'original',
+          },
+          afterPatch: { status: 'dirty' },
+        },
+        {
+          op: 'insert',
+          collection: COLLECTIONS.orders,
+          documentId: insertedId,
+          before: null,
+          afterPatch: { customerId: 'boot-inserted', status: 'temporary' },
+        },
+      ]).then((snapshots) =>
+        snapshotService.markSnapshotsBatchCompleted(
+          snapshots.map((log) => log.snapshotId),
+        ),
+      );
 
-      const docs = await db.collection(COLLECTIONS.orders).find({}).toArray();
-      expect(docs.every((d) => d.__txId === undefined)).toBe(true);
-    });
-
-    it('should not unset __txId while transaction metadata is active and fresh', async () => {
-      await db.collection(COLLECTIONS.orders).deleteMany({});
-      const liveTxId = await lockService.beginTransaction();
-      await db.collection(COLLECTIONS.orders).insertOne({
-        customerId: 'live-1',
-        __txId: liveTxId,
-      });
-
-      const result = await coordinator.recoverOrphanedSagas();
-      expect(result.recovered).toBe(0);
-
-      const doc = await db
+      await db
         .collection(COLLECTIONS.orders)
-        .findOne({ customerId: 'live-1' });
-      expect(doc?.__txId).toBe(liveTxId);
+        .updateOne({ _id: existingId }, { $set: { status: 'dirty' } });
 
-      await lockService.abortTransaction(liveTxId, 'test teardown');
-      await db.collection(COLLECTIONS.orders).deleteMany({});
+      const result = await coordinator.recoverOrphanedSagas('boot');
+
+      expect(result.recovered).toBeGreaterThanOrEqual(1);
+      const restored = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ _id: existingId });
+      const inserted = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ _id: insertedId });
+      const status = await lockService.getSagaStatus(txId);
+
+      expect(restored).toEqual(
+        expect.objectContaining({
+          customerId: 'boot-existing',
+          status: 'original',
+        }),
+      );
+      expect(inserted).toBeNull();
+      expect(status?.status).toBe('aborted');
     });
   });
 
@@ -1341,12 +1374,12 @@ describe('MongoDB Saga System - Integration Tests', () => {
 
       expect(names).toContain(COLLECTIONS.locks);
       expect(names).toContain(COLLECTIONS.meta);
-      expect(names).toContain(COLLECTIONS.logs);
+      expect(names).toContain(COLLECTIONS.snapshots);
     });
 
-    it('should cleanup expired locks and logs', async () => {
+    it('should cleanup expired locks and snapshots', async () => {
       const cleanedLocks = await lockService.cleanupOrphanedLocks();
-      const oldLogs = await logService.cleanupOldLogs(0);
+      const oldLogs = await snapshotService.cleanupOldSnapshots(0);
 
       expect(typeof cleanedLocks).toBe('number');
       expect(typeof oldLogs).toBe('number');
@@ -1591,7 +1624,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
 
       expect(result.success).toBe(false);
       expect(result.rollbackResult?.success).toBe(true);
-      expect(result.rollbackResult!.rolledBackOperations.length).toBe(10);
+      expect(result.rollbackResult!.rolledBackSnapshots.length).toBe(10);
       expect(await db.collection(COLLECTIONS.orders).countDocuments()).toBe(0);
     });
 

@@ -3,9 +3,9 @@ import { ObjectId } from 'mongodb';
 import { MongoSagaLockService } from './mongo-saga-lock.service';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import {
-  MongoOperationLogService,
-  TOperationType,
-} from './mongo-operation-log.service';
+  MongoSagaSnapshotService,
+  TSagaSnapshotOp,
+} from './mongo-saga-snapshot.service';
 import { MongoService } from './mongo.service';
 import { DatabaseException } from '../../../domain/exceptions';
 import { ISagaOptions, ISagaContext } from './mongo-saga.types';
@@ -45,7 +45,7 @@ export class SagaPlan {
   constructor(
     private readonly txId: string,
     private readonly lockService: MongoSagaLockService,
-    private readonly logService: MongoOperationLogService,
+    private readonly snapshotService: MongoSagaSnapshotService,
     private readonly mongoService: MongoService,
     private readonly options: Required<ISagaOptions>,
     private readonly context: ISagaContext,
@@ -172,38 +172,39 @@ export class SagaPlan {
       }
     }
 
-    const logEntries = await this.logService.logOperationsBatch(
+    const snapshots = await this.snapshotService.createSnapshotsBatch(
       this.txId,
       this.operations.map((op) => {
         if (op.type === 'insert') {
           return {
-            operationType: 'insert' as TOperationType,
+            op: 'insert' as TSagaSnapshotOp,
             collection: op.collection,
             documentId: op.predictedId,
-            oldData: null,
-            newData: op.data,
+            before: null,
+            afterPatch: op.data,
           };
         }
         if (op.type === 'update') {
           const oldDoc = oldDocMap.get(`${op.collection}:${op.id.toString()}`);
           return {
-            operationType: 'update' as TOperationType,
+            op: 'update' as TSagaSnapshotOp,
             collection: op.collection,
             documentId: op.id,
-            oldData: oldDoc,
-            newData: op.data,
+            before: oldDoc,
+            afterPatch: op.data,
           };
         }
         const oldDoc = oldDocMap.get(`${op.collection}:${op.id.toString()}`);
         return {
-          operationType: 'delete' as TOperationType,
+          op: 'delete' as TSagaSnapshotOp,
           collection: op.collection,
           documentId: op.id,
-          oldData: oldDoc,
-          newData: null,
+          before: oldDoc,
+          afterPatch: null,
         };
       }),
     );
+    this.context.snapshots.push(...snapshots);
 
     const result: IPlanExecuteResult = {
       inserts: new Map(),
@@ -225,20 +226,11 @@ export class SagaPlan {
           const docs = ops.map((op) => ({
             ...op.data,
             _id: op.predictedId,
-            __txId: this.txId,
           }));
           await coll.insertMany(docs, { ordered: false });
-          for (const op of ops) {
-            this.context.modifiedDocuments.push({
-              collection: collName,
-              id: op.predictedId.toString(),
-            });
-          }
           result.inserts.set(
             collName,
-            docs.map((d) =>
-              stripInternalFields({ ...d, id: d._id.toString() }),
-            ),
+            docs.map((d) => ({ ...d, id: d._id.toString() })),
           );
         })(),
       );
@@ -257,20 +249,14 @@ export class SagaPlan {
           const bulkOps = ops.map((op) => ({
             updateOne: {
               filter: { _id: op.id },
-              update: { $set: { ...op.data, __txId: this.txId } },
+              update: { $set: op.data },
             },
           }));
           await coll.bulkWrite(bulkOps, { ordered: false });
-          for (const op of ops) {
-            this.context.modifiedDocuments.push({
-              collection: collName,
-              id: op.id.toString(),
-            });
-          }
           const updatedDocs = await coll
             .find({ _id: { $in: ops.map((o) => o.id) } })
             .toArray();
-          result.updates.set(collName, updatedDocs.map(stripInternalFields));
+          result.updates.set(collName, updatedDocs);
         })(),
       );
     }
@@ -298,28 +284,17 @@ export class SagaPlan {
     try {
       await Promise.all(executePromises);
 
-      await this.logService.markOperationsBatchCompleted(
-        logEntries.map((e) => e.operationId),
+      await this.snapshotService.markSnapshotsBatchCompleted(
+        snapshots.map((e) => e.snapshotId),
       );
 
       return result;
     } catch (error) {
-      await this.logService.markOperationsBatchFailed(
-        logEntries.map((e) => e.operationId),
+      await this.snapshotService.markSnapshotsBatchFailed(
+        snapshots.map((e) => e.snapshotId),
         getErrorMessage(error),
       );
       throw error;
     }
   }
-}
-
-const TX_INTERNAL_FIELDS = ['__txId'];
-
-function stripInternalFields(doc: any): any {
-  if (!doc || typeof doc !== 'object') return doc;
-  const cleaned = { ...doc };
-  for (const field of TX_INTERNAL_FIELDS) {
-    delete cleaned[field];
-  }
-  return cleaned;
 }

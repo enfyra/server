@@ -6,25 +6,14 @@ import {
   ILockAcquisitionResult,
 } from './mongo-saga-lock.service';
 import {
-  MongoOperationLogService,
-  IOperationLog,
+  MongoSagaSnapshotService,
+  ISagaSnapshot,
   IRollbackResult,
-} from './mongo-operation-log.service';
+} from './mongo-saga-snapshot.service';
 import { MongoService } from './mongo.service';
 import { DatabaseException } from '../../../domain/exceptions';
 import { ISagaOptions, ISagaContext } from './mongo-saga.types';
 import { SagaPlan } from './mongo-saga-plan';
-
-const TX_INTERNAL_FIELDS = ['__txId'];
-
-function stripInternalFields(doc: any): any {
-  if (!doc || typeof doc !== 'object') return doc;
-  const cleaned = { ...doc };
-  for (const field of TX_INTERNAL_FIELDS) {
-    delete cleaned[field];
-  }
-  return cleaned;
-}
 
 export class MongoSagaSession {
   private readonly logger = new Logger(MongoSagaSession.name);
@@ -32,7 +21,7 @@ export class MongoSagaSession {
   constructor(
     public readonly txId: string,
     private readonly lockService: MongoSagaLockService,
-    private readonly logService: MongoOperationLogService,
+    private readonly snapshotService: MongoSagaSnapshotService,
     private readonly mongoService: MongoService,
     private readonly options: Required<ISagaOptions>,
     private readonly context: ISagaContext,
@@ -56,16 +45,6 @@ export class MongoSagaSession {
     this.checkDuration();
   }
 
-  private buildSagaDocumentVisibilityFilter(): Record<string, unknown> {
-    return {
-      $or: [
-        { __txId: { $exists: false } },
-        { __txId: null },
-        { __txId: this.txId },
-      ],
-    };
-  }
-
   aggregate(
     collectionName: string,
     pipeline: any[],
@@ -73,24 +52,17 @@ export class MongoSagaSession {
   ): AggregationCursor {
     this.checkDuration();
     const collection = this.mongoService.getDb().collection(collectionName);
-    const vis = this.buildSagaDocumentVisibilityFilter();
-    const fullPipeline = [{ $match: vis }, ...pipeline];
-    return collection.aggregate(fullPipeline, options);
+    return collection.aggregate(pipeline, options);
   }
 
   async countDocuments(collectionName: string, filter?: any): Promise<number> {
     this.checkDuration();
     const collection = this.mongoService.getDb().collection(collectionName);
-    const vis = this.buildSagaDocumentVisibilityFilter();
-    const merged =
-      filter && typeof filter === 'object' && Object.keys(filter).length > 0
-        ? { $and: [filter, vis] }
-        : vis;
-    return collection.countDocuments(merged);
+    return collection.countDocuments(filter || {});
   }
 
-  private trackModifiedDocument(collection: string, id: string): void {
-    this.context.modifiedDocuments.push({ collection, id });
+  private trackSnapshot(snapshot: ISagaSnapshot): void {
+    this.context.snapshots.push(snapshot);
   }
 
   async lockResources(
@@ -127,10 +99,10 @@ export class MongoSagaSession {
       );
     }
 
-    let logEntry: IOperationLog | undefined;
+    let snapshot: ISagaSnapshot | undefined;
 
     if (!options?.skipLogging) {
-      logEntry = await this.logService.logOperation(
+      snapshot = await this.snapshotService.createSnapshot(
         this.txId,
         'insert',
         collectionName,
@@ -138,6 +110,7 @@ export class MongoSagaSession {
         null,
         data,
       );
+      this.trackSnapshot(snapshot);
     }
 
     try {
@@ -145,13 +118,10 @@ export class MongoSagaSession {
       await collection.insertOne({
         ...data,
         _id: predictedId,
-        __txId: this.txId,
       });
 
-      this.trackModifiedDocument(collectionName, predictedId.toString());
-
-      if (logEntry) {
-        await this.logService.markOperationCompleted(logEntry.operationId);
+      if (snapshot) {
+        await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
       }
 
       return {
@@ -160,9 +130,9 @@ export class MongoSagaSession {
         id: predictedId.toString(),
       };
     } catch (error) {
-      if (logEntry) {
-        await this.logService.markOperationFailed(
-          logEntry.operationId,
+      if (snapshot) {
+        await this.snapshotService.markSnapshotFailed(
+          snapshot.snapshotId,
           getErrorMessage(error),
         );
       }
@@ -210,10 +180,10 @@ export class MongoSagaSession {
       );
     }
 
-    let logEntry: IOperationLog | undefined;
+    let snapshot: ISagaSnapshot | undefined;
 
     if (!options?.skipLogging) {
-      logEntry = await this.logService.logOperation(
+      snapshot = await this.snapshotService.createSnapshot(
         this.txId,
         'update',
         collectionName,
@@ -221,28 +191,21 @@ export class MongoSagaSession {
         oldDoc,
         data,
       );
+      this.trackSnapshot(snapshot);
     }
 
     try {
-      const updateData = {
-        ...data,
-        __txId: this.txId,
-      };
+      await collection.updateOne({ _id: objectId }, { $set: data });
 
-      await collection.updateOne({ _id: objectId }, { $set: updateData });
-
-      this.trackModifiedDocument(collectionName, idString);
-
-      if (logEntry) {
-        await this.logService.markOperationCompleted(logEntry.operationId);
+      if (snapshot) {
+        await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
       }
 
-      const updated = await collection.findOne({ _id: objectId });
-      return stripInternalFields(updated);
+      return collection.findOne({ _id: objectId });
     } catch (error) {
-      if (logEntry) {
-        await this.logService.markOperationFailed(
-          logEntry.operationId,
+      if (snapshot) {
+        await this.snapshotService.markSnapshotFailed(
+          snapshot.snapshotId,
           getErrorMessage(error),
         );
       }
@@ -282,9 +245,9 @@ export class MongoSagaSession {
         },
       );
     }
-    let logEntry: IOperationLog | undefined;
+    let snapshot: ISagaSnapshot | undefined;
     if (!options?.skipLogging) {
-      logEntry = await this.logService.logOperation(
+      snapshot = await this.snapshotService.createSnapshot(
         this.txId,
         'update',
         collectionName,
@@ -292,34 +255,32 @@ export class MongoSagaSession {
         oldDoc,
         update,
       );
+      this.trackSnapshot(snapshot);
     }
     try {
       let payload: any;
       if (!update || typeof update !== 'object' || Array.isArray(update)) {
-        payload = { $set: { __txId: this.txId } };
+        payload = {};
       } else {
         const keys = Object.keys(update);
         const operatorOnly =
           keys.length > 0 && keys.every((k) => k.startsWith('$'));
         if (operatorOnly) {
           payload = { ...update };
-          payload.$set = { ...(payload.$set || {}), __txId: this.txId };
         } else {
-          payload = { $set: { ...update, __txId: this.txId } };
+          payload = { $set: update };
         }
       }
       const result = await collection.updateOne(filter, payload);
 
-      this.trackModifiedDocument(collectionName, idString);
-
-      if (logEntry) {
-        await this.logService.markOperationCompleted(logEntry.operationId);
+      if (snapshot) {
+        await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
       }
       return result;
     } catch (error) {
-      if (logEntry) {
-        await this.logService.markOperationFailed(
-          logEntry.operationId,
+      if (snapshot) {
+        await this.snapshotService.markSnapshotFailed(
+          snapshot.snapshotId,
           getErrorMessage(error),
         );
       }
@@ -390,10 +351,10 @@ export class MongoSagaSession {
       return false;
     }
 
-    let logEntry: IOperationLog | undefined;
+    let snapshot: ISagaSnapshot | undefined;
 
     if (!options?.skipLogging) {
-      logEntry = await this.logService.logOperation(
+      snapshot = await this.snapshotService.createSnapshot(
         this.txId,
         'delete',
         collectionName,
@@ -401,20 +362,21 @@ export class MongoSagaSession {
         oldDoc,
         null,
       );
+      this.trackSnapshot(snapshot);
     }
 
     try {
       const result = await collection.deleteOne({ _id: objectId });
 
-      if (logEntry) {
-        await this.logService.markOperationCompleted(logEntry.operationId);
+      if (snapshot) {
+        await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
       }
 
       return result.deletedCount > 0;
     } catch (error) {
-      if (logEntry) {
-        await this.logService.markOperationFailed(
-          logEntry.operationId,
+      if (snapshot) {
+        await this.snapshotService.markSnapshotFailed(
+          snapshot.snapshotId,
           getErrorMessage(error),
         );
       }
@@ -447,7 +409,7 @@ export class MongoSagaSession {
     }
 
     const doc = await collection.findOne(filter);
-    return stripInternalFields(doc);
+    return doc;
   }
 
   async find(
@@ -483,22 +445,22 @@ export class MongoSagaSession {
       const reDocs = await collection
         .find({ _id: { $in: docs.map((d) => d._id) } })
         .toArray();
-      return reDocs.map(stripInternalFields);
+      return reDocs;
     }
 
-    return docs.map(stripInternalFields);
+    return docs;
   }
 
   async createCheckpoint(description?: string): Promise<string> {
-    return this.logService.createCheckpoint(this.txId, description);
+    return this.snapshotService.createCheckpoint(this.txId, description);
   }
 
   async rollbackToCheckpoint(checkpointId: string): Promise<IRollbackResult> {
-    return this.logService.rollbackToCheckpoint(this.txId, checkpointId);
+    return this.snapshotService.rollbackToCheckpoint(this.txId, checkpointId);
   }
 
   async getStats() {
-    return this.logService.getTransactionStats(this.txId);
+    return this.snapshotService.getTransactionStats(this.txId);
   }
 
   async insertMany(
@@ -537,15 +499,14 @@ export class MongoSagaSession {
     const docsWithIds = documents.map((doc, index) => ({
       ...doc,
       _id: predictedIds[index],
-      __txId: this.txId,
     }));
 
-    let logEntries: IOperationLog[] = [];
+    let snapshots: ISagaSnapshot[] = [];
 
     if (!options?.skipLogging) {
-      logEntries = [];
+      snapshots = [];
       for (let i = 0; i < predictedIds.length; i++) {
-        const entry = await this.logService.logOperation(
+        const entry = await this.snapshotService.createSnapshot(
           this.txId,
           'insert',
           collectionName,
@@ -553,7 +514,8 @@ export class MongoSagaSession {
           null,
           documents[i],
         );
-        logEntries.push(entry);
+        snapshots.push(entry);
+        this.trackSnapshot(entry);
       }
     }
 
@@ -563,28 +525,24 @@ export class MongoSagaSession {
         ordered: options?.ordered ?? true,
       });
 
-      for (const doc of docsWithIds) {
-        this.trackModifiedDocument(collectionName, doc._id.toString());
-      }
-
-      if (logEntries.length > 0) {
+      if (snapshots.length > 0) {
         await Promise.all(
-          logEntries.map((entry) =>
-            this.logService.markOperationCompleted(entry.operationId),
+          snapshots.map((entry) =>
+            this.snapshotService.markSnapshotCompleted(entry.snapshotId),
           ),
         );
       }
 
       return docsWithIds.map((doc) => ({
-        ...stripInternalFields(doc),
+        ...doc,
         id: doc._id.toString(),
       }));
     } catch (error) {
-      if (logEntries.length > 0) {
+      if (snapshots.length > 0) {
         await Promise.all(
-          logEntries.map((entry) =>
-            this.logService.markOperationFailed(
-              entry.operationId,
+          snapshots.map((entry) =>
+            this.snapshotService.markSnapshotFailed(
+              entry.snapshotId,
               getErrorMessage(error),
             ),
           ),
@@ -636,12 +594,12 @@ export class MongoSagaSession {
       .toArray();
     const oldDocMap = new Map(oldDocs.map((d) => [d._id.toString(), d]));
 
-    const logEntries: IOperationLog[] = [];
+    const snapshots: ISagaSnapshot[] = [];
 
     if (!options?.skipLogging) {
       for (let i = 0; i < updates.length; i++) {
         const oldDoc = oldDocMap.get(objectIds[i].toString()) || null;
-        const entry = await this.logService.logOperation(
+        const entry = await this.snapshotService.createSnapshot(
           this.txId,
           'update',
           collectionName,
@@ -649,7 +607,8 @@ export class MongoSagaSession {
           oldDoc,
           updates[i].data,
         );
-        logEntries.push(entry);
+        snapshots.push(entry);
+        this.trackSnapshot(entry);
       }
     }
 
@@ -657,20 +616,16 @@ export class MongoSagaSession {
       const bulkOps = updates.map((update, index) => ({
         updateOne: {
           filter: { _id: objectIds[index] },
-          update: { $set: { ...update.data, __txId: this.txId } },
+          update: { $set: update.data },
         },
       }));
 
       await collection.bulkWrite(bulkOps, { ordered: true });
 
-      for (const id of objectIds) {
-        this.trackModifiedDocument(collectionName, id.toString());
-      }
-
-      if (logEntries.length > 0) {
+      if (snapshots.length > 0) {
         await Promise.all(
-          logEntries.map((entry) =>
-            this.logService.markOperationCompleted(entry.operationId),
+          snapshots.map((entry) =>
+            this.snapshotService.markSnapshotCompleted(entry.snapshotId),
           ),
         );
       }
@@ -678,13 +633,13 @@ export class MongoSagaSession {
       const results = await collection
         .find({ _id: { $in: objectIds } })
         .toArray();
-      return results.map(stripInternalFields);
+      return results;
     } catch (error) {
-      if (logEntries.length > 0) {
+      if (snapshots.length > 0) {
         await Promise.all(
-          logEntries.map((entry) =>
-            this.logService.markOperationFailed(
-              entry.operationId,
+          snapshots.map((entry) =>
+            this.snapshotService.markSnapshotFailed(
+              entry.snapshotId,
               getErrorMessage(error),
             ),
           ),
@@ -738,11 +693,11 @@ export class MongoSagaSession {
       return { deletedCount: 0, deletedIds: [] };
     }
 
-    const logEntries: IOperationLog[] = [];
+    const snapshots: ISagaSnapshot[] = [];
 
     if (!options?.skipLogging) {
       for (const oldDoc of oldDocs) {
-        const entry = await this.logService.logOperation(
+        const entry = await this.snapshotService.createSnapshot(
           this.txId,
           'delete',
           collectionName,
@@ -750,7 +705,8 @@ export class MongoSagaSession {
           oldDoc,
           null,
         );
-        logEntries.push(entry);
+        snapshots.push(entry);
+        this.trackSnapshot(entry);
       }
     }
 
@@ -759,10 +715,10 @@ export class MongoSagaSession {
     try {
       const result = await collection.deleteMany({ _id: { $in: idsToDelete } });
 
-      if (logEntries.length > 0) {
+      if (snapshots.length > 0) {
         await Promise.all(
-          logEntries.map((entry) =>
-            this.logService.markOperationCompleted(entry.operationId),
+          snapshots.map((entry) =>
+            this.snapshotService.markSnapshotCompleted(entry.snapshotId),
           ),
         );
       }
@@ -772,11 +728,11 @@ export class MongoSagaSession {
         deletedIds: idsToDelete.map((id) => id.toString()),
       };
     } catch (error) {
-      if (logEntries.length > 0) {
+      if (snapshots.length > 0) {
         await Promise.all(
-          logEntries.map((entry) =>
-            this.logService.markOperationFailed(
-              entry.operationId,
+          snapshots.map((entry) =>
+            this.snapshotService.markSnapshotFailed(
+              entry.snapshotId,
               getErrorMessage(error),
             ),
           ),
@@ -800,7 +756,7 @@ export class MongoSagaSession {
         .findOne(read.filter, {
           projection: read.projection,
         })
-        .then(stripInternalFields),
+        .then((doc) => doc),
     );
 
     return Promise.all(promises);
@@ -810,7 +766,7 @@ export class MongoSagaSession {
     return new SagaPlan(
       this.txId,
       this.lockService,
-      this.logService,
+      this.snapshotService,
       this.mongoService,
       this.options,
       this.context,

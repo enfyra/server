@@ -130,7 +130,7 @@ import {
 
 import {
   MongoMigrationJournalService,
-  MongoOperationLogService,
+  MongoSagaSnapshotService,
   MongoRelationManagerService,
   MongoSagaCoordinator,
   MongoSagaLockService,
@@ -233,7 +233,7 @@ export interface Cradle {
   mongoSchemaMigrationLockService: MongoSchemaMigrationLockService;
   mongoSagaLockService: MongoSagaLockService;
   mongoSagaCoordinator: MongoSagaCoordinator;
-  mongoOperationLogService: MongoOperationLogService;
+  mongoSagaSnapshotService: MongoSagaSnapshotService;
   mongoMigrationJournalService: MongoMigrationJournalService;
   mongoSchemaDiffService: MongoSchemaDiffService;
   mongoRelationManagerService: MongoRelationManagerService;
@@ -445,14 +445,14 @@ export function buildContainer(): AwilixContainer<Cradle> {
         new MongoSagaCoordinator({
           mongoService: cradle.mongoService,
           lockService: cradle.mongoSagaLockService,
-          logService: cradle.mongoOperationLogService,
+          snapshotService: cradle.mongoSagaSnapshotService,
           instanceService: cradle.instanceService,
           cacheService: cradle.cacheService,
         }),
     )
       .singleton()
       .disposer((service) => service.onDestroy()),
-    mongoOperationLogService: asClass(MongoOperationLogService).singleton(),
+    mongoSagaSnapshotService: asClass(MongoSagaSnapshotService).singleton(),
     mongoMigrationJournalService: asClass(
       MongoMigrationJournalService,
     ).singleton(),

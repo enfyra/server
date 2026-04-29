@@ -22,11 +22,13 @@ export interface IResourceLock {
 export interface ITransactionMetadata {
   _id: string;
   txId: string;
+  sessionId: string;
   status: 'active' | 'committing' | 'rolling_back' | 'completed' | 'aborted';
   startedAt: Date;
   lastActivityAt: Date;
   expiresAt: Date;
   resources: string[];
+  collections: string[];
   instanceId: string;
   pid: number;
 }
@@ -51,8 +53,8 @@ export interface IOrphanMarkerRecoveryPlan {
 
 export class MongoSagaLockService {
   private readonly logger = new Logger(MongoSagaLockService.name);
-  private readonly locksCollectionName = 'system_transaction_locks';
-  private readonly txMetaCollectionName = 'system_transaction_metadata';
+  private readonly locksCollectionName = 'system_saga_locks';
+  private readonly sessionCollectionName = 'system_saga_sessions';
   private readonly lockTimeoutMs = 30000;
   private readonly txTimeoutMs = 60000;
   private readonly maxRetries = 3;
@@ -95,9 +97,9 @@ export class MongoSagaLockService {
       }
     }
 
-    if (!collectionNames.has(this.txMetaCollectionName)) {
+    if (!collectionNames.has(this.sessionCollectionName)) {
       try {
-        await db.createCollection(this.txMetaCollectionName);
+        await db.createCollection(this.sessionCollectionName);
       } catch (error: any) {
         if (error.code !== 48) {
           throw error;
@@ -133,13 +135,18 @@ export class MongoSagaLockService {
       } catch {}
     }
 
-    const metaCollection = db.collection(this.txMetaCollectionName);
+    const metaCollection = db.collection(this.sessionCollectionName);
     const existingMetaIndexes = await metaCollection.indexes();
     const metaIndexNames = new Set(existingMetaIndexes.map((i: any) => i.name));
 
     if (!metaIndexNames.has('txId_1')) {
       try {
         await metaCollection.createIndex({ txId: 1 }, { unique: true });
+      } catch {}
+    }
+    if (!metaIndexNames.has('sessionId_1')) {
+      try {
+        await metaCollection.createIndex({ sessionId: 1 }, { unique: true });
       } catch {}
     }
     if (!metaIndexNames.has('expiresAt_1')) {
@@ -168,7 +175,7 @@ export class MongoSagaLockService {
   private getMetaCollection(): Collection<ITransactionMetadata> {
     return this.mongoService
       .getDb()
-      .collection<ITransactionMetadata>(this.txMetaCollectionName);
+      .collection<ITransactionMetadata>(this.sessionCollectionName);
   }
 
   async beginTransaction(): Promise<string> {
@@ -181,11 +188,13 @@ export class MongoSagaLockService {
     await this.getMetaCollection().insertOne({
       _id: txId,
       txId,
+      sessionId: txId,
       status: 'active',
       startedAt: now,
       lastActivityAt: now,
       expiresAt,
       resources: [],
+      collections: [],
       instanceId: this.instanceId,
       pid: process.pid,
     });
@@ -284,7 +293,10 @@ export class MongoSagaLockService {
       await this.getMetaCollection().updateOne(
         { txId },
         {
-          $addToSet: { resources: { $each: acquiredLocks } },
+          $addToSet: {
+            resources: { $each: acquiredLocks },
+            collections: { $each: this.getCollectionNames(resources) },
+          },
           $set: {
             lastActivityAt: new Date(),
             expiresAt: new Date(Date.now() + this.txTimeoutMs),
@@ -453,7 +465,10 @@ export class MongoSagaLockService {
     await this.getMetaCollection().updateOne(
       { txId },
       {
-        $addToSet: { resources: { $each: sortedKeys } },
+        $addToSet: {
+          resources: { $each: sortedKeys },
+          collections: { $each: resources.map((resource) => resource.type) },
+        },
         $set: {
           lastActivityAt: new Date(),
           expiresAt: new Date(Date.now() + this.txTimeoutMs),
@@ -614,6 +629,15 @@ export class MongoSagaLockService {
     return 0;
   }
 
+  async getOpenSessions(): Promise<ITransactionMetadata[]> {
+    await this.ensureCollections();
+    return this.getMetaCollection()
+      .find({
+        status: { $in: ['active', 'committing', 'rolling_back'] },
+      })
+      .toArray();
+  }
+
   async getSagaStatus(txId: string): Promise<ITransactionMetadata | null> {
     return this.getMetaCollection().findOne({ txId });
   }
@@ -650,6 +674,12 @@ export class MongoSagaLockService {
       expiresAt: { $gt: new Date() },
     });
     return lock !== null;
+  }
+
+  private getCollectionNames(
+    resources: Array<{ type: string; id: string; mode: 'read' | 'write' }>,
+  ): string[] {
+    return Array.from(new Set(resources.map((resource) => resource.type)));
   }
 
   private async cleanupExpiredLocks(): Promise<void> {

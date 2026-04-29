@@ -1,6 +1,14 @@
 import { Logger } from '../../../shared/logger';
 import { MongoService } from './mongo.service';
 import { randomUUID } from 'crypto';
+import { CacheService } from '../../cache';
+import { InstanceService } from '../../../shared/services';
+import {
+  MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
+  REDIS_TTL,
+} from '../../../shared/utils/constant';
+import { getErrorMessage } from '../../../shared/utils/error.util';
+
 export type MongoMigrationStatus =
   | 'pending'
   | 'running'
@@ -11,10 +19,20 @@ export type MongoMigrationOperation = 'create' | 'update' | 'delete';
 export class MongoMigrationJournalService {
   private readonly logger = new Logger(MongoMigrationJournalService.name);
   private readonly mongoService: MongoService;
+  private readonly cacheService?: CacheService;
+  private readonly instanceService?: InstanceService;
   private readonly collectionName = 'schema_migration_definition';
-  constructor(deps: { mongoService: MongoService }) {
+
+  constructor(deps: {
+    mongoService: MongoService;
+    cacheService?: CacheService;
+    instanceService?: InstanceService;
+  }) {
     this.mongoService = deps.mongoService;
+    this.cacheService = deps.cacheService;
+    this.instanceService = deps.instanceService;
   }
+
   private getCollection() {
     return this.mongoService.getDb().collection(this.collectionName);
   }
@@ -24,8 +42,15 @@ export class MongoMigrationJournalService {
     upDiff: any;
     downDiff: any;
     beforeSnapshot?: any;
+    afterSnapshot?: any;
     rawBeforeSnapshot?: any;
   }): Promise<string> {
+    if (params.operation === 'update' && !params.rawBeforeSnapshot) {
+      throw new Error(
+        `Mongo migration saga for ${params.tableName} requires rawBeforeSnapshot`,
+      );
+    }
+
     const uuid = `mj-${randomUUID()}`;
     const now = new Date();
     await this.getCollection().insertOne({
@@ -36,6 +61,7 @@ export class MongoMigrationJournalService {
       upDiff: params.upDiff,
       downDiff: params.downDiff,
       beforeSnapshot: params.beforeSnapshot || null,
+      afterSnapshot: params.afterSnapshot || null,
       rawBeforeSnapshot: params.rawBeforeSnapshot || null,
       errorMessage: null,
       startedAt: null,
@@ -105,7 +131,8 @@ export class MongoMigrationJournalService {
   }
   async executeRolldown(
     uuid: string,
-    executeDiff: (diff: any) => Promise<void>,
+    executeDiff: (diff: any, entry: any) => Promise<void>,
+    restoreMetadataFn?: (entry: any) => Promise<void>,
   ): Promise<void> {
     const entry = await this.getEntry(uuid);
     if (!entry || !entry.downDiff) {
@@ -116,11 +143,19 @@ export class MongoMigrationJournalService {
     }
     this.logger.warn(`Executing rollback for ${uuid}`);
     try {
-      await executeDiff(entry.downDiff);
+      await executeDiff(entry.downDiff, entry);
+      if (restoreMetadataFn) {
+        await restoreMetadataFn(entry);
+        this.logger.warn(
+          `Metadata restored for ${entry.uuid} from rawBeforeSnapshot`,
+        );
+      }
       await this.markRolledBack(uuid);
     } catch (error: any) {
-      this.logger.error(`Rollback failed for ${uuid}: ${error.message}`);
-      await this.markFailed(uuid, `Rollback failed: ${error.message}`);
+      const message = getErrorMessage(error);
+      this.logger.error(`Rollback failed for ${uuid}: ${message}`);
+      await this.markFailed(uuid, `Rollback failed: ${message}`);
+      throw error;
     }
   }
   async cleanup(maxAgeDays = 7): Promise<void> {
@@ -138,7 +173,38 @@ export class MongoMigrationJournalService {
     } catch {}
   }
   async recoverPending(
-    executeDiff: (diff: any) => Promise<void>,
+    executeDiff: (diff: any, entry: any) => Promise<void>,
+    restoreMetadataFn?: (entry: any) => Promise<void>,
+  ): Promise<void> {
+    if (this.cacheService && this.instanceService) {
+      const lockValue = this.instanceService.getInstanceId();
+      const acquired = await this.cacheService.acquire(
+        MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
+        lockValue,
+        REDIS_TTL.MONGO_MIGRATION_SAGA_RECOVERY_LOCK_TTL,
+      );
+      if (!acquired) {
+        this.logger.debug(
+          `Mongo migration saga recovery skipped: another instance holds ${MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY}`,
+        );
+        return;
+      }
+      try {
+        await this.recoverPendingBody(executeDiff, restoreMetadataFn);
+      } finally {
+        await this.cacheService.release(
+          MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
+          lockValue,
+        );
+      }
+      return;
+    }
+
+    await this.recoverPendingBody(executeDiff, restoreMetadataFn);
+  }
+
+  private async recoverPendingBody(
+    executeDiff: (diff: any, entry: any) => Promise<void>,
     restoreMetadataFn?: (entry: any) => Promise<void>,
   ): Promise<void> {
     let pending: any[];
@@ -160,18 +226,12 @@ export class MongoMigrationJournalService {
       this.logger.warn(
         `Recovering ${entry.uuid} [${entry.operation}] ${entry.tableName}`,
       );
-      await this.executeRolldown(entry.uuid, executeDiff);
-      if (restoreMetadataFn && entry.beforeSnapshot) {
-        try {
-          await restoreMetadataFn(entry);
-          this.logger.warn(
-            `Metadata restored for ${entry.uuid} from beforeSnapshot`,
-          );
-        } catch (metaErr: any) {
-          this.logger.error(
-            `Metadata restore failed for ${entry.uuid}: ${metaErr.message}`,
-          );
-        }
+      try {
+        await this.executeRolldown(entry.uuid, executeDiff, restoreMetadataFn);
+      } catch (error) {
+        this.logger.error(
+          `Recovery failed for ${entry.uuid}: ${getErrorMessage(error)}`,
+        );
       }
     }
   }

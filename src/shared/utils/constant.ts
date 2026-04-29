@@ -13,12 +13,15 @@ export const SYSTEM_QUEUES = {
 } as const;
 
 export const SAGA_ORPHAN_RECOVERY_LOCK_KEY = 'enfyra:saga-orphan-recovery';
+export const MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY =
+  'enfyra:mongo-migration-saga-recovery';
 
 export const REDIS_TTL = {
   BOOTSTRAP_LOCK_TTL: 30000,
   RELOAD_LOCK_TTL: 30000,
   PROVISION_LOCK_TTL: 120000,
   SAGA_ORPHAN_RECOVERY_LOCK_TTL: 300000,
+  MONGO_MIGRATION_SAGA_RECOVERY_LOCK_TTL: 300000,
 } as const;
 
 export const PROVISION_LOCK_KEY = 'sys:provision_init_lock';

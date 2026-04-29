@@ -1,4 +1,4 @@
-import { IOperationLog, IRollbackResult } from './mongo-operation-log.service';
+import { ISagaSnapshot, IRollbackResult } from './mongo-saga-snapshot.service';
 
 export interface ISagaContext {
   txId: string;
@@ -10,8 +10,7 @@ export interface ISagaContext {
     | 'aborted'
     | 'failed';
   lockedResources: Set<string>;
-  operations: IOperationLog[];
-  modifiedDocuments: Array<{ collection: string; id: string }>;
+  snapshots: ISagaSnapshot[];
   metadata: {
     startedAt: Date;
     lastActivityAt: Date;

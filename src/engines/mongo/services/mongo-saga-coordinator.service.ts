@@ -1,14 +1,13 @@
 import { Logger } from '../../../shared/logger';
-import { Db, ObjectId } from 'mongodb';
 import { AsyncLocalStorage } from 'async_hooks';
 import { MongoService } from './mongo.service';
 import { MongoSagaLockService } from './mongo-saga-lock.service';
 import { MongoSagaSession } from './mongo-saga-session';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import {
-  MongoOperationLogService,
+  MongoSagaSnapshotService,
   IRollbackResult,
-} from './mongo-operation-log.service';
+} from './mongo-saga-snapshot.service';
 import { DatabaseException } from '../../../domain/exceptions';
 import { CacheService } from '../../cache';
 import { InstanceService } from '../../../shared/services';
@@ -34,8 +33,6 @@ export class MongoSagaCoordinator {
   };
   private cleanupIntervalRef: ReturnType<typeof setInterval> | null = null;
   private cleanupFirstTimeoutRef: ReturnType<typeof setTimeout> | null = null;
-  private static readonly RECOVERY_BATCH_SIZE = 500;
-  private static readonly RECOVERY_MAX_PASSES_PER_COLLECTION = 100;
   private recoveryMetrics: ISagaRecoveryMetrics = {
     totalRuns: 0,
     bootRuns: 0,
@@ -48,20 +45,20 @@ export class MongoSagaCoordinator {
   };
   private readonly mongoService: MongoService;
   private readonly lockService: MongoSagaLockService;
-  private readonly logService: MongoOperationLogService;
+  private readonly snapshotService: MongoSagaSnapshotService;
   private readonly instanceService: InstanceService;
   private readonly cacheService?: CacheService;
 
   constructor(deps: {
     mongoService: MongoService;
     lockService: MongoSagaLockService;
-    logService: MongoOperationLogService;
+    snapshotService: MongoSagaSnapshotService;
     instanceService: InstanceService;
     cacheService?: CacheService;
   }) {
     this.mongoService = deps.mongoService;
     this.lockService = deps.lockService;
-    this.logService = deps.logService;
+    this.snapshotService = deps.snapshotService;
     this.instanceService = deps.instanceService;
     this.cacheService = deps.cacheService;
   }
@@ -124,71 +121,6 @@ export class MongoSagaCoordinator {
     }
   }
 
-  private async recoverStaleMarkersInCollection(
-    db: Db,
-    collectionName: string,
-  ): Promise<number> {
-    const batchSize = MongoSagaCoordinator.RECOVERY_BATCH_SIZE;
-    const maxPasses = MongoSagaCoordinator.RECOVERY_MAX_PASSES_PER_COLLECTION;
-    let total = 0;
-    for (let pass = 0; pass < maxPasses; pass++) {
-      const stale = await db
-        .collection(collectionName)
-        .find(
-          { __txId: { $exists: true, $ne: null } },
-          { projection: { _id: 1, __txId: 1 } },
-        )
-        .limit(batchSize)
-        .toArray();
-
-      if (stale.length === 0) break;
-
-      const byTx = new Map<string, Array<{ _id: unknown; __txId: string }>>();
-      for (const d of stale) {
-        const raw = (d as { __txId?: unknown }).__txId;
-        const txKey =
-          typeof raw === 'string' ? raw : raw != null ? String(raw) : '';
-        if (!txKey) continue;
-        const arr = byTx.get(txKey) || [];
-        arr.push({ _id: (d as { _id: unknown })._id, __txId: txKey });
-        byTx.set(txKey, arr);
-      }
-
-      let passModified = 0;
-      for (const [txId, docs] of byTx) {
-        const plan = await this.lockService.getOrphanMarkerRecoveryPlan(txId);
-        if (!plan.shouldUnsetMarkers) {
-          continue;
-        }
-        if (plan.needsRollbackFirst) {
-          try {
-            await this.logService.rollbackTransaction(txId);
-            await this.lockService.abortTransaction(
-              txId,
-              'orphan marker recovery',
-            );
-          } catch (error) {
-            this.logger.error(
-              `Orphan recovery rollback failed for ${txId}: ${getErrorMessage(error)}`,
-            );
-            continue;
-          }
-        }
-        const ids = docs.map((x) => x._id);
-        const result = await db
-          .collection(collectionName)
-          .updateMany(
-            { _id: { $in: ids as any }, __txId: txId },
-            { $unset: { __txId: '' } },
-          );
-        passModified += result.modifiedCount || 0;
-      }
-      total += passModified;
-      if (passModified === 0) break;
-    }
-    return total;
-  }
-
   async recoverOrphanedSagas(
     source: 'boot' | 'periodic' = 'periodic',
   ): Promise<{ cleaned: number; recovered: number }> {
@@ -222,28 +154,13 @@ export class MongoSagaCoordinator {
     source: 'boot' | 'periodic',
   ): Promise<{ cleaned: number; recovered: number }> {
     try {
+      const recoveredOpenSessions =
+        source === 'boot' ? await this.rollbackOpenSessionsOnBoot() : 0;
       const orphanedLocks = await this.lockService.cleanupOrphanedLocks();
-      const oldLogs = await this.logService.cleanupOldLogs(7);
+      const oldSnapshots = await this.snapshotService.cleanupOldSnapshots(7);
+      const recovered = recoveredOpenSessions;
 
-      const db = this.mongoService.getDb();
-      const collections = await db.listCollections().toArray();
-      let recovered = 0;
-
-      for (const coll of collections) {
-        if (coll.name.startsWith('system_')) continue;
-        try {
-          recovered += await this.recoverStaleMarkersInCollection(
-            db,
-            coll.name,
-          );
-        } catch (err) {
-          this.logger.warn(
-            `Saga orphan marker recovery skipped for collection "${coll.name}": ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
-
-      const result = { cleaned: orphanedLocks + oldLogs, recovered };
+      const result = { cleaned: orphanedLocks + oldSnapshots, recovered };
       this.recordRecoverySuccess(source, result);
       if (source === 'boot') {
         this.logger.log(
@@ -255,6 +172,34 @@ export class MongoSagaCoordinator {
       this.recordRecoveryFailure(error);
       throw error;
     }
+  }
+
+  private async rollbackOpenSessionsOnBoot(): Promise<number> {
+    const sessions = await this.lockService.getOpenSessions();
+    let recovered = 0;
+
+    for (const session of sessions) {
+      const txId = session.sessionId || session.txId;
+      if (!txId) continue;
+      try {
+        const rollbackResult =
+          await this.snapshotService.rollbackTransaction(txId);
+        await this.lockService.abortTransaction(txId, 'boot recovery');
+        if (rollbackResult.success) {
+          recovered++;
+        } else {
+          this.logger.error(
+            `Saga boot rollback failed for ${txId}: ${rollbackResult.failedSnapshots.length} failed snapshot(s)`,
+          );
+        }
+      } catch (error) {
+        this.logger.error(
+          `Saga boot rollback failed for ${txId}: ${getErrorMessage(error)}`,
+        );
+      }
+    }
+
+    return recovered;
   }
 
   getSagaRecoveryMetrics(): ISagaRecoveryMetrics {
@@ -310,8 +255,7 @@ export class MongoSagaCoordinator {
         txId,
         status: 'active',
         lockedResources: new Set(),
-        operations: [],
-        modifiedDocuments: [],
+        snapshots: [],
         metadata: {
           startedAt: new Date(),
           lastActivityAt: new Date(),
@@ -322,7 +266,7 @@ export class MongoSagaCoordinator {
       const session = new MongoSagaSession(
         txId,
         this.lockService,
-        this.logService,
+        this.snapshotService,
         this.mongoService,
         opts,
         context,
@@ -370,7 +314,7 @@ export class MongoSagaCoordinator {
 
       await this.commit(txId, context);
 
-      const txStats = await this.logService.getTransactionStats(txId);
+      const txStats = await this.snapshotService.getTransactionStats(txId);
 
       return {
         success: true,
@@ -405,7 +349,7 @@ export class MongoSagaCoordinator {
           txId && context
             ? {
                 durationMs: duration,
-                operationsCount: context.operations.length,
+                operationsCount: context.snapshots.length,
                 locksAcquired: context.lockedResources.size,
               }
             : undefined,
@@ -417,60 +361,11 @@ export class MongoSagaCoordinator {
     context.status = 'committing';
 
     try {
-      await this.cleanupTxIdMarkers(context);
       await this.lockService.commitTransaction(txId);
       context.status = 'completed';
     } catch (error) {
       context.status = 'aborted';
       throw error;
-    }
-  }
-
-  private async cleanupTxIdMarkers(context: ISagaContext): Promise<void> {
-    const byCollection = new Map<string, string[]>();
-    for (const doc of context.modifiedDocuments) {
-      const ids = byCollection.get(doc.collection) || [];
-      ids.push(doc.id);
-      byCollection.set(doc.collection, ids);
-    }
-
-    const errors: string[] = [];
-    const promises: Promise<void>[] = [];
-    for (const [collectionName, ids] of byCollection) {
-      promises.push(
-        (async () => {
-          const collection = this.mongoService
-            .getDb()
-            .collection(collectionName);
-          const objectIds = ids.map((id) => {
-            try {
-              return new ObjectId(id);
-            } catch {
-              return id;
-            }
-          });
-          try {
-            await collection.updateMany(
-              { _id: { $in: objectIds } as any },
-              { $unset: { __txId: '' } },
-            );
-          } catch (error) {
-            errors.push(`${collectionName}: ${getErrorMessage(error)}`);
-          }
-        })(),
-      );
-    }
-
-    await Promise.all(promises);
-
-    if (errors.length > 0) {
-      this.logger.error(
-        `[${context.txId}] Partial __txId cleanup failure: ${errors.join('; ')}`,
-      );
-      throw new DatabaseException('Failed to clean up transaction markers', {
-        txId: context.txId,
-        failures: errors,
-      });
     }
   }
 
@@ -480,7 +375,7 @@ export class MongoSagaCoordinator {
   ): Promise<IRollbackResult> {
     context.status = 'rolling_back';
 
-    const rollbackResult = await this.logService.rollbackTransaction(txId);
+    const rollbackResult = await this.snapshotService.rollbackTransaction(txId);
 
     await this.lockService.abortTransaction(
       txId,

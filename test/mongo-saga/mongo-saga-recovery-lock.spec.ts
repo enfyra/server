@@ -2,7 +2,7 @@ import {
   MongoSagaCoordinator,
   MongoService,
   MongoSagaLockService,
-  MongoOperationLogService,
+  MongoSagaSnapshotService,
 } from '../../src/engines/mongo';
 import { InstanceService } from '../../src/shared/services';
 import {
@@ -15,13 +15,15 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
   let acquire: jest.Mock;
   let release: jest.Mock;
   let cleanupOrphanedLocks: jest.Mock;
-  let cleanupOldLogs: jest.Mock;
+  let cleanupOldSnapshots: jest.Mock;
+  let getOpenSessions: jest.Mock;
 
   async function createModule() {
     acquire = jest.fn();
     release = jest.fn().mockResolvedValue(true);
     cleanupOrphanedLocks = jest.fn().mockResolvedValue(0);
-    cleanupOldLogs = jest.fn().mockResolvedValue(0);
+    cleanupOldSnapshots = jest.fn().mockResolvedValue(0);
+    getOpenSessions = jest.fn().mockResolvedValue([]);
 
     const db = {
       listCollections: () => ({
@@ -38,6 +40,7 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
     Object.defineProperty(mongoService, 'db', { value: db });
 
     const lockService = new MongoSagaLockService({ mongoService });
+    (lockService as any).getOpenSessions = getOpenSessions;
     (lockService as any).cleanupOrphanedLocks = cleanupOrphanedLocks;
     (lockService as any).getOrphanMarkerRecoveryPlan = jest
       .fn()
@@ -46,8 +49,8 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
         needsRollbackFirst: false,
       });
 
-    const logService = new MongoOperationLogService({ mongoService });
-    (logService as any).cleanupOldLogs = cleanupOldLogs;
+    const snapshotService = new MongoSagaSnapshotService({ mongoService });
+    (snapshotService as any).cleanupOldSnapshots = cleanupOldSnapshots;
 
     const instanceService = new InstanceService();
     Object.defineProperty(instanceService, 'instanceId', {
@@ -59,7 +62,7 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
     coordinator = new MongoSagaCoordinator({
       mongoService,
       lockService,
-      logService,
+      snapshotService,
       instanceService,
       cacheService,
     });
@@ -93,7 +96,7 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
     await coordinator.recoverOrphanedSagas('periodic');
 
     expect(cleanupOrphanedLocks).toHaveBeenCalled();
-    expect(cleanupOldLogs).toHaveBeenCalled();
+    expect(cleanupOldSnapshots).toHaveBeenCalled();
     expect(release).toHaveBeenCalledWith(
       SAGA_ORPHAN_RECOVERY_LOCK_KEY,
       'instance-test-abc',
@@ -119,7 +122,7 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
 
   it('runs recovery without Redis when CacheService is absent', async () => {
     const cleanupOrphanedLocksLocal = jest.fn().mockResolvedValue(0);
-    const cleanupOldLogsLocal = jest.fn().mockResolvedValue(0);
+    const cleanupOldSnapshotsLocal = jest.fn().mockResolvedValue(0);
     const db = {
       listCollections: () => ({
         toArray: async () => [],
@@ -135,6 +138,7 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
     Object.defineProperty(mongoService, 'db', { value: db });
 
     const lockService = new MongoSagaLockService({ mongoService });
+    (lockService as any).getOpenSessions = jest.fn().mockResolvedValue([]);
     (lockService as any).cleanupOrphanedLocks = cleanupOrphanedLocksLocal;
     (lockService as any).getOrphanMarkerRecoveryPlan = jest
       .fn()
@@ -143,8 +147,8 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
         needsRollbackFirst: false,
       });
 
-    const logService = new MongoOperationLogService({ mongoService });
-    (logService as any).cleanupOldLogs = cleanupOldLogsLocal;
+    const snapshotService = new MongoSagaSnapshotService({ mongoService });
+    (snapshotService as any).cleanupOldSnapshots = cleanupOldSnapshotsLocal;
 
     const instanceService = new InstanceService();
     Object.defineProperty(instanceService, 'instanceId', { value: 'solo' });
@@ -152,12 +156,12 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
     const solo = new MongoSagaCoordinator({
       mongoService,
       lockService,
-      logService,
+      snapshotService,
       instanceService,
       cacheService: undefined,
     });
     await solo.recoverOrphanedSagas('boot');
     expect(cleanupOrphanedLocksLocal).toHaveBeenCalled();
-    expect(cleanupOldLogsLocal).toHaveBeenCalled();
+    expect(cleanupOldSnapshotsLocal).toHaveBeenCalled();
   });
 });
