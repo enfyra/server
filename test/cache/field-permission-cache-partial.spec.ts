@@ -30,10 +30,60 @@ function makeQb(rows: any[]) {
   } as any;
 }
 
-function makeService(rows: any[]) {
+function makeMetadata(rows: any[]) {
+  const tables = new Map<string, any>();
+  for (const row of rows) {
+    const column = row.column;
+    const columnTableName = column?.table?.name;
+    if (column?.id && column?.name && columnTableName) {
+      const table = tables.get(columnTableName) ?? {
+        id: column.table.id,
+        name: columnTableName,
+        columns: [],
+        relations: [],
+      };
+      if (!table.columns.some((c: any) => String(c.id) === String(column.id))) {
+        table.columns.push({ id: column.id, name: column.name });
+      }
+      tables.set(columnTableName, table);
+    }
+
+    const relation = row.relation;
+    const sourceTableName = relation?.sourceTable?.name;
+    if (relation?.id && relation?.propertyName && sourceTableName) {
+      const table = tables.get(sourceTableName) ?? {
+        id: relation.sourceTable.id,
+        name: sourceTableName,
+        columns: [],
+        relations: [],
+      };
+      if (
+        !table.relations.some((r: any) => String(r.id) === String(relation.id))
+      ) {
+        table.relations.push({
+          id: relation.id,
+          propertyName: relation.propertyName,
+        });
+      }
+      tables.set(sourceTableName, table);
+    }
+  }
+
+  return {
+    tables,
+    tablesList: [...tables.values()],
+    version: 1,
+    timestamp: new Date(),
+  };
+}
+
+function makeService(rows: any[], metadata = makeMetadata(rows)) {
   const qb = makeQb(rows);
   const svc = new FieldPermissionCacheService({
     queryBuilderService: qb,
+    metadataCacheService: {
+      getDirectMetadata: vi.fn(() => metadata),
+    } as any,
     eventEmitter: new EventEmitter2(),
   });
   return { svc, qb };
@@ -81,6 +131,90 @@ describe('FieldPermissionCacheService — partial reload', () => {
     expect(policies[0].rules.map((r) => r.id).sort()).toEqual([1, 2]);
     expect(policies[0].unconditionalAllowedColumns.has('name')).toBe(true);
     expect(policies[0].unconditionalAllowedColumns.has('email')).toBe(true);
+  });
+
+  it('loads lean field permission rows and resolves table names from metadata cache', async () => {
+    const metadata = {
+      tables: new Map(),
+      tablesList: [
+        {
+          id: 1,
+          name: 'post',
+          columns: [{ id: 101, name: 'title' }],
+          relations: [],
+        },
+      ],
+      version: 1,
+      timestamp: new Date(),
+    };
+    const data: any[] = [
+      makeRow({
+        id: 1,
+        column: { id: 101 },
+      }),
+    ];
+    const { svc, qb } = makeService(data, metadata);
+    await svc.reload(false);
+
+    expect(qb.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        table: 'field_permission_definition',
+        fields: [
+          'id',
+          'isEnabled',
+          'action',
+          'effect',
+          'condition',
+          'role.id',
+          'allowedUsers.id',
+          'column.id',
+          'relation.id',
+        ],
+      }),
+    );
+
+    const policies = await svc.getPoliciesFor(
+      { id: 99, role: { id: 10 } },
+      'post',
+      'read',
+    );
+    expect(policies).toHaveLength(1);
+    expect(policies[0].rules[0].tableName).toBe('post');
+    expect(policies[0].rules[0].columnName).toBe('title');
+  });
+
+  it('resolves relation rules from metadata cache without fetching relation sourceTable', async () => {
+    const metadata = {
+      tables: new Map(),
+      tablesList: [
+        {
+          id: 1,
+          name: 'post',
+          columns: [],
+          relations: [{ id: 201, propertyName: 'author' }],
+        },
+      ],
+      version: 1,
+      timestamp: new Date(),
+    };
+    const data: any[] = [
+      makeRow({
+        id: 1,
+        column: null,
+        relation: { id: 201 },
+      }),
+    ];
+    const { svc } = makeService(data, metadata);
+    await svc.reload(false);
+
+    const policies = await svc.getPoliciesFor(
+      { id: 99, role: { id: 10 } },
+      'post',
+      'read',
+    );
+    expect(policies).toHaveLength(1);
+    expect(policies[0].rules[0].tableName).toBe('post');
+    expect(policies[0].rules[0].relationPropertyName).toBe('author');
   });
 
   it('partialReload removes deleted rule and rebuilds bucket Sets', async () => {
@@ -195,6 +329,39 @@ describe('FieldPermissionCacheService — partial reload', () => {
     expect(newBucket).toHaveLength(1);
     expect(newBucket[0].rules[0].id).toBe(1);
     expect(newBucket[0].unconditionalAllowedColumns.has('name')).toBe(true);
+  });
+
+  it('indexes allowedUsers into direct per-user buckets', async () => {
+    const data: any[] = [
+      makeRow({
+        id: 1,
+        role: null,
+        allowedUsers: [{ id: 100 }, { id: 200 }],
+        column: { id: 1, name: 'name', table: { id: 1, name: 'post' } },
+      }),
+    ];
+    const { svc } = makeService(data);
+    await svc.reload(false);
+
+    const cache = svc.getRawCache();
+    expect(cache.has('u:100|post|read')).toBe(true);
+    expect(cache.has('u:200|post|read')).toBe(true);
+    expect(cache.has('u:100,200|post|read')).toBe(false);
+
+    const matchingPolicies = await svc.getPoliciesFor(
+      { id: 100, role: { id: 10 } },
+      'post',
+      'read',
+    );
+    expect(matchingPolicies).toHaveLength(1);
+    expect(matchingPolicies[0].rules[0].id).toBe(1);
+
+    const otherPolicies = await svc.getPoliciesFor(
+      { id: 300, role: { id: 10 } },
+      'post',
+      'read',
+    );
+    expect(otherPolicies).toHaveLength(0);
   });
 
   it('partialReload treats isEnabled=false as effective delete', async () => {

@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'async_hooks';
+import type { Redis } from 'ioredis';
 import type {
   QueryMetricContext,
   RuntimeCacheReloadMetric,
@@ -6,6 +7,8 @@ import type {
   RuntimeQueryMetric,
   RuntimeRouteMetric,
 } from '../types/runtime-metrics.types';
+import { EnvService } from './env.service';
+import { InstanceService } from './instance.service';
 
 const MAX_LATENCIES = 256;
 const MAX_RECENT = 20;
@@ -35,11 +38,29 @@ function isPoolAcquireTimeout(error: unknown) {
 
 export class RuntimeMetricsCollectorService {
   private readonly queryContext = new AsyncLocalStorage<QueryMetricContext>();
+  private readonly redis?: Redis;
+  private readonly cacheReloadKey?: string;
+  private readonly instanceId?: string;
   private readonly requests = new Map<string, RuntimeRouteMetric>();
   private readonly queries = new Map<string, RuntimeQueryMetric>();
   private readonly flows = new Map<string, RuntimeFlowMetric>();
   private recentCacheReloads: RuntimeCacheReloadMetric[] = [];
   private startedAt = Date.now();
+
+  constructor(
+    deps: {
+      redis?: Redis;
+      envService?: EnvService;
+      instanceService?: InstanceService;
+    } = {},
+  ) {
+    this.redis = deps.redis;
+    this.instanceId = deps.instanceService?.getInstanceId();
+    const nodeName = deps.envService?.get('NODE_NAME') || 'enfyra';
+    this.cacheReloadKey = this.redis
+      ? `${nodeName}:runtime-monitor:cache-reloads`
+      : undefined;
+  }
 
   recordRequest(input: {
     method: string;
@@ -137,9 +158,46 @@ export class RuntimeMetricsCollectorService {
   }
 
   recordCacheReload(metric: RuntimeCacheReloadMetric) {
-    this.recentCacheReloads.unshift(metric);
+    const record = {
+      ...metric,
+      instanceId: metric.instanceId ?? this.instanceId,
+    };
+    this.recentCacheReloads.unshift(record);
     if (this.recentCacheReloads.length > MAX_RECENT) {
       this.recentCacheReloads = this.recentCacheReloads.slice(0, MAX_RECENT);
+    }
+    if (this.redis && this.cacheReloadKey) {
+      this.redis
+        .pipeline()
+        .lpush(this.cacheReloadKey, JSON.stringify(record))
+        .ltrim(this.cacheReloadKey, 0, MAX_RECENT - 1)
+        .exec()
+        .catch(() => {});
+    }
+  }
+
+  async getRecentCacheReloads(): Promise<RuntimeCacheReloadMetric[]> {
+    if (!this.redis || !this.cacheReloadKey) {
+      return this.recentCacheReloads;
+    }
+    try {
+      const values = await this.redis.lrange(
+        this.cacheReloadKey,
+        0,
+        MAX_RECENT - 1,
+      );
+      const rows = values
+        .map((value) => {
+          try {
+            return JSON.parse(value) as RuntimeCacheReloadMetric;
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean) as RuntimeCacheReloadMetric[];
+      return rows.length > 0 ? rows : this.recentCacheReloads;
+    } catch {
+      return this.recentCacheReloads;
     }
   }
 
@@ -260,6 +318,12 @@ export class RuntimeMetricsCollectorService {
         failed: flowRows.reduce((sum, row) => sum + row.failed, 0),
       },
     };
+  }
+
+  async snapshotAsync() {
+    const snapshot = this.snapshot();
+    snapshot.cache.recent = await this.getRecentCacheReloads();
+    return snapshot;
   }
 
   private getFlowMetric(

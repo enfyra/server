@@ -5,6 +5,7 @@ import {
   TCacheInvalidationPayload,
 } from '../../../shared/utils/cache-events.constants';
 import { BaseCacheService } from './base-cache.service';
+import { MetadataCacheService } from './metadata-cache.service';
 
 export type TFieldPermissionAction = 'read' | 'create' | 'update';
 export type TFieldPermissionEffect = 'allow' | 'deny';
@@ -30,18 +31,44 @@ export type TCompiledFieldPolicy = {
   rules: TFieldPermissionRule[];
 };
 
+type TFieldPermissionMetadataIndex = {
+  columnsById: Map<string, { tableName: string; columnName: string }>;
+  relationsById: Map<
+    string,
+    { tableName: string; relationPropertyName: string }
+  >;
+};
+
+const FIELD_PERMISSION_CACHE_FIELDS = [
+  'id',
+  'isEnabled',
+  'action',
+  'effect',
+  'condition',
+  'role.id',
+  'allowedUsers.id',
+  'column.id',
+  'relation.id',
+];
+
 function toIdString(v: any): string | null {
   if (v === undefined || v === null) return null;
   return String(v?._id ?? v?.id ?? v);
+}
+
+function isFalseValue(v: any): boolean {
+  return v === false || v === 0 || v === '0';
 }
 
 export class FieldPermissionCacheService extends BaseCacheService<
   Map<string, TCompiledFieldPolicy>
 > {
   private readonly queryBuilderService: QueryBuilderService;
+  private readonly metadataCacheService: MetadataCacheService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
+    metadataCacheService: MetadataCacheService;
     eventEmitter: EventEmitter2;
   }) {
     super(
@@ -53,20 +80,13 @@ export class FieldPermissionCacheService extends BaseCacheService<
       deps.eventEmitter,
     );
     this.queryBuilderService = deps.queryBuilderService;
+    this.metadataCacheService = deps.metadataCacheService;
   }
 
   protected async loadFromDb(): Promise<any> {
     const result = await this.queryBuilderService.find({
       table: 'field_permission_definition',
-      fields: [
-        '*',
-        'role.*',
-        'allowedUsers.*',
-        'column.*',
-        'column.table.*',
-        'relation.*',
-        'relation.sourceTable.*',
-      ],
+      fields: FIELD_PERMISSION_CACHE_FIELDS,
       filter: { isEnabled: { _eq: true } },
       limit: 100000,
     });
@@ -76,8 +96,9 @@ export class FieldPermissionCacheService extends BaseCacheService<
   protected transformData(rawData: any): Map<string, TCompiledFieldPolicy> {
     const map = new Map<string, TCompiledFieldPolicy>();
     const rows: any[] = Array.isArray(rawData) ? rawData : [];
+    const metadataIndex = this.buildMetadataIndex();
     for (const row of rows) {
-      const rule = this.rowToRule(row);
+      const rule = this.rowToRule(row, metadataIndex);
       if (!rule) continue;
       this.upsertRuleIntoMap(map, rule);
     }
@@ -110,15 +131,7 @@ export class FieldPermissionCacheService extends BaseCacheService<
 
     const result = await this.queryBuilderService.find({
       table: 'field_permission_definition',
-      fields: [
-        '*',
-        'role.*',
-        'allowedUsers.*',
-        'column.*',
-        'column.table.*',
-        'relation.*',
-        'relation.sourceTable.*',
-      ],
+      fields: FIELD_PERMISSION_CACHE_FIELDS,
       filter: { id: { _in: ids } },
       limit: ids.length,
     });
@@ -130,48 +143,125 @@ export class FieldPermissionCacheService extends BaseCacheService<
       if (rid) fetchedById.set(rid, row);
     }
 
+    const metadataIndex = this.buildMetadataIndex();
     for (const id of ids) {
       this.removeRuleFromAllBuckets(id);
       const row = fetchedById.get(id);
       if (!row) continue;
-      const rule = this.rowToRule(row);
+      const rule = this.rowToRule(row, metadataIndex);
       if (!rule || !rule.isEnabled) continue;
       this.upsertRuleIntoMap(this.cache, rule);
     }
   }
 
-  private rowToRule(row: any): TFieldPermissionRule | null {
+  private buildMetadataIndex(): TFieldPermissionMetadataIndex {
+    const metadata = this.metadataCacheService.getDirectMetadata();
+    const columnsById = new Map<
+      string,
+      { tableName: string; columnName: string }
+    >();
+    const relationsById = new Map<
+      string,
+      { tableName: string; relationPropertyName: string }
+    >();
+
+    for (const table of metadata?.tablesList ?? []) {
+      if (!table?.name) continue;
+
+      for (const column of table.columns ?? []) {
+        const columnId = toIdString(column);
+        if (!columnId || !column?.name) continue;
+        columnsById.set(columnId, {
+          tableName: table.name,
+          columnName: column.name,
+        });
+      }
+
+      for (const relation of table.relations ?? []) {
+        const relationId = toIdString(relation);
+        if (!relationId || !relation?.propertyName) continue;
+        relationsById.set(relationId, {
+          tableName: table.name,
+          relationPropertyName: relation.propertyName,
+        });
+      }
+    }
+
+    return { columnsById, relationsById };
+  }
+
+  private resolveColumnInfo(
+    row: any,
+    metadataIndex: TFieldPermissionMetadataIndex,
+  ): { tableName: string; columnName: string } | null {
+    const columnId = toIdString(row?.column) ?? toIdString(row?.columnId);
+    const indexed = columnId ? metadataIndex.columnsById.get(columnId) : null;
+    if (indexed) return indexed;
+
+    const tableName = row?.column?.table?.name;
+    const columnName = row?.column?.name;
+    if (tableName && columnName) return { tableName, columnName };
+    return null;
+  }
+
+  private resolveRelationInfo(
+    row: any,
+    metadataIndex: TFieldPermissionMetadataIndex,
+  ): { tableName: string; relationPropertyName: string } | null {
+    const relationId = toIdString(row?.relation) ?? toIdString(row?.relationId);
+    const indexed = relationId
+      ? metadataIndex.relationsById.get(relationId)
+      : null;
+    if (indexed) return indexed;
+
+    const tableName = row?.relation?.sourceTable?.name;
+    const relationPropertyName = row?.relation?.propertyName;
+    if (tableName && relationPropertyName) {
+      return { tableName, relationPropertyName };
+    }
+    return null;
+  }
+
+  private rowToRule(
+    row: any,
+    metadataIndex: TFieldPermissionMetadataIndex,
+  ): TFieldPermissionRule | null {
     const action = (row?.action as TFieldPermissionAction) || 'read';
     const effect = (row?.effect as TFieldPermissionEffect) || 'allow';
-    const tableName =
-      row?.column?.table?.name || row?.relation?.sourceTable?.name || null;
+    const columnInfo = this.resolveColumnInfo(row, metadataIndex);
+    const relationInfo = this.resolveRelationInfo(row, metadataIndex);
+    const tableName = columnInfo?.tableName ?? relationInfo?.tableName ?? null;
     if (!tableName) return null;
-    const roleId = toIdString(row?.role);
+    const roleId = toIdString(row?.role) ?? toIdString(row?.roleId);
     const allowedUserIds = Array.isArray(row?.allowedUsers)
       ? row.allowedUsers
           .map((u: any) => toIdString(u))
           .filter((x: any): x is string => !!x)
       : [];
     return {
-      id: row?.id,
-      isEnabled: row?.isEnabled !== false,
+      id: row?.id ?? row?._id,
+      isEnabled: !isFalseValue(row?.isEnabled),
       action,
       effect,
       tableName,
       roleId,
       allowedUserIds,
-      columnName: row?.column?.name ?? null,
-      relationPropertyName: row?.relation?.propertyName ?? null,
+      columnName: columnInfo?.columnName ?? null,
+      relationPropertyName: relationInfo?.relationPropertyName ?? null,
       condition: row?.condition ?? null,
     };
   }
 
-  private bucketKeyForRule(rule: TFieldPermissionRule): string {
-    const subjectsKey =
-      rule.allowedUserIds.length > 0
-        ? `u:${rule.allowedUserIds.join(',')}`
-        : `r:${rule.roleId ?? 'null'}`;
-    return `${subjectsKey}|${rule.tableName}|${rule.action}`;
+  private bucketKeysForRule(rule: TFieldPermissionRule): string[] {
+    if (rule.allowedUserIds.length > 0) {
+      const keys = new Set<string>();
+      for (const userId of rule.allowedUserIds) {
+        keys.add(`u:${userId}|${rule.tableName}|${rule.action}`);
+      }
+      return [...keys];
+    }
+
+    return [`r:${rule.roleId ?? 'null'}|${rule.tableName}|${rule.action}`];
   }
 
   private emptyPolicy(): TCompiledFieldPolicy {
@@ -188,14 +278,15 @@ export class FieldPermissionCacheService extends BaseCacheService<
     map: Map<string, TCompiledFieldPolicy>,
     rule: TFieldPermissionRule,
   ): void {
-    const key = this.bucketKeyForRule(rule);
-    let bucket = map.get(key);
-    if (!bucket) {
-      bucket = this.emptyPolicy();
-      map.set(key, bucket);
+    for (const key of this.bucketKeysForRule(rule)) {
+      let bucket = map.get(key);
+      if (!bucket) {
+        bucket = this.emptyPolicy();
+        map.set(key, bucket);
+      }
+      bucket.rules.push(rule);
+      this.indexRuleIntoBucket(bucket, rule);
     }
-    bucket.rules.push(rule);
-    this.indexRuleIntoBucket(bucket, rule);
   }
 
   private indexRuleIntoBucket(
@@ -258,13 +349,8 @@ export class FieldPermissionCacheService extends BaseCacheService<
     const roleId = toIdString(user?.role);
 
     if (userId) {
-      for (const [key, policy] of cache.entries()) {
-        if (!key.includes(`|${tableName}|${action}`)) continue;
-        if (!key.startsWith('u:')) continue;
-        const idsPart = key.split('|')[0]?.slice(2) || '';
-        const ids = idsPart.split(',').filter(Boolean);
-        if (ids.includes(userId)) policies.push(policy);
-      }
+      const userKey = `u:${userId}|${tableName}|${action}`;
+      if (cache.has(userKey)) policies.push(cache.get(userKey)!);
     }
 
     const roleKey = `r:${roleId ?? 'null'}|${tableName}|${action}`;

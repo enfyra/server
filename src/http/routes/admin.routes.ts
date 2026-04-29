@@ -3,63 +3,60 @@ import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 import { compileScriptSource } from '../../kernel/execution';
 
+function resolveOrchestrator(req: any, container: AwilixContainer<Cradle>) {
+  return (
+    req.scope?.cradle?.cacheOrchestratorService ??
+    container.cradle.cacheOrchestratorService
+  );
+}
+
+function startReload(
+  res: Response,
+  label: string,
+  reload: () => Promise<void>,
+) {
+  void Promise.resolve()
+    .then(reload)
+    .catch((error) => {
+      console.error(`Error during ${label} reload:`, error);
+    });
+  res.status?.(202);
+  res.json({
+    success: true,
+    status: 'accepted',
+    message: `${label} reload started`,
+  });
+}
+
 export function registerAdminRoutes(
   app: Express,
   container: AwilixContainer<Cradle>,
 ) {
   app.post('/admin/reload', async (req: any, res: Response) => {
-    const orchestrator =
-      req.scope?.cradle?.cacheOrchestratorService ??
-      container.cradle.cacheOrchestratorService;
-    const startTime = Date.now();
-    try {
-      await orchestrator.reloadAll();
-      const duration = Date.now() - startTime;
-      res.json({
-        success: true,
-        message: 'All caches and schemas reloaded successfully',
-        duration: `${duration}ms`,
-      });
-    } catch (error) {
-      console.error('Error during reload:', error);
-      throw error;
-    }
+    const orchestrator = resolveOrchestrator(req, container);
+    startReload(res, 'All cache', () => orchestrator.reloadAll());
   });
 
   app.post('/admin/reload/metadata', async (req: any, res: Response) => {
-    const orchestrator =
-      req.scope?.cradle?.cacheOrchestratorService ??
-      container.cradle.cacheOrchestratorService;
-    const start = Date.now();
-    await orchestrator.reloadMetadataAndDeps();
-    res.json({ success: true, duration: `${Date.now() - start}ms` });
+    const orchestrator = resolveOrchestrator(req, container);
+    startReload(res, 'Metadata cache', () =>
+      orchestrator.reloadMetadataAndDeps(),
+    );
   });
 
   app.post('/admin/reload/routes', async (req: any, res: Response) => {
-    const orchestrator =
-      req.scope?.cradle?.cacheOrchestratorService ??
-      container.cradle.cacheOrchestratorService;
-    const start = Date.now();
-    await orchestrator.reloadRoutesOnly();
-    res.json({ success: true, duration: `${Date.now() - start}ms` });
+    const orchestrator = resolveOrchestrator(req, container);
+    startReload(res, 'Route cache', () => orchestrator.reloadRoutesOnly());
   });
 
   app.post('/admin/reload/graphql', async (req: any, res: Response) => {
-    const orchestrator =
-      req.scope?.cradle?.cacheOrchestratorService ??
-      container.cradle.cacheOrchestratorService;
-    const start = Date.now();
-    await orchestrator.reloadGraphqlOnly();
-    res.json({ success: true, duration: `${Date.now() - start}ms` });
+    const orchestrator = resolveOrchestrator(req, container);
+    startReload(res, 'GraphQL cache', () => orchestrator.reloadGraphqlOnly());
   });
 
   app.post('/admin/reload/guards', async (req: any, res: Response) => {
-    const orchestrator =
-      req.scope?.cradle?.cacheOrchestratorService ??
-      container.cradle.cacheOrchestratorService;
-    const start = Date.now();
-    await orchestrator.reloadGuardsOnly();
-    res.json({ success: true, duration: `${Date.now() - start}ms` });
+    const orchestrator = resolveOrchestrator(req, container);
+    startReload(res, 'Guard cache', () => orchestrator.reloadGuardsOnly());
   });
 
   app.post('/admin/flow/trigger/:id', async (req: any, res: Response) => {

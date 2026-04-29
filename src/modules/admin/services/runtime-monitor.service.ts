@@ -95,7 +95,10 @@ export class RuntimeMonitorService {
   }
 
   async captureAppTelemetry(sampledAt: string) {
-    const app = this.runtimeMetricsCollectorService.snapshot();
+    const app =
+      typeof this.runtimeMetricsCollectorService.snapshotAsync === 'function'
+        ? await this.runtimeMetricsCollectorService.snapshotAsync()
+        : this.runtimeMetricsCollectorService.snapshot();
     await this.publishAppTelemetrySnapshot(app, sampledAt);
     return {
       app,

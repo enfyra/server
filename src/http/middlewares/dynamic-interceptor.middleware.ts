@@ -1,11 +1,21 @@
 import { Response, NextFunction } from 'express';
 import { ExecutorEngineService } from '../../kernel/execution';
 
+function isAdminTestRunRequest(req: any): boolean {
+  const path = String(
+    req.path || req.routeData?.path || req.originalUrl?.split('?')?.[0] || '',
+  );
+  return req.method === 'POST' && path === '/admin/test/run';
+}
+
 export function dynamicInterceptorBegin(
   executorEngineService: ExecutorEngineService,
 ) {
   return async (req: any, res: Response, next: NextFunction) => {
     if (!req.routeData) {
+      return next();
+    }
+    if (isAdminTestRunRequest(req)) {
       return next();
     }
 

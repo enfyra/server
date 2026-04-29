@@ -1023,49 +1023,6 @@
     },
     {
       "type": "Menu",
-      "label": "Field Permissions",
-      "icon": "lucide:grid-3x3",
-      "path": "/settings/field-permissions",
-      "isEnabled": true,
-      "isSystem": true,
-      "description": "Field permission matrix (published baseline + overrides)",
-      "order": 5,
-      "parent": "Settings",
-      "permission": {
-        "and": [
-          {
-            "route": "/field_permission_definition",
-            "actions": [
-              "read"
-            ]
-          },
-          {
-            "or": [
-              {
-                "route": "/field_permission_definition",
-                "actions": [
-                  "create"
-                ]
-              },
-              {
-                "route": "/field_permission_definition",
-                "actions": [
-                  "update"
-                ]
-              },
-              {
-                "route": "/field_permission_definition",
-                "actions": [
-                  "delete"
-                ]
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "type": "Menu",
       "label": "Guards",
       "icon": "lucide:shield",
       "path": "/settings/guards",
@@ -1253,27 +1210,6 @@
     },
     {
       "type": "Menu",
-      "label": "Cache Reload",
-      "icon": "lucide:refresh-cw",
-      "path": "/settings/admin/cache",
-      "isEnabled": true,
-      "isSystem": true,
-      "description": "Manually reload server caches (metadata, routes, graphql)",
-      "order": 12,
-      "parent": "Settings",
-      "permission": {
-        "or": [
-          {
-            "route": "/admin/reload",
-            "actions": [
-              "create"
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "type": "Menu",
       "label": "Server Logs",
       "icon": "lucide:file-text",
       "path": "/settings/admin/logs",
@@ -1297,7 +1233,7 @@
       "type": "Menu",
       "label": "Runtime Monitor",
       "icon": "lucide:activity",
-      "path": "/settings/admin/runtime",
+      "path": "/settings/runtime",
       "isEnabled": true,
       "isSystem": true,
       "description": "Live runtime metrics",

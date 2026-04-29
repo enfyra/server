@@ -97,6 +97,22 @@
       }
     },
     {
+      "table": "menu_definition",
+      "filter": {
+        "path": {
+          "_eq": "/settings/field-permissions"
+        }
+      }
+    },
+    {
+      "table": "menu_definition",
+      "filter": {
+        "path": {
+          "_eq": "/settings/admin/cache"
+        }
+      }
+    },
+    {
       "table": "websocket_event_definition",
       "filter": {
         "eventName": {
@@ -217,6 +233,14 @@
       "label": "Routes",
       "path": "/settings/routes",
       "description": "Route management"
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/settings/admin/runtime"
+        }
+      },
+      "path": "/settings/runtime"
     }
   ],
   "post_hook_definition": [

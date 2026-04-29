@@ -31,6 +31,8 @@ export type RuntimeQueryMetric = {
 };
 
 export type RuntimeCacheReloadMetric = {
+  instanceId?: string;
+  reloadId?: string;
   flow: string;
   table: string;
   scope?: string;
