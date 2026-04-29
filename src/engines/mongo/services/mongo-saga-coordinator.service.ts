@@ -335,7 +335,7 @@ export class MongoSagaCoordinator {
       let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
       heartbeatTimer = setInterval(() => {
         void this.lockService
-          .renewTransactionLease(txId)
+          .renewTransactionLease(txId!)
           .catch((err: Error) => {
             this.logger.warn(
               `[${txId}] Saga lease renew failed: ${err.message}`,

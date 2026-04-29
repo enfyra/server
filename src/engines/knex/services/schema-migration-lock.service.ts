@@ -234,7 +234,7 @@ export class SchemaMigrationLockService {
 
   private async clearLockRow(knex: KnexLike, token: string): Promise<void> {
     await this.ensureLockTable();
-    const updatePayload = {
+    const updatePayload: Record<string, unknown> = {
       isLocked: false,
       lockedBy: null,
       lockedContext: null,

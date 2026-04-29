@@ -1,5 +1,5 @@
 import { Logger } from '../../src/shared/logger';
-import { CascadeHandler } from 'src/engines/knex';
+import { CascadeHandler } from '../../src/engines/knex';
 
 function makeLogger(): Logger {
   return {

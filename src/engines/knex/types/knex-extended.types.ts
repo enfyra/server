@@ -4,7 +4,7 @@ import { Knex } from 'knex';
  * Extended Knex QueryBuilder with custom methods
  */
 export interface ExtendedQueryBuilder<
-  TRecord = any,
+  TRecord extends {} = any,
   TResult = any,
 > extends Knex.QueryBuilder<TRecord, TResult> {
   /**

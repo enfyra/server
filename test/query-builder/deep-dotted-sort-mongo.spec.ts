@@ -3,7 +3,7 @@ import {
   executeMongoBatchFetches,
   MongoBatchFetchDescriptor,
   BatchTrace,
-} from 'src/kernel/query';
+} from '../../src/kernel/query';
 const MONGO_URI =
   process.env.MONGO_TEST_URI ||
   'mongodb://enfyra_admin:enfyra_password_123@localhost:27017/?authSource=admin';

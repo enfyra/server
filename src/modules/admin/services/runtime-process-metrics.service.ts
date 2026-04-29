@@ -94,6 +94,11 @@ export class RuntimeProcessMetricsService {
     await this.redis.del(this.averageKey());
   }
 
+  async onDestroy() {
+    this.disable();
+    await this.redis.del(this.averageKey());
+  }
+
   private getCpuRatio(): number {
     const now = process.hrtime.bigint();
     const cpu = process.cpuUsage(this.prevCpuUsage);

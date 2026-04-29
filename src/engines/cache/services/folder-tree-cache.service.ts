@@ -1,6 +1,7 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../../kernel/query';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
+import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 
 const FOLDER_TREE_CONFIG: CacheConfig = {
@@ -31,8 +32,9 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter?: EventEmitter2;
+    redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
-    super(FOLDER_TREE_CONFIG, deps.eventEmitter);
+    super(FOLDER_TREE_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
   }
 
@@ -105,20 +107,20 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
   }
 
   async getTree(): Promise<FolderNode[]> {
-    await this.ensureLoaded();
-    return this.cache.tree;
+    const cache = await this.getCacheAsync();
+    return cache.tree;
   }
 
   async getFolders(): Promise<Map<string, FolderNode>> {
-    await this.ensureLoaded();
-    return this.cache.folders;
+    const cache = await this.getCacheAsync();
+    return cache.folders;
   }
 
   async isCircular(
     folderId: string | null,
     newParentId: string | null,
   ): Promise<boolean> {
-    await this.ensureLoaded();
+    const cache = await this.getCacheAsync();
 
     if (!folderId) return false;
     if (!newParentId) return false;
@@ -136,7 +138,7 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
       }
 
       visited.add(currentId);
-      const folder = this.cache.folders.get(currentId);
+      const folder = cache.folders.get(currentId);
       currentId = folder?.parentId ?? null;
     }
 

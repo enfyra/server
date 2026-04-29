@@ -3,7 +3,7 @@ import {
   getManyToOneRelations,
   getScalarColumns,
   getUniqueFields,
-} from 'src/domain/bootstrap';
+} from '../../src/domain/bootstrap';
 
 describe('snapshot-meta.util', () => {
   it('getLookupKey uses LOOKUP_KEY_MAP for known system tables', () => {

@@ -399,7 +399,7 @@ export class SqlTableMetadataWriterService {
         )
           .whereIn('field_permission_definitionId', deletedIds)
           .delete()
-          .catch(() => undefined);
+          .catch((): undefined => undefined);
       }
       await queryRunner('field_permission_definition')
         .whereIn('id', deletedIds)

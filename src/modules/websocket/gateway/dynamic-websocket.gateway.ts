@@ -6,11 +6,21 @@ import { randomUUID } from 'node:crypto';
 import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import { getErrorMessage } from '../../../shared/utils/error.util';
-import { WebsocketCacheService } from '../../../engines/cache';
+import { CacheService, WebsocketCacheService } from '../../../engines/cache';
 import { BuiltInSocketRegistry } from '../services/built-in-socket.registry';
 import { EnvService } from '../../../shared/services';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
-import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
+import {
+  ENFYRA_ADMIN_ROOT_WEBSOCKET_ROOM,
+  ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+} from '../../../shared/utils/constant';
+import { QueryBuilderService } from '../../../kernel/query';
+import { RedisAdminService } from '../../admin/services/redis-admin.service';
+import {
+  loadUserWithRole,
+  userCacheKey,
+  USER_CACHE_TTL_MS,
+} from '../../../shared/utils/load-user-with-role.util';
 
 interface SocketData extends Socket {
   data: {
@@ -21,7 +31,7 @@ interface SocketData extends Socket {
 }
 
 export class DynamicWebSocketGateway {
-  server: Server;
+  server!: Server;
   private readonly logger = new Logger(DynamicWebSocketGateway.name);
   private registeredGateways = new Set<string>();
   private gatewayConfigsByPath = new Map<string, any>();
@@ -32,6 +42,9 @@ export class DynamicWebSocketGateway {
   private readonly websocketCacheService: WebsocketCacheService;
   private readonly builtInRegistry: BuiltInSocketRegistry;
   private readonly envService: EnvService;
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly cacheService: CacheService;
+  private readonly redisAdminService: RedisAdminService;
   private eventEmitter: any;
 
   constructor(deps: {
@@ -41,12 +54,18 @@ export class DynamicWebSocketGateway {
     builtInSocketRegistry: BuiltInSocketRegistry;
     eventEmitter: any;
     envService: EnvService;
+    queryBuilderService: QueryBuilderService;
+    cacheService: CacheService;
+    redisAdminService: RedisAdminService;
   }) {
     this.connectionQueue = deps.wsConnectionQueue;
     this.eventQueue = deps.wsEventQueue;
     this.websocketCacheService = deps.websocketCacheService;
     this.builtInRegistry = deps.builtInSocketRegistry;
     this.envService = deps.envService;
+    this.queryBuilderService = deps.queryBuilderService;
+    this.cacheService = deps.cacheService;
+    this.redisAdminService = deps.redisAdminService;
     this.eventEmitter = deps.eventEmitter;
     this.setupEventListeners();
   }
@@ -75,11 +94,14 @@ export class DynamicWebSocketGateway {
           password: redisPassword,
           lazyConnect: true,
         };
+    const redisSubOptions = { ...redisOptions, enableReadyCheck: false };
 
     const pubClient = redisUri
       ? new Redis(redisUri, redisOptions)
       : new Redis(redisOptions);
-    const subClient = pubClient.duplicate();
+    const subClient = redisUri
+      ? new Redis(redisUri, redisSubOptions)
+      : new Redis(redisSubOptions);
 
     pubClient.setMaxListeners(50);
     subClient.setMaxListeners(50);
@@ -173,8 +195,11 @@ export class DynamicWebSocketGateway {
           return next(err);
         }
         try {
-          const user = jwt.verify(token, this.envService.get('SECRET_KEY'));
-          socket.data.user = user;
+          const user = jwt.verify(
+            token,
+            this.envService.get('SECRET_KEY'),
+          ) as jwt.JwtPayload;
+          socket.data.user = user as any;
           socket.data.userId = user.id || user.userId;
           socket.data.gateway = gateway;
           next();
@@ -214,6 +239,15 @@ export class DynamicWebSocketGateway {
         });
         socket.disconnect(true);
         return;
+      }
+      if (path === ENFYRA_ADMIN_WEBSOCKET_NAMESPACE) {
+        try {
+          await this.setupAdminSocket(socket);
+        } catch (error) {
+          this.logger.warn(
+            `Admin socket setup failed: ${getErrorMessage(error)}`,
+          );
+        }
       }
       const connectionScript =
         this.builtInRegistry.getConnectionScript(path) ??
@@ -262,7 +296,7 @@ export class DynamicWebSocketGateway {
       socket.join(roomName);
       for (const event of gatewayData.events) {
         const eventName = event.eventName;
-        socket.on(eventName, async (payload, ack) => {
+        socket.on(eventName, async (payload: any, ack: any) => {
           const requestId = randomUUID();
           if (typeof ack === 'function') {
             ack({ queued: true, requestId, eventName });
@@ -354,6 +388,86 @@ export class DynamicWebSocketGateway {
     });
   }
 
+  private async setupAdminSocket(socket: SocketData) {
+    const user = await this.loadSocketUser(socket);
+    if (user?.isRootAdmin) {
+      socket.join(ENFYRA_ADMIN_ROOT_WEBSOCKET_ROOM);
+      this.redisAdminService
+        .getOverview()
+        .then((overview) => {
+          socket.emit('$system:redis:overview', overview);
+        })
+        .catch(() => {});
+    }
+
+    socket.on('$system:redis:overview:get', async (_payload: any, ack: any) => {
+      await this.ackRedisAdmin(socket, ack, () =>
+        this.redisAdminService.getOverview(),
+      );
+    });
+    socket.on('$system:redis:keys:list', async (payload: any, ack: any) => {
+      await this.ackRedisAdmin(socket, ack, () =>
+        this.redisAdminService.listKeys({
+          cursor: payload?.cursor,
+          pattern: payload?.pattern,
+          count: payload?.count,
+        }),
+      );
+    });
+    socket.on('$system:redis:key:get', async (payload: any, ack: any) => {
+      await this.ackRedisAdmin(socket, ack, () =>
+        this.redisAdminService.getKey(String(payload?.key || ''), {
+          limit: payload?.limit,
+        }),
+      );
+    });
+  }
+
+  private async ackRedisAdmin<T>(
+    socket: SocketData,
+    ack: any,
+    callback: () => Promise<T>,
+  ) {
+    try {
+      const user = await this.loadSocketUser(socket);
+      if (!user?.isRootAdmin) {
+        throw new Error('Root admin access required');
+      }
+      const data = await callback();
+      if (typeof ack === 'function') ack({ success: true, data });
+    } catch (error) {
+      const message = getErrorMessage(error) || 'Redis admin request failed';
+      if (typeof ack === 'function') {
+        ack({ success: false, error: { message } });
+      } else {
+        socket.emit('$system:redis:error', { message });
+      }
+    }
+  }
+
+  private async loadSocketUser(socket: SocketData): Promise<any | null> {
+    const currentUser = socket.data.user as any;
+    if (currentUser?.isRootAdmin !== undefined) return currentUser;
+    const id = currentUser?.id ?? currentUser?.userId;
+    if (id === undefined || id === null) return null;
+    const cacheKey = userCacheKey(id);
+    let user = await this.cacheService.get<any>(cacheKey);
+    if (!user) {
+      user = await loadUserWithRole(this.queryBuilderService, id);
+      if (user) {
+        await this.cacheService.set(cacheKey, user, USER_CACHE_TTL_MS);
+      }
+    }
+    if (user) {
+      Object.assign(user, {
+        loginProvider: currentUser?.loginProvider ?? null,
+      });
+      socket.data.user = user;
+      socket.data.userId = user.id || user._id || id;
+    }
+    return user;
+  }
+
   async handleConnection(_client: Socket) {}
   async handleDisconnect(_client: Socket) {}
 
@@ -415,6 +529,10 @@ export class DynamicWebSocketGateway {
     this.server.of(path).emit(event, data);
   }
 
+  emitToNamespaceRoom(path: string, room: string, event: string, data: any) {
+    this.server.of(path).to(room).emit(event, data);
+  }
+
   emitToSocket(path: string, socketId: string, event: string, data: any) {
     this.server.of(path).to(socketId).emit(event, data);
   }
@@ -463,5 +581,10 @@ export class DynamicWebSocketGateway {
       total += sockets.size;
     }
     return total;
+  }
+
+  async namespaceRoomSize(path: string, room: string): Promise<number> {
+    const sockets = await this.server.of(path).in(room).allSockets();
+    return sockets.size;
   }
 }

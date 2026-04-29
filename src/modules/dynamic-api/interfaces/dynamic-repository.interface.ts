@@ -5,7 +5,6 @@ export interface IDynamicRepository {
   limit(limit: number): IDynamicRepository;
   meta(meta: 'filterCount' | 'totalCount' | '*'): IDynamicRepository;
   sort(sort: string | string[]): IDynamicRepository;
-  aggregate(aggregate: any): IDynamicRepository;
   findMany(): Promise<any>;
   findOne(): Promise<any>;
   findAndCount(): Promise<{ data: any[]; count: number }>;

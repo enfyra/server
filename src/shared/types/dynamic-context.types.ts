@@ -34,7 +34,7 @@ export interface TDynamicContext {
   $error?: any;
   $statusCode?: number;
   $logs?: (...args: any[]) => void;
-  $helpers?: {
+  $helpers: {
     $jwt?: (payload: any, exp: string) => string;
     $bcrypt?: {
       hash?: (plain: string) => Promise<string>;
@@ -71,11 +71,11 @@ export interface TDynamicContext {
     $deleteFile?: (fileId: string | number) => Promise<any>;
     $fetch?: FetchHelper;
   };
-  $cache?: {
+  $cache: {
     acquire?: (key: string, value: any, ttlMs: number) => Promise<boolean>;
     release?: (key: string, value: any) => Promise<boolean>;
     get?: (key: string) => Promise<any>;
-    set?: (key: string, value: any, ttlMs?: number) => Promise<void>;
+    set?: (key: string, value: any, ttlMs: number) => Promise<void>;
     exists?: (key: string, value: any) => Promise<boolean>;
     deleteKey?: (key: string) => Promise<void>;
     setNoExpire?: (key: string, value: any) => Promise<void>;
@@ -83,11 +83,11 @@ export interface TDynamicContext {
   $params?: any;
   $query?: any;
   $user?: any;
-  $repos?: Record<string, any>;
+  $repos: Record<string, any>;
   $req?: Request;
   $res?: Response;
-  $share?: {
-    $logs?: any[];
+  $share: {
+    $logs: any[];
   };
   $api?: {
     request?: {

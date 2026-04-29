@@ -1,6 +1,12 @@
 export { QueryBuilderService } from './query-builder.service';
 export { MongoQueryExecutor } from './executors/mongo-query-executor';
 export { SqlQueryExecutor } from './executors/sql-query-executor';
+export {
+  buildAggregateFilter,
+  hasAggregateQuery,
+  mergeAggregateValue,
+  normalizeAggregateQuery,
+} from './utils/aggregate-query.util';
 export { executeMongoBatchFetches } from './utils/mongo/batch-relation-fetcher';
 export type { MongoBatchFetchDescriptor } from './utils/mongo/batch-relation-fetcher';
 export { MongoBatchAdapter } from './utils/mongo/mongo-batch-adapter';

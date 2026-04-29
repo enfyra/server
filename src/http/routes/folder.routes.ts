@@ -18,6 +18,6 @@ export function registerFolderRoutes(
     }
 
     const tree = await folderTreeCache.getTree();
-    res.json({ data: tree });
+    return res.json({ data: tree });
   });
 }

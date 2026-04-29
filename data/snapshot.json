@@ -1042,6 +1042,14 @@
         "description": "Whether this rule is active"
       },
       {
+        "name": "isSystem",
+        "type": "boolean",
+        "isNullable": false,
+        "isSystem": true,
+        "defaultValue": false,
+        "description": "Whether this is a system-defined field permission"
+      },
+      {
         "name": "description",
         "type": "text",
         "isSystem": true,

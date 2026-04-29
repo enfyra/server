@@ -3,6 +3,7 @@ import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../../kernel/query';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { MetadataCacheService } from './metadata-cache.service';
+import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { EnfyraRouteEngine } from '../../../shared/utils/enfyra-route-engine';
 import {
   normalizeScriptRecord,
@@ -23,6 +24,18 @@ const ROUTE_CONFIG: CacheConfig = {
 interface RouteData {
   routes: any[];
   methods: string[];
+}
+
+interface RouteMatchResult {
+  route: any;
+  params: Record<string, string>;
+}
+
+interface RedisRouteMatchIndexEntry {
+  key: string;
+  path: string;
+  methods: string[];
+  order: number;
 }
 
 const ROUTE_CACHE_ROUTE_FIELDS = [
@@ -102,8 +115,9 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     queryBuilderService: QueryBuilderService;
     metadataCacheService: MetadataCacheService;
     eventEmitter: EventEmitter2;
+    redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
-    super(ROUTE_CONFIG, deps.eventEmitter);
+    super(ROUTE_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
     this.metadataCacheService = deps.metadataCacheService;
     this.routeEngine = new EnfyraRouteEngine(false);
@@ -236,8 +250,9 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     });
 
     const updatedRoutes = result.data;
+    const metadata = await this.metadataCacheService.getMetadata();
     for (const route of updatedRoutes) {
-      this.hydrateRouteMainTable(route);
+      this.hydrateRouteMainTable(route, metadata);
       this.hydrateRouteMethods(route);
       this.mergeHooks(
         route,
@@ -257,7 +272,9 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     this.cache.routes.push(...updatedRoutes);
 
-    this.buildRouteEngine(this.cache.routes);
+    if (!this.usesSharedRuntimeCache()) {
+      this.buildRouteEngine(this.cache.routes);
+    }
   }
 
   private async findRouteIdsForChildRecords(
@@ -358,7 +375,9 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       );
     }
 
-    this.buildRouteEngine(this.cache.routes);
+    if (!this.usesSharedRuntimeCache()) {
+      this.buildRouteEngine(this.cache.routes);
+    }
   }
 
   protected async loadFromDb(): Promise<any> {
@@ -385,8 +404,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     this.globalPreHooks = globalPreHooks;
     this.globalPostHooks = globalPostHooks;
 
+    const metadata = await this.metadataCacheService.getMetadata();
+
     for (const route of routes) {
-      this.hydrateRouteMainTable(route);
+      this.hydrateRouteMainTable(route, metadata);
       this.hydrateRouteMethods(route);
       this.mergeHooks(route, globalPreHooks, globalPostHooks, isMongoDB);
 
@@ -501,8 +522,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     }
   }
 
-  private hydrateRouteMainTable(route: any): void {
-    const metadata = this.metadataCacheService.getDirectMetadata();
+  private hydrateRouteMainTable(route: any, metadata: any): void {
     if (!metadata?.tablesList?.length || !route?.mainTable) return;
 
     const mainTableId = DatabaseConfigService.getRecordId(route.mainTable);
@@ -590,7 +610,13 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   protected async afterTransform(data: RouteData): Promise<void> {
-    this.buildRouteEngine(data.routes);
+    if (!this.usesSharedRuntimeCache()) {
+      this.buildRouteEngine(data.routes);
+    }
+  }
+
+  protected async afterSharedCachePersist(data: RouteData): Promise<void> {
+    await this.persistRedisRouteLookup(data.routes);
   }
 
   protected emitLoadedEvent(): void {
@@ -598,11 +624,11 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   protected getLogCount(): string {
-    return `${this.cache.routes.length} routes, ${this.cache.methods.length} methods`;
+    return `${this.cache?.routes?.length ?? 0} routes, ${this.cache?.methods?.length ?? 0} methods`;
   }
 
   protected getCount(): number {
-    return this.cache.routes.length;
+    return this.cache?.routes?.length ?? 0;
   }
 
   private buildRouteEngine(routes: any[]): void {
@@ -637,11 +663,196 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   async getRoutes(): Promise<any[]> {
-    await this.ensureLoaded();
-    return this.cache.routes;
+    const cache = await this.getCacheAsync();
+    return cache.routes;
   }
 
   getRouteEngine(): EnfyraRouteEngine {
+    if (this.usesSharedRuntimeCache()) {
+      throw new Error('RouteCache is Redis-backed; use matchRoute()');
+    }
     return this.routeEngine;
+  }
+
+  async matchRoute(
+    method: string,
+    path: string,
+  ): Promise<RouteMatchResult | null> {
+    if (!this.usesSharedRuntimeCache()) {
+      return this.routeEngine.find(method, path);
+    }
+
+    const redisMatch = await this.matchRedisRoute(method, path);
+    if (redisMatch) return redisMatch;
+
+    const cache = await this.getCacheAsync();
+    const normalizedPath = this.normalizePath(path);
+    let best:
+      | {
+          route: any;
+          params: Record<string, string>;
+          score: number;
+          index: number;
+        }
+      | null = null;
+
+    for (let i = 0; i < cache.routes.length; i++) {
+      const route = cache.routes[i];
+      if (!this.isMethodAvailable(route, method)) continue;
+      for (const candidate of this.getCandidatePaths(route, method)) {
+        const match = this.matchPattern(candidate, normalizedPath);
+        if (!match) continue;
+        const score = this.scorePattern(candidate);
+        if (!best || score > best.score) {
+          best = { route, params: match, score, index: i };
+        }
+      }
+    }
+
+    return best ? { route: best.route, params: best.params } : null;
+  }
+
+  private async persistRedisRouteLookup(routes: any[]): Promise<void> {
+    if (!this.usesSharedRuntimeCache()) return;
+    const entries: RedisRouteMatchIndexEntry[] = [];
+    await this.redisRuntimeCacheStore!.deleteAuxByPrefix(
+      this.config.cacheIdentifier,
+      'route:',
+    );
+    for (let i = 0; i < routes.length; i++) {
+      const route = routes[i];
+      const key = String(DatabaseConfigService.getRecordId(route) ?? i);
+      const methods = this.getRouteMethods(route);
+      entries.push({
+        key,
+        path: route.path,
+        methods,
+        order: i,
+      });
+      await this.redisRuntimeCacheStore!.setAux(
+        this.config.cacheIdentifier,
+        `route:${key}`,
+        route,
+      );
+    }
+    await this.redisRuntimeCacheStore!.setAux(
+      this.config.cacheIdentifier,
+      'match-index',
+      entries,
+    );
+  }
+
+  private async matchRedisRoute(
+    method: string,
+    path: string,
+  ): Promise<RouteMatchResult | null> {
+    const index = await this.redisRuntimeCacheStore!.getAux<
+      RedisRouteMatchIndexEntry[]
+    >(this.config.cacheIdentifier, 'match-index');
+    if (!Array.isArray(index) || index.length === 0) return null;
+
+    const normalizedPath = this.normalizePath(path);
+    let best:
+      | {
+          entry: RedisRouteMatchIndexEntry;
+          params: Record<string, string>;
+          score: number;
+        }
+      | null = null;
+
+    for (const entry of index) {
+      if (!entry.methods.includes(method)) continue;
+      for (const candidate of this.getCandidatePaths(entry, method)) {
+        const match = this.matchPattern(candidate, normalizedPath);
+        if (!match) continue;
+        const score = this.scorePattern(candidate);
+        if (
+          !best ||
+          score > best.score ||
+          (score === best.score && entry.order < best.entry.order)
+        ) {
+          best = { entry, params: match, score };
+        }
+      }
+    }
+
+    if (!best) return null;
+    const route = await this.redisRuntimeCacheStore!.getAux<any>(
+      this.config.cacheIdentifier,
+      `route:${best.entry.key}`,
+    );
+    return route ? { route, params: best.params } : null;
+  }
+
+  private isMethodAvailable(route: any, method: string): boolean {
+    return this.getRouteMethods(route).includes(method);
+  }
+
+  private getRouteMethods(route: any): string[] {
+    const methods = route?.availableMethods;
+    if (!Array.isArray(methods) || methods.length === 0) return [];
+    return methods.map((m: any) => m?.method ?? m).filter(Boolean);
+  }
+
+  private getCandidatePaths(route: any, method: string): string[] {
+    const paths = [route.path];
+    if (['DELETE', 'PATCH'].includes(method)) {
+      paths.push(`${route.path}/:id`);
+    }
+    return paths.filter(Boolean);
+  }
+
+  private normalizePath(path: string): string {
+    if (!path) return '/';
+    let normalized = path.startsWith('/') ? path : `/${path}`;
+    if (normalized.length > 1 && normalized.endsWith('/')) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized;
+  }
+
+  private splitPath(path: string): string[] {
+    if (path === '/') return [];
+    return path.split('/').filter((segment) => segment.length > 0);
+  }
+
+  private matchPattern(
+    pattern: string,
+    path: string,
+  ): Record<string, string> | null {
+    const patternSegments = this.splitPath(this.normalizePath(pattern));
+    const pathSegments = this.splitPath(path);
+    const params: Record<string, string> = {};
+
+    for (let i = 0; i < patternSegments.length; i++) {
+      const patternSegment = patternSegments[i];
+      const pathSegment = pathSegments[i];
+      if (patternSegment === '*' || patternSegment.startsWith('*')) {
+        params.splat = pathSegments.slice(i).join('/');
+        return params;
+      }
+      if (pathSegment === undefined) return null;
+      if (patternSegment.startsWith(':')) {
+        const paramName = patternSegment.slice(1);
+        try {
+          params[paramName] = decodeURIComponent(pathSegment);
+        } catch {
+          params[paramName] = pathSegment;
+        }
+        continue;
+      }
+      if (patternSegment !== pathSegment) return null;
+    }
+
+    return patternSegments.length === pathSegments.length ? params : null;
+  }
+
+  private scorePattern(pattern: string): number {
+    const segments = this.splitPath(this.normalizePath(pattern));
+    return segments.reduce((score, segment) => {
+      if (segment === '*' || segment.startsWith('*')) return score;
+      if (segment.startsWith(':')) return score + 10;
+      return score + 100;
+    }, segments.length);
   }
 }

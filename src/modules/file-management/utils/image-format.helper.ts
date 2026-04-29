@@ -5,7 +5,7 @@ export class ImageFormatHelper {
     return ext === 'jpg' ? 'jpeg' : ext;
   }
   static getMimeType(format: string): string {
-    const types = {
+    const types: Record<string, string> = {
       jpeg: 'image/jpeg',
       jpg: 'image/jpeg',
       png: 'image/png',

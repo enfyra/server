@@ -6,7 +6,6 @@ import {
 import { EventEmitter2 } from 'eventemitter2';
 import {
   QueryBuilderService,
-  QueryEngine,
   validateDeepOptions,
   rewriteFilterDenyingFields,
   rewriteSortDroppingDenied,
@@ -41,7 +40,6 @@ import { FlowQueueMaintenanceService } from '../../flow';
 export class DynamicRepository {
   public context: TDynamicContext;
   private tableName: string;
-  private queryEngine: QueryEngine;
   private queryBuilderService: QueryBuilderService;
   private tableHandlerService: TableHandlerService;
   private policyService: PolicyService;
@@ -58,7 +56,6 @@ export class DynamicRepository {
   constructor({
     context,
     tableName,
-    queryEngine,
     queryBuilderService,
     tableHandlerService,
     policyService,
@@ -73,7 +70,6 @@ export class DynamicRepository {
   }: {
     context: TDynamicContext;
     tableName: string;
-    queryEngine: QueryEngine;
     queryBuilderService: QueryBuilderService;
     tableHandlerService: TableHandlerService;
     policyService: PolicyService;
@@ -88,7 +84,6 @@ export class DynamicRepository {
   }) {
     this.context = context;
     this.tableName = tableName;
-    this.queryEngine = queryEngine;
     this.queryBuilderService = queryBuilderService;
     this.tableHandlerService = tableHandlerService;
     this.policyService = policyService;
@@ -186,8 +181,6 @@ export class DynamicRepository {
 
     const filter = this.context.$query?.filter;
     const sort = this.context.$query?.sort;
-    const aggregate = this.context.$query?.aggregate;
-
     const walkFilter = (node: any) => {
       if (!node || typeof node !== 'object') return;
       if (Array.isArray(node)) {
@@ -225,15 +218,6 @@ export class DynamicRepository {
         if (first) checkRelation(first);
       } else {
         checkColumn(clean);
-      }
-    }
-
-    if (aggregate && typeof aggregate === 'object') {
-      for (const k of Object.keys(aggregate)) {
-        const val = aggregate[k];
-        if (val && typeof val === 'object') {
-          for (const colName of Object.keys(val)) checkColumn(colName);
-        }
       }
     }
 
@@ -533,6 +517,7 @@ export class DynamicRepository {
       limit?: number;
       sort?: string;
       meta?: string | string[];
+      aggregate?: any;
     } = {},
   ) {
     await this.ensureInit();
@@ -548,7 +533,7 @@ export class DynamicRepository {
         rawDeep,
         metadata,
         0,
-        this.settingCacheService.getMaxQueryDepth(),
+        await this.settingCacheService.getMaxQueryDepth(),
       );
     }
 
@@ -565,7 +550,7 @@ export class DynamicRepository {
       opt?.filter ?? opt?.where ?? this.context.$query?.filter ?? {};
     if (this.tableName === 'table_definition') {
     }
-    const result = await this.queryEngine.find({
+    const result = await this.queryBuilderService.find({
       table: this.tableName,
       fields: cleanFields || '',
       filter: filterValue,
@@ -573,13 +558,13 @@ export class DynamicRepository {
       limit:
         opt && 'limit' in opt ? opt.limit : (this.context.$query?.limit ?? 10),
       meta: opt?.meta || this.context.$query?.meta,
+      aggregate: opt?.aggregate || this.context.$query?.aggregate,
       sort: opt?.sort || this.context.$query?.sort || this.getIdField(),
-      aggregate: this.context.$query?.aggregate || {},
       deep: cleanDeep || {},
       debugMode: debugMode,
       debugTrace: this.context.$debug || undefined,
-      maxQueryDepth: this.settingCacheService.getMaxQueryDepth(),
-    } as any);
+      maxQueryDepth: await this.settingCacheService.getMaxQueryDepth(),
+    });
 
     if (!needsPostSql) {
       return result;
@@ -596,7 +581,7 @@ export class DynamicRepository {
       user: this.context.$user,
       action: 'read',
       metadataCacheService: this.metadataCacheService,
-      fieldPermissionCacheService: this.fieldPermissionCacheService,
+      fieldPermissionCacheService: this.fieldPermissionCacheService!,
       requested,
     });
 

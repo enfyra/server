@@ -110,7 +110,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
 
     let existingRecord = null;
     for (const whereCondition of whereConditions) {
-      const cleanedCondition = { ...whereCondition };
+      const cleanedCondition: Record<string, any> = { ...whereCondition };
       for (const key in cleanedCondition) {
         if (Array.isArray(cleanedCondition[key])) {
           delete cleanedCondition[key];
@@ -252,7 +252,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
 
     let existingRecord = null;
     for (const whereCondition of whereConditions) {
-      const cleanedCondition = { ...whereCondition };
+      const cleanedCondition: Record<string, any> = { ...whereCondition };
       for (const key in cleanedCondition) {
         if (Array.isArray(cleanedCondition[key])) {
           delete cleanedCondition[key];
@@ -317,7 +317,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         : [uniqueWhere];
       let existingRecord = null;
       for (const wc of whereConditions) {
-        const cleaned = { ...wc };
+        const cleaned: Record<string, any> = { ...wc };
         for (const key in cleaned) {
           if (Array.isArray(cleaned[key])) delete cleaned[key];
         }

@@ -138,7 +138,7 @@ export async function decideFieldPermission(
 }
 
 export function formatFieldPermissionErrorMessage(opts: {
-  action: 'read' | 'create' | 'update' | 'filter' | 'sort' | 'aggregate';
+  action: 'read' | 'create' | 'update' | 'filter' | 'sort';
   tableName: string;
   fields: Array<{ type: 'column' | 'relation'; name: string }>;
 }): string {

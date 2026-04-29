@@ -39,6 +39,7 @@ export async function processExtensionDefinition(
     }
   } else {
     assertValidJsBundleSyntax(code);
+    body.compiledCode = code;
     return { processedBody: body };
   }
 }

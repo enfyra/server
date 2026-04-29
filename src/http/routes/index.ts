@@ -15,6 +15,8 @@ import { registerMeRoutes } from './me.routes';
 import { registerPackageRoutes } from './package.routes';
 import { registerDynamicRoutes } from './dynamic.routes';
 
+export { registerAdminRoutes } from './admin.routes';
+
 export function registerRoutes(
   app: Express,
   container: AwilixContainer<Cradle>,

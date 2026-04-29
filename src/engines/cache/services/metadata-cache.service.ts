@@ -1,7 +1,6 @@
 import { DatabaseConfigService } from '../../../shared/services';
 import { Logger } from '../../../shared/logger';
 import type { Cradle } from '../../../container';
-import { DatabaseSchemaService } from '../../knex';
 import {
   getJunctionTableName,
   getForeignKeyColumnName,
@@ -10,6 +9,9 @@ import {
 import { IMetadataCache } from '../../../domain/shared/interfaces/metadata-cache.interface';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { ObjectId } from 'mongodb';
+import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
+import { EventEmitter2 } from 'eventemitter2';
+import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 
 const COLOR = '\x1b[36m';
 const RESET = '\x1b[0m';
@@ -26,18 +28,28 @@ export class MetadataCacheService implements IMetadataCache {
   private inMemoryCache: EnfyraMetadata | null = null;
   private isLoading: boolean = false;
   private loadingPromise: Promise<void> | null = null;
-  private readonly databaseSchemaService: DatabaseSchemaService;
   private readonly dbType: string;
   private readonly lazyRef: Cradle;
+  private readonly redisRuntimeCacheStore?: RedisRuntimeCacheStore;
+  private sharedCacheLoaded = false;
+  private sharedRefreshLockValue: string | null = null;
+  private systemReady = false;
 
   constructor(deps: {
-    databaseSchemaService: DatabaseSchemaService;
     databaseConfigService: DatabaseConfigService;
     lazyRef: Cradle;
+    redisRuntimeCacheStore?: RedisRuntimeCacheStore;
+    eventEmitter?: EventEmitter2;
   }) {
-    this.databaseSchemaService = deps.databaseSchemaService;
     this.dbType = deps.databaseConfigService.getDbType();
     this.lazyRef = deps.lazyRef;
+    this.redisRuntimeCacheStore = deps.redisRuntimeCacheStore;
+    deps.eventEmitter?.once(CACHE_EVENTS.SYSTEM_READY, () => {
+      this.systemReady = true;
+      if (this.usesSharedRuntimeCache()) {
+        this.inMemoryCache = null;
+      }
+    });
   }
 
   async reload(): Promise<void> {
@@ -48,13 +60,14 @@ export class MetadataCacheService implements IMetadataCache {
     this.isLoading = true;
     this.loadingPromise = (async () => {
       try {
-        const metadata = await this.loadMetadataFromDb();
-        this.inMemoryCache = metadata;
+        const metadata = await this.loadFreshMetadataForReload();
+        await this.setLoadedMetadata(metadata);
 
         this.logger.log(
           `Loaded ${metadata.tablesList.length} table definitions`,
         );
       } catch (error) {
+        await this.releaseActiveSharedLock();
         this.logger.error('Failed to reload metadata cache:', error);
         throw error;
       } finally {
@@ -72,15 +85,47 @@ export class MetadataCacheService implements IMetadataCache {
     }
     try {
       const start = Date.now();
+      if (this.usesSharedRuntimeCache()) {
+        const lockValue =
+          await this.redisRuntimeCacheStore!.acquireRefreshLockWithWait(
+            'metadata',
+          );
+        if (!lockValue) {
+          throw new Error('Metadata shared cache refresh lock timed out');
+        }
+        this.sharedRefreshLockValue = lockValue;
+        const snapshot = await this.redisRuntimeCacheStore!.getSnapshot<EnfyraMetadata>(
+          'metadata',
+        );
+        if (!snapshot) {
+          await this.releaseActiveSharedLock();
+          await this.reload();
+          return;
+        }
+        this.inMemoryCache = snapshot.data;
+      }
       await this.applyPartialUpdate(payload);
+      if (this.usesSharedRuntimeCache()) {
+        await this.redisRuntimeCacheStore!.setSnapshot(
+          'metadata',
+          this.inMemoryCache!,
+        );
+        this.sharedCacheLoaded = true;
+      }
       this.logger.log(
         `Partial reload (${payload.ids?.length ?? 0} tables) in ${Date.now() - start}ms`,
       );
     } catch (error) {
+      await this.releaseActiveSharedLock();
       this.logger.warn(
         `Partial reload failed, falling back to full: ${(error as Error).message}`,
       );
       await this.reload();
+    } finally {
+      await this.releaseActiveSharedLock();
+      if (this.usesSharedRuntimeCache()) {
+        this.inMemoryCache = null;
+      }
     }
   }
 
@@ -166,13 +211,6 @@ export class MetadataCacheService implements IMetadataCache {
       this.loadRelationsBySourceTableIds(uniqueTableIds, isMongoDB),
     ]);
 
-    let schemasForTables: Map<string, any> | null = null;
-    if (!isMongoDB) {
-      const tableNames = tables.map((t: any) => t.name);
-      schemasForTables =
-        await this.databaseSchemaService.getTableSchemas(tableNames);
-    }
-
     const allRelations = relationsResult;
     const relationIdMap = new Map<string, any>();
     for (const rel of allRelations) {
@@ -226,7 +264,6 @@ export class MetadataCacheService implements IMetadataCache {
         columnsByTable,
         relationsBySource,
         globalTableIdToName,
-        schemasForTables,
         isMongoDB,
       );
       if (!metadata) continue;
@@ -270,21 +307,9 @@ export class MetadataCacheService implements IMetadataCache {
     columnsByTable: Map<string, any[]>,
     relationsBySource: Map<string, any[]>,
     tableIdToName: Map<string, string>,
-    schemasForTables: Map<string, any> | null,
     isMongoDB: boolean,
   ): any | null {
     try {
-      let actualSchema = null;
-      if (!isMongoDB) {
-        actualSchema = schemasForTables?.get(table.name);
-        if (!actualSchema) {
-          this.logger.warn(
-            `Table ${table.name} not found in database, skipping...`,
-          );
-          return null;
-        }
-      }
-
       let uniques = [];
       let indexes = [];
       if (table.uniques) {
@@ -375,13 +400,7 @@ export class MetadataCacheService implements IMetadataCache {
           if (rel.mappedBy) {
             relationMetadata.isInverse = true;
           } else {
-            const fkColumn = isMongoDB
-              ? rel.propertyName
-              : getForeignKeyColumnName(rel.propertyName);
-            const hasFkColumn = actualSchema?.columns?.some(
-              (col: any) => col.name === fkColumn,
-            );
-            relationMetadata.isInverse = !hasFkColumn;
+            relationMetadata.isInverse = false;
           }
         } else {
           relationMetadata.isInverse = false;
@@ -440,64 +459,33 @@ export class MetadataCacheService implements IMetadataCache {
 
       const combinedColumns = [...parsedExplicitColumns];
 
-      if (!isMongoDB && actualSchema) {
-        for (const rel of relations) {
-          if (['many-to-one', 'one-to-one'].includes(rel.type)) {
-            const fkColumn = rel.foreignKeyColumn;
-            const existsInExplicit = parsedExplicitColumns.some(
-              (col) => col.name === fkColumn,
-            );
-            if (!existsInExplicit) {
-              const actualFkColumn = actualSchema.columns.find(
-                (col) => col.name === fkColumn,
-              );
-              if (actualFkColumn) {
-                combinedColumns.push({
-                  ...actualFkColumn,
-                  isForeignKey: true,
-                  relationPropertyName: rel.propertyName,
-                  isUpdatable: rel.isUpdatable !== false,
-                  description: `FK column for ${rel.propertyName} relation`,
-                });
-              }
-            } else {
-              const explicitFkColumn = combinedColumns.find(
-                (col) => col.name === fkColumn,
-              );
-              if (explicitFkColumn && rel.isUpdatable === false) {
-                explicitFkColumn.isUpdatable = false;
-              }
-            }
-          }
-        }
+      if (!isMongoDB) {
+        this.ensureSqlSystemColumns(combinedColumns);
 
-        const hasCreatedAt = combinedColumns.some(
-          (col) => col.name === 'createdAt',
-        );
-        const hasUpdatedAt = combinedColumns.some(
-          (col) => col.name === 'updatedAt',
-        );
-        if (!hasCreatedAt) {
-          const actualCreatedAt = actualSchema.columns.find(
-            (col) => col.name === 'createdAt',
+        for (const rel of relations) {
+          if (
+            !['many-to-one', 'one-to-one'].includes(rel.type) ||
+            rel.isInverse
+          ) {
+            continue;
+          }
+
+          const fkColumn = rel.foreignKeyColumn;
+          const explicitFkColumn = combinedColumns.find(
+            (col) => col.name === fkColumn,
           );
-          if (actualCreatedAt)
-            combinedColumns.push({
-              ...actualCreatedAt,
-              isSystem: true,
-              isUpdatable: false,
-            });
-        }
-        if (!hasUpdatedAt) {
-          const actualUpdatedAt = actualSchema.columns.find(
-            (col) => col.name === 'updatedAt',
+          if (explicitFkColumn) {
+            if (rel.isUpdatable === false) {
+              explicitFkColumn.isUpdatable = false;
+            }
+            explicitFkColumn.isForeignKey = true;
+            explicitFkColumn.relationPropertyName = rel.propertyName;
+            continue;
+          }
+
+          combinedColumns.push(
+            this.buildForeignKeyColumn(rel, columnsByTable, tableIdToName),
           );
-          if (actualUpdatedAt)
-            combinedColumns.push({
-              ...actualUpdatedAt,
-              isSystem: true,
-              isUpdatable: false,
-            });
         }
       }
 
@@ -527,6 +515,74 @@ export class MetadataCacheService implements IMetadataCache {
     }
   }
 
+  private ensureSqlSystemColumns(columns: any[]): void {
+    this.ensureColumn(columns, {
+      name: 'createdAt',
+      type: 'datetime',
+      isPrimary: false,
+      isGenerated: false,
+      isNullable: true,
+      isSystem: true,
+      isUpdatable: false,
+      isPublished: true,
+      defaultValue: 'now',
+    });
+    this.ensureColumn(columns, {
+      name: 'updatedAt',
+      type: 'datetime',
+      isPrimary: false,
+      isGenerated: false,
+      isNullable: true,
+      isSystem: true,
+      isUpdatable: false,
+      isPublished: true,
+      defaultValue: 'now',
+    });
+  }
+
+  private ensureColumn(columns: any[], column: any): void {
+    const existing = columns.find((col) => col.name === column.name);
+    if (existing) {
+      if (column.isSystem === true) existing.isSystem = true;
+      if (column.isUpdatable === false) existing.isUpdatable = false;
+      return;
+    }
+    columns.push(column);
+  }
+
+  private buildForeignKeyColumn(
+    relation: any,
+    columnsByTable: Map<string, any[]>,
+    tableIdToName: Map<string, string>,
+  ): any {
+    const targetTableId =
+      relation.targetTableId != null
+        ? String(relation.targetTableId)
+        : [...tableIdToName.entries()].find(
+            ([, name]) => name === relation.targetTableName,
+          )?.[0];
+    const targetColumns = targetTableId
+      ? columnsByTable.get(String(targetTableId)) || []
+      : [];
+    const targetPrimaryColumn = targetColumns.find((col: any) => col.isPrimary);
+
+    return {
+      name: relation.foreignKeyColumn,
+      type: targetPrimaryColumn?.type || 'int',
+      isPrimary: false,
+      isGenerated: false,
+      isNullable: relation.isNullable !== false,
+      isSystem: false,
+      isUpdatable: relation.isUpdatable !== false,
+      isPublished: relation.isPublished !== false,
+      defaultValue: null,
+      options: targetPrimaryColumn?.options ?? null,
+      isForeignKey: true,
+      relationPropertyName: relation.propertyName,
+      description: `FK column for ${relation.propertyName} relation`,
+    };
+  }
+
   private async loadMetadataFromDb(): Promise<EnfyraMetadata> {
     const isMongoDB = this.dbType === 'mongodb';
 
@@ -535,11 +591,6 @@ export class MetadataCacheService implements IMetadataCache {
       this.loadAllColumns(isMongoDB),
       this.loadAllRelations(isMongoDB),
     ]);
-
-    let allSchemas: Map<string, any> | null = null;
-    if (!isMongoDB) {
-      allSchemas = await this.databaseSchemaService.getAllTableSchemas();
-    }
 
     const relationIdMap = new Map<string, any>();
     for (const rel of allRelations) {
@@ -581,7 +632,6 @@ export class MetadataCacheService implements IMetadataCache {
         columnsByTable,
         relationsBySource,
         tableIdToName,
-        allSchemas,
         isMongoDB,
       );
       if (!metadata) continue;
@@ -598,6 +648,17 @@ export class MetadataCacheService implements IMetadataCache {
   }
 
   async getMetadata(): Promise<EnfyraMetadata> {
+    if (this.usesSharedRuntimeCache()) {
+      if (this.inMemoryCache) return this.inMemoryCache;
+      const snapshot = await this.redisRuntimeCacheStore!.getSnapshot<EnfyraMetadata>(
+        'metadata',
+      );
+      if (snapshot) {
+        this.sharedCacheLoaded = true;
+        return snapshot.data;
+      }
+      return await this.loadAndCacheMetadata();
+    }
     if (this.inMemoryCache) return this.inMemoryCache;
     return await this.loadAndCacheMetadata();
   }
@@ -608,8 +669,8 @@ export class MetadataCacheService implements IMetadataCache {
     if (this.initialLoadPromise) return this.initialLoadPromise;
     this.initialLoadPromise = (async () => {
       try {
-        const metadata = await this.loadMetadataFromDb();
-        this.inMemoryCache = metadata;
+        const metadata = await this.loadFreshMetadataForReload();
+        await this.setLoadedMetadata(metadata);
         return metadata;
       } finally {
         this.initialLoadPromise = null;
@@ -643,14 +704,81 @@ export class MetadataCacheService implements IMetadataCache {
 
   async clearMetadataCache(): Promise<void> {
     this.inMemoryCache = null;
+    this.sharedCacheLoaded = false;
   }
 
   getDirectMetadata(): EnfyraMetadata {
-    return this.inMemoryCache;
+    return this.inMemoryCache!;
   }
 
   isLoaded(): boolean {
-    return this.inMemoryCache !== null;
+    return this.usesSharedRuntimeCache()
+      ? this.sharedCacheLoaded
+      : this.inMemoryCache !== null;
+  }
+
+  usesSharedRuntimeCache(): boolean {
+    return this.redisRuntimeCacheStore?.isEnabled() === true;
+  }
+
+  async syncFromSharedCache(timeoutMs = 10000): Promise<void> {
+    if (!this.usesSharedRuntimeCache()) {
+      await this.reload();
+      return;
+    }
+    const snapshot =
+      await this.redisRuntimeCacheStore!.waitForSnapshot<EnfyraMetadata>(
+        'metadata',
+        timeoutMs,
+      );
+    if (!snapshot) {
+      throw new Error('Metadata shared cache is unavailable');
+    }
+    this.sharedCacheLoaded = true;
+    this.inMemoryCache = null;
+  }
+
+  private async setLoadedMetadata(metadata: EnfyraMetadata): Promise<void> {
+    if (this.usesSharedRuntimeCache()) {
+      await this.redisRuntimeCacheStore!.setSnapshot('metadata', metadata);
+      this.sharedCacheLoaded = true;
+      this.inMemoryCache = this.systemReady ? null : metadata;
+      await this.releaseActiveSharedLock();
+      return;
+    }
+    this.inMemoryCache = metadata;
+  }
+
+  private async loadFreshMetadataForReload(): Promise<EnfyraMetadata> {
+    if (!this.usesSharedRuntimeCache()) {
+      return this.loadMetadataFromDb();
+    }
+
+    const lockValue =
+      await this.redisRuntimeCacheStore!.acquireRefreshLock('metadata');
+    if (!lockValue) {
+      const snapshot =
+        await this.redisRuntimeCacheStore!.waitForSnapshot<EnfyraMetadata>(
+          'metadata',
+        );
+      if (snapshot) return snapshot.data;
+    }
+
+    try {
+      return await this.loadMetadataFromDb();
+    } finally {
+      this.sharedRefreshLockValue = lockValue;
+    }
+  }
+
+  private async releaseActiveSharedLock(): Promise<void> {
+    if (!this.usesSharedRuntimeCache() || !this.sharedRefreshLockValue) return;
+    const lockValue = this.sharedRefreshLockValue;
+    this.sharedRefreshLockValue = null;
+    await this.redisRuntimeCacheStore!.releaseRefreshLock(
+      'metadata',
+      lockValue,
+    );
   }
 
   private async loadTablesByIds(

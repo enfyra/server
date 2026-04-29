@@ -1,4 +1,4 @@
-import { BcryptService } from 'src/domain/auth';
+import { BcryptService } from '../../src/domain/auth';
 
 describe('BcryptService', () => {
   it('compare succeeds when password longer than 72 matches hashed truncated input', async () => {

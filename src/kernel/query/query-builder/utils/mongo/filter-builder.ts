@@ -68,9 +68,10 @@ export function whereToMongoFilter(
 
   for (const condition of conditions) {
     let fieldName = condition.field.includes('.')
-      ? condition.field.split('.').pop()
+      ? (condition.field.split('.').pop() ?? condition.field)
       : condition.field;
-    const tableNameForConversion = tableName || condition.field.split('.')[0];
+    const tableNameForConversion =
+      tableName || condition.field.split('.')[0] || '';
 
     if (isMongo && fieldName === 'id') {
       fieldName = '_id';
@@ -113,10 +114,10 @@ export function whereToMongoFilter(
         if (!Array.isArray(inValues)) {
           inValues =
             typeof inValues === 'string' && inValues.includes(',')
-              ? inValues.split(',').map((v) => v.trim())
+              ? inValues.split(',').map((v: string) => v.trim())
               : [inValues];
         }
-        const convertedInValues = inValues.map((v) =>
+        const convertedInValues = inValues.map((v: any) =>
           convertValueByType(metadata, tableNameForConversion, fieldName, v),
         );
         filter[fieldName] = { $in: convertedInValues };
@@ -126,10 +127,10 @@ export function whereToMongoFilter(
         if (!Array.isArray(notInValues)) {
           notInValues =
             typeof notInValues === 'string' && notInValues.includes(',')
-              ? notInValues.split(',').map((v) => v.trim())
+              ? notInValues.split(',').map((v: string) => v.trim())
               : [notInValues];
         }
-        const convertedNotInValues = notInValues.map((v) =>
+        const convertedNotInValues = notInValues.map((v: any) =>
           convertValueByType(metadata, tableNameForConversion, fieldName, v),
         );
         filter[fieldName] = { $nin: convertedNotInValues };
@@ -242,10 +243,10 @@ export function applyOperatorToMatch(
       if (!Array.isArray(inValues)) {
         inValues =
           typeof inValues === 'string' && inValues.includes(',')
-            ? inValues.split(',').map((v) => v.trim())
+            ? inValues.split(',').map((v: string) => v.trim())
             : [inValues];
       }
-      const convertedInValues = inValues.map((v) =>
+      const convertedInValues = inValues.map((v: any) =>
         convertValueByType(metadata, tableName, field, v),
       );
       matchCondition[field] = { $in: convertedInValues };
@@ -260,7 +261,7 @@ export function applyOperatorToMatch(
             ? notInValuesNin.split(',').map((v: string) => v.trim())
             : [notInValuesNin];
       }
-      const convertedNotInVals = notInValuesNin.map((v) =>
+      const convertedNotInVals = notInValuesNin.map((v: any) =>
         convertValueByType(metadata, tableName, field, v),
       );
       if (isNullableColumn(metadata, tableName, field)) {

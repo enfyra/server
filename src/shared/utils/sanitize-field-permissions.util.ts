@@ -49,7 +49,7 @@ export async function sanitizeFieldPermissionsResult(params: {
     requested,
   } = params;
 
-  const meta = metadataCacheService.getDirectMetadata();
+  const meta = await metadataCacheService.getMetadata();
   const tableMeta = meta?.tables?.get?.(tableName) || null;
 
   const walk = async (

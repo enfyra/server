@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SchemaMigrationValidatorService } from 'src/domain/policy';
+import { SchemaMigrationValidatorService } from '../../src/domain/policy';
 
 const metadataCacheStub: any = {
   async getMetadata() {

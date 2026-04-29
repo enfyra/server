@@ -78,3 +78,69 @@ describe('data-migration.json — publishedMethods cleanup', () => {
     expect(authEntries.length).toBeGreaterThan(0);
   });
 });
+
+describe('settings menu seed cleanup', () => {
+  const defaultData = loadJson('default-data.json');
+  const migration = loadJson('data-migration.json');
+
+  it('does not seed a dedicated field permissions menu', () => {
+    const menus: any[] = defaultData.menu_definition ?? [];
+    expect(
+      menus.find((menu) => menu.path === '/settings/field-permissions'),
+    ).toBeUndefined();
+  });
+
+  it('deletes the existing field permissions menu through data migration', () => {
+    const deletedRecords: any[] = migration._deletedRecords ?? [];
+    expect(
+      deletedRecords.some(
+        (record) =>
+          record.table === 'menu_definition' &&
+          record.filter?.path?._eq === '/settings/field-permissions',
+      ),
+    ).toBe(true);
+  });
+
+  it('does not seed a dedicated cache reload menu', () => {
+    const menus: any[] = defaultData.menu_definition ?? [];
+    expect(
+      menus.find((menu) => menu.path === '/settings/admin/cache'),
+    ).toBeUndefined();
+  });
+
+  it('deletes the existing cache reload menu through data migration', () => {
+    const deletedRecords: any[] = migration._deletedRecords ?? [];
+    expect(
+      deletedRecords.some(
+        (record) =>
+          record.table === 'menu_definition' &&
+          record.filter?.path?._eq === '/settings/admin/cache',
+      ),
+    ).toBe(true);
+  });
+
+  it('seeds runtime monitor at settings/runtime', () => {
+    const menus: any[] = defaultData.menu_definition ?? [];
+    expect(
+      menus.find((menu) => menu.path === '/settings/admin/runtime'),
+    ).toBeUndefined();
+    expect(menus.find((menu) => menu.path === '/settings/runtime')).toEqual(
+      expect.objectContaining({
+        label: 'Runtime Monitor',
+      }),
+    );
+  });
+
+  it('updates the existing runtime monitor menu path through data migration', () => {
+    const menus: any[] = migration.menu_definition ?? [];
+    expect(
+      menus.find(
+        (menu) => menu._unique?.path?._eq === '/settings/admin/runtime',
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        path: '/settings/runtime',
+      }),
+    );
+  });
+});

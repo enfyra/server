@@ -1,91 +1,96 @@
-/**
- * Tests for AdminController granular reload endpoints.
- * Verifies all admin reload routes exist and call the correct orchestrator methods.
- */
-describe('AdminController — granular reload endpoints', () => {
-  let controller: any;
-  let orchestrator: any;
+import { describe, expect, it, vi } from 'vitest';
+import { registerAdminRoutes } from '../../src/http/routes';
 
-  beforeEach(() => {
-    orchestrator = {
-      reloadAll: jest.fn().mockResolvedValue(undefined),
-      reloadMetadataAndDeps: jest.fn().mockResolvedValue(undefined),
-      reloadRoutesOnly: jest.fn().mockResolvedValue(undefined),
-      reloadGraphqlOnly: jest.fn().mockResolvedValue(undefined),
-      reloadGuardsOnly: jest.fn().mockResolvedValue(undefined),
+function createHarness() {
+  const handlers = new Map<string, any>();
+  const register = (path: string, handler: any) => handlers.set(path, handler);
+  const app = {
+    get: register,
+    post: register,
+    patch: register,
+    delete: register,
+  };
+  const orchestrator = {
+    reloadAll: vi.fn().mockResolvedValue(undefined),
+    reloadMetadataAndDeps: vi.fn().mockResolvedValue(undefined),
+    reloadRoutesOnly: vi.fn().mockResolvedValue(undefined),
+    reloadGraphqlOnly: vi.fn().mockResolvedValue(undefined),
+    reloadGuardsOnly: vi.fn().mockResolvedValue(undefined),
+  };
+  registerAdminRoutes(app as any, {
+    cradle: { cacheOrchestratorService: orchestrator },
+  } as any);
+
+  async function post(path: string) {
+    const response = {
+      statusCode: 200,
+      body: null as any,
+      status: vi.fn((code: number) => {
+        response.statusCode = code;
+        return response;
+      }),
+      json: vi.fn((body: any) => {
+        response.body = body;
+        return response;
+      }),
     };
+    await handlers.get(path)?.({ scope: { cradle: {} } }, response);
+    return response;
+  }
 
-    // Minimal controller simulation matching AdminController structure
-    controller = {
-      async reloadAll() {
-        await orchestrator.reloadAll();
-        return {
-          success: true,
-          message: 'All caches and schemas reloaded successfully',
-        };
-      },
-      async reloadMetadata() {
-        await orchestrator.reloadMetadataAndDeps();
-        return { success: true };
-      },
-      async reloadRoutes() {
-        await orchestrator.reloadRoutesOnly();
-        return { success: true };
-      },
-      async reloadGraphql() {
-        await orchestrator.reloadGraphqlOnly();
-        return { success: true };
-      },
-      async reloadGuards() {
-        await orchestrator.reloadGuardsOnly();
-        return { success: true };
-      },
-    };
-  });
+  return { orchestrator, post };
+}
 
-  it('POST /admin/reload → calls reloadAll', async () => {
-    const result = await controller.reloadAll();
-    expect(orchestrator.reloadAll).toHaveBeenCalledTimes(1);
-    expect(result.success).toBe(true);
-  });
+describe('Admin reload endpoints', () => {
+  it.each([
+    ['/admin/reload', 'reloadAll', 'All cache reload started'],
+    [
+      '/admin/reload/metadata',
+      'reloadMetadataAndDeps',
+      'Metadata cache reload started',
+    ],
+    ['/admin/reload/routes', 'reloadRoutesOnly', 'Route cache reload started'],
+    [
+      '/admin/reload/graphql',
+      'reloadGraphqlOnly',
+      'GraphQL cache reload started',
+    ],
+    ['/admin/reload/guards', 'reloadGuardsOnly', 'Guard cache reload started'],
+  ])('%s starts %s without waiting for completion', async (path, method, message) => {
+    const { orchestrator, post } = createHarness();
+    let resolveReload: (() => void) | undefined;
+    orchestrator[method as keyof typeof orchestrator].mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveReload = resolve;
+      }),
+    );
 
-  it('POST /admin/reload/metadata → calls reloadMetadataAndDeps', async () => {
-    const result = await controller.reloadMetadata();
-    expect(orchestrator.reloadMetadataAndDeps).toHaveBeenCalledTimes(1);
-    expect(result.success).toBe(true);
-  });
+    const response = await post(path);
 
-  it('POST /admin/reload/routes → calls reloadRoutesOnly', async () => {
-    const result = await controller.reloadRoutes();
-    expect(orchestrator.reloadRoutesOnly).toHaveBeenCalledTimes(1);
-    expect(result.success).toBe(true);
-  });
-
-  it('POST /admin/reload/graphql → calls reloadGraphqlOnly', async () => {
-    const result = await controller.reloadGraphql();
-    expect(orchestrator.reloadGraphqlOnly).toHaveBeenCalledTimes(1);
-    expect(result.success).toBe(true);
-  });
-
-  it('POST /admin/reload/guards → calls reloadGuardsOnly', async () => {
-    const result = await controller.reloadGuards();
-    expect(orchestrator.reloadGuardsOnly).toHaveBeenCalledTimes(1);
-    expect(result.success).toBe(true);
-  });
-
-  describe('error handling', () => {
-    it('reloadAll should propagate orchestrator errors', async () => {
-      orchestrator.reloadAll.mockRejectedValue(new Error('Redis down'));
-      await expect(controller.reloadAll()).rejects.toThrow('Redis down');
+    expect(response.status).toHaveBeenCalledWith(202);
+    expect(response.body).toEqual({
+      success: true,
+      status: 'accepted',
+      message,
     });
+    expect(orchestrator[method as keyof typeof orchestrator]).toHaveBeenCalledTimes(1);
+    resolveReload?.();
+  });
 
-    it('reloadMetadata should propagate orchestrator errors', async () => {
-      orchestrator.reloadMetadataAndDeps.mockRejectedValue(
-        new Error('DB connection lost'),
-      );
-      await expect(controller.reloadMetadata()).rejects.toThrow(
-        'DB connection lost',
-      );
-    });
+  it('does not fail the response when the background reload rejects', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { orchestrator, post } = createHarness();
+    orchestrator.reloadRoutesOnly.mockRejectedValue(new Error('Redis down'));
+
+    const response = await post('/admin/reload/routes');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(response.statusCode).toBe(202);
+    expect(response.body.status).toBe('accepted');
+    expect(consoleSpy).toHaveBeenCalledWith(
+      'Error during Route cache reload:',
+      expect.any(Error),
+    );
+    consoleSpy.mockRestore();
   });
 });

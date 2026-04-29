@@ -80,13 +80,15 @@ export async function buildNestedLookupPipeline(
   const additionalRelations: any[] = [];
   for (const [relationName, _] of Object.entries(relationFilters)) {
     const existsInExpanded = nestedExpanded.relations.some(
-      (r) => r.propertyName === relationName,
+      (r: any) => r.propertyName === relationName,
     );
     if (!existsInExpanded) {
-      const relMeta = allRelations.find((r) => r.propertyName === relationName);
+      const relMeta = allRelations.find(
+        (r: any) => r.propertyName === relationName,
+      );
       if (relMeta) {
-        let localField: string;
-        let foreignField: string;
+        let localField = '';
+        let foreignField = '';
 
         if (relMeta.type === 'many-to-one' || relMeta.type === 'one-to-one') {
           localField = relMeta.propertyName;
@@ -178,8 +180,8 @@ export async function buildNestedLookupPipeline(
   }
 
   const unpopulatedRelations = allRelations.filter(
-    (rel) =>
-      !allRelationsToProcess.some((r) => r.propertyName === rel.propertyName),
+    (rel: any) =>
+      !allRelationsToProcess.some((r: any) => r.propertyName === rel.propertyName),
   );
 
   if (
@@ -245,7 +247,7 @@ export async function addProjectionStage(
   const allColumns = baseMeta?.columns || [];
 
   const unpopulatedRelations = allRelations.filter(
-    (rel) => !relations.some((r) => r.propertyName === rel.propertyName),
+    (rel: any) => !relations.some((r: any) => r.propertyName === rel.propertyName),
   );
 
   const hasWildcard =

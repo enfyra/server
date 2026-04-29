@@ -1,4 +1,4 @@
-import { createFetchHelper } from 'src/shared/helpers';
+import { createFetchHelper } from '../../src/shared/helpers';
 
 describe('createFetchHelper', () => {
   it('blocks private ip by default', async () => {

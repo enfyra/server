@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PackageCdnLoaderService } from 'src/engines/cache';
+import { PackageCdnLoaderService } from '../../src/engines/cache';
 
 function response(body: string, ok = true, status = 200) {
   return {
@@ -29,11 +29,11 @@ describe('PackageCdnLoaderService worker runtime fallback', () => {
       ),
     );
 
-    const mod = await loader.loadPackage('worker-only-demo', '1.0.0');
-    expect(mod).toEqual({
-      __enfyraRuntime: 'worker',
+    const descriptor = await loader.loadPackage('worker-only-demo', '1.0.0');
+    expect(descriptor).toMatchObject({
       name: 'worker-only-demo',
       version: '1.0.0',
+      safeName: 'worker_only_demo',
     });
 
     const sources = loader.getPackageSources(['worker-only-demo']);

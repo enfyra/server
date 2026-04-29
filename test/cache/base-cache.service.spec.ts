@@ -1,4 +1,4 @@
-import { BaseCacheService } from 'src/engines/cache';
+import { BaseCacheService } from '../../src/engines/cache';
 import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants';
 
 class TestCache extends BaseCacheService<Map<string, string>> {

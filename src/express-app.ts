@@ -41,6 +41,19 @@ import { registerMeRoutes } from './http/routes/me.routes';
 import { registerDynamicRoutes } from './http/routes/dynamic.routes';
 import { DebugTrace } from './shared/utils/debug-trace.util';
 
+export function disposeRequestScopeOnResponse(req: any, res: any): void {
+  let disposed = false;
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    Promise.resolve(req.scope?.dispose?.()).catch((error) => {
+      console.error('Request scope dispose failed:', error);
+    });
+  };
+  res.once('finish', dispose);
+  res.once('close', dispose);
+}
+
 export function buildExpressApp(container: AwilixContainer<Cradle>) {
   const app = express();
   app.set('query parser', (str: string) => {
@@ -68,6 +81,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
       req._debug.dur('mw_scope_create', start);
     }
     req.scope = buildRequestScope(container, req, res);
+    disposeRequestScopeOnResponse(req, res);
     next();
   });
 
@@ -148,24 +162,16 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   registerPackageRoutes(app, container);
   registerMeRoutes(app, container);
 
-  try {
-    const graphqlService = c.graphqlService;
-    app.use('/graphql', (req: any, res: any, next: any) => {
-      return graphqlService.getYogaApp()(req, res, next);
-    });
-  } catch (error: any) {
-    console.warn('GraphQL endpoint not available:', error.message);
-  }
+  const graphqlService = c.graphqlService;
+  const yogaApp = graphqlService.getYogaApp();
+  app.use('/graphql', (req: any, res: any, next: any) => {
+    return yogaApp(req, res, next);
+  });
 
   registerDynamicRoutes(app, container);
 
   app.use(dynamicInterceptorEnd);
   app.use(requestLoggingEnd);
-
-  app.use((req: any, res, next) => {
-    req.scope?.dispose?.();
-    next();
-  });
 
   app.use(globalExceptionMiddleware);
 

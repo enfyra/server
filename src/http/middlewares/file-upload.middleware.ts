@@ -12,7 +12,7 @@ const diskStorage = multer.diskStorage({
 });
 
 export function fileUploadMiddleware(settingCacheService: SettingCacheService) {
-  return (req: any, res: Response, next: NextFunction) => {
+  return async (req: any, res: Response, next: NextFunction) => {
     const isPostOrPatch = ['POST', 'PATCH'].includes(req.method);
     const isMultipartContent = req.headers['content-type']?.includes(
       'multipart/form-data',
@@ -23,7 +23,7 @@ export function fileUploadMiddleware(settingCacheService: SettingCacheService) {
     const upload = multer({
       storage: diskStorage,
       limits: {
-        fileSize: settingCacheService.getMaxUploadFileSizeBytes(),
+        fileSize: await settingCacheService.getMaxUploadFileSizeBytes(),
       },
       preservePath: true,
     });

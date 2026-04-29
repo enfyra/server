@@ -1,4 +1,4 @@
-import { validateDeepOptions } from 'src/kernel/query';
+import { validateDeepOptions } from '../../src/kernel/query';
 
 const META: Record<string, any> = {
   posts: {

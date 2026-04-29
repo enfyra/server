@@ -1,8 +1,23 @@
 'use strict';
 
+const { createPackageRuntimeCodec } = require('./package-runtime-codec');
+
 const moduleCache = new Map();
 const handles = new Map();
+const pendingCallbackCalls = new Map();
 let handleCounter = 0;
+let callbackCounter = 0;
+
+const {
+  createPackageHandle,
+  deserializePackageArg,
+  deserializePackageArgs,
+  serializePackageValue,
+} = createPackageRuntimeCodec({
+  handles,
+  createHandleId: (taskId) => `${taskId}:pkg_${++handleCounter}`,
+  callIsolateCallback,
+});
 
 async function importPackage(pkg) {
   const cacheKey = pkg.fileUrl || pkg.name;
@@ -45,30 +60,27 @@ function resolvePackageTarget(root, path) {
   return { target: current, receiver };
 }
 
-function serializePackageValue(taskId, value) {
-  if (value === undefined || value === null) return value;
-  const valueType = typeof value;
-  if (valueType === 'string' || valueType === 'number' || valueType === 'boolean') return value;
-  if (Array.isArray(value)) return value;
-  if (valueType === 'object') {
+function callIsolateCallback(taskId, callbackId, args) {
+  return new Promise((resolve, reject) => {
+    const id = `cb_${++callbackCounter}`;
+    pendingCallbackCalls.set(id, { resolve, reject, taskId });
     try {
-      JSON.stringify(value);
-      return value;
-    } catch {}
-  }
-  const handleId = `${taskId}:pkg_${++handleCounter}`;
-  handles.set(handleId, value);
-  return { __pkgHandle: handleId };
-}
-
-function createPackageHandle(taskId, value) {
-  const handleId = `${taskId}:pkg_${++handleCounter}`;
-  handles.set(handleId, value);
-  return { __pkgHandle: handleId };
+      process.send?.({
+        type: 'pkgCallbackCall',
+        id,
+        taskId,
+        callbackId,
+        argsJson: JSON.stringify(args.map((arg) => serializePackageValue(taskId, arg))),
+      });
+    } catch (error) {
+      pendingCallbackCalls.delete(id);
+      reject(error);
+    }
+  });
 }
 
 async function executePackageCall(msg) {
-  const args = JSON.parse(msg.argsJson || '[]');
+  const args = deserializePackageArgs(msg.taskId, msg.argsJson);
 
   if (msg.op === 'handleCall') {
     const root = handles.get(msg.handleId);
@@ -81,8 +93,18 @@ async function executePackageCall(msg) {
     return serializePackageValue(msg.taskId, result);
   }
 
+  if (msg.op === 'handleGet') {
+    const root = handles.get(msg.handleId);
+    if (!root) throw new Error(`Package handle not found: ${msg.handleId}`);
+    const { target, receiver } = resolvePackageTarget(root, msg.path || []);
+    return serializePackageValue(
+      msg.taskId,
+      typeof target === 'function' && receiver ? target.bind(receiver) : target,
+    );
+  }
+
   const mod = await importPackage(msg.package);
-  const { target } = resolvePackageTarget(mod, msg.path || []);
+  const { target, receiver } = resolvePackageTarget(mod, msg.path || []);
 
   if (msg.op === 'construct') {
     if (typeof target !== 'function') {
@@ -92,7 +114,7 @@ async function executePackageCall(msg) {
   }
 
   if (typeof target === 'function') {
-    return serializePackageValue(msg.taskId, await target(...args));
+    return serializePackageValue(msg.taskId, await target.apply(receiver, args));
   }
 
   return serializePackageValue(msg.taskId, target);
@@ -105,7 +127,21 @@ function releaseTask(taskId) {
 }
 
 process.on('message', async (msg) => {
-  if (!msg || !msg.op) return;
+  if (!msg) return;
+
+  if (msg.type === 'pkgCallbackResult' || msg.type === 'pkgCallbackError') {
+    const pending = pendingCallbackCalls.get(msg.id);
+    if (!pending) return;
+    pendingCallbackCalls.delete(msg.id);
+    if (msg.type === 'pkgCallbackResult') {
+      pending.resolve(deserializePackageArg(pending.taskId, msg.value));
+    } else {
+      pending.reject(new Error(msg.error?.message || 'Package callback failed'));
+    }
+    return;
+  }
+
+  if (!msg.op) return;
 
   try {
     if (msg.op === 'releaseTask') {
@@ -117,11 +153,17 @@ process.on('message', async (msg) => {
     const value = await executePackageCall(msg);
     process.send?.({ id: msg.id, ok: true, value });
   } catch (error) {
+    const context = [
+      msg.op ? `op=${msg.op}` : null,
+      msg.packageName ? `package=${msg.packageName}` : null,
+      msg.handleId ? `handle=${msg.handleId}` : null,
+      Array.isArray(msg.path) ? `path=${msg.path.join('.') || '<root>'}` : null,
+    ].filter(Boolean).join(' ');
     process.send?.({
       id: msg.id,
       ok: false,
       error: {
-        message: error.message,
+        message: context ? `${error.message} (${context})` : error.message,
         stack: error.stack,
       },
     });

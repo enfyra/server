@@ -3,7 +3,7 @@ import {
   executeBatchFetches,
   BatchFetchDescriptor,
   BatchTrace,
-} from 'src/kernel/query';
+} from '../../src/kernel/query';
 let db: Knex;
 
 const META: Record<string, any> = {

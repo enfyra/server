@@ -28,7 +28,7 @@ export function registerExtensionRoutes(
     }
 
     assertValidJsBundleSyntax(code);
-    res.json({ success: true, compiledCode: code, extensionId });
+    return res.json({ success: true, compiledCode: code, extensionId });
   });
 
   app.post('/extension_definition', async (req: any, res: Response) => {
@@ -48,7 +48,7 @@ export function registerExtensionRoutes(
     const dynamicService =
       req.scope?.cradle?.dynamicService ?? container.cradle.dynamicService;
     const result = await dynamicService.runHandler(req);
-    res.json(result);
+    return res.json(result);
   });
 
   app.patch('/extension_definition/:id', async (req: any, res: Response) => {
@@ -68,6 +68,6 @@ export function registerExtensionRoutes(
     const dynamicService =
       req.scope?.cradle?.dynamicService ?? container.cradle.dynamicService;
     const result = await dynamicService.runHandler(req);
-    res.json(result);
+    return res.json(result);
   });
 }

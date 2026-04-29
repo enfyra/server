@@ -1,6 +1,7 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { BaseCacheService } from './base-cache.service';
 import { QueryBuilderService } from '../../../kernel/query';
+import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import {
   CACHE_IDENTIFIERS,
   isMetadataTable,
@@ -23,6 +24,7 @@ export class GqlDefinitionCacheService extends BaseCacheService<
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter: EventEmitter2;
+    redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     super(
       {
@@ -31,6 +33,7 @@ export class GqlDefinitionCacheService extends BaseCacheService<
         cacheName: 'GqlDefinitionCache',
       },
       deps.eventEmitter,
+      deps.redisRuntimeCacheStore,
     );
     this.queryBuilderService = deps.queryBuilderService;
   }
@@ -74,21 +77,21 @@ export class GqlDefinitionCacheService extends BaseCacheService<
   }
 
   async isEnabledForTable(tableName: string): Promise<boolean> {
-    await this.ensureLoaded();
+    const cache = await this.getCacheAsync();
     if (isMetadataTable(tableName)) return false;
-    const def = this.cache?.get(tableName);
+    const def = cache?.get(tableName);
     return !!def?.isEnabled;
   }
 
   async getForTable(tableName: string): Promise<TGqlDefinition | undefined> {
-    await this.ensureLoaded();
-    return this.cache?.get(tableName);
+    const cache = await this.getCacheAsync();
+    return cache?.get(tableName);
   }
 
   async getAllEnabled(): Promise<TGqlDefinition[]> {
-    await this.ensureLoaded();
-    if (!this.cache) return [];
-    return Array.from(this.cache.values()).filter(
+    const cache = await this.getCacheAsync();
+    if (!cache) return [];
+    return Array.from(cache.values()).filter(
       (d) => d.isEnabled && !isMetadataTable(d.tableName),
     );
   }

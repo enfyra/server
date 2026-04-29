@@ -1,4 +1,4 @@
-import { parseFields, JoinRegistry } from 'src/kernel/query';
+import { parseFields, JoinRegistry } from '../../src/kernel/query';
 
 const META = {
   tables: new Map<string, any>([

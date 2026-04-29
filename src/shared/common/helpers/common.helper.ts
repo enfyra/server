@@ -9,7 +9,7 @@ export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 export function dbTypeToTSType(dbType: string): string {
-  const map: Partial<DBToTSTypeMap> = {
+  const map: Record<string, string> = {
     int: 'number',
     integer: 'number',
     smallint: 'number',
@@ -35,7 +35,7 @@ export function dbTypeToTSType(dbType: string): string {
   return map[dbType.toLowerCase()] ?? 'any';
 }
 export function tsTypeToDBType(tsType: string): string {
-  const map: Partial<TSToDBTypeMap> = {
+  const map: Record<string, string> = {
     number: 'int',
     string: 'varchar',
     boolean: 'boolean',

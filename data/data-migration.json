@@ -97,6 +97,22 @@
       }
     },
     {
+      "table": "menu_definition",
+      "filter": {
+        "path": {
+          "_eq": "/settings/field-permissions"
+        }
+      }
+    },
+    {
+      "table": "menu_definition",
+      "filter": {
+        "path": {
+          "_eq": "/settings/admin/cache"
+        }
+      }
+    },
+    {
       "table": "websocket_event_definition",
       "filter": {
         "eventName": {
@@ -127,6 +143,42 @@
           "_eq": "GQL_MUTATION"
         }
       }
+    }
+  ],
+  "field_permission_definition": [
+    {
+      "_unique": {
+        "_and": [
+          {
+            "action": {
+              "_eq": "update"
+            }
+          },
+          {
+            "role": {
+              "_eq": null
+            }
+          },
+          {
+            "column": {
+              "name": {
+                "_eq": "password"
+              },
+              "table": {
+                "name": {
+                  "_eq": "user_definition"
+                }
+              }
+            }
+          },
+          {
+            "description": {
+              "_eq": "Allow authenticated user to update own password via /me"
+            }
+          }
+        ]
+      },
+      "isSystem": true
     }
   ],
   "menu_definition": [
@@ -181,6 +233,14 @@
       "label": "Routes",
       "path": "/settings/routes",
       "description": "Route management"
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/settings/admin/runtime"
+        }
+      },
+      "path": "/settings/runtime"
     }
   ],
   "post_hook_definition": [

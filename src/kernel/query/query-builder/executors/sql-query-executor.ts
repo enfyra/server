@@ -1,9 +1,12 @@
 import { Knex } from 'knex';
 import { Logger } from '../../../../shared/logger';
 import {
+  NormalizedAggregateOperation,
   QueryOptions,
   WhereCondition,
+  AggregateQuery,
 } from '../../../../shared/types/query-builder.types';
+import { BadRequestException } from '../../../../domain/exceptions';
 import { DebugTrace } from '../../../../shared/utils/debug-trace.util';
 import {
   buildWhereClause,
@@ -18,12 +21,21 @@ import { QueryPlan, ResolvedSortItem } from '../../query-dsl/query-plan.types';
 import { renderFilterToKnex } from '../utils/sql/render-filter';
 import { validateFilterShape } from '../../query-dsl/filter-sanitizer.util';
 import { QueryPlanner } from '../../query-dsl/query-planner';
+import {
+  getJunctionColumnNames,
+  getJunctionTableName,
+} from '../../query-dsl/utils/sql-schema-naming.util';
 import { applyWhereToKnex } from '../utils/sql/sql-where-builder';
 import {
   expandFieldsToSelect,
   getMetadataGetter,
   buildRelationSortSubquery,
 } from '../utils/sql/sql-field-expander';
+import {
+  buildAggregateFilter,
+  mergeAggregateValue,
+  normalizeAggregateQuery,
+} from '../utils/aggregate-query.util';
 
 export class SqlQueryExecutor {
   private readonly logger = new Logger(SqlQueryExecutor.name);
@@ -51,6 +63,7 @@ export class SqlQueryExecutor {
     debugTrace?: DebugTrace;
     metadata?: any;
     plan?: QueryPlan;
+    aggregate?: AggregateQuery;
   }): Promise<any> {
     const execStart = performance.now();
     this.metadata = options.metadata;
@@ -110,6 +123,8 @@ export class SqlQueryExecutor {
 
     const queryOptions: QueryOptions = {
       table: options.tableName,
+      aggregate: options.aggregate,
+      metadata: options.metadata,
     };
 
     if (options.fields) {
@@ -211,7 +226,7 @@ export class SqlQueryExecutor {
     const resolvedSortItems: ResolvedSortItem[] =
       options.plan?.sortItems ??
       (queryOptions.sort ?? []).map((s) => ({
-        joinId: null,
+        joinId: null as string | null,
         field: s.field,
         direction: s.direction,
         fullPath: s.field,
@@ -549,7 +564,7 @@ export class SqlQueryExecutor {
             const valueAny = value as any;
             if (valueAny.id !== undefined || valueAny.createdAt !== undefined) {
               const relation = tableMeta.relations?.find(
-                (r) => r.propertyName === key,
+                (r: any) => r.propertyName === key,
               );
               if (relation) {
                 parsed[key] = parseSimpleJsonFields(
@@ -566,7 +581,7 @@ export class SqlQueryExecutor {
             const firstItem = value[0] as any;
             if (firstItem.id !== undefined) {
               const relation = tableMeta.relations?.find(
-                (r) => r.propertyName === key,
+                (r: any) => r.propertyName === key,
               );
               if (relation) {
                 parsed[key] = (value as any[]).map((item) =>
@@ -588,9 +603,11 @@ export class SqlQueryExecutor {
       trace.dur('sql_executor', execStart, { table: options.tableName });
     }
 
+    const aggregate = await this.executeAggregate(queryOptions, originalFilter);
+
     return {
       data: results,
-      ...(metaParts.length > 0 && {
+      ...((metaParts.length > 0 || aggregate) && {
         meta: {
           ...(metaParts.includes('totalCount') || metaParts.includes('*')
             ? { totalCount }
@@ -598,6 +615,7 @@ export class SqlQueryExecutor {
           ...(metaParts.includes('filterCount') || metaParts.includes('*')
             ? { filterCount }
             : {}),
+          ...(aggregate ? { aggregate } : {}),
         },
       }),
       ...(fullCapturedSql !== undefined && { sql: fullCapturedSql }),
@@ -614,6 +632,7 @@ export class SqlQueryExecutor {
       debugLog?: any[];
       debugMode?: boolean;
       metadata?: any;
+      aggregate?: AggregateQuery;
     },
     plan: QueryPlan,
   ): Promise<any> {
@@ -709,15 +728,194 @@ export class SqlQueryExecutor {
       results.forEach((row: any) => delete row.__total_count__);
     }
 
+    const aggregate = await this.executeAggregate(
+      {
+        table,
+        aggregate: options.aggregate,
+        metadata: options.metadata,
+      },
+      options.filter,
+    );
+
     return {
       data: results,
-      ...(metaParts.length > 0 && {
+      ...((metaParts.length > 0 || aggregate) && {
         meta: {
           ...(needsTotalCount ? { totalCount } : {}),
           ...(needsFilterCount ? { filterCount } : {}),
+          ...(aggregate ? { aggregate } : {}),
         },
       }),
       ...(capturedSql !== undefined && { sql: capturedSql }),
     };
+  }
+
+  private async executeAggregate(
+    queryOptions: Pick<QueryOptions, 'table' | 'aggregate' | 'metadata'>,
+    baseFilter: any,
+  ): Promise<Record<string, Record<string, any>> | undefined> {
+    const operations = normalizeAggregateQuery(
+      queryOptions.aggregate,
+      queryOptions.table,
+      queryOptions.metadata,
+    );
+    if (operations.length === 0) return undefined;
+
+    const aggregate: Record<string, Record<string, any>> = {};
+    for (const operation of operations) {
+      const filter = buildAggregateFilter(baseFilter, operation);
+      validateFilterShape(filter, queryOptions.table, queryOptions.metadata);
+      const planner = new QueryPlanner();
+      const plan = planner.plan({
+        tableName: queryOptions.table,
+        filter,
+        metadata: queryOptions.metadata,
+        dbType: this.dbType as any,
+      });
+
+      if (operation.op === 'countRecords') {
+        const value = await this.executeRelationCountRecords(
+          queryOptions,
+          baseFilter,
+          operation,
+        );
+        mergeAggregateValue(aggregate, operation, value);
+        continue;
+      }
+
+      const query: any = this.knex(queryOptions.table);
+      if (plan.hasRelationFilters) {
+        const tableMeta = queryOptions.metadata?.tables?.get(queryOptions.table);
+        await applyRelationFilters(
+          this.knex,
+          query,
+          filter,
+          queryOptions.table,
+          tableMeta,
+          this.dbType,
+          (tableName: string) => queryOptions.metadata?.tables?.get(tableName),
+        );
+      } else if (plan.filterTree) {
+        renderFilterToKnex(query, plan.filterTree, {
+          dbType: this.dbType as any,
+          rootTable: queryOptions.table,
+        });
+      }
+
+      const quotedField = `${quoteIdentifier(queryOptions.table, this.dbType)}.${quoteIdentifier(operation.field, this.dbType)}`;
+      const aggregateExpr =
+        operation.op === 'count'
+          ? this.knex.raw('COUNT(*) as value')
+          : this.knex.raw(`${operation.op.toUpperCase()}(${quotedField}) as value`);
+      const row = await query.clearSelect().select(aggregateExpr).first();
+      mergeAggregateValue(aggregate, operation, row?.value ?? 0);
+    }
+
+    return aggregate;
+  }
+
+  private async executeRelationCountRecords(
+    queryOptions: Pick<QueryOptions, 'table' | 'aggregate' | 'metadata'>,
+    baseFilter: any,
+    operation: NormalizedAggregateOperation,
+  ): Promise<number> {
+    const tableMeta = queryOptions.metadata?.tables?.get(queryOptions.table);
+    const relation = tableMeta?.relations?.find(
+      (r: any) => r.propertyName === operation.field,
+    );
+    const targetTable = relation?.targetTableName || relation?.targetTable;
+    const targetMeta = targetTable
+      ? queryOptions.metadata?.tables?.get(targetTable)
+      : null;
+    if (!relation || !targetTable || !targetMeta) return 0;
+
+    const parentQuery: any = this.knex(queryOptions.table).select(`${queryOptions.table}.id`);
+    if (baseFilter && Object.keys(baseFilter).length > 0) {
+      const planner = new QueryPlanner();
+      const parentPlan = planner.plan({
+        tableName: queryOptions.table,
+        filter: baseFilter,
+        metadata: queryOptions.metadata,
+        dbType: this.dbType as any,
+      });
+      if (parentPlan.hasRelationFilters) {
+        await applyRelationFilters(
+          this.knex,
+          parentQuery,
+          baseFilter,
+          queryOptions.table,
+          tableMeta,
+          this.dbType,
+          (tableName: string) => queryOptions.metadata?.tables?.get(tableName),
+        );
+      } else if (parentPlan.filterTree) {
+        renderFilterToKnex(parentQuery, parentPlan.filterTree, {
+          dbType: this.dbType as any,
+          rootTable: queryOptions.table,
+        });
+      }
+    }
+
+    const targetQuery: any = this.knex(targetTable).count('* as value');
+    if (operation.condition && Object.keys(operation.condition).length > 0) {
+      validateFilterShape(operation.condition, targetTable, queryOptions.metadata);
+      const planner = new QueryPlanner();
+      const targetPlan = planner.plan({
+        tableName: targetTable,
+        filter: operation.condition,
+        metadata: queryOptions.metadata,
+        dbType: this.dbType as any,
+      });
+      if (targetPlan.hasRelationFilters) {
+        await applyRelationFilters(
+          this.knex,
+          targetQuery,
+          operation.condition,
+          targetTable,
+          targetMeta,
+          this.dbType,
+          (tableName: string) => queryOptions.metadata?.tables?.get(tableName),
+        );
+      } else if (targetPlan.filterTree) {
+        renderFilterToKnex(targetQuery, targetPlan.filterTree, {
+          dbType: this.dbType as any,
+          rootTable: targetTable,
+        });
+      }
+    }
+
+    if (relation.type === 'one-to-many') {
+      targetQuery.whereIn(`${targetTable}.${relation.foreignKeyColumn}`, parentQuery);
+    } else if (relation.type === 'many-to-many') {
+      const junctionTable =
+        relation.junctionTableName ||
+        getJunctionTableName(queryOptions.table, relation.propertyName, targetTable);
+      const fallbackColumns = getJunctionColumnNames(
+        queryOptions.table,
+        relation.propertyName,
+        targetTable,
+      );
+      const selfColumn = relation.junctionSourceColumn || fallbackColumns.sourceColumn;
+      const otherColumn = relation.junctionTargetColumn || fallbackColumns.targetColumn;
+      targetQuery.whereIn(
+        `${targetTable}.id`,
+        this.knex(junctionTable)
+          .select(`${junctionTable}.${otherColumn}`)
+          .whereIn(`${junctionTable}.${selfColumn}`, parentQuery),
+      );
+    } else if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
+      targetQuery.whereIn(`${targetTable}.id`, function (this: Knex.QueryBuilder) {
+        this.select(`${queryOptions.table}.${relation.foreignKeyColumn}`).from(
+          queryOptions.table,
+        );
+        if (baseFilter && Object.keys(baseFilter).length > 0) {
+          this.whereIn(`${queryOptions.table}.id`, parentQuery);
+        }
+        this.whereNotNull(`${queryOptions.table}.${relation.foreignKeyColumn}`);
+      });
+    }
+
+    const row = await targetQuery.first();
+    return Number(row?.value ?? 0);
   }
 }

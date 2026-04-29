@@ -217,9 +217,9 @@ export class FileManagementService {
         size: fileData.size,
         folder: folderData,
         title: options.title || fileData.filename,
-        description: options.description || null,
+        description: options.description || undefined,
       },
-      storageConfigId,
+      storageConfigId ?? undefined,
     );
 
     let fileUploadedToCloud = false;

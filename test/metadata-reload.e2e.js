@@ -1,6 +1,6 @@
 /**
  * Metadata Reload E2E (loads dist/src MetadataCacheService)
- * Constructor: QueryBuilderService, DatabaseSchemaService, websocketGateway
+ * Constructor: dependencies object with databaseConfigService and lazyRef
  *
  * Run: yarn build && node test/metadata-reload.e2e.js
  */
@@ -60,33 +60,14 @@ class MockQueryBuilder {
   }
 }
 
-class MockDatabaseSchemaService {
-  async getAllTableSchemas() {
-    const m = new Map();
-    m.set('users', { columns: [], relations: [], uniques: [], indexes: [] });
-    m.set('posts', { columns: [], relations: [], uniques: [], indexes: [] });
-    return m;
-  }
-
-  async getTableSchemas(tableNames) {
-    const m = new Map();
-    for (const n of tableNames) {
-      m.set(n, { columns: [], relations: [], uniques: [], indexes: [] });
-    }
-    return m;
-  }
-}
-
-function createWsRecorder() {
-  const emitted = [];
-  return {
-    emitted,
-    gateway: {
-      emitToNamespace: (_ns, _event, data) => {
-        emitted.push(data);
-      },
-    },
-  };
+function makeMetadataCacheService(MetadataCacheService, queryBuilder) {
+  const table = (tableName) => ({
+    select: async () => (await queryBuilder.select({ tableName })).data,
+  });
+  return new MetadataCacheService({
+    databaseConfigService: { getDbType: () => 'postgres' },
+    lazyRef: { knexService: { getKnex: () => ({ table }) } },
+  });
 }
 
 async function runTests() {
@@ -94,20 +75,17 @@ async function runTests() {
   console.log('METADATA RELOAD E2E (MetadataCacheService)');
   console.log('='.repeat(70));
 
-  const distPath = path.join(__dirname, '..', 'dist', 'src');
+  const distPath = path.join(__dirname, '..', 'dist');
   const { MetadataCacheService } = require(
-    path.join(distPath, 'infrastructure', 'cache', 'services', 'metadata-cache.service'),
+    path.join(distPath, 'engines', 'cache', 'services', 'metadata-cache.service'),
   );
+  const { DatabaseConfigService } = require(
+    path.join(distPath, 'shared', 'services', 'database-config.service'),
+  );
+  DatabaseConfigService.overrideForTesting('postgres');
 
-  const ws1 = createWsRecorder();
   const queryBuilder1 = new MockQueryBuilder(50);
-  const dbSchema1 = new MockDatabaseSchemaService();
-
-  const service1 = new MetadataCacheService(
-    queryBuilder1,
-    dbSchema1,
-    ws1.gateway,
-  );
+  const service1 = makeMetadataCacheService(MetadataCacheService, queryBuilder1);
 
   console.log('\n--- TEST 1: Single instance reload timing ---');
   const reloadStart1 = Date.now();
@@ -126,11 +104,6 @@ async function runTests() {
     metadata1 !== null && metadata1.tablesList.length > 0,
     `tables: ${metadata1.tablesList.length}`,
   );
-
-  const pendingDone =
-    ws1.emitted.some((d) => d && d.status === 'pending') &&
-    ws1.emitted.some((d) => d && d.status === 'done');
-  log('WebSocket emits pending then done during reload', pendingDone, `events: ${ws1.emitted.length}`);
 
   console.log('\n--- TEST 2: Concurrent reloads deduplicate ---');
   queryBuilder1.reset();
@@ -154,11 +127,10 @@ async function runTests() {
   const queryBuilderA = new MockQueryBuilder(80);
   const queryBuilderB = new MockQueryBuilder(80);
   const queryBuilderC = new MockQueryBuilder(80);
-  const dbSchema = new MockDatabaseSchemaService();
 
-  const serviceA = new MetadataCacheService(queryBuilderA, dbSchema, createWsRecorder().gateway);
-  const serviceB = new MetadataCacheService(queryBuilderB, dbSchema, createWsRecorder().gateway);
-  const serviceC = new MetadataCacheService(queryBuilderC, dbSchema, createWsRecorder().gateway);
+  const serviceA = makeMetadataCacheService(MetadataCacheService, queryBuilderA);
+  const serviceB = makeMetadataCacheService(MetadataCacheService, queryBuilderB);
+  const serviceC = makeMetadataCacheService(MetadataCacheService, queryBuilderC);
 
   await Promise.all([serviceA.reload(), serviceB.reload(), serviceC.reload()]);
 
@@ -176,9 +148,8 @@ async function runTests() {
   );
 
   console.log('\n--- TEST 4: getMetadata during reload keeps old version until done ---');
-  const ws5 = createWsRecorder();
   const queryBuilder5 = new MockQueryBuilder(120);
-  const service5 = new MetadataCacheService(queryBuilder5, new MockDatabaseSchemaService(), ws5.gateway);
+  const service5 = makeMetadataCacheService(MetadataCacheService, queryBuilder5);
 
   await service5.reload();
   const oldMetadata = await service5.getMetadata();
@@ -208,7 +179,7 @@ async function runTests() {
 
   console.log('\n--- TEST 5: Reload does not double-query without second reload ---');
   const queryBuilder7 = new MockQueryBuilder(40);
-  const service7 = new MetadataCacheService(queryBuilder7, new MockDatabaseSchemaService(), createWsRecorder().gateway);
+  const service7 = makeMetadataCacheService(MetadataCacheService, queryBuilder7);
   await service7.reload();
   const qAfter = queryBuilder7.getQueryCount();
   await sleep(80);

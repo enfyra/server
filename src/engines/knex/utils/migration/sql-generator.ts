@@ -102,12 +102,12 @@ export function generateColumnDefinition(
       break;
     case 'enum':
       if (dbType === 'postgres' && Array.isArray(col.options)) {
-        const enumValues = col.options.map((opt) => `'${opt}'`).join(', ');
+        const enumValues = col.options.map((opt: any) => `'${opt}'`).join(', ');
         definition = `VARCHAR(255) CHECK (${col.name} IN (${enumValues}))`;
       } else if (dbType === 'sqlite') {
         definition = 'TEXT';
       } else if (Array.isArray(col.options)) {
-        const enumValues = col.options.map((opt) => `'${opt}'`).join(', ');
+        const enumValues = col.options.map((opt: any) => `'${opt}'`).join(', ');
         definition = `ENUM(${enumValues})`;
       } else {
         definition = 'VARCHAR(255)';

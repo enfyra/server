@@ -20,7 +20,7 @@ export interface ReplicaNode {
 }
 
 export class ReplicationManager implements LifecycleAware {
-  private masterKnex: Knex;
+  private masterKnex!: Knex;
   private replicaNodes: ReplicaNode[] = [];
   private currentReplicaIndex = 0;
   private readonly logger = new Logger(ReplicationManager.name);

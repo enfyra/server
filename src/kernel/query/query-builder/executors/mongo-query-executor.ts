@@ -1,20 +1,33 @@
 import { Db, Collection } from 'mongodb';
-import { QueryOptions } from '../../../../shared/types/query-builder.types';
+import {
+  AggregateQuery,
+  NormalizedAggregateOperation,
+  QueryOptions,
+} from '../../../../shared/types/query-builder.types';
 import { expandFieldsMongo } from '../utils/mongo/expand-fields';
 import { executeAggregationPipeline } from '../utils/mongo/mongo-aggregation-builder';
 import { renderFieldsToMongo } from '../utils/mongo/render-fields';
 import { validateFilterShape } from '../../query-dsl/filter-sanitizer.util';
 import { QueryPlanner } from '../../query-dsl/query-planner';
 import { QueryPlan } from '../../query-dsl/query-plan.types';
-import { normalizeMongoDocument } from '../../../../engines/mongo';
+import {
+  normalizeMongoDocument,
+  resolveMongoJunctionInfo,
+} from '../../../../engines/mongo';
 import { renderFilterToMongo } from '../utils/mongo/render-filter';
 import { hasAnyRelations } from '../utils/shared/filter-separator.util';
+import { resolveMongoFilter } from '../utils/mongo/mongo-filter-resolver';
+import {
+  buildAggregateFilter,
+  mergeAggregateValue,
+  normalizeAggregateQuery,
+} from '../utils/aggregate-query.util';
 
 export class MongoQueryExecutor {
   private debugLog: any[] = [];
   private readonly db: Db;
   private metadata: any;
-  private dbType: string;
+  private dbType!: string;
   private lastBuiltPipeline: any[] | null = null;
 
   constructor(private readonly mongoService: any) {
@@ -36,6 +49,7 @@ export class MongoQueryExecutor {
     metadata?: any;
     dbType?: string;
     plan?: QueryPlan;
+    aggregate?: AggregateQuery;
   }): Promise<any> {
     this.metadata = options.metadata;
     this.dbType = options.dbType || 'mongodb';
@@ -63,6 +77,8 @@ export class MongoQueryExecutor {
 
     const queryOptions: QueryOptions = {
       table: options.tableName,
+      aggregate: options.aggregate,
+      metadata: options.metadata,
     };
 
     if (options.pipeline) {
@@ -177,9 +193,11 @@ export class MongoQueryExecutor {
       filterCount = countResults.length > 0 ? countResults[0].count : 0;
     }
 
+    const aggregate = await this.executeAggregate(queryOptions, options.filter);
+
     return {
       data: results,
-      ...(metaParts.length > 0 && {
+      ...((metaParts.length > 0 || aggregate) && {
         meta: {
           ...(metaParts.includes('totalCount') || metaParts.includes('*')
             ? { totalCount }
@@ -187,6 +205,7 @@ export class MongoQueryExecutor {
           ...(metaParts.includes('filterCount') || metaParts.includes('*')
             ? { filterCount }
             : {}),
+          ...(aggregate ? { aggregate } : {}),
         },
       }),
     };
@@ -268,5 +287,182 @@ export class MongoQueryExecutor {
     );
     this.lastBuiltPipeline = pipeline;
     return results;
+  }
+
+  private async executeAggregate(
+    queryOptions: Pick<QueryOptions, 'table' | 'aggregate' | 'metadata'>,
+    baseFilter: any,
+  ): Promise<Record<string, Record<string, any>> | undefined> {
+    const operations = normalizeAggregateQuery(
+      queryOptions.aggregate,
+      queryOptions.table,
+      queryOptions.metadata,
+    );
+    if (operations.length === 0) return undefined;
+
+    const aggregate: Record<string, Record<string, any>> = {};
+    const collection = this.db.collection(queryOptions.table);
+    for (const operation of operations) {
+      const filter = buildAggregateFilter(baseFilter, operation);
+      validateFilterShape(filter, queryOptions.table, queryOptions.metadata);
+      const planner = new QueryPlanner();
+      const plan = planner.plan({
+        tableName: queryOptions.table,
+        filter,
+        metadata: queryOptions.metadata,
+        dbType: 'mongodb' as any,
+      });
+
+      if (operation.op === 'countRecords') {
+        const value = await this.executeRelationCountRecords(
+          queryOptions,
+          baseFilter,
+          operation,
+        );
+        mergeAggregateValue(aggregate, operation, value);
+        continue;
+      }
+
+      const match = plan.hasRelationFilters
+        ? await resolveMongoFilter(
+            filter,
+            queryOptions.table,
+            queryOptions.metadata,
+            this.db,
+          )
+        : plan.filterTree
+          ? renderFilterToMongo(plan.filterTree, {
+              metadata: queryOptions.metadata,
+              rootTable: queryOptions.table,
+            })
+          : {};
+
+      let value: any;
+      if (operation.op === 'count') {
+        value = await collection.countDocuments(match);
+      } else {
+        const [{ value: aggregateValue } = { value: null }] = await collection
+          .aggregate([
+            { $match: match },
+            {
+              $group: {
+                _id: null,
+                value: { [`$${operation.op}`]: `$${operation.field}` },
+              },
+            },
+          ])
+          .toArray();
+        value = aggregateValue ?? 0;
+      }
+      mergeAggregateValue(aggregate, operation, value);
+    }
+
+    return aggregate;
+  }
+
+  private async executeRelationCountRecords(
+    queryOptions: Pick<QueryOptions, 'table' | 'aggregate' | 'metadata'>,
+    baseFilter: any,
+    operation: NormalizedAggregateOperation,
+  ): Promise<number> {
+    const tableMeta = queryOptions.metadata?.tables?.get(queryOptions.table);
+    const relation = tableMeta?.relations?.find(
+      (r: any) => r.propertyName === operation.field,
+    );
+    const targetTable = relation?.targetTableName || relation?.targetTable;
+    const targetMeta = targetTable
+      ? queryOptions.metadata?.tables?.get(targetTable)
+      : null;
+    if (!relation || !targetTable || !targetMeta) return 0;
+
+    const parentMatch = await this.resolveMatchFilter(
+      queryOptions.table,
+      baseFilter,
+      queryOptions.metadata,
+    );
+    const targetMatch = await this.resolveMatchFilter(
+      targetTable,
+      operation.condition,
+      queryOptions.metadata,
+    );
+
+    if (relation.type === 'one-to-many') {
+      const parentIds = await this.db
+        .collection(queryOptions.table)
+        .find(parentMatch, { projection: { _id: 1 } })
+        .toArray();
+      const ids = parentIds.map((row: any) => row._id).filter((id: any) => id != null);
+      if (ids.length === 0) return 0;
+      return await this.db.collection(targetTable).countDocuments({
+        $and: [targetMatch, { [relation.foreignKeyColumn]: { $in: ids } }],
+      });
+    }
+
+    if (relation.type === 'many-to-many') {
+      const info = resolveMongoJunctionInfo(queryOptions.table, relation);
+      if (!info) return 0;
+      const parentIds = await this.db
+        .collection(queryOptions.table)
+        .find(parentMatch, { projection: { _id: 1 } })
+        .toArray();
+      const ids = parentIds.map((row: any) => row._id).filter((id: any) => id != null);
+      if (ids.length === 0) return 0;
+      const junctionRows = await this.db
+        .collection(info.junctionName)
+        .find(
+          { [info.selfColumn]: { $in: ids } },
+          { projection: { [info.otherColumn]: 1 } },
+        )
+        .toArray();
+      const targetIds = junctionRows
+        .map((row: any) => row[info.otherColumn])
+        .filter((id: any) => id != null);
+      if (targetIds.length === 0) return 0;
+      return await this.db.collection(targetTable).countDocuments({
+        $and: [targetMatch, { _id: { $in: targetIds } }],
+      });
+    }
+
+    if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
+      const fkField = relation.foreignKeyColumn || `${operation.field}Id`;
+      const parentRows = await this.db
+        .collection(queryOptions.table)
+        .find(parentMatch, { projection: { [fkField]: 1 } })
+        .toArray();
+      const ids = parentRows
+        .map((row: any) => row[fkField])
+        .filter((id: any) => id != null);
+      if (ids.length === 0) return 0;
+      return await this.db.collection(targetTable).countDocuments({
+        $and: [targetMatch, { _id: { $in: ids } }],
+      });
+    }
+
+    return 0;
+  }
+
+  private async resolveMatchFilter(
+    tableName: string,
+    filter: any,
+    metadata: any,
+  ): Promise<any> {
+    if (!filter || Object.keys(filter).length === 0) return {};
+    validateFilterShape(filter, tableName, metadata);
+    const planner = new QueryPlanner();
+    const plan = planner.plan({
+      tableName,
+      filter,
+      metadata,
+      dbType: 'mongodb' as any,
+    });
+    if (plan.hasRelationFilters) {
+      return await resolveMongoFilter(filter, tableName, metadata, this.db);
+    }
+    return plan.filterTree
+      ? renderFilterToMongo(plan.filterTree, {
+          metadata,
+          rootTable: tableName,
+        })
+      : {};
   }
 }

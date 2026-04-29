@@ -1,8 +1,8 @@
 import {
   BaseTableProcessor,
   UpsertResult,
-} from 'src/domain/bootstrap';
-import { DatabaseConfigService } from 'src/shared/services';
+} from '../../src/domain/bootstrap';
+import { DatabaseConfigService } from '../../src/shared/services';
 
 class TestProcessor extends BaseTableProcessor {
   getUniqueIdentifier(record: any) {

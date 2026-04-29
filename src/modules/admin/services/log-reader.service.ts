@@ -195,7 +195,9 @@ export class LogReaderService {
 
     const lines = raw
       ? undefined
-      : paginatedLines.map((line) => this.parseLogLine(line)).filter(Boolean);
+      : paginatedLines
+          .map((line) => this.parseLogLine(line))
+          .filter((line): line is ParsedLogEntry => Boolean(line));
 
     return {
       file: filename,
@@ -255,7 +257,9 @@ export class LogReaderService {
     }
 
     return {
-      lines: lastLines.map((line) => this.parseLogLine(line)).filter(Boolean),
+      lines: lastLines
+        .map((line) => this.parseLogLine(line))
+        .filter((line): line is ParsedLogEntry => Boolean(line)),
     };
   }
 }

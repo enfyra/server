@@ -2,6 +2,7 @@ import { DatabaseConfigService } from '../../../shared/services';
 import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../../kernel/query';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
+import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
@@ -29,8 +30,9 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter: EventEmitter2;
+    redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
-    super(FLOW_CONFIG, deps.eventEmitter);
+    super(FLOW_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
     this.cache = [];
   }
@@ -131,27 +133,26 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
   }
 
   async getFlows(): Promise<FlowDefinition[]> {
-    await this.ensureLoaded();
-    return this.cache;
+    return this.getCacheAsync();
   }
 
   async getFlowById(id: number | string): Promise<FlowDefinition | null> {
-    await this.ensureLoaded();
+    const cache = await this.getCacheAsync();
     const idStr = String(id);
     return (
-      this.cache.find(
+      cache.find(
         (f) => f.id === id || f.id === Number(id) || String(f.id) === idStr,
       ) || null
     );
   }
 
   async getFlowByName(name: string): Promise<FlowDefinition | null> {
-    await this.ensureLoaded();
-    return this.cache.find((f) => f.name === name) || null;
+    const cache = await this.getCacheAsync();
+    return cache.find((f) => f.name === name) || null;
   }
 
   async getFlowsByTriggerType(triggerType: string): Promise<FlowDefinition[]> {
-    await this.ensureLoaded();
-    return this.cache.filter((f) => f.triggerType === triggerType);
+    const cache = await this.getCacheAsync();
+    return cache.filter((f) => f.triggerType === triggerType);
   }
 }

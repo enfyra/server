@@ -1,5 +1,5 @@
-import { DataMigrationService } from 'src/engines/bootstrap';
-import { DatabaseConfigService } from 'src/shared/services';
+import { DataMigrationService } from '../../src/engines/bootstrap';
+import { DatabaseConfigService } from '../../src/shared/services';
 
 function makeQueryBuilder(
   overrides: Partial<{
@@ -227,5 +227,45 @@ describe('DataMigrationService.migrateTable — end-to-end for publishedMethods 
     ]);
 
     expect(qb.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('updates existing own-password field permission through data migration', async () => {
+    const uniqueFilter = {
+      _and: [
+        { action: { _eq: 'update' } },
+        { role: { _eq: null } },
+        {
+          column: {
+            name: { _eq: 'password' },
+            table: { name: { _eq: 'user_definition' } },
+          },
+        },
+        {
+          description: {
+            _eq: 'Allow authenticated user to update own password via /me',
+          },
+        },
+      ],
+    };
+    const qb = makeQueryBuilder({
+      find: jest.fn().mockResolvedValue({ data: [{ id: 7 }] }),
+    });
+    const svc = makeService(qb);
+
+    await (svc as any).migrateTable('field_permission_definition', [
+      { _unique: uniqueFilter, isSystem: true },
+    ]);
+
+    expect(qb.find).toHaveBeenCalledWith({
+      table: 'field_permission_definition',
+      filter: uniqueFilter,
+      limit: 1,
+      fields: ['id'],
+    });
+    expect(qb.update).toHaveBeenCalledWith(
+      'field_permission_definition',
+      { where: [{ field: 'id', operator: '=', value: 7 }] },
+      { isSystem: true },
+    );
   });
 });

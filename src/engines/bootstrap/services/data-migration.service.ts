@@ -56,8 +56,8 @@ export class DataMigrationService {
     );
     return (
       dataKeys.length > 0 ||
-      (this.initOld._deletedTables && this.initOld._deletedTables.length > 0) ||
-      (this.initOld._deletedRecords && this.initOld._deletedRecords.length > 0)
+      (this.initOld._deletedTables?.length ?? 0) > 0 ||
+      (this.initOld._deletedRecords?.length ?? 0) > 0
     );
   }
 

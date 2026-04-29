@@ -25,6 +25,7 @@ export class BootstrapScriptService {
   private readonly queryBuilderService: IQueryBuilder;
   private readonly executorEngineService: IExecutorEngine;
   private readonly cacheService: ICache;
+  private readonly userCacheService: ICache;
   private readonly repoRegistryService: IRepoRegistry;
   private readonly instanceService: InstanceService;
   private readonly eventEmitter: EventEmitter2;
@@ -33,6 +34,7 @@ export class BootstrapScriptService {
     queryBuilderService: IQueryBuilder;
     executorEngineService: IExecutorEngine;
     cacheService: ICache;
+    userCacheService?: ICache;
     repoRegistryService: IRepoRegistry;
     instanceService: InstanceService;
     eventEmitter: EventEmitter2;
@@ -40,6 +42,7 @@ export class BootstrapScriptService {
     this.queryBuilderService = deps.queryBuilderService;
     this.executorEngineService = deps.executorEngineService;
     this.cacheService = deps.cacheService;
+    this.userCacheService = deps.userCacheService ?? deps.cacheService;
     this.repoRegistryService = deps.repoRegistryService;
     this.instanceService = deps.instanceService;
     this.eventEmitter = deps.eventEmitter;
@@ -180,7 +183,7 @@ export class BootstrapScriptService {
       $helpers: {
         autoSlug: (text: string) => text.toLowerCase().replace(/\s+/g, '-'),
       },
-      $cache: this.cacheService,
+      $cache: this.userCacheService,
       $repos: {} as any,
       $share: {
         $logs: [],

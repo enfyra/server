@@ -9,22 +9,26 @@ import { stringifyRecordJsonFields } from '../utils/json-parser';
 import { ReplicationManager } from './replication-manager.service';
 import { getForeignKeyColumnName } from '../../../kernel/query';
 
+type HookRegistry = {
+  beforeInsert: Array<(tableName: string, data: any) => any>;
+  afterInsert: Array<(tableName: string, result: any) => any>;
+  beforeUpdate: Array<(tableName: string, data: any) => any>;
+  afterUpdate: Array<(tableName: string, result: any) => any>;
+  beforeDelete: Array<(tableName: string, criteria: any) => any>;
+  afterDelete: Array<(tableName: string, result: any) => any>;
+  beforeSelect: Array<(qb: any, tableName: string) => any>;
+  afterSelect: Array<(tableName: string, result: any) => any>;
+};
+type HookEvent = keyof HookRegistry;
+type HookHandler<E extends HookEvent> = HookRegistry[E][number];
+
 export class KnexHookManagerService {
   private readonly logger = new Logger(KnexHookManagerService.name);
-  private dbType: string;
-  private knexContext: AsyncLocalStorage<Knex | Knex.Transaction>;
-  private cascadeContext: AsyncLocalStorage<Map<string, any>>;
+  private dbType!: string;
+  private knexContext!: AsyncLocalStorage<Knex | Knex.Transaction>;
+  private cascadeContext!: AsyncLocalStorage<Map<string, any>>;
 
-  private hooks: {
-    beforeInsert: Array<(tableName: string, data: any) => any>;
-    afterInsert: Array<(tableName: string, result: any) => any>;
-    beforeUpdate: Array<(tableName: string, data: any) => any>;
-    afterUpdate: Array<(tableName: string, result: any) => any>;
-    beforeDelete: Array<(tableName: string, criteria: any) => any>;
-    afterDelete: Array<(tableName: string, result: any) => any>;
-    beforeSelect: Array<(qb: any, tableName: string) => any>;
-    afterSelect: Array<(tableName: string, result: any) => any>;
-  } = {
+  private hooks: HookRegistry = {
     beforeInsert: [],
     afterInsert: [],
     beforeUpdate: [],
@@ -35,9 +39,9 @@ export class KnexHookManagerService {
     afterSelect: [],
   };
 
-  private cascadeHandler: CascadeHandler;
-  private fieldStripper: FieldStripper;
-  private relationTransformer: RelationTransformer;
+  private cascadeHandler!: CascadeHandler;
+  private fieldStripper!: FieldStripper;
+  private relationTransformer!: RelationTransformer;
   private readonly metadataCacheService: MetadataCacheService;
   private readonly replicationManager?: ReplicationManager;
 
@@ -132,7 +136,7 @@ export class KnexHookManagerService {
         await this.metadataCacheService.getTableMetadata(tableName);
       if (!tableMetadata) return data;
 
-      const pkColumn = tableMetadata.columns.find((col) => col.isPrimary);
+      const pkColumn = tableMetadata.columns.find((col: any) => col.isPrimary);
       if (!pkColumn || pkColumn.type !== 'uuid') return data;
 
       const uuid = await import('uuid');
@@ -430,17 +434,17 @@ export class KnexHookManagerService {
     });
   }
 
-  addHook(event: keyof typeof this.hooks, handler: any): void {
+  addHook<E extends HookEvent>(event: E, handler: HookHandler<E>): void {
     if (!this.hooks[event]) throw new Error(`Unknown hook event: ${event}`);
-    this.hooks[event].push(handler);
+    (this.hooks[event] as HookHandler<E>[]).push(handler);
   }
 
-  removeHook(event: keyof typeof this.hooks, handler: any): void {
+  removeHook<E extends HookEvent>(event: E, handler: HookHandler<E>): void {
     const index = this.hooks[event].indexOf(handler);
     if (index > -1) this.hooks[event].splice(index, 1);
   }
 
-  async runHooks(event: keyof typeof this.hooks, ...args: any[]): Promise<any> {
+  async runHooks(event: HookEvent, ...args: any[]): Promise<any> {
     let result = args[args.length - 1];
     for (const hook of this.hooks[event]) {
       result = await Promise.resolve((hook as (...a: any[]) => any)(...args));
@@ -456,7 +460,7 @@ export class KnexHookManagerService {
     knexContext: AsyncLocalStorage<Knex | Knex.Transaction>,
     cascadeContext: AsyncLocalStorage<Map<string, any>>,
   ): any {
-    const runHooks = (event: keyof typeof this.hooks, ...args: any[]) =>
+    const runHooks = (event: HookEvent, ...args: any[]) =>
       this.runHooks(event, ...args);
     const originalInsert = qb.insert;
     const originalUpdate = qb.update;

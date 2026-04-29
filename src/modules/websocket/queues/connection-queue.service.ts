@@ -48,7 +48,7 @@ export class ConnectionQueueService {
         return await this.process(job);
       },
       {
-        prefix: `${nodeName}:`,
+        prefix: nodeName,
         connection: {
           url: this.envService.get('REDIS_URI'),
           maxRetriesPerRequest: null,

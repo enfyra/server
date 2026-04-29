@@ -45,7 +45,7 @@ export class StreamHelper {
     if (stream.contentLength) {
       res.setHeader('Content-Length', stream.contentLength);
     }
-    stream.on('error', (error) => {
+    stream.on('error', (error: Error) => {
       this.logger.error('Cloud stream error:', error);
       if (!res.headersSent) res.status(500).json({ error: 'Stream error' });
     });

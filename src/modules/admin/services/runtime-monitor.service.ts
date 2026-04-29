@@ -1,5 +1,8 @@
 import { Logger } from '../../../shared/logger';
-import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
+import {
+  ENFYRA_ADMIN_ROOT_WEBSOCKET_ROOM,
+  ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+} from '../../../shared/utils/constant';
 import { DynamicWebSocketGateway } from '../../websocket';
 import {
   RuntimeMetricsCollectorService,
@@ -9,8 +12,10 @@ import { IsolatedExecutorService } from '../../../kernel/execution';
 import { RuntimeProcessMetricsService } from './runtime-process-metrics.service';
 import { RuntimeQueueMetricsService } from './runtime-queue-metrics.service';
 import { RuntimeDbMetricsService } from './runtime-db-metrics.service';
+import { RedisAdminService } from './redis-admin.service';
 
 const SAMPLE_INTERVAL_MS = 2000;
+const REDIS_SAMPLE_INTERVAL_MS = 5000;
 const CLUSTER_APP_TTL_MS = SAMPLE_INTERVAL_MS * 5;
 const APP_TELEMETRY_NAMESPACE = 'runtime-monitor:app';
 
@@ -23,9 +28,11 @@ export class RuntimeMonitorService {
   private readonly runtimeProcessMetricsService: RuntimeProcessMetricsService;
   private readonly runtimeQueueMetricsService: RuntimeQueueMetricsService;
   private readonly runtimeDbMetricsService: RuntimeDbMetricsService;
+  private readonly redisAdminService: RedisAdminService;
   private timer?: ReturnType<typeof setInterval>;
   private sampling = false;
   private averageReset?: Promise<void>;
+  private lastRedisSampleAt = 0;
 
   constructor(deps: {
     dynamicWebSocketGateway: DynamicWebSocketGateway;
@@ -35,6 +42,7 @@ export class RuntimeMonitorService {
     runtimeProcessMetricsService: RuntimeProcessMetricsService;
     runtimeQueueMetricsService: RuntimeQueueMetricsService;
     runtimeDbMetricsService: RuntimeDbMetricsService;
+    redisAdminService: RedisAdminService;
   }) {
     this.dynamicWebSocketGateway = deps.dynamicWebSocketGateway;
     this.isolatedExecutorService = deps.isolatedExecutorService;
@@ -43,6 +51,7 @@ export class RuntimeMonitorService {
     this.runtimeProcessMetricsService = deps.runtimeProcessMetricsService;
     this.runtimeQueueMetricsService = deps.runtimeQueueMetricsService;
     this.runtimeDbMetricsService = deps.runtimeDbMetricsService;
+    this.redisAdminService = deps.redisAdminService;
   }
 
   start(): void {
@@ -64,12 +73,16 @@ export class RuntimeMonitorService {
     this.emitSample().catch(() => {});
   }
 
-  onDestroy(): void {
+  async onDestroy(): Promise<void> {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = undefined;
     }
-    this.runtimeProcessMetricsService.disable();
+    await Promise.all([
+      this.runtimeProcessMetricsService.onDestroy(),
+      this.runtimeMetricsCollectorService.onDestroy(),
+      this.clusterTelemetryService.clearCurrentInstance(APP_TELEMETRY_NAMESPACE),
+    ]);
   }
 
   async publishAppTelemetrySnapshot(app: any, sampledAt: string) {
@@ -95,7 +108,10 @@ export class RuntimeMonitorService {
   }
 
   async captureAppTelemetry(sampledAt: string) {
-    const app = this.runtimeMetricsCollectorService.snapshot();
+    const app =
+      typeof this.runtimeMetricsCollectorService.snapshotAsync === 'function'
+        ? await this.runtimeMetricsCollectorService.snapshotAsync()
+        : this.runtimeMetricsCollectorService.snapshot();
     await this.publishAppTelemetrySnapshot(app, sampledAt);
     return {
       app,
@@ -153,6 +169,30 @@ export class RuntimeMonitorService {
     };
   }
 
+  async emitRedisOverview(): Promise<void> {
+    const listeners = await this.dynamicWebSocketGateway.namespaceRoomSize(
+      ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+      ENFYRA_ADMIN_ROOT_WEBSOCKET_ROOM,
+    );
+    if (listeners === 0) return;
+    const overview = await this.redisAdminService.getOverview();
+    this.dynamicWebSocketGateway.emitToNamespaceRoom(
+      ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+      ENFYRA_ADMIN_ROOT_WEBSOCKET_ROOM,
+      '$system:redis:overview',
+      overview,
+    );
+  }
+
+  emitRedisKeyChanged(payload: any): void {
+    this.dynamicWebSocketGateway.emitToNamespaceRoom(
+      ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+      ENFYRA_ADMIN_ROOT_WEBSOCKET_ROOM,
+      '$system:redis:key:changed',
+      payload,
+    );
+  }
+
   private async emitSample(): Promise<void> {
     if (this.sampling) return;
     this.sampling = true;
@@ -163,6 +203,11 @@ export class RuntimeMonitorService {
         '$system:runtime:metrics',
         snapshot,
       );
+      const now = Date.now();
+      if (now - this.lastRedisSampleAt >= REDIS_SAMPLE_INTERVAL_MS) {
+        this.lastRedisSampleAt = now;
+        await this.emitRedisOverview();
+      }
     } finally {
       this.runtimeProcessMetricsService.resetEventLoop();
       this.sampling = false;

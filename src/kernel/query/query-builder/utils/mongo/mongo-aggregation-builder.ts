@@ -187,7 +187,7 @@ export async function executeAggregationPipeline(
         const nestedPipeline = await buildNestedLookupPipeline(
           metadata,
           rel.targetTable,
-          rel.nestedFields,
+          rel.nestedFields ?? [],
           relationFilter,
         );
 

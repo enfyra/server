@@ -1,13 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { FlowExecutionQueueService, FlowService } from 'src/modules/flow';
-import { transformCode } from 'src/kernel/execution';
-import { WebsocketContextFactory } from 'src/modules/websocket';
-import { DynamicContextFactory } from 'src/shared/services';
+import { FlowExecutionQueueService, FlowService } from '../../src/modules/flow';
+import { transformCode } from '../../src/kernel/execution';
+import { WebsocketContextFactory } from '../../src/modules/websocket';
+import { DynamicContextFactory } from '../../src/shared/services';
 
 class InlineExecutor {
   async run(code: string, ctx: any) {
-    const fn = new Function('$ctx', `return (async () => { ${code} })()`);
-    return fn(ctx);
+    const consoleProxy = {
+      log: (...args: any[]) => ctx.$logs(...args),
+      warn: (...args: any[]) => ctx.$logs(...args),
+      error: (...args: any[]) => ctx.$logs(...args),
+      info: (...args: any[]) => ctx.$logs(...args),
+    };
+    const fn = new Function(
+      '$ctx',
+      'console',
+      `return (async () => { ${code} })()`,
+    );
+    return fn(ctx, consoleProxy);
   }
 }
 
@@ -20,7 +30,7 @@ class MockRepoRegistry {
 function createDynamicContextFactory(dynamicWebSocketGateway: any) {
   return new DynamicContextFactory({
     bcryptService: {} as any,
-    cacheService: {} as any,
+    userCacheService: {} as any,
     envService: { get: () => 'test-secret' } as any,
     websocketContextFactory: new WebsocketContextFactory({
       dynamicWebSocketGateway,
@@ -121,5 +131,101 @@ describe('flow step socket context', () => {
     expect(result.emitted).toEqual([
       { method: 'emitToUser', args: [7, 'flow:test', { ok: true }] },
     ]);
+  });
+
+  it('returns console logs from flow step test mode', async () => {
+    const service = new FlowService({
+      flowQueue: {} as any,
+      flowCacheService: {} as any,
+      executorEngineService: {
+        run: (code: string, ctx: any) => new InlineExecutor().run(code, ctx),
+      } as any,
+      repoRegistryService: new MockRepoRegistry() as any,
+      dynamicContextFactory: createDynamicContextFactory({}),
+    });
+
+    const result = await service.testStep({
+      type: 'script',
+      config: {
+        code: `
+          console.log('visible-log', { ok: true });
+          return 'done';
+        `,
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe('done');
+    expect(result.logs).toEqual(['visible-log', { ok: true }]);
+  });
+
+  it('primes @FLOW_LAST from previous live flow steps in test mode', async () => {
+    const service = new FlowService({
+      flowQueue: {} as any,
+      flowCacheService: {
+        getFlows: async () => [
+          {
+            id: 1,
+            name: 'send-mail',
+            triggerType: 'manual',
+            isEnabled: true,
+            steps: [
+              {
+                id: 11,
+                key: 'get_mail_config',
+                stepOrder: 1,
+                type: 'condition',
+                config: {
+                  sourceCode: "return { mailUser: 'sender@test.com' };",
+                  scriptLanguage: 'typescript',
+                },
+                timeout: 5000,
+                onError: 'stop',
+                retryAttempts: 0,
+                isEnabled: true,
+              },
+              {
+                id: 12,
+                key: 'send_mail',
+                stepOrder: 1,
+                type: 'script',
+                config: {
+                  sourceCode: 'return @FLOW_LAST;',
+                  scriptLanguage: 'typescript',
+                },
+                timeout: 5000,
+                onError: 'stop',
+                retryAttempts: 0,
+                isEnabled: true,
+                parentId: 11,
+                branch: 'true',
+              },
+            ],
+          },
+        ],
+      } as any,
+      executorEngineService: {
+        run: (code: string, ctx: any) => new InlineExecutor().run(code, ctx),
+      } as any,
+      repoRegistryService: new MockRepoRegistry() as any,
+      dynamicContextFactory: createDynamicContextFactory({}),
+    });
+
+    const result = await service.testStep({
+      id: 12,
+      type: 'script',
+      key: 'send_mail',
+      config: {
+        sourceCode: 'return @FLOW_LAST;',
+        scriptLanguage: 'typescript',
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toEqual({ mailUser: 'sender@test.com' });
+    expect(result.flowContext?.get_mail_config).toEqual({
+      mailUser: 'sender@test.com',
+    });
+    expect(result.flowContext?.$last).toEqual({ mailUser: 'sender@test.com' });
   });
 });

@@ -172,7 +172,7 @@ export class Logger {
 
   error(
     message: any,
-    trace?: string | Error | Record<string, any>,
+    trace?: unknown,
     context?: string,
   ): void {
     this.emit('error', message, trace, context);
@@ -190,7 +190,7 @@ export class Logger {
     this.emit('verbose', message, undefined, context);
   }
 
-  fatal(message: any, trace?: string | Error, context?: string): void {
+  fatal(message: any, trace?: unknown, context?: string): void {
     this.emit('error', message, trace, context, { fatal: true });
   }
 

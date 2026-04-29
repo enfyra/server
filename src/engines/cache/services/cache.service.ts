@@ -104,6 +104,7 @@ export class CacheService implements ICache {
       return;
     }
     const pattern = `${this.nodeName}:*`;
+    const runtimeCachePrefix = `${this.nodeName}:runtime_cache:`;
     let cursor = '0';
     do {
       const [nextCursor, keys] = await this.redis.scan(
@@ -113,8 +114,11 @@ export class CacheService implements ICache {
         'COUNT',
         100,
       );
-      if (keys.length > 0) {
-        await this.redis.del(...keys);
+      const deletableKeys = keys.filter(
+        (key) => !key.startsWith(runtimeCachePrefix),
+      );
+      if (deletableKeys.length > 0) {
+        await this.redis.del(...deletableKeys);
       }
       cursor = nextCursor;
     } while (cursor !== '0');

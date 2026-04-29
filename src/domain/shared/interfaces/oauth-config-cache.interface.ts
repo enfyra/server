@@ -11,6 +11,6 @@ export interface IOAuthConfig {
 }
 
 export interface IOAuthConfigCache {
-  getDirectConfigByProvider(provider: string): IOAuthConfig | null;
-  getAllProviders(): string[];
+  getDirectConfigByProvider(provider: string): Promise<IOAuthConfig | null>;
+  getAllProviders(): Promise<string[]>;
 }

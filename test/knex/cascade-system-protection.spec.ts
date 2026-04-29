@@ -1,5 +1,5 @@
 import { Logger } from '../../src/shared/logger';
-import { KnexHookRegistry } from 'src/engines/knex';
+import { KnexHookRegistry } from '../../src/engines/knex';
 
 describe('afterDelete cascade – system record protection', () => {
   function setup(opts: {

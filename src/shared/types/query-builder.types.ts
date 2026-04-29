@@ -30,6 +30,28 @@ export interface SortOption {
   direction: 'asc' | 'desc';
 }
 
+export type AggregateOperation =
+  | 'count'
+  | 'sum'
+  | 'avg'
+  | 'min'
+  | 'max'
+  | 'countRecords';
+
+export type AggregateFieldConfig = Partial<
+  Record<AggregateOperation, true | Record<string, any>>
+>;
+
+export type AggregateQuery = Record<string, AggregateFieldConfig>;
+
+export interface NormalizedAggregateOperation {
+  field: string;
+  outputKey: string;
+  path: string;
+  op: AggregateOperation;
+  condition: Record<string, any>;
+}
+
 export interface QueryOptions {
   table: string;
   select?: string[]; // Raw column selection (old way)
@@ -40,6 +62,7 @@ export interface QueryOptions {
   offset?: number;
   groupBy?: string[];
   pipeline?: any[]; // MongoDB aggregation pipeline
+  aggregate?: AggregateQuery;
   mongoFieldsExpanded?: {
     // MongoDB expanded fields from expandFieldsMongo()
     scalarFields: string[];
@@ -56,6 +79,7 @@ export interface QueryOptions {
   mongoCountOnly?: boolean; // Return count instead of data (for filterCount with relation filters)
   plan?: any;
   deep?: Record<string, any>;
+  metadata?: any;
 }
 
 export interface InsertOptions {

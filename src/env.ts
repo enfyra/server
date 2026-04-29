@@ -16,6 +16,22 @@ const EnvSchema = z.object({
   REDIS_URI: z.string(),
   REDIS_HOST: z.string().optional(),
   REDIS_PASSWORD: z.string().optional(),
+  REDIS_RUNTIME_CACHE: z
+    .enum(['true', 'false'])
+    .optional()
+    .default('false')
+    .transform((v) => v === 'true'),
+  REDIS_USER_CACHE_LIMIT_MB: z.coerce
+    .number()
+    .min(0)
+    .optional()
+    .default(30),
+  REDIS_USER_CACHE_MAX_VALUE_BYTES: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .default(0),
   DEFAULT_TTL: z.coerce.number().int().positive().optional().default(5),
   NODE_NAME: z.string().optional().default('enfyra'),
   PORT: z.coerce.number().int().positive().default(1105),

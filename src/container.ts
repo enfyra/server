@@ -17,7 +17,7 @@ type QueueWithConnection = Queue & { __enfyraConnection?: Redis };
 function createRuntimeQueue(name: string): QueueWithConnection {
   const connection = new Redis(env.REDIS_URI);
   const queue = new Queue(name, {
-    prefix: `${env.NODE_NAME}:`,
+    prefix: env.NODE_NAME,
     connection,
   }) as QueueWithConnection;
   queue.__enfyraConnection = connection;
@@ -98,10 +98,12 @@ import {
   PackageCdnLoaderService,
   RateLimitService,
   RedisPubSubService,
+  RedisRuntimeCacheStore,
   RepoRegistryService,
   RouteCacheService,
   SettingCacheService,
   StorageConfigCacheService,
+  UserCacheService,
   WebsocketCacheService,
 } from './engines/cache';
 import {
@@ -124,7 +126,6 @@ import {
   SqlPoolClusterCoordinatorService,
   SqlSchemaDiffService,
   SqlSchemaMigrationService,
-  DatabaseSchemaService,
 } from './engines/knex';
 
 import {
@@ -139,12 +140,7 @@ import {
   MongoService,
 } from './engines/mongo';
 
-import {
-  QueryBuilderService,
-  MongoQueryEngine,
-  QueryEngine,
-  SqlQueryEngine,
-} from './kernel/query';
+import { QueryBuilderService } from './kernel/query';
 
 import { SqlFunctionService } from './engines/sql';
 
@@ -154,6 +150,7 @@ import {
   RuntimeDbMetricsService,
   RuntimeProcessMetricsService,
   RuntimeQueueMetricsService,
+  RedisAdminService,
 } from './modules/admin';
 
 import {
@@ -247,21 +244,19 @@ export interface Cradle {
   sqlSchemaMigrationService: SqlSchemaMigrationService;
   sqlSchemaDiffService: SqlSchemaDiffService;
   migrationJournalService: MigrationJournalService;
-  databaseSchemaService: DatabaseSchemaService;
   schemaMigrationLockService: SchemaMigrationLockService;
   sqlPoolClusterCoordinatorService: SqlPoolClusterCoordinatorService;
   sqlFunctionService: SqlFunctionService;
 
   queryBuilderService: QueryBuilderService;
-  queryEngine: QueryEngine;
-  sqlQueryEngine: SqlQueryEngine;
-  mongoQueryEngine: MongoQueryEngine;
 
   isolatedExecutorService: IsolatedExecutorService;
   executorEngineService: ExecutorEngineService;
 
   cacheService: CacheService;
+  userCacheService: UserCacheService;
   redisPubSubService: RedisPubSubService;
+  redisRuntimeCacheStore: RedisRuntimeCacheStore;
   metadataCacheService: MetadataCacheService;
   routeCacheService: RouteCacheService;
   packageCacheService: PackageCacheService;
@@ -307,6 +302,7 @@ export interface Cradle {
   runtimeDbMetricsService: RuntimeDbMetricsService;
   runtimeProcessMetricsService: RuntimeProcessMetricsService;
   runtimeQueueMetricsService: RuntimeQueueMetricsService;
+  redisAdminService: RedisAdminService;
   meService: MeService;
   graphqlService: GraphqlService;
   dynamicResolver: DynamicResolver;
@@ -416,7 +412,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     dynamicContextFactory: asClass(DynamicContextFactory).singleton(),
     runtimeMetricsCollectorService: asClass(
       RuntimeMetricsCollectorService,
-    ).singleton(),
+    )
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     clusterTelemetryService: asClass(ClusterTelemetryService).singleton(),
     bcryptService: asClass(BcryptService).singleton(),
     authService: asClass(AuthService).singleton(),
@@ -473,7 +471,6 @@ export function buildContainer(): AwilixContainer<Cradle> {
     sqlSchemaMigrationService: asClass(SqlSchemaMigrationService).singleton(),
     sqlSchemaDiffService: asClass(SqlSchemaDiffService).singleton(),
     migrationJournalService: asClass(MigrationJournalService).singleton(),
-    databaseSchemaService: asClass(DatabaseSchemaService).singleton(),
     schemaMigrationLockService: asClass(SchemaMigrationLockService).singleton(),
     sqlPoolClusterCoordinatorService: asClass(SqlPoolClusterCoordinatorService)
       .singleton()
@@ -481,9 +478,6 @@ export function buildContainer(): AwilixContainer<Cradle> {
     sqlFunctionService: asClass(SqlFunctionService).singleton(),
 
     queryBuilderService: asClass(QueryBuilderService).singleton(),
-    queryEngine: asClass(QueryEngine).singleton(),
-    sqlQueryEngine: asClass(SqlQueryEngine).singleton(),
-    mongoQueryEngine: asClass(MongoQueryEngine).singleton(),
 
     isolatedExecutorService: asClass(IsolatedExecutorService)
       .singleton()
@@ -491,9 +485,11 @@ export function buildContainer(): AwilixContainer<Cradle> {
     executorEngineService: asClass(ExecutorEngineService).singleton(),
 
     cacheService: asClass(CacheService).singleton(),
+    userCacheService: asClass(UserCacheService).singleton(),
     redisPubSubService: asClass(RedisPubSubService)
       .singleton()
       .disposer((service) => service.onDestroy()),
+    redisRuntimeCacheStore: asClass(RedisRuntimeCacheStore).singleton(),
     metadataCacheService: asClass(MetadataCacheService).singleton(),
     routeCacheService: asClass(RouteCacheService).singleton(),
     packageCacheService: asClass(PackageCacheService).singleton(),
@@ -558,8 +554,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     runtimeDbMetricsService: asClass(RuntimeDbMetricsService).singleton(),
     runtimeProcessMetricsService: asClass(RuntimeProcessMetricsService)
       .singleton()
-      .disposer((service) => service.disable()),
+      .disposer((service) => service.onDestroy()),
     runtimeQueueMetricsService: asClass(RuntimeQueueMetricsService).singleton(),
+    redisAdminService: asClass(RedisAdminService).singleton(),
     runtimeMonitorService: asClass(RuntimeMonitorService)
       .singleton()
       .disposer((service) => service.onDestroy()),

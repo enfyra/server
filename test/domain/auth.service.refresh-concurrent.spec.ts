@@ -1,8 +1,8 @@
 import { createHash } from 'crypto';
 import * as jwt from 'jsonwebtoken';
-import { AuthService, BcryptService } from 'src/domain/auth';
-import { QueryBuilderService } from 'src/kernel/query';
-import { EnvService } from 'src/shared/services';
+import { AuthService, BcryptService } from '../../src/domain/auth';
+import { QueryBuilderService } from '../../src/kernel/query';
+import { EnvService } from '../../src/shared/services';
 
 describe('AuthService.refreshToken rotation (SQL session)', () => {
   let auth: AuthService;

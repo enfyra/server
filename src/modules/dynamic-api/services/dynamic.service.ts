@@ -27,20 +27,24 @@ export class DynamicService {
   }
 
   async runHandler(req: RequestWithRouteData) {
+    const routeData = req.routeData;
+    if (!routeData) {
+      throw new BusinessLogicException('Route data is required');
+    }
     const isTableDefinitionOperation =
-      req.routeData.mainTable?.name === 'table_definition';
+      routeData.mainTable?.name === 'table_definition';
     try {
-      const handler = req.routeData.handler?.trim();
+      const handler = routeData.handler?.trim();
       if (!handler) {
         throw new BusinessLogicException(
-          `No handler configured for method '${req.method}' on route '${req.routeData.route?.path || req.url}'`,
-          { method: req.method, route: req.routeData.route?.path },
+          `No handler configured for method '${req.method}' on route '${routeData.route?.path || req.url}'`,
+          { method: req.method, route: routeData.route?.path },
         );
       }
 
-      const res = req.routeData.res;
+      const res = routeData.res;
       if (res) {
-        req.routeData.context.$res = res;
+        routeData.context.$res = res;
       }
 
       this.executorEngineService.register(req, {
@@ -48,7 +52,7 @@ export class DynamicService {
         type: 'handler',
       });
 
-      const postHooks = req.routeData?.postHooks;
+      const postHooks = routeData.postHooks;
       if (postHooks?.length) {
         for (const hook of postHooks) {
           if (!hook.code) continue;
@@ -59,7 +63,7 @@ export class DynamicService {
         }
       }
 
-      const routeHandler = req.routeData.handlers?.find(
+      const routeHandler = routeData.handlers?.find(
         (h) => h.method?.method === req.method,
       );
       const timeoutMs = routeHandler?.timeout || undefined;
@@ -74,17 +78,17 @@ export class DynamicService {
         value = result.value;
         shortCircuit = result.shortCircuit;
       } finally {
-        delete req.routeData.context.$res;
+        delete routeData.context.$res;
       }
 
       if (shortCircuit) {
-        const httpRes = req.routeData.res;
+        const httpRes = routeData.res;
         if (httpRes && !httpRes.headersSent) {
-          let response = req.routeData.context.$share.$logs.length
-            ? { result: value, logs: req.routeData.context.$share.$logs }
+          let response = routeData.context.$share.$logs.length
+            ? { result: value, logs: routeData.context.$share.$logs }
             : value;
           const debug: any = (req as any)._debug;
-          if (debug && req.routeData?.context?.$query?.debugMode) {
+          if (debug && routeData.context.$query?.debugMode) {
             response = { ...response, debug: debug.toJSON() };
           }
           httpRes.status(200).json(response);
@@ -111,7 +115,7 @@ export class DynamicService {
           stack: getErrorStack(error),
           method: req.method,
           url: req.url,
-          handler: req.routeData?.handler,
+          handler: routeData.handler,
           isTableOperation: isTableDefinitionOperation,
           userId: req.user?.id,
         });
@@ -130,7 +134,7 @@ export class DynamicService {
       }
       throw new ScriptExecutionException(
         getErrorMessage(error),
-        req.routeData?.handler,
+        routeData.handler,
         {
           method: req.method,
           url: req.url,

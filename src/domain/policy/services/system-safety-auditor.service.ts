@@ -86,7 +86,7 @@ export class SystemSafetyAuditorService {
           .sort();
         const isSame =
           oldIds.length === newIds.length &&
-          oldIds.every((id, i) => id === newIds[i]);
+          oldIds.every((id: unknown, i: number) => id === newIds[i]);
         if (!isSame)
           throw new Error('Cannot add or modify system route handlers');
       }

@@ -9,8 +9,8 @@ interface RouteNode {
   path: string;
   paramName?: string;
   children: Map<string, RouteNode>;
-  paramChild?: RouteNode;
-  wildcardChild?: RouteNode;
+  paramChild?: RouteNode | null;
+  wildcardChild?: RouteNode | null;
   handler?: any;
 }
 
