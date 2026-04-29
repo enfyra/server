@@ -3,6 +3,11 @@ import {
   FieldNode,
   RelationFieldNode,
 } from '../../../query-dsl/types/field-tree';
+import {
+  getMongoInverseRelationForeignField,
+  getMongoStoredRelationField,
+  isMongoInverseRelation,
+} from '../../../../../engines/mongo';
 
 export interface MongoFieldExpansion {
   scalarFields: string[];
@@ -61,12 +66,22 @@ function buildRelationDescriptor(
     node.relationType === 'many-to-one' ||
     node.relationType === 'one-to-one'
   ) {
-    localField = node.propertyName;
-    foreignField = '_id';
-    isInverse = false;
+    if (rel && isMongoInverseRelation(rel)) {
+      localField = '_id';
+      foreignField =
+        getMongoInverseRelationForeignField(rel) || node.propertyName;
+      isInverse = true;
+    } else {
+      localField = rel
+        ? getMongoStoredRelationField(rel) || node.propertyName
+        : node.propertyName;
+      foreignField = '_id';
+      isInverse = false;
+    }
   } else if (node.relationType === 'one-to-many') {
     localField = '_id';
-    foreignField = rel?.mappedBy || node.propertyName;
+    foreignField =
+      (rel && getMongoInverseRelationForeignField(rel)) || node.propertyName;
     isInverse = true;
   } else {
     if (rel?.mappedBy) {

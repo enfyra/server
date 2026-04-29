@@ -2,6 +2,7 @@ import { Logger } from '../../../shared/logger';
 import { MongoService } from './mongo.service';
 import { QueryBuilderService } from '../../../kernel/query';
 import { getErrorMessage } from '../../../shared/utils/error.util';
+import { buildMongoFullIndexSpecs } from '../utils/mongo-physical-schema-contract';
 
 export class MongoSchemaDiffService {
   private readonly logger = new Logger(MongoSchemaDiffService.name);
@@ -78,14 +79,6 @@ export class MongoSchemaDiffService {
     return schema;
   }
 
-  private createPartialFilterForUnique(fields: string[]): any {
-    const filter: any = {};
-    for (const field of fields) {
-      filter[field] = { $exists: true, $ne: null };
-    }
-    return filter;
-  }
-
   indexKey(index: string[]): string {
     return [...index].sort().join(',');
   }
@@ -147,109 +140,13 @@ export class MongoSchemaDiffService {
     indexes: any[] = [],
     relations: any[] = [],
   ): { keys: Record<string, number>; options: any; name: string }[] {
-    const specs: {
-      keys: Record<string, number>;
-      options: any;
-      name: string;
-    }[] = [];
-    const indexedFields = new Set<string>();
-
-    for (const index of indexes) {
-      for (const field of index) {
-        indexedFields.add(field);
-      }
-    }
-
-    for (const col of columns) {
-      if (col.name === '_id') continue;
-      if (col.isPrimary || col.name === 'id') {
-        specs.push({
-          keys: { [col.name]: 1 },
-          options: {
-            unique: true,
-            name: `${collectionName}_${col.name}_unique`,
-          },
-          name: `${collectionName}_${col.name}_unique`,
-        });
-      }
-    }
-
-    for (const unique of uniques) {
-      const indexSpec: Record<string, number> = {};
-      for (const field of unique) {
-        indexSpec[field] = 1;
-      }
-      specs.push({
-        keys: indexSpec,
-        options: {
-          unique: true,
-          name: `${collectionName}_${unique.join('_')}_unique`,
-          partialFilterExpression: this.createPartialFilterForUnique(unique),
-        },
-        name: `${collectionName}_${unique.join('_')}_unique`,
-      });
-      if (unique.length > 0) indexedFields.add(unique[0]);
-    }
-
-    for (const index of indexes) {
-      const indexSpec: Record<string, number> = {};
-      for (const field of index) {
-        indexSpec[field] = 1;
-      }
-      specs.push({
-        keys: indexSpec,
-        options: { name: `${collectionName}_${index.join('_')}_idx` },
-        name: `${collectionName}_${index.join('_')}_idx`,
-      });
-    }
-
-    for (const relation of relations) {
-      if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
-        const fieldName = relation.propertyName;
-        if (!indexedFields.has(fieldName)) {
-          specs.push({
-            keys: { [fieldName]: 1 },
-            options: { name: `${collectionName}_${fieldName}_fk_idx` },
-            name: `${collectionName}_${fieldName}_fk_idx`,
-          });
-          indexedFields.add(fieldName);
-        }
-      }
-    }
-
-    if (!indexedFields.has('createdAt')) {
-      specs.push({
-        keys: { createdAt: -1 },
-        options: { name: `${collectionName}_createdAt_idx` },
-        name: `${collectionName}_createdAt_idx`,
-      });
-    }
-    if (!indexedFields.has('updatedAt')) {
-      specs.push({
-        keys: { updatedAt: -1 },
-        options: { name: `${collectionName}_updatedAt_idx` },
-        name: `${collectionName}_updatedAt_idx`,
-      });
-    }
-
-    const timestampFields = columns.filter(
-      (col) =>
-        col.type === 'datetime' ||
-        col.type === 'timestamp' ||
-        col.type === 'date',
-    );
-    for (const field of timestampFields) {
-      if (!indexedFields.has(field.name)) {
-        specs.push({
-          keys: { [field.name]: -1 },
-          options: { name: `${collectionName}_${field.name}_idx` },
-          name: `${collectionName}_${field.name}_idx`,
-        });
-        indexedFields.add(field.name);
-      }
-    }
-
-    return specs;
+    return buildMongoFullIndexSpecs({
+      collectionName,
+      columns,
+      uniques,
+      indexes,
+      relations,
+    });
   }
 
   analyzeMongoColumnChanges(

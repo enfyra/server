@@ -102,11 +102,12 @@ export class ColumnRuleCacheService extends BaseCacheService<
     }
     const ids = (payload.ids ?? []).map(String);
     if (ids.length === 0) return;
+    const idField = this.queryBuilderService.isMongoDb() ? '_id' : 'id';
 
     const result = await this.queryBuilderService.find({
       table: 'column_rule_definition',
       fields: ['*', 'column.id', 'column._id'],
-      filter: { id: { _in: ids } },
+      filter: { [idField]: { _in: ids } },
       limit: ids.length,
     });
     const rows: any[] = result?.data ?? [];
@@ -141,8 +142,10 @@ export class ColumnRuleCacheService extends BaseCacheService<
   private rowToRule(row: any): TColumnRule | null {
     const columnId = toIdString(row?.column);
     if (!columnId) return null;
+    const id = toIdString(row);
+    if (!id) return null;
     return {
-      id: row.id,
+      id,
       ruleType: row.ruleType,
       value: row.value,
       message: row.message ?? null,

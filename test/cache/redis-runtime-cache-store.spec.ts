@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ObjectId } from 'mongodb';
 import {
   BaseCacheService,
   RedisRuntimeCacheStore,
@@ -135,6 +136,22 @@ describe('Redis runtime cache mode', () => {
     expect(snapshot?.data.nested.get('roles')).toEqual(
       new Set(['admin', 'editor']),
     );
+  });
+
+  it('normalizes Mongo ObjectId values before writing shared snapshots', async () => {
+    const store = createStore();
+    const id = new ObjectId('69f22938280ef30e587a9ef4');
+
+    await store.setSnapshot(CACHE_IDENTIFIERS.ROUTE, {
+      routes: [{ _id: id, mainTable: { _id: id } }],
+    });
+
+    const snapshot = await store.getSnapshot<{
+      routes: Array<{ _id: string; mainTable: { _id: string } }>;
+    }>(CACHE_IDENTIFIERS.ROUTE);
+
+    expect(snapshot?.data.routes[0]._id).toBe(id.toHexString());
+    expect(snapshot?.data.routes[0].mainTable._id).toBe(id.toHexString());
   });
 
   it('serves another cache instance from the shared Redis snapshot', async () => {

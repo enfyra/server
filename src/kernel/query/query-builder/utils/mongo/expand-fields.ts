@@ -1,3 +1,9 @@
+import {
+  getMongoInverseRelationForeignField,
+  getMongoStoredRelationField,
+  isMongoInverseRelation,
+} from '../../../../../engines/mongo';
+
 export async function expandFieldsMongo(
   metadata: any,
   tableName: string,
@@ -101,12 +107,19 @@ export async function expandFieldsMongo(
     let isInverse = false;
 
     if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-      localField = rel.propertyName;
-      foreignField = '_id';
-      isInverse = false;
+      if (isMongoInverseRelation(rel)) {
+        localField = '_id';
+        foreignField =
+          getMongoInverseRelationForeignField(rel) || rel.propertyName;
+        isInverse = true;
+      } else {
+        localField = getMongoStoredRelationField(rel) || rel.propertyName;
+        foreignField = '_id';
+        isInverse = false;
+      }
     } else if (rel.type === 'one-to-many') {
       localField = '_id';
-      foreignField = rel.mappedBy || rel.propertyName;
+      foreignField = getMongoInverseRelationForeignField(rel) || rel.propertyName;
       isInverse = true;
     } else if (rel.type === 'many-to-many') {
       if (rel.mappedBy) {

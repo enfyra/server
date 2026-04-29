@@ -4,7 +4,11 @@ import {
   hasAnyRelations,
 } from '../shared/filter-separator.util';
 import { renderRawFilterToMongo } from './render-filter';
-import { resolveMongoJunctionInfo } from '../../../../../engines/mongo';
+import {
+  getMongoInverseRelationForeignField,
+  getMongoStoredRelationField,
+  resolveMongoJunctionInfo,
+} from '../../../../../engines/mongo';
 
 export async function resolveMongoFilter(
   filter: any,
@@ -162,7 +166,7 @@ async function resolveM2oOrO2o(
   metadata: any,
   db: Db,
 ): Promise<any> {
-  const fkField = relation.foreignKeyColumn || `${relName}Id`;
+  const fkField = getMongoStoredRelationField(relation) || relName;
   const inner = unwrapIdLayer(relFilter);
 
   const nullOnly = checkNullOnly(inner);
@@ -206,7 +210,8 @@ async function resolveO2m(
   metadata: any,
   db: Db,
 ): Promise<any> {
-  const fkField = relation.foreignKeyColumn || `${parentTable}Id`;
+  const fkField =
+    getMongoInverseRelationForeignField(relation) || parentTable;
   const inner = unwrapIdLayer(relFilter);
 
   const nullOnly = checkNullOnly(inner);

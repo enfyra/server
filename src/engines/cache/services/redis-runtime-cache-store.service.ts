@@ -119,11 +119,7 @@ export class RedisRuntimeCacheStore {
   }
 
   private encode(value: any): Buffer {
-    try {
-      return serialize(value);
-    } catch {
-      return serialize(normalizeForSnapshot(value));
-    }
+    return serialize(normalizeForSnapshot(value));
   }
 
   private decode<T>(raw: Buffer): T {

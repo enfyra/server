@@ -8,6 +8,9 @@ import {
   PER_PARENT_CONCURRENCY,
 } from '../../../query-dsl/batch-fetch-engine';
 import {
+  getMongoInverseRelationForeignField,
+  getMongoStoredRelationField,
+  isMongoInverseRelation,
   resolveMongoJunctionInfo,
   type MongoFieldRenameMigration,
 } from '../../../../../engines/mongo';
@@ -111,7 +114,8 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
 
         if (!joinedAliases.has(alias)) {
           joinedAliases.add(alias);
-          const localFieldRaw = rel.foreignKeyColumn || rel.propertyName;
+          const localFieldRaw =
+            getMongoStoredRelationField(rel) || rel.propertyName;
           const prevAlias =
             i === 0 ? null : `__sort_${parts.slice(0, i).join('_')}`;
           const localField = prevAlias
@@ -259,16 +263,18 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
       let localField: string | undefined;
       let foreignField: string | undefined;
       if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-        if (!(rel as any).isInverse) {
-          localField = rel.propertyName;
+        if (!isMongoInverseRelation(rel)) {
+          localField = getMongoStoredRelationField(rel) || rel.propertyName;
           foreignField = '_id';
         } else {
           localField = '_id';
-          foreignField = rel.mappedBy || rel.propertyName;
+          foreignField =
+            getMongoInverseRelationForeignField(rel) || rel.propertyName;
         }
       } else if (rel.type === 'one-to-many') {
         localField = '_id';
-        foreignField = rel.mappedBy || rel.propertyName;
+        foreignField =
+          getMongoInverseRelationForeignField(rel) || rel.propertyName;
       } else if (rel.type === 'many-to-many') {
         if ((rel as any).isInverse) {
           localField = '_id';

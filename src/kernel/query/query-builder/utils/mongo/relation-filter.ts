@@ -3,7 +3,11 @@ import {
   hasAnyRelations,
 } from '../shared/filter-separator.util';
 import { renderRawFilterToMongo } from './render-filter';
-import { resolveMongoJunctionInfo } from '../../../../../engines/mongo';
+import {
+  getMongoInverseRelationForeignField,
+  getMongoStoredRelationField,
+  resolveMongoJunctionInfo,
+} from '../../../../../engines/mongo';
 
 export async function buildRelationLookupPipeline(
   metadata: any,
@@ -78,7 +82,8 @@ export async function applyRelationFilters(
     if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
       const nullOnly = classifyRelationNullOnlyFilter(relationFilter);
       if (nullOnly !== null) {
-        const fkField = relation.foreignKeyColumn || `${relationName}Id`;
+        const fkField =
+          getMongoStoredRelationField(relation) || relationName;
         const effectiveNull = invert ? !nullOnly : nullOnly;
         pipeline.push({
           $match: {
@@ -155,11 +160,12 @@ export async function applyRelationFilters(
     let foreignField: string;
 
     if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
-      localField = relation.foreignKeyColumn || `${relationName}Id`;
+      localField = getMongoStoredRelationField(relation) || relationName;
       foreignField = '_id';
     } else if (relation.type === 'one-to-many') {
       localField = '_id';
-      foreignField = relation.foreignKeyColumn || 'id';
+      foreignField =
+        getMongoInverseRelationForeignField(relation) || relation.propertyName;
     } else {
       continue;
     }
@@ -244,7 +250,7 @@ function isM2oFkNullOnlyFilter(
   if (
     !relation ||
     (relation.type !== 'many-to-one' && relation.type !== 'one-to-one') ||
-    !relation.foreignKeyColumn ||
+    !getMongoStoredRelationField(relation) ||
     typeof relFilter !== 'object' ||
     relFilter === null ||
     Array.isArray(relFilter)
@@ -457,11 +463,14 @@ export async function applyMixedFilters(
 
         if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
           localField =
-            relation.foreignKeyColumn || `${relCondition.relationName}Id`;
+            getMongoStoredRelationField(relation) ||
+            relCondition.relationName;
           foreignField = '_id';
         } else if (relation.type === 'one-to-many') {
           localField = '_id';
-          foreignField = relation.foreignKeyColumn || 'id';
+          foreignField =
+            getMongoInverseRelationForeignField(relation) ||
+            relation.propertyName;
         } else {
           continue;
         }

@@ -102,7 +102,20 @@ export abstract class BaseCacheService<T> {
       }
       await this.applyPartialUpdate(payload);
       if (this.usesSharedRuntimeCache()) {
-        await this.persistSharedCache(this.cache);
+        if (this.cache === undefined) {
+          const snapshot =
+            await this.redisRuntimeCacheStore!.getSnapshot<T>(
+              this.config.cacheIdentifier,
+            );
+          if (!snapshot) {
+            throw new Error(
+              `${this.config.cacheName} shared cache is unavailable after reload`,
+            );
+          }
+          this.cacheLoaded = true;
+        } else {
+          await this.persistSharedCache(this.cache);
+        }
       }
       const elapsed = Date.now() - start;
       this.logger.log(

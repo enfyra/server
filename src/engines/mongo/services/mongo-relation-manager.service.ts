@@ -6,6 +6,7 @@ import {
   TRelationOnDeleteAction,
 } from '../utils/mongo-relation-on-delete.util';
 import { resolveMongoJunctionInfo } from '../utils/mongo-junction.util';
+import { getMongoStoredRelationField } from '../utils/mongo-physical-schema-contract';
 import { ValidationException } from '../../../domain/exceptions';
 import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
 
@@ -63,7 +64,8 @@ export class MongoRelationManagerService {
         continue;
       }
 
-      const fieldName = relation.propertyName;
+      const fieldName =
+        getMongoStoredRelationField(relation) || relation.propertyName;
 
       if (!(fieldName in newData)) {
         continue;
@@ -192,7 +194,11 @@ export class MongoRelationManagerService {
     const processed = { ...data };
 
     for (const relation of metadata.relations) {
-      const fieldName = relation.propertyName;
+      const inputFieldName = relation.propertyName;
+      const storedFieldName =
+        getMongoStoredRelationField(relation) || inputFieldName;
+      const fieldName =
+        inputFieldName in processed ? inputFieldName : storedFieldName;
 
       if (!(fieldName in processed)) continue;
 
@@ -209,14 +215,15 @@ export class MongoRelationManagerService {
       const targetCollection = relation.targetTableName || relation.targetTable;
 
       if (fieldValue === null || fieldValue === undefined) {
-        if (relation.type === 'many-to-many') {
-          this.setM2mPending(processed, fieldName, []);
-          delete processed[fieldName];
-        } else {
-          processed[fieldName] = null;
+          if (relation.type === 'many-to-many') {
+            this.setM2mPending(processed, fieldName, []);
+            delete processed[fieldName];
+          } else {
+            processed[storedFieldName] = null;
+            if (storedFieldName !== fieldName) delete processed[fieldName];
+          }
+          continue;
         }
-        continue;
-      }
 
       if (['many-to-one', 'one-to-one'].includes(relation.type)) {
         if (
@@ -227,9 +234,12 @@ export class MongoRelationManagerService {
         ) {
           if (typeof fieldValue === 'string' && fieldValue.length === 24) {
             try {
-              processed[fieldName] = new ObjectId(fieldValue);
+              processed[storedFieldName] = new ObjectId(fieldValue);
             } catch (_) {}
+          } else if (storedFieldName !== fieldName) {
+            processed[storedFieldName] = fieldValue;
           }
+          if (storedFieldName !== fieldName) delete processed[fieldName];
           continue;
         }
 
@@ -240,21 +250,22 @@ export class MongoRelationManagerService {
           if (hasDataToUpdate) {
             await checkPolicy(targetCollection, 'create', nestedData);
             const inserted = await insertOne(targetCollection, nestedData);
-            processed[fieldName] = new ObjectId(inserted._id);
+            processed[storedFieldName] = new ObjectId(inserted._id);
           } else {
-            processed[fieldName] = null;
+            processed[storedFieldName] = null;
           }
         } else if (hasDataToUpdate) {
           const idToUse = nestedId || id;
           await checkPolicy(targetCollection, 'update', nestedData);
           await updateOne(targetCollection, idToUse, nestedData);
-          processed[fieldName] =
+          processed[storedFieldName] =
             typeof idToUse === 'string' ? new ObjectId(idToUse) : idToUse;
         } else {
           const idToUse = nestedId || id;
-          processed[fieldName] =
+          processed[storedFieldName] =
             typeof idToUse === 'string' ? new ObjectId(idToUse) : idToUse;
         }
+        if (storedFieldName !== fieldName) delete processed[fieldName];
       } else if (['one-to-many', 'many-to-many'].includes(relation.type)) {
         if (!Array.isArray(fieldValue)) {
           if (relation.type === 'many-to-many') {
@@ -326,7 +337,8 @@ export class MongoRelationManagerService {
     if (metadata?.relations) {
       for (const relation of metadata.relations) {
         const onDelete = normalizeRelationOnDelete(relation);
-        const fieldName = relation.propertyName;
+        const fieldName =
+          getMongoStoredRelationField(relation) || relation.propertyName;
         const fieldValue = recordData?.[fieldName];
         const targetCollection =
           relation.targetTableName || relation.targetTable;
@@ -435,7 +447,8 @@ export class MongoRelationManagerService {
     targetCollection: string,
     getCollection: (name: string) => Collection<Document>,
   ): Promise<void> {
-    const fieldName = relation.propertyName;
+    const fieldName =
+      getMongoStoredRelationField(relation) || relation.propertyName;
     const mappedBy = relation.mappedBy;
     const raw = recordData?.[fieldName];
     const coll = getCollection(targetCollection);
@@ -752,7 +765,8 @@ export class MongoRelationManagerService {
       if (!['one-to-one', 'many-to-one'].includes(relation.type)) continue;
       if (relation.isInverse || relation.mappedBy) continue;
 
-      const fieldName = relation.propertyName;
+      const fieldName =
+        getMongoStoredRelationField(relation) || relation.propertyName;
       const hasUnique = this.hasUniqueConstraintOnField(metadata, fieldName);
 
       if (!hasUnique) continue;

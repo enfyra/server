@@ -1209,6 +1209,10 @@ export class DynamicRepository {
       ids: opts?.ids,
       affectedTables: opts?.affectedTables,
     };
+    if (typeof this.eventEmitter.emitAsync === 'function') {
+      await this.eventEmitter.emitAsync(CACHE_EVENTS.INVALIDATE, payload);
+      return;
+    }
     this.eventEmitter.emit(CACHE_EVENTS.INVALIDATE, payload);
   }
 }

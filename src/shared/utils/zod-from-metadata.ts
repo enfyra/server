@@ -50,7 +50,8 @@ function buildColumnZod(
   if (AUTO_MANAGED_COLUMNS.has(col.name)) return null;
   if (mode === 'update' && col.isUpdatable === false) return null;
 
-  const rules = (rulesForColumn(col.id) || []).filter(
+  const columnId = col.id ?? col._id;
+  const rules = (columnId != null ? rulesForColumn(columnId) : []).filter(
     (r) => r.isEnabled !== false,
   );
 

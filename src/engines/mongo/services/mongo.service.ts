@@ -16,6 +16,7 @@ import { MetadataCacheService } from '../../cache';
 import { MongoRelationManagerService } from './mongo-relation-manager.service';
 import type { MongoSagaSession } from './mongo-saga-session';
 import { mongoTopologySupportsNativeTransactions } from '../utils/mongo-native-transaction-topology.util';
+import { buildMongoWritableFieldSet } from '../utils/mongo-physical-schema-contract';
 import { DatabaseException } from '../../../domain/exceptions';
 
 export class MongoService {
@@ -543,26 +544,7 @@ export class MongoService {
       await this.metadataCacheService.lookupTableByName(collectionName);
     if (!tableMetadata) return data;
 
-    const validFields = new Set<string>();
-    if (tableMetadata.columns) {
-      for (const col of tableMetadata.columns) {
-        validFields.add(col.name);
-      }
-    }
-    if (tableMetadata.relations) {
-      for (const rel of tableMetadata.relations) {
-        if (
-          rel.propertyName &&
-          ['many-to-one', 'one-to-one'].includes(rel.type) &&
-          !(rel.type === 'one-to-one' && (rel.mappedBy || rel.isInverse))
-        ) {
-          validFields.add(rel.propertyName);
-        }
-        if (rel.foreignKeyColumn) {
-          validFields.add(rel.foreignKeyColumn);
-        }
-      }
-    }
+    const validFields = buildMongoWritableFieldSet(tableMetadata);
 
     const stripped = { ...data };
     for (const key of Object.keys(stripped)) {

@@ -4,11 +4,12 @@ import {
   getJunctionTableName,
   getJunctionColumnNames,
 } from '../../../kernel/query';
-import { ObjectId } from 'mongodb';
+import { ObjectId, type Db } from 'mongodb';
 import {
   BaseTableProcessor,
   loadRelationRenameMap,
 } from '../../../domain/bootstrap';
+import { buildMongoFullIndexSpecs } from '../../mongo';
 class TableDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[]): Promise<any[]> {
     const now = new Date();
@@ -90,6 +91,25 @@ export class MetadataProvisionMongoService {
   private readonly queryBuilderService: QueryBuilderService;
   constructor(deps: { queryBuilderService: QueryBuilderService }) {
     this.queryBuilderService = deps.queryBuilderService;
+  }
+  private async syncPhysicalIndexesFromSnapshot(
+    snapshot: any,
+    db: Db,
+  ): Promise<void> {
+    for (const [tableName, defRaw] of Object.entries(snapshot)) {
+      const def = defRaw as any;
+      const specs = buildMongoFullIndexSpecs({
+        collectionName: tableName,
+        columns: def.columns || [],
+        uniques: def.uniques || [],
+        indexes: def.indexes || [],
+        relations: def.relations || [],
+      });
+      const collection = db.collection(tableName);
+      for (const spec of specs) {
+        await collection.createIndex(spec.keys, spec.options);
+      }
+    }
   }
   private buildRecordFromColumns(data: any, columns: any[]): any {
     const record: any = {};
@@ -554,6 +574,8 @@ export class MetadataProvisionMongoService {
         );
       }
     }
+    this.logger.log('Step 5: Syncing physical indexes...');
+    await this.syncPhysicalIndexesFromSnapshot(snapshot, db);
     this.logger.log('MongoDB metadata creation completed');
   }
 }

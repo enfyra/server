@@ -13,7 +13,9 @@ import {
 } from '../src/shared/utils/provision-schema-migration';
 import {
   buildJunctionDefs,
+  buildMongoFullIndexSpecs,
   createJunctionCollections,
+  getMongoStoredRelationField,
 } from '../src/engines/mongo';
 dotenv.config();
 function getBsonType(columnDef: ColumnDef): string {
@@ -68,7 +70,8 @@ function createValidationSchema(
         continue;
       }
       if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-        properties[rel.propertyName] = {
+        const fieldName = getMongoStoredRelationField(rel) || rel.propertyName;
+        properties[fieldName] = {
           bsonType: ['objectId', 'null'],
           description: `Reference to ${rel.targetTable}`,
         };
@@ -92,91 +95,22 @@ async function createIndexes(
   tableDef: TableDef,
 ): Promise<void> {
   const collection = db.collection(collectionName);
-  if (tableDef.uniques && tableDef.uniques.length > 0) {
-    for (const uniqueGroup of tableDef.uniques) {
-      if (Array.isArray(uniqueGroup) && uniqueGroup.length > 0) {
-        const indexSpec: any = {};
-        for (const fieldName of uniqueGroup) {
-          indexSpec[fieldName] = 1;
-        }
-        const partialFilter: any = {};
-        for (const fieldName of uniqueGroup) {
-          partialFilter[fieldName] = { $type: 'string' };
-        }
-        await collection.createIndex(indexSpec, {
-          unique: true,
-          partialFilterExpression: partialFilter,
-        });
-        console.log(
-          `  Created unique partial index on: ${uniqueGroup.join(', ')}`,
-        );
-      }
-    }
-  }
-  if (tableDef.indexes && tableDef.indexes.length > 0) {
-    for (const indexGroup of tableDef.indexes) {
-      if (Array.isArray(indexGroup) && indexGroup.length > 0) {
-        const indexSpec: any = {};
-        for (const fieldName of indexGroup) {
-          indexSpec[fieldName] = 1;
-        }
-        await collection.createIndex(indexSpec);
-        console.log(`  Created index on: ${indexGroup.join(', ')}`);
-      }
-    }
-  }
-  const dateTimeFields = tableDef.columns.filter(
-    (col) =>
-      col.type === 'datetime' ||
-      col.type === 'timestamp' ||
-      col.type === 'date',
-  );
-  for (const field of dateTimeFields) {
-    const indexName = `${collectionName}_${field.name}_idx`;
+  const specs = buildMongoFullIndexSpecs({
+    collectionName,
+    columns: tableDef.columns || [],
+    uniques: tableDef.uniques || [],
+    indexes: tableDef.indexes || [],
+    relations: tableDef.relations || [],
+  });
+  for (const spec of specs) {
     try {
-      await collection.createIndex({ [field.name]: -1 }, { name: indexName });
-      console.log(`  Created index on datetime field: ${field.name}`);
+      await collection.createIndex(spec.keys, spec.options);
+      console.log(`  Created index: ${spec.name}`);
     } catch (error: any) {
       if (error.code === 85 || error.code === 86) {
-        console.log(`  Index on ${field.name} already exists, skipping`);
+        console.log(`  Index ${spec.name} already exists, skipping`);
       } else {
         throw error;
-      }
-    }
-  }
-  const hasCreatedAt = tableDef.columns.some((col) => col.name === 'createdAt');
-  const hasUpdatedAt = tableDef.columns.some((col) => col.name === 'updatedAt');
-  if (hasCreatedAt && hasUpdatedAt) {
-    const indexName = `${collectionName}_timestamps_idx`;
-    try {
-      await collection.createIndex(
-        { createdAt: -1, updatedAt: -1 },
-        { name: indexName },
-      );
-      console.log(`  Created compound index: createdAt + updatedAt`);
-    } catch (error: any) {
-      if (error.code === 85 || error.code === 86) {
-        console.log(`  Compound timestamps index already exists, skipping`);
-      } else {
-        throw error;
-      }
-    }
-  }
-  if (tableDef.relations) {
-    for (const relation of tableDef.relations) {
-      if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
-        const fieldName = relation.propertyName;
-        const indexName = `${collectionName}_${fieldName}_fk_idx`;
-        try {
-          await collection.createIndex({ [fieldName]: 1 }, { name: indexName });
-          console.log(`  Created index on M2O/O2O field: ${fieldName}`);
-        } catch (error: any) {
-          if (error.code === 85 || error.code === 86) {
-            console.log(`  Index on ${fieldName} already exists, skipping`);
-          } else {
-            throw error;
-          }
-        }
       }
     }
   }

@@ -1,5 +1,9 @@
 import { applyOperatorToMatch } from './filter-builder';
 import { expandFieldsMongo } from './expand-fields';
+import {
+  getMongoInverseRelationForeignField,
+  getMongoStoredRelationField,
+} from '../../../../../engines/mongo';
 
 export async function buildNestedLookupPipeline(
   metadata: any,
@@ -91,11 +95,14 @@ export async function buildNestedLookupPipeline(
         let foreignField = '';
 
         if (relMeta.type === 'many-to-one' || relMeta.type === 'one-to-one') {
-          localField = relMeta.propertyName;
+          localField =
+            getMongoStoredRelationField(relMeta) || relMeta.propertyName;
           foreignField = '_id';
         } else if (relMeta.type === 'one-to-many') {
           localField = '_id';
-          foreignField = relMeta.mappedBy || relMeta.propertyName;
+          foreignField =
+            getMongoInverseRelationForeignField(relMeta) ||
+            relMeta.propertyName;
         } else if (relMeta.type === 'many-to-many') {
           // Inner pipeline lookup would be complex for unpopulated M2M, so we would use junction pipelines.
           // However, additionalRelations only injects extra lookups. We should probably use junction logic here if needed.
