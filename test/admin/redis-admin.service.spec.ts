@@ -350,6 +350,35 @@ describe('RedisAdminService', () => {
     expect(detail.value).toBe('enabled');
   });
 
+  it('marks user cache quota trackers as editable user cache, not system', async () => {
+    const { redis, service } = makeService();
+    redis.hsetSync('app-a:user_cache_meta:sizes', 'feature', '7');
+
+    const detail = await service.getKey('user_cache_meta:sizes');
+
+    expect(detail).toEqual(
+      expect.objectContaining({
+        key: 'user_cache_meta:sizes',
+        isSystem: false,
+        modifiable: true,
+        systemKind: 'user_cache',
+        reason: '$cache quota tracker',
+      }),
+    );
+
+    await service.setKey({
+      key: 'user_cache_meta:sizes',
+      type: 'hash',
+      value: { feature: '8' },
+    });
+    const updated = await service.getKey('user_cache_meta:sizes');
+    expect(updated.value).toEqual({ feature: '8' });
+
+    await expect(service.deleteKey('user_cache_meta:sizes')).resolves.toEqual({
+      deleted: 1,
+    });
+  });
+
   it('marks system keys and blocks mutation', async () => {
     const { redis, service } = makeService();
     redis.setSync('app-a:runtime_cache:metadata', 'snapshot');

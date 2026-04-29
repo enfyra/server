@@ -173,14 +173,18 @@ export class RedisAdminService {
     const redisKey = this.resolveKey(input.key);
     this.assertCanModify(redisKey);
     const type = input.type || 'string';
-    if (type !== 'string') {
-      throw new Error('Redis Admin editable keys use $cache storage and support string values only');
-    }
     const ttlMs = input.ttlSeconds == null ? 0 : Number(input.ttlSeconds) * 1000;
     if (input.ttlSeconds != null) {
       this.assertPositiveTtlSeconds(input.ttlSeconds);
     }
-    await this.userCacheService.set(this.publicKey(redisKey), input.value, ttlMs);
+    if (this.isUserCacheDataKey(redisKey)) {
+      if (type !== 'string') {
+        throw new Error('Redis Admin $cache keys support string values only');
+      }
+      await this.userCacheService.set(this.publicKey(redisKey), input.value, ttlMs);
+    } else {
+      await this.writeRawKey(redisKey, type, input.value, input.ttlSeconds ?? null);
+    }
     return this.getKey(input.key);
   }
 
@@ -188,7 +192,11 @@ export class RedisAdminService {
     const redisKey = this.resolveKey(key);
     this.assertCanModify(redisKey);
     const existed = await this.redis.exists(redisKey);
-    await this.userCacheService.deleteKey(this.publicKey(redisKey));
+    if (this.isUserCacheDataKey(redisKey)) {
+      await this.userCacheService.deleteKey(this.publicKey(redisKey));
+    } else {
+      await this.redis.del(redisKey);
+    }
     return { deleted: existed ? 1 : 0 };
   }
 
@@ -232,10 +240,10 @@ export class RedisAdminService {
     ];
     if (key.startsWith(`${this.nodeName}:user_cache_meta:`)) {
       return {
-        isSystem: true,
-        modifiable: false,
+        isSystem: false,
+        modifiable: true,
         systemKind: 'user_cache',
-        reason: '$cache quota metadata',
+        reason: '$cache quota tracker',
       };
     }
     if (key.startsWith(`${this.nodeName}:user_cache:`)) {
@@ -353,6 +361,77 @@ export class RedisAdminService {
       default:
         return { value: null, truncated: false };
     }
+  }
+
+  private async writeRawKey(
+    key: string,
+    type: RedisAdminValueType,
+    value: any,
+    ttlSeconds: number | null,
+  ): Promise<void> {
+    const pipeline = this.redis.pipeline();
+    pipeline.del(key);
+    switch (type) {
+      case 'string':
+        pipeline.set(key, this.toRedisString(value));
+        break;
+      case 'hash': {
+        const entries = this.asRecord(value);
+        for (const [field, item] of Object.entries(entries)) {
+          pipeline.hset(key, field, this.toRedisString(item));
+        }
+        break;
+      }
+      case 'list':
+        for (const item of this.asArray(value)) {
+          pipeline.rpush(key, this.toRedisString(item));
+        }
+        break;
+      case 'set':
+        for (const item of this.asArray(value)) {
+          pipeline.sadd(key, this.toRedisString(item));
+        }
+        break;
+      case 'zset':
+        for (const item of this.asZSet(value)) {
+          pipeline.zadd(key, item.score, this.toRedisString(item.value));
+        }
+        break;
+      default:
+        throw new Error(`Redis Admin cannot write ${type} values`);
+    }
+    if (ttlSeconds != null) pipeline.expire(key, ttlSeconds);
+    await pipeline.exec();
+  }
+
+  private toRedisString(value: any): string {
+    return typeof value === 'string' ? value : JSON.stringify(value);
+  }
+
+  private asRecord(value: any): Record<string, any> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('hash value must be an object');
+    }
+    return value;
+  }
+
+  private asArray(value: any): any[] {
+    if (!Array.isArray(value)) throw new Error('value must be an array');
+    return value;
+  }
+
+  private asZSet(value: any): Array<{ value: any; score: number }> {
+    const rows = this.asArray(value);
+    return rows.map((item) => {
+      if (!item || typeof item !== 'object' || !('value' in item)) {
+        throw new Error('zset value must be an array of { value, score } objects');
+      }
+      const score = Number(item.score);
+      if (!Number.isFinite(score)) {
+        throw new Error('zset score must be a finite number');
+      }
+      return { value: item.value, score };
+    });
   }
 
   private async scanHash(
@@ -746,6 +825,10 @@ export class RedisAdminService {
         { key, reason: mark.reason },
       );
     }
+  }
+
+  private isUserCacheDataKey(key: string): boolean {
+    return key.startsWith(`${this.nodeName}:user_cache:`);
   }
 
   private assertValidKey(key: string): void {
