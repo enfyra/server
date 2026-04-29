@@ -63,4 +63,18 @@ describe('transformCode', () => {
   it('expands @THROW macros', () => {
     expect(transformCode('@THROW400("bad")')).toBe(`$ctx.$throw['400']("bad")`);
   });
+
+  it('expands repository shorthand', () => {
+    expect(transformCode('return await #projects.find({ limit: 1 });')).toBe(
+      'return await $ctx.$repos.projects.find({ limit: 1 });',
+    );
+  });
+
+  it('expands secure repository shorthand through property access', () => {
+    expect(
+      transformCode('return await #secure.projects.find({ limit: 1 });'),
+    ).toBe(
+      'return await $ctx.$repos.secure.projects.find({ limit: 1 });',
+    );
+  });
 });

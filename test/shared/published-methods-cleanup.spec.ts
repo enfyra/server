@@ -143,4 +143,22 @@ describe('settings menu seed cleanup', () => {
       }),
     );
   });
+
+  it('deletes the legacy routings menu instead of migrating it into the routes menu', () => {
+    const menus: any[] = migration.menu_definition ?? [];
+    const deletedRecords: any[] = migration._deletedRecords ?? [];
+
+    expect(
+      menus.find(
+        (menu) => menu._unique?.path?._eq === '/settings/routings',
+      ),
+    ).toBeUndefined();
+    expect(
+      deletedRecords.some(
+        (record) =>
+          record.table === 'menu_definition' &&
+          record.filter?.path?._eq === '/settings/routings',
+      ),
+    ).toBe(true);
+  });
 });
