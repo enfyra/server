@@ -22,9 +22,7 @@ export function hasAnyRelations(
         return true;
       }
     } else if (relationNames.has(key)) {
-      if (typeof value === 'object' && value !== null) {
-        return true;
-      }
+      return true;
     }
   }
 
@@ -77,7 +75,7 @@ export function separateFilters(
           relationFilters[key] = value;
         }
       } else {
-        fieldFilters[key] = value;
+        relationFilters[key] = value;
       }
     } else {
       fieldFilters[key] = value;

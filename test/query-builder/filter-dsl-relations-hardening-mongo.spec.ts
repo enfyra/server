@@ -10,7 +10,11 @@
  */
 
 import { MongoClient, Db, ObjectId } from 'mongodb';
-import { MongoQueryExecutor, QueryPlanner } from '../../src/kernel/query';
+import {
+  MongoQueryExecutor,
+  QueryBuilderService,
+  QueryPlanner,
+} from '../../src/kernel/query';
 
 const MONGO_URI =
   process.env.MONGO_TEST_URI ||
@@ -67,6 +71,7 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
   let client: MongoClient;
   let db: Db;
   let executor: MongoQueryExecutor;
+  let queryBuilder: QueryBuilderService;
   let meta: any;
 
   const menuIds: ObjectId[] = [];
@@ -170,6 +175,23 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
       getDb: () => db,
       collection: (name: string) => db.collection(name),
     } as any);
+
+    queryBuilder = new QueryBuilderService({
+      mongoService: {
+        getDb: () => db,
+        collection: (name: string) => db.collection(name),
+      },
+      databaseConfigService: {
+        getDbType: () => 'mongodb',
+        isMongoDb: () => true,
+      },
+      lazyRef: {
+        metadataCacheService: {
+          isLoaded: () => true,
+          getMetadata: async () => meta,
+        },
+      },
+    } as any);
   });
 
   afterAll(async () => {
@@ -197,6 +219,16 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
     const plan = planner.plan(base);
     const r = await executor.execute({ ...base, plan });
     return (r.data as any[]).map((x) => String(x._id)).sort();
+  }
+
+  async function queryBuilderRowIds(where: any) {
+    const result = await queryBuilder.find({
+      table: 'extension',
+      where,
+      fields: ['_id'],
+      sort: '_id',
+    });
+    return (result.data as any[]).map((x) => String(x._id)).sort();
   }
 
   function runOrSkip(name: string, fn: () => Promise<void>) {
@@ -282,6 +314,36 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
       expect(ids).toEqual(idxs([0, 1, 2, 4, 5]));
     },
   );
+
+  runOrSkip('root id shorthand accepts string ObjectId', async () => {
+    expect(await rowIds({ id: String(extIds[0]) })).toEqual(idxs([0]));
+    expect(await rowIds({ _id: String(extIds[1]) })).toEqual(idxs([1]));
+  });
+
+  runOrSkip('relation shorthand accepts string ObjectId', async () => {
+    expect(await rowIds({ menu: String(menuIds[1]) })).toEqual(idxs([0, 1, 5]));
+  });
+
+  runOrSkip('relation _eq accepts normalized string ObjectId', async () => {
+    expect(await rowIds({ menu: { _eq: String(menuIds[2]) } })).toEqual(
+      idxs([2, 4]),
+    );
+  });
+
+  runOrSkip('QueryBuilder where accepts id operators and relation shorthand', async () => {
+    expect(await queryBuilderRowIds({ id: { _eq: String(extIds[0]) } })).toEqual(
+      idxs([0]),
+    );
+    expect(await queryBuilderRowIds({ _id: String(extIds[1]) })).toEqual(
+      idxs([1]),
+    );
+    expect(await queryBuilderRowIds({ menu: String(menuIds[1]) })).toEqual(
+      idxs([0, 1, 5]),
+    );
+    expect(
+      await queryBuilderRowIds({ menu: { _eq: String(menuIds[2]) } }),
+    ).toEqual(idxs([2, 4]));
+  });
 
   runOrSkip(
     'menu._not_in [m88]: excludes NULL FK (Mongo parity with SQL NOT IN)',

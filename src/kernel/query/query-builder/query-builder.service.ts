@@ -371,15 +371,51 @@ export class QueryBuilderService implements IQueryBuilder {
     for (const [key, value] of Object.entries(where)) {
       if (key === 'id' || key === '_id') {
         if (isMongo) {
-          filter._id = { _eq: this.safeObjectId(value) };
+          filter._id = this.normalizeWhereFilterValue('_id', value);
         } else {
-          filter.id = { _eq: value };
+          filter.id = this.normalizeWhereFilterValue('id', value);
         }
       } else {
-        filter[key] = { _eq: value };
+        filter[key] = this.normalizeWhereFilterValue(key, value);
       }
     }
     return filter;
+  }
+
+  private normalizeWhereFilterValue(field: string, value: any): any {
+    if (this.isFilterOperatorObject(value)) {
+      if (this.databaseConfigService.isMongoDb() && field === '_id') {
+        return this.normalizeMongoIdOperatorValue(value);
+      }
+      return value;
+    }
+
+    const normalizedValue =
+      this.databaseConfigService.isMongoDb() && field === '_id'
+        ? this.safeObjectId(value)
+        : value;
+    return { _eq: normalizedValue };
+  }
+
+  private isFilterOperatorObject(value: any): boolean {
+    return (
+      value !== null &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      !(value instanceof ObjectId) &&
+      Object.keys(value).length > 0 &&
+      Object.keys(value).every((key) => key.startsWith('_'))
+    );
+  }
+
+  private normalizeMongoIdOperatorValue(value: Record<string, any>): any {
+    const normalized: Record<string, any> = {};
+    for (const [operator, operand] of Object.entries(value)) {
+      normalized[operator] = Array.isArray(operand)
+        ? operand.map((item) => this.safeObjectId(item))
+        : this.safeObjectId(operand);
+    }
+    return normalized;
   }
 
   private filterToWhere(filter: any): WhereCondition[] {

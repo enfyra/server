@@ -97,13 +97,11 @@ export class MetadataMigrationService {
       return { tableId: table._id, tableIdField: 'table' };
     }
 
-    const tableResult = await this.queryBuilderService.find({
-      table: 'table_definition',
-      filter: { name: { _eq: tableName } },
-      limit: 1,
-    });
-    if (!tableResult.data?.length) return null;
-    const table = tableResult.data[0];
+    const knex = this.queryBuilderService.getKnex();
+    const table = await knex('table_definition')
+      .where('name', tableName)
+      .first();
+    if (!table) return null;
     return { tableId: table.id, tableIdField: 'tableId' };
   }
 
@@ -130,15 +128,12 @@ export class MetadataMigrationService {
             .deleteMany({ table: tableId });
           await db.collection('table_definition').deleteOne({ _id: tableId });
         } else {
-          await this.queryBuilderService.delete('relation_definition', {
-            where: [{ field: 'sourceTableId', operator: '=', value: tableId }],
-          });
-          await this.queryBuilderService.delete('column_definition', {
-            where: [{ field: 'tableId', operator: '=', value: tableId }],
-          });
-          await this.queryBuilderService.delete('table_definition', {
-            where: [{ field: 'id', operator: '=', value: tableId }],
-          });
+          const knex = this.queryBuilderService.getKnex();
+          await knex('relation_definition')
+            .where('sourceTableId', tableId)
+            .delete();
+          await knex('column_definition').where('tableId', tableId).delete();
+          await knex('table_definition').where('id', tableId).delete();
         }
 
         this.logger.log(`  Dropped metadata for table: ${tableName}`);
@@ -190,19 +185,11 @@ export class MetadataMigrationService {
     }
 
     if (relationsToModify.length > 0) {
-      await this.modifyRelationMetadata(
-        tableId,
-        isMongoDB,
-        relationsToModify,
-      );
+      await this.modifyRelationMetadata(tableId, isMongoDB, relationsToModify);
     }
 
     if (relationsToRemove.length > 0) {
-      await this.removeRelationMetadata(
-        tableId,
-        isMongoDB,
-        relationsToRemove,
-      );
+      await this.removeRelationMetadata(tableId, isMongoDB, relationsToRemove);
     }
   }
 
@@ -239,16 +226,13 @@ export class MetadataMigrationService {
           if (!column) continue;
           columnId = column._id;
         } else {
-          const columnResult = await this.queryBuilderService.find({
-            table: 'column_definition',
-            filter: {
-              [tableIdField]: { _eq: tableId },
-              name: { _eq: oldName },
-            },
-            limit: 1,
-          });
-          if (!columnResult.data?.length) continue;
-          columnId = columnResult.data[0].id;
+          const knex = this.queryBuilderService.getKnex();
+          const column = await knex('column_definition')
+            .where(tableIdField, tableId)
+            .where('name', oldName)
+            .first();
+          if (!column) continue;
+          columnId = column.id;
         }
 
         const updateData: any = {};
@@ -280,11 +264,10 @@ export class MetadataMigrationService {
               .collection('column_definition')
               .updateOne({ _id: columnId }, { $set: updateData });
           } else {
-            await this.queryBuilderService.update(
-              'column_definition',
-              { where: [{ field: 'id', operator: '=', value: columnId }] },
-              updateData,
-            );
+            const knex = this.queryBuilderService.getKnex();
+            await knex('column_definition')
+              .where('id', columnId)
+              .update(updateData);
           }
           this.logger.log(
             `  Modified column metadata: ${oldName} → ${mod.to.name}`,
@@ -322,19 +305,13 @@ export class MetadataMigrationService {
             this.logger.log(`  Removed column metadata: ${colName}`);
           }
         } else {
-          const columnResult = await this.queryBuilderService.find({
-            table: 'column_definition',
-            filter: {
-              [tableIdField]: { _eq: tableId },
-              name: { _eq: colName },
-            },
-            limit: 1,
-          });
-          if (columnResult.data?.length > 0) {
-            const columnId = columnResult.data[0].id;
-            await this.queryBuilderService.delete('column_definition', {
-              where: [{ field: 'id', operator: '=', value: columnId }],
-            });
+          const knex = this.queryBuilderService.getKnex();
+          const column = await knex('column_definition')
+            .where(tableIdField, tableId)
+            .where('name', colName)
+            .first();
+          if (column) {
+            await knex('column_definition').where('id', column.id).delete();
             this.logger.log(`  Removed column metadata: ${colName}`);
           }
         }
@@ -438,7 +415,10 @@ export class MetadataMigrationService {
       const db = this.getMongoDb()!;
       await db
         .collection(tableName)
-        .updateMany({ [colName]: { $exists: true } }, { $unset: { [colName]: '' } });
+        .updateMany(
+          { [colName]: { $exists: true } },
+          { $unset: { [colName]: '' } },
+        );
       return;
     }
 
@@ -485,15 +465,11 @@ export class MetadataMigrationService {
             propertyName: oldName,
           });
         } else {
-          const relationResult = await this.queryBuilderService.find({
-            table: 'relation_definition',
-            filter: {
-              [sourceTableField]: { _eq: tableId },
-              propertyName: { _eq: oldName },
-            },
-            limit: 1,
-          });
-          relation = relationResult.data?.[0];
+          const knex = this.queryBuilderService.getKnex();
+          relation = await knex('relation_definition')
+            .where(sourceTableField, tableId)
+            .where('propertyName', oldName)
+            .first();
         }
 
         if (!relation) {
@@ -521,16 +497,13 @@ export class MetadataMigrationService {
               });
             updateData.mappedBy = owningRel?._id || null;
           } else if (mod.to.mappedBy && !isMongoDB) {
+            const knex = this.queryBuilderService.getKnex();
             const targetTableId = relation.targetTableId;
-            const owningRels = await this.queryBuilderService.find({
-              table: 'relation_definition',
-              filter: {
-                sourceTableId: { _eq: targetTableId },
-                propertyName: { _eq: mod.to.mappedBy },
-              },
-              limit: 1,
-            });
-            updateData.mappedById = owningRels.data?.[0]?.id || null;
+            const owningRel = await knex('relation_definition')
+              .where('sourceTableId', targetTableId)
+              .where('propertyName', mod.to.mappedBy)
+              .first();
+            updateData.mappedById = owningRel?.id || null;
           } else {
             const mappedByField = isMongoDB ? 'mappedBy' : 'mappedById';
             updateData[mappedByField] = null;
@@ -560,11 +533,10 @@ export class MetadataMigrationService {
               .collection('relation_definition')
               .updateOne({ _id: relationId }, { $set: updateData });
           } else {
-            await this.queryBuilderService.update(
-              'relation_definition',
-              { where: [{ field: 'id', operator: '=', value: relationId }] },
-              updateData,
-            );
+            const knex = this.queryBuilderService.getKnex();
+            await knex('relation_definition')
+              .where('id', relationId)
+              .update(updateData);
           }
           this.logger.log(
             `  Modified relation metadata: ${oldName} → ${mod.to.propertyName}`,
@@ -596,19 +568,13 @@ export class MetadataMigrationService {
             this.logger.log(`  Removed relation metadata: ${relName}`);
           }
         } else {
-          const relationResult = await this.queryBuilderService.find({
-            table: 'relation_definition',
-            filter: {
-              [sourceTableField]: { _eq: tableId },
-              propertyName: { _eq: relName },
-            },
-            limit: 1,
-          });
-          if (relationResult.data?.length > 0) {
-            const relationId = relationResult.data[0].id;
-            await this.queryBuilderService.delete('relation_definition', {
-              where: [{ field: 'id', operator: '=', value: relationId }],
-            });
+          const knex = this.queryBuilderService.getKnex();
+          const relation = await knex('relation_definition')
+            .where(sourceTableField, tableId)
+            .where('propertyName', relName)
+            .first();
+          if (relation) {
+            await knex('relation_definition').where('id', relation.id).delete();
             this.logger.log(`  Removed relation metadata: ${relName}`);
           }
         }

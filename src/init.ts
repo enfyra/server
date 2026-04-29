@@ -1,11 +1,16 @@
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from './container';
+import { ensureDatabaseExists } from './engines/knex';
 import { CACHE_EVENTS } from './shared/utils/cache-events.constants';
 
 export async function init(container: AwilixContainer<Cradle>): Promise<void> {
   const c: any = container.cradle;
 
   await c.mongoService?.init?.();
+  const dbType = c.databaseConfigService?.getDbType?.();
+  if (dbType === 'mysql' || dbType === 'postgres') {
+    await ensureDatabaseExists();
+  }
   await c.replicationManager?.init?.();
   await c.knexService?.init?.();
   await c.sqlPoolClusterCoordinatorService?.init?.();

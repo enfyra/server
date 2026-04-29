@@ -129,6 +129,17 @@ describe('separateFilters (field vs relation, logical nesting)', () => {
     expect(Object.keys(fieldFilters).length).toBe(0);
   });
 
+  test('relation scalar shorthand stays a relation filter', () => {
+    const filter = { menu: 88 } as any;
+    const { fieldFilters, relationFilters, hasRelations } = separateFilters(
+      filter,
+      extensionMeta as any,
+    );
+    expect(hasRelations).toBe(true);
+    expect(relationFilters.menu).toBe(88);
+    expect(Object.keys(fieldFilters).length).toBe(0);
+  });
+
   test('top-level _and delegates to fieldFilters only at separateFilters root', () => {
     const filter = {
       _and: [{ menu: { _eq: 1 } }, { id: { _neq: 2 } }],

@@ -19,28 +19,34 @@ export async function ensureDatabaseExists(): Promise<void> {
     database: parsed.database,
   };
 
+  const client = dbType === 'postgres' ? 'pg' : 'mysql2';
+  const serverConnection =
+    dbType === 'postgres'
+      ? {
+          host: connectionConfig.host,
+          port: connectionConfig.port,
+          user: connectionConfig.user,
+          password: connectionConfig.password,
+          database: 'postgres',
+        }
+      : {
+          host: connectionConfig.host,
+          port: connectionConfig.port,
+          user: connectionConfig.user,
+          password: connectionConfig.password,
+        };
+
   const tempKnex = knex({
-    client: dbType === 'postgres' ? 'pg' : 'mysql2',
-    connection: {
-      host: connectionConfig.host,
-      port: connectionConfig.port,
-      user: connectionConfig.user,
-      password: connectionConfig.password,
-      ...(dbType === 'postgres' && { database: 'postgres' }),
-    },
+    client,
+    connection: serverConnection,
   });
 
   try {
     if (dbType === 'mysql') {
-      const result = await tempKnex.raw(
-        `SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?`,
+      await tempKnex.raw(
+        `CREATE DATABASE IF NOT EXISTS ?? CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
         [connectionConfig.database],
       );
-      if (result[0].length === 0) {
-        await tempKnex.raw(
-          `CREATE DATABASE IF NOT EXISTS \`${connectionConfig.database}\``,
-        );
-      }
     } else if (dbType === 'postgres') {
       const result = await tempKnex.raw(
         `SELECT 1 FROM pg_database WHERE datname = ?`,

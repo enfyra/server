@@ -404,6 +404,10 @@ function normalizeMongoIdValue(value: any): any {
 }
 
 function extractDirectIdMatch(filter: any): { op: string; value: any } | null {
+  if (Array.isArray(filter)) return { op: 'in', value: filter };
+  if (filter instanceof ObjectId) return { op: 'eq', value: filter };
+  if (filter === null || filter === undefined) return null;
+  if (typeof filter !== 'object') return { op: 'eq', value: filter };
   if (!filter || typeof filter !== 'object' || Array.isArray(filter))
     return null;
   const keys = Object.keys(filter);

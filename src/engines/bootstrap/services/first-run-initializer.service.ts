@@ -96,12 +96,14 @@ export class FirstRunInitializer {
 
       const t1 = Date.now();
       await this.metadataProvisionService.createInitMetadata();
+      await this.metadataCacheService.clearMetadataCache();
       this.logger.log(`createInitMetadata: ${Date.now() - t1}ms`);
 
       if (this.metadataMigrationService.hasMigrations()) {
         const t2 = Date.now();
         this.logger.log('Running metadata migrations...');
         await this.metadataMigrationService.runMigrations();
+        await this.metadataCacheService.clearMetadataCache();
         this.logger.log(`Metadata migrations: ${Date.now() - t2}ms`);
       }
 
