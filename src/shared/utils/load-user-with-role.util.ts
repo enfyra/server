@@ -1,11 +1,19 @@
 import { ObjectId } from 'mongodb';
-import { IQueryBuilder } from '../../domain/shared/interfaces/query-builder.interface';
+import type { IQueryBuilder } from '../../domain/shared/interfaces/query-builder.interface';
 import { DatabaseConfigService } from '../services';
 
 export const USER_CACHE_TTL_MS = 60_000;
 
 export function userCacheKey(id: unknown): string {
   return `user:${String(id)}`;
+}
+
+function toMongoObjectId(value: unknown): ObjectId | null {
+  if (value instanceof ObjectId) return value;
+  if (typeof value === 'string' && /^[0-9a-fA-F]{24}$/.test(value)) {
+    return new ObjectId(value);
+  }
+  return null;
 }
 
 export async function loadUserWithRole(
@@ -16,11 +24,8 @@ export async function loadUserWithRole(
 
   const isMongoDB = queryBuilder.isMongoDb();
   const idField = DatabaseConfigService.getPkField();
-  const idValue = isMongoDB
-    ? typeof rawId === 'string'
-      ? new ObjectId(rawId)
-      : rawId
-    : rawId;
+  const idValue = isMongoDB ? toMongoObjectId(rawId) : rawId;
+  if (isMongoDB && !idValue) return null;
 
   const user = await queryBuilder.findOne({
     table: 'user_definition',
@@ -30,7 +35,7 @@ export async function loadUserWithRole(
   if (!user) return null;
 
   const roleField = isMongoDB ? 'role' : 'roleId';
-  const roleId = user[roleField];
+  const roleId = isMongoDB ? toMongoObjectId(user[roleField]) : user[roleField];
   if (roleId) {
     user.role = await queryBuilder.findOne({
       table: 'role_definition',
