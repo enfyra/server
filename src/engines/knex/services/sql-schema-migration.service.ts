@@ -19,6 +19,22 @@ import {
 import { SqlSchemaDiffService } from './sql-schema-diff.service';
 import { MigrationJournalService } from './migration-journal.service';
 
+export function resolveSqlRelationOnDelete(rel: {
+  onDelete?: string | null;
+  isNullable?: boolean | number | null;
+}): 'CASCADE' | 'SET NULL' | 'RESTRICT' {
+  if (
+    rel.onDelete === 'CASCADE' ||
+    rel.onDelete === 'SET NULL' ||
+    rel.onDelete === 'RESTRICT'
+  ) {
+    return rel.onDelete;
+  }
+  return rel.isNullable === false || rel.isNullable === 0
+    ? 'RESTRICT'
+    : 'SET NULL';
+}
+
 export class SqlSchemaMigrationService {
   private readonly logger = new Logger(SqlSchemaMigrationService.name);
   private readonly knexService: KnexService;
@@ -371,8 +387,7 @@ export class SqlSchemaMigrationService {
               const createFkPromise = knex.schema.alterTable(
                 tableName,
                 (table) => {
-                  const onDelete =
-                    rel.isNullable === false ? 'RESTRICT' : 'SET NULL';
+                  const onDelete = resolveSqlRelationOnDelete(rel);
                   table
                     .foreign(fkColumn)
                     .references('id')
@@ -455,10 +470,7 @@ export class SqlSchemaMigrationService {
                 );
                 this.applyNullability(fkCol, rel.isNullable);
                 table.index([fkColumn, 'id'], `idx_${targetTable}_${fkColumn}`);
-                const onDelete =
-                  rel.isNullable === false || rel.isNullable === 0
-                    ? 'RESTRICT'
-                    : 'SET NULL';
+                const onDelete = resolveSqlRelationOnDelete(rel);
                 table
                   .foreign(fkColumn)
                   .references('id')
