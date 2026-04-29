@@ -328,6 +328,14 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         if (existingRecord) break;
       }
       if (existingRecord) {
+        const hasChanges = this.detectRecordChanges(record, existingRecord);
+        if (hasChanges) {
+          await queryBuilder.update(
+            tableName,
+            existingRecord[idField],
+            record,
+          );
+        }
         this.logger.log(
           `   Skipped (existing): ${this.getRecordIdentifier(record)}`,
         );
@@ -448,6 +456,21 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     ];
   }
   protected hasValueChanged(newValue: any, existingValue: any): boolean {
+    if (newValue == null && existingValue == null) {
+      return false;
+    }
+    if (
+      newValue instanceof ObjectId &&
+      existingValue instanceof ObjectId
+    ) {
+      return newValue.toHexString() !== existingValue.toHexString();
+    }
+    if (newValue instanceof ObjectId && typeof existingValue === 'string') {
+      return newValue.toHexString() !== existingValue;
+    }
+    if (existingValue instanceof ObjectId && typeof newValue === 'string') {
+      return newValue !== existingValue.toHexString();
+    }
     if (
       typeof newValue === 'object' &&
       newValue?.id &&

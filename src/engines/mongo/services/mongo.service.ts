@@ -551,6 +551,13 @@ export class MongoService {
     }
     if (tableMetadata.relations) {
       for (const rel of tableMetadata.relations) {
+        if (
+          rel.propertyName &&
+          ['many-to-one', 'one-to-one'].includes(rel.type) &&
+          !(rel.type === 'one-to-one' && (rel.mappedBy || rel.isInverse))
+        ) {
+          validFields.add(rel.propertyName);
+        }
         if (rel.foreignKeyColumn) {
           validFields.add(rel.foreignKeyColumn);
         }
