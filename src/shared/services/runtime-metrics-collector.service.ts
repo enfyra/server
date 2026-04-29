@@ -13,6 +13,8 @@ import { InstanceService } from './instance.service';
 const MAX_LATENCIES = 256;
 const MAX_RECENT = 20;
 const SLOW_QUERY_MS = 500;
+const LIVE_METRIC_TTL_MS = 10_000;
+const CACHE_RELOAD_TTL_MS = 60 * 60 * 1000;
 
 function pushLatency(target: number[], value: number) {
   target.push(value);
@@ -39,12 +41,16 @@ function isPoolAcquireTimeout(error: unknown) {
 export class RuntimeMetricsCollectorService {
   private readonly queryContext = new AsyncLocalStorage<QueryMetricContext>();
   private readonly redis?: Redis;
+  private readonly requestKey?: string;
+  private readonly queryKey?: string;
+  private readonly flowKey?: string;
   private readonly cacheReloadKey?: string;
   private readonly instanceId?: string;
   private readonly requests = new Map<string, RuntimeRouteMetric>();
   private readonly queries = new Map<string, RuntimeQueryMetric>();
   private readonly flows = new Map<string, RuntimeFlowMetric>();
   private recentCacheReloads: RuntimeCacheReloadMetric[] = [];
+  private redisWriteChain: Promise<void> = Promise.resolve();
   private startedAt = Date.now();
 
   constructor(
@@ -57,9 +63,14 @@ export class RuntimeMetricsCollectorService {
     this.redis = deps.redis;
     this.instanceId = deps.instanceService?.getInstanceId();
     const nodeName = deps.envService?.get('NODE_NAME') || 'enfyra';
-    this.cacheReloadKey = this.redis
-      ? `${nodeName}:runtime-monitor:cache-reloads`
-      : undefined;
+    if (this.redis) {
+      const instanceId = this.instanceId || 'local';
+      const baseKey = `${nodeName}:runtime-monitor:${instanceId}`;
+      this.requestKey = `${baseKey}:requests`;
+      this.queryKey = `${baseKey}:queries`;
+      this.flowKey = `${baseKey}:flows`;
+      this.cacheReloadKey = `${nodeName}:runtime-monitor:cache-reloads`;
+    }
   }
 
   recordRequest(input: {
@@ -68,6 +79,30 @@ export class RuntimeMetricsCollectorService {
     statusCode: number;
     durationMs: number;
   }) {
+    if (this.redis && this.requestKey) {
+      const requestKey = this.requestKey;
+      const field = `${input.method}:${input.route}`;
+      this.enqueueRedisWrite(() =>
+        this.updateRedisHashMetric<RuntimeRouteMetric>(
+          requestKey,
+          field,
+          () => ({
+            method: input.method,
+            route: input.route,
+            count: 0,
+            status2xx: 0,
+            status3xx: 0,
+            status4xx: 0,
+            status5xx: 0,
+            totalMs: 0,
+            latencies: [],
+          }),
+          (current) => this.applyRequestMetric(current, input),
+        ),
+      );
+      return;
+    }
+
     const key = `${input.method}:${input.route}`;
     const current =
       this.requests.get(key) ??
@@ -82,13 +117,7 @@ export class RuntimeMetricsCollectorService {
         totalMs: 0,
         latencies: [],
       };
-    current.count++;
-    current.totalMs += input.durationMs;
-    pushLatency(current.latencies, input.durationMs);
-    if (input.statusCode >= 500) current.status5xx++;
-    else if (input.statusCode >= 400) current.status4xx++;
-    else if (input.statusCode >= 300) current.status3xx++;
-    else current.status2xx++;
+    this.applyRequestMetric(current, input);
     this.requests.set(key, current);
   }
 
@@ -101,6 +130,30 @@ export class RuntimeMetricsCollectorService {
   }) {
     const context = input.context ?? this.getQueryContext();
     const table = input.table || 'unknown';
+    if (this.redis && this.queryKey) {
+      const queryKey = this.queryKey;
+      const field = `${context}:${input.op}:${table}`;
+      this.enqueueRedisWrite(() =>
+        this.updateRedisHashMetric<RuntimeQueryMetric>(
+          queryKey,
+          field,
+          () => ({
+            context,
+            op: input.op,
+            table,
+            count: 0,
+            errors: 0,
+            poolAcquireTimeouts: 0,
+            slow: 0,
+            totalMs: 0,
+            latencies: [],
+          }),
+          (current) => this.applyQueryMetric(current, input),
+        ),
+      );
+      return;
+    }
+
     const key = `${context}:${input.op}:${table}`;
     const current =
       this.queries.get(key) ??
@@ -115,12 +168,7 @@ export class RuntimeMetricsCollectorService {
         totalMs: 0,
         latencies: [],
       };
-    current.count++;
-    current.totalMs += input.durationMs;
-    if (input.error) current.errors++;
-    if (isPoolAcquireTimeout(input.error)) current.poolAcquireTimeouts++;
-    if (input.durationMs >= SLOW_QUERY_MS) current.slow++;
-    pushLatency(current.latencies, input.durationMs);
+    this.applyQueryMetric(current, input);
     this.queries.set(key, current);
   }
 
@@ -162,17 +210,24 @@ export class RuntimeMetricsCollectorService {
       ...metric,
       instanceId: metric.instanceId ?? this.instanceId,
     };
+    if (this.redis && this.cacheReloadKey) {
+      const redis = this.redis;
+      const cacheReloadKey = this.cacheReloadKey;
+      this.enqueueRedisWrite(() =>
+        redis
+          .pipeline()
+          .lpush(cacheReloadKey, JSON.stringify(record))
+          .ltrim(cacheReloadKey, 0, MAX_RECENT - 1)
+          .pexpire(cacheReloadKey, CACHE_RELOAD_TTL_MS)
+          .exec()
+          .then(() => undefined),
+      );
+      return;
+    }
+
     this.recentCacheReloads.unshift(record);
     if (this.recentCacheReloads.length > MAX_RECENT) {
       this.recentCacheReloads = this.recentCacheReloads.slice(0, MAX_RECENT);
-    }
-    if (this.redis && this.cacheReloadKey) {
-      this.redis
-        .pipeline()
-        .lpush(this.cacheReloadKey, JSON.stringify(record))
-        .ltrim(this.cacheReloadKey, 0, MAX_RECENT - 1)
-        .exec()
-        .catch(() => {});
     }
   }
 
@@ -202,6 +257,20 @@ export class RuntimeMetricsCollectorService {
   }
 
   startFlow(flowId: string | number, flowName: string) {
+    if (this.redis && this.flowKey) {
+      const flowKey = this.flowKey;
+      this.enqueueRedisWrite(() =>
+        this.updateRedisHashMetric<RuntimeFlowMetric>(
+          flowKey,
+          String(flowId),
+          () => this.createFlowMetric(flowId, flowName),
+          (metric) => {
+            metric.running++;
+          },
+        ),
+      );
+      return;
+    }
     const metric = this.getFlowMetric(flowId, flowName);
     metric.running++;
   }
@@ -212,12 +281,20 @@ export class RuntimeMetricsCollectorService {
     durationMs: number;
     status: 'completed' | 'failed';
   }) {
+    if (this.redis && this.flowKey) {
+      const flowKey = this.flowKey;
+      this.enqueueRedisWrite(() =>
+        this.updateRedisHashMetric<RuntimeFlowMetric>(
+          flowKey,
+          String(input.flowId),
+          () => this.createFlowMetric(input.flowId, input.flowName),
+          (metric) => this.applyFlowCompletion(metric, input),
+        ),
+      );
+      return;
+    }
     const metric = this.getFlowMetric(input.flowId, input.flowName);
-    metric.running = Math.max(0, metric.running - 1);
-    if (input.status === 'completed') metric.completed++;
-    else metric.failed++;
-    metric.totalMs += input.durationMs;
-    pushLatency(metric.latencies, input.durationMs);
+    this.applyFlowCompletion(metric, input);
   }
 
   recordFlowStep(input: {
@@ -227,17 +304,66 @@ export class RuntimeMetricsCollectorService {
     durationMs: number;
     failed?: boolean;
   }) {
-    const metric = this.getFlowMetric(input.flowId, input.flowName);
-    metric.stepLatencies[input.stepKey] ??= [];
-    pushLatency(metric.stepLatencies[input.stepKey], input.durationMs);
-    if (input.failed) {
-      metric.failedSteps[input.stepKey] = (metric.failedSteps[input.stepKey] ?? 0) + 1;
+    if (this.redis && this.flowKey) {
+      const flowKey = this.flowKey;
+      this.enqueueRedisWrite(() =>
+        this.updateRedisHashMetric<RuntimeFlowMetric>(
+          flowKey,
+          String(input.flowId),
+          () => this.createFlowMetric(input.flowId, input.flowName),
+          (metric) => this.applyFlowStep(metric, input),
+        ),
+      );
+      return;
     }
+    const metric = this.getFlowMetric(input.flowId, input.flowName);
+    this.applyFlowStep(metric, input);
   }
 
   snapshot() {
+    return this.buildSnapshot(
+      [...this.requests.values()],
+      [...this.queries.values()],
+      [...this.flows.values()],
+      this.recentCacheReloads,
+    );
+  }
+
+  async snapshotAsync() {
+    if (
+      this.redis &&
+      this.requestKey &&
+      this.queryKey &&
+      this.flowKey &&
+      this.cacheReloadKey
+    ) {
+      await this.flushRedisWrites();
+      const [requests, queries, flows, recent] = await Promise.all([
+        this.readRedisHash<RuntimeRouteMetric>(this.requestKey),
+        this.readRedisHash<RuntimeQueryMetric>(this.queryKey),
+        this.readRedisHash<RuntimeFlowMetric>(this.flowKey),
+        this.getRecentCacheReloads(),
+      ]);
+      await this.redis
+        .pipeline()
+        .pexpire(this.requestKey, LIVE_METRIC_TTL_MS)
+        .pexpire(this.queryKey, LIVE_METRIC_TTL_MS)
+        .pexpire(this.flowKey, LIVE_METRIC_TTL_MS)
+        .exec();
+      return this.buildSnapshot(requests, queries, flows, recent);
+    }
+
+    return this.snapshot();
+  }
+
+  private buildSnapshot(
+    requests: RuntimeRouteMetric[],
+    queries: RuntimeQueryMetric[],
+    flows: RuntimeFlowMetric[],
+    recentCacheReloads: RuntimeCacheReloadMetric[],
+  ) {
     const uptimeSec = Math.max(1, (Date.now() - this.startedAt) / 1000);
-    const requestRoutes = [...this.requests.values()]
+    const requestRoutes = requests
       .map((item) => ({
         method: item.method,
         route: item.route,
@@ -255,7 +381,7 @@ export class RuntimeMetricsCollectorService {
       .sort((a, b) => b.count - a.count)
       .slice(0, 20);
 
-    const queryRows = [...this.queries.values()]
+    const queryRows = queries
       .map((item) => ({
         op: item.op,
         table: item.table,
@@ -271,7 +397,7 @@ export class RuntimeMetricsCollectorService {
       .sort((a, b) => b.p95Ms - a.p95Ms)
       .slice(0, 20);
 
-    const flowRows = [...this.flows.values()]
+    const flowRows = flows
       .map((item) => ({
         flowId: item.flowId,
         flowName: item.flowName,
@@ -299,7 +425,7 @@ export class RuntimeMetricsCollectorService {
         routes: requestRoutes,
       },
       cache: {
-        recent: this.recentCacheReloads,
+        recent: recentCacheReloads,
       },
       database: {
         slowQueryThresholdMs: SLOW_QUERY_MS,
@@ -320,12 +446,6 @@ export class RuntimeMetricsCollectorService {
     };
   }
 
-  async snapshotAsync() {
-    const snapshot = this.snapshot();
-    snapshot.cache.recent = await this.getRecentCacheReloads();
-    return snapshot;
-  }
-
   private getFlowMetric(
     flowId: string | number,
     flowName: string,
@@ -333,18 +453,136 @@ export class RuntimeMetricsCollectorService {
     const key = String(flowId);
     const current =
       this.flows.get(key) ??
-      {
-        flowId,
-        flowName,
-        running: 0,
-        completed: 0,
-        failed: 0,
-        totalMs: 0,
-        latencies: [],
-        failedSteps: {},
-        stepLatencies: {},
-      };
+      this.createFlowMetric(flowId, flowName);
     this.flows.set(key, current);
     return current;
+  }
+
+  private createFlowMetric(
+    flowId: string | number,
+    flowName: string,
+  ): RuntimeFlowMetric {
+    return {
+      flowId,
+      flowName,
+      running: 0,
+      completed: 0,
+      failed: 0,
+      totalMs: 0,
+      latencies: [],
+      failedSteps: {},
+      stepLatencies: {},
+    };
+  }
+
+  private applyRequestMetric(
+    current: RuntimeRouteMetric,
+    input: {
+      method: string;
+      route: string;
+      statusCode: number;
+      durationMs: number;
+    },
+  ): void {
+    current.count++;
+    current.totalMs += input.durationMs;
+    pushLatency(current.latencies, input.durationMs);
+    if (input.statusCode >= 500) current.status5xx++;
+    else if (input.statusCode >= 400) current.status4xx++;
+    else if (input.statusCode >= 300) current.status3xx++;
+    else current.status2xx++;
+  }
+
+  private applyQueryMetric(
+    current: RuntimeQueryMetric,
+    input: {
+      context?: QueryMetricContext;
+      op: string;
+      table?: string;
+      durationMs: number;
+      error?: unknown;
+    },
+  ): void {
+    current.count++;
+    current.totalMs += input.durationMs;
+    if (input.error) current.errors++;
+    if (isPoolAcquireTimeout(input.error)) current.poolAcquireTimeouts++;
+    if (input.durationMs >= SLOW_QUERY_MS) current.slow++;
+    pushLatency(current.latencies, input.durationMs);
+  }
+
+  private applyFlowCompletion(
+    metric: RuntimeFlowMetric,
+    input: {
+      flowId: string | number;
+      flowName: string;
+      durationMs: number;
+      status: 'completed' | 'failed';
+    },
+  ): void {
+    metric.running = Math.max(0, metric.running - 1);
+    if (input.status === 'completed') metric.completed++;
+    else metric.failed++;
+    metric.totalMs += input.durationMs;
+    pushLatency(metric.latencies, input.durationMs);
+  }
+
+  private applyFlowStep(
+    metric: RuntimeFlowMetric,
+    input: {
+      flowId: string | number;
+      flowName: string;
+      stepKey: string;
+      durationMs: number;
+      failed?: boolean;
+    },
+  ): void {
+    metric.stepLatencies[input.stepKey] ??= [];
+    pushLatency(metric.stepLatencies[input.stepKey], input.durationMs);
+    if (input.failed) {
+      metric.failedSteps[input.stepKey] =
+        (metric.failedSteps[input.stepKey] ?? 0) + 1;
+    }
+  }
+
+  private enqueueRedisWrite(operation: () => Promise<void>): void {
+    this.redisWriteChain = this.redisWriteChain
+      .then(operation)
+      .catch(() => {});
+  }
+
+  private async flushRedisWrites(): Promise<void> {
+    await this.redisWriteChain;
+  }
+
+  private async updateRedisHashMetric<T>(
+    key: string,
+    field: string,
+    create: () => T,
+    update: (metric: T) => void,
+  ): Promise<void> {
+    if (!this.redis) return;
+    const raw = await this.redis.hget(key, field);
+    const metric = raw ? (JSON.parse(raw) as T) : create();
+    update(metric);
+    await this.redis
+      .pipeline()
+      .hset(key, field, JSON.stringify(metric))
+      .pexpire(key, LIVE_METRIC_TTL_MS)
+      .exec();
+  }
+
+  private async readRedisHash<T>(key: string): Promise<T[]> {
+    if (!this.redis) return [];
+    const values = Object.values(await this.redis.hgetall(key));
+    return values
+      .map((value) => {
+        try {
+          return JSON.parse(value) as T;
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean) as T[];
   }
 }
