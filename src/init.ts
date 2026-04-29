@@ -61,6 +61,7 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
     c.userRevocationService?.init?.(),
     c.eventQueueService?.init?.(),
     c.connectionQueueService?.init?.(),
+    c.mongoPhysicalMigrationService?.init?.(),
   ]);
 
   c.eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);

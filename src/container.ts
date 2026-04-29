@@ -130,6 +130,7 @@ import {
 
 import {
   MongoMigrationJournalService,
+  MongoPhysicalMigrationService,
   MongoSagaSnapshotService,
   MongoRelationManagerService,
   MongoSagaCoordinator,
@@ -235,6 +236,7 @@ export interface Cradle {
   mongoSagaCoordinator: MongoSagaCoordinator;
   mongoSagaSnapshotService: MongoSagaSnapshotService;
   mongoMigrationJournalService: MongoMigrationJournalService;
+  mongoPhysicalMigrationService: MongoPhysicalMigrationService;
   mongoSchemaDiffService: MongoSchemaDiffService;
   mongoRelationManagerService: MongoRelationManagerService;
 
@@ -311,6 +313,7 @@ export interface Cradle {
   flowQueueMaintenanceService: FlowQueueMaintenanceService;
   flowSchedulerService: FlowSchedulerService;
   flowExecutionQueueService: FlowExecutionQueueService;
+  mongoPhysicalMigrationQueue: Queue;
 
   dynamicWebSocketGateway: DynamicWebSocketGateway;
   builtInSocketRegistry: BuiltInSocketRegistry;
@@ -399,8 +402,13 @@ export function buildContainer(): AwilixContainer<Cradle> {
     wsEventQueue: asFunction(() => createRuntimeQueue(SYSTEM_QUEUES.WS_EVENT))
       .singleton()
       .disposer((queue) => closeRuntimeQueue(queue)),
-    cleanupQueue: asFunction(() =>
+  cleanupQueue: asFunction(() =>
       createRuntimeQueue(SYSTEM_QUEUES.SESSION_CLEANUP),
+    )
+      .singleton()
+      .disposer((queue) => closeRuntimeQueue(queue)),
+    mongoPhysicalMigrationQueue: asFunction(() =>
+      createRuntimeQueue(SYSTEM_QUEUES.MONGO_PHYSICAL_MIGRATION),
     )
       .singleton()
       .disposer((queue) => closeRuntimeQueue(queue)),
@@ -456,6 +464,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     mongoMigrationJournalService: asClass(
       MongoMigrationJournalService,
     ).singleton(),
+    mongoPhysicalMigrationService: asClass(MongoPhysicalMigrationService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     mongoSchemaDiffService: asClass(MongoSchemaDiffService).singleton(),
     mongoRelationManagerService: asClass(
       MongoRelationManagerService,

@@ -6,6 +6,7 @@ import {
   getJunctionColumnNames,
 } from '../../../kernel/query';
 import {
+  type MongoPhysicalMigrationService,
   MongoSchemaMigrationService,
   MongoService,
   MongoSchemaMigrationLockService,
@@ -37,6 +38,7 @@ export class MongoTableHandlerService {
   private logger = new Logger(MongoTableHandlerService.name);
   private queryBuilderService: QueryBuilderService;
   private mongoSchemaMigrationService: MongoSchemaMigrationService;
+  private mongoPhysicalMigrationService: MongoPhysicalMigrationService;
   private mongoService: MongoService;
   private mongoSchemaMigrationLockService: MongoSchemaMigrationLockService;
   private metadataCacheService: MetadataCacheService;
@@ -47,6 +49,7 @@ export class MongoTableHandlerService {
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     mongoSchemaMigrationService: MongoSchemaMigrationService;
+    mongoPhysicalMigrationService: MongoPhysicalMigrationService;
     mongoService: MongoService;
     mongoSchemaMigrationLockService: MongoSchemaMigrationLockService;
     metadataCacheService: MetadataCacheService;
@@ -57,6 +60,7 @@ export class MongoTableHandlerService {
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.mongoSchemaMigrationService = deps.mongoSchemaMigrationService;
+    this.mongoPhysicalMigrationService = deps.mongoPhysicalMigrationService;
     this.mongoService = deps.mongoService;
     this.mongoSchemaMigrationLockService = deps.mongoSchemaMigrationLockService;
     this.metadataCacheService = deps.metadataCacheService;
@@ -64,83 +68,6 @@ export class MongoTableHandlerService {
     this.policyService = deps.policyService;
     this.tableValidationService = deps.tableManagementValidationService;
     this.mongoMetadataSnapshotService = deps.mongoMetadataSnapshotService;
-  }
-  private migrateRenamedFieldsInBackground(
-    renamedColumns: Array<{
-      oldName: string;
-      newName: string;
-      collectionName: string;
-    }>,
-  ): void {
-    (async () => {
-      const db = this.mongoService.getDb();
-      for (const { oldName, newName, collectionName } of renamedColumns) {
-        try {
-          await db
-            .collection(collectionName)
-            .updateMany(
-              { [oldName]: { $exists: true } },
-              { $rename: { [oldName]: newName } },
-            );
-        } catch (error: any) {
-          this.logger.error(
-            `  [Background] Failed to rename field in ${collectionName}:`,
-            error.message,
-          );
-        }
-      }
-    })().catch((err) => {
-      this.logger.error('Background migration error:', err);
-    });
-  }
-  private async dropRelationFieldsBeforeUpdate(
-    newRelations: any[],
-    sourceTableName: string,
-  ): Promise<void> {
-    const db = this.mongoService.getDb();
-    if (!newRelations || newRelations.length === 0) {
-      return;
-    }
-    for (const relation of newRelations) {
-      let targetTableName: string;
-      if (
-        typeof relation.targetTable === 'object' &&
-        relation.targetTable.name
-      ) {
-        targetTableName = relation.targetTable.name;
-      } else if (typeof relation.targetTable === 'string') {
-        targetTableName = relation.targetTable;
-      } else {
-        const targetId = relation.targetTable._id || relation.targetTable;
-        const targetTableRecord = await this.queryBuilderService.findOne({
-          table: 'table_definition',
-          where: {
-            _id:
-              typeof targetId === 'string' ? new ObjectId(targetId) : targetId,
-          },
-        });
-        if (targetTableRecord) {
-          targetTableName = targetTableRecord.name;
-        } else {
-          this.logger.warn(
-            `Cannot find target table for relation ${relation.propertyName}, skipping drop`,
-          );
-          continue;
-        }
-      }
-      const sourceFieldName = relation.propertyName;
-      const inverseFieldName = relation.mappedBy;
-      if (sourceFieldName) {
-        await db
-          .collection(sourceTableName)
-          .updateMany({}, { $unset: { [sourceFieldName]: '' } });
-      }
-      if (inverseFieldName && targetTableName) {
-        await db
-          .collection(targetTableName)
-          .updateMany({}, { $unset: { [inverseFieldName]: '' } });
-      }
-    }
   }
   async createTable(body: TCreateTableBody, context?: TDynamicContext) {
     const decision = await this.policyService.checkSchemaMigration({
@@ -732,6 +659,7 @@ export class MongoTableHandlerService {
           );
         }
         stepLog(`STEP 7 updated table_definition row (+${lap()}ms)`);
+        const renamedColumns: Array<{ oldName: string; newName: string }> = [];
         if (body.columns) {
           const { data: existingColumns } = await this.queryBuilderService.find(
             {
@@ -743,18 +671,8 @@ export class MongoTableHandlerService {
           );
           const deletedColumnIds = getDeletedIds(existingColumns, body.columns);
           for (const colId of deletedColumnIds) {
-            const deletedCol = existingColumns.find(
-              (c: any) => c._id?.toString() === colId.toString(),
-            );
-            if (deletedCol) {
-              await this.mongoService
-                .getDb()
-                .collection(exists.name)
-                .updateMany({}, { $unset: { [deletedCol.name]: '' } });
-            }
             await this.queryBuilderService.delete('column_definition', colId);
           }
-          const renamedColumns = [];
           for (const col of body.columns) {
             if (col._id || col.id) {
               const colId = col._id || col.id;
@@ -765,13 +683,9 @@ export class MongoTableHandlerService {
                 renamedColumns.push({
                   oldName: existingCol.name,
                   newName: col.name,
-                  collectionName: exists.name,
                 });
               }
             }
-          }
-          if (renamedColumns.length > 0) {
-            this.migrateRenamedFieldsInBackground(renamedColumns);
           }
           const columnIds = [];
           for (const col of body.columns) {
@@ -835,10 +749,6 @@ export class MongoTableHandlerService {
                 sourceTable: queryId,
               },
             });
-          await this.dropRelationFieldsBeforeUpdate(
-            body.relations,
-            exists.name,
-          );
           const deletedRelationIds = getDeletedIds(
             existingRelations,
             body.relations,
@@ -848,18 +758,6 @@ export class MongoTableHandlerService {
               (r: any) => r._id?.toString() === relId.toString(),
             );
             if (deletedRelation) {
-              if (
-                deletedRelation.type === 'many-to-one' ||
-                deletedRelation.type === 'one-to-one' ||
-                (deletedRelation.type === 'many-to-many' &&
-                  !deletedRelation.mappedBy)
-              ) {
-                const fieldName = deletedRelation.propertyName;
-                await this.mongoService
-                  .getDb()
-                  .collection(exists.name)
-                  .updateMany({}, { $unset: { [fieldName]: '' } });
-              }
               const { data: inverseRels } = await this.queryBuilderService.find(
                 {
                   table: 'relation_definition',
@@ -1190,6 +1088,14 @@ export class MongoTableHandlerService {
             }
           }
           stepLog(`STEP 12 junction collections synced (+${lap()}ms)`);
+        }
+
+        if (renamedColumns.length > 0) {
+          await this.mongoPhysicalMigrationService.enqueueFieldRenames(
+            exists.name,
+            renamedColumns,
+          );
+          stepLog(`STEP 13 queued physical field rename jobs (+${lap()}ms)`);
         }
 
         if (body.isSingleRecord === true && !exists.isSingleRecord) {

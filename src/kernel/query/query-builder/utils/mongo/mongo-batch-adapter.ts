@@ -1,4 +1,4 @@
-import { Db, ObjectId } from 'mongodb';
+import { ObjectId, type Db } from 'mongodb';
 import {
   BatchFetchAdapter,
   BatchFetchDescriptor,
@@ -7,9 +7,18 @@ import {
   parseFields,
   PER_PARENT_CONCURRENCY,
 } from '../../../query-dsl/batch-fetch-engine';
-import { resolveMongoJunctionInfo } from '../../../../../engines/mongo';
+import {
+  resolveMongoJunctionInfo,
+  type MongoFieldRenameMigration,
+} from '../../../../../engines/mongo';
 import { renderRawFilterToMongo } from './render-filter';
 import { perParentRun } from '../../../query-dsl/per-parent-runner.util';
+
+type MongoFetchSpec = {
+  projection: any | undefined;
+  pendingRenames?: MongoFieldRenameMigration[];
+  hiddenFields?: string[];
+};
 
 export class MongoBatchAdapter implements BatchFetchAdapter {
   pkField = '_id';
@@ -17,6 +26,7 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
   constructor(
     private db: Db,
     private metadata?: any,
+    private fieldRenamesByTable?: Map<string, MongoFieldRenameMigration[]>,
   ) {}
 
   private normalizeMetadata() {
@@ -191,7 +201,7 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
   ): {
     isPkOnly: boolean;
     nestedDescs: BatchFetchDescriptor[];
-    fetchSpec: { projection: any | undefined };
+    fetchSpec: MongoFetchSpec;
   } {
     const { rootFields, subRelations } = parseFields(fields);
     const projection: any = {};
@@ -291,14 +301,29 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
       projection._id === 1 &&
       nestedDescs.length === 0;
 
-    const fetchSpec = { projection: projectAll ? undefined : projection };
+    const pendingRenames = this.fieldRenamesByTable?.get(targetMeta.name) ?? [];
+    const hiddenFields: string[] = [];
+    if (!projectAll && pendingRenames.length > 0) {
+      for (const rename of pendingRenames) {
+        if (projection[rename.newName] === 1 && projection[rename.oldName] !== 1) {
+          projection[rename.oldName] = 1;
+          hiddenFields.push(rename.oldName);
+        }
+      }
+    }
+
+    const fetchSpec = {
+      projection: projectAll ? undefined : projection,
+      pendingRenames,
+      hiddenFields,
+    };
     return { isPkOnly, nestedDescs, fetchSpec };
   }
 
   async fetchOwner(
     targetTable: string,
     fkValues: any[],
-    fetchSpec: { projection: any | undefined },
+    fetchSpec: MongoFetchSpec,
     desc?: BatchFetchDescriptor,
   ): Promise<any[]> {
     const userFilter = desc?.userFilter
@@ -310,7 +335,7 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
       : null;
     const sortSpec = this.buildSortFromTokens(desc?.userSort);
 
-    return chunkedFetch(fkValues, (chunk) => {
+    const docs = await chunkedFetch(fkValues, (chunk) => {
       const matchFilter: any = { _id: { $in: chunk } };
       if (userFilter && Object.keys(userFilter).length > 0) {
         Object.assign(matchFilter, userFilter);
@@ -322,13 +347,14 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
         .find(matchFilter, findOpts)
         .toArray();
     });
+    return this.applyReadFallback(docs, fetchSpec);
   }
 
   async fetchInverse(
     targetTable: string,
     fkField: string,
     parentIds: any[],
-    fetchSpec: { projection: any | undefined },
+    fetchSpec: MongoFetchSpec,
     desc?: BatchFetchDescriptor,
   ): Promise<{ docs: any[]; groupKeyField: string }> {
     const projection = fetchSpec.projection
@@ -374,10 +400,11 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
             if (offset > 0) pipeline.push({ $skip: offset });
             pipeline.push({ $limit: userLimit });
             if (projection) pipeline.push({ $project: projection });
-            return this.db
+            const rows = await this.db
               .collection(targetTable)
               .aggregate(pipeline)
               .toArray();
+            return this.applyReadFallback(rows, fetchSpec);
           }
 
           const sortSpec = this.buildSortFromTokens(desc?.userSort) || {
@@ -390,7 +417,7 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
             .find(matchStage, findOpts);
           if (offset > 0) cursor.skip(offset);
           cursor.limit(userLimit);
-          return cursor.toArray();
+          return this.applyReadFallback(await cursor.toArray(), fetchSpec);
         },
         PER_PARENT_CONCURRENCY,
       );
@@ -424,7 +451,11 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
             desc!.userSort!,
           );
           if (projection) pipeline.push({ $project: projection });
-          return this.db.collection(targetTable).aggregate(pipeline).toArray();
+          const rows = await this.db
+            .collection(targetTable)
+            .aggregate(pipeline)
+            .toArray();
+          return this.applyReadFallback(rows, fetchSpec);
         },
         PER_PARENT_CONCURRENCY,
       );
@@ -447,7 +478,10 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
         .toArray(),
     );
 
-    return { docs, groupKeyField: fkField };
+    return {
+      docs: this.applyReadFallback(docs, fetchSpec),
+      groupKeyField: fkField,
+    };
   }
 
   postProcessInverseChild(
@@ -465,7 +499,7 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
     desc: BatchFetchDescriptor,
     parentMeta: TableMeta | undefined,
     targetMeta: TableMeta,
-    fetchSpec: { projection: any | undefined },
+    fetchSpec: MongoFetchSpec,
   ): Promise<{ grouped: Map<string, any[]>; docs: any[] }> {
     const parentTableName = parentMeta?.name;
     if (!parentTableName) {
@@ -560,10 +594,11 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
             pipeline.push({ $limit: userLimit });
             if (fetchSpec.projection)
               pipeline.push({ $project: fetchSpec.projection });
-            return this.db
+            const rows = await this.db
               .collection(desc.targetTable)
               .aggregate(pipeline)
               .toArray();
+            return this.applyReadFallback(rows, fetchSpec);
           }
 
           const sortSpec = this.buildSortFromTokens(desc.userSort) || {
@@ -576,7 +611,7 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
             .find(matchStage, findOpts);
           if (offset > 0) cursor.skip(offset);
           cursor.limit(userLimit);
-          return cursor.toArray();
+          return this.applyReadFallback(await cursor.toArray(), fetchSpec);
         },
         PER_PARENT_CONCURRENCY,
       );
@@ -645,7 +680,7 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
             .toArray(),
         );
       }
-      docs = fetchedDocs;
+      docs = this.applyReadFallback(fetchedDocs, fetchSpec);
       for (const doc of docs) {
         docById.set(this.keyOf(doc._id), doc);
       }
@@ -661,5 +696,22 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
     }
 
     return { grouped, docs };
+  }
+
+  private applyReadFallback(docs: any[], fetchSpec: MongoFetchSpec): any[] {
+    const renames = fetchSpec.pendingRenames ?? [];
+    if (docs.length === 0 || renames.length === 0) return docs;
+    const hidden = new Set(fetchSpec.hiddenFields ?? []);
+    for (const doc of docs) {
+      for (const rename of renames) {
+        if (doc[rename.newName] === undefined && doc[rename.oldName] !== undefined) {
+          doc[rename.newName] = doc[rename.oldName];
+        }
+        if (hidden.has(rename.oldName) || doc[rename.newName] !== undefined) {
+          delete doc[rename.oldName];
+        }
+      }
+    }
+    return docs;
   }
 }

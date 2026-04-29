@@ -6,6 +6,7 @@ import {
   BatchTrace,
 } from '../../../query-dsl/batch-fetch-engine';
 import { MongoBatchAdapter } from './mongo-batch-adapter';
+import type { MongoPhysicalMigrationService } from '../../../../../engines/mongo';
 
 export type MongoBatchFetchDescriptor = BatchFetchDescriptor;
 
@@ -19,8 +20,11 @@ export async function executeMongoBatchFetches(
   parentTableName?: string,
   metadata?: any,
   trace?: BatchTrace,
+  mongoPhysicalMigrationService?: MongoPhysicalMigrationService,
 ): Promise<void> {
-  const adapter = new MongoBatchAdapter(db, metadata);
+  const fieldRenamesByTable =
+    await mongoPhysicalMigrationService?.getActiveFieldRenamesByTable?.();
+  const adapter = new MongoBatchAdapter(db, metadata, fieldRenamesByTable);
   const engine = new BatchFetchEngine(adapter, metadataGetter, trace);
   await engine.execute(
     parentDocs,

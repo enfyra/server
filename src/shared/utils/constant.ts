@@ -10,6 +10,7 @@ export const SYSTEM_QUEUES = {
   WS_CONNECTION: 'sys_ws-connection',
   WS_EVENT: 'sys_ws-event',
   FLOW_EXECUTION: 'sys_flow-execution',
+  MONGO_PHYSICAL_MIGRATION: 'sys_mongo-physical-migration',
 } as const;
 
 export const SAGA_ORPHAN_RECOVERY_LOCK_KEY = 'enfyra:saga-orphan-recovery';

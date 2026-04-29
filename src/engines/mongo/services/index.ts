@@ -5,5 +5,6 @@ export * from './mongo-saga-lock.service';
 export * from './mongo-saga-snapshot.service';
 export * from './mongo-saga-coordinator.service';
 export * from './mongo-migration-journal.service';
+export * from './mongo-physical-migration.service';
 export * from './mongo-relation-manager.service';
 export * from './mongo-schema-diff.service';

@@ -16,7 +16,10 @@ import {
   MongoBatchFetchDescriptor,
 } from './batch-relation-fetcher';
 import { renderFilterToMongo } from './render-filter';
-import { normalizeMongoDocument } from '../../../../../engines/mongo';
+import {
+  normalizeMongoDocument,
+  type MongoPhysicalMigrationService,
+} from '../../../../../engines/mongo';
 
 export interface AggregationResult {
   results: any[];
@@ -31,6 +34,7 @@ export async function executeAggregationPipeline(
     metadata: any;
     dbType: string;
     debugLog?: any[];
+    mongoPhysicalMigrationService?: MongoPhysicalMigrationService;
   },
 ): Promise<AggregationResult> {
   const pipeline: any[] = [];
@@ -355,6 +359,8 @@ export async function executeAggregationPipeline(
         0,
         options.table,
         metadata,
+        undefined,
+        context.mongoPhysicalMigrationService,
       );
     }
   }

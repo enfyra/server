@@ -11,6 +11,7 @@ import { validateFilterShape } from '../../query-dsl/filter-sanitizer.util';
 import { QueryPlanner } from '../../query-dsl/query-planner';
 import { QueryPlan } from '../../query-dsl/query-plan.types';
 import {
+  type MongoPhysicalMigrationService,
   normalizeMongoDocument,
   resolveMongoJunctionInfo,
 } from '../../../../engines/mongo';
@@ -30,7 +31,10 @@ export class MongoQueryExecutor {
   private dbType!: string;
   private lastBuiltPipeline: any[] | null = null;
 
-  constructor(private readonly mongoService: any) {
+  constructor(
+    private readonly mongoService: any,
+    private readonly mongoPhysicalMigrationService?: MongoPhysicalMigrationService,
+  ) {
     this.db = mongoService.getDb();
   }
 
@@ -212,6 +216,7 @@ export class MongoQueryExecutor {
   }
 
   private async selectLegacy(options: QueryOptions): Promise<any[]> {
+    let hiddenPhysicalFields: string[] = [];
     if (options.fields && options.fields.length > 0) {
       const planForFields: QueryPlan | undefined = options.plan;
       if (planForFields?.fieldTree) {
@@ -228,6 +233,19 @@ export class MongoQueryExecutor {
           options.table,
           options.fields,
         );
+      }
+
+      if (this.mongoPhysicalMigrationService && options.mongoFieldsExpanded) {
+        const augmented =
+          await this.mongoPhysicalMigrationService.augmentScalarProjection(
+            options.table,
+            options.mongoFieldsExpanded.scalarFields,
+          );
+        options.mongoFieldsExpanded = {
+          ...options.mongoFieldsExpanded,
+          scalarFields: augmented.scalarFields,
+        };
+        hiddenPhysicalFields = augmented.hiddenFields;
       }
     }
 
@@ -265,9 +283,17 @@ export class MongoQueryExecutor {
         metadata: this.metadata,
         dbType: this.dbType,
         debugLog: this.debugLog,
+        mongoPhysicalMigrationService: this.mongoPhysicalMigrationService,
       },
     );
     this.lastBuiltPipeline = pipeline;
+    if (this.mongoPhysicalMigrationService) {
+      return await this.mongoPhysicalMigrationService.applyReadFallback(
+        options.table,
+        results,
+        hiddenPhysicalFields,
+      );
+    }
     return results;
   }
 
@@ -283,6 +309,7 @@ export class MongoQueryExecutor {
         metadata: this.metadata,
         dbType: this.dbType,
         debugLog: this.debugLog,
+        mongoPhysicalMigrationService: this.mongoPhysicalMigrationService,
       },
     );
     this.lastBuiltPipeline = pipeline;

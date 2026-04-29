@@ -226,7 +226,10 @@ export class QueryBuilderService implements IQueryBuilder {
     }
 
     if (this.dbType === 'mongodb') {
-      const executor = new MongoQueryExecutor(this.mongoService);
+      const executor = new MongoQueryExecutor(
+        this.mongoService,
+        this.lazyRef.mongoPhysicalMigrationService,
+      );
       return executor.execute({
         ...options,
         metadata,
