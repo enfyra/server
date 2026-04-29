@@ -21,6 +21,7 @@ export type RedisAdminSystemKind =
   | 'bullmq'
   | 'socket_io'
   | 'runtime_monitor'
+  | 'sql_pool_coordination'
   | 'system_lock';
 
 export type RedisAdminNamespaceScope = 'current' | 'global';

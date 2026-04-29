@@ -254,6 +254,14 @@ export class RedisAdminService {
         reason: '$cache user data',
       };
     }
+    if (key.startsWith(`${this.nodeName}:coord:sql:pool:`)) {
+      return {
+        isSystem: true,
+        modifiable: false,
+        systemKind: 'sql_pool_coordination',
+        reason: 'SQL pool coordination',
+      };
+    }
     for (const item of systemPrefixes) {
       if (key.startsWith(item.prefix)) {
         return {
@@ -787,6 +795,8 @@ export class RedisAdminService {
         return 'Socket.IO';
       case 'runtime_monitor':
         return 'runtime monitor';
+      case 'sql_pool_coordination':
+        return 'SQL pool';
       case 'system_lock':
         return 'system lock';
     }
