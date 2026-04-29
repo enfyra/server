@@ -3,8 +3,12 @@ import { registerAdminRoutes } from '../../src/http/routes';
 
 function createHarness() {
   const handlers = new Map<string, any>();
+  const register = (path: string, handler: any) => handlers.set(path, handler);
   const app = {
-    post: (path: string, handler: any) => handlers.set(path, handler),
+    get: register,
+    post: register,
+    patch: register,
+    delete: register,
   };
   const orchestrator = {
     reloadAll: vi.fn().mockResolvedValue(undefined),

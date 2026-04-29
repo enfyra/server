@@ -533,7 +533,7 @@ export class DynamicRepository {
         rawDeep,
         metadata,
         0,
-        this.settingCacheService.getMaxQueryDepth(),
+        await this.settingCacheService.getMaxQueryDepth(),
       );
     }
 
@@ -563,7 +563,7 @@ export class DynamicRepository {
       deep: cleanDeep || {},
       debugMode: debugMode,
       debugTrace: this.context.$debug || undefined,
-      maxQueryDepth: this.settingCacheService.getMaxQueryDepth(),
+      maxQueryDepth: await this.settingCacheService.getMaxQueryDepth(),
     });
 
     if (!needsPostSql) {

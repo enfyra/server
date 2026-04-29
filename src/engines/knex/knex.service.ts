@@ -229,9 +229,6 @@ export class KnexService implements LifecycleAware {
   ): Promise<Set<string>> {
     const booleanFields = new Set<string>();
 
-    const metadata = this.lazyRef.metadataCacheService.getDirectMetadata();
-    if (!metadata) return booleanFields;
-
     const tableMetadata =
       await this.lazyRef.metadataCacheService.lookupTableByName(tableName);
     if (!tableMetadata) return booleanFields;

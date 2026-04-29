@@ -142,7 +142,8 @@ export class RedisPubSubService implements IRedisPubSub {
     if (this.nodeName !== null) {
       return this.nodeName;
     }
-    return null;
+    this.nodeName = this.envService.get('NODE_NAME') || null;
+    return this.nodeName;
   }
 
   onDestroy() {

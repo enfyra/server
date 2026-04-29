@@ -18,6 +18,7 @@ import { FolderTreeCacheService } from './folder-tree-cache.service';
 import { FieldPermissionCacheService } from './field-permission-cache.service';
 import { ColumnRuleCacheService } from './column-rule-cache.service';
 import { RepoRegistryService } from './repo-registry.service';
+import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
@@ -48,7 +49,10 @@ const FLOW_PRIORITY = [
   'repoRegistry',
 ];
 
-type ReloadStep = (payload: TCacheInvalidationPayload) => Promise<void>;
+type ReloadStep = (
+  payload: TCacheInvalidationPayload,
+  options?: { sharedReplay?: boolean },
+) => Promise<void>;
 type CacheReloadStepRunner = (
   name: string,
   fn: () => Promise<void>,
@@ -136,6 +140,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   private readonly bootstrapScriptService: BootstrapScriptService;
   private readonly dynamicWebSocketGateway: DynamicWebSocketGateway;
   private readonly runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
+  private readonly redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   private stepMap: Record<string, ReloadStep>;
   private messageHandler: ((channel: string, message: string) => void) | null =
     null;
@@ -170,6 +175,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     bootstrapScriptService: BootstrapScriptService;
     dynamicWebSocketGateway: DynamicWebSocketGateway;
     runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
+    redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     this.redisPubSubService = deps.redisPubSubService;
     this.instanceService = deps.instanceService;
@@ -191,23 +197,49 @@ export class CacheOrchestratorService implements LifecycleAware {
     this.bootstrapScriptService = deps.bootstrapScriptService;
     this.dynamicWebSocketGateway = deps.dynamicWebSocketGateway;
     this.runtimeMetricsCollectorService = deps.runtimeMetricsCollectorService;
+    this.redisRuntimeCacheStore = deps.redisRuntimeCacheStore;
 
     this.stepMap = {
-      metadata: (p) => this.reloadMetadata(p),
+      metadata: (p, options) => this.reloadMetadata(p, options?.sharedReplay),
       repoRegistry: () => this.reloadRepoRegistry(),
-      route: (p) => this.reloadRoute(p),
-      graphql: (p) => this.reloadGraphql(p),
-      guard: (p) => this.reloadSimple(this.guardCacheService, p),
-      flow: (p) => this.reloadSimple(this.flowCacheService, p),
-      websocket: (p) => this.reloadSimple(this.websocketCacheService, p),
-      package: (p) => this.reloadSimple(this.packageCacheService, p),
-      setting: (p) => this.reloadSimple(this.settingCacheService, p),
-      storage: (p) => this.reloadSimple(this.storageConfigCacheService, p),
-      oauth: (p) => this.reloadSimple(this.oauthConfigCacheService, p),
-      folder: (p) => this.reloadSimple(this.folderTreeCacheService, p),
-      fieldPermission: (p) =>
-        this.reloadSimple(this.fieldPermissionCacheService, p),
-      'column-rule': (p) => this.reloadSimple(this.columnRuleCacheService, p),
+      route: (p, options) => this.reloadRoute(p, options?.sharedReplay),
+      graphql: (p, options) => this.reloadGraphql(p, options?.sharedReplay),
+      guard: (p, options) =>
+        this.reloadSimple(this.guardCacheService, p, options?.sharedReplay),
+      flow: (p, options) =>
+        this.reloadSimple(this.flowCacheService, p, options?.sharedReplay),
+      websocket: (p, options) =>
+        this.reloadSimple(this.websocketCacheService, p, options?.sharedReplay),
+      package: (p, options) =>
+        this.reloadSimple(this.packageCacheService, p, options?.sharedReplay),
+      setting: (p, options) =>
+        this.reloadSimple(this.settingCacheService, p, options?.sharedReplay),
+      storage: (p, options) =>
+        this.reloadSimple(
+          this.storageConfigCacheService,
+          p,
+          options?.sharedReplay,
+        ),
+      oauth: (p, options) =>
+        this.reloadSimple(
+          this.oauthConfigCacheService,
+          p,
+          options?.sharedReplay,
+        ),
+      folder: (p, options) =>
+        this.reloadSimple(
+          this.folderTreeCacheService,
+          p,
+          options?.sharedReplay,
+        ),
+      fieldPermission: (p, options) =>
+        this.reloadSimple(
+          this.fieldPermissionCacheService,
+          p,
+          options?.sharedReplay,
+        ),
+      'column-rule': (p, options) =>
+        this.reloadSimple(this.columnRuleCacheService, p, options?.sharedReplay),
       settingGraphql: () => this.reloadSettingGraphql(),
       bootstrap: () => this.reloadBootstrapScripts(),
     };
@@ -302,7 +334,10 @@ export class CacheOrchestratorService implements LifecycleAware {
       return;
     }
 
-    if (publish) {
+    const sharedRuntimeCache = this.usesSharedRuntimeCache();
+    const sharedReplay = !publish && sharedRuntimeCache;
+
+    if (publish && !sharedRuntimeCache) {
       await this.publishSignal(payload);
     }
 
@@ -352,7 +387,7 @@ export class CacheOrchestratorService implements LifecycleAware {
       try {
         if (chain.includes('metadata')) {
           const durationMs = await runStep('metadata', () =>
-            this.stepMap['metadata'](payload),
+            this.stepMap['metadata'](payload, { sharedReplay }),
           );
           stepTimings.push(`metadata:${durationMs}ms`);
         }
@@ -366,7 +401,7 @@ export class CacheOrchestratorService implements LifecycleAware {
             middleSteps.map(async (step) => {
               const fn = this.stepMap[step];
               if (fn) {
-                await runStep(step, () => fn(payload));
+                await runStep(step, () => fn(payload, { sharedReplay }));
               }
             }),
           );
@@ -375,7 +410,7 @@ export class CacheOrchestratorService implements LifecycleAware {
 
         if (chain.includes('graphql')) {
           const durationMs = await runStep('graphql', () =>
-            this.stepMap['graphql'](payload),
+            this.stepMap['graphql'](payload, { sharedReplay }),
           );
           stepTimings.push(`graphql:${durationMs}ms`);
         }
@@ -417,6 +452,9 @@ export class CacheOrchestratorService implements LifecycleAware {
 
     try {
       await this.reloadLock;
+      if (publish && sharedRuntimeCache) {
+        await this.publishSignal(payload);
+      }
     } finally {
       this.reloadLock = null;
       if (elapsed < 500) {
@@ -460,7 +498,12 @@ export class CacheOrchestratorService implements LifecycleAware {
 
   private async reloadMetadata(
     payload: TCacheInvalidationPayload,
+    sharedReplay = false,
   ): Promise<void> {
+    if (sharedReplay) {
+      await this.metadataCacheService.syncFromSharedCache();
+      return;
+    }
     if (
       payload.scope === 'partial' &&
       payload.ids?.length &&
@@ -473,10 +516,17 @@ export class CacheOrchestratorService implements LifecycleAware {
   }
 
   private async reloadRepoRegistry(): Promise<void> {
-    this.repoRegistryService.rebuildFromMetadata(this.metadataCacheService);
+    await this.repoRegistryService.rebuildFromMetadata(this.metadataCacheService);
   }
 
-  private async reloadRoute(payload: TCacheInvalidationPayload): Promise<void> {
+  private async reloadRoute(
+    payload: TCacheInvalidationPayload,
+    sharedReplay = false,
+  ): Promise<void> {
+    if (sharedReplay) {
+      await this.routeCacheService.syncFromSharedCache();
+      return;
+    }
     if (
       payload.scope === 'partial' &&
       this.routeCacheService.isLoaded() &&
@@ -490,9 +540,12 @@ export class CacheOrchestratorService implements LifecycleAware {
 
   private async reloadGraphql(
     payload: TCacheInvalidationPayload,
+    sharedReplay = false,
   ): Promise<void> {
     if (!this.graphqlService) return;
-    await this.graphqlService.reloadSchema(payload);
+    await this.graphqlService.reloadSchema(payload, {
+      definitionFromSharedCache: sharedReplay,
+    });
   }
 
   private async reloadSimple(
@@ -504,9 +557,15 @@ export class CacheOrchestratorService implements LifecycleAware {
       ) => Promise<void>;
       supportsPartialReload?: () => boolean;
       isLoaded?: () => boolean;
+      syncFromSharedCache?: () => Promise<void>;
     },
     payload: TCacheInvalidationPayload,
+    sharedReplay = false,
   ): Promise<void> {
+    if (sharedReplay && cache.syncFromSharedCache) {
+      await cache.syncFromSharedCache();
+      return;
+    }
     if (
       payload.scope === 'partial' &&
       payload.ids?.length &&
@@ -521,7 +580,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   }
 
   private async reloadSettingGraphql(): Promise<void> {
-    this.graphqlService?.onSettingChanged?.();
+    await this.graphqlService?.onSettingChanged?.();
   }
 
   private async reloadBootstrapScripts(): Promise<void> {
@@ -706,16 +765,25 @@ export class CacheOrchestratorService implements LifecycleAware {
   }
 
   async reloadAll(): Promise<void> {
-    await this.publishSignal({
+    const payload: TCacheInvalidationPayload = {
       table: '__admin_reload_all',
       action: 'reload',
       scope: 'full',
       timestamp: Date.now(),
-    });
-    await this.reloadAllLocal(true);
+    };
+    if (!this.usesSharedRuntimeCache()) {
+      await this.publishSignal(payload);
+    }
+    await this.reloadAllLocal(true, false);
+    if (this.usesSharedRuntimeCache()) {
+      await this.publishSignal(payload);
+    }
   }
 
-  private async reloadAllLocal(notify = true): Promise<void> {
+  private async reloadAllLocal(
+    notify = true,
+    sharedReplay = false,
+  ): Promise<void> {
     const runReload = async () => {
       const start = Date.now();
       const startedAt = new Date(start).toISOString();
@@ -763,29 +831,75 @@ export class CacheOrchestratorService implements LifecycleAware {
       };
       try {
         if (notify) this.notifyClients('pending', 'all', steps, reloadId);
-        await runStep('metadata', () => this.metadataCacheService.reload());
+        await runStep('metadata', () =>
+          sharedReplay
+            ? this.metadataCacheService.syncFromSharedCache()
+            : this.metadataCacheService.reload(),
+        );
         await Promise.all([
           runStep('repoRegistry', () => this.reloadRepoRegistry()),
-          runStep('route', () => this.routeCacheService.reload(false)),
-          runStep('guard', () => this.guardCacheService.reload(false)),
-          runStep('flow', () => this.flowCacheService.reload(false)),
-          runStep('websocket', () => this.websocketCacheService.reload(false)),
-          runStep('package', () => this.packageCacheService.reload(false)),
-          runStep('setting', () => this.settingCacheService.reload(false)),
-          runStep('storage', () =>
-            this.storageConfigCacheService.reload(false),
+          runStep('route', () =>
+            sharedReplay
+              ? this.routeCacheService.syncFromSharedCache()
+              : this.routeCacheService.reload(false),
           ),
-          runStep('oauth', () => this.oauthConfigCacheService.reload(false)),
-          runStep('folder', () => this.folderTreeCacheService.reload(false)),
+          runStep('guard', () =>
+            sharedReplay
+              ? this.guardCacheService.syncFromSharedCache()
+              : this.guardCacheService.reload(false),
+          ),
+          runStep('flow', () =>
+            sharedReplay
+              ? this.flowCacheService.syncFromSharedCache()
+              : this.flowCacheService.reload(false),
+          ),
+          runStep('websocket', () =>
+            sharedReplay
+              ? this.websocketCacheService.syncFromSharedCache()
+              : this.websocketCacheService.reload(false),
+          ),
+          runStep('package', () =>
+            sharedReplay
+              ? this.packageCacheService.syncFromSharedCache()
+              : this.packageCacheService.reload(false),
+          ),
+          runStep('setting', () =>
+            sharedReplay
+              ? this.settingCacheService.syncFromSharedCache()
+              : this.settingCacheService.reload(false),
+          ),
+          runStep('storage', () =>
+            sharedReplay
+              ? this.storageConfigCacheService.syncFromSharedCache()
+              : this.storageConfigCacheService.reload(false),
+          ),
+          runStep('oauth', () =>
+            sharedReplay
+              ? this.oauthConfigCacheService.syncFromSharedCache()
+              : this.oauthConfigCacheService.reload(false),
+          ),
+          runStep('folder', () =>
+            sharedReplay
+              ? this.folderTreeCacheService.syncFromSharedCache()
+              : this.folderTreeCacheService.reload(false),
+          ),
           runStep('fieldPermission', () =>
-            this.fieldPermissionCacheService.reload(false),
+            sharedReplay
+              ? this.fieldPermissionCacheService.syncFromSharedCache()
+              : this.fieldPermissionCacheService.reload(false),
           ),
           runStep('columnRule', () =>
-            this.columnRuleCacheService.reload(false),
+            sharedReplay
+              ? this.columnRuleCacheService.syncFromSharedCache()
+              : this.columnRuleCacheService.reload(false),
           ),
         ]);
         if (this.graphqlService) {
-          await runStep('graphql', () => this.graphqlService.reloadSchema());
+          await runStep('graphql', () =>
+            this.graphqlService.reloadSchema(undefined, {
+              definitionFromSharedCache: sharedReplay,
+            }),
+          );
         }
         if (notify) {
           const elapsed = Date.now() - start;
@@ -853,7 +967,7 @@ export class CacheOrchestratorService implements LifecycleAware {
             `Redis signal from ${signal.instanceId.slice(0, 8)}: ${signal.payload?.table} (${signal.payload?.scope || 'full'})`,
           );
           if (signal.payload?.table === '__admin_reload_all') {
-            await this.reloadAllLocal();
+            await this.reloadAllLocal(false, this.usesSharedRuntimeCache());
           } else {
             await this.executeChain(signal.payload, false);
           }
@@ -892,5 +1006,9 @@ export class CacheOrchestratorService implements LifecycleAware {
     } catch (error) {
       this.logger.error('Failed to publish signal:', error);
     }
+  }
+
+  private usesSharedRuntimeCache(): boolean {
+    return this.redisRuntimeCacheStore?.isEnabled() === true;
   }
 }

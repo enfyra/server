@@ -82,9 +82,12 @@ export class OAuthService {
     this.repoRegistryService = deps.repoRegistryService;
   }
 
-  getAuthorizationUrl(provider: OAuthProvider, state: string): string {
+  async getAuthorizationUrl(
+    provider: OAuthProvider,
+    state: string,
+  ): Promise<string> {
     const config =
-      this.oauthConfigCacheService.getDirectConfigByProvider(provider);
+      await this.oauthConfigCacheService.getDirectConfigByProvider(provider);
     if (!config || !config.isEnabled) {
       throw new BadRequestException(
         `OAuth provider '${provider}' is not configured or disabled`,
@@ -128,7 +131,7 @@ export class OAuthService {
     loginProvider: string | null;
   }> {
     const config =
-      this.oauthConfigCacheService.getDirectConfigByProvider(provider);
+      await this.oauthConfigCacheService.getDirectConfigByProvider(provider);
     if (!config || !config.isEnabled) {
       throw new BadRequestException(
         `OAuth provider '${provider}' is not configured or disabled`,
@@ -247,7 +250,7 @@ export class OAuthService {
   private async findOrCreateUser(
     provider: OAuthProvider,
     userInfo: OAuthUserInfo,
-    config: ReturnType<IOAuthConfigCache['getDirectConfigByProvider']>,
+    config: Awaited<ReturnType<IOAuthConfigCache['getDirectConfigByProvider']>>,
   ): Promise<any> {
     const isMongoDB = this.queryBuilderService.isMongoDb();
 
@@ -341,7 +344,7 @@ export class OAuthService {
   }
 
   private async runUserProvisioningScript(
-    config: ReturnType<IOAuthConfigCache['getDirectConfigByProvider']>,
+    config: Awaited<ReturnType<IOAuthConfigCache['getDirectConfigByProvider']>>,
   ): Promise<Record<string, any>> {
     if (!config?.sourceCode?.trim()) {
       return {};
@@ -352,11 +355,7 @@ export class OAuthService {
       return {};
     }
 
-    const ctx = this.dynamicContextFactory.createBase({
-      cache: this.cacheService as any,
-      helpers: {},
-      user: null,
-    });
+    const ctx = this.dynamicContextFactory.createBase({ helpers: {}, user: null });
     ctx.$repos = this.repoRegistryService.createReposProxy(
       ctx,
       'user_definition',

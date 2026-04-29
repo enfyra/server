@@ -26,6 +26,13 @@ DB_URI=mysql://root:1234@localhost:3306/enfyra
 REDIS_URI=redis://localhost:6379
 # Default TTL (seconds) for cache entries
 DEFAULT_TTL=5
+# Store runtime metadata/config caches in Redis instead of per-process RAM.
+# Instances with the same NODE_NAME share one cache snapshot set.
+REDIS_RUNTIME_CACHE=false
+# Quota for user/runtime $cache (@CACHE) data only. System Redis keys are not counted.
+REDIS_USER_CACHE_LIMIT_MB=30
+# Max serialized value size for a single $cache write. 0 disables this guard.
+REDIS_USER_CACHE_MAX_VALUE_BYTES=0
 
 ############################################
 # App Runtime - required

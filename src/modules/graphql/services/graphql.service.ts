@@ -67,11 +67,18 @@ export class GraphqlService {
     this.envService = deps.envService;
   }
 
-  async reloadSchema(payload?: TCacheInvalidationPayload): Promise<void> {
+  async reloadSchema(
+    payload?: TCacheInvalidationPayload,
+    options: { definitionFromSharedCache?: boolean } = {},
+  ): Promise<void> {
     try {
       const start = Date.now();
 
-      await this.gqlDefinitionCacheService.reload();
+      if (options.definitionFromSharedCache) {
+        await this.gqlDefinitionCacheService.syncFromSharedCache();
+      } else {
+        await this.gqlDefinitionCacheService.reload();
+      }
 
       const metadata = await this.metadataCacheService.getMetadata();
       if (!metadata || metadata.tables.size === 0) {
@@ -110,7 +117,7 @@ export class GraphqlService {
         this.fullBuild(metadata, newQueryableNames);
       }
 
-      this.assembleAndRegisterSchema();
+      await this.assembleAndRegisterSchema();
 
       this.logger.log(
         `${affectedTables ? `Incremental update (${affectedTables.size} tables)` : `Full build (${this.queryableTableNames.size} types)`} in ${Date.now() - start}ms`,
@@ -234,7 +241,7 @@ export class GraphqlService {
     }
   }
 
-  private assembleAndRegisterSchema(): void {
+  private async assembleAndRegisterSchema(): Promise<void> {
     const queryFields: GraphQLFieldConfigMap<any, any> = {};
     const mutationFields: GraphQLFieldConfigMap<any, any> = {};
 
@@ -293,7 +300,7 @@ export class GraphqlService {
     });
 
     const isProduction = this.envService.isProd;
-    const maxDepth = this.settingCacheService.getMaxQueryDepth();
+    const maxDepth = await this.settingCacheService.getMaxQueryDepth();
 
     this.yogaApp = createYoga({
       schema: this.schema,
@@ -303,10 +310,10 @@ export class GraphqlService {
     });
   }
 
-  onSettingChanged() {
+  async onSettingChanged() {
     if (!this.schema) return;
     const isProduction = this.envService.isProd;
-    const maxDepth = this.settingCacheService.getMaxQueryDepth();
+    const maxDepth = await this.settingCacheService.getMaxQueryDepth();
     this.yogaApp = createYoga({
       schema: this.schema,
       graphqlEndpoint: '/graphql',

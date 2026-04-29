@@ -20,7 +20,7 @@ async function runMetadataGuards(
   const routePath = req.routeData.route?.path || req.baseUrl;
   const method = req.method;
 
-  const guards = guardCacheService.getGuardsForRoute(
+  const guards = await guardCacheService.getGuardsForRoute(
     position,
     routePath,
     method,

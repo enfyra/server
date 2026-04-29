@@ -1,7 +1,7 @@
 import * as jwt from 'jsonwebtoken';
 import { TDynamicContext } from '../types';
 import { BcryptService } from '../../domain/auth';
-import { CacheService } from '../../engines/cache';
+import { UserCacheService } from '../../engines/cache';
 import { createFetchHelper } from '../helpers';
 import { autoSlug } from '../utils/auto-slug.helper';
 import { ScriptErrorFactory } from '../utils/script-error-factory';
@@ -30,18 +30,18 @@ type DynamicContextOptions = {
 
 export class DynamicContextFactory {
   private readonly bcryptService: BcryptService;
-  private readonly cacheService: CacheService;
+  private readonly userCacheService: UserCacheService;
   private readonly envService: EnvService;
   private readonly websocketContextFactory: WebsocketContextFactory;
 
   constructor(deps: {
     bcryptService: BcryptService;
-    cacheService: CacheService;
+    userCacheService: UserCacheService;
     envService: EnvService;
     websocketContextFactory: WebsocketContextFactory;
   }) {
     this.bcryptService = deps.bcryptService;
-    this.cacheService = deps.cacheService;
+    this.userCacheService = deps.userCacheService;
     this.envService = deps.envService;
     this.websocketContextFactory = deps.websocketContextFactory;
   }
@@ -53,7 +53,7 @@ export class DynamicContextFactory {
       $debug: options.debug,
       $throw: ScriptErrorFactory.createThrowHandlers(),
       $helpers: options.helpers ?? {},
-      $cache: options.cache ?? {},
+      $cache: options.cache ?? this.userCacheService,
       $params: options.params ?? {},
       $query: options.query ?? {},
       $user: options.user ?? null,
@@ -91,7 +91,6 @@ export class DynamicContextFactory {
         autoSlug,
         $fetch: createFetchHelper(),
       },
-      cache: this.cacheService,
       params: options.params ?? {},
       query: req.query ?? {},
       user: req.user ?? null,

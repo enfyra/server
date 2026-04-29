@@ -82,6 +82,7 @@ function makeService(rows: any[], metadata = makeMetadata(rows)) {
   const svc = new FieldPermissionCacheService({
     queryBuilderService: qb,
     metadataCacheService: {
+      getMetadata: vi.fn(async () => metadata),
       getDirectMetadata: vi.fn(() => metadata),
     } as any,
     eventEmitter: new EventEmitter2(),

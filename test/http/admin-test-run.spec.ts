@@ -23,7 +23,7 @@ class InlineExecutor {
 function createDynamicContextFactory() {
   return new DynamicContextFactory({
     bcryptService: {} as any,
-    cacheService: {} as any,
+    userCacheService: {} as any,
     envService: { get: () => 'test-secret' } as any,
     websocketContextFactory: new WebsocketContextFactory({
       dynamicWebSocketGateway: {},
@@ -33,8 +33,12 @@ function createDynamicContextFactory() {
 
 function createAppHarness(cradle: any) {
   const handlers = new Map<string, any>();
+  const register = (path: string, handler: any) => handlers.set(path, handler);
   const app = {
-    post: (path: string, handler: any) => handlers.set(path, handler),
+    get: register,
+    post: register,
+    patch: register,
+    delete: register,
   };
   registerAdminRoutes(app as any, { cradle } as any);
 

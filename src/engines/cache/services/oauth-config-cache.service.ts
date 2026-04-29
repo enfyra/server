@@ -1,6 +1,7 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../../kernel/query';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
+import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 import { IOAuthConfigCache } from '../../../domain/shared/interfaces/oauth-config-cache.interface';
 import { normalizeScriptRecord } from '../../../kernel/execution';
@@ -35,8 +36,9 @@ export class OAuthConfigCacheService
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter?: EventEmitter2;
+    redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
-    super(OAUTH_CONFIG, deps.eventEmitter);
+    super(OAUTH_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
   }
 
@@ -80,15 +82,16 @@ export class OAuthConfigCacheService
   }
 
   async getConfigByProvider(provider: string): Promise<OAuthConfig | null> {
-    await this.ensureLoaded();
-    return this.cache.get(provider) || null;
+    const cache = await this.getCacheAsync();
+    return cache.get(provider) || null;
   }
 
-  getDirectConfigByProvider(provider: string): OAuthConfig | null {
-    return this.cache.get(provider) || null;
+  async getDirectConfigByProvider(provider: string): Promise<OAuthConfig | null> {
+    return this.getConfigByProvider(provider);
   }
 
-  getAllProviders(): string[] {
-    return Array.from(this.cache.keys());
+  async getAllProviders(): Promise<string[]> {
+    const cache = await this.getCacheAsync();
+    return Array.from(cache.keys());
   }
 }

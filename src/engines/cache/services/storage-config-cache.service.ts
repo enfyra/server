@@ -2,6 +2,7 @@ import { DatabaseConfigService } from '../../../shared/services';
 import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../../kernel/query';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
+import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 
 const STORAGE_CONFIG: CacheConfig = {
@@ -18,8 +19,9 @@ export class StorageConfigCacheService extends BaseCacheService<
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter?: EventEmitter2;
+    redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
-    super(STORAGE_CONFIG, deps.eventEmitter);
+    super(STORAGE_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
   }
 
@@ -79,7 +81,7 @@ export class StorageConfigCacheService extends BaseCacheService<
   async getStorageConfigById(
     id: number | string | null | undefined,
   ): Promise<any | null> {
-    await this.ensureLoaded();
+    const cache = await this.getCacheAsync();
 
     if (!id || id === null || id === undefined) {
       return null;
@@ -100,7 +102,7 @@ export class StorageConfigCacheService extends BaseCacheService<
       }
     }
 
-    let config = this.cache.get(normalizedId);
+    let config = cache.get(normalizedId);
     if (config) {
       return config;
     }
@@ -111,13 +113,13 @@ export class StorageConfigCacheService extends BaseCacheService<
           ? parseInt(normalizedId, 10)
           : normalizedId;
       if (!isNaN(numId as number)) {
-        config = this.cache.get(numId);
+        config = cache.get(numId);
         if (config) {
           return config;
         }
       }
       if (typeof normalizedId === 'number') {
-        config = this.cache.get(String(normalizedId));
+        config = cache.get(String(normalizedId));
         if (config) {
           return config;
         }
@@ -127,8 +129,8 @@ export class StorageConfigCacheService extends BaseCacheService<
   }
 
   async getStorageConfigByType(type: string): Promise<any | null> {
-    await this.ensureLoaded();
-    const values = Array.from(this.cache.values());
+    const cache = await this.getCacheAsync();
+    const values = Array.from(cache.values());
     for (const config of values) {
       if (config.type === type && config.isEnabled) {
         return config;

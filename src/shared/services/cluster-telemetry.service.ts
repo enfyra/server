@@ -86,4 +86,13 @@ export class ClusterTelemetryService {
         .filter(Boolean) as Array<ClusterTelemetryRecord<T>>,
     };
   }
+
+  async clearCurrentInstance(namespace: string): Promise<void> {
+    const instanceId = this.instanceService.getInstanceId();
+    await this.redis
+      .pipeline()
+      .del(this.payloadKey(namespace, instanceId))
+      .zrem(this.instancesKey(namespace), instanceId)
+      .exec();
+  }
 }

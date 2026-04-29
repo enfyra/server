@@ -190,7 +190,7 @@ describe('GuardCacheService — tree building', () => {
       ],
       [],
     );
-    const guards = svc.getGuardsForRoute('pre_auth', '/posts', 'GET');
+    const guards = await svc.getGuardsForRoute('pre_auth', '/posts', 'GET');
     expect(guards).toHaveLength(2);
   });
 
@@ -212,8 +212,12 @@ describe('GuardCacheService — tree building', () => {
       ],
       [],
     );
-    expect(svc.getGuardsForRoute('pre_auth', '/test', 'POST')).toHaveLength(1);
-    expect(svc.getGuardsForRoute('pre_auth', '/test', 'GET')).toHaveLength(0);
+    await expect(
+      svc.getGuardsForRoute('pre_auth', '/test', 'POST'),
+    ).resolves.toHaveLength(1);
+    await expect(
+      svc.getGuardsForRoute('pre_auth', '/test', 'GET'),
+    ).resolves.toHaveLength(0);
   });
 
   it('should apply to all methods when methods is empty', async () => {
@@ -234,10 +238,12 @@ describe('GuardCacheService — tree building', () => {
       ],
       [],
     );
-    expect(svc.getGuardsForRoute('pre_auth', '/test', 'GET')).toHaveLength(1);
-    expect(svc.getGuardsForRoute('pre_auth', '/test', 'DELETE')).toHaveLength(
-      1,
-    );
+    await expect(
+      svc.getGuardsForRoute('pre_auth', '/test', 'GET'),
+    ).resolves.toHaveLength(1);
+    await expect(
+      svc.getGuardsForRoute('pre_auth', '/test', 'DELETE'),
+    ).resolves.toHaveLength(1);
   });
 
   it('should sort children by priority', async () => {

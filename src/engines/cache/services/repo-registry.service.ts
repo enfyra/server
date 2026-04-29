@@ -43,25 +43,9 @@ export class RepoRegistryService implements IRepoRegistry {
     this.initialized = true;
   }
 
-  private ensureInitialized() {
-    if (this.initialized) return;
-    if (!this.metadataCacheService.isLoaded()) return;
-    const metadata = this.metadataCacheService.getDirectMetadata();
-    if (!metadata?.tablesList) return;
-    const newMap = new Map<string, string>();
-    for (const table of metadata.tablesList) {
-      newMap.set(table.name, table.name);
-      if (table.alias && table.alias !== table.name) {
-        newMap.set(table.alias, table.name);
-      }
-    }
-    this.aliasToName = newMap;
-    this.initialized = true;
-  }
+  private ensureInitialized() {}
 
-  private handleCacheInvalidation() {
-    this.initialized = false;
-  }
+  private handleCacheInvalidation() {}
 
   resolveTableName(nameOrAlias: string): string | null {
     this.ensureInitialized();

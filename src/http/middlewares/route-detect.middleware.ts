@@ -19,9 +19,8 @@ export function routeDetectMiddleware(
 ) {
   return async (req: any, res: Response, next: NextFunction) => {
     const method = req.method;
-    const routeEngine = routeCacheService.getRouteEngine();
     const path = req.path || req.url?.split('?')[0] || '/';
-    const matchedRoute = routeEngine.find(method, path);
+    const matchedRoute = await routeCacheService.matchRoute(method, path);
 
     const isMethodAvailable = (route: any) => {
       const methods = route?.availableMethods;

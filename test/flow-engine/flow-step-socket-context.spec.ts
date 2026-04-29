@@ -30,7 +30,7 @@ class MockRepoRegistry {
 function createDynamicContextFactory(dynamicWebSocketGateway: any) {
   return new DynamicContextFactory({
     bcryptService: {} as any,
-    cacheService: {} as any,
+    userCacheService: {} as any,
     envService: { get: () => 'test-secret' } as any,
     websocketContextFactory: new WebsocketContextFactory({
       dynamicWebSocketGateway,

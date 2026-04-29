@@ -110,11 +110,21 @@ export class QueryBuilderService implements IQueryBuilder {
     return value;
   }
 
-  private buildMongoFilter(where: WhereCondition[], table?: string): any {
-    const metadata =
-      this.lazyRef.metadataCacheService?.getDirectMetadata?.() ?? {
-        tables: new Map(),
-      };
+  private async getMetadataForQuery(): Promise<any> {
+    const fallback = { tables: new Map(), tablesList: [] };
+    const metadataCacheService = this.lazyRef.metadataCacheService;
+    if (!metadataCacheService) return fallback;
+    if (metadataCacheService.isLoaded?.()) {
+      return (await metadataCacheService.getMetadata?.()) ?? fallback;
+    }
+    return metadataCacheService.getDirectMetadata?.() ?? fallback;
+  }
+
+  private async buildMongoFilter(
+    where: WhereCondition[],
+    table?: string,
+  ): Promise<any> {
+    const metadata = await this.getMetadataForQuery();
     const filter = whereToMongoFilter(metadata, where, table, this.dbType);
     if (filter._id !== undefined) {
       filter._id = this.safeObjectId(filter._id);
@@ -122,15 +132,12 @@ export class QueryBuilderService implements IQueryBuilder {
     return filter;
   }
 
-  private applyWhereToKnex(
+  private async applyWhereToKnex(
     query: any,
     conditions: WhereCondition[],
     table?: string,
-  ): any {
-    const metadata =
-      this.lazyRef.metadataCacheService?.getDirectMetadata?.() ?? {
-        tables: new Map(),
-      };
+  ): Promise<any> {
+    const metadata = await this.getMetadataForQuery();
     return applyWhereToKnexComplete(
       query,
       conditions,
@@ -197,11 +204,7 @@ export class QueryBuilderService implements IQueryBuilder {
     maxQueryDepth?: number;
   }): Promise<any> {
     const selectStart = performance.now();
-    const metadata =
-      this.lazyRef.metadataCacheService?.getDirectMetadata?.() ?? {
-        tables: new Map(),
-        tablesList: [] as any[],
-      };
+    const metadata = await this.getMetadataForQuery();
 
     const planStart = performance.now();
     const planner = new QueryPlanner();
@@ -272,7 +275,7 @@ export class QueryBuilderService implements IQueryBuilder {
       const dataWithTimestamp =
         this.mongoService.applyUpdateTimestamp(dataWithRelations);
 
-      const filter = this.buildMongoFilter(options.where, options.table);
+      const filter = await this.buildMongoFilter(options.where, options.table);
 
       const collection = this.mongoService.collection(options.table);
       await collection.updateMany(filter, { $set: dataWithTimestamp });
@@ -284,7 +287,7 @@ export class QueryBuilderService implements IQueryBuilder {
     let query: any = knex(options.table);
 
     if (options.where.length > 0) {
-      query = this.applyWhereToKnex(query, options.where, options.table);
+      query = await this.applyWhereToKnex(query, options.where, options.table);
     }
 
     const recordsToUpdate = await query;
@@ -300,7 +303,7 @@ export class QueryBuilderService implements IQueryBuilder {
     if (options.returning) {
       const returnQuery = knex(options.table);
       if (options.where.length > 0) {
-        this.applyWhereToKnex(returnQuery, options.where, options.table);
+        await this.applyWhereToKnex(returnQuery, options.where, options.table);
       }
       return await returnQuery.select(options.returning);
     }
@@ -310,7 +313,7 @@ export class QueryBuilderService implements IQueryBuilder {
 
   async deleteWithOptions(options: DeleteOptions): Promise<number> {
     if (this.dbType === 'mongodb') {
-      const filter = this.buildMongoFilter(options.where, options.table);
+      const filter = await this.buildMongoFilter(options.where, options.table);
 
       const collection = this.mongoService.collection(options.table);
       const result = await collection.deleteMany(filter);
@@ -321,7 +324,7 @@ export class QueryBuilderService implements IQueryBuilder {
     let query: any = knex(options.table);
 
     if (options.where.length > 0) {
-      query = this.applyWhereToKnex(query, options.where, options.table);
+      query = await this.applyWhereToKnex(query, options.where, options.table);
     }
 
     return await query.delete();
@@ -330,7 +333,7 @@ export class QueryBuilderService implements IQueryBuilder {
   async count(options: CountOptions): Promise<number> {
     if (this.dbType === 'mongodb') {
       const filter = options.where
-        ? this.buildMongoFilter(options.where, options.table)
+        ? await this.buildMongoFilter(options.where, options.table)
         : {};
       return this.mongoService.count(options.table, filter);
     }
@@ -339,7 +342,7 @@ export class QueryBuilderService implements IQueryBuilder {
     let query: any = knex(options.table);
 
     if (options.where && options.where.length > 0) {
-      query = this.applyWhereToKnex(query, options.where, options.table);
+      query = await this.applyWhereToKnex(query, options.where, options.table);
     }
 
     const result = await query.count('* as count').first();
@@ -518,7 +521,7 @@ export class QueryBuilderService implements IQueryBuilder {
 
     if (filter && Object.keys(filter).length > 0) {
       const where = this.filterToWhere(filter);
-      query = this.applyWhereToKnex(query, where, table);
+      query = await this.applyWhereToKnex(query, where, table);
     }
 
     const result = await query.count('* as count').first();

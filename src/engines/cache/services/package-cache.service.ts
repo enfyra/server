@@ -5,6 +5,7 @@ import {
   extractErrorMessage,
 } from './package-cdn-loader.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
+import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import {
@@ -35,8 +36,9 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     eventEmitter: EventEmitter2;
     packageCdnLoaderService: PackageCdnLoaderService;
     lazyRef: Cradle;
+    redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
-    super(PACKAGE_CONFIG, deps.eventEmitter);
+    super(PACKAGE_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
     this.lazyRef = deps.lazyRef;
     this.packageCdnLoaderService = deps.packageCdnLoaderService;
@@ -71,6 +73,10 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   }
 
   protected async afterTransform(): Promise<void> {
+    this.schedulePackagePreload();
+  }
+
+  protected async afterSharedCacheHydrate(): Promise<void> {
     this.schedulePackagePreload();
   }
 
@@ -216,7 +222,6 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   }
 
   async getPackages(): Promise<string[]> {
-    await this.ensureLoaded();
-    return this.cache;
+    return this.getCacheAsync();
   }
 }

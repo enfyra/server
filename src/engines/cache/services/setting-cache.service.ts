@@ -1,6 +1,7 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../../kernel/query';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
+import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import {
   DEFAULT_MAX_QUERY_DEPTH,
   DEFAULT_MAX_UPLOAD_FILE_SIZE_MB,
@@ -27,8 +28,13 @@ export class SettingCacheService extends BaseCacheService<SettingData> {
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter?: EventEmitter2;
+    redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
-    super(SETTING_CACHE_CONFIG, deps.eventEmitter);
+    super(
+      SETTING_CACHE_CONFIG,
+      deps.eventEmitter,
+      deps.redisRuntimeCacheStore,
+    );
     this.queryBuilderService = deps.queryBuilderService;
   }
 
@@ -70,27 +76,31 @@ export class SettingCacheService extends BaseCacheService<SettingData> {
     return '1 setting record';
   }
 
-  getMaxQueryDepth(): number {
-    return this.cache?.maxQueryDepth ?? DEFAULT_MAX_QUERY_DEPTH;
+  async getMaxQueryDepth(): Promise<number> {
+    const cache = await this.getCacheAsync();
+    return cache?.maxQueryDepth ?? DEFAULT_MAX_QUERY_DEPTH;
   }
 
-  getMaxUploadFileSizeBytes(): number {
+  async getMaxUploadFileSizeBytes(): Promise<number> {
+    const cache = await this.getCacheAsync();
     return (
-      (this.cache?.maxUploadFileSize ?? DEFAULT_MAX_UPLOAD_FILE_SIZE_MB) *
+      (cache?.maxUploadFileSize ?? DEFAULT_MAX_UPLOAD_FILE_SIZE_MB) *
       1024 *
       1024
     );
   }
 
-  getMaxRequestBodySizeBytes(): number {
+  async getMaxRequestBodySizeBytes(): Promise<number> {
+    const cache = await this.getCacheAsync();
     return (
-      (this.cache?.maxRequestBodySize ?? DEFAULT_MAX_REQUEST_BODY_SIZE_MB) *
+      (cache?.maxRequestBodySize ?? DEFAULT_MAX_REQUEST_BODY_SIZE_MB) *
       1024 *
       1024
     );
   }
 
-  getSetting<T = any>(key: string): T | undefined {
-    return this.cache?.[key];
+  async getSetting<T = any>(key: string): Promise<T | undefined> {
+    const cache = await this.getCacheAsync();
+    return cache?.[key];
   }
 }

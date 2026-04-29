@@ -6,6 +6,7 @@ import {
 } from '../../../shared/utils/cache-events.constants';
 import { BaseCacheService } from './base-cache.service';
 import { MetadataCacheService } from './metadata-cache.service';
+import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 
 export type TFieldPermissionAction = 'read' | 'create' | 'update';
 export type TFieldPermissionEffect = 'allow' | 'deny';
@@ -70,6 +71,7 @@ export class FieldPermissionCacheService extends BaseCacheService<
     queryBuilderService: QueryBuilderService;
     metadataCacheService: MetadataCacheService;
     eventEmitter: EventEmitter2;
+    redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     super(
       {
@@ -78,25 +80,29 @@ export class FieldPermissionCacheService extends BaseCacheService<
         cacheName: 'FieldPermissionCache',
       },
       deps.eventEmitter,
+      deps.redisRuntimeCacheStore,
     );
     this.queryBuilderService = deps.queryBuilderService;
     this.metadataCacheService = deps.metadataCacheService;
   }
 
   protected async loadFromDb(): Promise<any> {
-    const result = await this.queryBuilderService.find({
-      table: 'field_permission_definition',
-      fields: FIELD_PERMISSION_CACHE_FIELDS,
-      filter: { isEnabled: { _eq: true } },
-      limit: 100000,
-    });
-    return result?.data ?? [];
+    const [result, metadata] = await Promise.all([
+      this.queryBuilderService.find({
+        table: 'field_permission_definition',
+        fields: FIELD_PERMISSION_CACHE_FIELDS,
+        filter: { isEnabled: { _eq: true } },
+        limit: 100000,
+      }),
+      this.metadataCacheService.getMetadata(),
+    ]);
+    return { rows: result?.data ?? [], metadata };
   }
 
   protected transformData(rawData: any): Map<string, TCompiledFieldPolicy> {
     const map = new Map<string, TCompiledFieldPolicy>();
-    const rows: any[] = Array.isArray(rawData) ? rawData : [];
-    const metadataIndex = this.buildMetadataIndex();
+    const rows: any[] = Array.isArray(rawData) ? rawData : rawData?.rows ?? [];
+    const metadataIndex = this.buildMetadataIndex(rawData?.metadata);
     for (const row of rows) {
       const rule = this.rowToRule(row, metadataIndex);
       if (!rule) continue;
@@ -143,7 +149,9 @@ export class FieldPermissionCacheService extends BaseCacheService<
       if (rid) fetchedById.set(rid, row);
     }
 
-    const metadataIndex = this.buildMetadataIndex();
+    const metadataIndex = this.buildMetadataIndex(
+      await this.metadataCacheService.getMetadata(),
+    );
     for (const id of ids) {
       this.removeRuleFromAllBuckets(id);
       const row = fetchedById.get(id);
@@ -154,8 +162,7 @@ export class FieldPermissionCacheService extends BaseCacheService<
     }
   }
 
-  private buildMetadataIndex(): TFieldPermissionMetadataIndex {
-    const metadata = this.metadataCacheService.getDirectMetadata();
+  private buildMetadataIndex(metadata: any): TFieldPermissionMetadataIndex {
     const columnsById = new Map<
       string,
       { tableName: string; columnName: string }
@@ -341,8 +348,7 @@ export class FieldPermissionCacheService extends BaseCacheService<
     tableName: string,
     action: TFieldPermissionAction,
   ): Promise<TCompiledFieldPolicy[]> {
-    await this.ensureLoaded();
-    const cache = this.cache || new Map();
+    const cache = await this.getCacheAsync();
     const policies: TCompiledFieldPolicy[] = [];
 
     const userId = toIdString(user);

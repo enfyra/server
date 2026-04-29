@@ -9,6 +9,9 @@ import {
 import { IMetadataCache } from '../../../domain/shared/interfaces/metadata-cache.interface';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { ObjectId } from 'mongodb';
+import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
+import { EventEmitter2 } from 'eventemitter2';
+import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 
 const COLOR = '\x1b[36m';
 const RESET = '\x1b[0m';
@@ -27,13 +30,26 @@ export class MetadataCacheService implements IMetadataCache {
   private loadingPromise: Promise<void> | null = null;
   private readonly dbType: string;
   private readonly lazyRef: Cradle;
+  private readonly redisRuntimeCacheStore?: RedisRuntimeCacheStore;
+  private sharedCacheLoaded = false;
+  private sharedRefreshLockValue: string | null = null;
+  private systemReady = false;
 
   constructor(deps: {
     databaseConfigService: DatabaseConfigService;
     lazyRef: Cradle;
+    redisRuntimeCacheStore?: RedisRuntimeCacheStore;
+    eventEmitter?: EventEmitter2;
   }) {
     this.dbType = deps.databaseConfigService.getDbType();
     this.lazyRef = deps.lazyRef;
+    this.redisRuntimeCacheStore = deps.redisRuntimeCacheStore;
+    deps.eventEmitter?.once(CACHE_EVENTS.SYSTEM_READY, () => {
+      this.systemReady = true;
+      if (this.usesSharedRuntimeCache()) {
+        this.inMemoryCache = null;
+      }
+    });
   }
 
   async reload(): Promise<void> {
@@ -44,13 +60,14 @@ export class MetadataCacheService implements IMetadataCache {
     this.isLoading = true;
     this.loadingPromise = (async () => {
       try {
-        const metadata = await this.loadMetadataFromDb();
-        this.inMemoryCache = metadata;
+        const metadata = await this.loadFreshMetadataForReload();
+        await this.setLoadedMetadata(metadata);
 
         this.logger.log(
           `Loaded ${metadata.tablesList.length} table definitions`,
         );
       } catch (error) {
+        await this.releaseActiveSharedLock();
         this.logger.error('Failed to reload metadata cache:', error);
         throw error;
       } finally {
@@ -68,15 +85,47 @@ export class MetadataCacheService implements IMetadataCache {
     }
     try {
       const start = Date.now();
+      if (this.usesSharedRuntimeCache()) {
+        const lockValue =
+          await this.redisRuntimeCacheStore!.acquireRefreshLockWithWait(
+            'metadata',
+          );
+        if (!lockValue) {
+          throw new Error('Metadata shared cache refresh lock timed out');
+        }
+        this.sharedRefreshLockValue = lockValue;
+        const snapshot = await this.redisRuntimeCacheStore!.getSnapshot<EnfyraMetadata>(
+          'metadata',
+        );
+        if (!snapshot) {
+          await this.releaseActiveSharedLock();
+          await this.reload();
+          return;
+        }
+        this.inMemoryCache = snapshot.data;
+      }
       await this.applyPartialUpdate(payload);
+      if (this.usesSharedRuntimeCache()) {
+        await this.redisRuntimeCacheStore!.setSnapshot(
+          'metadata',
+          this.inMemoryCache!,
+        );
+        this.sharedCacheLoaded = true;
+      }
       this.logger.log(
         `Partial reload (${payload.ids?.length ?? 0} tables) in ${Date.now() - start}ms`,
       );
     } catch (error) {
+      await this.releaseActiveSharedLock();
       this.logger.warn(
         `Partial reload failed, falling back to full: ${(error as Error).message}`,
       );
       await this.reload();
+    } finally {
+      await this.releaseActiveSharedLock();
+      if (this.usesSharedRuntimeCache()) {
+        this.inMemoryCache = null;
+      }
     }
   }
 
@@ -599,6 +648,17 @@ export class MetadataCacheService implements IMetadataCache {
   }
 
   async getMetadata(): Promise<EnfyraMetadata> {
+    if (this.usesSharedRuntimeCache()) {
+      if (this.inMemoryCache) return this.inMemoryCache;
+      const snapshot = await this.redisRuntimeCacheStore!.getSnapshot<EnfyraMetadata>(
+        'metadata',
+      );
+      if (snapshot) {
+        this.sharedCacheLoaded = true;
+        return snapshot.data;
+      }
+      return await this.loadAndCacheMetadata();
+    }
     if (this.inMemoryCache) return this.inMemoryCache;
     return await this.loadAndCacheMetadata();
   }
@@ -609,8 +669,8 @@ export class MetadataCacheService implements IMetadataCache {
     if (this.initialLoadPromise) return this.initialLoadPromise;
     this.initialLoadPromise = (async () => {
       try {
-        const metadata = await this.loadMetadataFromDb();
-        this.inMemoryCache = metadata;
+        const metadata = await this.loadFreshMetadataForReload();
+        await this.setLoadedMetadata(metadata);
         return metadata;
       } finally {
         this.initialLoadPromise = null;
@@ -644,6 +704,7 @@ export class MetadataCacheService implements IMetadataCache {
 
   async clearMetadataCache(): Promise<void> {
     this.inMemoryCache = null;
+    this.sharedCacheLoaded = false;
   }
 
   getDirectMetadata(): EnfyraMetadata {
@@ -651,7 +712,73 @@ export class MetadataCacheService implements IMetadataCache {
   }
 
   isLoaded(): boolean {
-    return this.inMemoryCache !== null;
+    return this.usesSharedRuntimeCache()
+      ? this.sharedCacheLoaded
+      : this.inMemoryCache !== null;
+  }
+
+  usesSharedRuntimeCache(): boolean {
+    return this.redisRuntimeCacheStore?.isEnabled() === true;
+  }
+
+  async syncFromSharedCache(timeoutMs = 10000): Promise<void> {
+    if (!this.usesSharedRuntimeCache()) {
+      await this.reload();
+      return;
+    }
+    const snapshot =
+      await this.redisRuntimeCacheStore!.waitForSnapshot<EnfyraMetadata>(
+        'metadata',
+        timeoutMs,
+      );
+    if (!snapshot) {
+      throw new Error('Metadata shared cache is unavailable');
+    }
+    this.sharedCacheLoaded = true;
+    this.inMemoryCache = null;
+  }
+
+  private async setLoadedMetadata(metadata: EnfyraMetadata): Promise<void> {
+    if (this.usesSharedRuntimeCache()) {
+      await this.redisRuntimeCacheStore!.setSnapshot('metadata', metadata);
+      this.sharedCacheLoaded = true;
+      this.inMemoryCache = this.systemReady ? null : metadata;
+      await this.releaseActiveSharedLock();
+      return;
+    }
+    this.inMemoryCache = metadata;
+  }
+
+  private async loadFreshMetadataForReload(): Promise<EnfyraMetadata> {
+    if (!this.usesSharedRuntimeCache()) {
+      return this.loadMetadataFromDb();
+    }
+
+    const lockValue =
+      await this.redisRuntimeCacheStore!.acquireRefreshLock('metadata');
+    if (!lockValue) {
+      const snapshot =
+        await this.redisRuntimeCacheStore!.waitForSnapshot<EnfyraMetadata>(
+          'metadata',
+        );
+      if (snapshot) return snapshot.data;
+    }
+
+    try {
+      return await this.loadMetadataFromDb();
+    } finally {
+      this.sharedRefreshLockValue = lockValue;
+    }
+  }
+
+  private async releaseActiveSharedLock(): Promise<void> {
+    if (!this.usesSharedRuntimeCache() || !this.sharedRefreshLockValue) return;
+    const lockValue = this.sharedRefreshLockValue;
+    this.sharedRefreshLockValue = null;
+    await this.redisRuntimeCacheStore!.releaseRefreshLock(
+      'metadata',
+      lockValue,
+    );
   }
 
   private async loadTablesByIds(

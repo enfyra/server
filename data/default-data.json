@@ -570,6 +570,48 @@
       ]
     },
     {
+      "path": "/admin/redis/overview",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:server",
+      "description": "Read Redis server, hardware, memory, CPU, and keyspace summary",
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/admin/redis/keys",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:list-tree",
+      "description": "Scan Redis keys with system key markers",
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/admin/redis/key",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:key-round",
+      "description": "Read, write, and delete non-system Redis keys",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/admin/redis/key/ttl",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:timer",
+      "description": "Update or clear TTL for non-system Redis keys",
+      "availableMethods": [
+        "PATCH"
+      ]
+    },
+    {
       "path": "/metadata",
       "isEnabled": true,
       "isSystem": true,

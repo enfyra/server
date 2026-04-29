@@ -6,11 +6,11 @@ import express, {
 import { SettingCacheService } from '../../engines/cache';
 
 export function bodyParserMiddleware(settingCacheService: SettingCacheService) {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
     const contentType = req.headers['content-type'] || '';
     if (contentType.includes('multipart/')) return next();
 
-    const limit = settingCacheService.getMaxRequestBodySizeBytes();
+    const limit = await settingCacheService.getMaxRequestBodySizeBytes();
     const limitStr = `${limit}`;
 
     if (contentType.includes('json')) {

@@ -10,6 +10,14 @@ function resolveOrchestrator(req: any, container: AwilixContainer<Cradle>) {
   );
 }
 
+function resolveRedisAdmin(req: any, container: AwilixContainer<Cradle>) {
+  return req.scope?.cradle?.redisAdminService ?? container.cradle.redisAdminService;
+}
+
+function resolveRuntimeMonitor(req: any, container: AwilixContainer<Cradle>) {
+  return req.scope?.cradle?.runtimeMonitorService ?? container.cradle.runtimeMonitorService;
+}
+
 function startReload(
   res: Response,
   label: string,
@@ -32,6 +40,88 @@ export function registerAdminRoutes(
   app: Express,
   container: AwilixContainer<Cradle>,
 ) {
+  app.get('/admin/redis/overview', async (req: any, res: Response) => {
+    const redisAdminService = resolveRedisAdmin(req, container);
+    res.json({
+      success: true,
+      data: await redisAdminService.getOverview(),
+    });
+  });
+
+  app.get('/admin/redis/keys', async (req: any, res: Response) => {
+    const redisAdminService = resolveRedisAdmin(req, container);
+    res.json({
+      success: true,
+      data: await redisAdminService.listKeys({
+        cursor: req.query?.cursor,
+        pattern: req.query?.pattern,
+        count: req.query?.count,
+      }),
+    });
+  });
+
+  app.get('/admin/redis/key', async (req: any, res: Response) => {
+    const redisAdminService = resolveRedisAdmin(req, container);
+    res.json({
+      success: true,
+      data: await redisAdminService.getKey(String(req.query?.key || ''), {
+        limit: req.query?.limit,
+      }),
+    });
+  });
+
+  app.post('/admin/redis/key', async (req: any, res: Response) => {
+    const redisAdminService = resolveRedisAdmin(req, container);
+    const runtimeMonitorService = resolveRuntimeMonitor(req, container);
+    const data = await redisAdminService.setKey(req.body || {});
+    runtimeMonitorService.emitRedisKeyChanged({
+      operation: 'set',
+      key: data.key,
+      detail: data,
+    });
+    await runtimeMonitorService.emitRedisOverview();
+    res.json({
+      success: true,
+      data,
+    });
+  });
+
+  app.delete('/admin/redis/key', async (req: any, res: Response) => {
+    const redisAdminService = resolveRedisAdmin(req, container);
+    const runtimeMonitorService = resolveRuntimeMonitor(req, container);
+    const key = String(req.query?.key || '');
+    const data = await redisAdminService.deleteKey(key);
+    runtimeMonitorService.emitRedisKeyChanged({
+      operation: 'delete',
+      key,
+      deleted: data.deleted,
+    });
+    await runtimeMonitorService.emitRedisOverview();
+    res.json({
+      success: true,
+      data,
+    });
+  });
+
+  app.patch('/admin/redis/key/ttl', async (req: any, res: Response) => {
+    const redisAdminService = resolveRedisAdmin(req, container);
+    const runtimeMonitorService = resolveRuntimeMonitor(req, container);
+    const data = await redisAdminService.expireKey(
+      String(req.body?.key || ''),
+      req.body?.ttlSeconds ?? null,
+    );
+    runtimeMonitorService.emitRedisKeyChanged({
+      operation: 'ttl',
+      key: data.key,
+      summary: data,
+    });
+    await runtimeMonitorService.emitRedisOverview();
+    res.json({
+      success: true,
+      data,
+    });
+  });
+
   app.post('/admin/reload', async (req: any, res: Response) => {
     const orchestrator = resolveOrchestrator(req, container);
     startReload(res, 'All cache', () => orchestrator.reloadAll());

@@ -1,6 +1,7 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../../kernel/query';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
+import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
@@ -61,8 +62,9 @@ export class GuardCacheService extends BaseCacheService<GuardCache> {
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter: EventEmitter2;
+    redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
-    super(GUARD_CONFIG, deps.eventEmitter);
+    super(GUARD_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
     this.cache = {
       preAuthGlobal: [],
@@ -244,19 +246,20 @@ export class GuardCacheService extends BaseCacheService<GuardCache> {
     );
   }
 
-  getGuardsForRoute(
+  async getGuardsForRoute(
     position: GuardPosition,
     routePath: string,
     method: string,
-  ): GuardNode[] {
+  ): Promise<GuardNode[]> {
+    const cache = await this.getCacheAsync();
     const globalGuards =
       position === 'pre_auth'
-        ? this.cache.preAuthGlobal
-        : this.cache.postAuthGlobal;
+        ? cache.preAuthGlobal
+        : cache.postAuthGlobal;
     const routeMap =
       position === 'pre_auth'
-        ? this.cache.preAuthByRoute
-        : this.cache.postAuthByRoute;
+        ? cache.preAuthByRoute
+        : cache.postAuthByRoute;
     const routeGuards = routeMap.get(routePath) || [];
 
     const all = [...globalGuards, ...routeGuards];

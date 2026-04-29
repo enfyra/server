@@ -112,6 +112,16 @@ class RuntimeMetricsRedisStore {
     );
   }
 
+  async deleteLiveKeys(): Promise<void> {
+    await this.writeChain;
+    await this.redis
+      .pipeline()
+      .del(this.keys.requests)
+      .del(this.keys.queries)
+      .del(this.keys.flows)
+      .exec();
+  }
+
   private enqueue(operation: () => Promise<void>): void {
     this.writeChain = this.writeChain.then(operation).catch(() => {});
   }
@@ -162,6 +172,10 @@ export class RuntimeMetricsCollectorService {
         cacheReloads: `${nodeName}:runtime-monitor:cache-reloads`,
       });
     }
+  }
+
+  async onDestroy(): Promise<void> {
+    await this.redisStore?.deleteLiveKeys();
   }
 
   recordRequest(input: {

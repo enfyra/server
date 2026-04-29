@@ -1,6 +1,7 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../../kernel/query';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
+import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { DatabaseConfigService } from '../../../shared/services';
 import {
   normalizeScriptRecord,
@@ -39,8 +40,9 @@ export class WebsocketCacheService extends BaseCacheService<
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter?: EventEmitter2;
+    redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
-    super(WEBSOCKET_CONFIG, deps.eventEmitter);
+    super(WEBSOCKET_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
   }
 
@@ -119,20 +121,19 @@ export class WebsocketCacheService extends BaseCacheService<
   }
 
   async getGateways(): Promise<WebSocketGateway[]> {
-    await this.ensureLoaded();
-    return this.cache;
+    return this.getCacheAsync();
   }
 
   async getGatewayByPath(path: string): Promise<WebSocketGateway | null> {
-    await this.ensureLoaded();
-    return this.cache.find((g) => g.path === path) || null;
+    const cache = await this.getCacheAsync();
+    return cache.find((g) => g.path === path) || null;
   }
 
   async getEventsByGatewayId(
     gatewayId: number | string,
   ): Promise<WebSocketEvent[]> {
-    await this.ensureLoaded();
-    const gateway = this.cache.find((g) => g.id === gatewayId);
+    const cache = await this.getCacheAsync();
+    const gateway = cache.find((g) => g.id === gatewayId);
     return gateway?.events || [];
   }
 }

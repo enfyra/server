@@ -15,13 +15,12 @@ export function registerOAuthRoutes(
   app: Express,
   container: AwilixContainer<Cradle>,
 ) {
-  app.get('/auth/providers', (req: any, res: Response) => {
+  app.get('/auth/providers', async (req: any, res: Response) => {
     const oauthConfigCache =
       req.scope?.cradle?.oauthConfigCacheService ??
       container.cradle.oauthConfigCacheService;
 
-    const providers = oauthConfigCache
-      .getAllProviders()
+    const providers = (await oauthConfigCache.getAllProviders())
       .filter((provider: string): provider is 'google' | 'facebook' | 'github' =>
         VALID_OAUTH_PROVIDERS.includes(provider as any),
       )
@@ -60,7 +59,9 @@ export function registerOAuthRoutes(
 
     validateRedirectUrl(redirectUrl, provider);
 
-    const config = oauthConfigCache.getDirectConfigByProvider(provider as any);
+    const config = await oauthConfigCache.getDirectConfigByProvider(
+      provider as any,
+    );
     if (!config) {
       throw new BadRequestException(
         `OAuth provider '${provider}' is not configured`,
@@ -80,7 +81,10 @@ export function registerOAuthRoutes(
     const state = Buffer.from(JSON.stringify({ p: payload, s: sig })).toString(
       'base64url',
     );
-    const authUrl = oauthService.getAuthorizationUrl(provider as any, state);
+    const authUrl = await oauthService.getAuthorizationUrl(
+      provider as any,
+      state,
+    );
     return res.redirect(authUrl);
   });
 
@@ -99,7 +103,9 @@ export function registerOAuthRoutes(
     const error = req.query.error as string;
     const errorDescription = req.query.error_description as string;
 
-    const config = oauthConfigCache.getDirectConfigByProvider(provider as any);
+    const config = await oauthConfigCache.getDirectConfigByProvider(
+      provider as any,
+    );
     if (!config) {
       throw new BadRequestException(
         `OAuth provider '${provider}' is not configured`,

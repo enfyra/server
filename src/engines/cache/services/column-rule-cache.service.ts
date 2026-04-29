@@ -5,6 +5,7 @@ import {
   TCacheInvalidationPayload,
 } from '../../../shared/utils/cache-events.constants';
 import { BaseCacheService } from './base-cache.service';
+import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 
 export type TColumnRuleType =
   | 'min'
@@ -39,6 +40,7 @@ export class ColumnRuleCacheService extends BaseCacheService<
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter: EventEmitter2;
+    redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     super(
       {
@@ -47,6 +49,7 @@ export class ColumnRuleCacheService extends BaseCacheService<
         cacheName: 'ColumnRuleCache',
       },
       deps.eventEmitter,
+      deps.redisRuntimeCacheStore,
     );
     this.queryBuilderService = deps.queryBuilderService;
   }
@@ -149,12 +152,13 @@ export class ColumnRuleCacheService extends BaseCacheService<
   }
 
   async getRulesForColumn(columnId: string | number): Promise<TColumnRule[]> {
-    await this.ensureLoaded();
+    const cache = await this.getCacheAsync();
     const key = String(columnId);
-    return this.cache.get(key) ?? [];
+    return cache.get(key) ?? [];
   }
 
   getRulesForColumnSync(columnId: string | number): TColumnRule[] {
+    if (this.usesSharedRuntimeCache()) return [];
     if (!this.cacheLoaded) return [];
     const key = String(columnId);
     return this.cache.get(key) ?? [];

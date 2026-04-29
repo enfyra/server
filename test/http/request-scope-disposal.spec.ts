@@ -82,6 +82,23 @@ function makeAppContainer(dispose = vi.fn()) {
       },
     },
     routeCacheService: {
+      matchRoute: async (method: string, path: string) => {
+        if (method !== 'GET' || !['/ok', '/boom'].includes(path)) {
+          return null;
+        }
+        return {
+          params: {},
+          route: {
+            path,
+            route: { path },
+            availableMethods: [{ method: 'GET' }],
+            publishedMethods: [{ method: 'GET' }],
+            handlers: [],
+            preHooks: [],
+            postHooks: [],
+          },
+        };
+      },
       getRouteEngine: () => ({
         find: (method: string, path: string) => {
           if (method !== 'GET' || !['/ok', '/boom'].includes(path)) {
