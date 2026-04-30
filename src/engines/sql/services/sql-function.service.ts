@@ -1,4 +1,4 @@
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { DatabaseConfigService } from '../../../shared/services';
 import { installMysqlUnaccent } from '../mysql-unaccent.bootstrap';
 

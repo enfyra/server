@@ -1,6 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import type { MetadataCacheService } from '../../cache';
-import { getForeignKeyColumnName } from '../../../kernel/query';
+import { getForeignKeyColumnName } from '@enfyra/kernel';
 export class RelationTransformer {
   constructor(
     private metadataCacheService: MetadataCacheService,

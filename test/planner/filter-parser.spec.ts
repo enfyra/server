@@ -1,5 +1,5 @@
-import { parseFilter, JoinRegistry, FilterNode } from '../../src/kernel/query';
-import { BadRequestException } from '../../src/domain/exceptions';
+import { parseFilter, JoinRegistry, FilterNode } from '@enfyra/kernel';
+import { BadRequestException } from '@enfyra/kernel';
 
 const META = {
   tables: new Map<string, any>([

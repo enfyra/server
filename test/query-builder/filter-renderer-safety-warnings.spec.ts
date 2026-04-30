@@ -3,7 +3,7 @@ import {
   SqlQueryExecutor,
   MongoQueryExecutor,
   QueryPlanner,
-} from '../../src/kernel/query';
+} from '@enfyra/kernel';
 import { MongoClient, Db, ObjectId } from 'mongodb';
 
 const MONGO_URI =

@@ -1,5 +1,5 @@
 import { Logger } from '../../../shared/logger';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { DatabaseConfigService } from '../../../shared/services';
 import { MetadataProvisionSqlService } from './metadata-provision-sql.service';
 import { MetadataProvisionMongoService } from './metadata-provision-mongo.service';

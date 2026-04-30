@@ -1,5 +1,5 @@
 import { Logger } from '../../../shared/logger';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { MetadataCacheService } from '../../cache';
 import { DatabaseConfigService } from '../../../shared/services';
 

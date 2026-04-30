@@ -2,7 +2,7 @@ import { MongoClient, Db, ObjectId } from 'mongodb';
 import {
   executeMongoBatchFetches,
   MongoBatchFetchDescriptor,
-} from '../../src/kernel/query';
+} from '@enfyra/kernel';
 
 const MONGO_URI =
   process.env.MONGO_TEST_URI ||
@@ -443,9 +443,9 @@ describe('debug trace (Mongo)', () => {
     const {
       BatchFetchEngine,
       PER_PARENT_CONCURRENCY: _PER_PARENT_CONCURRENCY,
-    } = await import('../../src/kernel/query');
+    } = await import('@enfyra/kernel');
     const { MongoBatchAdapter } =
-      await import('../../src/kernel/query');
+      await import('@enfyra/kernel');
 
     const traceEntries: any[] = [];
     const mockTrace = {

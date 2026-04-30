@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express';
-import { ExecutorEngineService } from '../../kernel/execution';
+import { ExecutorEngineService } from '@enfyra/kernel';
 
 function isAdminTestRunRequest(req: any): boolean {
   const path = String(

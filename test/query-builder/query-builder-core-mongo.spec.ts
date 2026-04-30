@@ -14,7 +14,7 @@
  */
 
 import { MongoClient, Db, ObjectId } from 'mongodb';
-import { MongoQueryExecutor, QueryPlanner } from '../../src/kernel/query';
+import { MongoQueryExecutor, QueryPlanner } from '@enfyra/kernel';
 
 const MONGO_URI =
   process.env.MONGO_TEST_URI ||

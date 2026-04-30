@@ -1,6 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { Job, Worker } from 'bullmq';
-import { ExecutorEngineService } from '../../../kernel/execution';
+import { ExecutorEngineService } from '@enfyra/kernel';
 import { RepoRegistryService } from '../../../engines/cache';
 import { FlowService } from '../../flow';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';

@@ -1,14 +1,10 @@
 import { Worker } from 'worker_threads';
 import os from 'node:os';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 import v8 from 'v8';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const WORKER_SCRIPT = path.join(
-  __dirname,
-  '../src/kernel/execution/worker.js',
-);
+const require = createRequire(import.meta.url);
+const WORKER_SCRIPT = require.resolve('@enfyra/kernel/execution/worker.js');
 
 function isolateMemoryLimitMbFromTotalBytes(totalBytes) {
   const totalMb = Math.max(1, totalBytes / (1024 * 1024));

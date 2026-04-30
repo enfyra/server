@@ -2,7 +2,7 @@ import { ValidationException } from '../../src/domain/exceptions';
 import {
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../src/kernel/query';
+} from '@enfyra/kernel';
 
 type TRelation = {
   id?: number;

@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Logger } from '../../../shared/logger';
 import { NotFoundException } from '../../../domain/exceptions';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { FileManagementService } from './file-management.service';
 import { StorageFactoryService } from '../storage/storage-factory.service';
 import { ImageProcessorHelper } from '../utils/image-processor.helper';

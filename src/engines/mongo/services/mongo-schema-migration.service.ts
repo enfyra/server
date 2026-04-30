@@ -3,7 +3,7 @@ import { ObjectId } from 'mongodb';
 import { MongoService } from './mongo.service';
 import { MetadataCacheService } from '../../cache';
 import { getErrorMessage } from '../../../shared/utils/error.util';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { MongoMigrationJournalService } from './mongo-migration-journal.service';
 import { MongoSchemaDiffService } from './mongo-schema-diff.service';
 import { buildMongoFullIndexSpecs } from '../utils/mongo-physical-schema-contract';

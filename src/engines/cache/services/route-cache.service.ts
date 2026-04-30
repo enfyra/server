@@ -1,6 +1,6 @@
 import { DatabaseConfigService } from '../../../shared/services';
 import { EventEmitter2 } from 'eventemitter2';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { MetadataCacheService } from './metadata-cache.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
@@ -8,7 +8,7 @@ import { EnfyraRouteEngine } from '../../../shared/utils/enfyra-route-engine';
 import {
   normalizeScriptRecord,
   resolveExecutableScript,
-} from '../../../kernel/execution';
+} from '@enfyra/kernel';
 import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,

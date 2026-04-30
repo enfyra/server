@@ -1,7 +1,7 @@
 import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
-import { compileScriptSource } from '../../kernel/execution';
+import { compileScriptSource } from '@enfyra/kernel';
 
 function resolveOrchestrator(req: any, container: AwilixContainer<Cradle>) {
   return (

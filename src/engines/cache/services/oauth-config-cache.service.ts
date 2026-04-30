@@ -1,10 +1,10 @@
 import { EventEmitter2 } from 'eventemitter2';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 import { IOAuthConfigCache } from '../../../domain/shared/interfaces/oauth-config-cache.interface';
-import { normalizeScriptRecord } from '../../../kernel/execution';
+import { normalizeScriptRecord } from '@enfyra/kernel';
 
 const OAUTH_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.OAUTH_CONFIG,

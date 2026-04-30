@@ -3,7 +3,7 @@ import {
   separateFilters,
   hasLogicalOperators,
   SqlQueryExecutor,
-} from '../../src/kernel/query';
+} from '@enfyra/kernel';
 import {
   buildOracleStressFilters,
   oracleExtensionRowIds,

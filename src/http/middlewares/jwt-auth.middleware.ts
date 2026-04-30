@@ -4,7 +4,7 @@ import {
   TokenExpiredException,
   InvalidTokenException,
 } from '../../domain/exceptions';
-import { QueryBuilderService } from '../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { CacheService } from '../../engines/cache';
 import {
   loadUserWithRole,

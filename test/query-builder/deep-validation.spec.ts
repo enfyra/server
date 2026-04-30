@@ -1,4 +1,4 @@
-import { validateDeepOptions } from '../../src/kernel/query';
+import { validateDeepOptions } from '@enfyra/kernel';
 
 const META: Record<string, any> = {
   posts: {

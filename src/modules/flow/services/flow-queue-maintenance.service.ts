@@ -1,7 +1,7 @@
 import { Job, Queue } from 'bullmq';
 import { EventEmitter2 } from 'eventemitter2';
 import { Logger } from '../../../shared/logger';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 
 type FlowJobCleanupResult = {

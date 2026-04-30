@@ -2,7 +2,7 @@ import { Logger } from '../../../shared/logger';
 import { randomUUID } from 'crypto';
 import { Knex } from 'knex';
 import { KnexService } from '../knex.service';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { DatabaseException } from '../../../domain/exceptions';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 

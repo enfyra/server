@@ -3,7 +3,7 @@ import {
   getShortFkConstraintName,
   getShortIndexName,
   getShortPkName,
-} from '../../../kernel/query';
+} from '@enfyra/kernel';
 import type {
   ColumnDef,
   JunctionTableDef,

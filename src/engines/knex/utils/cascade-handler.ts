@@ -1,7 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import { Knex } from 'knex';
 import type { MetadataCacheService } from '../../cache';
-import { getForeignKeyColumnName } from '../../../kernel/query';
+import { getForeignKeyColumnName } from '@enfyra/kernel';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 
 /**

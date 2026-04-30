@@ -1,7 +1,7 @@
 import {
   rewriteFilterDenyingFields,
   rewriteSortDroppingDenied,
-} from '../../src/kernel/query';
+} from '@enfyra/kernel';
 
 const META: Record<string, any> = {
   posts: {

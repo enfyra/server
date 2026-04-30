@@ -3,7 +3,7 @@ import { Queue } from 'bullmq';
 import { FlowCacheService, RepoRegistryService } from '../../../engines/cache';
 import { FlowJobData } from '../../../shared/types/flow.types';
 import { getErrorMessage } from '../../../shared/utils/error.util';
-import { ExecutorEngineService } from '../../../kernel/execution';
+import { ExecutorEngineService } from '@enfyra/kernel';
 import { executeStepCore } from '../utils/step-executor.util';
 import { SocketEmitCapture } from '../../websocket';
 import { DynamicContextFactory } from '../../../shared/services';

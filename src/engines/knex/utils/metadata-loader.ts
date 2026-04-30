@@ -9,7 +9,7 @@ import {
 import {
   getJunctionTableName,
   getForeignKeyColumnName,
-} from '../../../kernel/query';
+} from '@enfyra/kernel';
 export async function loadAllTableMetadata(
   knex: Knex,
 ): Promise<Map<string, TableMetadata>> {

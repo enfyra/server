@@ -13,7 +13,7 @@ import { ICache } from '../../shared/interfaces/cache.interface';
 import {
   ExecutorEngineService,
   resolveExecutableScript,
-} from '../../../kernel/execution';
+} from '@enfyra/kernel';
 import { RepoRegistryService } from '../../../engines/cache';
 import {
   loadUserWithRole,

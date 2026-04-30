@@ -3,7 +3,7 @@ import {
   executeBatchFetches,
   BatchFetchDescriptor,
   BatchTrace,
-} from '../../src/kernel/query';
+} from '@enfyra/kernel';
 const PREFIX = `__dit_${Date.now()}_`;
 const T = {
   users: `${PREFIX}users`,

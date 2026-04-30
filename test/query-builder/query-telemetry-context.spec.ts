@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { QueryBuilderService } from '../../src/kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 
 describe('QueryBuilderService telemetry', () => {
   it('routes query calls through RuntimeMetricsCollectorService', async () => {

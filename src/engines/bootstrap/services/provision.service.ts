@@ -1,7 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import { RouteDefinitionProcessor } from '../../../domain/bootstrap';
 import { CommonService } from '../../../shared/common';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { MigrationJournalService } from '../../knex';
 import {
   MongoMigrationJournalService,

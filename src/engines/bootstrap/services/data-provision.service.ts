@@ -1,5 +1,5 @@
 import { Logger } from '../../../shared/logger';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { DatabaseConfigService } from '../../../shared/services';
 import { BcryptService } from '../../../domain/auth';

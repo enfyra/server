@@ -3,7 +3,7 @@ import {
   QueryBuilderService,
   getJunctionTableName,
   getForeignKeyColumnName,
-} from '../../../kernel/query';
+} from '@enfyra/kernel';
 import { DatabaseConfigService } from '../../../shared/services';
 import {
   SqlSchemaMigrationService,

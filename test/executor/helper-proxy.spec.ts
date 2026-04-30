@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { IsolatedExecutorService } from '../../src/kernel/execution';
+import { IsolatedExecutorService } from '@enfyra/kernel';
 import { autoSlug } from '../../src/shared/utils/auto-slug.helper';
 
 function createService() {

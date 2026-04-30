@@ -10,7 +10,7 @@ import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../kernel/query';
+} from '@enfyra/kernel';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getErrorMessage } from './error.util';

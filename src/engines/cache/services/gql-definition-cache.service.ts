@@ -1,6 +1,6 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { BaseCacheService } from './base-cache.service';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import {
   CACHE_IDENTIFIERS,

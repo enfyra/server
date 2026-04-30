@@ -1,4 +1,4 @@
-import { transformCode } from '../../src/kernel/execution';
+import { transformCode } from '@enfyra/kernel';
 
 describe('transformCode', () => {
   it('expands @BODY in normal code', () => {

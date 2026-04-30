@@ -7,11 +7,11 @@ import {
   REST_HANDLER_METHOD_NAMES,
 } from '../utils/canonical-table-route.util';
 import { DatabaseConfigService } from '../../../shared/services';
-import { compileScriptSource } from '../../../kernel/execution';
+import { compileScriptSource } from '@enfyra/kernel';
 import {
   getJunctionColumnNames,
   getJunctionTableName,
-} from '../../../kernel/query';
+} from '@enfyra/kernel';
 
 const ROUTE_METHOD_RELATION_FIELDS = [
   'publishedMethods',

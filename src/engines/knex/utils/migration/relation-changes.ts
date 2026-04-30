@@ -3,7 +3,7 @@ import { Logger } from '../../../../shared/logger';
 import {
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../../kernel/query';
+} from '@enfyra/kernel';
 import { getPrimaryKeyTypeForTable } from './pk-type.util';
 import {
   getSqlRelationForeignKeyColumn,

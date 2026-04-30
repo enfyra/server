@@ -3,11 +3,11 @@ import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { IsolatedExecutorService } from '../../src/kernel/execution';
+import { IsolatedExecutorService } from '@enfyra/kernel';
 
 const workerPath = path.resolve(
   __dirname,
-  '../../src/kernel/execution/executor-engine/workers/package-runtime.child.js',
+  '@enfyra/kernel/execution/package-runtime.child.js',
 );
 
 let tempDir: string | null = null;

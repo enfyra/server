@@ -1,7 +1,7 @@
 import {
   getJunctionColumnNames,
   getJunctionTableName,
-} from '../../../kernel/query';
+} from '@enfyra/kernel';
 
 export interface MongoJunctionInfo {
   junctionName: string;

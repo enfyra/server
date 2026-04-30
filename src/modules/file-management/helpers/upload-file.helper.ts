@@ -3,7 +3,7 @@ import { FileUploadDto, ProcessedFileInfo } from '../../../shared/types';
 import * as crypto from 'crypto';
 import * as path from 'path';
 import { autoSlug } from '../../../shared/utils/auto-slug.helper';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { StorageConfigCacheService } from '../../../engines/cache';
 import { StorageFactoryService } from '../storage/storage-factory.service';
 

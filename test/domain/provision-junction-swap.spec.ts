@@ -2,7 +2,7 @@ import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../src/kernel/query';
+} from '@enfyra/kernel';
 
 describe('Provision M2M inverse junction column swap', () => {
   function buildInverseJunctionColumns(owningRelation: {

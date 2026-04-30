@@ -1,7 +1,7 @@
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { MongoPhysicalMigrationService } from '../../src/engines/mongo';
-import { MongoQueryExecutor, QueryPlanner } from '../../src/kernel/query';
+import { MongoQueryExecutor, QueryPlanner } from '@enfyra/kernel';
 
 const MONGO_URI =
   process.env.MONGO_TEST_URI ||

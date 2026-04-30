@@ -1,7 +1,7 @@
 import {
   getForeignKeyColumnName,
   getJunctionColumnNames,
-} from '../../src/kernel/query';
+} from '@enfyra/kernel';
 
 describe('getForeignKeyColumnName', () => {
   it('should append Id to simple camelCase property names', () => {

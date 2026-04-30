@@ -1,10 +1,6 @@
-import * as path from 'path';
 import { Worker } from 'worker_threads';
 
-const WORKER_SCRIPT = path.join(
-  __dirname,
-  '../../src/kernel/execution/worker.js',
-);
+const WORKER_SCRIPT = require.resolve('@enfyra/kernel/execution/worker.js');
 
 export interface CodeBlock {
   code: string;

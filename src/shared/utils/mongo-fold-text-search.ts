@@ -32,6 +32,7 @@ export function getMongoFoldTextSearchJs(): string {
     ramCache = fromDisk;
     return ramCache;
   }
-  ramCache = buildMongoFoldTextSearchJs();
-  return ramCache;
+  const generated = buildMongoFoldTextSearchJs();
+  ramCache = generated;
+  return generated;
 }

@@ -9,7 +9,7 @@ import {
   validateDeepOptions,
   rewriteFilterDenyingFields,
   rewriteSortDroppingDenied,
-} from '../../../kernel/query';
+} from '@enfyra/kernel';
 import { TableHandlerService } from '../../table-management';
 import { PolicyService, isPolicyDeny } from '../../../domain/policy';
 import { DynamicApiTableValidationService } from '../services/table-validation.service';
@@ -34,7 +34,7 @@ import {
   normalizeFlowStepScriptConfig,
   normalizeScriptPatch,
   normalizeScriptRecord,
-} from '../../../kernel/execution';
+} from '@enfyra/kernel';
 import { FlowQueueMaintenanceService } from '../../flow';
 
 export class DynamicRepository {

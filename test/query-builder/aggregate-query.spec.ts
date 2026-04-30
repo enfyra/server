@@ -7,7 +7,7 @@ import {
   normalizeAggregateQuery,
   QueryPlanner,
   SqlQueryExecutor,
-} from '../../src/kernel/query';
+} from '@enfyra/kernel';
 
 const MONGO_URI =
   process.env.MONGO_TEST_URI ||

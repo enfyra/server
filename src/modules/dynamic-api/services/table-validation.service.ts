@@ -1,5 +1,5 @@
 import { BadRequestException } from '../../../domain/exceptions';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 
 export class DynamicApiTableValidationService {
   private readonly queryBuilderService: QueryBuilderService;

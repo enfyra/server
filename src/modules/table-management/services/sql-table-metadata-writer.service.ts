@@ -4,7 +4,7 @@ import { getDeletedIds } from '../utils/get-deleted-ids';
 import {
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../kernel/query';
+} from '@enfyra/kernel';
 import { DatabaseConfigService } from '../../../shared/services';
 import { ValidationException } from '../../../domain/exceptions';
 

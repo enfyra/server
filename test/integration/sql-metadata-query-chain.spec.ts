@@ -1,6 +1,6 @@
 import knex, { type Knex } from 'knex';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { SqlQueryExecutor } from '../../src/kernel/query';
+import { SqlQueryExecutor } from '@enfyra/kernel';
 import {
   SqlTableMetadataBuilderService,
   SqlTableMetadataWriterService,

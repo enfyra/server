@@ -102,6 +102,17 @@ function getErrorDetails(exception: unknown): {
       details: exception.details,
     };
   }
+  if (
+    exception instanceof Error &&
+    typeof (exception as any).statusCode === 'number'
+  ) {
+    return {
+      statusCode: (exception as any).statusCode,
+      errorCode: (exception as any).errorCode || exception.name,
+      message: (exception as any).messages ?? exception.message,
+      details: (exception as any).details,
+    };
+  }
   if (exception instanceof GraphQLError) {
     return {
       statusCode: 400,

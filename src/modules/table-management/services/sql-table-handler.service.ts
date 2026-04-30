@@ -3,13 +3,13 @@ import type { Knex } from 'knex';
 import {
   getIoAbortSignal,
   compileScriptSource,
-} from '../../../kernel/execution';
+} from '@enfyra/kernel';
 import {
   QueryBuilderService,
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../kernel/query';
+} from '@enfyra/kernel';
 import {
   SqlSchemaMigrationService,
   SchemaMigrationLockService,
@@ -1096,7 +1096,7 @@ export class SqlTableHandlerService {
               .first();
             if (sourceTable) {
               const { getForeignKeyColumnName } =
-                await import('../../../kernel/query');
+                await import('@enfyra/kernel');
               const fkColumn = getForeignKeyColumnName(tableName);
               const columnExists = await trx.schema.hasColumn(
                 sourceTable.name,

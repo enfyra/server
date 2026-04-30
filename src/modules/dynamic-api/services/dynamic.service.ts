@@ -10,7 +10,7 @@ import {
   getErrorMessage,
   getErrorStack,
 } from '../../../shared/utils/error.util';
-import { ExecutorEngineService } from '../../../kernel/execution';
+import { ExecutorEngineService } from '@enfyra/kernel';
 import { RequestWithRouteData } from '../../../shared/types';
 
 export class DynamicService {

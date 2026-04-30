@@ -2,10 +2,10 @@ import { BadRequestException } from '../../../domain/exceptions';
 import { throwGqlError } from '../utils/throw-error';
 import { convertFieldNodesToFieldPicker } from '../utils/field-string-converter';
 import * as jwt from 'jsonwebtoken';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { EnvService, DynamicContextFactory } from '../../../shared/services';
-import { ExecutorEngineService } from '../../../kernel/execution';
+import { ExecutorEngineService } from '@enfyra/kernel';
 import {
   GqlDefinitionCacheService,
   RepoRegistryService,

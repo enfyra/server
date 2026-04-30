@@ -4,7 +4,7 @@ import { TDynamicContext } from '../../../shared/types';
 import {
   ExecutorEngineService,
   compileScriptSource,
-} from '../../../kernel/execution';
+} from '@enfyra/kernel';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 
 const DEFAULT_HTTP_TIMEOUT = 30000;

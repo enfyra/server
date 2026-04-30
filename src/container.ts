@@ -115,7 +115,10 @@ import {
 import {
   ExecutorEngineService,
   IsolatedExecutorService,
-} from './kernel/execution';
+  createEnfyraKernel,
+  type EnfyraKernel,
+  QueryBuilderService,
+} from '@enfyra/kernel';
 
 import {
   KnexService,
@@ -140,8 +143,6 @@ import {
   MongoSchemaMigrationService,
   MongoService,
 } from './engines/mongo';
-
-import { QueryBuilderService } from './kernel/query';
 
 import { SqlFunctionService } from './engines/sql';
 
@@ -250,6 +251,7 @@ export interface Cradle {
   sqlPoolClusterCoordinatorService: SqlPoolClusterCoordinatorService;
   sqlFunctionService: SqlFunctionService;
 
+  enfyraKernel: EnfyraKernel;
   queryBuilderService: QueryBuilderService;
 
   isolatedExecutorService: IsolatedExecutorService;
@@ -488,12 +490,29 @@ export function buildContainer(): AwilixContainer<Cradle> {
       .disposer((service) => service.onDestroy()),
     sqlFunctionService: asClass(SqlFunctionService).singleton(),
 
-    queryBuilderService: asClass(QueryBuilderService).singleton(),
+    enfyraKernel: asFunction((cradle) =>
+      createEnfyraKernel({
+        knexService: cradle.knexService,
+        mongoService: cradle.mongoService,
+        databaseConfigService: cradle.databaseConfigService,
+        runtimeMetricsCollectorService: cradle.runtimeMetricsCollectorService,
+        lazyRef: cradle.lazyRef,
+        getPackageCacheService: () => cradle.packageCacheService,
+        getPackageCdnLoaderService: () => cradle.packageCdnLoaderService,
+      }),
+    ).singleton(),
+    queryBuilderService: asFunction(
+      (cradle) => cradle.enfyraKernel.queryBuilderService,
+    ).singleton(),
 
-    isolatedExecutorService: asClass(IsolatedExecutorService)
+    isolatedExecutorService: asFunction(
+      (cradle) => cradle.enfyraKernel.isolatedExecutorService,
+    )
       .singleton()
       .disposer((service) => service.onDestroy()),
-    executorEngineService: asClass(ExecutorEngineService).singleton(),
+    executorEngineService: asFunction(
+      (cradle) => cradle.enfyraKernel.executorEngineService,
+    ).singleton(),
 
     cacheService: asClass(CacheService).singleton(),
     userCacheService: asClass(UserCacheService).singleton(),

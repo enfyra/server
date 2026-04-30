@@ -1,6 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { MongoService } from './mongo.service';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { buildMongoFullIndexSpecs } from '../utils/mongo-physical-schema-contract';
 

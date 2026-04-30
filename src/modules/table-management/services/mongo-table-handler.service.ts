@@ -4,7 +4,7 @@ import {
   QueryBuilderService,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../kernel/query';
+} from '@enfyra/kernel';
 import {
   type MongoPhysicalMigrationService,
   MongoSchemaMigrationService,
@@ -31,7 +31,7 @@ import { getDeletedIds } from '../utils/get-deleted-ids';
 import { TCreateTableBody } from '../types/table-handler.types';
 import { generateDefaultRecord } from '../utils/generate-default-record';
 import { DEFAULT_REST_HANDLER_LOGIC } from '../../../domain/bootstrap';
-import { compileScriptSource } from '../../../kernel/execution';
+import { compileScriptSource } from '@enfyra/kernel';
 import { TableManagementValidationService } from './table-validation.service';
 import { MongoMetadataSnapshotService } from './mongo-metadata-snapshot.service';
 export class MongoTableHandlerService {

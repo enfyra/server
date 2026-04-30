@@ -18,7 +18,7 @@ import {
 import {
   normalizeScriptRecord,
   resolveExecutableScript,
-} from '../../../kernel/execution';
+} from '@enfyra/kernel';
 
 export class BootstrapScriptService {
   private readonly logger = new Logger(BootstrapScriptService.name);

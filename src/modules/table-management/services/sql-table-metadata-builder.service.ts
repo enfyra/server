@@ -4,7 +4,7 @@ import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../kernel/query';
+} from '@enfyra/kernel';
 import { MetadataCacheService } from '../../../engines/cache';
 import { TCreateTableBody } from '../types/table-handler.types';
 export class SqlTableMetadataBuilderService {

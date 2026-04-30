@@ -3,7 +3,7 @@ import {
   QueryBuilderService,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../kernel/query';
+} from '@enfyra/kernel';
 import { ObjectId, type Db } from 'mongodb';
 import {
   BaseTableProcessor,

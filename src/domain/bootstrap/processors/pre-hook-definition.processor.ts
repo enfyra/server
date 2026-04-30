@@ -1,9 +1,9 @@
 import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { ObjectId } from 'mongodb';
-import { getJunctionColumnNames } from '../../../kernel/query';
+import { getJunctionColumnNames } from '@enfyra/kernel';
 import { DatabaseConfigService } from '../../../shared/services';
-import { normalizeScriptRecord } from '../../../kernel/execution';
+import { normalizeScriptRecord } from '@enfyra/kernel';
 
 export class PreHookDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;

@@ -1,4 +1,4 @@
-import { computeEngineTuning } from '../../src/kernel/execution';
+import { computeEngineTuning } from '@enfyra/kernel';
 import {
   computeCoordinatedPoolMax,
   splitSqlPoolAcrossReplication,

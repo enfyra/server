@@ -1,12 +1,12 @@
 import { Logger } from '../../../shared/logger';
 import { Job, Queue, Worker } from 'bullmq';
-import { ExecutorEngineService } from '../../../kernel/execution';
+import { ExecutorEngineService } from '@enfyra/kernel';
 import { RepoRegistryService, FlowCacheService } from '../../../engines/cache';
 import {
   getErrorMessage,
   getErrorStack,
 } from '../../../shared/utils/error.util';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { WebsocketEmitService } from '../../websocket';
 import { TDynamicContext } from '../../../shared/types';
 import {

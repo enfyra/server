@@ -7,6 +7,7 @@
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "generate:mongo-fold": "tsx scripts/generate-mongo-fold-text-search.ts",
+    "build:kernel-package": "cd ../kernel && yarn build",
     "build": "tsc && yarn generate:mongo-fold && cp -r data dist/",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "NODE_OPTIONS=\"--no-node-snapshot${NODE_OPTIONS:+ $NODE_OPTIONS}\" node dist/main",
@@ -28,6 +29,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1024.0",
+    "@enfyra/kernel": "1.0.1",
     "@envelop/depth-limit": "^7.1.1",
     "@google-cloud/storage": "^7.19.0",
     "@graphql-tools/schema": "^10.0.31",

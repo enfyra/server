@@ -5,7 +5,7 @@ import {
   getJunctionTableName,
   getForeignKeyColumnName,
   getJunctionColumnNames,
-} from '../../../kernel/query';
+} from '@enfyra/kernel';
 import { IMetadataCache } from '../../../domain/shared/interfaces/metadata-cache.interface';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { ObjectId } from 'mongodb';

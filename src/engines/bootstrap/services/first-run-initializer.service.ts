@@ -4,7 +4,7 @@ import {
   InstanceService,
 } from '../../../shared/services';
 import { CommonService } from '../../../shared/common';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { CacheService, MetadataCacheService } from '../../cache';
 import { MetadataProvisionService } from './metadata-provision.service';
 import { MetadataMigrationService } from './metadata-migration.service';

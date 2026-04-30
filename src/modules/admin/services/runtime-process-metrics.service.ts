@@ -5,7 +5,7 @@ import { EnvService, InstanceService } from '../../../shared/services';
 import {
   getEffectiveCpuCount,
   getEffectiveMemoryBytes,
-} from '../../../kernel/execution/executor-engine/utils/engine-tuning.util';
+} from '@enfyra/kernel';
 import type { RuntimeAverageSample } from '../../../shared/types';
 
 const AVERAGE_FIELDS: Array<keyof RuntimeAverageSample> = [

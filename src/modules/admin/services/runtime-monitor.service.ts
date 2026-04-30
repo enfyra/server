@@ -8,7 +8,7 @@ import {
   RuntimeMetricsCollectorService,
   ClusterTelemetryService,
 } from '../../../shared/services';
-import { IsolatedExecutorService } from '../../../kernel/execution';
+import { IsolatedExecutorService } from '@enfyra/kernel';
 import { RuntimeProcessMetricsService } from './runtime-process-metrics.service';
 import { RuntimeQueueMetricsService } from './runtime-queue-metrics.service';
 import { RuntimeDbMetricsService } from './runtime-db-metrics.service';

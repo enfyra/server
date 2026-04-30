@@ -2,7 +2,7 @@ import { Db } from 'mongodb';
 import {
   getJunctionColumnNames,
   getJunctionTableName,
-} from '../../../kernel/query';
+} from '@enfyra/kernel';
 import { TableDef } from '../../../shared/types/database-init.types';
 
 export interface JunctionCollectionDef {

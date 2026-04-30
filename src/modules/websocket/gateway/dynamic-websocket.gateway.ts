@@ -14,7 +14,7 @@ import {
   ENFYRA_ADMIN_ROOT_WEBSOCKET_ROOM,
   ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
 } from '../../../shared/utils/constant';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { RedisAdminService } from '../../admin/services/redis-admin.service';
 import {
   loadUserWithRole,

@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { IsolatedExecutorService } from '../../src/kernel/execution';
+import { IsolatedExecutorService } from '@enfyra/kernel';
 
 let tempDir: string | null = null;
 

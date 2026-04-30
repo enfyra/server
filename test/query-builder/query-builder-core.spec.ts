@@ -6,7 +6,7 @@
  */
 
 import knex, { Knex } from 'knex';
-import { buildWhereClause, hasLogicalOperators } from '../../src/kernel/query';
+import { buildWhereClause, hasLogicalOperators } from '@enfyra/kernel';
 
 let db: Knex;
 

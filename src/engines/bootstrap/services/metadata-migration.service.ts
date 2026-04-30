@@ -1,6 +1,6 @@
 import { DatabaseConfigService } from '../../../shared/services';
 import { Logger } from '../../../shared/logger';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { Db } from 'mongodb';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import {

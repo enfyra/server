@@ -7,7 +7,7 @@ import { FieldStripper } from '../utils/field-stripper';
 import { RelationTransformer } from '../utils/relation-transformer';
 import { stringifyRecordJsonFields } from '../utils/json-parser';
 import { ReplicationManager } from './replication-manager.service';
-import { getForeignKeyColumnName } from '../../../kernel/query';
+import { getForeignKeyColumnName } from '@enfyra/kernel';
 
 type HookRegistry = {
   beforeInsert: Array<(tableName: string, data: any) => any>;
@@ -489,7 +489,7 @@ export class KnexHookManagerService {
       }
       return activeKnex.transaction(async (trx) => {
         const { getIoAbortSignal } =
-          await import('../../../kernel/execution');
+          await import('@enfyra/kernel');
         const signal = getIoAbortSignal();
         if (signal) {
           const onAbort = () => {

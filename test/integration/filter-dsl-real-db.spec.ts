@@ -1,4 +1,4 @@
-import { SqlQueryExecutor, MongoQueryExecutor } from '../../src/kernel/query';
+import { SqlQueryExecutor, MongoQueryExecutor } from '@enfyra/kernel';
 import { oracleExtensionRowIds } from '../query-builder/filter-reference-extension-oracle';
 import { buildIntegrationFilterList } from './filter-dsl-cases';
 import { makeMetadata } from './filter-dsl-metadata';

@@ -1,5 +1,5 @@
 import { EventEmitter2 } from 'eventemitter2';
-import { QueryBuilderService } from '../../../kernel/query';
+import { QueryBuilderService } from '@enfyra/kernel';
 import {
   PackageCdnLoaderService,
   extractErrorMessage,

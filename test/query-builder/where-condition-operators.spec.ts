@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { whereToMongoFilter, applyWhereToKnex } from '../../src/kernel/query';
+import { whereToMongoFilter, applyWhereToKnex } from '@enfyra/kernel';
 import type { WhereCondition } from '../../src/shared/types/query-builder.types';
 
 // All 16 operators from WhereOperator union — must cover every one.

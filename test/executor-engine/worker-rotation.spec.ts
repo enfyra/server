@@ -3,7 +3,7 @@ import * as path from 'path';
 import {
   WorkerPool,
   PoolEntry,
-} from '../../src/kernel/execution';
+} from '@enfyra/kernel';
 
 const FAKE_WORKER = path.join(__dirname, 'rotation-worker-fixture.js');
 
