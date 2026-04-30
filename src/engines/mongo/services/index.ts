@@ -1,4 +1,5 @@
 export * from './mongo.service';
+export * from './mongo-hook-manager.service';
 export * from './mongo-schema-migration.service';
 export * from './mongo-schema-migration-lock.service';
 export * from './mongo-saga-lock.service';

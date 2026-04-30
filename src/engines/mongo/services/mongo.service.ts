@@ -14,10 +14,12 @@ import { Logger } from '../../../shared/logger';
 import { EnvService, DatabaseConfigService } from '../../../shared/services';
 import { MetadataCacheService } from '../../cache';
 import { MongoRelationManagerService } from './mongo-relation-manager.service';
+import { MongoHookManagerService } from './mongo-hook-manager.service';
 import type { MongoSagaSession } from './mongo-saga-session';
 import { mongoTopologySupportsNativeTransactions } from '../utils/mongo-native-transaction-topology.util';
 import { buildMongoWritableFieldSet } from '../utils/mongo-physical-schema-contract';
 import { DatabaseException } from '../../../domain/exceptions';
+import type { MongoHookContext } from '../types/mongo-hook.types';
 
 export class MongoService {
   private client!: MongoClient;
@@ -27,6 +29,7 @@ export class MongoService {
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly metadataCacheService: MetadataCacheService;
   private readonly mongoRelationManagerService: MongoRelationManagerService;
+  private readonly mongoHookManagerService: MongoHookManagerService;
   private readonly lazyRef: Cradle;
 
   private readonly policyContext = new AsyncLocalStorage<{
@@ -50,18 +53,182 @@ export class MongoService {
   }>();
   private readonly appTxSessionAls = new AsyncLocalStorage<MongoSagaSession>();
 
-  constructor(deps: {
-    envService: EnvService;
-    databaseConfigService: DatabaseConfigService;
-    metadataCacheService: MetadataCacheService;
-    mongoRelationManagerService: MongoRelationManagerService;
-    lazyRef: Cradle;
-  }) {
-    this.envService = deps.envService;
-    this.databaseConfigService = deps.databaseConfigService;
-    this.metadataCacheService = deps.metadataCacheService;
-    this.mongoRelationManagerService = deps.mongoRelationManagerService;
-    this.lazyRef = deps.lazyRef;
+  constructor(
+    deps: Partial<{
+      envService: EnvService;
+      databaseConfigService: DatabaseConfigService;
+      metadataCacheService: MetadataCacheService;
+      mongoRelationManagerService: MongoRelationManagerService;
+      mongoHookManagerService: MongoHookManagerService;
+      lazyRef: Cradle;
+    }>,
+  ) {
+    this.envService = deps.envService as any;
+    this.databaseConfigService = deps.databaseConfigService as any;
+    this.metadataCacheService = deps.metadataCacheService as any;
+    this.mongoRelationManagerService = deps.mongoRelationManagerService as any;
+    this.mongoHookManagerService =
+      deps.mongoHookManagerService || new MongoHookManagerService();
+    this.lazyRef = deps.lazyRef as any;
+    this.registerDefaultHooks();
+  }
+
+  getHookManager(): MongoHookManagerService {
+    return this.mongoHookManagerService;
+  }
+
+  private registerDefaultHooks(): void {
+    this.mongoHookManagerService.addHook(
+      'beforeInsert',
+      async (collectionName, data, context) => {
+        const dataParsed = await this.parseJsonFields(collectionName, data);
+        const dataWithDefaults = await this.applyDefaultValues(
+          collectionName,
+          dataParsed,
+        );
+        const dataWithRelations = await this.processNestedRelations(
+          collectionName,
+          dataWithDefaults,
+        );
+        context.relationData = dataWithRelations;
+
+        const dataWithoutInverse = await this.stripInverseRelations(
+          collectionName,
+          dataWithRelations,
+        );
+        const dataStripped = await this.stripUnknownColumns(
+          collectionName,
+          dataWithoutInverse,
+        );
+        const dataWithTimestamps = this.applyTimestamps(dataStripped);
+
+        await this.checkFieldPermission(
+          collectionName,
+          'create',
+          dataWithTimestamps,
+        );
+
+        await this.mongoRelationManagerService?.clearUniqueFKHolders(
+          collectionName,
+          new ObjectId(),
+          dataWithTimestamps,
+          (name) => this.collection(name),
+        );
+
+        return dataWithTimestamps;
+      },
+    );
+
+    this.mongoHookManagerService.addHook(
+      'afterInsert',
+      async (collectionName, result, context) => {
+        await this.mongoRelationManagerService?.updateInverseRelationsOnUpdate(
+          collectionName,
+          context.insertedId,
+          {},
+          context.relationData,
+          (name) => this.collection(name),
+        );
+
+        await this.mongoRelationManagerService?.writeM2mJunctionsForInsert(
+          collectionName,
+          context.insertedId,
+          context.relationData,
+          (name) => this.collection(name),
+        );
+
+        return result;
+      },
+    );
+
+    this.mongoHookManagerService.addHook(
+      'beforeUpdate',
+      async (collectionName, data, context) => {
+        context.oldRecord = await this.collection(collectionName).findOne({
+          _id: context.recordId,
+        } as any);
+
+        const dataParsed = await this.parseJsonFields(collectionName, data);
+        const dataWithRelations = await this.processNestedRelations(
+          collectionName,
+          dataParsed,
+        );
+        context.relationData = dataWithRelations;
+
+        const dataWithoutInverse = await this.stripInverseRelations(
+          collectionName,
+          dataWithRelations,
+        );
+        const dataStripped = await this.stripUnknownColumns(
+          collectionName,
+          dataWithoutInverse,
+        );
+        const dataWithoutNonUpdatable = await this.stripNonUpdatableFields(
+          collectionName,
+          dataStripped,
+        );
+        const dataWithTimestamp = this.applyUpdateTimestamp(
+          dataWithoutNonUpdatable,
+        );
+
+        await this.checkFieldPermission(
+          collectionName,
+          'update',
+          dataWithTimestamp,
+        );
+
+        await this.mongoRelationManagerService?.clearUniqueFKHolders(
+          collectionName,
+          context.recordId,
+          dataWithTimestamp,
+          (name) => this.collection(name),
+        );
+
+        return dataWithTimestamp;
+      },
+    );
+
+    this.mongoHookManagerService.addHook(
+      'afterUpdate',
+      async (collectionName, result, context) => {
+        await this.mongoRelationManagerService?.updateInverseRelationsOnUpdate(
+          collectionName,
+          context.recordId,
+          context.oldRecord,
+          context.relationData,
+          (name) => this.collection(name),
+        );
+
+        await this.mongoRelationManagerService?.writeM2mJunctionsForUpdate(
+          collectionName,
+          context.recordId,
+          context.relationData,
+          (name) => this.collection(name),
+        );
+
+        return result;
+      },
+    );
+
+    this.mongoHookManagerService.addHook(
+      'beforeDelete',
+      async (collectionName, filter, context) => {
+        const record = await this.collection(collectionName).findOne(filter);
+        context.deletedRecord = record;
+        if (!record) {
+          return filter;
+        }
+
+        await this.mongoRelationManagerService?.cleanupInverseRelationsOnDelete(
+          collectionName,
+          context.recordId,
+          record,
+          (name) => this.collection(name),
+        );
+
+        return filter;
+      },
+    );
   }
 
   async runWithPolicy<T>(
@@ -407,44 +574,24 @@ export class MongoService {
 
   async insertOne(collectionName: string, data: any): Promise<any> {
     const collection = this.collection(collectionName);
-
-    const dataParsed = await this.parseJsonFields(collectionName, data);
-    const dataWithDefaults = await this.applyDefaultValues(
+    const context: MongoHookContext = {
       collectionName,
-      dataParsed,
-    );
-    const dataWithRelations = await this.processNestedRelations(
+      operation: 'insert',
+      originalData: data,
+    };
+    const processedData = await this.mongoHookManagerService.runHooks(
+      'beforeInsert',
       collectionName,
-      dataWithDefaults,
-    );
-    const dataWithoutInverse = await this.stripInverseRelations(
-      collectionName,
-      dataWithRelations,
-    );
-    const dataStripped = await this.stripUnknownColumns(
-      collectionName,
-      dataWithoutInverse,
-    );
-    const dataWithTimestamps = this.applyTimestamps(dataStripped);
-
-    await this.checkFieldPermission(
-      collectionName,
-      'create',
-      dataWithTimestamps,
-    );
-
-    await this.mongoRelationManagerService.clearUniqueFKHolders(
-      collectionName,
-      new ObjectId(),
-      dataWithTimestamps,
-      (name) => this.collection(name),
+      data,
+      context,
     );
 
     let result;
     let insertedId;
     try {
-      result = await collection.insertOne(dataWithTimestamps);
+      result = await collection.insertOne(processedData);
       insertedId = result.insertedId;
+      context.insertedId = insertedId;
     } catch (err: any) {
       const errorMessage = err.errInfo?.details?.details
         ? JSON.stringify(err.errInfo.details.details, null, 2)
@@ -464,25 +611,17 @@ export class MongoService {
       throw validationError;
     }
 
-    await this.mongoRelationManagerService.updateInverseRelationsOnUpdate(
+    const hookResult = await this.mongoHookManagerService.runHooks(
+      'afterInsert',
       collectionName,
-      insertedId,
-      {},
-      dataWithRelations,
-      (name) => this.collection(name),
+      {
+        ...processedData,
+        _id: insertedId,
+      },
+      context,
     );
 
-    await this.mongoRelationManagerService.writeM2mJunctionsForInsert(
-      collectionName,
-      insertedId,
-      dataWithRelations,
-      (name) => this.collection(name),
-    );
-
-    return {
-      ...dataWithTimestamps,
-      _id: insertedId,
-    };
+    return hookResult;
   }
 
   async find(options: {
@@ -493,20 +632,52 @@ export class MongoService {
   }): Promise<any[]> {
     const { tableName, filter = {}, limit, skip } = options;
     const collection = this.collection(tableName);
+    const context: MongoHookContext = {
+      collectionName: tableName,
+      operation: 'select',
+      originalFilter: filter,
+    };
+    const processedFilter = await this.mongoHookManagerService.runHooks(
+      'beforeSelect',
+      tableName,
+      filter,
+      context,
+    );
 
-    let cursor = collection.find(filter);
+    let cursor = collection.find(processedFilter);
 
     if (skip) cursor = cursor.skip(skip);
     if (limit) cursor = cursor.limit(limit);
 
     const results = await cursor.toArray();
-    return results;
+    return this.mongoHookManagerService.runHooks(
+      'afterSelect',
+      tableName,
+      results,
+      context,
+    );
   }
 
   async findOne(collectionName: string, filter: any): Promise<any> {
     const collection = this.collection(collectionName);
-    const result = await collection.findOne(filter);
-    return result;
+    const context: MongoHookContext = {
+      collectionName,
+      operation: 'findOne',
+      originalFilter: filter,
+    };
+    const processedFilter = await this.mongoHookManagerService.runHooks(
+      'beforeSelect',
+      collectionName,
+      filter,
+      context,
+    );
+    const result = await collection.findOne(processedFilter);
+    return this.mongoHookManagerService.runHooks(
+      'afterSelect',
+      collectionName,
+      result,
+      context,
+    );
   }
 
   async processNestedRelations(tableName: string, data: any): Promise<any> {
@@ -572,58 +743,30 @@ export class MongoService {
   async updateOne(collectionName: string, id: string, data: any): Promise<any> {
     const collection = this.collection(collectionName);
     const objectId = new ObjectId(id);
-
-    const oldRecord = await this.findOne(collectionName, { _id: objectId });
-
-    const dataParsed = await this.parseJsonFields(collectionName, data);
-    const dataWithRelations = await this.processNestedRelations(
+    const context: MongoHookContext = {
       collectionName,
-      dataParsed,
-    );
-    const dataWithoutInverse = await this.stripInverseRelations(
+      operation: 'update',
+      originalData: data,
+      recordId: objectId,
+    };
+    const processedData = await this.mongoHookManagerService.runHooks(
+      'beforeUpdate',
       collectionName,
-      dataWithRelations,
-    );
-    const dataStripped = await this.stripUnknownColumns(
-      collectionName,
-      dataWithoutInverse,
-    );
-    const dataWithoutNonUpdatable = await this.stripNonUpdatableFields(
-      collectionName,
-      dataStripped,
-    );
-    const dataWithTimestamp = this.applyUpdateTimestamp(
-      dataWithoutNonUpdatable,
+      data,
+      context,
     );
 
-    await this.checkFieldPermission(
-      collectionName,
-      'update',
-      dataWithTimestamp,
+    const updateResult = await collection.updateOne(
+      { _id: objectId },
+      { $set: processedData },
     );
+    context.updateResult = updateResult;
 
-    await this.mongoRelationManagerService.clearUniqueFKHolders(
+    await this.mongoHookManagerService.runHooks(
+      'afterUpdate',
       collectionName,
-      objectId,
-      dataWithTimestamp,
-      (name) => this.collection(name),
-    );
-
-    await collection.updateOne({ _id: objectId }, { $set: dataWithTimestamp });
-
-    await this.mongoRelationManagerService.updateInverseRelationsOnUpdate(
-      collectionName,
-      objectId,
-      oldRecord,
-      dataWithRelations,
-      (name) => this.collection(name),
-    );
-
-    await this.mongoRelationManagerService.writeM2mJunctionsForUpdate(
-      collectionName,
-      objectId,
-      dataWithRelations,
-      (name) => this.collection(name),
+      updateResult,
+      context,
     );
 
     return this.findOne(collectionName, { _id: objectId });
@@ -632,26 +775,54 @@ export class MongoService {
   async deleteOne(collectionName: string, id: string): Promise<boolean> {
     const collection = this.collection(collectionName);
     const objectId = new ObjectId(id);
-
-    const record = await this.findOne(collectionName, { _id: objectId });
-    if (!record) {
+    const filter = { _id: objectId };
+    const context: MongoHookContext = {
+      collectionName,
+      operation: 'delete',
+      originalFilter: filter,
+      recordId: objectId,
+    };
+    const processedFilter = await this.mongoHookManagerService.runHooks(
+      'beforeDelete',
+      collectionName,
+      filter,
+      context,
+    );
+    if (!context.deletedRecord) {
       return false;
     }
 
-    await this.mongoRelationManagerService.cleanupInverseRelationsOnDelete(
+    const result = await collection.deleteOne(processedFilter);
+    context.deleteResult = result;
+    const hookResult = await this.mongoHookManagerService.runHooks(
+      'afterDelete',
       collectionName,
-      objectId,
-      record,
-      (name) => this.collection(name),
+      result,
+      context,
     );
-
-    const result = await collection.deleteOne({ _id: objectId });
-    return result.deletedCount > 0;
+    return hookResult.deletedCount > 0;
   }
 
   async count(collectionName: string, filter: any = {}): Promise<number> {
     const collection = this.collection(collectionName);
-    return collection.countDocuments(filter);
+    const context: MongoHookContext = {
+      collectionName,
+      operation: 'count',
+      originalFilter: filter,
+    };
+    const processedFilter = await this.mongoHookManagerService.runHooks(
+      'beforeSelect',
+      collectionName,
+      filter,
+      context,
+    );
+    const count = await collection.countDocuments(processedFilter);
+    return this.mongoHookManagerService.runHooks(
+      'afterSelect',
+      collectionName,
+      count,
+      context,
+    );
   }
 
   private extractDbName(uri: string): string {

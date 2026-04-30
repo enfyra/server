@@ -13,6 +13,7 @@ import type {
   RedisAdminKeySummary,
   RedisAdminNamespaceScope,
   RedisAdminOverview,
+  RedisAdminSeverity,
   RedisAdminSystemMark,
   RedisAdminValueType,
 } from '../types';
@@ -23,6 +24,10 @@ const DEFAULT_VALUE_LIMIT = 100;
 const MAX_VALUE_LIMIT = 500;
 const OVERVIEW_SCAN_COUNT = 500;
 const OVERVIEW_SCAN_LIMIT = 10000;
+const REDIS_MEMORY_WARNING_RATIO = 0.8;
+const REDIS_MEMORY_ERROR_RATIO = 0.95;
+const REDIS_FRAGMENTATION_WARNING_RATIO = 2;
+const REDIS_FRAGMENTATION_WARNING_MIN_USED_BYTES = 64 * 1024 * 1024;
 
 export class RedisAdminService {
   private readonly redis: Redis;
@@ -91,12 +96,14 @@ export class RedisAdminService {
       groups.set(group.name, current);
     }
 
+    const server = this.parseServerInfo(info);
     return {
       connected: true,
+      health: this.evaluateHealth(server),
       keyCount: summaries.length,
       scanned: keys.scanned,
       scanComplete: keys.complete,
-      server: this.parseServerInfo(info),
+      server,
       keyspace: this.parseInfoSection(keyspace),
       userCache: await this.getUserCacheQuota(),
       groups: [...groups.values()].sort((a, b) => b.count - a.count),
@@ -588,6 +595,45 @@ export class RedisAdminService {
         ? Number(parsed.used_cpu_user_children)
         : undefined,
     };
+  }
+
+  private evaluateHealth(server: RedisAdminOverview['server']): RedisAdminOverview['health'] {
+    const warnings: string[] = [];
+    let severity: RedisAdminSeverity = 'ok';
+    const used = server.usedMemoryBytes ?? 0;
+    const max = server.maxMemoryBytes ?? 0;
+    if (max > 0) {
+      const ratio = used / max;
+      if (ratio >= REDIS_MEMORY_ERROR_RATIO) {
+        severity = 'error';
+        warnings.push(`Redis memory usage is ${this.formatPercent(ratio)} of configured maxmemory.`);
+      } else if (ratio >= REDIS_MEMORY_WARNING_RATIO) {
+        severity = 'warning';
+        warnings.push(`Redis memory usage is ${this.formatPercent(ratio)} of configured maxmemory.`);
+      }
+    }
+
+    const fragmentation = server.memFragmentationRatio ?? 0;
+    if (
+      fragmentation >= REDIS_FRAGMENTATION_WARNING_RATIO &&
+      used >= REDIS_FRAGMENTATION_WARNING_MIN_USED_BYTES
+    ) {
+      severity = this.maxSeverity(severity, 'warning');
+      warnings.push(`Redis memory fragmentation ratio is ${fragmentation}.`);
+    }
+
+    return { severity, warnings };
+  }
+
+  private maxSeverity(...values: RedisAdminSeverity[]): RedisAdminSeverity {
+    if (values.includes('error')) return 'error';
+    if (values.includes('warning')) return 'warning';
+    return 'ok';
+  }
+
+  private formatPercent(value: number): string {
+    if (!Number.isFinite(value)) return '0%';
+    return `${Math.round(value * 100)}%`;
   }
 
   private async scanForOverview(): Promise<{
