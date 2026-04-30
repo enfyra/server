@@ -192,6 +192,7 @@ export class MongoRelationManagerService {
     }
 
     const processed = { ...data };
+    await this.validateRelationReferences(tableName, processed, getCollection);
 
     for (const relation of metadata.relations) {
       const inputFieldName = relation.propertyName;
@@ -323,6 +324,143 @@ export class MongoRelationManagerService {
     }
 
     return processed;
+  }
+
+  private async validateRelationReferences(
+    tableName: string,
+    data: any,
+    getCollection: (name: string) => Collection<Document>,
+  ): Promise<void> {
+    const metadata =
+      await this.metadataCacheService.lookupTableByName(tableName);
+    if (!metadata?.relations) return;
+
+    const referencesByTarget = new Map<string, Map<string, ObjectId>>();
+
+    for (const relation of metadata.relations) {
+      const inputFieldName = relation.propertyName;
+      const storedFieldName =
+        getMongoStoredRelationField(relation) || inputFieldName;
+      const fieldName =
+        inputFieldName in data ? inputFieldName : storedFieldName;
+
+      if (!(fieldName in data)) continue;
+
+      const isInverse =
+        relation.type === 'one-to-many' ||
+        (relation.type === 'one-to-one' &&
+          (relation.mappedBy || relation.isInverse));
+
+      if (isInverse) continue;
+
+      const fieldValue = data[fieldName];
+      if (fieldValue === null || fieldValue === undefined) continue;
+
+      const targetCollection = relation.targetTableName || relation.targetTable;
+      if (!targetCollection) {
+        throw new ValidationException(
+          `Relation "${relation.propertyName}" does not define a target table.`,
+          { tableName, relation: relation.propertyName },
+        );
+      }
+
+      const ids = this.collectRelationReferenceIds(
+        relation,
+        fieldValue,
+        tableName,
+      );
+      if (ids.length === 0) continue;
+
+      let targetRefs = referencesByTarget.get(targetCollection);
+      if (!targetRefs) {
+        targetRefs = new Map<string, ObjectId>();
+        referencesByTarget.set(targetCollection, targetRefs);
+      }
+      for (const id of ids) {
+        targetRefs.set(id.toHexString(), id);
+      }
+    }
+
+    for (const [targetCollection, refs] of referencesByTarget.entries()) {
+      const ids = Array.from(refs.values());
+      const existing = await getCollection(targetCollection)
+        .find({ _id: { $in: ids } } as any)
+        .toArray();
+      const existingIds = new Set(
+        existing.map((doc: any) => doc._id?.toString()).filter(Boolean),
+      );
+      const missing = ids
+        .map((id) => id.toHexString())
+        .filter((id) => !existingIds.has(id));
+
+      if (missing.length > 0) {
+        throw new ValidationException(
+          `Invalid relation reference: ${missing.length} record(s) not found in "${targetCollection}".`,
+          { targetCollection, missingIds: missing },
+        );
+      }
+    }
+  }
+
+  private collectRelationReferenceIds(
+    relation: any,
+    fieldValue: any,
+    tableName: string,
+  ): ObjectId[] {
+    if (['many-to-one', 'one-to-one'].includes(relation.type)) {
+      const id = this.extractReferenceId(fieldValue, tableName, relation);
+      return id ? [id] : [];
+    }
+
+    if (relation.type !== 'many-to-many') return [];
+    if (!Array.isArray(fieldValue)) return [];
+
+    const ids: ObjectId[] = [];
+    for (const item of fieldValue) {
+      const id = this.extractReferenceId(item, tableName, relation);
+      if (id) ids.push(id);
+    }
+    return ids;
+  }
+
+  private extractReferenceId(
+    value: any,
+    tableName: string,
+    relation: any,
+  ): ObjectId | null {
+    if (value === null || value === undefined) return null;
+
+    if (
+      typeof value === 'object' &&
+      !(value instanceof ObjectId) &&
+      !(value instanceof Date) &&
+      !Array.isArray(value)
+    ) {
+      const id = value._id ?? value.id;
+      if (id === null || id === undefined) return null;
+      return this.toRelationObjectId(id, tableName, relation);
+    }
+
+    return this.toRelationObjectId(value, tableName, relation);
+  }
+
+  private toRelationObjectId(
+    value: any,
+    tableName: string,
+    relation: any,
+  ): ObjectId {
+    if (value instanceof ObjectId) return value;
+    if (typeof value !== 'string' || !ObjectId.isValid(value)) {
+      throw new ValidationException(
+        `Invalid relation reference for "${relation.propertyName}".`,
+        {
+          tableName,
+          relation: relation.propertyName,
+          value,
+        },
+      );
+    }
+    return new ObjectId(value);
   }
 
   async cleanupInverseRelationsOnDelete(

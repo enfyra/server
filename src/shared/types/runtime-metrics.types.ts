@@ -103,6 +103,19 @@ export type RuntimeQueueStats = {
   }>;
 } | null;
 
+export type RuntimeHealthStatus = {
+  severity: 'ok' | 'warning' | 'error';
+  messages: string[];
+};
+
+export type RuntimeHealthSnapshot = {
+  overview: RuntimeHealthStatus;
+  workers: RuntimeHealthStatus;
+  flows: RuntimeHealthStatus;
+  database: RuntimeHealthStatus;
+  connections: RuntimeHealthStatus;
+};
+
 export type ClusterTelemetryRecord<T> = {
   instanceId: string;
   sampledAt: string;

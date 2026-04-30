@@ -135,6 +135,7 @@ import {
   MongoMigrationJournalService,
   MongoPhysicalMigrationService,
   MongoSagaSnapshotService,
+  MongoHookManagerService,
   MongoRelationManagerService,
   MongoSagaCoordinator,
   MongoSagaLockService,
@@ -239,6 +240,7 @@ export interface Cradle {
   mongoMigrationJournalService: MongoMigrationJournalService;
   mongoPhysicalMigrationService: MongoPhysicalMigrationService;
   mongoSchemaDiffService: MongoSchemaDiffService;
+  mongoHookManagerService: MongoHookManagerService;
   mongoRelationManagerService: MongoRelationManagerService;
 
   knexService: KnexService;
@@ -470,6 +472,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
       .singleton()
       .disposer((service) => service.onDestroy()),
     mongoSchemaDiffService: asClass(MongoSchemaDiffService).singleton(),
+    mongoHookManagerService: asClass(MongoHookManagerService).singleton(),
     mongoRelationManagerService: asClass(
       MongoRelationManagerService,
     ).singleton(),

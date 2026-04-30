@@ -829,6 +829,35 @@ describe('buildZodFromMetadata — array relation edge cases', () => {
     expect(s.safeParse({ tags: [] }).success).toBe(true);
   });
 
+  it('m2m with cascade accepts nested create objects', () => {
+    const s = build(
+      makeMeta({
+        relations: [
+          { type: 'many-to-many', propertyName: 'tags', targetTable: 'tag' },
+        ],
+      }),
+      'create',
+      () => target,
+    );
+    expect(s.safeParse({ tags: [{ name: 'new tag' }] }).success).toBe(true);
+    expect(s.safeParse({ tags: [{ id: 1 }, { name: 'new tag' }] }).success).toBe(
+      true,
+    );
+  });
+
+  it('m2m with cascade validates nested required fields', () => {
+    const s = build(
+      makeMeta({
+        relations: [
+          { type: 'many-to-many', propertyName: 'tags', targetTable: 'tag' },
+        ],
+      }),
+      'create',
+      () => target,
+    );
+    expect(s.safeParse({ tags: [{}] }).success).toBe(false);
+  });
+
   it('m2m with null item → fail', () => {
     const s = build(
       makeMeta({

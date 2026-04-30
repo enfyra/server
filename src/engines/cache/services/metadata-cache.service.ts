@@ -12,6 +12,7 @@ import { ObjectId } from 'mongodb';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { EventEmitter2 } from 'eventemitter2';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
+import { normalizeMongoPrimaryKeyColumn } from '../../../modules/table-management/utils/mongo-primary-key.util';
 
 const COLOR = '\x1b[36m';
 const RESET = '\x1b[0m';
@@ -339,7 +340,9 @@ export class MetadataCacheService implements IMetadataCache {
       const explicitColumns = columnsByTable.get(tableIdValue) || [];
 
       const parsedExplicitColumns = explicitColumns.map((col: any) => {
-        const column = { ...col };
+        const column = isMongoDB
+          ? normalizeMongoPrimaryKeyColumn({ ...col })
+          : { ...col };
         if (col.options && typeof col.options === 'string') {
           try {
             column.options = JSON.parse(col.options);

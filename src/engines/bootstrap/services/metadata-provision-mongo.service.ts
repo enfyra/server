@@ -10,6 +10,7 @@ import {
   loadRelationRenameMap,
 } from '../../../domain/bootstrap';
 import { buildMongoFullIndexSpecs } from '../../mongo';
+import { normalizeMongoPrimaryKeyColumn } from '../../../modules/table-management/utils/mongo-primary-key.util';
 class TableDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[]): Promise<any[]> {
     const now = new Date();
@@ -206,11 +207,12 @@ export class MetadataProvisionMongoService {
       const tableId = tableNameToId[tableName];
       if (!tableId) continue;
       const columnRecords = (def.columns || []).map((col: any) => {
-        const record = this.buildRecordFromColumns(col, columnDef.columns);
+        const normalizedColumn = normalizeMongoPrimaryKeyColumn(col);
+        const record = this.buildRecordFromColumns(
+          normalizedColumn,
+          columnDef.columns,
+        );
         record[tableFieldName] = tableId;
-        if (record.name === 'id' && record.isPrimary) {
-          record.name = '_id';
-        }
         if (tableName === 'table_definition' && col.name === 'name') {
           this.logger.debug(
             `Sample column record: ${JSON.stringify(record, null, 2)}`,

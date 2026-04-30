@@ -26,6 +26,8 @@ export type RedisAdminSystemKind =
 
 export type RedisAdminNamespaceScope = 'current' | 'global';
 
+export type RedisAdminSeverity = 'ok' | 'warning' | 'error';
+
 export interface RedisAdminKeySummary extends RedisAdminSystemMark {
   key: string;
   namespace?: string;
@@ -38,6 +40,10 @@ export interface RedisAdminKeySummary extends RedisAdminSystemMark {
 
 export interface RedisAdminOverview {
   connected: boolean;
+  health: {
+    severity: RedisAdminSeverity;
+    warnings: string[];
+  };
   keyCount: number;
   scanned: number;
   scanComplete: boolean;
