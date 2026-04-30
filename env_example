@@ -1,0 +1,69 @@
+############################################
+# Database - required
+############################################
+# Database connection URI (master/write connection)
+# Database type is auto-detected from the URI protocol.
+# For MySQL: mysql://user:password@host:port/database
+# For PostgreSQL: postgresql://user:password@host:port/database
+# For MongoDB: mongodb://user:password@host:port/database?authSource=admin
+#
+# Note: If password contains special characters (@, :, /, etc.), URL-encode them:
+#   Example: password "p@ssw0rd" → "p%40ssw0rd"
+#   Common encodings: @ = %40, : = %3A, / = %2F, % = %25, # = %23, ? = %3F, & = %26
+DB_URI=mysql://root:1234@localhost:3306/enfyra
+
+# Replica URIs (optional, comma-separated for multiple replicas)
+# DB_REPLICA_URIS=mysql://user:password@replica1:3306/enfyra,mysql://user:password@replica2:3306/enfyra
+
+# Read from master (optional, default: false)
+# If true, master is included in round-robin pool for reads (master + replicas)
+# If false, read queries only use replicas via round-robin (master is only used for writes)
+# DB_READ_FROM_MASTER=false
+############################################
+# Redis Cache - required
+############################################
+# redis://user:pass@host:port/db
+REDIS_URI=redis://localhost:6379
+# Default TTL (seconds) for cache entries
+DEFAULT_TTL=5
+# Store runtime metadata/config caches in Redis instead of per-process RAM.
+# Instances with the same NODE_NAME share one cache snapshot set.
+REDIS_RUNTIME_CACHE=false
+# Quota for user/runtime $cache (@CACHE) data only. System Redis keys are not counted.
+REDIS_USER_CACHE_LIMIT_MB=30
+# Max serialized value size for a single $cache write. 0 disables this guard.
+REDIS_USER_CACHE_MAX_VALUE_BYTES=0
+
+############################################
+# App Runtime - required
+############################################
+# Node instance name (for logs/cluster)
+NODE_NAME=my_enfyra
+# HTTP port
+PORT=1105
+# isolated-vm: `yarn start` / `start:dev` / `start:prod` already prepend `--no-node-snapshot`. Override or add flags via NODE_OPTIONS in the shell if needed.
+
+############################################
+# Auth - required
+############################################
+# JWT secret
+SECRET_KEY=my_secret
+# bcrypt salt rounds
+SALT_ROUNDS=10
+# Access/Refresh token expirations
+ACCESS_TOKEN_EXP=15m
+REFRESH_TOKEN_NO_REMEMBER_EXP=1d
+REFRESH_TOKEN_REMEMBER_EXP=7d
+
+############################################
+# Admin Account - required
+############################################
+# Default admin account (created on first init)
+ADMIN_EMAIL=enfyra@admin.com
+ADMIN_PASSWORD=1234
+
+############################################
+# Environment - required
+############################################
+# development | production | test
+NODE_ENV=development

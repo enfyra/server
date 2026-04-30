@@ -1,0 +1,21 @@
+name: Notify Discord on Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  notify-discord:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Discord Notification
+        uses: SethCohen/github-releases-to-discord@v1
+        with:
+          webhook_url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          color: "2105893"  # Màu xanh dương
+          username: "Enfyra Backend Release Bot"
+          avatar_url: "https://github.com/Enfyra.png"
+          content: "🚀 **New Backend Release Available!**"
+          footer_title: "Backend Release Notes"
+          reduce_headings: true
+

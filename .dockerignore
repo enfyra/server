@@ -1,0 +1,49 @@
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+**/logs/**
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Dependencies / build outputs (we install/build inside Docker)
+**/node_modules/**
+**/dist/**
+**/.output/**
+
+# Tests / coverage
+**/test/**
+**/*.spec.ts
+**/*.spec.js
+**/coverage/**
+
+# Temp
+**/tmp/**
+**/.tmp/**
+**/temp/**
+*.tmp
+
+# Env files
+.env
+.env.*
+.env.local
+.env.*.local
+
+# TS build cache
+*.tsbuildinfo
+**/tsconfig.build.tsbuildinfo
+

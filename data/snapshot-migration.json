@@ -1,0 +1,268 @@
+{
+  "tables": [
+    {
+      "_unique": {
+        "name": {
+          "_eq": "column_definition"
+        }
+      },
+      "columnsToRemove": [
+        "isHidden"
+      ],
+      "columnsToModify": [
+        {
+          "from": {
+            "name": "type",
+            "type": "varchar"
+          },
+          "to": {
+            "name": "type",
+            "type": "enum",
+            "options": [
+              "int",
+              "varchar",
+              "text",
+              "boolean",
+              "uuid",
+              "bigint",
+              "date",
+              "enum",
+              "simple-json",
+              "code",
+              "array-select",
+              "richtext",
+              "float"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "route_definition"
+        }
+      },
+      "relationsToModify": [
+        {
+          "from": {
+            "propertyName": "preHook"
+          },
+          "to": {
+            "propertyName": "preHooks"
+          }
+        },
+        {
+          "from": {
+            "propertyName": "postHook"
+          },
+          "to": {
+            "propertyName": "postHooks"
+          }
+        }
+      ],
+      "relationsToRemove": [
+        "targetTables"
+      ]
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "pre_hook_definition"
+        }
+      },
+      "columnsToRemove": [
+        "timeout",
+        "code"
+      ],
+      "relationsToModify": [
+        {
+          "from": {
+            "propertyName": "route",
+            "inversePropertyName": "preHook"
+          },
+          "to": {
+            "propertyName": "route",
+            "inversePropertyName": "preHooks"
+          }
+        }
+      ]
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "post_hook_definition"
+        }
+      },
+      "columnsToRemove": [
+        "timeout",
+        "code"
+      ],
+      "relationsToModify": [
+        {
+          "from": {
+            "propertyName": "route",
+            "inversePropertyName": "postHook"
+          },
+          "to": {
+            "propertyName": "route",
+            "inversePropertyName": "postHooks"
+          }
+        }
+      ]
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "file_definition"
+        }
+      },
+      "relationsToModify": [
+        {
+          "from": {
+            "propertyName": "uploaded_by"
+          },
+          "to": {
+            "propertyName": "uploadedBy"
+          }
+        }
+      ]
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "method_definition"
+        }
+      },
+      "relationsToModify": [
+        {
+          "from": {
+            "propertyName": "route_permissions"
+          },
+          "to": {
+            "propertyName": "routePermissions"
+          }
+        }
+      ]
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "field_permission_definition"
+        }
+      },
+      "relationsToRemove": [
+        "table"
+      ]
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "file_permission_definition"
+        }
+      },
+      "relationsToRemove": [
+        "allowedUsers"
+      ]
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "package_definition"
+        }
+      },
+      "relationsToModify": [
+        {
+          "from": {
+            "propertyName": "installedBy",
+            "isNullable": false
+          },
+          "to": {
+            "propertyName": "installedBy",
+            "isNullable": true
+          }
+        }
+      ]
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "relation_definition"
+        }
+      },
+      "columnsToRemove": [
+        "isHidden",
+        "inversePropertyName",
+        "mappedBy"
+      ],
+      "relationsToModify": [
+        {
+          "from": {
+            "propertyName": "targetTable",
+            "isNullable": false
+          },
+          "to": {
+            "propertyName": "targetTable",
+            "isNullable": true
+          }
+        }
+      ]
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "websocket_definition"
+        }
+      },
+      "relationsToRemove": [
+        "targetTables"
+      ],
+      "columnsToRemove": [
+        "connectionHandlerScript"
+      ]
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "setting_definition"
+        }
+      },
+      "columnsToRemove": [
+        "corsAllowedOrigins"
+      ]
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "route_handler_definition"
+        }
+      },
+      "columnsToRemove": [
+        "logic"
+      ]
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "bootstrap_script_definition"
+        }
+      },
+      "columnsToRemove": [
+        "logic"
+      ]
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "websocket_event_definition"
+        }
+      },
+      "columnsToRemove": [
+        "handlerScript"
+      ]
+    }
+  ],
+  "tablesToDrop": [
+    "schema_history"
+  ]
+}

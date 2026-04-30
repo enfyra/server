@@ -1,0 +1,1552 @@
+{
+  "role_definition": {
+    "name": "Admin"
+  },
+  "setting_definition": {
+    "isInit": false,
+    "isSystem": true,
+    "projectName": "Enfyra CMS",
+    "projectDescription": "Description for Enfyra CMS"
+  },
+  "method_definition": [
+    {
+      "method": "GET",
+      "isSystem": true
+    },
+    {
+      "method": "POST",
+      "isSystem": true
+    },
+    {
+      "method": "PATCH",
+      "isSystem": true
+    },
+    {
+      "method": "DELETE",
+      "isSystem": true
+    }
+  ],
+  "route_definition": [
+    {
+      "path": "/route_definition",
+      "mainTable": "route_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:git-branch",
+      "skipRoleGuardMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/table_definition",
+      "mainTable": "table_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:table",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/relation_definition",
+      "mainTable": "relation_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:git-branch",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/user_definition",
+      "mainTable": "user_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:user",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/setting_definition",
+      "mainTable": "setting_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:settings",
+      "skipRoleGuardMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/cors_origin_definition",
+      "mainTable": "cors_origin_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:globe",
+      "publishedMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/role_definition",
+      "mainTable": "role_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:shield-check",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/auth/login",
+      "mainTable": "user_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:route",
+      "publishedMethods": [
+        "POST"
+      ],
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/auth/logout",
+      "mainTable": "user_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:route",
+      "publishedMethods": [
+        "POST"
+      ],
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/auth/refresh-token",
+      "mainTable": "user_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:route",
+      "publishedMethods": [
+        "POST"
+      ],
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/auth/providers",
+      "mainTable": "user_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:route",
+      "publishedMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/auth/:provider",
+      "mainTable": "user_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:route",
+      "publishedMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/auth/:provider/callback",
+      "mainTable": "user_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:route",
+      "publishedMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/me",
+      "mainTable": "user_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:route",
+      "skipRoleGuardMethods": [
+        "GET",
+        "PATCH"
+      ],
+      "availableMethods": [
+        "GET",
+        "PATCH"
+      ]
+    },
+    {
+      "path": "/me/oauth-accounts",
+      "mainTable": "oauth_account_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:key",
+      "skipRoleGuardMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/method_definition",
+      "mainTable": "method_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:route",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/pre_hook_definition",
+      "mainTable": "pre_hook_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:route",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/post_hook_definition",
+      "mainTable": "post_hook_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:route",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/route_handler_definition",
+      "mainTable": "route_handler_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:route",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/route_permission_definition",
+      "mainTable": "route_permission_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:route",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/field_permission_definition",
+      "mainTable": "field_permission_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:shield",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/column_rule_definition",
+      "mainTable": "column_rule_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:ruler",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/menu_definition",
+      "mainTable": "menu_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:menu",
+      "skipRoleGuardMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/extension_definition",
+      "mainTable": "extension_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:puzzle",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/extension_definition/preview",
+      "mainTable": "extension_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/folder_definition",
+      "mainTable": "folder_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:folder",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/folder_definition/tree",
+      "mainTable": "folder_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:folder-tree",
+      "skipRoleGuardMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/file_definition",
+      "mainTable": "file_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:file",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/file_permission_definition",
+      "mainTable": "file_permission_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:file",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/assets/:id",
+      "mainTable": "file_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:download",
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/package_definition",
+      "mainTable": "package_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:package",
+      "skipRoleGuardMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/logs",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:file-text",
+      "description": "List all log files with stats",
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/logs/stats",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:bar-chart",
+      "description": "Get log files statistics",
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/logs/:filename",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:file-search",
+      "description": "Read log file content with pagination and filtering",
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/logs/:filename/tail",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:arrow-down",
+      "description": "Get last N lines of a log file",
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/bootstrap_script_definition",
+      "mainTable": "bootstrap_script_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:play",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/storage_config_definition",
+      "mainTable": "storage_config_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:hard-drive",
+      "skipRoleGuardMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/admin/reload",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:refresh-cw",
+      "description": "Reload all caches and schemas",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/admin/reload/metadata",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:database",
+      "description": "Reload metadata cache",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/admin/reload/routes",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:route",
+      "description": "Reload routes cache",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/admin/reload/graphql",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:code",
+      "description": "Reload GraphQL schema",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/admin/test/run",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:flask-conical",
+      "description": "Run a safe test execution (flows/websocket)",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/admin/flow/trigger/:id",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:play",
+      "description": "Trigger a flow execution",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/admin/redis/overview",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:server",
+      "description": "Read Redis server, hardware, memory, CPU, and keyspace summary",
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/admin/redis/keys",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:list-tree",
+      "description": "Scan Redis keys with system key markers",
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/admin/redis/key",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:key-round",
+      "description": "Read, write, and delete non-system Redis keys",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/admin/redis/key/ttl",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:timer",
+      "description": "Update or clear TTL for non-system Redis keys",
+      "availableMethods": [
+        "PATCH"
+      ]
+    },
+    {
+      "path": "/metadata",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:database",
+      "description": "Get all table metadata from cache",
+      "skipRoleGuardMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/metadata/:name",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:table",
+      "description": "Get single table metadata from cache",
+      "skipRoleGuardMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/graphql-schema",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:file-code",
+      "description": "GraphQL schema SDL (full definition for debugging)",
+      "skipRoleGuardMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/websocket_definition",
+      "mainTable": "websocket_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:radio-tower",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/websocket_event_definition",
+      "mainTable": "websocket_event_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:zap",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/oauth_config_definition",
+      "mainTable": "oauth_config_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:key",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/oauth_account_definition",
+      "mainTable": "oauth_account_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:link",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/flow_definition",
+      "mainTable": "flow_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:workflow",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/flow_step_definition",
+      "mainTable": "flow_step_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:git-branch",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/flow_execution_definition",
+      "mainTable": "flow_execution_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:play-circle",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/gql_definition",
+      "mainTable": "gql_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:file-code",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/guard_definition",
+      "mainTable": "guard_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:shield",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/guard_rule_definition",
+      "mainTable": "guard_rule_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:shield-check",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/admin/reload/guards",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:shield",
+      "description": "Reload guards cache",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/schema_migration_definition",
+      "mainTable": "schema_migration_definition",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:scroll-text",
+      "availableMethods": [
+        "GET"
+      ]
+    }
+  ],
+  "pre_hook_definition": [
+    {
+      "isEnabled": true,
+      "isGlobal": false,
+      "name": "User definition hash password",
+      "isSystem": true,
+      "route": "/user_definition",
+      "methods": [
+        "POST",
+        "PATCH"
+      ],
+      "sourceCode": "if (@BODY.password) { @BODY.password = await @HELPERS.$bcrypt.hash(@BODY.password); }",
+      "scriptLanguage": "typescript"
+    },
+    {
+      "isEnabled": true,
+      "isGlobal": false,
+      "name": "Me route hash password",
+      "isSystem": true,
+      "route": "/me",
+      "methods": [
+        "PATCH"
+      ],
+      "sourceCode": "if (@BODY.password) { @BODY.password = await @HELPERS.$bcrypt.hash(@BODY.password); }",
+      "scriptLanguage": "typescript"
+    },
+    {
+      "isEnabled": true,
+      "isGlobal": false,
+      "name": "Folder definition auto slug",
+      "isSystem": true,
+      "route": "/folder_definition",
+      "methods": [
+        "POST",
+        "PATCH"
+      ],
+      "sourceCode": "if (@BODY.name) { @BODY.slug = await @HELPERS.autoSlug(@BODY.name); }",
+      "scriptLanguage": "typescript"
+    }
+  ],
+  "post_hook_definition": [
+    {
+      "isEnabled": true,
+      "isGlobal": true,
+      "name": "Default response",
+      "isSystem": false,
+      "methods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ],
+      "sourceCode": "@DATA = { statusCode: @STATUS, ...@DATA, message: 'Success'}",
+      "scriptLanguage": "typescript"
+    }
+  ],
+  "storage_config_definition": [
+    {
+      "name": "Local",
+      "type": "Local Storage",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Default local file storage"
+    }
+  ],
+  "menu_definition": [
+    {
+      "type": "Menu",
+      "label": "Dashboard",
+      "icon": "lucide:layout-dashboard",
+      "path": "/dashboard",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Main dashboard",
+      "order": 1,
+      "permission": {
+        "allowAll": true
+      }
+    },
+    {
+      "type": "Dropdown Menu",
+      "label": "Data",
+      "icon": "lucide:list",
+      "path": "/data",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Data management",
+      "order": 2,
+      "permission": {
+        "allowAll": true
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Collections",
+      "icon": "lucide:database",
+      "path": "/collections",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Table collections management",
+      "order": 3,
+      "permission": {
+        "or": [
+          {
+            "route": "/table_definition",
+            "actions": [
+              "create"
+            ]
+          },
+          {
+            "route": "/table_definition",
+            "actions": [
+              "update"
+            ]
+          },
+          {
+            "route": "/table_definition",
+            "actions": [
+              "delete"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Dropdown Menu",
+      "label": "Settings",
+      "icon": "lucide:settings",
+      "path": "/settings",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "System settings",
+      "order": 4,
+      "permission": {
+        "allowAll": true
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "General",
+      "icon": "heroicons:cog-8-tooth",
+      "path": "/settings/general",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "General settings",
+      "order": 1,
+      "parent": "Settings",
+      "permission": {
+        "or": [
+          {
+            "route": "/setting_definition",
+            "actions": [
+              "read",
+              "update"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Menu",
+      "icon": "heroicons:bars-3",
+      "path": "/settings/menus",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Menu management",
+      "order": 3,
+      "parent": "Settings",
+      "permission": {
+        "or": [
+          {
+            "route": "/menu_definition",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "route": "/menu_definition",
+            "actions": [
+              "create"
+            ]
+          },
+          {
+            "route": "/menu_definition",
+            "actions": [
+              "update"
+            ]
+          },
+          {
+            "route": "/menu_definition",
+            "actions": [
+              "delete"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Extensions",
+      "icon": "heroicons:puzzle-piece",
+      "path": "/settings/extensions",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Extension management",
+      "order": 4,
+      "parent": "Settings",
+      "permission": {
+        "and": [
+          {
+            "route": "/extension_definition",
+            "actions": [
+              "read"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Routes",
+      "icon": "heroicons:map",
+      "path": "/settings/routes",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Route management",
+      "order": 5,
+      "parent": "Settings",
+      "permission": {
+        "and": [
+          {
+            "route": "/route_definition",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "or": [
+              {
+                "route": "/route_definition",
+                "actions": [
+                  "create"
+                ]
+              },
+              {
+                "route": "/route_definition",
+                "actions": [
+                  "update"
+                ]
+              },
+              {
+                "route": "/route_definition",
+                "actions": [
+                  "delete"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Guards",
+      "icon": "lucide:shield",
+      "path": "/settings/guards",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Guard management (rate limiting, IP filtering)",
+      "order": 5,
+      "parent": "Settings",
+      "permission": {
+        "and": [
+          {
+            "route": "/guard_definition",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "or": [
+              {
+                "route": "/guard_definition",
+                "actions": [
+                  "create"
+                ]
+              },
+              {
+                "route": "/guard_definition",
+                "actions": [
+                  "update"
+                ]
+              },
+              {
+                "route": "/guard_definition",
+                "actions": [
+                  "delete"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "API Tester",
+      "icon": "lucide:flask-conical",
+      "path": "/settings/api-tester",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Test API endpoints",
+      "order": 6,
+      "parent": "Settings",
+      "permission": {
+        "and": [
+          {
+            "route": "/route_definition",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "or": [
+              {
+                "route": "/route_definition",
+                "actions": [
+                  "create"
+                ]
+              },
+              {
+                "route": "/route_definition",
+                "actions": [
+                  "update"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "WebSockets",
+      "icon": "lucide:radio-tower",
+      "path": "/settings/websockets",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "WebSocket gateway and event management",
+      "order": 6,
+      "parent": "Settings",
+      "permission": {
+        "and": [
+          {
+            "route": "/websocket_definition",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "or": [
+              {
+                "route": "/websocket_definition",
+                "actions": [
+                  "create"
+                ]
+              },
+              {
+                "route": "/websocket_definition",
+                "actions": [
+                  "update"
+                ]
+              },
+              {
+                "route": "/websocket_definition",
+                "actions": [
+                  "delete"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Flows",
+      "icon": "lucide:workflow",
+      "path": "/settings/flows",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Flow management",
+      "order": 7,
+      "parent": "Settings",
+      "permission": {
+        "and": [
+          {
+            "route": "/flow_definition",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "or": [
+              {
+                "route": "/flow_definition",
+                "actions": [
+                  "create"
+                ]
+              },
+              {
+                "route": "/flow_definition",
+                "actions": [
+                  "update"
+                ]
+              },
+              {
+                "route": "/flow_definition",
+                "actions": [
+                  "delete"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Bootstrap Scripts",
+      "icon": "heroicons:play",
+      "path": "/settings/bootstrap",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Bootstrap script management",
+      "order": 8,
+      "parent": "Settings",
+      "permission": {
+        "or": [
+          {
+            "route": "/bootstrap_script_definition",
+            "actions": [
+              "read"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Server Logs",
+      "icon": "lucide:file-text",
+      "path": "/settings/admin/logs",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Xem file log của backend",
+      "order": 13,
+      "parent": "Settings",
+      "permission": {
+        "or": [
+          {
+            "route": "/logs",
+            "actions": [
+              "read"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Runtime Monitor",
+      "icon": "lucide:activity",
+      "path": "/settings/runtime",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Live runtime metrics",
+      "order": 14,
+      "parent": "Settings",
+      "permission": {
+        "rootAdmin": true
+      }
+    },
+    {
+      "type": "Dropdown Menu",
+      "label": "Packages",
+      "icon": "lucide:package",
+      "path": "/packages",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Packages management",
+      "order": 8,
+      "permission": {
+        "or": [
+          {
+            "route": "/package_definition",
+            "actions": [
+              "read"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Users",
+      "icon": "heroicons:users",
+      "path": "/settings/users",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "User management",
+      "order": 9,
+      "parent": "Settings",
+      "permission": {
+        "and": [
+          {
+            "route": "/user_definition",
+            "actions": [
+              "read"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Roles",
+      "icon": "heroicons:shield-check",
+      "path": "/settings/roles",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Role management",
+      "order": 10,
+      "parent": "Settings",
+      "permission": {
+        "and": [
+          {
+            "route": "/role_definition",
+            "actions": [
+              "read"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Dropdown Menu",
+      "label": "OAuth",
+      "icon": "heroicons:key",
+      "path": "/settings/oauth",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "OAuth provider configuration and linked accounts",
+      "order": 11,
+      "parent": "Settings",
+      "permission": {
+        "or": [
+          {
+            "route": "/oauth_config_definition",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "route": "/oauth_account_definition",
+            "actions": [
+              "read"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Config",
+      "icon": "heroicons:cog-8-tooth",
+      "path": "/settings/oauth/config",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "OAuth provider configuration",
+      "order": 1,
+      "parent": "OAuth",
+      "permission": {
+        "and": [
+          {
+            "route": "/oauth_config_definition",
+            "actions": [
+              "read"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Accounts",
+      "icon": "heroicons:link",
+      "path": "/settings/oauth/accounts",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Linked OAuth accounts",
+      "order": 2,
+      "parent": "OAuth",
+      "permission": {
+        "and": [
+          {
+            "route": "/oauth_account_definition",
+            "actions": [
+              "read"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Dropdown Menu",
+      "label": "Storage",
+      "icon": "heroicons:server",
+      "path": "/storage",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Storage management",
+      "order": 5,
+      "permission": {
+        "or": [
+          {
+            "route": "/file_definition",
+            "actions": [
+              "read"
+            ]
+          },
+          {
+            "route": "/storage/config",
+            "actions": [
+              "read"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Storage Configurations",
+      "icon": "heroicons:cloud-arrow-up",
+      "path": "/storage/config",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Storage backend configurations",
+      "order": 2,
+      "parent": "Storage",
+      "permission": {
+        "or": [
+          {
+            "route": "/storage/config",
+            "actions": [
+              "read"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Files Management",
+      "icon": "lucide:folder-tree",
+      "path": "/storage/management",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Files Management",
+      "order": 1,
+      "parent": "Storage",
+      "permission": {
+        "or": [
+          {
+            "route": "/file_definition",
+            "actions": [
+              "read"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Install Package",
+      "icon": "lucide:plus",
+      "path": "/packages/install",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Install Package",
+      "order": 1,
+      "parent": "Packages"
+    },
+    {
+      "type": "Menu",
+      "label": "App Packages",
+      "icon": "lucide:package-2",
+      "path": "/packages/app",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "App packages management",
+      "order": 2,
+      "parent": "Packages"
+    },
+    {
+      "type": "Menu",
+      "label": "Backend Packages",
+      "icon": "lucide:box",
+      "path": "/packages/backend",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Backend packages management",
+      "order": 3,
+      "parent": "Packages"
+    }
+  ],
+  "websocket_definition": [
+    {
+      "path": "/enfyra-admin",
+      "isEnabled": true,
+      "isSystem": true,
+      "requireAuth": true,
+      "description": "Built-in admin UI real-time gateway",
+      "connectionHandlerTimeout": 5000,
+      "scriptLanguage": "typescript"
+    }
+  ],
+  "websocket_event_definition": [],
+  "field_permission_definition": [
+    {
+      "isEnabled": true,
+      "isSystem": true,
+      "action": "update",
+      "effect": "allow",
+      "description": "Allow authenticated user to update own password via /me",
+      "_column": {
+        "table": "user_definition",
+        "name": "password"
+      },
+      "_role": null,
+      "condition": {
+        "id": {
+          "_eq": "@USER.id"
+        }
+      }
+    }
+  ]
+}
