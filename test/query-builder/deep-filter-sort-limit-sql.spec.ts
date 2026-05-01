@@ -351,6 +351,51 @@ describe('deep sort on o2m (SQL)', () => {
 });
 
 describe('deep limit on o2m (SQL)', () => {
+  test('applies default limit 10 when o2m limit is omitted', async () => {
+    await db('posts').insert({
+      id: 99,
+      title: 'Post with many comments',
+      authorId: null,
+    });
+    await db('comments').insert(
+      Array.from({ length: 12 }, (_, i) => ({
+        id: 1000 + i,
+        body: `Default limit comment ${i + 1}`,
+        isPublished: 1,
+        seq: i + 1,
+        postId: 99,
+      })),
+    );
+
+    const rows = await fetchPosts([99]);
+    const desc: BatchFetchDescriptor = {
+      relationName: 'comments',
+      type: 'one-to-many',
+      targetTable: 'comments',
+      fields: ['id', 'seq'],
+      isInverse: true,
+      mappedBy: 'post',
+      fkColumn: 'postId',
+      userSort: 'seq',
+    };
+    await executeBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      'sqlite',
+      META,
+    );
+
+    expect(rows[0].comments).toHaveLength(10);
+    expect(rows[0].comments.map((c: any) => c.seq)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    ]);
+  });
+
   test('limit 2 returns top 2 per parent', async () => {
     const rows = await fetchPosts([1, 2, 3]);
     const desc: BatchFetchDescriptor = {
@@ -473,6 +518,95 @@ describe('deep limit on o2m (SQL)', () => {
 });
 
 describe('deep limit on m2m (SQL)', () => {
+  test('applies default limit 10 when m2m limit is omitted', async () => {
+    await db('posts').insert({
+      id: 100,
+      title: 'Post with many tags',
+      authorId: null,
+    });
+    await db('tags').insert(
+      Array.from({ length: 12 }, (_, i) => ({
+        id: 2000 + i,
+        label: `default-limit-tag-${i + 1}`,
+        priority: i + 1,
+      })),
+    );
+    await db('posts_tags').insert(
+      Array.from({ length: 12 }, (_, i) => ({
+        postId: 100,
+        tagId: 2000 + i,
+      })),
+    );
+
+    const rows = await fetchPosts([100]);
+    const desc: BatchFetchDescriptor = {
+      relationName: 'tags',
+      type: 'many-to-many',
+      targetTable: 'tags',
+      fields: ['id', 'label'],
+      isInverse: false,
+      junctionTableName: 'posts_tags',
+      junctionSourceColumn: 'postId',
+      junctionTargetColumn: 'tagId',
+      userSort: 'priority',
+    };
+    await executeBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      'sqlite',
+      META,
+    );
+
+    expect(rows[0].tags).toHaveLength(10);
+    expect(rows[0].tags.map((t: any) => t.label)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `default-limit-tag-${i + 1}`),
+    );
+  });
+
+  test('limit 0 fetches all m2m target rows', async () => {
+    const rows = await fetchPosts([1, 2]);
+    const desc: BatchFetchDescriptor = {
+      relationName: 'tags',
+      type: 'many-to-many',
+      targetTable: 'tags',
+      fields: ['id', 'label'],
+      isInverse: false,
+      junctionTableName: 'posts_tags',
+      junctionSourceColumn: 'postId',
+      junctionTargetColumn: 'tagId',
+      userLimit: 0,
+      userSort: 'priority',
+    };
+    await executeBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      'sqlite',
+      META,
+    );
+
+    const post1Tags = rows.find((r) => r.id === 1).tags;
+    const post2Tags = rows.find((r) => r.id === 2).tags;
+    expect(post1Tags.map((tag: any) => tag.label)).toEqual([
+      'beta',
+      'gamma',
+      'alpha',
+    ]);
+    expect(post2Tags.map((tag: any) => tag.label)).toEqual([
+      'beta',
+      'delta',
+    ]);
+  });
+
   test('limit 2 on tags per post', async () => {
     const rows = await fetchPosts([1, 2]);
     const desc: BatchFetchDescriptor = {
