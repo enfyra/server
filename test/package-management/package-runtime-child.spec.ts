@@ -1,12 +1,13 @@
 import { fork } from 'child_process';
 import { mkdtemp, rm, writeFile } from 'fs/promises';
+import { createRequire } from 'module';
 import { tmpdir } from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { IsolatedExecutorService } from '@enfyra/kernel';
 
-const workerPath = path.resolve(
-  __dirname,
+const require = createRequire(import.meta.url);
+const workerPath = require.resolve(
   '@enfyra/kernel/execution/package-runtime.child.js',
 );
 
@@ -29,6 +30,7 @@ function callRuntime(child: ReturnType<typeof fork>, message: any) {
       clearTimeout(timeout);
       child.off('message', onMessage);
       child.off('error', onError);
+      child.off('exit', onExit);
     };
     const onMessage = (response: any) => {
       if (response.id !== message.id) return;
@@ -39,8 +41,19 @@ function callRuntime(child: ReturnType<typeof fork>, message: any) {
       cleanup();
       reject(error);
     };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      cleanup();
+      reject(
+        new Error(
+          `package runtime exited before response${
+            signal ? ` with signal ${signal}` : ` with code ${code}`
+          }`,
+        ),
+      );
+    };
     child.on('message', onMessage);
     child.on('error', onError);
+    child.on('exit', onExit);
     child.send(message);
   });
 }
