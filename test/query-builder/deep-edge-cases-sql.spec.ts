@@ -238,7 +238,7 @@ describe('deep edge cases — empty/null/zero (SQL)', () => {
     expect(rows[0].author).toBeNull();
   });
 
-  test('limit = 0 returns empty array per parent', async () => {
+  test('limit = 0 fetches all children per parent', async () => {
     const rows = await fetchPosts([1, 2]);
     const desc: BatchFetchDescriptor = {
       relationName: 'comments',
@@ -251,10 +251,8 @@ describe('deep edge cases — empty/null/zero (SQL)', () => {
       userLimit: 0,
     };
     await runBatchFetch(rows, desc);
-    for (const row of rows) {
-      expect(Array.isArray(row.comments)).toBe(true);
-      expect(row.comments.length).toBe(0);
-    }
+    expect(rows.find((r) => r.id === 1).comments).toHaveLength(5);
+    expect(rows.find((r) => r.id === 2).comments).toHaveLength(2);
   });
 
   test('limit bigger than fanout returns all children (no padding)', async () => {
@@ -445,7 +443,7 @@ describe('debug trace — strategy + metrics (SQL)', () => {
     expect(entry!.meta?.rowsReturned).toBe(4);
   });
 
-  test('no limit → strategy = batch-in with roundtrips = 1', async () => {
+  test('omitted limit uses default to-many limit', async () => {
     const rows = await fetchPosts([1, 2]);
     const trace = new TestTrace();
     const desc: BatchFetchDescriptor = {
@@ -460,8 +458,9 @@ describe('debug trace — strategy + metrics (SQL)', () => {
     await runBatchFetch(rows, desc, trace);
     const entry = trace.findBatchFetch('comments');
     expect(entry).toBeDefined();
-    expect(entry!.meta?.strategy).toBe('batch-in');
-    expect(entry!.meta?.roundtrips).toBe(1);
+    expect(entry!.meta?.strategy).toBe('per-parent-c16');
+    expect(entry!.meta?.roundtrips).toBe(2);
+    expect(entry!.meta?.userLimit).toBe(10);
   });
 
   test('m2o always uses batch-in (no per-parent)', async () => {
