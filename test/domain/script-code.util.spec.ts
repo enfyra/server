@@ -2,6 +2,7 @@ import {
   compileScriptSource,
   getExecutableScript,
   normalizeFlowStepScriptConfig,
+  normalizeScriptPatch,
   normalizeScriptRecord,
   resolveExecutableScript,
 } from '@enfyra/kernel';
@@ -75,5 +76,75 @@ describe('script-code util', () => {
     expect(resolved.code).toContain('const value = $ctx.$body.name;');
     expect(resolved.compiledCode).toBe(resolved.code);
     expect(resolved.shouldPersistCompiledCode).toBe(true);
+  });
+
+  it('normalizes legacy code patches without mutating the patch object', () => {
+    const patch = {
+      code: 'const value: string = @BODY.name; return value;',
+    };
+    const normalized = normalizeScriptPatch('pre_hook_definition', patch);
+
+    expect(patch).toEqual({
+      code: 'const value: string = @BODY.name; return value;',
+    });
+    expect(normalized.code).toBeUndefined();
+    expect(normalized.sourceCode).toBe(
+      'const value: string = @BODY.name; return value;',
+    );
+    expect(normalized.scriptLanguage).toBe('typescript');
+    expect(normalized.compiledCode).toContain(
+      'const value = $ctx.$body.name;',
+    );
+  });
+
+  it('recompiles from existing source when only scriptLanguage is patched', () => {
+    const normalized = normalizeScriptPatch(
+      'route_handler_definition',
+      { scriptLanguage: 'javascript' },
+      {
+        sourceCode: 'return @BODY.name;',
+        compiledCode: 'stale',
+        scriptLanguage: 'typescript',
+      },
+    );
+
+    expect(normalized.sourceCode).toBeUndefined();
+    expect(normalized.scriptLanguage).toBe('javascript');
+    expect(normalized.compiledCode).toBe('return $ctx.$body.name;');
+  });
+
+  it('clears compiled code when source is explicitly cleared', () => {
+    const normalized = normalizeScriptPatch(
+      'post_hook_definition',
+      { sourceCode: null },
+      {
+        sourceCode: 'return @BODY.name;',
+        compiledCode: 'return $ctx.$body.name;',
+        scriptLanguage: 'typescript',
+      },
+    );
+
+    expect(normalized.sourceCode).toBeNull();
+    expect(normalized.compiledCode).toBeNull();
+  });
+
+  it('does not rewrite invalid JSON flow configs', () => {
+    const record = { type: 'script', config: '{broken json' };
+    expect(normalizeFlowStepScriptConfig(record)).toBe(record);
+  });
+
+  it('normalizes JSON string flow configs and removes legacy code', () => {
+    const normalized = normalizeFlowStepScriptConfig({
+      type: 'condition',
+      config: JSON.stringify({
+        code: 'const ok: boolean = @BODY.enabled; return ok;',
+      }),
+    });
+
+    expect(typeof normalized.config).toBe('string');
+    const config = JSON.parse(normalized.config);
+    expect(config.code).toBeUndefined();
+    expect(config.sourceCode).toContain('@BODY.enabled');
+    expect(config.compiledCode).toContain('$ctx.$body.enabled');
   });
 });
