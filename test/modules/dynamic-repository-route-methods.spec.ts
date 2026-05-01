@@ -109,4 +109,37 @@ describe('DynamicRepository route method relations', () => {
       false,
     );
   });
+
+  it('accepts an exists filter wrapped in a filter property', async () => {
+    const queryBuilderService = {
+      getPkField: vi.fn(() => '_id'),
+      find: vi.fn().mockResolvedValue({ data: [], count: 0 }),
+    };
+    const repo = makeRepo({ queryBuilderService: queryBuilderService as any });
+    const filter = { path: { _eq: '/missing' } };
+
+    await expect(repo.exists({ filter })).resolves.toBe(false);
+
+    expect(queryBuilderService.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filter,
+      }),
+    );
+  });
+
+  it('rejects exists without a filter', async () => {
+    const repo = makeRepo();
+
+    await expect(repo.exists()).rejects.toThrow(
+      'exists requires a non-empty filter',
+    );
+  });
+
+  it('rejects exists when the filter contains undefined values', async () => {
+    const repo = makeRepo();
+
+    await expect(
+      repo.exists({ filter: { email: { _eq: undefined } } }),
+    ).rejects.toThrow('exists filter cannot contain undefined values');
+  });
 });

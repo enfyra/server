@@ -8,7 +8,7 @@ export interface IDynamicRepository {
   findMany(): Promise<any>;
   findOne(): Promise<any>;
   findAndCount(): Promise<{ data: any[]; count: number }>;
-  exists(filter?: any): Promise<boolean>;
+  exists(filter: any): Promise<boolean>;
   create(data: any): Promise<any>;
   update(id: any, data: any): Promise<any>;
   delete(id: any): Promise<boolean>;
