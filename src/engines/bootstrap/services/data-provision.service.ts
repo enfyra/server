@@ -30,6 +30,7 @@ import {
   GenericTableProcessor,
   GraphQLDefinitionProcessor,
 } from '../../../domain/bootstrap';
+import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
 const initJson = JSON.parse(
   fs.readFileSync(path.join(process.cwd(), 'data/default-data.json'), 'utf8'),
 );
@@ -181,7 +182,7 @@ export class DataProvisionService {
   }
 
   async insertAllDefaultRecords(): Promise<void> {
-    this.logger.log('Starting default data upsert...');
+    this.verbose('Starting default data upsert...');
 
     let totalCreated = 0;
     let totalSkipped = 0;
@@ -189,7 +190,7 @@ export class DataProvisionService {
     const userProcessor = this.processors.get('user_definition');
     if (userProcessor) {
       try {
-        this.logger.log(
+        this.verbose(
           `Processing 'user_definition' (ensure rootAdmin from env)...`,
         );
         const result = await userProcessor.processWithQueryBuilder(
@@ -218,11 +219,11 @@ export class DataProvisionService {
         !rawRecords ||
         (Array.isArray(rawRecords) && rawRecords.length === 0)
       ) {
-        this.logger.debug(`Table '${tableName}' has no data, skipping.`);
+        this.verbose(`Table '${tableName}' has no data, skipping.`);
         continue;
       }
 
-      this.logger.log(`Processing '${tableName}'...`);
+      this.verbose(`Processing '${tableName}'...`);
 
       try {
         const records = Array.isArray(rawRecords) ? rawRecords : [rawRecords];
@@ -237,7 +238,7 @@ export class DataProvisionService {
         totalCreated += result.created;
         totalSkipped += result.skipped;
 
-        this.logger.log(
+        this.verbose(
           `'${tableName}': ${result.created} created, ${result.skipped} skipped`,
         );
       } catch (error) {
@@ -248,12 +249,12 @@ export class DataProvisionService {
       }
     }
 
-    this.logger.log(
+    this.verbose(
       `Default data upsert completed! Total: ${totalCreated} created, ${totalSkipped} skipped`,
     );
 
     if (this.routeDefinitionProcessor) {
-      this.logger.log('Ensuring missing route handlers...');
+      this.verbose('Ensuring missing route handlers...');
       try {
         await this.routeDefinitionProcessor.ensureMissingHandlers();
       } catch (error) {
@@ -300,5 +301,9 @@ export class DataProvisionService {
       const [id] = await trx(tableName).insert(data);
       return id;
     }
+  }
+
+  private verbose(message: string): void {
+    bootstrapVerboseLog(this.logger, message);
   }
 }

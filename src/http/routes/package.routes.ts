@@ -130,7 +130,7 @@ export function registerPackageRoutes(
       throw new ValidationException('Repository not found in context');
     }
 
-    const packages = await packageRepo.find({ where: { id: { _eq: id } } });
+    const packages = await packageRepo.find({ filter: { id: { _eq: id } } });
     const packageRecord = packages.data?.[0];
 
     if (!packageRecord) {
@@ -174,7 +174,7 @@ export function registerPackageRoutes(
       console.error(`CDN update failed for ${packageRecord.name}:`, error);
     });
 
-    const result = await packageRepo.find({ where: { id: { _eq: id } } });
+    const result = await packageRepo.find({ filter: { id: { _eq: id } } });
     return res.json(result);
   });
 
@@ -200,7 +200,7 @@ export function registerPackageRoutes(
       throw new ValidationException('Repository not found in context');
     }
 
-    const packages = await packageRepo.find({ where: { id: { _eq: id } } });
+    const packages = await packageRepo.find({ filter: { id: { _eq: id } } });
     const packageRecord = packages.data?.[0];
 
     if (!packageRecord) {

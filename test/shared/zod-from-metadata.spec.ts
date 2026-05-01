@@ -162,6 +162,29 @@ describe('buildZodFromMetadata — flags', () => {
       }),
     );
     expect(s.safeParse({}).success).toBe(true);
+    expect(
+      s.safeParse({
+        id: 1,
+        _id: '507f1f77bcf86cd799439011',
+        createdAt: '2026-05-01T00:00:00.000Z',
+        updatedAt: '2026-05-01T00:00:00.000Z',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('auto-managed columns are accepted even when metadata omits them', () => {
+    const s = build(
+      makeMeta({
+        columns: [col('path', 'varchar', { isNullable: false })],
+      }),
+      'update',
+    );
+    expect(
+      s.safeParse({
+        createdAt: '2026-05-01T00:00:00.000Z',
+        updatedAt: '2026-05-01T00:00:00.000Z',
+      }).success,
+    ).toBe(true);
   });
 
   it('isNullable=false required on create', () => {

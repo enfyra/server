@@ -81,7 +81,7 @@ export function registerFileRoutes(
       throw new ValidationException('Repository not found in context');
     }
 
-    const currentFiles = await fileRepo.find({ where: { id: { _eq: id } } });
+    const currentFiles = await fileRepo.find({ filter: { id: { _eq: id } } });
     const currentFile = currentFiles.data?.[0];
 
     if (!currentFile) {
@@ -280,7 +280,7 @@ export function registerFileRoutes(
       throw new ValidationException('Repository not found in context');
     }
 
-    const files = await fileRepo.find({ where: { id: { _eq: id } } });
+    const files = await fileRepo.find({ filter: { id: { _eq: id } } });
     const file = files.data?.[0];
 
     if (!file) {

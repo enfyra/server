@@ -439,10 +439,18 @@ export class MongoService {
     const probeSession = this.client.startSession();
     try {
       probeSession.startTransaction();
+      await this.db
+        .collection('__enfyra_native_tx_probe')
+        .findOne({}, { session: probeSession });
       await probeSession.abortTransaction();
       this.nativeMultiDocSupported = true;
       this.logger.log('MongoDB: native transaction probe succeeded');
     } catch {
+      try {
+        if (probeSession.inTransaction()) {
+          await probeSession.abortTransaction();
+        }
+      } catch {}
       this.nativeMultiDocSupported = false;
       this.logger.log(
         'MongoDB: native transactions unavailable, using application-level transactions',

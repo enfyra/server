@@ -289,10 +289,8 @@ export function buildZodFromMetadata(opts: BuildZodOpts): z.ZodObject<any> {
   // Admin UIs often echo auto-managed fields back in PATCH payloads. Accept
   // them silently (server ignores these; they're not user-writable).
   const autoManagedSchema: Record<string, z.ZodType> = {};
-  for (const col of tableMeta?.columns || []) {
-    if (AUTO_MANAGED_COLUMNS.has(col.name)) {
-      autoManagedSchema[col.name] = z.any().optional();
-    }
+  for (const name of AUTO_MANAGED_COLUMNS) {
+    autoManagedSchema[name] = z.any().optional();
   }
 
   // Whitelisted virtual fields per system table (handled by custom handlers).

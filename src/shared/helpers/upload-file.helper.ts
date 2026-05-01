@@ -101,7 +101,7 @@ export class UploadFileHelper {
       try {
         const fileRepo = this.getFileRepo(context);
 
-        const files = await fileRepo.find({ where: { id: { _eq: fileId } } });
+        const files = await fileRepo.find({ filter: { id: { _eq: fileId } } });
         const currentFile = files.data?.[0];
 
         if (!currentFile) {
@@ -262,7 +262,7 @@ export class UploadFileHelper {
       try {
         const fileRepo = this.getFileRepo(context);
 
-        const files = await fileRepo.find({ where: { id: { _eq: fileId } } });
+        const files = await fileRepo.find({ filter: { id: { _eq: fileId } } });
         const file = files.data?.[0];
 
         if (!file) {
