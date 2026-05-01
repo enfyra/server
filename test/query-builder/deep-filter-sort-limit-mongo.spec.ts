@@ -256,7 +256,132 @@ describe('deep sort on o2m (Mongo)', () => {
   });
 });
 
+describe('deep default limit on to-many (Mongo)', () => {
+  test('applies default limit 10 to o2m batch fetch', async () => {
+    const postId = new ObjectId();
+    await db.collection('posts').insertOne({
+      _id: postId,
+      title: 'Post with many comments',
+      author: userIds[0],
+    });
+    await db.collection('comments').insertMany(
+      Array.from({ length: 12 }, (_, i) => ({
+        _id: new ObjectId(),
+        body: `Default limit comment ${i + 1}`,
+        isPublished: true,
+        seq: i + 1,
+        post: postId,
+      })),
+    );
+
+    const rows = makePosts([postId]);
+    const desc: MongoBatchFetchDescriptor = {
+      relationName: 'comments',
+      type: 'one-to-many',
+      targetTable: 'comments',
+      fields: ['_id', 'seq'],
+      isInverse: true,
+      mappedBy: 'post',
+      foreignField: 'post',
+      userSort: 'seq',
+    };
+
+    await executeMongoBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      metadata,
+    );
+
+    expect(rows[0].comments).toHaveLength(10);
+    expect(rows[0].comments.map((c: any) => c.seq)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    ]);
+  });
+
+  test('applies default limit 10 to m2m batch fetch', async () => {
+    const postId = new ObjectId();
+    const localTagIds = Array.from({ length: 12 }, () => new ObjectId());
+    await db.collection('posts').insertOne({
+      _id: postId,
+      title: 'Post with many tags',
+      author: userIds[0],
+    });
+    await db.collection('tags').insertMany(
+      localTagIds.map((tagId, i) => ({
+        _id: tagId,
+        label: `default-limit-tag-${i + 1}`,
+        priority: i + 1,
+      })),
+    );
+    await db.collection(junctionName).insertMany(
+      localTagIds.map((tagId) => ({
+        postsId: postId,
+        tagsId: tagId,
+      })),
+    );
+
+    const rows = makePosts([postId]);
+    const desc: MongoBatchFetchDescriptor = {
+      relationName: 'tags',
+      type: 'many-to-many',
+      targetTable: 'tags',
+      fields: ['_id', 'label'],
+      isInverse: false,
+      userSort: 'priority',
+    };
+
+    await executeMongoBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      metadata,
+    );
+
+    expect(rows[0].tags).toHaveLength(10);
+    expect(rows[0].tags.map((t: any) => t.label)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `default-limit-tag-${i + 1}`),
+    );
+  });
+});
+
 describe('deep limit on o2m (Mongo)', () => {
+  test('limit 0 fetches all children', async () => {
+    const rows = makePosts([postIds[0], postIds[1]]);
+    const desc: MongoBatchFetchDescriptor = {
+      relationName: 'comments',
+      type: 'one-to-many',
+      targetTable: 'comments',
+      fields: ['_id', 'seq'],
+      isInverse: true,
+      mappedBy: 'post',
+      foreignField: 'post',
+      userLimit: 0,
+      userSort: 'seq',
+    };
+    await executeMongoBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      metadata,
+    );
+
+    expect(rows[0].comments.map((c: any) => c.seq)).toEqual([1, 2, 3]);
+    expect(rows[1].comments.map((c: any) => c.seq)).toEqual([1, 2, 3]);
+  });
+
   test('limit 2 returns top 2 per parent', async () => {
     const rows = makePosts([postIds[0], postIds[1], postIds[2]]);
     const desc: MongoBatchFetchDescriptor = {
@@ -405,6 +530,39 @@ describe('deep filter on m2o (Mongo)', () => {
 });
 
 describe('deep limit on m2m (Mongo)', () => {
+  test('limit 0 fetches all target rows', async () => {
+    const rows = makePosts([postIds[0], postIds[1]]);
+    const desc: MongoBatchFetchDescriptor = {
+      relationName: 'tags',
+      type: 'many-to-many',
+      targetTable: 'tags',
+      fields: ['_id', 'label'],
+      isInverse: false,
+      userLimit: 0,
+      userSort: 'priority',
+    };
+    await executeMongoBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      metadata,
+    );
+
+    expect(rows[0].tags.map((tag: any) => tag.label)).toEqual([
+      'beta',
+      'gamma',
+      'alpha',
+    ]);
+    expect(rows[1].tags.map((tag: any) => tag.label)).toEqual([
+      'beta',
+      'delta',
+    ]);
+  });
+
   test('limit 2 on tags per post', async () => {
     const rows = makePosts([postIds[0], postIds[1]]);
     const tableMeta = META['posts'];
@@ -446,6 +604,48 @@ describe('deep limit on m2m (Mongo)', () => {
 });
 
 describe('deep sort on m2m (Mongo)', () => {
+  test('defaults many-to-many rows to target id order instead of junction order', async () => {
+    const reversePostId = new ObjectId();
+    await db.collection('posts').insertOne({
+      _id: reversePostId,
+      title: 'Reverse Junction Post',
+      author: userIds[0],
+    });
+    await db.collection(junctionName).insertMany([
+      { postsId: reversePostId, tagsId: tagIds[2] },
+      { postsId: reversePostId, tagsId: tagIds[1] },
+      { postsId: reversePostId, tagsId: tagIds[0] },
+    ]);
+
+    const rows = [
+      { _id: reversePostId, title: 'Reverse Junction Post', author: userIds[0] },
+    ];
+    const desc: MongoBatchFetchDescriptor = {
+      relationName: 'tags',
+      type: 'many-to-many',
+      targetTable: 'tags',
+      fields: ['_id', 'label'],
+      isInverse: false,
+    };
+
+    await executeMongoBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      metadata,
+    );
+
+    expect(rows[0].tags.map((tag: any) => tag.label)).toEqual([
+      'alpha',
+      'beta',
+      'gamma',
+    ]);
+  });
+
   test('sorts target rows per parent without relying on junction order', async () => {
     const bulkPostId = new ObjectId();
     const bulkCount = 5005;

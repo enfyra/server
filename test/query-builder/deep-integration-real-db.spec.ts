@@ -434,7 +434,7 @@ for (const cfg of DBS) {
       expect(entry!.meta?.roundtrips).toBe(2);
     });
 
-    test('debug trace emits batch-in strategy when no limit', async () => {
+    test('debug trace emits default to-many limit when limit is omitted', async () => {
       if (!available) return;
       const rows = await fetchPosts([1, 2]);
       const trace = new TestTrace();
@@ -449,8 +449,9 @@ for (const cfg of DBS) {
       };
       await run(rows, [desc], trace);
       const entry = trace.find('comments');
-      expect(entry!.meta?.strategy).toBe('batch-in');
-      expect(entry!.meta?.roundtrips).toBe(1);
+      expect(entry!.meta?.strategy).toBe('per-parent-c16');
+      expect(entry!.meta?.roundtrips).toBe(2);
+      expect(entry!.meta?.userLimit).toBe(10);
     });
   });
 }
