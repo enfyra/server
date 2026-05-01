@@ -142,7 +142,28 @@ export class MetadataProvisionSqlService {
             table.timestamp('updatedAt').defaultTo(qb.fn.now());
           });
         }
+      } else if (tableName === 'relation_definition') {
+        await this.ensureRelationDefinitionPhysicalColumns(qb);
       }
+    }
+  }
+
+  private async ensureRelationDefinitionPhysicalColumns(qb: any): Promise<void> {
+    const columns = [
+      'foreignKeyColumn',
+      'referencedColumn',
+      'constraintName',
+    ];
+    for (const columnName of columns) {
+      const hasColumn = await qb.schema.hasColumn(
+        'relation_definition',
+        columnName,
+      );
+      if (hasColumn) continue;
+
+      await qb.schema.alterTable('relation_definition', (table: any) => {
+        table.string(columnName).nullable();
+      });
     }
   }
 
