@@ -370,6 +370,7 @@ export class MetadataCacheService implements IMetadataCache {
       });
 
       const relationsData = relationsBySource.get(tableIdValue) || [];
+      const allRelations = Array.from(relationsBySource.values()).flat();
       const relations: any[] = [];
       for (const rel of relationsData) {
         const relBooleanFields = [
@@ -412,17 +413,32 @@ export class MetadataCacheService implements IMetadataCache {
         if (rel.type === 'many-to-one') {
           relationMetadata.foreignKeyColumn = isMongoDB
             ? rel.propertyName
-            : getForeignKeyColumnName(rel.propertyName);
+            : rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
+          relationMetadata.referencedColumn = rel.referencedColumn || 'id';
+          relationMetadata.constraintName = rel.constraintName || null;
         }
         if (rel.type === 'one-to-one') {
           if (relationMetadata.isInverse) {
+            const owningRel = allRelations.find(
+              (candidate: any) =>
+                String(DatabaseConfigService.getRecordId(candidate)) ===
+                String(rel.mappedById),
+            );
             relationMetadata.foreignKeyColumn = isMongoDB
               ? rel.mappedBy
-              : getForeignKeyColumnName(rel.mappedBy);
+              : owningRel?.foreignKeyColumn ||
+                getForeignKeyColumnName(rel.mappedBy || rel.propertyName);
+            relationMetadata.referencedColumn =
+              owningRel?.referencedColumn || 'id';
+            relationMetadata.constraintName =
+              owningRel?.constraintName || null;
           } else {
             relationMetadata.foreignKeyColumn = isMongoDB
               ? rel.propertyName
-              : getForeignKeyColumnName(rel.propertyName);
+              : rel.foreignKeyColumn ||
+                getForeignKeyColumnName(rel.propertyName);
+            relationMetadata.referencedColumn = rel.referencedColumn || 'id';
+            relationMetadata.constraintName = rel.constraintName || null;
           }
         }
         if (rel.type === 'one-to-many') {
@@ -434,9 +450,18 @@ export class MetadataCacheService implements IMetadataCache {
               `One-to-many relation '${rel.propertyName}' in table '${table.name}' MUST have mappedBy`,
             );
           }
+          const owningRel = allRelations.find(
+            (candidate: any) =>
+              String(DatabaseConfigService.getRecordId(candidate)) ===
+              String(rel.mappedById),
+          );
           relationMetadata.foreignKeyColumn = isMongoDB
             ? rel.mappedBy
-            : getForeignKeyColumnName(rel.mappedBy);
+            : owningRel?.foreignKeyColumn ||
+              getForeignKeyColumnName(rel.mappedBy || rel.propertyName);
+          relationMetadata.referencedColumn =
+            owningRel?.referencedColumn || 'id';
+          relationMetadata.constraintName = owningRel?.constraintName || null;
         }
         if (rel.type === 'many-to-many') {
           relationMetadata.junctionTableName =

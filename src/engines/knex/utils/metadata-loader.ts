@@ -90,6 +90,12 @@ export async function loadTableMetadata(
     isSystem: rel.isSystem || false,
     isPublished: rel.isPublished !== false,
     onDelete: rel.onDelete || 'SET NULL',
+    foreignKeyColumn: rel.foreignKeyColumn || null,
+    referencedColumn: rel.referencedColumn || null,
+    constraintName: rel.constraintName || null,
+    junctionTableName: rel.junctionTableName || null,
+    junctionSourceColumn: rel.junctionSourceColumn || null,
+    junctionTargetColumn: rel.junctionTargetColumn || null,
   }));
   return {
     id: tableDef.id,
@@ -129,11 +135,13 @@ export function getJunctionTableInfo(
   if (relation.type !== 'many-to-many') {
     return null;
   }
-  const junctionTableName = getJunctionTableName(
-    relation.sourceTable,
-    relation.propertyName,
-    relation.targetTable,
-  );
+  const junctionTableName =
+    relation.junctionTableName ||
+    getJunctionTableName(
+      relation.sourceTable,
+      relation.propertyName,
+      relation.targetTable,
+    );
   const sourceMeta = allMetadata.get(relation.sourceTable);
   const targetMeta = allMetadata.get(relation.targetTable);
   if (!sourceMeta || !targetMeta) {
@@ -143,8 +151,12 @@ export function getJunctionTableInfo(
     tableName: junctionTableName,
     sourceTable: relation.sourceTable,
     targetTable: relation.targetTable,
-    sourceColumn: getForeignKeyColumnName(relation.propertyName),
-    targetColumn: getForeignKeyColumnName(relation.targetTable),
+    sourceColumn:
+      relation.junctionSourceColumn ||
+      getForeignKeyColumnName(relation.propertyName),
+    targetColumn:
+      relation.junctionTargetColumn ||
+      getForeignKeyColumnName(relation.targetTable),
     sourcePropertyName: relation.propertyName,
   };
 }
@@ -172,7 +184,7 @@ export function getForeignKeyColumn(relation: RelationMetadata): string | null {
   if (relation.type === 'many-to-many' || relation.type === 'one-to-many') {
     return null;
   }
-  return getForeignKeyColumnName(relation.propertyName);
+  return relation.foreignKeyColumn || getForeignKeyColumnName(relation.propertyName);
 }
 export function createMetadataCache(ttl: number = 60000): MetadataCache {
   return {

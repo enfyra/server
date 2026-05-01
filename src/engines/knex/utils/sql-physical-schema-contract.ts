@@ -21,6 +21,8 @@ import type {
 type RelationLike = RelationDef & {
   targetTableName?: string;
   foreignKeyColumn?: string;
+  referencedColumn?: string;
+  constraintName?: string;
   mappedBy?: string;
   onDelete?: string | null;
   junctionTableName?: string;
@@ -67,6 +69,12 @@ export function getSqlRelationForeignKeyColumn(relation: {
   return relation.foreignKeyColumn || getForeignKeyColumnName(relation.propertyName);
 }
 
+export function getSqlRelationReferencedColumn(relation: {
+  referencedColumn?: string | null;
+}): string {
+  return relation.referencedColumn || 'id';
+}
+
 export function getSqlRelationTargetTable(relation: {
   targetTable?: string;
   targetTableName?: string;
@@ -80,16 +88,22 @@ export function buildSqlForeignKeyContracts(
 ): SqlForeignKeyContract[] {
   return relations
     .filter(isSqlForeignKeyRelation)
-    .map((relation) => ({
-      tableName,
-      propertyName: relation.propertyName,
-      columnName: getSqlRelationForeignKeyColumn(relation),
-      targetTable: getSqlRelationTargetTable(relation),
-      targetColumn: 'id',
-      onDelete: resolveSqlRelationOnDelete(relation),
-      onUpdate: 'CASCADE',
-      nullable: relation.isNullable !== false,
-    }));
+    .map((relation) => {
+      const columnName = getSqlRelationForeignKeyColumn(relation);
+      return {
+        tableName,
+        propertyName: relation.propertyName,
+        columnName,
+        constraintName:
+          relation.constraintName ||
+          getShortFkConstraintName(tableName, columnName, 'src'),
+        targetTable: getSqlRelationTargetTable(relation),
+        targetColumn: getSqlRelationReferencedColumn(relation),
+        onDelete: resolveSqlRelationOnDelete(relation),
+        onUpdate: 'CASCADE',
+        nullable: relation.isNullable !== false,
+      };
+    });
 }
 
 export function resolveSqlPhysicalColumns(

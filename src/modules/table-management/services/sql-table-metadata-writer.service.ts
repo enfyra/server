@@ -4,6 +4,7 @@ import { getDeletedIds } from '../utils/get-deleted-ids';
 import {
   getJunctionTableName,
   getJunctionColumnNames,
+  getForeignKeyColumnName,
 } from '@enfyra/kernel';
 import { DatabaseConfigService } from '../../../shared/services';
 import { ValidationException } from '../../../domain/exceptions';
@@ -178,6 +179,21 @@ export class SqlTableMetadataWriterService {
           description: rel.description,
           sourceTableId: id,
         };
+        if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+          const existingRel = rel.id
+            ? await queryRunner('relation_definition')
+                .where({ id: rel.id })
+                .first()
+            : null;
+          relationData.foreignKeyColumn =
+            existingRel?.foreignKeyColumn ||
+            rel.foreignKeyColumn ||
+            getForeignKeyColumnName(rel.propertyName);
+          relationData.referencedColumn =
+            existingRel?.referencedColumn || rel.referencedColumn || 'id';
+          relationData.constraintName =
+            existingRel?.constraintName || rel.constraintName || null;
+        }
         if (rel.type === 'many-to-many') {
           const targetTableName = targetTablesMap.get(targetTableId);
           if (!targetTableName) {

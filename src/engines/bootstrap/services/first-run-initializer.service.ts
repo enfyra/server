@@ -10,6 +10,7 @@ import { MetadataProvisionService } from './metadata-provision.service';
 import { MetadataMigrationService } from './metadata-migration.service';
 import { DataProvisionService } from './data-provision.service';
 import { DataMigrationService } from './data-migration.service';
+import { MetadataRepairService } from './metadata-repair.service';
 import { RouteDefinitionProcessor } from '../../../domain/bootstrap';
 import { REDIS_TTL, PROVISION_LOCK_KEY } from '../../../shared/utils/constant';
 import { isBootstrapVerbose } from '../utils/bootstrap-logging.util';
@@ -26,6 +27,7 @@ export class FirstRunInitializer {
   private readonly metadataMigrationService: MetadataMigrationService;
   private readonly dataProvisionService: DataProvisionService;
   private readonly dataMigrationService: DataMigrationService;
+  private readonly metadataRepairService: MetadataRepairService;
   private readonly routeDefinitionProcessor: RouteDefinitionProcessor;
   private lastProgressLineLength = 0;
 
@@ -39,6 +41,7 @@ export class FirstRunInitializer {
     metadataMigrationService: MetadataMigrationService;
     dataProvisionService: DataProvisionService;
     dataMigrationService: DataMigrationService;
+    metadataRepairService: MetadataRepairService;
     routeDefinitionProcessor: RouteDefinitionProcessor;
   }) {
     this.commonService = deps.commonService;
@@ -50,6 +53,7 @@ export class FirstRunInitializer {
     this.metadataMigrationService = deps.metadataMigrationService;
     this.dataProvisionService = deps.dataProvisionService;
     this.dataMigrationService = deps.dataMigrationService;
+    this.metadataRepairService = deps.metadataRepairService;
     this.routeDefinitionProcessor = deps.routeDefinitionProcessor;
   }
 
@@ -147,6 +151,11 @@ export class FirstRunInitializer {
         await this.dataMigrationService.runMigrations();
         this.logVerbose(`Data migrations: ${Date.now() - t5}ms`);
       }
+
+      const t6 = Date.now();
+      this.logProgress(mode, 95, 'repairing metadata');
+      await this.metadataRepairService.runIfNeeded();
+      this.logVerbose(`Metadata repair: ${Date.now() - t6}ms`);
 
       this.logProgress(mode, 98, 'finalizing');
       await this.markInitialized();

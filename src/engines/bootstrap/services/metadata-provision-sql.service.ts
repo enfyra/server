@@ -128,6 +128,9 @@ export class MetadataProvisionSqlService {
             table.boolean('isSystem').notNullable().defaultTo(false);
             table.boolean('isPublished').notNullable().defaultTo(true);
             table.text('description').nullable();
+            table.string('foreignKeyColumn').nullable();
+            table.string('referencedColumn').nullable();
+            table.string('constraintName').nullable();
             table.string('junctionTableName').nullable();
             table.string('junctionSourceColumn').nullable();
             table.string('junctionTargetColumn').nullable();
@@ -139,7 +142,28 @@ export class MetadataProvisionSqlService {
             table.timestamp('updatedAt').defaultTo(qb.fn.now());
           });
         }
+      } else if (tableName === 'relation_definition') {
+        await this.ensureRelationDefinitionPhysicalColumns(qb);
       }
+    }
+  }
+
+  private async ensureRelationDefinitionPhysicalColumns(qb: any): Promise<void> {
+    const columns = [
+      'foreignKeyColumn',
+      'referencedColumn',
+      'constraintName',
+    ];
+    for (const columnName of columns) {
+      const hasColumn = await qb.schema.hasColumn(
+        'relation_definition',
+        columnName,
+      );
+      if (hasColumn) continue;
+
+      await qb.schema.alterTable('relation_definition', (table: any) => {
+        table.string(columnName).nullable();
+      });
     }
   }
 
@@ -363,12 +387,28 @@ export class MetadataProvisionSqlService {
           );
         }
         if (existingRel) {
+          const inferredForeignKeyColumn =
+            rel.type === 'many-to-one' || rel.type === 'one-to-one'
+              ? rel.foreignKeyColumn ||
+                existingRel.foreignKeyColumn ||
+                getForeignKeyColumnName(rel.propertyName)
+              : null;
+          const inferredReferencedColumn =
+            rel.type === 'many-to-one' || rel.type === 'one-to-one'
+              ? rel.referencedColumn || existingRel.referencedColumn || 'id'
+              : null;
           const junctionChanged =
             rel.type === 'many-to-many' &&
             ((rel.junctionSourceColumn &&
               rel.junctionSourceColumn !== existingRel.junctionSourceColumn) ||
               (rel.junctionTargetColumn &&
                 rel.junctionTargetColumn !== existingRel.junctionTargetColumn));
+          const physicalMappingChanged =
+            (rel.type === 'many-to-one' || rel.type === 'one-to-one') &&
+            (inferredForeignKeyColumn !== existingRel.foreignKeyColumn ||
+              inferredReferencedColumn !== existingRel.referencedColumn ||
+              (rel.constraintName &&
+                rel.constraintName !== existingRel.constraintName));
           const needsUpdate =
             rel.propertyName !== existingRel.propertyName ||
             (rel.isNullable !== undefined &&
@@ -379,7 +419,8 @@ export class MetadataProvisionSqlService {
               targetId !== existingRel.targetTableId) ||
             (rel.isUpdatable !== undefined &&
               rel.isUpdatable !== existingRel.isUpdatable) ||
-            junctionChanged;
+            junctionChanged ||
+            physicalMappingChanged;
           if (needsUpdate) {
             const updateData: any = {
               propertyName: rel.propertyName,
@@ -392,6 +433,13 @@ export class MetadataProvisionSqlService {
               updateData.isUpdatable = rel.isUpdatable;
             if (rel.type !== undefined) updateData.type = rel.type;
             if (targetId !== undefined) updateData.targetTableId = targetId;
+            if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+              updateData.foreignKeyColumn = inferredForeignKeyColumn;
+              updateData.referencedColumn = inferredReferencedColumn;
+              if (rel.constraintName) {
+                updateData.constraintName = rel.constraintName;
+              }
+            }
             if (rel.type === 'many-to-many') {
               updateData.junctionTableName =
                 rel.junctionTableName ||
@@ -427,6 +475,12 @@ export class MetadataProvisionSqlService {
             sourceTableId: tableId,
             targetTableId: targetId,
           };
+          if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+            insertData.foreignKeyColumn =
+              rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
+            insertData.referencedColumn = rel.referencedColumn || 'id';
+            insertData.constraintName = rel.constraintName || null;
+          }
           if (rel.type === 'many-to-many') {
             insertData.junctionTableName =
               rel.junctionTableName ||

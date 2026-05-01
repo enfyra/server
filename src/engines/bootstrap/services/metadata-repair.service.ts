@@ -1,5 +1,10 @@
 import { Logger } from '../../../shared/logger';
-import { QueryBuilderService } from '@enfyra/kernel';
+import {
+  QueryBuilderService,
+  getForeignKeyColumnName,
+  getShortFkConstraintName,
+} from '@enfyra/kernel';
+import type { Knex } from 'knex';
 import { MetadataCacheService } from '../../cache';
 import { DatabaseConfigService } from '../../../shared/services';
 import {
@@ -24,7 +29,28 @@ export class MetadataRepairService {
     const setting = await this.loadSetting();
     if (!setting) return;
 
-    const mongoPrimaryKeyRepairCount = DatabaseConfigService.instanceIsMongoDb()
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
+
+    const relationPhysicalMappingRepairCount =
+      await this.repairRelationPhysicalMappings(isMongoDB);
+
+    if (relationPhysicalMappingRepairCount > 0) {
+      this.logger.log(
+        `Repaired relation physical metadata on ${relationPhysicalMappingRepairCount} relation(s)`,
+      );
+    }
+
+    const mongoSystemShapeRepairCount = isMongoDB
+      ? await this.repairMongoSystemRecordShapes()
+      : 0;
+
+    if (mongoSystemShapeRepairCount > 0) {
+      this.logger.log(
+        `Repaired Mongo system record shapes on ${mongoSystemShapeRepairCount} collection(s)`,
+      );
+    }
+
+    const mongoPrimaryKeyRepairCount = isMongoDB
       ? await this.repairMongoPrimaryKeyColumns()
       : 0;
 
@@ -44,6 +70,225 @@ export class MetadataRepairService {
         );
       }
     }
+  }
+
+  private async repairRelationPhysicalMappings(
+    isMongoDB: boolean,
+  ): Promise<number> {
+    if (isMongoDB) {
+      return this.repairMongoRelationPhysicalMappings();
+    }
+    return this.repairSqlRelationPhysicalMappings();
+  }
+
+  private async repairSqlRelationPhysicalMappings(): Promise<number> {
+    const knex = this.queryBuilderService.getKnex();
+    const rows = await knex('relation_definition as r')
+      .leftJoin(
+        'table_definition as sourceTable',
+        'r.sourceTableId',
+        'sourceTable.id',
+      )
+      .select('r.*', 'sourceTable.name as sourceTableName');
+    let repaired = 0;
+
+    for (const rel of rows) {
+      if (!this.isSqlOwningRelation(rel)) continue;
+
+      const foreignKeyColumn =
+        rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
+      const referencedColumn = rel.referencedColumn || 'id';
+      const constraintName =
+        rel.constraintName ||
+        (await this.findSqlForeignKeyConstraintName(
+          knex,
+          rel.sourceTableName,
+          foreignKeyColumn,
+        )) ||
+        getShortFkConstraintName(rel.sourceTableName, foreignKeyColumn, 'src');
+      const updateData: any = {};
+
+      if (!rel.foreignKeyColumn) updateData.foreignKeyColumn = foreignKeyColumn;
+      if (!rel.referencedColumn) updateData.referencedColumn = referencedColumn;
+      if (!rel.constraintName) updateData.constraintName = constraintName;
+      if (Object.keys(updateData).length === 0) continue;
+
+      await knex('relation_definition').where({ id: rel.id }).update(updateData);
+      repaired++;
+    }
+
+    return repaired;
+  }
+
+  private async repairMongoRelationPhysicalMappings(): Promise<number> {
+    const collection = this.queryBuilderService
+      .getMongoDb()
+      .collection('relation_definition');
+    const relations = await collection.find({}).toArray();
+    const relationsById = new Map(
+      relations.map((rel: any) => [String(rel._id), rel]),
+    );
+    let repaired = 0;
+
+    for (const rel of relations) {
+      const owningRel = rel.mappedBy
+        ? relationsById.get(String(rel.mappedBy))
+        : null;
+      const updateData: any = {};
+
+      if (!this.hasOwn(rel, 'foreignKeyColumn')) {
+        updateData.foreignKeyColumn = this.getMongoRelationForeignKeyColumn(
+          rel,
+          owningRel,
+        );
+      }
+      if (!this.hasOwn(rel, 'referencedColumn')) {
+        const hasForeignKeyColumn =
+          rel.foreignKeyColumn ||
+          updateData.foreignKeyColumn ||
+          this.isMongoOwningRelation(rel);
+        updateData.referencedColumn = hasForeignKeyColumn
+          ? MONGO_PRIMARY_KEY_NAME
+          : null;
+      }
+      if (!this.hasOwn(rel, 'constraintName')) {
+        updateData.constraintName = null;
+      }
+      if (!this.hasOwn(rel, 'junctionTableName')) {
+        updateData.junctionTableName = null;
+      }
+      if (!this.hasOwn(rel, 'junctionSourceColumn')) {
+        updateData.junctionSourceColumn = null;
+      }
+      if (!this.hasOwn(rel, 'junctionTargetColumn')) {
+        updateData.junctionTargetColumn = null;
+      }
+      if (Object.keys(updateData).length === 0) continue;
+
+      await collection.updateOne({ _id: rel._id }, { $set: updateData });
+      repaired++;
+    }
+
+    return repaired;
+  }
+
+  private async repairMongoSystemRecordShapes(): Promise<number> {
+    const db = this.queryBuilderService.getMongoDb();
+    const tables = await db
+      .collection('table_definition')
+      .find({ isSystem: true })
+      .toArray();
+    let repairedCollections = 0;
+
+    for (const table of tables) {
+      const tableId = table._id;
+      const columns = await db
+        .collection('column_definition')
+        .find({ table: tableId })
+        .toArray();
+      const missingFieldSet: Record<string, any> = {};
+
+      for (const column of columns) {
+        if (!column.name || column.name === MONGO_PRIMARY_KEY_NAME) continue;
+        missingFieldSet[column.name] = this.getMongoColumnDefaultValue(column);
+      }
+      if (Object.keys(missingFieldSet).length === 0) continue;
+
+      let modified = 0;
+      for (const [field, value] of Object.entries(missingFieldSet)) {
+        const result = await db
+          .collection(table.name)
+          .updateMany({ [field]: { $exists: false } }, { $set: { [field]: value } });
+        modified += result.modifiedCount;
+      }
+
+      if (modified > 0) {
+        repairedCollections++;
+      }
+    }
+
+    return repairedCollections;
+  }
+
+  private isSqlOwningRelation(rel: any): boolean {
+    return (
+      rel.type === 'many-to-one' ||
+      (rel.type === 'one-to-one' && !rel.mappedById)
+    );
+  }
+
+  private isMongoOwningRelation(rel: any): boolean {
+    return (
+      rel.type === 'many-to-one' ||
+      (rel.type === 'one-to-one' && !rel.mappedBy)
+    );
+  }
+
+  private getMongoRelationForeignKeyColumn(rel: any, owningRel: any): string | null {
+    if (this.isMongoOwningRelation(rel)) {
+      return rel.propertyName || null;
+    }
+    if (
+      (rel.type === 'one-to-many' ||
+        (rel.type === 'one-to-one' && rel.mappedBy)) &&
+      owningRel
+    ) {
+      return owningRel.foreignKeyColumn || owningRel.propertyName || null;
+    }
+    return null;
+  }
+
+  private getMongoColumnDefaultValue(column: any): any {
+    if (this.hasOwn(column, 'defaultValue') && column.defaultValue !== undefined) {
+      return column.defaultValue;
+    }
+    return null;
+  }
+
+  private hasOwn(value: any, key: string): boolean {
+    return Object.prototype.hasOwnProperty.call(value, key);
+  }
+
+  private async findSqlForeignKeyConstraintName(
+    knex: Knex,
+    tableName: string,
+    columnName: string,
+  ): Promise<string | null> {
+    const client = String((knex.client.config as any).client || '');
+    if (client === 'pg') {
+      const result = await knex.raw(
+        `
+        SELECT tc.constraint_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+         AND tc.table_schema = kcu.table_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+          AND tc.table_schema = current_schema()
+          AND tc.table_name = ?
+          AND kcu.column_name = ?
+        LIMIT 1
+      `,
+        [tableName, columnName],
+      );
+      return result.rows?.[0]?.constraint_name || null;
+    }
+    if (client === 'mysql2') {
+      const result = await knex.raw(
+        `
+        SELECT CONSTRAINT_NAME AS constraint_name
+        FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?
+          AND COLUMN_NAME = ?
+          AND REFERENCED_TABLE_NAME IS NOT NULL
+        LIMIT 1
+      `,
+        [tableName, columnName],
+      );
+      return result[0]?.[0]?.constraint_name || null;
+    }
+    return null;
   }
 
   private async repairMongoPrimaryKeyColumns(): Promise<number> {
