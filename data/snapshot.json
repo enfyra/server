@@ -223,7 +223,7 @@
       { "name": "path", "type": "varchar", "isNullable": false, "isSystem": true, "defaultValue": null, "description": "URL path for the route (e.g., /api/users)" },
       { "name": "isEnabled", "type": "boolean", "isNullable": true, "isSystem": true, "defaultValue": true, "description": "Whether the route is active and accessible" },
       { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined route" },
-      { "name": "icon", "type": "varchar", "isNullable": true, "isSystem": true, "defaultValue": "lucide: route", "description": "Icon identifier for UI display" },
+      { "name": "icon", "type": "varchar", "isNullable": true, "isSystem": true, "defaultValue": "lucide:route", "description": "Icon identifier for UI display" },
       { "name": "description", "type": "text", "isSystem": true, "description": "Description of what the route does" }
     ],
     "relations": [
@@ -436,7 +436,7 @@
       { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
       { "name": "type", "type": "enum", "isNullable": false, "isSystem": true, "options": ["Dropdown Menu", "Menu"], "description": "Type of menu item (Dropdown Menu can have children, Menu is a leaf node)" },
       { "name": "label", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Display text for the menu item" },
-      { "name": "icon", "type": "varchar", "isNullable": false, "isSystem": true, "defaultValue": "lucide: menu", "description": "Icon identifier for the menu item" },
+      { "name": "icon", "type": "varchar", "isNullable": false, "isSystem": true, "defaultValue": "lucide:menu", "description": "Icon identifier for the menu item" },
       { "name": "path", "type": "varchar", "isNullable": true, "isSystem": true, "description": "URL path the menu item links to" },
       { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether the menu item is visible" },
       { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined menu item" },
@@ -498,7 +498,7 @@
       { "name": "name", "type": "varchar", "isNullable": false, "description": "Folder display name" },
       { "name": "slug", "type": "varchar", "isNullable": false, "isGenerated": true, "description": "URL-friendly folder name (auto-generated from name)" },
       { "name": "order", "type": "int", "isNullable": false, "defaultValue": 0, "description": "Display order within parent folder" },
-      { "name": "icon", "type": "varchar", "isNullable": true, "defaultValue": "lucide: folder", "description": "Icon identifier for the folder" },
+      { "name": "icon", "type": "varchar", "isNullable": true, "defaultValue": "lucide:folder", "description": "Icon identifier for the folder" },
       { "name": "description", "type": "text", "isNullable": true, "description": "Description of the folder's purpose" },
       { "name": "isSystem", "type": "boolean", "isNullable": false, "defaultValue": false, "description": "Whether this is a system-defined folder" }
     ],
@@ -702,7 +702,7 @@
       { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
       { "name": "name", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Unique name of the flow" },
       { "name": "description", "type": "text", "isNullable": true, "isSystem": true, "description": "Description of what the flow does" },
-      { "name": "icon", "type": "varchar", "isNullable": true, "isSystem": true, "defaultValue": "lucide: workflow", "description": "Icon identifier for UI display" },
+      { "name": "icon", "type": "varchar", "isNullable": true, "isSystem": true, "defaultValue": "lucide:workflow", "description": "Icon identifier for UI display" },
       { "name": "triggerType", "type": "enum", "options": ["schedule", "manual"], "isNullable": false, "isSystem": true, "description": "Type of trigger: schedule (cron) or manual (user-initiated via UI/API/handler)" },
       { "name": "triggerConfig", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "JSON config for the trigger (cron expression, event table/action, webhook path)" },
       { "name": "timeout", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 30000, "description": "Maximum execution time in milliseconds for the entire flow" },

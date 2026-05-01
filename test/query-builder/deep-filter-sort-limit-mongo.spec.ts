@@ -87,7 +87,7 @@ const META: Record<string, any> = {
   },
 };
 
-const junctionName = `tags_posts_tags`;
+const junctionName = `posts_tags_tags`;
 
 const metadata = { tables: new Map(Object.entries(META)) };
 const metadataGetter = async (table: string) =>
@@ -169,12 +169,12 @@ beforeAll(async () => {
   ]);
 
   await db.collection(junctionName).insertMany([
-    { tags_id: tagIds[0], posts_id: postIds[0] },
-    { tags_id: tagIds[1], posts_id: postIds[0] },
-    { tags_id: tagIds[2], posts_id: postIds[0] },
-    { tags_id: tagIds[1], posts_id: postIds[1] },
-    { tags_id: tagIds[3], posts_id: postIds[1] },
-    { tags_id: tagIds[0], posts_id: postIds[2] },
+    { postsId: postIds[0], tagsId: tagIds[0] },
+    { postsId: postIds[0], tagsId: tagIds[1] },
+    { postsId: postIds[0], tagsId: tagIds[2] },
+    { postsId: postIds[1], tagsId: tagIds[1] },
+    { postsId: postIds[1], tagsId: tagIds[3] },
+    { postsId: postIds[2], tagsId: tagIds[0] },
   ]);
 });
 
@@ -433,8 +433,68 @@ describe('deep limit on m2m (Mongo)', () => {
 
     const post0Tags = rows[0].tags;
     const post1Tags = rows[1].tags;
-    expect(post0Tags.length).toBeLessThanOrEqual(2);
-    expect(post1Tags.length).toBeLessThanOrEqual(2);
+    expect(post0Tags.map((tag: any) => tag.label)).toEqual([
+      'beta',
+      'gamma',
+    ]);
+    expect(post1Tags.map((tag: any) => tag.label)).toEqual([
+      'beta',
+      'delta',
+    ]);
+    expect(post0Tags[0].priority).toBeUndefined();
+  });
+});
+
+describe('deep sort on m2m (Mongo)', () => {
+  test('sorts target rows per parent without relying on junction order', async () => {
+    const bulkPostId = new ObjectId();
+    const bulkCount = 5005;
+    const bulkTags = Array.from({ length: bulkCount }, (_, i) => ({
+      _id: new ObjectId(),
+      label: `bulk-${i}`,
+      priority: i,
+    }));
+
+    await db
+      .collection('posts')
+      .insertOne({ _id: bulkPostId, title: 'Bulk Post', author: userIds[0] });
+    await db.collection('tags').insertMany(bulkTags);
+    await db.collection(junctionName).insertMany(
+      bulkTags.map((tag) => ({
+        postsId: bulkPostId,
+        tagsId: tag._id,
+      })),
+    );
+
+    const rows = [{ _id: bulkPostId, title: 'Bulk Post', author: userIds[0] }];
+    const desc: MongoBatchFetchDescriptor = {
+      relationName: 'tags',
+      type: 'many-to-many',
+      targetTable: 'tags',
+      fields: ['_id', 'label'],
+      isInverse: false,
+      userSort: '-priority',
+    };
+
+    await executeMongoBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      metadata,
+    );
+
+    expect(rows[0].tags.slice(0, 5).map((tag: any) => tag.label)).toEqual([
+      'bulk-5004',
+      'bulk-5003',
+      'bulk-5002',
+      'bulk-5001',
+      'bulk-5000',
+    ]);
+    expect(rows[0].tags[0].priority).toBeUndefined();
   });
 });
 
