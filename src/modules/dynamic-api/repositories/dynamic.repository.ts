@@ -115,6 +115,70 @@ export class DynamicRepository {
     return this.queryBuilderService.getPkField();
   }
 
+  private isPlainObject(value: any): value is Record<string, any> {
+    return (
+      value !== null &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      Object.getPrototypeOf(value) === Object.prototype
+    );
+  }
+
+  private isFilterOperatorObject(value: any): boolean {
+    return (
+      this.isPlainObject(value) &&
+      Object.keys(value).length > 0 &&
+      Object.keys(value).every((key) => key.startsWith('_'))
+    );
+  }
+
+  private normalizeExistsFilter(input: any): any {
+    if (!this.isPlainObject(input)) return input;
+    const keys = Object.keys(input);
+    if (
+      keys.length === 1 &&
+      Object.prototype.hasOwnProperty.call(input, 'filter') &&
+      !this.isFilterOperatorObject(input.filter)
+    ) {
+      return input.filter;
+    }
+    return input;
+  }
+
+  private hasNonEmptyFilter(value: any): boolean {
+    if (value === undefined || value === null) return false;
+    if (Array.isArray(value)) {
+      return value.some((item) => this.hasNonEmptyFilter(item));
+    }
+    if (!this.isPlainObject(value)) return true;
+    const keys = Object.keys(value);
+    if (keys.length === 0) return false;
+    return keys.some((key) => this.hasNonEmptyFilter(value[key]));
+  }
+
+  private containsUndefined(value: any): boolean {
+    if (value === undefined) return true;
+    if (Array.isArray(value)) {
+      return value.some((item) => this.containsUndefined(item));
+    }
+    if (!this.isPlainObject(value)) return false;
+    return Object.values(value).some((item) => this.containsUndefined(item));
+  }
+
+  private assertValidExistsFilter(filter: any) {
+    if (filter === undefined || filter === null) {
+      throw new BadRequestException('exists requires a non-empty filter');
+    }
+    if (this.containsUndefined(filter)) {
+      throw new BadRequestException(
+        'exists filter cannot contain undefined values',
+      );
+    }
+    if (!this.hasNonEmptyFilter(filter)) {
+      throw new BadRequestException('exists requires a non-empty filter');
+    }
+  }
+
   private getItemId(item: any): any {
     if (item == null) return null;
     if (typeof item === 'string' || typeof item === 'number') return item;
@@ -589,9 +653,11 @@ export class DynamicRepository {
     };
   }
 
-  async exists(filter: any = {}): Promise<boolean> {
+  async exists(filter?: any): Promise<boolean> {
+    const normalizedFilter = this.normalizeExistsFilter(filter);
+    this.assertValidExistsFilter(normalizedFilter);
     const result = await this.find({
-      filter,
+      filter: normalizedFilter,
       fields: [this.getIdField()],
       limit: 1,
       sort: this.getIdField(),
