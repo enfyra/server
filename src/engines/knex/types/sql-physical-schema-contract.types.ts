@@ -24,6 +24,7 @@ export interface SqlForeignKeyContract {
   tableName: string;
   propertyName: string;
   columnName: string;
+  constraintName: string;
   targetTable: string;
   targetColumn: string;
   onDelete: SqlRelationOnDelete;

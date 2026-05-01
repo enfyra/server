@@ -42,11 +42,37 @@ describe('SQL physical schema contract', () => {
         tableName: 'route_definition',
         propertyName: 'mainTable',
         columnName: 'mainTableId',
+        constraintName: 'route_definition_mainTableId_foreign',
         targetTable: 'table_definition',
         targetColumn: 'id',
         onDelete: 'CASCADE',
         onUpdate: 'CASCADE',
         nullable: false,
+      },
+    ]);
+
+    expect(
+      buildSqlForeignKeyContracts('order_definition', [
+        {
+          propertyName: 'customer',
+          type: 'many-to-one',
+          targetTable: 'account_definition',
+          foreignKeyColumn: 'customer_uuid',
+          referencedColumn: 'uuid',
+          constraintName: 'orders_customer_uuid_fkey',
+        },
+      ] as any),
+    ).toEqual([
+      {
+        tableName: 'order_definition',
+        propertyName: 'customer',
+        columnName: 'customer_uuid',
+        constraintName: 'orders_customer_uuid_fkey',
+        targetTable: 'account_definition',
+        targetColumn: 'uuid',
+        onDelete: 'SET NULL',
+        onUpdate: 'CASCADE',
+        nullable: true,
       },
     ]);
 
