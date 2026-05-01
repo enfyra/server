@@ -31,6 +31,8 @@ export interface RelationMetadata {
   description?: string;
 
   foreignKeyColumn?: string;
+  referencedColumn?: string;
+  constraintName?: string;
 
   junctionTableName?: string;
   junctionSourceColumn?: string;

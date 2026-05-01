@@ -23,9 +23,16 @@ export interface RelationDef {
   targetTable: string;
   inversePropertyName?: string;
   isNullable?: boolean;
+  onDelete?: 'CASCADE' | 'RESTRICT' | 'SET NULL';
   isSystem?: boolean;
   isUpdatable?: boolean;
   isInverseEager?: boolean;
+  foreignKeyColumn?: string;
+  referencedColumn?: string;
+  constraintName?: string;
+  junctionTableName?: string;
+  junctionSourceColumn?: string;
+  junctionTargetColumn?: string;
 }
 
 export interface TableDef {

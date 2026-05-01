@@ -86,7 +86,9 @@ export class SqlTableMetadataBuilderService {
             `Relation '${rel.propertyName}' (${rel.type}) from table '${table.name}' has invalid targetTableId: ${rel.targetTableId}. Target table not found.`,
           );
         }
-        rel.foreignKeyColumn = getForeignKeyColumnName(rel.propertyName);
+        rel.foreignKeyColumn =
+          rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
+        rel.referencedColumn = rel.referencedColumn || 'id';
       }
     }
     table.relations = relations;
@@ -148,7 +150,10 @@ export class SqlTableMetadataBuilderService {
         };
 
         if (['many-to-one', 'one-to-one'].includes(rel.type)) {
-          relation.foreignKeyColumn = getForeignKeyColumnName(rel.propertyName);
+          relation.foreignKeyColumn =
+            rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
+          relation.referencedColumn = rel.referencedColumn || 'id';
+          relation.constraintName = rel.constraintName || null;
         }
 
         if (rel.type === 'many-to-many') {

@@ -41,6 +41,9 @@ export interface TCreateRelationBody {
   isNullable?: boolean;
   index?: boolean;
   onDelete?: 'CASCADE' | 'RESTRICT' | 'SET NULL';
+  foreignKeyColumn?: string;
+  referencedColumn?: string;
+  constraintName?: string;
   isIndex?: boolean;
   isSystem?: boolean;
   isPublished?: boolean;

@@ -37,7 +37,7 @@ export async function addForeignKeys(
     try {
       await knex.schema.alterTable(fkOp.tableName, (table) => {
         const fk = table
-          .foreign(fkOp.columnName)
+          .foreign(fkOp.columnName, fkOp.constraintName)
           .references(fkOp.targetColumn)
           .inTable(fkOp.targetTable);
 
