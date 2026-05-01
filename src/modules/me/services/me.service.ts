@@ -9,7 +9,7 @@ export class MeService {
       throw new Error('Repository not found in route context');
     }
     const userId = req.user._id || req.user.id;
-    const result = await repo.find({ where: { id: { _eq: userId } } });
+    const result = await repo.find({ filter: { id: { _eq: userId } } });
     const loginProvider = req.user.loginProvider ?? null;
     if (result?.data && Array.isArray(result.data)) {
       return {
@@ -37,7 +37,7 @@ export class MeService {
       throw new Error('Repository not found in route context');
     }
     const userId = req.user._id || req.user.id;
-    const { data } = await repo.find({ where: { userId } });
+    const { data } = await repo.find({ filter: { userId } });
     return { data };
   }
 }

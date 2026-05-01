@@ -793,5 +793,83 @@
       },
       "validateBody": false
     }
+  ],
+  "column_definition": [
+    {
+      "_unique": {
+        "_and": [
+          {
+            "table": {
+              "name": {
+                "_eq": "route_definition"
+              }
+            }
+          },
+          {
+            "name": {
+              "_eq": "icon"
+            }
+          }
+        ]
+      },
+      "defaultValue": "lucide:route"
+    },
+    {
+      "_unique": {
+        "_and": [
+          {
+            "table": {
+              "name": {
+                "_eq": "menu_definition"
+              }
+            }
+          },
+          {
+            "name": {
+              "_eq": "icon"
+            }
+          }
+        ]
+      },
+      "defaultValue": "lucide:menu"
+    },
+    {
+      "_unique": {
+        "_and": [
+          {
+            "table": {
+              "name": {
+                "_eq": "folder_definition"
+              }
+            }
+          },
+          {
+            "name": {
+              "_eq": "icon"
+            }
+          }
+        ]
+      },
+      "defaultValue": "lucide:folder"
+    },
+    {
+      "_unique": {
+        "_and": [
+          {
+            "table": {
+              "name": {
+                "_eq": "flow_definition"
+              }
+            }
+          },
+          {
+            "name": {
+              "_eq": "icon"
+            }
+          }
+        ]
+      },
+      "defaultValue": "lucide:workflow"
+    }
   ]
 }

@@ -91,6 +91,9 @@ function buildColumnZod(
       s = z.union([z.string(), z.date()]);
       break;
     case 'uuid':
+    case 'objectId':
+    case 'ObjectId':
+    case 'objectid':
       s = z.string();
       break;
     case 'enum': {
@@ -238,8 +241,22 @@ function buildRelationZod(
       }
       return looseSingleRelationSchema().nullable().optional();
     }
-    case 'many-to-many':
+    case 'many-to-many': {
+      if (canCascade) {
+        const nested = buildZodFromMetadata({
+          tableMeta: targetMeta,
+          mode: 'create',
+          rulesForColumn: ctx.rulesForColumn,
+          getTableMetadata: ctx.getTableMetadata,
+          visited: new Set([...ctx.visited, targetName]),
+          depth: ctx.depth + 1,
+          skipChildRelationName: rel.mappedBy ?? null,
+          strict: false,
+        });
+        return z.array(z.union([connectByIdSchema(), nested])).optional();
+      }
       return z.array(connectByIdSchema()).optional();
+    }
     case 'one-to-many': {
       if (canCascade) {
         const nested = buildZodFromMetadata({
@@ -272,10 +289,8 @@ export function buildZodFromMetadata(opts: BuildZodOpts): z.ZodObject<any> {
   // Admin UIs often echo auto-managed fields back in PATCH payloads. Accept
   // them silently (server ignores these; they're not user-writable).
   const autoManagedSchema: Record<string, z.ZodType> = {};
-  for (const col of tableMeta?.columns || []) {
-    if (AUTO_MANAGED_COLUMNS.has(col.name)) {
-      autoManagedSchema[col.name] = z.any().optional();
-    }
+  for (const name of AUTO_MANAGED_COLUMNS) {
+    autoManagedSchema[name] = z.any().optional();
   }
 
   // Whitelisted virtual fields per system table (handled by custom handlers).

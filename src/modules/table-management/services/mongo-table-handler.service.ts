@@ -34,6 +34,11 @@ import { DEFAULT_REST_HANDLER_LOGIC } from '../../../domain/bootstrap';
 import { compileScriptSource } from '@enfyra/kernel';
 import { TableManagementValidationService } from './table-validation.service';
 import { MongoMetadataSnapshotService } from './mongo-metadata-snapshot.service';
+import {
+  MONGO_PRIMARY_KEY_TYPE,
+  isMongoPrimaryKeyType,
+  normalizeMongoPrimaryKeyColumn,
+} from '../utils/mongo-primary-key.util';
 export class MongoTableHandlerService {
   private logger = new Logger(MongoTableHandlerService.name);
   private queryBuilderService: QueryBuilderService;
@@ -139,6 +144,9 @@ export class MongoTableHandlerService {
               );
             }
           }
+          body.columns = (body.columns || []).map((col: any) =>
+            normalizeMongoPrimaryKeyColumn(col),
+          );
           const idCol = body.columns.find(
             (col: any) => col.name === '_id' && col.isPrimary,
           );
@@ -148,10 +156,9 @@ export class MongoTableHandlerService {
               { tableName: body.name },
             );
           }
-          const validTypes = ['int', 'uuid'];
-          if (!validTypes.includes(idCol.type)) {
+          if (!isMongoPrimaryKeyType(idCol.type)) {
             throw new ValidationException(
-              `The primary column "_id" must be of type int or uuid.`,
+              `The primary column "_id" must be of type ${MONGO_PRIMARY_KEY_TYPE}.`,
               { tableName: body.name, idColumnType: idCol.type },
             );
           }
