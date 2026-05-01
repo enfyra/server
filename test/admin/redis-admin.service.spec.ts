@@ -49,6 +49,7 @@ class FakePipeline {
 
 class FakeRedis {
   values = new Map<string, { type: string; value: any; ttl: number }>();
+  infoOverrides: Record<string, string> = {};
 
   pipeline() {
     return new FakePipeline(this);
@@ -69,14 +70,14 @@ class FakeRedis {
       '# Clients',
       'connected_clients:3',
       '# Memory',
-      'used_memory:1048576',
-      'used_memory_human:1.00M',
-      'maxmemory:2097152',
-      'maxmemory_human:2.00M',
+      `used_memory:${this.infoOverrides.used_memory ?? '1048576'}`,
+      `used_memory_human:${this.infoOverrides.used_memory_human ?? '1.00M'}`,
+      `maxmemory:${this.infoOverrides.maxmemory ?? '2097152'}`,
+      `maxmemory_human:${this.infoOverrides.maxmemory_human ?? '2.00M'}`,
       'total_system_memory:17179869184',
       'total_system_memory_human:16.00G',
       'mem_allocator:libc',
-      'mem_fragmentation_ratio:1.25',
+      `mem_fragmentation_ratio:${this.infoOverrides.mem_fragmentation_ratio ?? '1.25'}`,
       '# CPU',
       'used_cpu_sys:1.5',
       'used_cpu_user:2.5',
@@ -288,6 +289,10 @@ describe('RedisAdminService', () => {
         usedCpuSys: 1.5,
       }),
     );
+    expect(overview.health).toEqual({
+      severity: 'ok',
+      warnings: [],
+    });
     expect(overview.userCache).toEqual(
       expect.objectContaining({
         usedBytes: 0,
@@ -308,6 +313,59 @@ describe('RedisAdminService', () => {
     expect(overview.topKeys[0]).toEqual(
       expect.objectContaining({ key: 'user:key', modifiable: true }),
     );
+  });
+
+  it('does not warn for high Redis fragmentation on tiny datasets', async () => {
+    const { redis, service } = makeService();
+    redis.infoOverrides = {
+      used_memory: String(3 * 1024 * 1024),
+      used_memory_human: '3.00M',
+      maxmemory: '0',
+      maxmemory_human: '0B',
+      mem_fragmentation_ratio: '3.2',
+    };
+
+    const overview = await service.getOverview();
+
+    expect(overview.health).toEqual({
+      severity: 'ok',
+      warnings: [],
+    });
+  });
+
+  it('warns for high Redis fragmentation when memory usage is meaningful', async () => {
+    const { redis, service } = makeService();
+    redis.infoOverrides = {
+      used_memory: String(128 * 1024 * 1024),
+      used_memory_human: '128.00M',
+      maxmemory: '0',
+      maxmemory_human: '0B',
+      mem_fragmentation_ratio: '2.4',
+    };
+
+    const overview = await service.getOverview();
+
+    expect(overview.health).toEqual({
+      severity: 'warning',
+      warnings: ['Redis memory fragmentation ratio is 2.4.'],
+    });
+  });
+
+  it('reports Redis memory pressure from configured maxmemory', async () => {
+    const { redis, service } = makeService();
+    redis.infoOverrides = {
+      used_memory: String(96 * 1024 * 1024),
+      used_memory_human: '96.00M',
+      maxmemory: String(100 * 1024 * 1024),
+      maxmemory_human: '100.00M',
+    };
+
+    const overview = await service.getOverview();
+
+    expect(overview.health).toEqual({
+      severity: 'error',
+      warnings: ['Redis memory usage is 96% of configured maxmemory.'],
+    });
   });
 
   it('allows modifying normal keys', async () => {

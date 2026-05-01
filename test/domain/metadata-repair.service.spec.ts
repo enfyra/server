@@ -18,6 +18,7 @@ function makeTable(
     uniques: any;
     indexes: any;
     relations: any[];
+    columns: any[];
   }>,
 ) {
   return {
@@ -27,6 +28,7 @@ function makeTable(
     uniques: [],
     indexes: [],
     relations: [],
+    columns: [],
     ...overrides,
   };
 }
@@ -142,6 +144,50 @@ describe('MetadataRepairService.runIfNeeded', () => {
       (c: any) => c[0] === 'setting_definition',
     );
     expect(settingUpdate![2]).toEqual({ uniquesIndexesRepaired: true });
+  });
+
+  it('repairs Mongo primary key column metadata even when uniques/indexes flag is already true', async () => {
+    DatabaseConfigService.overrideForTesting?.('mongodb');
+    const update = vi.fn().mockResolvedValue(undefined);
+    const columnId = '65f000000000000000000001';
+    const qb = makeQb(
+      (args: any) =>
+        args.table === 'column_definition'
+          ? {
+              data: [
+                {
+                  _id: columnId,
+                  name: '_id',
+                  type: 'uuid',
+                  isPrimary: true,
+                },
+              ],
+            }
+          : {
+              data: [
+                {
+                  _id: 'setting-id',
+                  isInit: true,
+                  uniquesIndexesRepaired: true,
+                },
+              ],
+            },
+      update,
+    );
+    const cache = makeCache([]);
+    const svc = new MetadataRepairService({
+      queryBuilderService: qb,
+      metadataCacheService: cache,
+    });
+
+    await svc.runIfNeeded();
+
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledWith(
+      'column_definition',
+      { where: [{ field: '_id', operator: '=', value: columnId }] },
+      { name: '_id', type: 'ObjectId' },
+    );
   });
 
   it('skips system tables', async () => {

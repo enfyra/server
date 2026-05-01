@@ -11,6 +11,7 @@ import {
 } from '../../../shared/types/schema-migration.types';
 import * as fs from 'fs';
 import * as path from 'path';
+import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
 
 export class MetadataMigrationService {
   private readonly logger = new Logger(MetadataMigrationService.name);
@@ -33,7 +34,7 @@ export class MetadataMigrationService {
           (parsed.tables?.length > 0 || parsed.tablesToDrop?.length > 0)
         ) {
           this.migrations = parsed;
-          this.logger.log(
+          this.verbose(
             `Loaded snapshot-migration.json with ${parsed.tables?.length || 0} table migration(s)`,
           );
         }
@@ -61,11 +62,11 @@ export class MetadataMigrationService {
 
   async runMigrations(): Promise<void> {
     if (!this.hasMigrations()) {
-      this.logger.log('No metadata migrations to run');
+      this.verbose('No metadata migrations to run');
       return;
     }
 
-    this.logger.log(
+    this.verbose(
       'Running metadata migrations from snapshot-migration.json...',
     );
 
@@ -81,7 +82,7 @@ export class MetadataMigrationService {
       await this.migrateTableMetadata(tableMigration, isMongoDB);
     }
 
-    this.logger.log('Metadata migrations completed');
+    this.verbose('Metadata migrations completed');
   }
 
   private async findTableId(
@@ -109,7 +110,7 @@ export class MetadataMigrationService {
     tableNames: string[],
     isMongoDB: boolean,
   ): Promise<void> {
-    this.logger.log(`Dropping metadata for ${tableNames.length} table(s)...`);
+    this.verbose(`Dropping metadata for ${tableNames.length} table(s)...`);
 
     for (const tableName of tableNames) {
       try {
@@ -136,7 +137,7 @@ export class MetadataMigrationService {
           await knex('table_definition').where('id', tableId).delete();
         }
 
-        this.logger.log(`  Dropped metadata for table: ${tableName}`);
+        this.verbose(`  Dropped metadata for table: ${tableName}`);
       } catch (error) {
         this.logger.error(
           `  Failed to drop metadata for ${tableName}: ${getErrorMessage(error)}`,
@@ -150,7 +151,7 @@ export class MetadataMigrationService {
     isMongoDB: boolean,
   ): Promise<void> {
     const tableName = migration._unique.name._eq;
-    this.logger.log(`Migrating metadata for table: ${tableName}`);
+    this.verbose(`Migrating metadata for table: ${tableName}`);
 
     const found = await this.findTableId(tableName, isMongoDB);
     if (!found) {
@@ -269,7 +270,7 @@ export class MetadataMigrationService {
               .where('id', columnId)
               .update(updateData);
           }
-          this.logger.log(
+          this.verbose(
             `  Modified column metadata: ${oldName} → ${mod.to.name}`,
           );
         }
@@ -302,7 +303,7 @@ export class MetadataMigrationService {
             .collection('column_definition')
             .deleteOne({ table: tableId, name: colName });
           if (result.deletedCount > 0) {
-            this.logger.log(`  Removed column metadata: ${colName}`);
+            this.verbose(`  Removed column metadata: ${colName}`);
           }
         } else {
           const knex = this.queryBuilderService.getKnex();
@@ -312,7 +313,7 @@ export class MetadataMigrationService {
             .first();
           if (column) {
             await knex('column_definition').where('id', column.id).delete();
-            this.logger.log(`  Removed column metadata: ${colName}`);
+            this.verbose(`  Removed column metadata: ${colName}`);
           }
         }
 
@@ -428,7 +429,7 @@ export class MetadataMigrationService {
     await knex.schema.alterTable(tableName, (table: any) => {
       table.dropColumn(colName);
     });
-    this.logger.log(`  Dropped physical column: ${tableName}.${colName}`);
+    this.verbose(`  Dropped physical column: ${tableName}.${colName}`);
   }
 
   private async modifyRelationMetadata(
@@ -538,7 +539,7 @@ export class MetadataMigrationService {
               .where('id', relationId)
               .update(updateData);
           }
-          this.logger.log(
+          this.verbose(
             `  Modified relation metadata: ${oldName} → ${mod.to.propertyName}`,
           );
         }
@@ -565,7 +566,7 @@ export class MetadataMigrationService {
             .collection('relation_definition')
             .deleteOne({ sourceTable: tableId, propertyName: relName });
           if (result.deletedCount > 0) {
-            this.logger.log(`  Removed relation metadata: ${relName}`);
+            this.verbose(`  Removed relation metadata: ${relName}`);
           }
         } else {
           const knex = this.queryBuilderService.getKnex();
@@ -575,7 +576,7 @@ export class MetadataMigrationService {
             .first();
           if (relation) {
             await knex('relation_definition').where('id', relation.id).delete();
-            this.logger.log(`  Removed relation metadata: ${relName}`);
+            this.verbose(`  Removed relation metadata: ${relName}`);
           }
         }
       } catch (err) {
@@ -584,5 +585,9 @@ export class MetadataMigrationService {
         );
       }
     }
+  }
+
+  private verbose(message: string): void {
+    bootstrapVerboseLog(this.logger, message);
   }
 }

@@ -115,6 +115,70 @@ export class DynamicRepository {
     return this.queryBuilderService.getPkField();
   }
 
+  private isPlainObject(value: any): value is Record<string, any> {
+    return (
+      value !== null &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      Object.getPrototypeOf(value) === Object.prototype
+    );
+  }
+
+  private isFilterOperatorObject(value: any): boolean {
+    return (
+      this.isPlainObject(value) &&
+      Object.keys(value).length > 0 &&
+      Object.keys(value).every((key) => key.startsWith('_'))
+    );
+  }
+
+  private normalizeExistsFilter(input: any): any {
+    if (!this.isPlainObject(input)) return input;
+    const keys = Object.keys(input);
+    if (
+      keys.length === 1 &&
+      Object.prototype.hasOwnProperty.call(input, 'filter') &&
+      !this.isFilterOperatorObject(input.filter)
+    ) {
+      return input.filter;
+    }
+    return input;
+  }
+
+  private hasNonEmptyFilter(value: any): boolean {
+    if (value === undefined || value === null) return false;
+    if (Array.isArray(value)) {
+      return value.some((item) => this.hasNonEmptyFilter(item));
+    }
+    if (!this.isPlainObject(value)) return true;
+    const keys = Object.keys(value);
+    if (keys.length === 0) return false;
+    return keys.some((key) => this.hasNonEmptyFilter(value[key]));
+  }
+
+  private containsUndefined(value: any): boolean {
+    if (value === undefined) return true;
+    if (Array.isArray(value)) {
+      return value.some((item) => this.containsUndefined(item));
+    }
+    if (!this.isPlainObject(value)) return false;
+    return Object.values(value).some((item) => this.containsUndefined(item));
+  }
+
+  private assertValidExistsFilter(filter: any) {
+    if (filter === undefined || filter === null) {
+      throw new BadRequestException('exists requires a non-empty filter');
+    }
+    if (this.containsUndefined(filter)) {
+      throw new BadRequestException(
+        'exists filter cannot contain undefined values',
+      );
+    }
+    if (!this.hasNonEmptyFilter(filter)) {
+      throw new BadRequestException('exists requires a non-empty filter');
+    }
+  }
+
   private getItemId(item: any): any {
     if (item == null) return null;
     if (typeof item === 'string' || typeof item === 'number') return item;
@@ -512,7 +576,6 @@ export class DynamicRepository {
   async find(
     opt: {
       filter?: any;
-      where?: any;
       fields?: string | string[];
       limit?: number;
       sort?: string;
@@ -546,8 +609,7 @@ export class DynamicRepository {
     const debugMode =
       this.context.$query?.debugMode === 'true' ||
       this.context.$query?.debugMode === true;
-    const filterValue =
-      opt?.filter ?? opt?.where ?? this.context.$query?.filter ?? {};
+    const filterValue = opt?.filter ?? this.context.$query?.filter ?? {};
     if (this.tableName === 'table_definition') {
     }
     const result = await this.queryBuilderService.find({
@@ -589,6 +651,18 @@ export class DynamicRepository {
       ...result,
       data: sanitizedData,
     };
+  }
+
+  async exists(filter?: any): Promise<boolean> {
+    const normalizedFilter = this.normalizeExistsFilter(filter);
+    this.assertValidExistsFilter(normalizedFilter);
+    const result = await this.find({
+      filter: normalizedFilter,
+      fields: [this.getIdField()],
+      limit: 1,
+      sort: this.getIdField(),
+    });
+    return Array.isArray(result?.data) && result.data.length > 0;
   }
 
   async create(opt: { data: any; fields?: string | string[] }) {
@@ -648,7 +722,7 @@ export class DynamicRepository {
           affectedTables: table.affectedTables,
         });
         return await this.find({
-          where: { [this.getIdField()]: { _eq: idValue } },
+          filter: { [this.getIdField()]: { _eq: idValue } },
           fields,
         });
       }
@@ -667,7 +741,7 @@ export class DynamicRepository {
       const createdId = inserted.id || inserted._id || body.id;
       try {
         const result = await this.find({
-          where: { [this.getIdField()]: { _eq: createdId } },
+          filter: { [this.getIdField()]: { _eq: createdId } },
           fields,
         });
         await this.reload({ ids: [createdId] });
@@ -719,7 +793,7 @@ export class DynamicRepository {
         this.tableMetadata,
       );
       const existsResult = await this.find({
-        where: { [this.getIdField()]: { _eq: id } },
+        filter: { [this.getIdField()]: { _eq: id } },
       });
       const exists = existsResult?.data?.[0];
       if (!exists) throw new BadRequestException(`id ${id} is not exists!`);
@@ -788,7 +862,7 @@ export class DynamicRepository {
           affectedTables: table.affectedTables,
         });
         return this.find({
-          where: { [this.getIdField()]: { _eq: tableId } },
+          filter: { [this.getIdField()]: { _eq: tableId } },
           fields,
         });
       }
@@ -799,7 +873,7 @@ export class DynamicRepository {
         ),
       );
       const result = await this.find({
-        where: { [this.getIdField()]: { _eq: id } },
+        filter: { [this.getIdField()]: { _eq: id } },
         fields,
       });
       await this.reload({ ids: [id] });
@@ -829,7 +903,7 @@ export class DynamicRepository {
       const { id } = opt;
       const idField = this.getIdField();
       const existsResult = await this.find({
-        where: { [idField]: { _eq: id } },
+        filter: { [idField]: { _eq: id } },
       });
       const exists = existsResult?.data?.[0];
       if (!exists) throw new BadRequestException(`id ${id} is not exists!`);
@@ -961,13 +1035,12 @@ export class DynamicRepository {
     }
   }
 
-  private toMethodIds(arr: any[]): number[] {
+  private toMethodIds(arr: any[]): string[] {
     if (!Array.isArray(arr)) return [];
     return arr
-      .map((item) =>
-        item && typeof item === 'object' && 'id' in item ? item.id : item,
-      )
-      .filter((id): id is number => id != null && typeof id === 'number');
+      .map((item) => this.getItemId(item))
+      .filter((id) => id != null)
+      .map((id) => String(id));
   }
 
   private filterMethodsSubsetOfAvailable(
@@ -975,7 +1048,7 @@ export class DynamicRepository {
     existing: any,
     field: 'publishedMethods' | 'skipRoleGuardMethods',
   ): void {
-    const availableIds = new Set<number>(
+    const availableIds = new Set<string>(
       body.availableMethods
         ? this.toMethodIds(
             Array.isArray(body.availableMethods) ? body.availableMethods : [],
@@ -994,9 +1067,8 @@ export class DynamicRepository {
     }
     const current = Array.isArray(body[field]) ? body[field] : [];
     const filtered = current.filter((item: any) => {
-      const id =
-        item && typeof item === 'object' && 'id' in item ? item.id : item;
-      return id != null && availableIds.has(Number(id));
+      const id = this.getItemId(item);
+      return id != null && availableIds.has(String(id));
     });
     body[field] = filtered;
   }

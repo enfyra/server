@@ -67,3 +67,7 @@ ADMIN_PASSWORD=1234
 ############################################
 # development | production | test
 NODE_ENV=development
+
+# Bootstrap install/upgrade logs
+# 0 = only high-level Installing/Upgrading progress, 1 = include table/record-level provision logs.
+BOOTSTRAP_VERBOSE=0

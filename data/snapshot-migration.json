@@ -24,6 +24,7 @@
               "text",
               "boolean",
               "uuid",
+              "ObjectId",
               "bigint",
               "date",
               "enum",

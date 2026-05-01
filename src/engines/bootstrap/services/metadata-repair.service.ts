@@ -2,6 +2,10 @@ import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { MetadataCacheService } from '../../cache';
 import { DatabaseConfigService } from '../../../shared/services';
+import {
+  MONGO_PRIMARY_KEY_NAME,
+  MONGO_PRIMARY_KEY_TYPE,
+} from '../../../modules/table-management/utils/mongo-primary-key.util';
 
 export class MetadataRepairService {
   private readonly logger = new Logger(MetadataRepairService.name);
@@ -18,16 +22,69 @@ export class MetadataRepairService {
 
   async runIfNeeded(): Promise<void> {
     const setting = await this.loadSetting();
-    if (!setting || setting.uniquesIndexesRepaired === true) return;
+    if (!setting) return;
 
-    const repairedCount = await this.repairUserTables();
-    await this.markRepaired(setting);
+    const mongoPrimaryKeyRepairCount = DatabaseConfigService.instanceIsMongoDb()
+      ? await this.repairMongoPrimaryKeyColumns()
+      : 0;
 
-    if (repairedCount > 0) {
+    if (mongoPrimaryKeyRepairCount > 0) {
       this.logger.log(
-        `Repaired uniques/indexes metadata on ${repairedCount} user table(s)`,
+        `Repaired Mongo primary key metadata on ${mongoPrimaryKeyRepairCount} table(s)`,
       );
     }
+
+    if (setting.uniquesIndexesRepaired !== true) {
+      const repairedCount = await this.repairUserTables();
+      await this.markRepaired(setting);
+
+      if (repairedCount > 0) {
+        this.logger.log(
+          `Repaired uniques/indexes metadata on ${repairedCount} user table(s)`,
+        );
+      }
+    }
+  }
+
+  private async repairMongoPrimaryKeyColumns(): Promise<number> {
+    const result = await this.queryBuilderService.find({
+      table: 'column_definition',
+      limit: 10000,
+    });
+    const columns = result?.data || [];
+    let repaired = 0;
+    const idField = DatabaseConfigService.getPkField();
+
+    for (const primaryColumn of columns) {
+      if (primaryColumn.isPrimary !== true) continue;
+      if (
+        primaryColumn.name !== MONGO_PRIMARY_KEY_NAME &&
+        primaryColumn.name !== 'id'
+      ) {
+        continue;
+      }
+      if (
+        primaryColumn.name === MONGO_PRIMARY_KEY_NAME &&
+        primaryColumn.type === MONGO_PRIMARY_KEY_TYPE
+      ) {
+        continue;
+      }
+
+      const columnId = primaryColumn._id ?? primaryColumn.id;
+      if (!columnId) continue;
+
+      await this.queryBuilderService.update(
+        'column_definition',
+        { where: [{ field: idField, operator: '=', value: columnId }] },
+        { name: MONGO_PRIMARY_KEY_NAME, type: MONGO_PRIMARY_KEY_TYPE },
+      );
+      repaired++;
+      this.logger.log(
+        `Repaired Mongo primary key column '${primaryColumn.name}' from type '${primaryColumn.type}' to '${MONGO_PRIMARY_KEY_NAME}' '${MONGO_PRIMARY_KEY_TYPE}'`,
+      );
+    }
+
+    return repaired;
   }
 
   private async repairUserTables(): Promise<number> {

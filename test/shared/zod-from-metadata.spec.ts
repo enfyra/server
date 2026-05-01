@@ -162,6 +162,29 @@ describe('buildZodFromMetadata — flags', () => {
       }),
     );
     expect(s.safeParse({}).success).toBe(true);
+    expect(
+      s.safeParse({
+        id: 1,
+        _id: '507f1f77bcf86cd799439011',
+        createdAt: '2026-05-01T00:00:00.000Z',
+        updatedAt: '2026-05-01T00:00:00.000Z',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('auto-managed columns are accepted even when metadata omits them', () => {
+    const s = build(
+      makeMeta({
+        columns: [col('path', 'varchar', { isNullable: false })],
+      }),
+      'update',
+    );
+    expect(
+      s.safeParse({
+        createdAt: '2026-05-01T00:00:00.000Z',
+        updatedAt: '2026-05-01T00:00:00.000Z',
+      }).success,
+    ).toBe(true);
   });
 
   it('isNullable=false required on create', () => {
@@ -827,6 +850,35 @@ describe('buildZodFromMetadata — array relation edge cases', () => {
       () => target,
     );
     expect(s.safeParse({ tags: [] }).success).toBe(true);
+  });
+
+  it('m2m with cascade accepts nested create objects', () => {
+    const s = build(
+      makeMeta({
+        relations: [
+          { type: 'many-to-many', propertyName: 'tags', targetTable: 'tag' },
+        ],
+      }),
+      'create',
+      () => target,
+    );
+    expect(s.safeParse({ tags: [{ name: 'new tag' }] }).success).toBe(true);
+    expect(s.safeParse({ tags: [{ id: 1 }, { name: 'new tag' }] }).success).toBe(
+      true,
+    );
+  });
+
+  it('m2m with cascade validates nested required fields', () => {
+    const s = build(
+      makeMeta({
+        relations: [
+          { type: 'many-to-many', propertyName: 'tags', targetTable: 'tag' },
+        ],
+      }),
+      'create',
+      () => target,
+    );
+    expect(s.safeParse({ tags: [{}] }).success).toBe(false);
   });
 
   it('m2m with null item → fail', () => {

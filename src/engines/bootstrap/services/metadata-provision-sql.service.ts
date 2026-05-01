@@ -14,6 +14,7 @@ import {
   supportsSqlColumnDefault,
 } from '../../knex';
 import { loadRelationRenameMap } from '../../../domain/bootstrap';
+import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
 
 export class MetadataProvisionSqlService {
   private readonly logger = new Logger(MetadataProvisionSqlService.name);
@@ -55,7 +56,7 @@ export class MetadataProvisionSqlService {
     for (const tableName of coreTables) {
       const exists = await qb.schema.hasTable(tableName);
       if (!exists) {
-        this.logger.log(`Creating core table: ${tableName}`);
+        this.verbose(`Creating core table: ${tableName}`);
         if (tableName === 'table_definition') {
           await qb.schema.createTable(tableName, (table: any) => {
             table.increments('id').primary();
@@ -147,7 +148,7 @@ export class MetadataProvisionSqlService {
     await this.ensureCoreTables();
     await qb.transaction(async (trx: any) => {
       const tableNameToId: Record<string, number> = {};
-      this.logger.log('Phase 1: Processing table definitions...');
+      this.verbose('Phase 1: Processing table definitions...');
       const tableEntries = Object.entries(snapshot);
       let existingTables: any[] = [];
       try {
@@ -208,11 +209,11 @@ export class MetadataProvisionSqlService {
           tableNameToId[name] = insertedId;
         }
       }
-      this.logger.log(
+      this.verbose(
         `Phase 1 done: ${Object.keys(tableNameToId).length} tables`,
       );
 
-      this.logger.log('Phase 2: Processing column definitions...');
+      this.verbose('Phase 2: Processing column definitions...');
       let allColumns: any[] = [];
       try {
         allColumns = await trx('column_definition').select('*');
@@ -266,9 +267,9 @@ export class MetadataProvisionSqlService {
           }
         }
       }
-      this.logger.log('Phase 2 done');
+      this.verbose('Phase 2 done');
 
-      this.logger.log('Phase 3: Processing relation definitions...');
+      this.verbose('Phase 3: Processing relation definitions...');
       let allRelations: any[] = [];
       try {
         allRelations = await trx('relation_definition').select('*');
@@ -523,11 +524,11 @@ export class MetadataProvisionSqlService {
           await upsertRelation(tableName, tableId, rel, snapshotRelId, true);
         }
       }
-      this.logger.log('SQL metadata sync completed');
+      this.verbose('SQL metadata sync completed');
     });
-    this.logger.log('Phase 4: Syncing physical schema from metadata...');
+    this.verbose('Phase 4: Syncing physical schema from metadata...');
     await this.syncPhysicalSchemaFromMetadata(snapshot);
-    this.logger.log('Physical schema sync completed');
+    this.verbose('Physical schema sync completed');
   }
   private async syncPhysicalSchemaFromMetadata(snapshot: any): Promise<void> {
     const qb = this.queryBuilderService.getConnection();
@@ -690,5 +691,9 @@ export class MetadataProvisionSqlService {
       snapshotCol.isUpdatable !== existingCol.isUpdatable ||
       (snapshotCol.isPublished ?? true) !== (existingCol.isPublished ?? true);
     return hasChanges;
+  }
+
+  private verbose(message: string): void {
+    bootstrapVerboseLog(this.logger, message);
   }
 }

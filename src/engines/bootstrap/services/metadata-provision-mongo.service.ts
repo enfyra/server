@@ -10,6 +10,8 @@ import {
   loadRelationRenameMap,
 } from '../../../domain/bootstrap';
 import { buildMongoFullIndexSpecs } from '../../mongo';
+import { normalizeMongoPrimaryKeyColumn } from '../../../modules/table-management/utils/mongo-primary-key.util';
+import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
 class TableDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[]): Promise<any[]> {
     const now = new Date();
@@ -139,7 +141,7 @@ export class MetadataProvisionMongoService {
     return record;
   }
   async createInitMetadata(snapshot: any): Promise<void> {
-    this.logger.log('MongoDB: Creating metadata from snapshot...');
+    this.verbose('MongoDB: Creating metadata from snapshot...');
     const db = this.queryBuilderService.getMongoDb();
     const tableNameToId: Record<string, ObjectId> = {};
     const columnDef = snapshot['column_definition'];
@@ -158,7 +160,7 @@ export class MetadataProvisionMongoService {
     );
     const targetTableFieldName =
       targetTableRelation?.propertyName || 'targetTable';
-    this.logger.log(
+    this.verbose(
       `Field names: table=${tableFieldName}, sourceTable=${sourceTableFieldName}, targetTable=${targetTableFieldName}`,
     );
     const tableProcessor = new TableDefinitionProcessor();
@@ -166,7 +168,7 @@ export class MetadataProvisionMongoService {
     const relationProcessor = new RelationDefinitionProcessor(
       sourceTableFieldName,
     );
-    this.logger.log('Step 1: Upserting tables...');
+    this.verbose('Step 1: Upserting tables...');
     const tableDef = snapshot['table_definition'];
     if (!tableDef || !tableDef.columns) {
       throw new Error('table_definition not found in snapshot');
@@ -185,7 +187,7 @@ export class MetadataProvisionMongoService {
       db,
       'table_definition',
     );
-    this.logger.log(
+    this.verbose(
       `Tables: ${tableResult.created} created, ${tableResult.skipped} skipped`,
     );
     for (const [tableName, defRaw] of Object.entries(snapshot)) {
@@ -197,7 +199,7 @@ export class MetadataProvisionMongoService {
         tableNameToId[tableName] = table._id;
       }
     }
-    this.logger.log('Step 2: Upserting columns...');
+    this.verbose('Step 2: Upserting columns...');
     if (!columnDef || !columnDef.columns) {
       throw new Error('column_definition not found in snapshot');
     }
@@ -206,11 +208,12 @@ export class MetadataProvisionMongoService {
       const tableId = tableNameToId[tableName];
       if (!tableId) continue;
       const columnRecords = (def.columns || []).map((col: any) => {
-        const record = this.buildRecordFromColumns(col, columnDef.columns);
+        const normalizedColumn = normalizeMongoPrimaryKeyColumn(col);
+        const record = this.buildRecordFromColumns(
+          normalizedColumn,
+          columnDef.columns,
+        );
         record[tableFieldName] = tableId;
-        if (record.name === 'id' && record.isPrimary) {
-          record.name = '_id';
-        }
         if (tableName === 'table_definition' && col.name === 'name') {
           this.logger.debug(
             `Sample column record: ${JSON.stringify(record, null, 2)}`,
@@ -229,7 +232,7 @@ export class MetadataProvisionMongoService {
         );
       }
     }
-    this.logger.log('Step 3: Upserting owning relations...');
+    this.verbose('Step 3: Upserting owning relations...');
     const relationRenameMap = loadRelationRenameMap();
     const relationColl = db.collection('relation_definition');
     if (!relationDef || !relationDef.columns) {
@@ -361,7 +364,7 @@ export class MetadataProvisionMongoService {
         }
       }
     }
-    this.logger.log('Step 4: Upserting inverse relations...');
+    this.verbose('Step 4: Upserting inverse relations...');
     const processedInverseRelations = new Set<string>();
     const upsertGeneratedReverseOneToMany = async (
       sourceTableName: string,
@@ -574,8 +577,12 @@ export class MetadataProvisionMongoService {
         );
       }
     }
-    this.logger.log('Step 5: Syncing physical indexes...');
+    this.verbose('Step 5: Syncing physical indexes...');
     await this.syncPhysicalIndexesFromSnapshot(snapshot, db);
-    this.logger.log('MongoDB metadata creation completed');
+    this.verbose('MongoDB metadata creation completed');
+  }
+
+  private verbose(message: string): void {
+    bootstrapVerboseLog(this.logger, message);
   }
 }

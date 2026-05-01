@@ -2,6 +2,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import pino, { Logger as PinoLogger } from 'pino';
 import { logStore } from './log-store';
+import { getBootstrapLogMode } from './bootstrap-log-context';
 
 const LOG_DIR = path.join(process.cwd(), 'logs');
 if (!fs.existsSync(LOG_DIR)) {
@@ -43,6 +44,55 @@ const PINO_LEVEL: Record<
   debug: 'debug',
   verbose: 'trace',
 };
+
+const LEVEL_PRIORITY: Record<LevelName, number> = {
+  error: 0,
+  warn: 1,
+  log: 2,
+  debug: 3,
+  verbose: 4,
+};
+
+const LOG_LEVEL_PRIORITY: Record<string, number> = {
+  error: 0,
+  warn: 1,
+  info: 2,
+  log: 2,
+  debug: 3,
+  verbose: 4,
+  trace: 4,
+};
+
+const BOOTSTRAP_QUIET_CONTEXTS = new Set([
+  'TableDefinitionProcessor',
+  'ColumnDefinitionProcessor',
+  'RelationDefinitionProcessor',
+  'UserDefinitionProcessor',
+  'MenuDefinitionProcessor',
+  'RouteDefinitionProcessor',
+  'RouteHandlerDefinitionProcessor',
+  'MethodDefinitionProcessor',
+  'PreHookDefinitionProcessor',
+  'PostHookDefinitionProcessor',
+  'FieldPermissionDefinitionProcessor',
+  'SettingDefinitionProcessor',
+  'ExtensionDefinitionProcessor',
+  'FolderDefinitionProcessor',
+  'BootstrapScriptDefinitionProcessor',
+  'RoutePermissionDefinitionProcessor',
+  'WebsocketDefinitionProcessor',
+  'WebsocketEventDefinitionProcessor',
+  'FlowDefinitionProcessor',
+  'FlowStepDefinitionProcessor',
+  'FlowExecutionDefinitionProcessor',
+  'GraphQLDefinitionProcessor',
+  'GenericTableProcessor',
+  'DataMigrationService',
+  'DataProvisionService',
+  'MetadataMigrationService',
+  'MetadataProvisionMongoService',
+  'MetadataProvisionSqlService',
+]);
 
 let logCounter = 0;
 function generateLogId(): string {
@@ -159,6 +209,24 @@ function printPretty(
   }
 }
 
+function shouldEmit(level: LevelName, context: string | undefined): boolean {
+  if (level === 'error' || level === 'warn') return true;
+
+  const configured = process.env.LOG_LEVEL || 'info';
+  const maxPriority = LOG_LEVEL_PRIORITY[configured] ?? LOG_LEVEL_PRIORITY.info;
+  if (LEVEL_PRIORITY[level] > maxPriority) return false;
+
+  if (
+    getBootstrapLogMode() === 'quiet' &&
+    context &&
+    BOOTSTRAP_QUIET_CONTEXTS.has(context)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 export class Logger {
   private readonly context?: string;
 
@@ -243,6 +311,10 @@ export class Logger {
     }
 
     if (ctx) meta.context = ctx;
+
+    if (!shouldEmit(level, ctx)) {
+      return;
+    }
 
     const pinoLevel = PINO_LEVEL[level];
     pinoInstance[pinoLevel](meta, msg);

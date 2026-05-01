@@ -1,6 +1,6 @@
 {
   "name": "enfyra-server",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "description": "Dynamic backend platform that auto-generates REST and GraphQL APIs from database schemas",
   "author": "dothinh115 <dothinh115@gmail.com>",
   "private": false,
@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1024.0",
-    "@enfyra/kernel": "1.0.4",
+    "@enfyra/kernel": "1.0.8",
     "@envelop/depth-limit": "^7.1.1",
     "@google-cloud/storage": "^7.19.0",
     "@graphql-tools/schema": "^10.0.31",
