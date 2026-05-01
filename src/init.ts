@@ -28,16 +28,7 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
 
   if (await c.firstRunInitializer.isNeeded()) {
     await c.firstRunInitializer.run();
-  } else {
-    await c.metadataProvisionService?.createInitMetadata?.();
-    await c.metadataCacheService?.clearMetadataCache?.();
-    if (c.metadataMigrationService?.hasMigrations?.()) {
-      await c.metadataMigrationService.runMigrations();
-      await c.metadataCacheService?.clearMetadataCache?.();
-    }
   }
-
-  await c.metadataRepairService?.runIfNeeded?.();
 
   await c.cacheOrchestratorService?.init?.();
   await c.metadataCacheService?.reload?.();
