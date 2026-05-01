@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { ObjectId } from 'mongodb';
+import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
 
 interface InitOld {
   [tableName: string]: any | any[];
@@ -36,7 +37,7 @@ export class DataMigrationService {
         const parsed = JSON.parse(content);
         if (parsed && Object.keys(parsed).length > 0) {
           this.initOld = parsed;
-          this.logger.log(
+          this.verbose(
             `Loaded data-migration.json with ${Object.keys(parsed).length} table(s) to migrate`,
           );
         }
@@ -63,7 +64,7 @@ export class DataMigrationService {
 
   async runMigrations(): Promise<void> {
     if (!this.hasMigrations()) {
-      this.logger.log('No data migrations to run');
+      this.verbose('No data migrations to run');
       return;
     }
 
@@ -77,7 +78,7 @@ export class DataMigrationService {
   }
 
   private async runMigrationBatch(): Promise<void> {
-    this.logger.log('Running data migrations from data-migration.json...');
+    this.verbose('Running data migrations from data-migration.json...');
 
     if (
       this.initOld!._deletedTables &&
@@ -100,17 +101,17 @@ export class DataMigrationService {
       totalMigrated += count;
     }
 
-    this.logger.log(
+    this.verbose(
       `Data migrations completed: ${totalMigrated} record(s) migrated`,
     );
   }
 
   private async deleteTableData(tableNames: string[]): Promise<void> {
-    this.logger.log(`Deleting data from ${tableNames.length} table(s)...`);
+    this.verbose(`Deleting data from ${tableNames.length} table(s)...`);
     for (const tableName of tableNames) {
       try {
         await this.queryBuilderService.delete(tableName, { where: [] });
-        this.logger.log(`Deleted all data from ${tableName}`);
+        this.verbose(`Deleted all data from ${tableName}`);
       } catch (error) {
         this.logger.warn(
           `Failed to delete data from ${tableName}: ${getErrorMessage(error)}`,
@@ -139,7 +140,7 @@ export class DataMigrationService {
 
         const count = existing.data?.length || 0;
         if (count > 0) {
-          this.logger.log(`Deleted ${count} record(s) from ${table}`);
+          this.verbose(`Deleted ${count} record(s) from ${table}`);
         }
       } catch (error) {
         this.logger.warn(
@@ -208,7 +209,7 @@ export class DataMigrationService {
     }
 
     if (migratedCount > 0) {
-      this.logger.log(`Migrated ${migratedCount} record(s) in ${tableName}`);
+      this.verbose(`Migrated ${migratedCount} record(s) in ${tableName}`);
     }
 
     return migratedCount;
@@ -281,9 +282,9 @@ export class DataMigrationService {
             [field]: methodIds,
           });
           if (methodIds.length > 0) {
-            this.logger.log(`Linked ${methodIds.length} ${field} to route`);
+            this.verbose(`Linked ${methodIds.length} ${field} to route`);
           } else {
-            this.logger.log(`Cleared ${field} for route`);
+            this.verbose(`Cleared ${field} for route`);
           }
         }
       }
@@ -320,5 +321,9 @@ export class DataMigrationService {
     }
 
     return null;
+  }
+
+  private verbose(message: string): void {
+    bootstrapVerboseLog(this.logger, message);
   }
 }

@@ -52,6 +52,10 @@ const EnvSchema = z.object({
     .enum(['0', '1'])
     .optional()
     .transform((v) => v === '1'),
+  BOOTSTRAP_VERBOSE: z
+    .enum(['0', '1'])
+    .optional()
+    .transform((v) => v === '1'),
   ISOLATED_EXECUTOR_FILE_LOG: z
     .enum(['0', '1'])
     .optional()

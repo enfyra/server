@@ -12,6 +12,8 @@ import { DataProvisionService } from './data-provision.service';
 import { DataMigrationService } from './data-migration.service';
 import { RouteDefinitionProcessor } from '../../../domain/bootstrap';
 import { REDIS_TTL, PROVISION_LOCK_KEY } from '../../../shared/utils/constant';
+import { isBootstrapVerbose } from '../utils/bootstrap-logging.util';
+import { runWithBootstrapLogMode } from '../../../shared/bootstrap-log-context';
 
 export class FirstRunInitializer {
   private readonly logger = new Logger(FirstRunInitializer.name);
@@ -25,6 +27,7 @@ export class FirstRunInitializer {
   private readonly dataProvisionService: DataProvisionService;
   private readonly dataMigrationService: DataMigrationService;
   private readonly routeDefinitionProcessor: RouteDefinitionProcessor;
+  private lastProgressLineLength = 0;
 
   constructor(deps: {
     commonService: CommonService;
@@ -69,8 +72,17 @@ export class FirstRunInitializer {
   }
 
   async run(): Promise<void> {
+    return runWithBootstrapLogMode(
+      isBootstrapVerbose() ? 'verbose' : 'quiet',
+      () => this.runWithBootstrapConsoleMode(() => this.runWithProgress()),
+    );
+  }
+
+  private async runWithProgress(): Promise<void> {
     const start = Date.now();
     const lockValue = this.instanceService.getInstanceId();
+    const mode = await this.getInitMode();
+    this.logProgress(mode, 0, 'starting');
     const acquired = await this.cacheService.acquire(
       PROVISION_LOCK_KEY,
       lockValue,
@@ -78,44 +90,50 @@ export class FirstRunInitializer {
     );
 
     if (!acquired) {
-      this.logger.log('Another instance is initializing, waiting...');
+      this.logProgress(mode, 0, 'another instance is running, waiting');
       await this.waitUntilDone();
-      this.logger.log(`Waited for init, ready in ${Date.now() - start}ms`);
+      this.logProgress(mode, 100, `ready in ${Date.now() - start}ms`);
       return;
     }
 
     try {
       if (!(await this.isNeeded())) {
-        this.logger.log(
-          `Already initialized by another instance, ready in ${Date.now() - start}ms`,
+        this.logProgress(
+          mode,
+          100,
+          `already initialized by another instance, ready in ${Date.now() - start}ms`,
         );
         return;
       }
 
-      this.logger.log('First time initialization...');
+      this.logProgress(mode, 5, 'acquired init lock');
 
       const t1 = Date.now();
+      this.logProgress(mode, 10, 'provisioning metadata');
       await this.metadataProvisionService.createInitMetadata();
       await this.metadataCacheService.clearMetadataCache();
-      this.logger.log(`createInitMetadata: ${Date.now() - t1}ms`);
+      this.logVerbose(`createInitMetadata: ${Date.now() - t1}ms`);
 
       if (this.metadataMigrationService.hasMigrations()) {
         const t2 = Date.now();
-        this.logger.log('Running metadata migrations...');
+        this.logProgress(mode, 35, 'applying metadata migrations');
         await this.metadataMigrationService.runMigrations();
         await this.metadataCacheService.clearMetadataCache();
-        this.logger.log(`Metadata migrations: ${Date.now() - t2}ms`);
+        this.logVerbose(`Metadata migrations: ${Date.now() - t2}ms`);
       }
 
       const t3 = Date.now();
+      this.logProgress(mode, 50, 'warming metadata cache');
       await this.metadataCacheService.getMetadata();
-      this.logger.log(`Metadata cache warmed: ${Date.now() - t3}ms`);
+      this.logVerbose(`Metadata cache warmed: ${Date.now() - t3}ms`);
 
       const t4 = Date.now();
+      this.logProgress(mode, 65, 'seeding default data');
       await this.dataProvisionService.insertAllDefaultRecords();
-      this.logger.log(`Default records: ${Date.now() - t4}ms`);
+      this.logVerbose(`Default records: ${Date.now() - t4}ms`);
 
       try {
+        this.logProgress(mode, 80, 'ensuring route handlers');
         await this.routeDefinitionProcessor.ensureMissingHandlers();
       } catch (error) {
         this.logger.error(
@@ -125,16 +143,84 @@ export class FirstRunInitializer {
 
       if (this.dataMigrationService.hasMigrations()) {
         const t5 = Date.now();
-        this.logger.log('Running data migrations...');
+        this.logProgress(mode, 90, 'applying data migrations');
         await this.dataMigrationService.runMigrations();
-        this.logger.log(`Data migrations: ${Date.now() - t5}ms`);
+        this.logVerbose(`Data migrations: ${Date.now() - t5}ms`);
       }
 
+      this.logProgress(mode, 98, 'finalizing');
       await this.markInitialized();
 
-      this.logger.log(`Initialization completed in ${Date.now() - start}ms`);
+      this.logProgress(mode, 100, `completed in ${Date.now() - start}ms`);
     } finally {
       await this.cacheService.release(PROVISION_LOCK_KEY, lockValue);
+    }
+  }
+
+  private async getInitMode(): Promise<'Installing' | 'Upgrading'> {
+    try {
+      const sortField = DatabaseConfigService.getPkField();
+      const result = await this.queryBuilderService.find({
+        table: 'setting_definition',
+        sort: [sortField],
+        limit: 1,
+      });
+      return result.data[0] ? 'Upgrading' : 'Installing';
+    } catch (error: any) {
+      if (error.code === 'ER_NO_SUCH_TABLE' || error.code === '42P01') {
+        return 'Installing';
+      }
+      throw error;
+    }
+  }
+
+  private logProgress(
+    mode: 'Installing' | 'Upgrading',
+    percent: number,
+    message: string,
+  ): void {
+    if (process.env.LOG_DISABLE_CONSOLE === '1') return;
+
+    const now = new Date();
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(
+      now.getSeconds(),
+    )}`;
+    const line = `[${time}] ${mode} (${percent}%) ${message}`;
+    const padding = ' '.repeat(
+      Math.max(0, this.lastProgressLineLength - line.length),
+    );
+    process.stdout.write(`\r${line}${padding}`);
+    this.lastProgressLineLength = line.length;
+    if (percent >= 100) {
+      process.stdout.write('\n');
+      this.lastProgressLineLength = 0;
+    }
+  }
+
+  private logVerbose(message: string): void {
+    if (isBootstrapVerbose()) {
+      this.logger.log(message);
+    }
+  }
+
+  private async runWithBootstrapConsoleMode<T>(
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    if (isBootstrapVerbose()) {
+      return callback();
+    }
+
+    const originalLog = console.log;
+    const originalWarn = console.warn;
+    console.log = () => {};
+    console.warn = () => {};
+
+    try {
+      return await callback();
+    } finally {
+      console.log = originalLog;
+      console.warn = originalWarn;
     }
   }
 
