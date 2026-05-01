@@ -179,8 +179,8 @@ function makePosts(ids: ObjectId[]) {
   }));
 }
 
-describe('Mongo dotted sort on o2m (aggregate path)', () => {
-  test('sort comments ASC by author.name within each post', async () => {
+describe('Mongo dotted sort on o2m', () => {
+  test('rejects comments sort ASC by author.name', async () => {
     const rows = makePosts(postIds);
     const desc: MongoBatchFetchDescriptor = {
       relationName: 'comments',
@@ -192,23 +192,21 @@ describe('Mongo dotted sort on o2m (aggregate path)', () => {
       foreignField: 'post',
       userSort: 'author.name',
     };
-    await executeMongoBatchFetches(
-      db,
-      rows,
-      [desc],
-      metadataGetter,
-      3,
-      0,
-      'posts',
-      metadata,
-    );
-    const post0Bodies = rows[0].comments.map((c: any) => c.body);
-    const post1Bodies = rows[1].comments.map((c: any) => c.body);
-    expect(post0Bodies).toEqual(['c1', 'c0', 'c2']);
-    expect(post1Bodies).toEqual(['c5', 'c4', 'c3']);
+    await expect(
+      executeMongoBatchFetches(
+        db,
+        rows,
+        [desc],
+        metadataGetter,
+        3,
+        0,
+        'posts',
+        metadata,
+      ),
+    ).rejects.toThrow(/Sort field 'author\.name' is not supported/i);
   });
 
-  test('sort comments DESC by author.name within each post', async () => {
+  test('rejects comments sort DESC by author.name', async () => {
     const rows = makePosts(postIds);
     const desc: MongoBatchFetchDescriptor = {
       relationName: 'comments',
@@ -220,29 +218,21 @@ describe('Mongo dotted sort on o2m (aggregate path)', () => {
       foreignField: 'post',
       userSort: '-author.name',
     };
-    await executeMongoBatchFetches(
-      db,
-      rows,
-      [desc],
-      metadataGetter,
-      3,
-      0,
-      'posts',
-      metadata,
-    );
-    expect(rows[0].comments.map((c: any) => c.body)).toEqual([
-      'c2',
-      'c0',
-      'c1',
-    ]);
-    expect(rows[1].comments.map((c: any) => c.body)).toEqual([
-      'c3',
-      'c4',
-      'c5',
-    ]);
+    await expect(
+      executeMongoBatchFetches(
+        db,
+        rows,
+        [desc],
+        metadataGetter,
+        3,
+        0,
+        'posts',
+        metadata,
+      ),
+    ).rejects.toThrow(/Sort field 'author\.name' is not supported/i);
   });
 
-  test('dotted sort + limit per-parent returns top-k by sort key', async () => {
+  test('rejects dotted sort + limit per-parent', async () => {
     const rows = makePosts(postIds);
     const desc: MongoBatchFetchDescriptor = {
       relationName: 'comments',
@@ -255,23 +245,21 @@ describe('Mongo dotted sort on o2m (aggregate path)', () => {
       userSort: 'author.name',
       userLimit: 2,
     };
-    await executeMongoBatchFetches(
-      db,
-      rows,
-      [desc],
-      metadataGetter,
-      3,
-      0,
-      'posts',
-      metadata,
-    );
-    expect(rows[0].comments.length).toBe(2);
-    expect(rows[0].comments.map((c: any) => c.body)).toEqual(['c1', 'c0']);
-    expect(rows[1].comments.length).toBe(2);
-    expect(rows[1].comments.map((c: any) => c.body)).toEqual(['c5', 'c4']);
+    await expect(
+      executeMongoBatchFetches(
+        db,
+        rows,
+        [desc],
+        metadataGetter,
+        3,
+        0,
+        'posts',
+        metadata,
+      ),
+    ).rejects.toThrow(/Sort field 'author\.name' is not supported/i);
   });
 
-  test('2-hop dotted sort: author.company.name', async () => {
+  test('rejects 2-hop dotted sort: author.company.name', async () => {
     const rows = makePosts(postIds);
     const desc: MongoBatchFetchDescriptor = {
       relationName: 'comments',
@@ -283,22 +271,21 @@ describe('Mongo dotted sort on o2m (aggregate path)', () => {
       foreignField: 'post',
       userSort: 'author.company.name',
     };
-    await executeMongoBatchFetches(
-      db,
-      rows,
-      [desc],
-      metadataGetter,
-      3,
-      0,
-      'posts',
-      metadata,
-    );
-    const post0Bodies = rows[0].comments.map((c: any) => c.body);
-    expect(post0Bodies[0] === 'c1' || post0Bodies[0] === 'c2').toBe(true);
-    expect(post0Bodies[post0Bodies.length - 1]).toBe('c0');
+    await expect(
+      executeMongoBatchFetches(
+        db,
+        rows,
+        [desc],
+        metadataGetter,
+        3,
+        0,
+        'posts',
+        metadata,
+      ),
+    ).rejects.toThrow(/Sort field 'author\.company\.name' is not supported/i);
   });
 
-  test('dotted sort + filter combined (filter applied after join)', async () => {
+  test('rejects dotted sort + filter combined', async () => {
     const rows = makePosts([postIds[0]]);
     const desc: MongoBatchFetchDescriptor = {
       relationName: 'comments',
@@ -311,21 +298,21 @@ describe('Mongo dotted sort on o2m (aggregate path)', () => {
       userFilter: { seq: { _gte: 2 } },
       userSort: 'author.name',
     };
-    await executeMongoBatchFetches(
-      db,
-      rows,
-      [desc],
-      metadataGetter,
-      3,
-      0,
-      'posts',
-      metadata,
-    );
-    const bodies = rows[0].comments.map((c: any) => c.body);
-    expect(bodies).toEqual(['c1', 'c2']);
+    await expect(
+      executeMongoBatchFetches(
+        db,
+        rows,
+        [desc],
+        metadataGetter,
+        3,
+        0,
+        'posts',
+        metadata,
+      ),
+    ).rejects.toThrow(/Sort field 'author\.name' is not supported/i);
   });
 
-  test('dotted sort emits trace with strategy reflecting aggregate path', async () => {
+  test('rejects dotted sort before fetch trace is emitted', async () => {
     const rows = makePosts(postIds);
     const trace = new TestTrace();
     const desc: MongoBatchFetchDescriptor = {
@@ -339,21 +326,22 @@ describe('Mongo dotted sort on o2m (aggregate path)', () => {
       userSort: 'author.name',
       userLimit: 2,
     };
-    await executeMongoBatchFetches(
-      db,
-      rows,
-      [desc],
-      metadataGetter,
-      3,
-      0,
-      'posts',
-      metadata,
-      trace,
-    );
-    const entry = trace.entries.find((e) => e.stage.includes('comments'));
-    expect(entry).toBeDefined();
-    expect(entry!.meta?.strategy).toBe('per-parent-c16');
-    expect(entry!.meta?.userSort).toBe(true);
+    await expect(
+      executeMongoBatchFetches(
+        db,
+        rows,
+        [desc],
+        metadataGetter,
+        3,
+        0,
+        'posts',
+        metadata,
+        trace,
+      ),
+    ).rejects.toThrow(/Sort field 'author\.name' is not supported/i);
+    expect(
+      trace.entries.find((e) => e.stage.includes('comments')),
+    ).toBeUndefined();
   });
 
   test('simple sort without dots stays on find() path (no aggregate)', async () => {
