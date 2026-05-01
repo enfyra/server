@@ -30,12 +30,6 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
     await c.firstRunInitializer.run();
   }
 
-  try {
-    await c.metadataRepairService?.runIfNeeded?.();
-  } catch (e: any) {
-    console.warn('MetadataRepairService failed (non-fatal):', e.message);
-  }
-
   await c.cacheOrchestratorService?.init?.();
   await c.metadataCacheService?.reload?.();
   c.eventEmitter.emit(CACHE_EVENTS.METADATA_LOADED);
