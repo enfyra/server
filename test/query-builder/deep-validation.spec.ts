@@ -235,17 +235,17 @@ describe('validateDeepOptions', () => {
         { comments: { sort: 'nonexistentColumn' } },
         metadata,
       ),
-    ).toThrow(/references unknown field 'nonexistentColumn'/);
+    ).toThrow(/does not exist/i);
   });
 
-  test('accepts valid dotted sort through m2o chain', () => {
+  test('rejects dotted sort through m2o chain', () => {
     expect(() =>
       validateDeepOptions(
         'posts',
         { author: { sort: 'company.name' } },
         metadata,
       ),
-    ).not.toThrow();
+    ).toThrow(/Sort field 'company\.name' is not supported/i);
   });
 
   test('rejects dotted sort through o2m relation', () => {
@@ -255,7 +255,7 @@ describe('validateDeepOptions', () => {
         { posts: { sort: 'comments.body', limit: 3 } },
         metadata,
       ),
-    ).toThrow(/one-to-many.*sort path must only traverse/i);
+    ).toThrow(/Sort field 'comments\.body' is not supported/i);
   });
 
   test('validates nested deep recursively', () => {
@@ -311,24 +311,24 @@ describe('validateDeepOptions', () => {
     ).not.toThrow();
   });
 
-  test('accepts dotted sort at max 3 hops (author.company.region.name)', () => {
+  test('rejects dotted sort at any depth', () => {
     expect(() =>
       validateDeepOptions(
         'posts',
         { comments: { sort: 'post.author.company.name' } },
         metadata,
       ),
-    ).not.toThrow();
+    ).toThrow(/Sort field 'post\.author\.company\.name' is not supported/i);
   });
 
-  test('rejects dotted sort exceeding 3 hops', () => {
+  test('rejects dotted sort before hop-depth validation', () => {
     expect(() =>
       validateDeepOptions(
         'posts',
         { comments: { sort: 'post.author.company.region.name' } },
         metadata,
       ),
-    ).toThrow(/exceeds max dotted hops of 3/i);
+    ).toThrow(/Sort field 'post\.author\.company\.region\.name' is not supported/i);
   });
 
   test('accepts nested filter at max 3 hops (post.author.company.name)', () => {
