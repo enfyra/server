@@ -65,7 +65,7 @@ function makeCoordinator(input: {
 }
 
 describe('SqlPoolClusterCoordinatorService', () => {
-  it('isolates SQL pool heartbeats by NODE_NAME when apps share Redis and DB', async () => {
+  it('shares SQL pool heartbeats across NODE_NAME values when apps use the same DB server', async () => {
     const redis = new FakeRedis();
     const appA = makeCoordinator({
       redis,
@@ -83,16 +83,22 @@ describe('SqlPoolClusterCoordinatorService', () => {
 
     await expect(appA.getClusterStats()).resolves.toEqual(
       expect.objectContaining({
-        activeCount: 1,
-        instances: [expect.objectContaining({ id: 'same-instance' })],
-        key: expect.stringMatching(/^app-a:coord:sql:pool:/),
+        activeCount: 2,
+        instances: expect.arrayContaining([
+          expect.objectContaining({ id: 'app-a:same-instance' }),
+          expect.objectContaining({ id: 'app-b:same-instance' }),
+        ]),
+        key: expect.stringMatching(/^coord:sql:pool:/),
       }),
     );
     await expect(appB.getClusterStats()).resolves.toEqual(
       expect.objectContaining({
-        activeCount: 1,
-        instances: [expect.objectContaining({ id: 'same-instance' })],
-        key: expect.stringMatching(/^app-b:coord:sql:pool:/),
+        activeCount: 2,
+        instances: expect.arrayContaining([
+          expect.objectContaining({ id: 'app-a:same-instance' }),
+          expect.objectContaining({ id: 'app-b:same-instance' }),
+        ]),
+        key: expect.stringMatching(/^coord:sql:pool:/),
       }),
     );
 

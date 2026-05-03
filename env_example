@@ -19,6 +19,12 @@ DB_URI=mysql://root:1234@localhost:3306/enfyra
 # If true, master is included in round-robin pool for reads (master + replicas)
 # If false, read queries only use replicas via round-robin (master is only used for writes)
 # DB_READ_FROM_MASTER=false
+
+# SQL connection pool per app process (optional)
+# Defaults: MySQL min=1 max=8; PostgreSQL min=0 max=4.
+# Keep PostgreSQL pools small; use PgBouncer or more app instances for high concurrency.
+# SQL_POOL_MIN=0
+# SQL_POOL_MAX=4
 ############################################
 # Redis Cache - required
 ############################################
@@ -37,7 +43,8 @@ REDIS_USER_CACHE_MAX_VALUE_BYTES=0
 ############################################
 # App Runtime - required
 ############################################
-# Node instance name (for logs/cluster)
+# App namespace / node group name (for Redis keys, queues, logs, and same-app cluster coordination).
+# Use the same value for all instances of one Enfyra app and a unique value for each independent app.
 NODE_NAME=my_enfyra
 # HTTP port
 PORT=1105

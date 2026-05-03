@@ -5,8 +5,12 @@
 
 // ─── SQL Pool Cluster Coordination ───────────────────────────────
 
-export const SQL_BOOTSTRAP_POOL_MIN = 1;
-export const SQL_BOOTSTRAP_POOL_MAX_TOTAL = 8;
+export const SQL_MYSQL_POOL_MIN_DEFAULT = 1;
+export const SQL_MYSQL_POOL_MAX_DEFAULT = 8;
+export const SQL_POSTGRES_POOL_MIN_DEFAULT = 0;
+export const SQL_POSTGRES_POOL_MAX_DEFAULT = 4;
+export const SQL_BOOTSTRAP_POOL_MIN = SQL_MYSQL_POOL_MIN_DEFAULT;
+export const SQL_BOOTSTRAP_POOL_MAX_TOTAL = SQL_MYSQL_POOL_MAX_DEFAULT;
 export const SQL_MASTER_RATIO = 0.6;
 export const SQL_ACQUIRE_TIMEOUT_MS = 60_000;
 

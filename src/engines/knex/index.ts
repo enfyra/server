@@ -23,6 +23,7 @@ export {
 export * from './utils/provision/sync-table';
 export * from './utils/provision/table-builder';
 export * from './utils/sql-pool-coordination.util';
+export * from './utils/sql-pool-config.util';
 export * from './utils/sql-physical-schema-contract';
 export * from './utils/uri-parser';
 export * from './utils/cascade-handler';
