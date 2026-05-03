@@ -2,8 +2,6 @@ import {
   HttpException,
   isCustomException,
   getErrorCode,
-  ScriptExecutionException,
-  ScriptTimeoutException,
 } from '../custom-exceptions';
 import { Request, Response, NextFunction } from 'express';
 import { GraphQLError } from 'graphql';
@@ -154,13 +152,6 @@ function logError(
   correlationId: string,
   statusCode: number,
 ): void {
-  if (
-    exception instanceof ScriptExecutionException ||
-    exception instanceof ScriptTimeoutException
-  ) {
-    return;
-  }
-
   let errorMessage: string;
   if (exception instanceof HttpException) {
     const response = exception.getResponse() as any;
@@ -179,7 +170,9 @@ function logError(
     method: request.method,
     url: request.url,
     statusCode,
+    errorCode: (exception as any)?.errorCode || (exception as any)?.code,
     errorName,
+    details: (exception as any)?.details,
     userId: (request as any).user?.id,
     stack: exception instanceof Error ? exception.stack : undefined,
   };

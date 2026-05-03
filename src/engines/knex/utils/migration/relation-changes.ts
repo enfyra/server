@@ -1,16 +1,63 @@
 import { Knex } from 'knex';
 import { Logger } from '../../../../shared/logger';
-import {
-  getJunctionTableName,
-  getJunctionColumnNames,
-} from '@enfyra/kernel';
 import { getPrimaryKeyTypeForTable } from './pk-type.util';
 import {
   getSqlRelationForeignKeyColumn,
   resolveSqlRelationOnDelete,
 } from '../sql-physical-schema-contract';
+import { getSqlJunctionPhysicalNames } from '../../../../modules/table-management/utils/sql-junction-naming.util';
 
 const logger = new Logger('RelationChanges');
+
+function isInverseRelation(rel: any): boolean {
+  return Boolean(rel?.mappedBy || rel?.mappedById);
+}
+
+function ownsSqlForeignKey(rel: any): boolean {
+  return (
+    (rel?.type === 'many-to-one' || rel?.type === 'one-to-one') &&
+    !isInverseRelation(rel)
+  );
+}
+
+function resolveSqlJunctionContract(tableName: string, rel: any): {
+  tableName: string;
+  sourceColumn: string;
+  targetColumn: string;
+} {
+  const generated =
+    !rel.junctionTableName ||
+    !rel.junctionSourceColumn ||
+    !rel.junctionTargetColumn
+      ? getSqlJunctionPhysicalNames({
+          sourceTable: tableName,
+          propertyName: rel.propertyName,
+          targetTable: rel.targetTableName,
+        })
+      : null;
+
+  return {
+    tableName: rel.junctionTableName || generated!.junctionTableName,
+    sourceColumn: rel.junctionSourceColumn || generated!.junctionSourceColumn,
+    targetColumn: rel.junctionTargetColumn || generated!.junctionTargetColumn,
+  };
+}
+
+async function hasOtherOwningJunctionRelation(
+  knex: Knex,
+  relation: any,
+  junctionTableName: string,
+): Promise<boolean> {
+  const rows = await knex('relation_definition')
+    .where({ junctionTableName })
+    .select('id', 'mappedById');
+
+  return rows.some(
+    (row: any) =>
+      String(row.id) !== String(relation.id) &&
+      (row.mappedById === null || row.mappedById === undefined),
+  );
+}
 
 async function validateFkColumnNotConflict(
   fkColumnName: string,
@@ -196,19 +243,26 @@ async function handleDeletedRelations(
     const rel = oldRelations.find((r) => r.id === relId);
     if (!rel) continue;
 
-    if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+    if (ownsSqlForeignKey(rel)) {
       const fkColumn =
         getSqlRelationForeignKeyColumn(rel);
       diff.columns.delete.push({
         name: fkColumn,
         isForeignKey: true,
       });
+    } else if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+      continue;
     } else if (rel.type === 'one-to-many') {
       continue;
     } else if (rel.type === 'many-to-many') {
-      const junctionTableName =
-        rel.junctionTableName ||
-        getJunctionTableName(tableName, rel.propertyName, rel.targetTableName);
+      if (isInverseRelation(rel)) continue;
+
+      const junctionTableName = resolveSqlJunctionContract(tableName, rel).tableName;
+      if (
+        await hasOtherOwningJunctionRelation(knex, rel, junctionTableName)
+      ) {
+        continue;
+      }
 
       if (!diff.junctionTables) {
         diff.junctionTables = { create: [], drop: [], update: [] };
@@ -260,7 +314,7 @@ async function handleCreatedRelations(
     if (rel.mappedBy || rel.mappedById) {
       continue;
     }
-    if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+    if (ownsSqlForeignKey(rel)) {
       const fkColumn = getSqlRelationForeignKeyColumn(rel);
 
       await validateFkColumnNotConflict(
@@ -337,27 +391,18 @@ async function handleCreatedRelations(
         },
       });
     } else if (rel.type === 'many-to-many') {
-      const junctionTableName = getJunctionTableName(
-        tableName,
-        rel.propertyName,
-        rel.targetTableName,
-      );
-      const { sourceColumn, targetColumn } = getJunctionColumnNames(
-        tableName,
-        rel.propertyName,
-        rel.targetTableName,
-      );
+      const junction = resolveSqlJunctionContract(tableName, rel);
 
       if (!diff.junctionTables) {
         diff.junctionTables = { create: [], drop: [], update: [] };
       }
 
       diff.junctionTables.create.push({
-        tableName: junctionTableName,
+        tableName: junction.tableName,
         sourceTable: tableName,
         targetTable: rel.targetTableName,
-        sourceColumn: sourceColumn,
-        targetColumn: targetColumn,
+        sourceColumn: junction.sourceColumn,
+        targetColumn: junction.targetColumn,
       });
     }
   }
@@ -479,7 +524,7 @@ async function handleRelationTargetAndPropertyChange(
     getSqlRelationForeignKeyColumn(oldRel);
   const newFkColumn = getSqlRelationForeignKeyColumn(newRel);
 
-  if (relationType === 'many-to-one' || relationType === 'one-to-one') {
+  if (ownsSqlForeignKey(newRel)) {
     const oldPkType = await getPrimaryKeyTypeForTable(
       knex,
       oldRel.targetTableName,
@@ -565,10 +610,7 @@ async function handleRelationPropertyNameChange(
 ): Promise<void> {
   const relationType = oldRel.type;
 
-  if (
-    (relationType === 'many-to-one' || relationType === 'one-to-one') &&
-    propertyNameChanged
-  ) {
+  if (ownsSqlForeignKey(oldRel) && propertyNameChanged) {
     const oldFkColumn =
       getSqlRelationForeignKeyColumn(oldRel);
     const newFkColumn = getSqlRelationForeignKeyColumn(newRel);
@@ -634,23 +676,7 @@ async function handleRelationPropertyNameChange(
     !mappedByChanged
   ) {
   } else if (relationType === 'many-to-many' && propertyNameChanged) {
-    const oldJunctionTableName = oldRel.junctionTableName;
-    const newJunctionTableName = getJunctionTableName(
-      tableName,
-      newRel.propertyName,
-      newRel.targetTableName,
-    );
-
-    if (oldJunctionTableName !== newJunctionTableName) {
-      if (!diff.junctionTables) {
-        diff.junctionTables = { create: [], drop: [], update: [], rename: [] };
-      }
-
-      diff.junctionTables.rename.push({
-        oldTableName: oldJunctionTableName,
-        newTableName: newJunctionTableName,
-      });
-    }
+    return;
   } else {
     logger.warn(
       `  Unhandled property name change scenario for ${relationType}`,
@@ -677,6 +703,8 @@ async function handleRelationTypeChange(
   const oldType = oldRel.type;
   const newType = newRel.type;
 
+  if (isInverseRelation(oldRel) || isInverseRelation(newRel)) return;
+
   if (
     (oldType === 'many-to-one' || oldType === 'one-to-one') &&
     newType === 'many-to-many'
@@ -688,22 +716,13 @@ async function handleRelationTypeChange(
       isForeignKey: true,
     });
 
-    const junctionTableName = getJunctionTableName(
-      tableName,
-      newRel.propertyName,
-      newRel.targetTableName,
-    );
-    const { sourceColumn, targetColumn } = getJunctionColumnNames(
-      tableName,
-      newRel.propertyName,
-      newRel.targetTableName,
-    );
+    const junction = resolveSqlJunctionContract(tableName, newRel);
     diff.junctionTables.create.push({
-      tableName: junctionTableName,
+      tableName: junction.tableName,
       sourceTable: tableName,
       targetTable: newRel.targetTableName,
-      sourceColumn: sourceColumn,
-      targetColumn: targetColumn,
+      sourceColumn: junction.sourceColumn,
+      targetColumn: junction.targetColumn,
     });
   } else if (
     oldType === 'many-to-many' &&
@@ -757,22 +776,13 @@ async function handleRelationTypeChange(
       isForeignKey: true,
     });
 
-    const junctionTableName = getJunctionTableName(
-      tableName,
-      newRel.propertyName,
-      newRel.targetTableName,
-    );
-    const { sourceColumn, targetColumn } = getJunctionColumnNames(
-      tableName,
-      newRel.propertyName,
-      newRel.targetTableName,
-    );
+    const junction = resolveSqlJunctionContract(tableName, newRel);
     diff.junctionTables.create.push({
-      tableName: junctionTableName,
+      tableName: junction.tableName,
       sourceTable: tableName,
       targetTable: newRel.targetTableName,
-      sourceColumn: sourceColumn,
-      targetColumn: targetColumn,
+      sourceColumn: junction.sourceColumn,
+      targetColumn: junction.targetColumn,
     });
   } else if (oldType === 'many-to-many' && newType === 'one-to-many') {
     const oldJunctionTableName = oldRel.junctionTableName;
@@ -915,7 +925,7 @@ async function handleRelationTargetChange(
 ): Promise<void> {
   const relationType = newRel.type;
 
-  if (relationType === 'many-to-one' || relationType === 'one-to-one') {
+  if (ownsSqlForeignKey(newRel)) {
     const fkColumn =
       getSqlRelationForeignKeyColumn(oldRel);
 
@@ -1013,6 +1023,8 @@ async function handleRelationTargetChange(
       },
     });
   } else if (relationType === 'many-to-many') {
+    if (isInverseRelation(oldRel) || isInverseRelation(newRel)) return;
+
     if (!diff.junctionTables) {
       diff.junctionTables = { create: [], drop: [], update: [], rename: [] };
     }
@@ -1025,22 +1037,13 @@ async function handleRelationTargetChange(
       });
     }
 
-    const newJunctionTableName = getJunctionTableName(
-      tableName,
-      newRel.propertyName,
-      newRel.targetTableName,
-    );
-    const { sourceColumn, targetColumn } = getJunctionColumnNames(
-      tableName,
-      newRel.propertyName,
-      newRel.targetTableName,
-    );
+    const junction = resolveSqlJunctionContract(tableName, newRel);
     diff.junctionTables.create.push({
-      tableName: newJunctionTableName,
+      tableName: junction.tableName,
       sourceTable: tableName,
       targetTable: newRel.targetTableName,
-      sourceColumn: sourceColumn,
-      targetColumn: targetColumn,
+      sourceColumn: junction.sourceColumn,
+      targetColumn: junction.targetColumn,
     });
   }
 }
@@ -1054,7 +1057,7 @@ async function handleOnDeleteChange(
 ): Promise<void> {
   const relationType = newRel.type;
 
-  if (relationType === 'many-to-one' || relationType === 'one-to-one') {
+  if (ownsSqlForeignKey(newRel)) {
     const fkColumn = getSqlRelationForeignKeyColumn(newRel);
 
     if (!diff.foreignKeys) {

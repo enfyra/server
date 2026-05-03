@@ -164,13 +164,13 @@ export class SqlSchemaDiffService {
     const oldRelationFkMap = new Map<string, string>();
     const newRelationFkMap = new Map<string, string>();
     for (const rel of oldMetadata.relations || []) {
-      if (['many-to-one', 'one-to-one'].includes(rel.type)) {
+      if (['many-to-one', 'one-to-one'].includes(rel.type) && !this.isInverseRelation(rel)) {
         const fkCol = getSqlRelationForeignKeyColumn(rel);
         oldRelationFkMap.set(rel.propertyName, fkCol);
       }
     }
     for (const rel of newMetadata.relations || []) {
-      if (['many-to-one', 'one-to-one'].includes(rel.type)) {
+      if (['many-to-one', 'one-to-one'].includes(rel.type) && !this.isInverseRelation(rel)) {
         const fkCol = getSqlRelationForeignKeyColumn(rel);
         newRelationFkMap.set(rel.propertyName, fkCol);
       }
@@ -192,7 +192,12 @@ export class SqlSchemaDiffService {
 
     for (const [relId, newRel] of newRelMap) {
       const oldRel = oldRelMap.get(relId as number);
-      if (oldRel && oldRel.propertyName !== newRel.propertyName) {
+      if (
+        oldRel &&
+        oldRel.propertyName !== newRel.propertyName &&
+        !this.isInverseRelation(oldRel) &&
+        !this.isInverseRelation(newRel)
+      ) {
         propertyNameRenames.set(oldRel.propertyName, newRel.propertyName);
         const oldFk =
           oldRelationFkMap.get(oldRel.propertyName) ||
@@ -257,11 +262,17 @@ export class SqlSchemaDiffService {
       ).map((unique) => unique.physicalColumns);
     }
 
-    const oldIndexes = buildSqlIndexContracts(oldMetadata.name, oldMetadata).map(
-      (index) => index.physicalColumns,
+    const oldIndexes = this.filterIndexesToKnownColumns(
+      oldMetadata,
+      buildSqlIndexContracts(oldMetadata.name, oldMetadata).map(
+        (index) => index.physicalColumns,
+      ),
     );
-    const newIndexes = buildSqlIndexContracts(newMetadata.name, newMetadata).map(
-      (index) => index.physicalColumns,
+    const newIndexes = this.filterIndexesToKnownColumns(
+      newMetadata,
+      buildSqlIndexContracts(newMetadata.name, newMetadata).map(
+        (index) => index.physicalColumns,
+      ),
     );
     const oldIndexKeys = new Set(
       oldIndexes.map((cols: string[]) => this.indexKey(cols)),
@@ -283,6 +294,31 @@ export class SqlSchemaDiffService {
     if (toCreate.length > 0) {
       diff.constraints.indexes.create = toCreate;
     }
+  }
+
+  private isInverseRelation(rel: any): boolean {
+    return Boolean(rel?.mappedBy || rel?.mappedById);
+  }
+
+  private filterIndexesToKnownColumns(metadata: any, indexes: string[][]): string[][] {
+    const knownColumns = this.getKnownPhysicalColumns(metadata);
+    return indexes.filter((cols) => cols.every((col) => knownColumns.has(col)));
+  }
+
+  private getKnownPhysicalColumns(metadata: any): Set<string> {
+    const known = new Set(['id', 'createdAt', 'updatedAt']);
+    for (const col of metadata.columns || []) {
+      if (col?.name) known.add(col.name);
+    }
+    for (const rel of metadata.relations || []) {
+      if (
+        ['many-to-one', 'one-to-one'].includes(rel.type) &&
+        !this.isInverseRelation(rel)
+      ) {
+        known.add(getSqlRelationForeignKeyColumn(rel));
+      }
+    }
+    return known;
   }
 
   hasColumnChanged(oldCol: any, newCol: any): boolean {
@@ -389,8 +425,7 @@ export class SqlSchemaDiffService {
     const knex = this.knexService.getKnex();
     const dbType = this.queryBuilderService.getDatabaseType() as
       | 'mysql'
-      | 'postgres'
-      | 'sqlite';
+      | 'postgres';
     const sqlStatements = await generateSQLFromDiff(
       knex,
       tableName,

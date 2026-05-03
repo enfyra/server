@@ -101,6 +101,7 @@ export class KnexService implements LifecycleAware {
         user: string;
         password: string;
         database: string;
+        filename?: string;
       };
 
       if (DB_URI) {
@@ -111,6 +112,7 @@ export class KnexService implements LifecycleAware {
           user: parsed.user,
           password: parsed.password,
           database: parsed.database,
+          filename: parsed.filename,
         };
       } else {
         connectionConfig = {
@@ -145,6 +147,7 @@ export class KnexService implements LifecycleAware {
             return next();
           },
         },
+        useNullAsDefault: false,
         pool: {
           min: SQL_BOOTSTRAP_POOL_MIN,
           max: SQL_BOOTSTRAP_POOL_MAX_TOTAL,

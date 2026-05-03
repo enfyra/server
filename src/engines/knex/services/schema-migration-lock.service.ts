@@ -41,6 +41,13 @@ export class SchemaMigrationLockService {
   private static readonly STALE_LOCK_THRESHOLD_MS = 120_000;
   private static readonly STALE_HEARTBEAT_THRESHOLD_MS = 30_000;
 
+  private getTimestampValue(knex: KnexLike, dbType: string): unknown {
+    if (dbType === 'postgres') {
+      return new Date().toISOString();
+    }
+    return knex.raw('NOW()');
+  }
+
   async acquire(context: string): Promise<SchemaMigrationLockHandle> {
     const dbType = this.queryBuilderService.getDatabaseType() || 'mysql';
     const token = randomUUID();
@@ -58,11 +65,7 @@ export class SchemaMigrationLockService {
 
     try {
       const updateData: any = {};
-      if (dbType === 'postgres') {
-        updateData.heartbeatAt = new Date().toISOString();
-      } else {
-        updateData.heartbeatAt = knex.raw('NOW()');
-      }
+      updateData.heartbeatAt = this.getTimestampValue(knex, dbType);
 
       const updated = await knex(this.tableName)
         .where({ id: 1, lockToken: handle.token })
@@ -143,11 +146,7 @@ export class SchemaMigrationLockService {
         lockToken: token,
       };
 
-      if (dbType === 'postgres') {
-        updateData.lockedAt = new Date().toISOString();
-      } else {
-        updateData.lockedAt = trx.raw('NOW()');
-      }
+      updateData.lockedAt = this.getTimestampValue(trx, dbType);
 
       await trx(this.tableName).where({ id: 1 }).update(updateData);
       return { token, dbType };
@@ -221,13 +220,8 @@ export class SchemaMigrationLockService {
       lockToken: token,
     };
 
-    if (dbType === 'postgres') {
-      updateData.lockedAt = new Date().toISOString();
-      updateData.heartbeatAt = new Date().toISOString();
-    } else {
-      updateData.lockedAt = knex.raw('NOW()');
-      updateData.heartbeatAt = knex.raw('NOW()');
-    }
+    updateData.lockedAt = this.getTimestampValue(knex, dbType);
+    updateData.heartbeatAt = this.getTimestampValue(knex, dbType);
 
     await knex(this.tableName).where({ id: 1 }).update(updateData);
   }

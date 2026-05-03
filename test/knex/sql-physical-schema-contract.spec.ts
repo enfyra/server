@@ -85,6 +85,38 @@ describe('SQL physical schema contract', () => {
     ]);
   });
 
+  it('does not generate FK contracts or relation-FK indexes for inverse one-to-one relations', () => {
+    const inverseTable = {
+      name: 'room_definition',
+      columns: [{ name: 'id', type: 'int', isPrimary: true }],
+      relations: [
+        {
+          propertyName: 'course',
+          type: 'one-to-one',
+          targetTable: 'course_definition',
+          mappedBy: 'room',
+          mappedById: 10,
+        },
+      ],
+      uniques: [['course']],
+      indexes: [['course']],
+    } as any;
+
+    expect(buildSqlForeignKeyContracts('room_definition', inverseTable.relations)).toEqual([]);
+    expect(buildSqlUniqueContracts('room_definition', inverseTable)).toEqual([
+      {
+        name: 'uq_room_definition_course',
+        logicalColumns: ['course'],
+        physicalColumns: ['course'],
+      },
+    ]);
+    expect(
+      buildSqlIndexContracts('room_definition', inverseTable).filter(
+        (idx) => idx.source === 'relation-fk',
+      ),
+    ).toEqual([]);
+  });
+
   it('appends id tie-breakers to non-unique physical indexes once', () => {
     expect(buildSqlIndexContracts('route_definition', table)).toEqual([
       {
@@ -126,13 +158,28 @@ describe('SQL physical schema contract', () => {
 
     expect(contract).toMatchObject({
       primaryKeyName: 'route_definition_availableMethods_method_definition_pk',
-      sourceIndexName: 'route_definition_availableMethods_src_idx',
-      targetIndexName: 'route_definition_availableMethods_tgt_idx',
-      reverseIndexName: 'route_definition_availableMethods_rev_idx',
+      sourceIndexName: 'idx_route_definition_availableMethods_src',
+      targetIndexName: 'idx_route_definition_availableMethods_tgt',
+      reverseIndexName: 'idx_route_definition_availableMethods_rev',
       onDelete: 'CASCADE',
       onUpdate: 'CASCADE',
     });
     expect(contract.sourceForeignKeyName).toMatch(/^j_[0-9a-f]{8}_src_fk$/);
     expect(contract.targetForeignKeyName).toMatch(/^j_[0-9a-f]{8}_tgt_fk$/);
+  });
+
+  it('keeps generated junction identifiers short for long table names', () => {
+    const contract = buildSqlJunctionTableContract({
+      tableName: 'j_7f2d405c_e2e_flow_c_students_e2e_flow_s',
+      sourceTable: 'e2e_flow_course_1777787795190',
+      targetTable: 'e2e_flow_student_1777787795190',
+      sourceColumn: 'sourceId',
+      targetColumn: 'targetId',
+      sourcePropertyName: 'students',
+    });
+
+    expect(contract.sourceIndexName.length).toBeLessThanOrEqual(63);
+    expect(contract.targetIndexName.length).toBeLessThanOrEqual(63);
+    expect(contract.reverseIndexName.length).toBeLessThanOrEqual(63);
   });
 });

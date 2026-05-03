@@ -131,7 +131,6 @@ export abstract class BaseTableProcessor {
     if (!records || records.length === 0) {
       return { created: 0, skipped: 0 };
     }
-    const idField = DatabaseConfigService.getPkField();
     const transformedRecords = await this.transformRecords(records, context);
     let createdCount = 0;
     let skippedCount = 0;
@@ -157,13 +156,13 @@ export abstract class BaseTableProcessor {
         }
         if (existingRecord) {
           const hasChanges = this.detectRecordChanges(record, existingRecord);
+          const idField = this.resolveRecordIdField(existingRecord);
           if (hasChanges) {
             const existingId = existingRecord[idField];
-            await queryBuilder.update(
-              tableName,
-              existingId,
-              this.prepareRecordForWrite(record, tableName),
-            );
+            const writeRecord = this.prepareRecordForWrite(record, tableName);
+            if (Object.keys(writeRecord).length > 0) {
+              await queryBuilder.update(tableName, existingId, writeRecord);
+            }
             skippedCount++;
             this.logger.debug(
               `   Updated: ${this.getRecordIdentifier(record)}`,
@@ -182,14 +181,12 @@ export abstract class BaseTableProcessor {
             );
           }
         } else {
+          const idField = DatabaseConfigService.getPkField();
           const inserted = await queryBuilder.insert(
             tableName,
             this.prepareRecordForWrite(record, tableName),
           );
-          const insertedId =
-            inserted && typeof inserted === 'object'
-              ? inserted[idField]
-              : inserted;
+          const insertedId = this.resolveInsertedId(inserted, idField);
           createdCount++;
           this.logger.debug(`   Created: ${this.getRecordIdentifier(record)}`);
           if (this.afterUpsert) {
@@ -209,6 +206,20 @@ export abstract class BaseTableProcessor {
       }
     }
     return { created: createdCount, skipped: skippedCount };
+  }
+
+  private resolveRecordIdField(record: any): string {
+    if (record?.id !== undefined) return 'id';
+    if (record?._id !== undefined) return '_id';
+    return DatabaseConfigService.getPkField();
+  }
+
+  private resolveInsertedId(inserted: any, defaultIdField: string): any {
+    if (!inserted || typeof inserted !== 'object') return inserted;
+    if (inserted[defaultIdField] !== undefined) return inserted[defaultIdField];
+    if (inserted.id !== undefined) return inserted.id;
+    if (inserted._id !== undefined) return inserted._id;
+    return inserted;
   }
 
   async processSql(

@@ -1,9 +1,6 @@
 import { Db } from 'mongodb';
-import {
-  getJunctionColumnNames,
-  getJunctionTableName,
-} from '@enfyra/kernel';
 import { TableDef } from '../../../shared/types/database-init.types';
+import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';
 
 export interface JunctionCollectionDef {
   name: string;
@@ -26,37 +23,34 @@ export function buildJunctionDefs(
     for (const relation of tableDef.relations) {
       if (relation.type !== 'many-to-many') continue;
 
-      const junctionName = getJunctionTableName(
-        tableName,
-        relation.propertyName,
-        relation.targetTable,
-      );
+      const junction = getSqlJunctionPhysicalNames({
+        sourceTable: tableName,
+        propertyName: relation.propertyName,
+        targetTable: relation.targetTable,
+      });
+      const reverseJunction = getSqlJunctionPhysicalNames({
+        sourceTable: relation.targetTable,
+        propertyName: relation.inversePropertyName || 'inverse',
+        targetTable: tableName,
+      });
 
-      const reverseJunctionName = getJunctionTableName(
-        relation.targetTable,
-        relation.inversePropertyName || 'inverse',
-        tableName,
-      );
-
-      if (seen.has(junctionName) || seen.has(reverseJunctionName)) continue;
-
-      const { sourceColumn, targetColumn } = getJunctionColumnNames(
-        tableName,
-        relation.propertyName,
-        relation.targetTable,
-      );
+      if (
+        seen.has(junction.junctionTableName) ||
+        seen.has(reverseJunction.junctionTableName)
+      )
+        continue;
 
       defs.push({
-        name: junctionName,
+        name: junction.junctionTableName,
         sourceTable: tableName,
         targetTable: relation.targetTable,
-        sourceColumn,
-        targetColumn,
+        sourceColumn: junction.junctionSourceColumn,
+        targetColumn: junction.junctionTargetColumn,
         sourcePropertyName: relation.propertyName,
       });
 
-      seen.add(junctionName);
-      seen.add(reverseJunctionName);
+      seen.add(junction.junctionTableName);
+      seen.add(reverseJunction.junctionTableName);
     }
   }
 

@@ -1,12 +1,8 @@
 /**
  * Mongo parity of filter-dsl-relations-hardening.spec.ts.
  *
- * The SQL file mixes:
- *   1. DB-agnostic tests for `separateFilters` / `hasLogicalOperators` (not duplicated here)
- *   2. SqlQueryExecutor integration against SQLite (duplicated here against MongoQueryExecutor).
- *
- * This file focuses on (2): relation + logical operator coverage on the Mongo
- * executor to confirm SQL/Mongo behavioral parity for the filter DSL.
+ * Relation + logical operator coverage on the Mongo executor to confirm
+ * SQL/Mongo behavioral parity for the filter DSL.
  */
 
 import { MongoClient, Db, ObjectId } from 'mongodb';

@@ -150,7 +150,7 @@ export class MongoPhysicalMigrationService {
         'mongo-field-rename',
         { migrationId },
         {
-          jobId: `mongo-field-rename:${migrationId}`,
+          jobId: `mongo-field-rename-${migrationId}`,
           attempts: 5,
           backoff: { type: 'exponential', delay: 1000 },
           removeOnComplete: true,

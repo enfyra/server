@@ -14,10 +14,3 @@ export const DEFAULT_REST_HANDLER_LOGIC: Record<string, string> = {
   PATCH: 'return await @REPOS.main.update({ id: @PARAMS.id, data: @BODY });',
   DELETE: 'return await @REPOS.main.delete({ id: @PARAMS.id });',
 };
-
-export const REST_HANDLER_METHOD_NAMES = [
-  'GET',
-  'POST',
-  'PATCH',
-  'DELETE',
-] as const;

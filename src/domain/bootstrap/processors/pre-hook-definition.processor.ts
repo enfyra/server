@@ -1,9 +1,9 @@
 import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { ObjectId } from 'mongodb';
-import { getJunctionColumnNames } from '@enfyra/kernel';
 import { DatabaseConfigService } from '../../../shared/services';
 import { normalizeScriptRecord } from '@enfyra/kernel';
+import { getSqlJunctionMetadata } from '../utils/sql-junction-metadata.util';
 
 export class PreHookDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;
@@ -125,31 +125,40 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     if (!isMongoDB && record._methods && Array.isArray(record._methods)) {
       const methodNames = record._methods;
-      const result = await this.queryBuilderService.find({
-        table: 'method_definition',
-        filter: { method: { _in: methodNames } },
-        fields: ['id', 'method'],
-      });
-      const methods = result.data;
-      const methodIds = methods.map((m: any) => m.id);
+      let hookId = record.id;
+      if (!hookId && record.name) {
+        const hook = await this.queryBuilderService
+          .getKnex()('pre_hook_definition')
+          .select('id')
+          .where({ name: record.name })
+          .first();
+        hookId = hook?.id;
+      }
+      if (hookId === undefined || hookId === null) return;
+      const methods = await this.queryBuilderService
+        .getKnex()('method_definition')
+        .select('id', 'method')
+        .whereIn('method', methodNames);
+      const methodIds = methods
+        .map((m: any) => m.id)
+        .filter((id: any) => id !== undefined && id !== null);
       if (methodIds.length > 0) {
-        const junctionTable = 'pre_hook_definition_methods_method_definition';
-        const { sourceColumn, targetColumn } = getJunctionColumnNames(
-          'pre_hook_definition',
-          'methods',
-          'method_definition',
-        );
-        await this.queryBuilderService.delete(junctionTable, {
-          where: [{ field: sourceColumn, operator: '=', value: record.id }],
-        });
-        const junctionData = methodIds.map((methodId) => ({
-          [targetColumn]: methodId,
-          [sourceColumn]: record.id,
-        }));
-        await this.queryBuilderService.insertWithOptions({
-          table: junctionTable,
-          data: junctionData,
-        });
+        const { junctionTable, sourceColumn, targetColumn } =
+          await getSqlJunctionMetadata(this.queryBuilderService, {
+            sourceTable: 'pre_hook_definition',
+            propertyName: 'methods',
+            targetTable: 'method_definition',
+          });
+        if (!junctionTable || !sourceColumn || !targetColumn) return;
+        const knex = this.queryBuilderService.getKnex();
+        await knex(junctionTable).where({ [sourceColumn]: hookId }).delete();
+        for (const methodId of methodIds) {
+          if (methodId === undefined || methodId === null) continue;
+          await knex(junctionTable).insert({
+            [sourceColumn]: hookId,
+            [targetColumn]: methodId,
+          });
+        }
         this.logger.log(
           `   🔗 Linked ${methodIds.length} methods to pre-hook ${record.name}`,
         );
@@ -158,6 +167,14 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
   }
   getUniqueIdentifier(record: any): object {
     return { name: record.name };
+  }
+  protected prepareRecordForWrite(record: any, _tableName: string): any {
+    if (DatabaseConfigService.instanceIsMongoDb()) {
+      return record;
+    }
+    const prepared = { ...record };
+    delete prepared._methods;
+    return prepared;
   }
   protected getCompareFields(): string[] {
     return [

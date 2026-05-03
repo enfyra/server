@@ -70,8 +70,8 @@ import {
   MetadataProvisionMongoService,
   MetadataProvisionSqlService,
   MetadataProvisionService,
-  MetadataRepairService,
   ProvisionService,
+  SchemaHealingService,
 } from './engines/bootstrap';
 
 import { LoggingService } from './domain/exceptions';
@@ -179,10 +179,16 @@ import { MeService } from './modules/me';
 
 import {
   MongoMetadataSnapshotService,
+  MongoTableCreateService,
+  MongoTableDeleteService,
   MongoTableHandlerService,
+  MongoTableUpdateService,
+  SqlTableCreateService,
+  SqlTableDeleteService,
   SqlTableHandlerService,
   SqlTableMetadataBuilderService,
   SqlTableMetadataWriterService,
+  SqlTableUpdateService,
   TableHandlerService,
   TableManagementValidationService,
 } from './modules/table-management';
@@ -284,7 +290,13 @@ export interface Cradle {
   cacheOrchestratorService: CacheOrchestratorService;
 
   tableHandlerService: TableHandlerService;
+  sqlTableCreateService: SqlTableCreateService;
+  sqlTableUpdateService: SqlTableUpdateService;
+  sqlTableDeleteService: SqlTableDeleteService;
   sqlTableHandlerService: SqlTableHandlerService;
+  mongoTableCreateService: MongoTableCreateService;
+  mongoTableUpdateService: MongoTableUpdateService;
+  mongoTableDeleteService: MongoTableDeleteService;
   mongoTableHandlerService: MongoTableHandlerService;
   tableValidationService: DynamicApiTableValidationService;
   tableManagementValidationService: TableManagementValidationService;
@@ -329,7 +341,7 @@ export interface Cradle {
 
   provisionService: ProvisionService;
   firstRunInitializer: FirstRunInitializer;
-  metadataRepairService: MetadataRepairService;
+  schemaHealingService: SchemaHealingService;
   metadataProvisionService: MetadataProvisionService;
   metadataProvisionSqlService: MetadataProvisionSqlService;
   metadataProvisionMongoService: MetadataProvisionMongoService;
@@ -554,8 +566,26 @@ export function buildContainer(): AwilixContainer<Cradle> {
         mongoTableHandlerService: container.cradle.mongoTableHandlerService,
         databaseConfigService: container.cradle.databaseConfigService,
       })),
-    sqlTableHandlerService: asClass(SqlTableHandlerService).singleton(),
-    mongoTableHandlerService: asClass(MongoTableHandlerService).singleton(),
+    sqlTableCreateService: asClass(SqlTableCreateService).singleton(),
+    sqlTableUpdateService: asClass(SqlTableUpdateService).singleton(),
+    sqlTableDeleteService: asClass(SqlTableDeleteService).singleton(),
+    sqlTableHandlerService: asClass(SqlTableHandlerService)
+      .singleton()
+      .inject((container: any) => ({
+        sqlTableCreateService: container.cradle.sqlTableCreateService,
+        sqlTableUpdateService: container.cradle.sqlTableUpdateService,
+        sqlTableDeleteService: container.cradle.sqlTableDeleteService,
+      })),
+    mongoTableCreateService: asClass(MongoTableCreateService).singleton(),
+    mongoTableUpdateService: asClass(MongoTableUpdateService).singleton(),
+    mongoTableDeleteService: asClass(MongoTableDeleteService).singleton(),
+    mongoTableHandlerService: asClass(MongoTableHandlerService)
+      .singleton()
+      .inject((container: any) => ({
+        mongoTableCreateService: container.cradle.mongoTableCreateService,
+        mongoTableUpdateService: container.cradle.mongoTableUpdateService,
+        mongoTableDeleteService: container.cradle.mongoTableDeleteService,
+      })),
     tableValidationService: asClass(
       DynamicApiTableValidationService,
     ).singleton(),
@@ -622,7 +652,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
 
     provisionService: asClass(ProvisionService).singleton(),
     firstRunInitializer: asClass(FirstRunInitializer).singleton(),
-    metadataRepairService: asClass(MetadataRepairService).singleton(),
+    schemaHealingService: asClass(SchemaHealingService).singleton(),
     metadataProvisionService: asClass(MetadataProvisionService).singleton(),
     metadataProvisionSqlService: asClass(
       MetadataProvisionSqlService,

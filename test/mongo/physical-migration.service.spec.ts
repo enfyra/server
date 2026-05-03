@@ -118,7 +118,7 @@ describe('MongoPhysicalMigrationService', () => {
       'mongo-field-rename',
       expect.objectContaining({ migrationId: expect.any(String) }),
       expect.objectContaining({
-        jobId: expect.stringContaining('mongo-field-rename:'),
+        jobId: expect.stringContaining('mongo-field-rename-'),
       }),
     );
 

@@ -1,16 +1,13 @@
 /**
  * Mongo parity of query-builder-core.spec.ts.
  *
- * The SQL file exercises `buildWhereClause` directly with Knex/SQLite. On Mongo
- * the equivalent code path is `utils/mongo/render-filter.ts`, which is always
- * invoked through `MongoQueryExecutor.execute(...)` once the planner produced
- * a plan. So this suite fires the same operator matrix against MongoQueryExecutor
- * instead of against buildWhereClause directly.
+ * On Mongo the filter-rendering path is `utils/mongo/render-filter.ts`, which
+ * is invoked through `MongoQueryExecutor.execute(...)` once the planner produced
+ * a plan. This suite fires the operator matrix against MongoQueryExecutor.
  *
  * Skipped sections from the SQL file (not relevant here):
  *   - Cascade / CRUD / Transaction tests — those are Knex-specific; the Mongo
  *     equivalents live in test/mongo-saga/* and test/knex/*.
- *   - hasLogicalOperators — DB-agnostic util, covered in the SQL file already.
  */
 
 import { MongoClient, Db, ObjectId } from 'mongodb';

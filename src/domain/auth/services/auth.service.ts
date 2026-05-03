@@ -109,7 +109,7 @@ export class AuthService {
 
     const sessionId = isMongoDB
       ? insertedSession._id?.toString() || insertedSession.id
-      : insertedSession.id || sessionData.id;
+      : insertedSession?.id || sessionData.id;
 
     const jwtUserId = DatabaseConfigService.getRecordId(user);
     const accessToken = jwt.sign(
