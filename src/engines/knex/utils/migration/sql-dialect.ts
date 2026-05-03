@@ -10,8 +10,6 @@ export function quoteIdentifier(
     case 'postgres':
     case 'pg':
       return `"${identifier}"`;
-    case 'sqlite':
-      return `"${identifier}"`;
     case 'mongodb':
       return identifier;
     default:
@@ -49,7 +47,7 @@ export function castToText(
 export function generateRenameTableSQL(
   oldName: string,
   newName: string,
-  dbType: 'mysql' | 'postgres' | 'sqlite',
+  dbType: 'mysql' | 'postgres',
 ): string {
   const oldQuoted = quoteIdentifier(oldName, dbType);
   const newQuoted = quoteIdentifier(newName, dbType);
@@ -58,7 +56,6 @@ export function generateRenameTableSQL(
     case 'mysql':
       return `RENAME TABLE ${oldQuoted} TO ${newQuoted}`;
     case 'postgres':
-    case 'sqlite':
       return `ALTER TABLE ${oldQuoted} RENAME TO ${newQuoted}`;
     default:
       return `RENAME TABLE ${oldQuoted} TO ${newQuoted}`;
@@ -69,16 +66,13 @@ export function generateRenameColumnSQL(
   tableName: string,
   oldColumnName: string,
   newColumnName: string,
-  dbType: 'mysql' | 'postgres' | 'sqlite',
+  dbType: 'mysql' | 'postgres',
 ): string {
   const table = quoteIdentifier(tableName, dbType);
   const oldCol = quoteIdentifier(oldColumnName, dbType);
   const newCol = quoteIdentifier(newColumnName, dbType);
 
   switch (dbType) {
-    case 'mysql':
-    case 'sqlite':
-      return `ALTER TABLE ${table} RENAME COLUMN ${oldCol} TO ${newCol}`;
     case 'postgres':
       return `ALTER TABLE ${table} RENAME COLUMN ${oldCol} TO ${newCol}`;
     default:
@@ -90,7 +84,7 @@ export function generateModifyColumnSQL(
   tableName: string,
   columnName: string,
   columnDef: string,
-  dbType: 'mysql' | 'postgres' | 'sqlite',
+  dbType: 'mysql' | 'postgres',
   oldColumn?: any,
 ): string | string[] {
   const table = quoteIdentifier(tableName, dbType);
@@ -243,10 +237,6 @@ export function generateModifyColumnSQL(
 
       return statements;
     }
-    case 'sqlite':
-      throw new Error(
-        'SQLite does not support ALTER COLUMN. Use table recreation instead.',
-      );
     default:
       return `ALTER TABLE ${table} MODIFY COLUMN ${column} ${columnDef}`;
   }
@@ -255,7 +245,7 @@ export function generateModifyColumnSQL(
 export function generateDropForeignKeySQL(
   tableName: string,
   constraintName: string,
-  dbType: 'mysql' | 'postgres' | 'sqlite',
+  dbType: 'mysql' | 'postgres',
 ): string {
   const table = quoteIdentifier(tableName, dbType);
   const constraint = quoteIdentifier(constraintName, dbType);
@@ -264,7 +254,6 @@ export function generateDropForeignKeySQL(
     case 'mysql':
       return `ALTER TABLE ${table} DROP FOREIGN KEY ${constraint}`;
     case 'postgres':
-    case 'sqlite':
       return `ALTER TABLE ${table} DROP CONSTRAINT ${constraint}`;
     default:
       return `ALTER TABLE ${table} DROP FOREIGN KEY ${constraint}`;
@@ -274,7 +263,7 @@ export function generateDropForeignKeySQL(
 export function generateDropIndexSQL(
   tableName: string,
   indexName: string,
-  dbType: 'mysql' | 'postgres' | 'sqlite',
+  dbType: 'mysql' | 'postgres',
 ): string {
   const table = quoteIdentifier(tableName, dbType);
   const index = quoteIdentifier(indexName, dbType);
@@ -283,7 +272,6 @@ export function generateDropIndexSQL(
     case 'mysql':
       return `ALTER TABLE ${table} DROP INDEX ${index}`;
     case 'postgres':
-    case 'sqlite':
       return `DROP INDEX IF EXISTS ${index}`;
     default:
       return `ALTER TABLE ${table} DROP INDEX ${index}`;
@@ -294,7 +282,7 @@ export function generateAddIndexSQL(
   tableName: string,
   indexName: string,
   columns: string[],
-  dbType: 'mysql' | 'postgres' | 'sqlite',
+  dbType: 'mysql' | 'postgres',
 ): string {
   const table = quoteIdentifier(tableName, dbType);
   const index = quoteIdentifier(indexName, dbType);
@@ -304,7 +292,6 @@ export function generateAddIndexSQL(
     case 'mysql':
       return `ALTER TABLE ${table} ADD INDEX ${index} (${cols})`;
     case 'postgres':
-    case 'sqlite':
       return `CREATE INDEX ${index} ON ${table} (${cols})`;
     default:
       return `ALTER TABLE ${table} ADD INDEX ${index} (${cols})`;
@@ -314,7 +301,7 @@ export function generateAddIndexSQL(
 export function getForeignKeyConstraintsQuery(
   tableName: string,
   columnName: string,
-  dbType: 'mysql' | 'postgres' | 'sqlite',
+  dbType: 'mysql' | 'postgres',
 ): { query: string; bindings: any[] } {
   switch (dbType) {
     case 'mysql':
@@ -342,11 +329,6 @@ export function getForeignKeyConstraintsQuery(
         `,
         bindings: [tableName, columnName],
       };
-    case 'sqlite':
-      return {
-        query: `PRAGMA foreign_key_list(${tableName})`,
-        bindings: [],
-      };
     default:
       return {
         query: `
@@ -364,7 +346,7 @@ export function getForeignKeyConstraintsQuery(
 
 export function getAllForeignKeyConstraintsReferencingTableQuery(
   tableName: string,
-  dbType: 'mysql' | 'postgres' | 'sqlite',
+  dbType: 'mysql' | 'postgres',
 ): { query: string; bindings: any[] } {
   switch (dbType) {
     case 'mysql':
@@ -402,10 +384,6 @@ export function getAllForeignKeyConstraintsReferencingTableQuery(
         `,
         bindings: [tableName],
       };
-    case 'sqlite':
-      throw new Error(
-        'SQLite does not support querying all foreign keys referencing a table',
-      );
     default:
       return {
         query: `
@@ -428,7 +406,7 @@ export function getAllForeignKeyConstraintsReferencingTableQuery(
 export function generateDropColumnSQL(
   tableName: string,
   columnName: string,
-  dbType: 'mysql' | 'postgres' | 'sqlite',
+  dbType: 'mysql' | 'postgres',
 ): string {
   const table = quoteIdentifier(tableName, dbType);
   const column = quoteIdentifier(columnName, dbType);
@@ -438,8 +416,6 @@ export function generateDropColumnSQL(
       return `ALTER TABLE ${table} DROP COLUMN ${column}`;
     case 'postgres':
       return `ALTER TABLE ${table} DROP COLUMN IF EXISTS ${column}`;
-    case 'sqlite':
-      return `ALTER TABLE ${table} DROP COLUMN ${column}`;
     default:
       return `ALTER TABLE ${table} DROP COLUMN IF EXISTS ${column}`;
   }

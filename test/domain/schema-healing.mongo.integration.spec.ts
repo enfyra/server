@@ -1,12 +1,12 @@
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { QueryBuilderService } from '@enfyra/kernel';
-import { MetadataRepairService } from '../../src/engines/bootstrap';
+import { SchemaHealingService } from '../../src/engines/bootstrap';
 import { DatabaseConfigService } from '../../src/shared/services';
 
 const MONGO_URI =
   process.env.MONGO_TEST_URI ||
   'mongodb://enfyra_admin:enfyra_password_123@localhost:27017/?authSource=admin';
-const DB_NAME = `test_metadata_repair_mongo_${Date.now()}`;
+const DB_NAME = `test_schema_healing_mongo_${Date.now()}`;
 
 async function probeMongo(): Promise<boolean> {
   try {
@@ -37,7 +37,7 @@ function makeTableMetadata(name: string) {
   };
 }
 
-describe('MetadataRepairService Mongo integration', () => {
+describe('SchemaHealingService Mongo integration', () => {
   let available = false;
   let client: MongoClient | undefined;
   let db: Db | undefined;
@@ -61,7 +61,7 @@ describe('MetadataRepairService Mongo integration', () => {
 
   test('repairs persisted Mongo primary key metadata through real Mongo query builder', async () => {
     if (!available || !db) {
-      console.warn('MongoDB not available, skipping real DB metadata repair test');
+      console.warn('MongoDB not available, skipping real DB schema healing test');
       return;
     }
 
@@ -92,6 +92,11 @@ describe('MetadataRepairService Mongo integration', () => {
       mongoService: {
         getDb: () => db,
         collection: (name: string) => db.collection(name),
+        updateOne: async (collectionName: string, id: string, data: any) =>
+          db.collection(collectionName).updateOne(
+            { _id: typeof id === 'string' ? new ObjectId(id) : id },
+            { $set: data },
+          ),
         processNestedRelations: async (_tableName: string, data: any) => data,
         applyUpdateTimestamp: (data: any) => data,
       },
@@ -110,7 +115,7 @@ describe('MetadataRepairService Mongo integration', () => {
       getAllTablesMetadata: async () => [],
     };
 
-    const service = new MetadataRepairService({
+    const service = new SchemaHealingService({
       queryBuilderService,
       metadataCacheService: metadataCacheService as any,
     });

@@ -34,7 +34,7 @@ export function getMongoStoredRelationField(
 export function getMongoInverseRelationForeignField(
   relation: MongoRelationLike,
 ): string | null {
-  return relation.mappedBy || relation.foreignKeyColumn || relation.propertyName || null;
+  return relation.foreignKeyColumn || relation.mappedBy || relation.propertyName || null;
 }
 
 export function buildMongoStoredRelationContracts(

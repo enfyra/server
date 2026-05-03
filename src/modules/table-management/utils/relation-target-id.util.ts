@@ -16,3 +16,19 @@ export function getRelationTargetTableId(relation: any): number | string | null 
 export function relationTargetTableMapKey(id: number | string | null): string {
   return String(id);
 }
+
+export function getRelationMappedByProperty(relation: any): string | null {
+  const value = relation?.mappedBy;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (value && typeof value === 'object') {
+    const propertyName = value.propertyName;
+    if (typeof propertyName === 'string') {
+      const trimmed = propertyName.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    }
+  }
+  return null;
+}

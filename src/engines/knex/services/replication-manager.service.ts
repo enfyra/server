@@ -133,6 +133,7 @@ export class ReplicationManager implements LifecycleAware {
       user: string;
       password: string;
       database: string;
+      filename?: string;
     },
     poolMinSize: number,
     poolMaxSize: number,
@@ -160,6 +161,7 @@ export class ReplicationManager implements LifecycleAware {
           return next();
         },
       },
+      useNullAsDefault: false,
       pool: {
         min: poolMinSize,
         max: poolMaxSize,

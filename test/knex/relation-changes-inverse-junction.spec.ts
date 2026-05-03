@@ -31,7 +31,7 @@ function createDiff() {
   };
 }
 
-describe('analyzeRelationChanges inverse many-to-many junction handling', () => {
+describe('analyzeRelationChanges inverse relation handling', () => {
   it('does not drop a junction table when deleting an inverse relation', async () => {
     const diff = createDiff();
 
@@ -115,5 +115,103 @@ describe('analyzeRelationChanges inverse many-to-many junction handling', () => 
     );
 
     expect(diff.junctionTables.drop).toEqual([]);
+  });
+
+  it('does not delete a foreign key column when deleting an inverse one-to-one relation', async () => {
+    const diff = createDiff();
+
+    await analyzeRelationChanges(
+      createKnexMock(),
+      [
+        {
+          id: 20,
+          type: 'one-to-one',
+          propertyName: 'course',
+          mappedBy: 'room',
+          mappedById: 19,
+          targetTable: { id: 2 },
+          targetTableName: 'courses',
+        },
+      ],
+      [],
+      diff,
+      'rooms',
+      [],
+      [],
+    );
+
+    expect(diff.columns.delete).toEqual([]);
+  });
+
+  it('does not rename a foreign key column when renaming an inverse one-to-one relation', async () => {
+    const diff = createDiff();
+
+    await analyzeRelationChanges(
+      createKnexMock(),
+      [
+        {
+          id: 20,
+          type: 'one-to-one',
+          propertyName: 'course',
+          mappedBy: 'room',
+          mappedById: 19,
+          targetTable: { id: 2 },
+          targetTableName: 'courses',
+        },
+      ],
+      [
+        {
+          id: 20,
+          type: 'one-to-one',
+          propertyName: 'primaryCourse',
+          mappedBy: 'room',
+          mappedById: 19,
+          targetTable: { id: 2 },
+          targetTableName: 'courses',
+        },
+      ],
+      diff,
+      'rooms',
+      [],
+      [],
+    );
+
+    expect(diff.columns.rename).toEqual([]);
+  });
+
+  it('does not rename the junction table when renaming an owning many-to-many relation', async () => {
+    const diff = createDiff();
+
+    await analyzeRelationChanges(
+      createKnexMock(),
+      [
+        {
+          id: 30,
+          type: 'many-to-many',
+          propertyName: 'students',
+          targetTable: { id: 2 },
+          targetTableName: 'students',
+          junctionTableName: 'course_students',
+        },
+      ],
+      [
+        {
+          id: 30,
+          type: 'many-to-many',
+          propertyName: 'learners',
+          targetTable: { id: 2 },
+          targetTableName: 'students',
+          junctionTableName: 'course_students',
+        },
+      ],
+      diff,
+      'courses',
+      [],
+      [],
+    );
+
+    expect(diff.junctionTables.rename).toEqual([]);
+    expect(diff.junctionTables.drop).toEqual([]);
+    expect(diff.junctionTables.create).toEqual([]);
   });
 });

@@ -39,6 +39,7 @@ import {
   isMongoPrimaryKeyType,
   normalizeMongoPrimaryKeyColumn,
 } from '../utils/mongo-primary-key.util';
+import { getRelationMappedByProperty } from '../utils/relation-target-id.util';
 export class MongoTableHandlerService {
   private logger = new Logger(MongoTableHandlerService.name);
   private queryBuilderService: QueryBuilderService;
@@ -263,13 +264,14 @@ export class MongoTableHandlerService {
                   );
                 }
                 let resolvedMappedBy = null;
-                if (rel.mappedBy) {
+                const mappedByProperty = getRelationMappedByProperty(rel);
+                if (mappedByProperty) {
                   const { data: owningRels } =
                     await this.queryBuilderService.find({
                       table: 'relation_definition',
                       where: {
                         sourceTable: targetTableObjectId,
-                        propertyName: rel.mappedBy,
+                        propertyName: mappedByProperty,
                       },
                     });
                   if (owningRels.length > 0)
@@ -294,9 +296,23 @@ export class MongoTableHandlerService {
                   onDelete: rel.onDelete || 'SET NULL',
                   description: rel.description,
                 };
+                const ownsMongoReference =
+                  (rel.type === 'many-to-one' || rel.type === 'one-to-one') &&
+                  !resolvedMappedBy;
+                if (ownsMongoReference) {
+                  relationData.foreignKeyColumn =
+                    rel.foreignKeyColumn || rel.propertyName;
+                } else if (resolvedMappedBy) {
+                  const owningRel = await this.queryBuilderService.findOne({
+                    table: 'relation_definition',
+                    where: { _id: resolvedMappedBy },
+                  });
+                  relationData.foreignKeyColumn =
+                    owningRel?.foreignKeyColumn || owningRel?.propertyName || null;
+                }
                 if (
                   rel.type === 'many-to-many' &&
-                  !rel.mappedBy &&
+                  !mappedByProperty &&
                   targetName
                 ) {
                   const junctionTableName = getJunctionTableName(
@@ -323,7 +339,7 @@ export class MongoTableHandlerService {
                     : relationRecord._id;
                 insertedRelationIds.push(relId);
                 if (rel.inversePropertyName) {
-                  if (rel.mappedBy) {
+                  if (mappedByProperty) {
                     throw new ValidationException(
                       `Relation '${rel.propertyName}' cannot have both 'mappedBy' and 'inversePropertyName'`,
                       { relationName: rel.propertyName },
@@ -370,6 +386,15 @@ export class MongoTableHandlerService {
                     isPublished: rel.isPublished ?? true,
                     onDelete: rel.onDelete || 'SET NULL',
                   };
+                  if (
+                    rel.type === 'many-to-one' ||
+                    rel.type === 'one-to-one'
+                  ) {
+                    inverseData.foreignKeyColumn =
+                      relationData.foreignKeyColumn ||
+                      rel.foreignKeyColumn ||
+                      rel.propertyName;
+                  }
                   if (rel.type === 'many-to-many') {
                     const invTargetName =
                       typeof rel.targetTable === 'string'
@@ -614,6 +639,95 @@ export class MongoTableHandlerService {
           exists.name,
         );
         stepLog(`STEP 5 loaded oldMetadata (+${lap()}ms)`);
+        let preloadedRelations: any[] | null = null;
+        if (body.relations) {
+          const { data: existingRelations } =
+            await this.queryBuilderService.find({
+              table: 'relation_definition',
+              where: {
+                sourceTable: queryId,
+              },
+            });
+          preloadedRelations = existingRelations;
+          for (const rel of body.relations) {
+            const relId = rel._id || rel.id;
+            const existingRel = relId
+              ? existingRelations.find(
+                  (r: any) => String(r._id) === String(relId),
+                )
+              : null;
+            if (existingRel && existingRel.type !== rel.type) {
+              throw new ValidationException(
+                `Cannot change relation type from '${existingRel.type}' to '${rel.type}' for property '${rel.propertyName}'. Please delete the old relation and create a new one.`,
+                { relationName: rel.propertyName },
+              );
+            }
+
+            let targetTableObjectId;
+            const targetTableIdFromObj =
+              typeof rel.targetTable === 'object'
+                ? rel.targetTable._id || rel.targetTable.id
+                : null;
+            if (targetTableIdFromObj) {
+              try {
+                targetTableObjectId =
+                  typeof targetTableIdFromObj === 'string'
+                    ? new ObjectId(targetTableIdFromObj)
+                    : targetTableIdFromObj;
+              } catch {
+                throw new ValidationException(
+                  `Target table not found for relation ${rel.propertyName}`,
+                  { relationName: rel.propertyName },
+                );
+              }
+              const targetExists = await this.queryBuilderService.findOne({
+                table: 'table_definition',
+                where: { _id: targetTableObjectId },
+              });
+              if (!targetExists) {
+                throw new ValidationException(
+                  `Target table not found for relation ${rel.propertyName}`,
+                  { relationName: rel.propertyName },
+                );
+              }
+            } else if (typeof rel.targetTable === 'string') {
+              const targetTableRecord = await this.queryBuilderService.findOne({
+                table: 'table_definition',
+                where: { name: rel.targetTable },
+              });
+              if (!targetTableRecord) {
+                throw new ValidationException(
+                  `Target table not found for relation ${rel.propertyName}`,
+                  { relationName: rel.propertyName },
+                );
+              }
+              targetTableObjectId =
+                typeof targetTableRecord._id === 'string'
+                  ? new ObjectId(targetTableRecord._id)
+                  : targetTableRecord._id;
+            }
+
+            const mappedByProperty = getRelationMappedByProperty(rel);
+            if (mappedByProperty && targetTableObjectId) {
+              const { data: owningRels } = await this.queryBuilderService.find({
+                table: 'relation_definition',
+                where: {
+                  sourceTable: targetTableObjectId,
+                  propertyName: mappedByProperty,
+                },
+              });
+              if (owningRels.length === 0) {
+                throw new ValidationException(
+                  `mappedBy relation '${mappedByProperty}' not found for relation ${rel.propertyName}`,
+                  {
+                    relationName: rel.propertyName,
+                    mappedBy: mappedByProperty,
+                  },
+                );
+              }
+            }
+          }
+        }
         let schemaDecision: any = null;
         if (oldMetadata) {
           const afterMetadata = {
@@ -749,13 +863,16 @@ export class MongoTableHandlerService {
           `STEP 8 processed ${body.columns?.length ?? 0} column(s) (+${lap()}ms)`,
         );
         if (body.relations) {
-          const { data: existingRelations } =
-            await this.queryBuilderService.find({
-              table: 'relation_definition',
-              where: {
-                sourceTable: queryId,
-              },
-            });
+          const existingRelations =
+            preloadedRelations ??
+            (
+              await this.queryBuilderService.find({
+                table: 'relation_definition',
+                where: {
+                  sourceTable: queryId,
+                },
+              })
+            ).data;
           const deletedRelationIds = getDeletedIds(
             existingRelations,
             body.relations,
@@ -784,6 +901,18 @@ export class MongoTableHandlerService {
           }
           const relationIds = [];
           for (const rel of body.relations) {
+            const relId = rel._id || rel.id;
+            const existingRel = relId
+              ? existingRelations.find(
+                  (r: any) => String(r._id) === String(relId),
+                )
+              : null;
+            if (existingRel && existingRel.type !== rel.type) {
+              throw new ValidationException(
+                `Cannot change relation type from '${existingRel.type}' to '${rel.type}' for property '${rel.propertyName}'. Please delete the old relation and create a new one.`,
+                { relationName: rel.propertyName },
+              );
+            }
             let targetTableObjectId;
             const targetTableIdFromObj =
               typeof rel.targetTable === 'object'
@@ -807,10 +936,10 @@ export class MongoTableHandlerService {
               }
             }
             if (!targetTableObjectId) {
-              this.logger.warn(
-                `Target table not found for relation ${rel.propertyName}, skipping`,
+              throw new ValidationException(
+                `Target table not found for relation ${rel.propertyName}`,
+                { relationName: rel.propertyName },
               );
-              continue;
             }
             let resolvedTargetTableName: string | undefined;
             if (typeof rel.targetTable === 'string') {
@@ -825,13 +954,17 @@ export class MongoTableHandlerService {
                 resolvedTargetTableName = targetRec?.name;
               }
             }
-            let updateResolvedMappedBy = null;
-            if (rel.mappedBy) {
+            if (resolvedTargetTableName) {
+              affectedTableNames.add(resolvedTargetTableName);
+            }
+            let updateResolvedMappedBy = existingRel?.mappedBy || null;
+            const mappedByProperty = getRelationMappedByProperty(rel);
+            if (mappedByProperty) {
               const { data: owningRels } = await this.queryBuilderService.find({
                 table: 'relation_definition',
                 where: {
                   sourceTable: targetTableObjectId,
-                  propertyName: rel.mappedBy,
+                  propertyName: mappedByProperty,
                 },
               });
               if (owningRels.length > 0)
@@ -852,9 +985,27 @@ export class MongoTableHandlerService {
               onDelete: rel.onDelete || 'SET NULL',
               description: rel.description,
             };
+            const ownsMongoReference =
+              (rel.type === 'many-to-one' || rel.type === 'one-to-one') &&
+              !updateResolvedMappedBy;
+            if (ownsMongoReference) {
+              relationData.foreignKeyColumn =
+                existingRel?.foreignKeyColumn ||
+                rel.foreignKeyColumn ||
+                rel.propertyName;
+            } else if (updateResolvedMappedBy) {
+              const owningRel = await this.queryBuilderService.findOne({
+                table: 'relation_definition',
+                where: { _id: updateResolvedMappedBy },
+              });
+              relationData.foreignKeyColumn =
+                owningRel?.foreignKeyColumn || owningRel?.propertyName || null;
+            } else {
+              relationData.foreignKeyColumn = null;
+            }
             const targetRelName = resolvedTargetTableName;
             if (rel.type === 'many-to-many' && targetRelName) {
-              if (rel.mappedBy && updateResolvedMappedBy) {
+              if (updateResolvedMappedBy) {
                 const owningRel = await this.queryBuilderService.findOne({
                   table: 'relation_definition',
                   where: { _id: updateResolvedMappedBy },
@@ -866,7 +1017,13 @@ export class MongoTableHandlerService {
                   relationData.junctionTargetColumn =
                     owningRel.junctionSourceColumn;
                 }
-              } else if (!rel.mappedBy) {
+              } else if (existingRel?.junctionTableName) {
+                relationData.junctionTableName = existingRel.junctionTableName;
+                relationData.junctionSourceColumn =
+                  existingRel.junctionSourceColumn;
+                relationData.junctionTargetColumn =
+                  existingRel.junctionTargetColumn;
+              } else {
                 const junctionTableName = getJunctionTableName(
                   exists.name,
                   rel.propertyName,
@@ -883,8 +1040,7 @@ export class MongoTableHandlerService {
               }
             }
             let relObjectId;
-            if (rel._id || rel.id) {
-              const relId = rel._id || rel.id;
+            if (relId) {
               await this.queryBuilderService.update(
                 'relation_definition',
                 relId,
@@ -909,7 +1065,7 @@ export class MongoTableHandlerService {
               subjectFkValue: relObjectId,
             });
             if (rel.inversePropertyName && !(rel._id || rel.id)) {
-              if (rel.mappedBy) {
+              if (mappedByProperty) {
                 throw new ValidationException(
                   `Relation '${rel.propertyName}' cannot have both 'mappedBy' and 'inversePropertyName'`,
                   { relationName: rel.propertyName },
@@ -955,6 +1111,12 @@ export class MongoTableHandlerService {
                 isPublished: rel.isPublished ?? true,
                 onDelete: rel.onDelete || 'SET NULL',
               };
+              if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+                inverseData.foreignKeyColumn =
+                  relationData.foreignKeyColumn ||
+                  rel.foreignKeyColumn ||
+                  rel.propertyName;
+              }
               if (rel.type === 'many-to-many' && targetRelName) {
                 const junctionTableName = getJunctionTableName(
                   exists.name,
