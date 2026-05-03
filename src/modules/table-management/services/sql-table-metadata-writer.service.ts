@@ -21,14 +21,24 @@ export class SqlTableMetadataWriterService {
     exists: any,
     affectedTableNames: Set<string>,
   ): Promise<void> {
+    const allowedConstraintFields = this.getAllowedConstraintFields(body);
+    const uniques =
+      body.uniques && allowedConstraintFields
+        ? this.filterConstraintGroups(body.uniques, allowedConstraintFields)
+        : body.uniques;
+    const indexes =
+      body.indexes && allowedConstraintFields
+        ? this.filterConstraintGroups(body.indexes, allowedConstraintFields)
+        : body.indexes;
+
     await queryRunner('table_definition')
       .where({ id })
       .update({
         name: body.name,
         alias: body.alias,
         description: body.description,
-        uniques: body.uniques ? JSON.stringify(body.uniques) : exists.uniques,
-        indexes: body.indexes ? JSON.stringify(body.indexes) : exists.indexes,
+        uniques: uniques ? JSON.stringify(uniques) : exists.uniques,
+        indexes: indexes ? JSON.stringify(indexes) : exists.indexes,
         ...(body.isSingleRecord !== undefined && {
           isSingleRecord: body.isSingleRecord,
         }),
@@ -412,6 +422,29 @@ export class SqlTableMetadataWriterService {
       }
     }
     return columns;
+  }
+
+  private getAllowedConstraintFields(body: TCreateTableBody): Set<string> | null {
+    if (!body.columns && !body.relations) return null;
+    const fields = new Set<string>(['id', 'createdAt', 'updatedAt']);
+    for (const col of body.columns || []) {
+      if (col?.name) fields.add(col.name);
+    }
+    for (const rel of body.relations || []) {
+      if (rel?.propertyName) fields.add(rel.propertyName);
+    }
+    return fields;
+  }
+
+  private filterConstraintGroups(
+    groups: any[],
+    allowedFields: Set<string>,
+  ): any[] {
+    return (groups || []).filter((group) =>
+      (Array.isArray(group) ? group : group?.value || []).every((field: string) =>
+        allowedFields.has(field),
+      ),
+    );
   }
 
   private async writeNestedRules(

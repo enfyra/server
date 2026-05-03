@@ -728,14 +728,34 @@ export class MongoTableHandlerService {
             }
           }
         }
+        const allowedConstraintFields = this.getAllowedConstraintFields(body);
+        const bodyUniques =
+          body.uniques && allowedConstraintFields
+            ? this.normalizeConstraintGroups(
+                body.uniques,
+                oldMetadata,
+                body,
+                allowedConstraintFields,
+              )
+            : body.uniques;
+        const bodyIndexes =
+          body.indexes && allowedConstraintFields
+            ? this.normalizeConstraintGroups(
+                body.indexes,
+                oldMetadata,
+                body,
+                allowedConstraintFields,
+              )
+            : body.indexes;
+
         let schemaDecision: any = null;
         if (oldMetadata) {
           const afterMetadata = {
             name: body.name ?? exists.name,
             columns: body.columns ?? oldMetadata?.columns ?? [],
             relations: body.relations ?? oldMetadata?.relations ?? [],
-            uniques: body.uniques ?? exists.uniques ?? oldMetadata?.uniques,
-            indexes: body.indexes ?? exists.indexes ?? oldMetadata?.indexes,
+            uniques: bodyUniques ?? exists.uniques ?? oldMetadata?.uniques,
+            indexes: bodyIndexes ?? exists.indexes ?? oldMetadata?.indexes,
           };
           schemaDecision = await this.policyService.checkSchemaMigration({
             operation: 'update',
@@ -767,8 +787,8 @@ export class MongoTableHandlerService {
         if ('name' in body) updateData.name = body.name;
         if ('alias' in body) updateData.alias = body.alias;
         if ('description' in body) updateData.description = body.description;
-        if ('uniques' in body) updateData.uniques = body.uniques;
-        if ('indexes' in body) updateData.indexes = body.indexes;
+        if ('uniques' in body) updateData.uniques = bodyUniques;
+        if ('indexes' in body) updateData.indexes = bodyIndexes;
         if ('isSingleRecord' in body)
           updateData.isSingleRecord = body.isSingleRecord;
         if ('validateBody' in body) updateData.validateBody = body.validateBody;
@@ -1596,6 +1616,88 @@ export class MongoTableHandlerService {
     table.relations = relations;
     return table;
   }
+
+  private getAllowedConstraintFields(body: TCreateTableBody): Set<string> | null {
+    if (!body.columns && !body.relations) return null;
+    const fields = new Set<string>(['_id', 'id', 'createdAt', 'updatedAt']);
+    for (const col of body.columns || []) {
+      if (col?.name) fields.add(col.name);
+    }
+    for (const rel of body.relations || []) {
+      if (rel?.propertyName) fields.add(rel.propertyName);
+    }
+    return fields;
+  }
+
+  private filterConstraintGroups(
+    groups: any[],
+    allowedFields: Set<string>,
+  ): any[] {
+    return (groups || []).filter((group) =>
+      (Array.isArray(group) ? group : group?.value || []).every((field: string) =>
+        allowedFields.has(field),
+      ),
+    );
+  }
+
+  private normalizeConstraintGroups(
+    groups: any[],
+    oldMetadata: any,
+    body: TCreateTableBody,
+    allowedFields: Set<string>,
+  ): any[] {
+    const renames = this.getConstraintFieldRenames(oldMetadata, body);
+    return (groups || [])
+      .map((group) => {
+        const values = (Array.isArray(group) ? group : group?.value || []).map(
+          (field: string) => renames.get(field) || field,
+        );
+        return Array.isArray(group) ? values : { ...group, value: values };
+      })
+      .filter((group) =>
+        (Array.isArray(group) ? group : group?.value || []).every((field: string) =>
+          allowedFields.has(field),
+        ),
+      );
+  }
+
+  private getConstraintFieldRenames(
+    oldMetadata: any,
+    body: TCreateTableBody,
+  ): Map<string, string> {
+    const renames = new Map<string, string>();
+    const oldColumnsById = new Map<string, any>(
+      (oldMetadata?.columns || []).map((col: any) => [
+        String(col.id ?? col._id),
+        col,
+      ]),
+    );
+    for (const col of body.columns || []) {
+      const oldCol = oldColumnsById.get(String((col as any).id ?? (col as any)._id));
+      if (oldCol?.name && col.name && oldCol.name !== col.name) {
+        renames.set(oldCol.name, col.name);
+      }
+    }
+
+    const oldRelationsById = new Map<string, any>(
+      (oldMetadata?.relations || []).map((rel: any) => [
+        String(rel.id ?? rel._id),
+        rel,
+      ]),
+    );
+    for (const rel of body.relations || []) {
+      const oldRel = oldRelationsById.get(String((rel as any).id ?? (rel as any)._id));
+      if (
+        oldRel?.propertyName &&
+        rel.propertyName &&
+        oldRel.propertyName !== rel.propertyName
+      ) {
+        renames.set(oldRel.propertyName, rel.propertyName);
+      }
+    }
+    return renames;
+  }
+
   private async runWithSchemaLock<T>(
     context: string,
     handler: () => Promise<T>,
