@@ -7,15 +7,124 @@ function makeQueryBuilder(
     update: jest.Mock;
     delete: jest.Mock;
     isMongoDb: jest.Mock;
+    getKnex: jest.Mock;
+    getMongoDb: jest.Mock;
   }> = {},
 ) {
+  const knexMock = makeKnex();
   return {
     find: jest.fn().mockResolvedValue({ data: [] }),
     update: jest.fn().mockResolvedValue(undefined),
     delete: jest.fn().mockResolvedValue(undefined),
     isMongoDb: jest.fn().mockReturnValue(false),
+    getKnex: jest.fn(() => knexMock.knex),
+    getMongoDb: jest.fn(),
+    __knexMock: knexMock,
     ...overrides,
   } as any;
+}
+
+function makeKnex(methodRows: any[] = []) {
+  const deletes: any[] = [];
+  const inserts: any[] = [];
+  const rawCalls: any[] = [];
+  const knex = jest.fn((table: string) => {
+    if (table === 'method_definition') {
+      return {
+        select: jest.fn().mockReturnThis(),
+        whereIn: jest.fn((_field: string, values: string[]) =>
+          Promise.resolve(
+            methodRows.filter((method) => values.includes(method.method)),
+          ),
+        ),
+      };
+    }
+    if (table === 'relation_definition as r') {
+      let propertyName = 'publishedMethods';
+      const chain: any = {
+        leftJoin: jest.fn(() => chain),
+        select: jest.fn(() => chain),
+        where: jest.fn((field: string, value: string) => {
+          if (field === 'r.propertyName') propertyName = value;
+          return chain;
+        }),
+        first: jest.fn(() =>
+          Promise.resolve({
+            junctionTableName: `j_${propertyName}`,
+            junctionSourceColumn: 'sourceId',
+            junctionTargetColumn: 'targetId',
+          }),
+        ),
+      };
+      return chain;
+    }
+    return {
+      where: jest.fn((condition: any) => ({
+        delete: jest.fn(async () => {
+          deletes.push({ table, condition });
+          return 1;
+        }),
+      })),
+      insert: jest.fn(async (rows: any[]) => {
+        inserts.push({ table, rows });
+        return rows;
+      }),
+    };
+  });
+  (knex as any).raw = jest.fn(async (sql: string, bindings: any[]) => {
+    rawCalls.push({ sql, bindings });
+    return { rows: [] };
+  });
+  return { knex, deletes, inserts, rawCalls };
+}
+
+function makeMongoDb() {
+  const deletes: any[] = [];
+  const inserts: any[] = [];
+  const routeTableId = '651111111111111111111111';
+  const methodTableId = '652222222222222222222222';
+  return {
+    deletes,
+    inserts,
+    collection: jest.fn((name: string) => {
+      if (name === 'table_definition') {
+        return {
+          findOne: jest.fn(async (filter: any) => {
+            if (filter.name === 'route_definition') {
+              return { _id: routeTableId, name: 'route_definition' };
+            }
+            if (filter.name === 'method_definition') {
+              return { _id: methodTableId, name: 'method_definition' };
+            }
+            return null;
+          }),
+        };
+      }
+      if (name === 'relation_definition') {
+        return {
+          findOne: jest.fn(async (filter: any) =>
+            filter.propertyName
+              ? {
+                  junctionTableName: `j_${filter.propertyName}`,
+                  junctionSourceColumn: 'sourceId',
+                  junctionTargetColumn: 'targetId',
+                }
+              : null,
+          ),
+        };
+      }
+      return {
+        deleteMany: jest.fn(async (condition: any) => {
+          deletes.push({ collection: name, condition });
+          return { deletedCount: 1 };
+        }),
+        insertMany: jest.fn(async (rows: any[]) => {
+          inserts.push({ collection: name, rows });
+          return { insertedCount: rows.length };
+        }),
+      };
+    }),
+  };
 }
 
 function makeService(qb: any): DataMigrationService {
@@ -99,16 +208,19 @@ describe('DataMigrationService.updateRelations', () => {
       publishedMethods: [],
     });
 
-    expect(qb.update).toHaveBeenCalledWith('route_definition', 99, {
-      publishedMethods: [],
+    expect(qb.__knexMock.rawCalls).toContainEqual({
+      sql: 'delete from ?? where ?? = ?',
+      bindings: ['j_publishedMethods', 'sourceId', 99],
     });
   });
 
   it('calls update with method IDs when methods are provided', async () => {
+    const knexMock = makeKnex([
+      { id: 1, method: 'GET' },
+      { id: 2, method: 'POST' },
+    ]);
     const qb = makeQueryBuilder({
-      find: jest.fn().mockResolvedValue({
-        data: [{ id: 1 }, { id: 2 }],
-      }),
+      getKnex: jest.fn(() => knexMock.knex),
     });
     const svc = makeService(qb);
 
@@ -116,8 +228,9 @@ describe('DataMigrationService.updateRelations', () => {
       publishedMethods: ['GET', 'POST'],
     });
 
-    expect(qb.update).toHaveBeenCalledWith('route_definition', 10, {
-      publishedMethods: [1, 2],
+    expect(knexMock.rawCalls).toContainEqual({
+      sql: 'insert into ?? (??, ??) values (?, ?), (?, ?)',
+      bindings: ['j_publishedMethods', 'sourceId', 'targetId', 10, 1, 10, 2],
     });
   });
 
@@ -131,8 +244,9 @@ describe('DataMigrationService.updateRelations', () => {
       availableMethods: [],
     });
 
-    expect(qb.update).toHaveBeenCalledWith('route_definition', 5, {
-      availableMethods: [],
+    expect(qb.__knexMock.rawCalls).toContainEqual({
+      sql: 'delete from ?? where ?? = ?',
+      bindings: ['j_availableMethods', 'sourceId', 5],
     });
   });
 
@@ -148,11 +262,9 @@ describe('DataMigrationService.updateRelations', () => {
   });
 
   it('handles both publishedMethods and availableMethods in one call', async () => {
+    const knexMock = makeKnex([{ id: 3, method: 'POST' }]);
     const qb = makeQueryBuilder({
-      find: jest
-        .fn()
-        .mockResolvedValueOnce({ data: [] })
-        .mockResolvedValueOnce({ data: [{ id: 3 }] }),
+      getKnex: jest.fn(() => knexMock.knex),
     });
     const svc = makeService(qb);
 
@@ -161,13 +273,52 @@ describe('DataMigrationService.updateRelations', () => {
       availableMethods: ['POST'],
     });
 
-    expect(qb.update).toHaveBeenCalledTimes(2);
-    expect(qb.update).toHaveBeenCalledWith('route_definition', 7, {
-      publishedMethods: [],
+    expect(knexMock.rawCalls).toContainEqual({
+      sql: 'delete from ?? where ?? = ?',
+      bindings: ['j_publishedMethods', 'sourceId', 7],
     });
-    expect(qb.update).toHaveBeenCalledWith('route_definition', 7, {
-      availableMethods: [3],
+    expect(knexMock.rawCalls).toContainEqual({
+      sql: 'insert into ?? (??, ??) values (?, ?)',
+      bindings: ['j_availableMethods', 'sourceId', 'targetId', 7, 3],
     });
+  });
+
+  it('writes Mongo route method relations directly to the metadata junction', async () => {
+    DatabaseConfigService.overrideForTesting('mongodb');
+    const mongoDb = makeMongoDb();
+    const methodIds = [
+      '653333333333333333333333',
+      '654444444444444444444444',
+    ];
+    const qb = makeQueryBuilder({
+      getMongoDb: jest.fn(() => mongoDb),
+      find: jest.fn().mockResolvedValue({
+        data: methodIds.map((_id) => ({ _id })),
+      }),
+    });
+    const svc = makeService(qb);
+
+    await (svc as any).updateRelations(
+      'route_definition',
+      '655555555555555555555555',
+      {
+        availableMethods: ['GET', 'POST'],
+      },
+    );
+
+    expect(qb.update).not.toHaveBeenCalled();
+    expect(mongoDb.deletes).toEqual([
+      {
+        collection: 'j_availableMethods',
+        condition: {
+          sourceId: expect.any(Object),
+        },
+      },
+    ]);
+    expect(mongoDb.inserts).toHaveLength(1);
+    expect(mongoDb.inserts[0].collection).toBe('j_availableMethods');
+    expect(mongoDb.inserts[0].rows).toHaveLength(2);
+    DatabaseConfigService.overrideForTesting('mysql');
   });
 });
 
@@ -193,13 +344,10 @@ describe('DataMigrationService.migrateTable — end-to-end for publishedMethods 
       { _unique: { path: { _eq: '/metadata' } }, publishedMethods: [] },
     ]);
 
-    expect(qb.update).toHaveBeenCalledWith(
-      'route_definition',
-      { where: [{ field: 'id', operator: '=', value: 42 }] },
-      {},
-    );
-    expect(qb.update).toHaveBeenCalledWith('route_definition', 42, {
-      publishedMethods: [],
+    expect(qb.update).not.toHaveBeenCalled();
+    expect(qb.__knexMock.rawCalls).toContainEqual({
+      sql: 'delete from ?? where ?? = ?',
+      bindings: ['j_publishedMethods', 'sourceId', 42],
     });
   });
 

@@ -1,7 +1,4 @@
-import {
-  getJunctionColumnNames,
-  getJunctionTableName,
-} from '@enfyra/kernel';
+import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';
 
 export interface MongoJunctionInfo {
   junctionName: string;
@@ -32,9 +29,13 @@ export function resolveMongoJunctionInfo(
     const owningTable = targetTable;
     const owningProp = relation.mappedBy;
     const inverseTable = currentTable;
+    const junction = getSqlJunctionPhysicalNames({
+      sourceTable: owningTable,
+      propertyName: owningProp,
+      targetTable: inverseTable,
+    });
     const junctionName =
-      relation.junctionTableName ||
-      getJunctionTableName(owningTable, owningProp, inverseTable);
+      relation.junctionTableName || junction.junctionTableName;
 
     if (relation.junctionSourceColumn && relation.junctionTargetColumn) {
       return {
@@ -46,11 +47,10 @@ export function resolveMongoJunctionInfo(
       };
     }
 
-    const cols = getJunctionColumnNames(owningTable, owningProp, inverseTable);
     return {
       junctionName,
-      selfColumn: cols.targetColumn,
-      otherColumn: cols.sourceColumn,
+      selfColumn: junction.junctionTargetColumn,
+      otherColumn: junction.junctionSourceColumn,
       owningTable,
       inverseTable,
     };
@@ -58,9 +58,13 @@ export function resolveMongoJunctionInfo(
 
   const owningTable = currentTable;
   const inverseTable = targetTable;
+  const junction = getSqlJunctionPhysicalNames({
+    sourceTable: owningTable,
+    propertyName: relation.propertyName,
+    targetTable: inverseTable,
+  });
   const junctionName =
-    relation.junctionTableName ||
-    getJunctionTableName(owningTable, relation.propertyName, inverseTable);
+    relation.junctionTableName || junction.junctionTableName;
 
   if (relation.junctionSourceColumn && relation.junctionTargetColumn) {
     return {
@@ -72,16 +76,10 @@ export function resolveMongoJunctionInfo(
     };
   }
 
-  const cols = getJunctionColumnNames(
-    owningTable,
-    relation.propertyName,
-    inverseTable,
-  );
-
   return {
     junctionName,
-    selfColumn: cols.sourceColumn,
-    otherColumn: cols.targetColumn,
+    selfColumn: junction.junctionSourceColumn,
+    otherColumn: junction.junctionTargetColumn,
     owningTable,
     inverseTable,
   };

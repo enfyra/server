@@ -29,9 +29,9 @@ export async function getSqlJunctionMetadata(
       'targetTable.id',
     )
     .select(
-      'r.junctionTableName',
-      'r.junctionSourceColumn',
-      'r.junctionTargetColumn',
+      'r.junctionTableName as junctionTableName',
+      'r.junctionSourceColumn as junctionSourceColumn',
+      'r.junctionTargetColumn as junctionTargetColumn',
     )
     .where('sourceTable.name', input.sourceTable)
     .where('targetTable.name', input.targetTable)

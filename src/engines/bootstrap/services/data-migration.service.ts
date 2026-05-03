@@ -6,6 +6,9 @@ import * as path from 'path';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { ObjectId } from 'mongodb';
 import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
+import { getSqlJunctionMetadata } from '../../../domain/bootstrap/utils/sql-junction-metadata.util';
+import { replaceSqlJunctionRows } from '../../../domain/bootstrap/utils/sql-junction-writer.util';
+import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';
 
 interface InitOld {
   [tableName: string]: any | any[];
@@ -189,11 +192,13 @@ export class DataMigrationService {
         );
         await this.normalizeRouteMainTable(tableName, newRecord);
 
-        await this.queryBuilderService.update(
-          tableName,
-          { where: [{ field: idField, operator: '=', value: existingId }] },
-          newRecord,
-        );
+        if (Object.keys(newRecord).length > 0) {
+          await this.queryBuilderService.update(
+            tableName,
+            { where: [{ field: idField, operator: '=', value: existingId }] },
+            newRecord,
+          );
+        }
 
         if (Object.keys(relationUpdates).length > 0) {
           await this.updateRelations(tableName, existingId, relationUpdates);
@@ -269,18 +274,16 @@ export class DataMigrationService {
           field === 'skipRoleGuardMethods' ||
           field === 'availableMethods'
         ) {
-          const idField = DatabaseConfigService.getPkField();
-          const result = await this.queryBuilderService.find({
-            table: 'method_definition',
-            filter: { method: { _in: methodNames as string[] } },
-            fields: [idField],
-          });
-          const methodIds = result.data
-            .map((m: any) => m._id || m.id)
-            .filter(Boolean);
-          await this.queryBuilderService.update('route_definition', recordId, {
-            [field]: methodIds,
-          });
+          const methodIds = await this.resolveMethodIds(methodNames as string[]);
+          if (DatabaseConfigService.instanceIsMongoDb()) {
+            await this.updateMongoRouteMethodRelation(
+              recordId,
+              field,
+              methodIds,
+            );
+          } else {
+            await this.updateSqlRouteMethodRelation(recordId, field, methodIds);
+          }
           if (methodIds.length > 0) {
             this.verbose(`Linked ${methodIds.length} ${field} to route`);
           } else {
@@ -289,6 +292,122 @@ export class DataMigrationService {
         }
       }
     }
+  }
+
+  private async resolveMethodIds(methodNames: string[]): Promise<any[]> {
+    if (methodNames.length === 0) return [];
+
+    if (DatabaseConfigService.instanceIsMongoDb()) {
+      const idField = DatabaseConfigService.getPkField();
+      const result = await this.queryBuilderService.find({
+        table: 'method_definition',
+        filter: { method: { _in: methodNames } },
+        fields: [idField],
+      });
+      return result.data.map((m: any) => m._id || m.id).filter(Boolean);
+    }
+
+    const rows = await this.queryBuilderService
+      .getKnex()('method_definition')
+      .select('id', 'method')
+      .whereIn('method', methodNames);
+    return rows.map((m: any) => m.id).filter(Boolean);
+  }
+
+  private async updateSqlRouteMethodRelation(
+    routeId: any,
+    field: string,
+    methodIds: any[],
+  ): Promise<void> {
+    const { junctionTable, sourceColumn, targetColumn } =
+      await getSqlJunctionMetadata(this.queryBuilderService as any, {
+        sourceTable: 'route_definition',
+        propertyName: field,
+        targetTable: 'method_definition',
+      });
+    try {
+      await replaceSqlJunctionRows(this.queryBuilderService as any, {
+        junctionTable,
+        sourceColumn,
+        targetColumn,
+        sourceId: routeId,
+        targetIds: methodIds,
+      });
+    } catch (error) {
+      const rows = methodIds.map((methodId) => ({
+        [sourceColumn]: routeId,
+        [targetColumn]: methodId,
+      }));
+      throw new Error(
+        `Failed to migrate route_definition.${field}: routeId=${String(routeId)}, methodIds=${JSON.stringify(methodIds)}, rows=${JSON.stringify(rows)}, junction=${junctionTable}(${sourceColumn},${targetColumn}): ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private async updateMongoRouteMethodRelation(
+    routeId: any,
+    field: string,
+    methodIds: any[],
+  ): Promise<void> {
+    const db = this.queryBuilderService.getMongoDb();
+    const { junctionTable, sourceColumn, targetColumn } =
+      await this.getMongoJunctionMetadata(field);
+    const sourceId = this.toObjectId(routeId);
+    const targetIds = methodIds.map((id) => this.toObjectId(id));
+    try {
+      const collection = db.collection(junctionTable);
+      await collection.deleteMany({ [sourceColumn]: sourceId });
+      if (targetIds.length === 0) return;
+      await collection.insertMany(
+        targetIds.map((methodId) => ({
+          [sourceColumn]: sourceId,
+          [targetColumn]: methodId,
+        })),
+        { ordered: false },
+      );
+    } catch (error) {
+      const rows = targetIds.map((methodId) => ({
+        [sourceColumn]: sourceId,
+        [targetColumn]: methodId,
+      }));
+      throw new Error(
+        `Failed to migrate route_definition.${field}: routeId=${String(routeId)}, methodIds=${JSON.stringify(methodIds.map(String))}, rows=${JSON.stringify(rows)}, junction=${junctionTable}(${sourceColumn},${targetColumn}): ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private async getMongoJunctionMetadata(field: string): Promise<{
+    junctionTable: string;
+    sourceColumn: string;
+    targetColumn: string;
+  }> {
+    const db = this.queryBuilderService.getMongoDb();
+    const [sourceTable, targetTable] = await Promise.all([
+      db.collection('table_definition').findOne({ name: 'route_definition' }),
+      db.collection('table_definition').findOne({ name: 'method_definition' }),
+    ]);
+    const relation = await db.collection('relation_definition').findOne({
+      sourceTable: sourceTable?._id,
+      targetTable: targetTable?._id,
+      propertyName: field,
+    });
+    const fallback = getSqlJunctionPhysicalNames({
+      sourceTable: 'route_definition',
+      propertyName: field,
+      targetTable: 'method_definition',
+    });
+    return {
+      junctionTable: relation?.junctionTableName || fallback.junctionTableName,
+      sourceColumn:
+        relation?.junctionSourceColumn || fallback.junctionSourceColumn,
+      targetColumn:
+        relation?.junctionTargetColumn || fallback.junctionTargetColumn,
+    };
+  }
+
+  private toObjectId(value: any): ObjectId {
+    if (value instanceof ObjectId) return value;
+    return new ObjectId(String(value));
   }
 
   private getUniqueFilter(_tableName: string, record: any): any | null {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SchemaHealingService } from '../../src/engines/bootstrap';
 import { DatabaseConfigService } from '../../src/shared/services';
+import { getSqlJunctionPhysicalNames } from '../../src/modules/table-management/utils/sql-junction-naming.util';
 
 function makeSetting(flag: boolean | undefined) {
   return {
@@ -365,6 +366,11 @@ describe('SchemaHealingService.runIfNeeded', () => {
 
   it('heals Mongo M2M junction collection and field names to the physical contract', async () => {
     DatabaseConfigService.overrideForTesting?.('mongodb');
+    const junction = getSqlJunctionPhysicalNames({
+      sourceTable: 'test',
+      propertyName: 'students',
+      targetTable: 'students',
+    });
     const update = vi.fn().mockResolvedValue(undefined);
     const updateOne = vi.fn().mockResolvedValue({ modifiedCount: 1 });
     const rename = vi.fn().mockResolvedValue(undefined);
@@ -385,8 +391,8 @@ describe('SchemaHealingService.runIfNeeded', () => {
         referencedColumn: null,
         constraintName: null,
         junctionTableName: 'bad_junction',
-        junctionSourceColumn: 'sourceId',
-        junctionTargetColumn: 'targetId',
+        junctionSourceColumn: 'testId',
+        junctionTargetColumn: 'studentsId',
       },
       {
         _id: 'inverse-id',
@@ -399,8 +405,8 @@ describe('SchemaHealingService.runIfNeeded', () => {
         referencedColumn: null,
         constraintName: null,
         junctionTableName: 'bad_junction',
-        junctionSourceColumn: 'targetId',
-        junctionTargetColumn: 'sourceId',
+        junctionSourceColumn: 'studentsId',
+        junctionTargetColumn: 'testId',
       },
     ];
     const collections: Record<string, any> = {
@@ -447,25 +453,25 @@ describe('SchemaHealingService.runIfNeeded', () => {
 
     await svc.runIfNeeded();
 
-    expect(rename).toHaveBeenCalledWith('test_students_students');
+    expect(rename).toHaveBeenCalledWith(junction.junctionTableName);
     expect(updateMany).toHaveBeenCalledWith(
-      { sourceId: { $exists: true }, testId: { $exists: false } },
-      { $rename: { sourceId: 'testId' } },
+      { testId: { $exists: true }, sourceId: { $exists: false } },
+      { $rename: { testId: 'sourceId' } },
     );
     expect(updateMany).toHaveBeenCalledWith(
-      { targetId: { $exists: true }, studentsId: { $exists: false } },
-      { $rename: { targetId: 'studentsId' } },
+      { studentsId: { $exists: true }, targetId: { $exists: false } },
+      { $rename: { studentsId: 'targetId' } },
     );
     expect(updateOne).toHaveBeenCalledTimes(2);
     expect(updateOne.mock.calls[0][1].$set).toEqual({
-      junctionTableName: 'test_students_students',
-      junctionSourceColumn: 'testId',
-      junctionTargetColumn: 'studentsId',
+      junctionTableName: junction.junctionTableName,
+      junctionSourceColumn: 'sourceId',
+      junctionTargetColumn: 'targetId',
     });
     expect(updateOne.mock.calls[1][1].$set).toEqual({
       junctionTableName: updateOne.mock.calls[0][1].$set.junctionTableName,
-      junctionSourceColumn: 'studentsId',
-      junctionTargetColumn: 'testId',
+      junctionSourceColumn: 'targetId',
+      junctionTargetColumn: 'sourceId',
     });
   });
 });
