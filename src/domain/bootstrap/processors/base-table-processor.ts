@@ -159,11 +159,10 @@ export abstract class BaseTableProcessor {
           const hasChanges = this.detectRecordChanges(record, existingRecord);
           if (hasChanges) {
             const existingId = existingRecord[idField];
-            await queryBuilder.update(
-              tableName,
-              existingId,
-              this.prepareRecordForWrite(record, tableName),
-            );
+            const writeRecord = this.prepareRecordForWrite(record, tableName);
+            if (Object.keys(writeRecord).length > 0) {
+              await queryBuilder.update(tableName, existingId, writeRecord);
+            }
             skippedCount++;
             this.logger.debug(
               `   Updated: ${this.getRecordIdentifier(record)}`,

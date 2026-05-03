@@ -246,6 +246,7 @@ export class MetadataProvisionMongoService {
       owningTableName: string;
       owningPropertyName: string;
     }> = [];
+    const generatedInverseKeys = new Set<string>();
     for (const [tableName, defRaw] of Object.entries(snapshot)) {
       const def = defRaw as any;
       const tableId = tableNameToId[tableName];
@@ -254,6 +255,11 @@ export class MetadataProvisionMongoService {
         if (!rel.propertyName || !rel.targetTable || !rel.type) continue;
         const targetTableId = tableNameToId[rel.targetTable];
         if (!targetTableId) continue;
+        const currentKey = `${tableName}.${rel.propertyName}`;
+        if (generatedInverseKeys.has(currentKey)) continue;
+        if (rel.inversePropertyName) {
+          generatedInverseKeys.add(`${rel.targetTable}.${rel.inversePropertyName}`);
+        }
         if (rel.inversePropertyName && rel.type === 'one-to-many') {
           pendingInverses.push({
             tableName: rel.targetTable,
