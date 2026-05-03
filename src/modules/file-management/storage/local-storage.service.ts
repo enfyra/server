@@ -16,6 +16,16 @@ export class LocalStorageService implements IStorageService {
     this.ensurePublicDirExists();
   }
 
+  private resolveLocalPath(location: string): string {
+    const relativePath = location.startsWith('/') ? location.slice(1) : location;
+    const basePath = path.resolve(this.basePath);
+    const absolutePath = path.resolve(basePath, relativePath);
+    if (absolutePath !== basePath && !absolutePath.startsWith(`${basePath}${path.sep}`)) {
+      throw new Error(`Invalid local storage path: ${location}`);
+    }
+    return absolutePath;
+  }
+
   private async ensurePublicDirExists(): Promise<void> {
     try {
       await fs.promises.mkdir(this.basePath, { recursive: true });
@@ -30,7 +40,7 @@ export class LocalStorageService implements IStorageService {
     _mimetype: string,
     _config: StorageConfig,
   ): Promise<UploadResult> {
-    const filePath = path.join(this.basePath, relativePath);
+    const filePath = this.resolveLocalPath(relativePath);
     await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
     await fs.promises.writeFile(filePath, buffer);
     return {
@@ -39,20 +49,14 @@ export class LocalStorageService implements IStorageService {
   }
 
   async delete(location: string, config: StorageConfig): Promise<void> {
-    const relativePath = location.startsWith('/')
-      ? location.slice(1)
-      : location;
-    const absolutePath = path.join(this.basePath, relativePath);
+    const absolutePath = this.resolveLocalPath(location);
     if (await this.exists(location, config)) {
       await fs.promises.unlink(absolutePath);
     }
   }
 
   async getStream(location: string, config: StorageConfig): Promise<Readable> {
-    const relativePath = location.startsWith('/')
-      ? location.slice(1)
-      : location;
-    const absolutePath = path.join(this.basePath, relativePath);
+    const absolutePath = this.resolveLocalPath(location);
     if (!(await this.exists(location, config))) {
       throw new Error(`File not found in local storage: ${location}`);
     }
@@ -65,10 +69,7 @@ export class LocalStorageService implements IStorageService {
   }
 
   async getBuffer(location: string, config: StorageConfig): Promise<Buffer> {
-    const relativePath = location.startsWith('/')
-      ? location.slice(1)
-      : location;
-    const absolutePath = path.join(this.basePath, relativePath);
+    const absolutePath = this.resolveLocalPath(location);
     if (!(await this.exists(location, config))) {
       throw new Error(`File not found in local storage: ${location}`);
     }
@@ -82,19 +83,13 @@ export class LocalStorageService implements IStorageService {
     _mimetype: string,
     _config: StorageConfig,
   ): Promise<void> {
-    const relativePath = location.startsWith('/')
-      ? location.slice(1)
-      : location;
-    const absolutePath = path.join(this.basePath, relativePath);
+    const absolutePath = this.resolveLocalPath(location);
     await fs.promises.writeFile(absolutePath, buffer);
   }
 
   async exists(location: string, _config: StorageConfig): Promise<boolean> {
     try {
-      const relativePath = location.startsWith('/')
-        ? location.slice(1)
-        : location;
-      const absolutePath = path.join(this.basePath, relativePath);
+      const absolutePath = this.resolveLocalPath(location);
       await fs.promises.access(absolutePath);
       return true;
     } catch {

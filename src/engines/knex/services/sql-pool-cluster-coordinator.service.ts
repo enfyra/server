@@ -11,6 +11,7 @@ import { KnexService } from '../knex.service';
 import { ReplicationManager } from './replication-manager.service';
 import { parseDatabaseUri } from '../utils/uri-parser';
 import { computeCoordinatedPoolMax } from '../utils/sql-pool-coordination.util';
+import { resolveSqlPoolConfig } from '../utils/sql-pool-config.util';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import {
   SQL_COORD_HEARTBEAT_MS,
@@ -55,8 +56,8 @@ export class SqlPoolClusterCoordinatorService {
     this.knexService = deps.knexService;
     this.eventEmitter = deps.eventEmitter;
     this.replicationManager = deps.replicationManager;
-    this.zsetKey = `${this.getNodeName()}:coord:sql:pool:${this.resolveDbServerHash()}:instances`;
-    this.instanceId = this.instanceService.getInstanceId();
+    this.zsetKey = `coord:sql:pool:${this.resolveDbServerHash()}:instances`;
+    this.instanceId = `${this.getNodeName()}:${this.instanceService.getInstanceId()}`;
   }
 
   private getNodeName(): string {
@@ -267,10 +268,15 @@ export class SqlPoolClusterCoordinatorService {
         Math.floor(serverMax * SQL_COORD_RESERVE_RATIO),
       );
       this.lastReserveConnections = reserve;
+      const poolConfig = resolveSqlPoolConfig(
+        this.databaseConfigService.getDbType(),
+        this.envService,
+      );
       let target = computeCoordinatedPoolMax({
         serverMaxConnections: serverMax,
         activeInstanceCount: activeCount,
         reserveConnections: reserve,
+        maxPoolPerInstance: poolConfig.max,
       });
       if (this.replicationManager) {
         const replicaTotal = this.replicationManager.getReplicaStats().total;

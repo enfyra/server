@@ -261,7 +261,7 @@ export class RedisAdminService {
         reason: '$cache user data',
       };
     }
-    if (key.startsWith(`${this.nodeName}:coord:sql:pool:`)) {
+    if (key.startsWith('coord:sql:pool:')) {
       return {
         isSystem: true,
         modifiable: false,
@@ -821,6 +821,7 @@ export class RedisAdminService {
   private isReadableKey(key: string): boolean {
     return (
       key.startsWith(`${this.nodeName}:`) ||
+      key.startsWith('coord:sql:pool:') ||
       [
         BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
         PROVISION_LOCK_KEY,

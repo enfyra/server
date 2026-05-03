@@ -106,11 +106,20 @@ export class ImageProcessorHelper {
     height?: number,
     quality?: number,
   ): { valid: boolean; error?: string } {
-    if (width && (width < 1 || width > 4000))
+    if (
+      width !== undefined &&
+      (!Number.isFinite(width) || width < 1 || width > 4000)
+    )
       return { valid: false, error: 'Width 1-4000' };
-    if (height && (height < 1 || height > 4000))
+    if (
+      height !== undefined &&
+      (!Number.isFinite(height) || height < 1 || height > 4000)
+    )
       return { valid: false, error: 'Height 1-4000' };
-    if (quality && (quality < 1 || quality > 100))
+    if (
+      quality !== undefined &&
+      (!Number.isFinite(quality) || quality < 1 || quality > 100)
+    )
       return { valid: false, error: 'Quality 1-100' };
     return { valid: true };
   }
@@ -167,6 +176,10 @@ export class ImageProcessorHelper {
     if (Object.keys(modulateOptions).length > 0) {
       processor = processor.modulate(modulateOptions);
     }
+    if (contrast !== undefined && contrast !== 0) {
+      const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+      processor = processor.linear(factor, 128 * (1 - factor));
+    }
     if (grayscale === true) {
       processor = processor.greyscale();
     }
@@ -181,22 +194,40 @@ export class ImageProcessorHelper {
     contrast?: number,
     saturation?: number,
   ): { valid: boolean; error?: string } {
-    if (rotate !== undefined && (rotate < -360 || rotate > 360))
+    if (
+      rotate !== undefined &&
+      (!Number.isFinite(rotate) || rotate < -360 || rotate > 360)
+    )
       return { valid: false, error: 'Rotate -360 to 360' };
     if (
       flip &&
       !['horizontal', 'vertical', 'h', 'v'].includes(flip.toLowerCase())
     )
       return { valid: false, error: 'Flip: horizontal, vertical, h, v' };
-    if (blur !== undefined && (blur < 0 || blur > 100))
+    if (
+      blur !== undefined &&
+      (!Number.isFinite(blur) || blur < 0 || blur > 100)
+    )
       return { valid: false, error: 'Blur 0-100' };
-    if (sharpen !== undefined && (sharpen < 0 || sharpen > 100))
+    if (
+      sharpen !== undefined &&
+      (!Number.isFinite(sharpen) || sharpen < 0 || sharpen > 100)
+    )
       return { valid: false, error: 'Sharpen 0-100' };
-    if (brightness !== undefined && (brightness < -100 || brightness > 100))
+    if (
+      brightness !== undefined &&
+      (!Number.isFinite(brightness) || brightness < -100 || brightness > 100)
+    )
       return { valid: false, error: 'Brightness -100 to 100' };
-    if (contrast !== undefined && (contrast < -100 || contrast > 100))
+    if (
+      contrast !== undefined &&
+      (!Number.isFinite(contrast) || contrast < -100 || contrast > 100)
+    )
       return { valid: false, error: 'Contrast -100 to 100' };
-    if (saturation !== undefined && (saturation < -100 || saturation > 100))
+    if (
+      saturation !== undefined &&
+      (!Number.isFinite(saturation) || saturation < -100 || saturation > 100)
+    )
       return { valid: false, error: 'Saturation -100 to 100' };
     return { valid: true };
   }

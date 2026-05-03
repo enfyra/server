@@ -10,6 +10,7 @@ import { ImageProcessorHelper } from '../utils/image-processor.helper';
 import { StreamHelper } from '../utils/stream.helper';
 import { FileValidationHelper } from '../utils/file-validation.helper';
 import { ImageFormatHelper } from '../utils/image-format.helper';
+import { loadUserWithRole } from '../../../shared/utils/load-user-with-role.util';
 
 export class FileAssetsService {
   private readonly logger = new Logger(FileAssetsService.name);
@@ -30,6 +31,18 @@ export class FileAssetsService {
     ImageProcessorHelper.configureSharp();
   }
 
+  private resolveLocalAssetPath(location: string): string {
+    const basePath = path.resolve(process.cwd(), 'public');
+    const relativePath = location.startsWith('/')
+      ? location.slice(1)
+      : location;
+    const filePath = path.resolve(basePath, relativePath);
+    if (filePath !== basePath && !filePath.startsWith(`${basePath}${path.sep}`)) {
+      throw new NotFoundException('Physical file not found');
+    }
+    return filePath;
+  }
+
   async streamFile(req: any, res: Response): Promise<void> {
     const fileId = req.routeData?.params?.id || req.params.id;
     if (!fileId)
@@ -45,18 +58,38 @@ export class FileAssetsService {
     if (!file) throw new NotFoundException(`File not found: ${fileId}`);
 
     if (!file.isPublished) {
+      const currentUser = req.user || req.routeData?.context?.$user;
+      if (
+        currentUser?.id &&
+        (!req.user || (!req.user.role && !req.user.roleId))
+      ) {
+        req.user = await loadUserWithRole(
+          this.queryBuilderService,
+          currentUser.id,
+        );
+      }
+
       const permissionsResult = await this.queryBuilderService.find({
         table: 'file_permission_definition',
         filter: {
-          fileId: { _eq: fileId },
           isEnabled: { _eq: true },
         },
-        deep: {
-          allowedUsers: { fields: ['id', 'email'] },
-          role: { fields: ['id', 'name'] },
-        },
+        fields: [
+          'id',
+          'isEnabled',
+          'file.id',
+          'role.id',
+          'role.name',
+          'allowedUsers.id',
+          'allowedUsers.email',
+        ],
+        limit: 1000,
       });
-      const permissions = permissionsResult.data;
+      const permissions = permissionsResult.data.filter((perm: any) => {
+        const permissionFileId =
+          perm.file?.id ?? perm.file?._id ?? perm.file ?? perm.fileId;
+        return String(permissionFileId) === String(fileId);
+      });
 
       for (const perm of permissions) {
         if (perm.roleId && !perm.role) {
@@ -121,11 +154,7 @@ export class FileAssetsService {
         FileValidationHelper.isImageFile(mimetype, fileType) &&
         FileValidationHelper.hasImageQueryParams(req)
       ) {
-        const basePath = path.join(process.cwd(), 'public');
-        const relativePath = location.startsWith('/')
-          ? location.slice(1)
-          : location;
-        const filePath = path.join(basePath, relativePath);
+        const filePath = this.resolveLocalAssetPath(location);
 
         return void (await this.processImageWithQuery(
           filePath,
@@ -156,7 +185,13 @@ export class FileAssetsService {
       const query = req.routeData?.context?.$query || req.query;
       const shouldDownload =
         query.download === 'true' || query.download === true;
-      const stream = await storageService.getStream(location, sc);
+      let stream;
+      try {
+        stream = await storageService.getStream(location, sc);
+      } catch (error) {
+        this.logger.error(`Local file not found: ${location}`, error);
+        throw new NotFoundException('Physical file not found');
+      }
       return void (await this.streamHelper.streamCloudFile(
         stream,
         res,
