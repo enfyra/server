@@ -45,17 +45,43 @@ export class FileValidationHelper {
   ): Promise<void> {
     if (file.isPublished) return;
 
-    const user = req.routeData?.context?.$user || req.user;
+    const user = req.user || req.routeData?.context?.$user;
     if (!user?.id) throw new AuthenticationException('Authentication required');
     if (user.isRootAdmin) return;
 
+    const userId = String(user.id);
+    const userRoleId =
+      user.role?.id !== undefined && user.role?.id !== null
+        ? String(user.role.id)
+        : user.role !== undefined && user.role !== null
+          ? String(user.role)
+          : user.roleId !== undefined && user.roleId !== null
+            ? String(user.roleId)
+            : null;
+
     const hasAccess = (file.permissions || []).some(
-      (p: any) =>
-        (p.isEnabled !== false &&
-          (Array.isArray(p.allowedUsers)
-            ? p.allowedUsers.some((u: any) => (u?.id || u) === user?.id)
-            : p.allowedUsers?.id === user?.id)) ||
-        (p.role && user.role?.id === p.role.id),
+      (p: any) => {
+        if (p.isEnabled === false) return false;
+        const allowedUserMatch = Array.isArray(p.allowedUsers)
+          ? p.allowedUsers.some((u: any) => String(u?.id || u) === userId)
+          : p.allowedUsers
+            ? String(p.allowedUsers?.id || p.allowedUsers) === userId
+            : false;
+        const permissionRoleId =
+          p.role?.id !== undefined && p.role?.id !== null
+            ? String(p.role.id)
+            : p.role !== undefined && p.role !== null
+              ? String(p.role)
+              : p.roleId !== undefined && p.roleId !== null
+                ? String(p.roleId)
+                : null;
+        return (
+          allowedUserMatch ||
+          (userRoleId !== null &&
+            permissionRoleId !== null &&
+            userRoleId === permissionRoleId)
+        );
+      },
     );
 
     if (!hasAccess) throw new AuthorizationException('Access denied');

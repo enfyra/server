@@ -4,12 +4,17 @@ export function computeCoordinatedPoolMax(params: {
   serverMaxConnections: number;
   activeInstanceCount: number;
   reserveConnections: number;
+  maxPoolPerInstance?: number;
 }): number {
   const n = Math.max(1, Math.trunc(params.activeInstanceCount) || 1);
   const serverMax = Math.max(1, Math.trunc(params.serverMaxConnections) || 1);
   const reserve = Math.max(0, Math.trunc(params.reserveConnections) || 0);
-  const budget = Math.max(8, serverMax - reserve);
-  return Math.max(2, Math.floor(budget / n));
+  const budget = Math.max(1, serverMax - reserve);
+  const cap =
+    params.maxPoolPerInstance == null
+      ? Number.POSITIVE_INFINITY
+      : Math.max(1, Math.trunc(params.maxPoolPerInstance));
+  return Math.max(1, Math.min(cap, Math.floor(budget / n)));
 }
 
 export function splitSqlPoolAcrossReplication(params: {
@@ -23,19 +28,24 @@ export function splitSqlPoolAcrossReplication(params: {
   replicaMin: number;
   replicaMax: number;
 } {
-  const totalMax = Math.max(1, Math.trunc(params.totalMax));
-  const totalMin = Math.max(
-    1,
-    Math.min(Math.trunc(params.totalMin) || 1, totalMax),
-  );
+  const requestedTotalMax = Math.max(1, Math.trunc(params.totalMax));
   const replicaCount = Math.max(0, Math.trunc(params.replicaCount));
+  const totalMax =
+    replicaCount === 0
+      ? requestedTotalMax
+      : Math.max(requestedTotalMax, 1 + replicaCount);
+  const requestedMin = Math.trunc(params.totalMin);
+  const totalMin = Math.max(
+    0,
+    Math.min(Number.isFinite(requestedMin) ? requestedMin : 0, totalMax),
+  );
   const mr = params.masterRatio ?? SQL_MASTER_RATIO;
 
   if (replicaCount === 0) {
     return {
       masterMin: Math.min(totalMin, totalMax),
       masterMax: totalMax,
-      replicaMin: 1,
+      replicaMin: 0,
       replicaMax: 1,
     };
   }
@@ -62,16 +72,11 @@ export function splitSqlPoolAcrossReplication(params: {
   }
   masterMax = Math.min(masterMax, totalMax - replicaMax * replicaCount);
 
-  const masterMin = Math.max(
-    1,
-    Math.min(Math.max(1, Math.floor(totalMin * mr)), masterMax),
-  );
-  const replicaMin = Math.max(
-    1,
-    Math.min(
-      Math.max(1, Math.floor((totalMin * (1 - mr)) / replicaCount)),
-      replicaMax,
-    ),
+  const masterMin = Math.min(Math.floor(totalMin * mr), masterMax);
+  const remainingMin = Math.max(0, totalMin - masterMin);
+  const replicaMin = Math.min(
+    Math.floor(remainingMin / replicaCount),
+    replicaMax,
   );
 
   return { masterMin, masterMax, replicaMin, replicaMax };

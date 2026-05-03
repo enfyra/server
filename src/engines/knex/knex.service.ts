@@ -10,11 +10,8 @@ import { DatabaseConfigService, EnvService } from '../../shared/services';
 import { ReplicationManager } from './services/replication-manager.service';
 import { KnexHookManagerService } from './services/knex-hook-manager.service';
 import { LifecycleAware } from '../../shared/interfaces/lifecycle-aware.interface';
-import {
-  SQL_ACQUIRE_TIMEOUT_MS,
-  SQL_BOOTSTRAP_POOL_MAX_TOTAL,
-  SQL_BOOTSTRAP_POOL_MIN,
-} from '../../shared/utils/auto-scaling.constants';
+import { SQL_ACQUIRE_TIMEOUT_MS } from '../../shared/utils/auto-scaling.constants';
+import { resolveSqlPoolConfig } from './utils/sql-pool-config.util';
 
 export class KnexService implements LifecycleAware {
   private knexInstance!: Knex;
@@ -124,6 +121,7 @@ export class KnexService implements LifecycleAware {
         };
       }
 
+      const poolConfig = resolveSqlPoolConfig(DB_TYPE, this.envService);
       this.knexInstance = knex({
         client: this.databaseConfigService.isPostgres() ? 'pg' : 'mysql2',
         connection: {
@@ -149,8 +147,8 @@ export class KnexService implements LifecycleAware {
         },
         useNullAsDefault: false,
         pool: {
-          min: SQL_BOOTSTRAP_POOL_MIN,
-          max: SQL_BOOTSTRAP_POOL_MAX_TOTAL,
+          min: poolConfig.min,
+          max: poolConfig.max,
         },
         acquireConnectionTimeout: SQL_ACQUIRE_TIMEOUT_MS,
         debug: false,
@@ -323,7 +321,8 @@ export class KnexService implements LifecycleAware {
     );
     const p = pool as { min?: number; max: number };
     const nextMax = Math.max(1, Math.trunc(poolMax));
-    const nextMin = Math.max(1, Math.min(2, nextMax));
+    const poolConfig = resolveSqlPoolConfig(this.dbType, this.envService);
+    const nextMin = Math.max(0, Math.min(poolConfig.min, nextMax));
     p.min = nextMin;
     p.max = nextMax;
     this.logger.log(`SQL pool coordinated: max=${nextMax} min=${nextMin}`);

@@ -4,6 +4,7 @@ import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { DatabaseConfigService } from '../../../shared/services';
 import {
+  compileScriptSource,
   normalizeScriptRecord,
   resolveExecutableScript,
 } from '@enfyra/kernel';
@@ -93,6 +94,23 @@ export class WebsocketCacheService extends BaseCacheService<
     tableName: string,
     record: any,
   ): Promise<string | null> {
+    if (typeof record?.sourceCode === 'string' && record.sourceCode !== '') {
+      const compiledCode = compileScriptSource(
+        record.sourceCode,
+        record.scriptLanguage,
+      );
+      if (compiledCode !== record.compiledCode) {
+        record.compiledCode = compiledCode;
+        const id = DatabaseConfigService.getRecordId(record);
+        if (id != null) {
+          await this.queryBuilderService.update(tableName, id, {
+            compiledCode,
+          });
+        }
+      }
+      return compiledCode;
+    }
+
     const result = resolveExecutableScript(record);
     if (result.shouldPersistCompiledCode) {
       record.compiledCode = result.compiledCode;

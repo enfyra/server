@@ -13,6 +13,8 @@ const EnvSchema = z.object({
     .int()
     .positive()
     .optional(),
+  SQL_POOL_MIN: z.coerce.number().int().min(0).optional(),
+  SQL_POOL_MAX: z.coerce.number().int().positive().optional(),
   REDIS_URI: z.string(),
   REDIS_HOST: z.string().optional(),
   REDIS_PASSWORD: z.string().optional(),

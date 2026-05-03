@@ -1,11 +1,8 @@
 import { Logger } from '../../../shared/logger';
 import { Knex, knex } from 'knex';
 import { parseDatabaseUri } from '../../knex/utils/uri-parser';
-import {
-  SQL_ACQUIRE_TIMEOUT_MS,
-  SQL_BOOTSTRAP_POOL_MAX_TOTAL,
-  SQL_BOOTSTRAP_POOL_MIN,
-} from '../../../shared/utils/auto-scaling.constants';
+import { SQL_ACQUIRE_TIMEOUT_MS } from '../../../shared/utils/auto-scaling.constants';
+import { resolveSqlPoolConfig } from '../utils/sql-pool-config.util';
 import { splitSqlPoolAcrossReplication } from '../utils/sql-pool-coordination.util';
 import { DatabaseConfigService, EnvService } from '../../../shared/services';
 import { LifecycleAware } from '../../../shared/interfaces/lifecycle-aware.interface';
@@ -54,9 +51,10 @@ export class ReplicationManager implements LifecycleAware {
           .map((uri) => uri.trim())
           .filter(Boolean).length
       : 0;
+    const poolConfig = resolveSqlPoolConfig(this.dbType, this.envService);
     const split = splitSqlPoolAcrossReplication({
-      totalMax: SQL_BOOTSTRAP_POOL_MAX_TOTAL,
-      totalMin: SQL_BOOTSTRAP_POOL_MIN,
+      totalMax: Math.max(poolConfig.max, 1 + replicaCount),
+      totalMin: poolConfig.min,
       replicaCount,
     });
     const masterPoolMin = split.masterMin;
@@ -175,7 +173,8 @@ export class ReplicationManager implements LifecycleAware {
     const replicaCount = this.replicaNodes.length;
     const minTotal = replicaCount === 0 ? 1 : 1 + replicaCount;
     const total = Math.max(minTotal, Math.max(1, Math.trunc(totalMax)));
-    const coordinatedMin = Math.min(2, total);
+    const poolConfig = resolveSqlPoolConfig(this.dbType, this.envService);
+    const coordinatedMin = Math.min(poolConfig.min, total);
     const split = splitSqlPoolAcrossReplication({
       totalMax: total,
       totalMin: coordinatedMin,
