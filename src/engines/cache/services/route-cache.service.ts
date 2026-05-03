@@ -6,6 +6,7 @@ import { MetadataCacheService } from './metadata-cache.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { EnfyraRouteEngine } from '../../../shared/utils/enfyra-route-engine';
 import {
+  compileScriptSource,
   normalizeScriptRecord,
   resolveExecutableScript,
 } from '@enfyra/kernel';
@@ -467,15 +468,17 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   private uniqueHooks(hooks: any[], _isMongoDB: boolean): any[] {
-    return hooks.filter(
-      (hook, index, self) =>
-        index ===
-        self.findIndex((h) => {
-          const hId = DatabaseConfigService.getRecordId(h)?.toString();
-          const hookId = DatabaseConfigService.getRecordId(hook)?.toString();
-          return hId === hookId;
-        }),
-    );
+    return hooks
+      .filter(
+        (hook, index, self) =>
+          index ===
+          self.findIndex((h) => {
+            const hId = DatabaseConfigService.getRecordId(h)?.toString();
+            const hookId = DatabaseConfigService.getRecordId(hook)?.toString();
+            return hId === hookId;
+          }),
+      )
+      .sort((a, b) => (a?.priority ?? 0) - (b?.priority ?? 0));
   }
 
   private setMethodCache(methods: any[]): void {
@@ -589,6 +592,23 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     tableName: string,
     record: any,
   ): Promise<string | null> {
+    if (record.sourceCode) {
+      const compiledCode = compileScriptSource(
+        record.sourceCode,
+        record.scriptLanguage || 'typescript',
+      );
+      if (record.compiledCode !== compiledCode) {
+        record.compiledCode = compiledCode;
+        const id = DatabaseConfigService.getRecordId(record);
+        if (id != null) {
+          await this.queryBuilderService.update(tableName, id, {
+            compiledCode,
+          });
+        }
+      }
+      return compiledCode;
+    }
+
     const result = resolveExecutableScript(record);
     if (result.shouldPersistCompiledCode) {
       record.compiledCode = result.compiledCode;

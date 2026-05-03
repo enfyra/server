@@ -47,13 +47,14 @@ export class DynamicContextFactory {
   }
 
   createBase(options: DynamicContextOptions = {}): TDynamicContext {
+    const cache = this.createCacheFacade(options.cache ?? this.userCacheService);
     const ctx: TDynamicContext = {
       $body: options.body ?? {},
       $data: options.data,
       $debug: options.debug,
       $throw: ScriptErrorFactory.createThrowHandlers(),
       $helpers: options.helpers ?? {},
-      $cache: options.cache ?? this.userCacheService,
+      $cache: cache,
       $params: options.params ?? {},
       $query: options.query ?? {},
       $user: options.user ?? null,
@@ -72,6 +73,32 @@ export class DynamicContextFactory {
     };
 
     return ctx;
+  }
+
+  private createCacheFacade(
+    cache: NonNullable<TDynamicContext['$cache']>,
+  ): TDynamicContext['$cache'] {
+    return {
+      acquire: cache.acquire
+        ? (key, value, ttlMs) => cache.acquire!(key, value, ttlMs)
+        : undefined,
+      release: cache.release
+        ? (key, value) => cache.release!(key, value)
+        : undefined,
+      get: cache.get ? (key) => cache.get!(key) : undefined,
+      set: cache.set
+        ? (key, value, ttlMs) => cache.set!(key, value, ttlMs)
+        : undefined,
+      exists: cache.exists
+        ? (key, value) => cache.exists!(key, value)
+        : undefined,
+      deleteKey: cache.deleteKey
+        ? (key) => cache.deleteKey!(key)
+        : undefined,
+      setNoExpire: cache.setNoExpire
+        ? (key, value) => cache.setNoExpire!(key, value)
+        : undefined,
+    };
   }
 
   createHttp(req: any, options: { params: any; realClientIP: string }) {

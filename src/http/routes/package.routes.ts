@@ -47,7 +47,12 @@ export function registerPackageRoutes(
     }
 
     const existingPackages = await packageRepo.find({
-      where: { name: { _eq: body.name }, type: { _eq: body.type } },
+      filter: {
+        _and: [
+          { name: { _eq: body.name } },
+          { type: { _eq: body.type } },
+        ],
+      },
     });
 
     if (existingPackages.data && existingPackages.data.length > 0) {
@@ -99,7 +104,7 @@ export function registerPackageRoutes(
     }
 
     const result = await packageRepo.find({
-      where: { id: { _eq: savedPackageId } },
+      filter: { id: { _eq: savedPackageId } },
     });
     return res.json(result);
   });
@@ -259,11 +264,7 @@ async function updateStatus(
   extra?: Record<string, any>,
 ) {
   try {
-    await queryBuilder.update(
-      'package_definition',
-      { where: [{ field: 'id', operator: '=', value: id }] },
-      { status, ...extra },
-    );
+    await queryBuilder.update('package_definition', id, { status, ...extra });
   } catch (error) {
     console.error(
       `Failed to update status to ${status} for package ${id}:`,

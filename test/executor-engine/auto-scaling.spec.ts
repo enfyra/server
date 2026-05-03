@@ -131,7 +131,7 @@ describe('computeCoordinatedPoolMax — exhaustive sweep', () => {
           reserveConnections: res,
         });
 
-        expect(perInstance).toBeGreaterThanOrEqual(2);
+        expect(perInstance).toBeGreaterThanOrEqual(1);
         expect(perInstance).toBeLessThanOrEqual(serverMax);
 
         if (serverMax >= instances * 2 + res) {
@@ -178,14 +178,14 @@ describe('splitSqlPoolAcrossReplication — exhaustive sweep', () => {
         });
 
         expect(s.masterMax).toBeGreaterThanOrEqual(1);
-        expect(s.masterMin).toBeGreaterThanOrEqual(1);
+        expect(s.masterMin).toBeGreaterThanOrEqual(0);
         expect(s.masterMin).toBeLessThanOrEqual(s.masterMax);
 
         if (replicas === 0) {
           expect(s.masterMax).toBe(totalMax);
         } else {
           expect(s.replicaMax).toBeGreaterThanOrEqual(1);
-          expect(s.replicaMin).toBeGreaterThanOrEqual(1);
+          expect(s.replicaMin).toBeGreaterThanOrEqual(0);
           expect(s.replicaMin).toBeLessThanOrEqual(s.replicaMax);
           const sum = s.masterMax + s.replicaMax * replicas;
           expect(sum).toBeLessThanOrEqual(totalMax);
@@ -208,6 +208,30 @@ describe('splitSqlPoolAcrossReplication — exhaustive sweep', () => {
         prev = s.masterMax;
       }
     }
+  });
+
+  it('supports PostgreSQL-style zero idle floor', () => {
+    const s = splitSqlPoolAcrossReplication({
+      totalMax: 4,
+      totalMin: 0,
+      replicaCount: 2,
+    });
+    expect(s.masterMin).toBe(0);
+    expect(s.replicaMin).toBe(0);
+    expect(s.masterMax).toBeGreaterThanOrEqual(1);
+    expect(s.replicaMax).toBeGreaterThanOrEqual(1);
+    expect(s.masterMax + s.replicaMax * 2).toBeLessThanOrEqual(4);
+  });
+
+  it('keeps every physical pool usable when requested totalMax is below replica count', () => {
+    const s = splitSqlPoolAcrossReplication({
+      totalMax: 2,
+      totalMin: 0,
+      replicaCount: 3,
+    });
+    expect(s.masterMax).toBeGreaterThanOrEqual(1);
+    expect(s.replicaMax).toBeGreaterThanOrEqual(1);
+    expect(s.masterMax + s.replicaMax * 3).toBeGreaterThanOrEqual(4);
   });
 });
 
@@ -522,13 +546,35 @@ describe('Multi-instance coordination scenarios', () => {
 
     expect(handler.maxConcurrentWorkers).toBeGreaterThanOrEqual(2);
     expect(handler.maxConcurrentWorkers).toBeLessThanOrEqual(16);
-    expect(pool).toBeGreaterThanOrEqual(2);
+    expect(pool).toBeGreaterThanOrEqual(1);
     expect(pool).toBeLessThanOrEqual(200);
 
     const workerRamMb =
       handler.maxConcurrentWorkers * (handler.isolateMemoryLimitMb + 100);
     const totalRamMb = hw.ram / MB;
     expect(workerRamMb).toBeLessThan(totalRamMb * 0.25);
+  });
+});
+
+describe('PostgreSQL pool coordination cap', () => {
+  it('does not grow a single app instance to max_connections', () => {
+    const pool = computeCoordinatedPoolMax({
+      serverMaxConnections: 100,
+      activeInstanceCount: 1,
+      reserveConnections: 10,
+      maxPoolPerInstance: 4,
+    });
+    expect(pool).toBe(4);
+  });
+
+  it('still shrinks below the cap under cluster pressure', () => {
+    const pool = computeCoordinatedPoolMax({
+      serverMaxConnections: 30,
+      activeInstanceCount: 20,
+      reserveConnections: 10,
+      maxPoolPerInstance: 4,
+    });
+    expect(pool).toBe(1);
   });
 });
 

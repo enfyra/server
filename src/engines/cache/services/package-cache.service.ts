@@ -127,11 +127,10 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     extra?: Record<string, any>,
   ) {
     try {
-      await this.queryBuilderService.update(
-        'package_definition',
-        { where: [{ field: 'id', operator: '=', value: id }] },
-        { status, ...extra },
-      );
+      await this.queryBuilderService.update('package_definition', id, {
+        status,
+        ...extra,
+      });
     } catch (error) {
       this.logger.error(
         `Failed to update status to ${status} for package ${id}: ${getErrorMessage(error)}`,

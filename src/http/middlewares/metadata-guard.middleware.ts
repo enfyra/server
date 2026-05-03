@@ -17,7 +17,12 @@ async function runMetadataGuards(
 
   await guardCacheService.ensureGuardsLoaded();
 
-  const routePath = req.routeData.route?.path || req.baseUrl;
+  const routePath =
+    req.routeData.path ||
+    req.routeData.route?.path ||
+    req.baseUrl ||
+    req.path ||
+    'unknown';
   const method = req.method;
 
   const guards = await guardCacheService.getGuardsForRoute(
@@ -30,7 +35,10 @@ async function runMetadataGuards(
   const evalCtx: GuardEvalContext = {
     clientIp: req.routeData.context?.$req?.ip || req.ip || 'unknown',
     routePath,
-    userId: position === 'post_auth' ? req.user?.id || null : null,
+    userId:
+      position === 'post_auth' && req.user?.id != null
+        ? String(req.user.id)
+        : null,
   };
 
   for (const guard of guards) {
