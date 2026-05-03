@@ -48,9 +48,7 @@ async function migrate(
     console.log(`Found ${routes.length} dynamic routes (excluding built-in)`);
 
     const methods = await db('method_definition').select('id', 'method');
-    const httpMethods = methods.filter((m: any) =>
-      ['GET', 'POST', 'PATCH', 'DELETE'].includes(m.method),
-    );
+    const httpMethods = methods.filter((m: any) => DEFAULT_HANDLERS[m.method]);
 
     let created = 0;
     let skipped = 0;

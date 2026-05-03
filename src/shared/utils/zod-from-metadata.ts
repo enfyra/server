@@ -40,6 +40,12 @@ function looseSingleRelationSchema(): z.ZodType {
   return z.union([z.number(), z.string(), z.object({}).passthrough()]);
 }
 
+function isInverseRelation(rel: any): boolean {
+  return (
+    rel?.isInverse === true || !!rel?.mappedBy || rel?.type === 'one-to-many'
+  );
+}
+
 function buildColumnZod(
   col: any,
   mode: 'create' | 'update',
@@ -312,7 +318,9 @@ export function buildZodFromMetadata(opts: BuildZodOpts): z.ZodObject<any> {
     if (backRel?.foreignKeyColumn) skipFkColumns.add(backRel.foreignKeyColumn);
   }
   for (const rel of tableMeta?.relations || []) {
-    if (rel?.foreignKeyColumn) skipFkColumns.add(rel.foreignKeyColumn);
+    if (rel?.foreignKeyColumn && !isInverseRelation(rel)) {
+      skipFkColumns.add(rel.foreignKeyColumn);
+    }
   }
 
   const shape: Record<string, z.ZodType> = { ...autoManagedSchema };

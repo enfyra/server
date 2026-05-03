@@ -470,6 +470,31 @@ describe('buildZodFromMetadata — relations', () => {
     expect(s.safeParse({ posts: [{ name: 'post1' }] }).success).toBe(true);
     expect(s.safeParse({ posts: [5] }).success).toBe(true);
   });
+
+  it('does not hide a local column when an inverse relation uses the same foreignKeyColumn name', () => {
+    const s = build(
+      makeMeta({
+        name: 'method_definition',
+        columns: [
+          col('method', 'varchar', { isNullable: false }),
+          col('isSystem', 'boolean', { isNullable: false }),
+        ],
+        relations: [
+          {
+            type: 'one-to-many',
+            propertyName: 'handlers',
+            targetTable: 'route_handler_definition',
+            mappedBy: 'method',
+            foreignKeyColumn: 'method',
+            isInverse: true,
+          },
+        ],
+      }),
+    );
+    expect(s.safeParse({ method: 'CUSTOM', isSystem: false }).success).toBe(
+      true,
+    );
+  });
 });
 
 describe('buildZodFromMetadata — cascade create vs update semantics', () => {
