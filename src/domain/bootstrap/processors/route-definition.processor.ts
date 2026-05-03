@@ -12,6 +12,7 @@ import {
   getJunctionColumnNames,
   getJunctionTableName,
 } from '@enfyra/kernel';
+import { getSqlJunctionMetadata } from '../utils/sql-junction-metadata.util';
 
 const ROUTE_METHOD_RELATION_FIELDS = [
   'publishedMethods',
@@ -294,18 +295,17 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
           ? raw.map((m: any) => m?.id ?? m?._id).filter(Boolean)
           : [...raw];
     } else {
-      const junctionName =
-        getJunctionTableName(
+      if (isMongoDB) {
+        const junctionName = getJunctionTableName(
           'route_definition',
           'availableMethods',
           'method_definition',
         );
-      const { sourceColumn, targetColumn } = getJunctionColumnNames(
-        'route_definition',
-        'availableMethods',
-        'method_definition',
-      );
-      if (isMongoDB) {
+        const { sourceColumn, targetColumn } = getJunctionColumnNames(
+          'route_definition',
+          'availableMethods',
+          'method_definition',
+        );
         const mongoService = this.queryBuilderService.getMongoDb();
         const routeIdObj =
           typeof routeId === 'string' ? new ObjectId(routeId) : routeId;
@@ -315,8 +315,14 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
           .toArray();
         methodIds = rows.map((r: any) => r[targetColumn]);
       } else {
+        const { junctionTable, sourceColumn, targetColumn } =
+          await getSqlJunctionMetadata(this.queryBuilderService, {
+            sourceTable: 'route_definition',
+            propertyName: 'availableMethods',
+            targetTable: 'method_definition',
+          });
         const knex = this.queryBuilderService.getKnex();
-        const rows = await knex(junctionName)
+        const rows = await knex(junctionTable)
           .select(targetColumn)
           .where({ [sourceColumn]: routeId });
         methodIds = rows.map((r: any) => r[targetColumn]);

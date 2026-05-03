@@ -136,9 +136,16 @@ export class FirstRunInitializer {
       this.logVerbose(`Metadata cache warmed: ${Date.now() - t3}ms`);
 
       const t4 = Date.now();
+      this.logProgress(mode, 60, 'healing schema');
+      await this.schemaHealingService.runIfNeeded();
+      await this.metadataCacheService.clearMetadataCache();
+      await this.metadataCacheService.getMetadata();
+      this.logVerbose(`Schema healing: ${Date.now() - t4}ms`);
+
+      const t5 = Date.now();
       this.logProgress(mode, 65, 'seeding default data');
       await this.dataProvisionService.insertAllDefaultRecords();
-      this.logVerbose(`Default records: ${Date.now() - t4}ms`);
+      this.logVerbose(`Default records: ${Date.now() - t5}ms`);
 
       try {
         this.logProgress(mode, 80, 'ensuring route handlers');
@@ -150,16 +157,11 @@ export class FirstRunInitializer {
       }
 
       if (this.dataMigrationService.hasMigrations()) {
-        const t5 = Date.now();
+        const t6 = Date.now();
         this.logProgress(mode, 90, 'applying data migrations');
         await this.dataMigrationService.runMigrations();
-        this.logVerbose(`Data migrations: ${Date.now() - t5}ms`);
+        this.logVerbose(`Data migrations: ${Date.now() - t6}ms`);
       }
-
-      const t6 = Date.now();
-      this.logProgress(mode, 95, 'healing schema');
-      await this.schemaHealingService.runIfNeeded();
-      this.logVerbose(`Schema healing: ${Date.now() - t6}ms`);
 
       this.logProgress(mode, 98, 'finalizing');
       await this.markInitialized();
