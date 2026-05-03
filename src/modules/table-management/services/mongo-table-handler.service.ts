@@ -1,10 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { ObjectId } from 'mongodb';
-import {
-  QueryBuilderService,
-  getJunctionTableName,
-  getJunctionColumnNames,
-} from '@enfyra/kernel';
+import { QueryBuilderService } from '@enfyra/kernel';
 import {
   type MongoPhysicalMigrationService,
   MongoSchemaMigrationService,
@@ -40,6 +36,7 @@ import {
   normalizeMongoPrimaryKeyColumn,
 } from '../utils/mongo-primary-key.util';
 import { getRelationMappedByProperty } from '../utils/relation-target-id.util';
+import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
 export class MongoTableHandlerService {
   private logger = new Logger(MongoTableHandlerService.name);
   private queryBuilderService: QueryBuilderService;
@@ -315,19 +312,16 @@ export class MongoTableHandlerService {
                   !mappedByProperty &&
                   targetName
                 ) {
-                  const junctionTableName = getJunctionTableName(
-                    body.name,
-                    rel.propertyName,
-                    targetName,
-                  );
-                  const { sourceColumn, targetColumn } = getJunctionColumnNames(
-                    body.name,
-                    rel.propertyName,
-                    targetName,
-                  );
-                  relationData.junctionTableName = junctionTableName;
-                  relationData.junctionSourceColumn = sourceColumn;
-                  relationData.junctionTargetColumn = targetColumn;
+                  const junction = getSqlJunctionPhysicalNames({
+                    sourceTable: body.name,
+                    propertyName: rel.propertyName,
+                    targetTable: targetName,
+                  });
+                  relationData.junctionTableName = junction.junctionTableName;
+                  relationData.junctionSourceColumn =
+                    junction.junctionSourceColumn;
+                  relationData.junctionTargetColumn =
+                    junction.junctionTargetColumn;
                 }
                 const relationRecord = await this.queryBuilderService.insert(
                   'relation_definition',
@@ -401,20 +395,17 @@ export class MongoTableHandlerService {
                         ? rel.targetTable
                         : rel.targetTable?.name;
                     if (invTargetName) {
-                      const junctionTableName = getJunctionTableName(
-                        body.name,
-                        rel.propertyName,
-                        invTargetName,
-                      );
-                      const { sourceColumn, targetColumn } =
-                        getJunctionColumnNames(
-                          body.name,
-                          rel.propertyName,
-                          invTargetName,
-                        );
-                      inverseData.junctionTableName = junctionTableName;
-                      inverseData.junctionSourceColumn = targetColumn;
-                      inverseData.junctionTargetColumn = sourceColumn;
+                      const junction = getSqlJunctionPhysicalNames({
+                        sourceTable: body.name,
+                        propertyName: rel.propertyName,
+                        targetTable: invTargetName,
+                      });
+                      inverseData.junctionTableName =
+                        junction.junctionTableName;
+                      inverseData.junctionSourceColumn =
+                        junction.junctionTargetColumn;
+                      inverseData.junctionTargetColumn =
+                        junction.junctionSourceColumn;
                     }
                   }
                   const inverseRecord = await this.queryBuilderService.insert(
@@ -504,16 +495,28 @@ export class MongoTableHandlerService {
             }
 
             const junctionRows = allMethodIds.map((methodId: any) => ({
-              route_definitionId: newRouteId,
-              method_definitionId: methodId,
+              [getSqlJunctionPhysicalNames({
+                sourceTable: 'route_definition',
+                propertyName: 'availableMethods',
+                targetTable: 'method_definition',
+              }).junctionSourceColumn]: newRouteId,
+              [getSqlJunctionPhysicalNames({
+                sourceTable: 'route_definition',
+                propertyName: 'availableMethods',
+                targetTable: 'method_definition',
+              }).junctionTargetColumn]: methodId,
             }));
             if (junctionRows.length > 0) {
+              const junction = getSqlJunctionPhysicalNames({
+                sourceTable: 'route_definition',
+                propertyName: 'availableMethods',
+                targetTable: 'method_definition',
+              });
               try {
-                await db
-                  .collection(
-                    'route_definition_availableMethods_method_definition',
-                  )
-                  .insertMany(junctionRows, { ordered: false });
+                await db.collection(junction.junctionTableName).insertMany(
+                  junctionRows,
+                  { ordered: false },
+                );
               } catch (err: any) {
                 if (err?.code !== 11000) throw err;
               }
@@ -1044,19 +1047,16 @@ export class MongoTableHandlerService {
                 relationData.junctionTargetColumn =
                   existingRel.junctionTargetColumn;
               } else {
-                const junctionTableName = getJunctionTableName(
-                  exists.name,
-                  rel.propertyName,
-                  targetRelName,
-                );
-                const { sourceColumn, targetColumn } = getJunctionColumnNames(
-                  exists.name,
-                  rel.propertyName,
-                  targetRelName,
-                );
-                relationData.junctionTableName = junctionTableName;
-                relationData.junctionSourceColumn = sourceColumn;
-                relationData.junctionTargetColumn = targetColumn;
+                const junction = getSqlJunctionPhysicalNames({
+                  sourceTable: exists.name,
+                  propertyName: rel.propertyName,
+                  targetTable: targetRelName,
+                });
+                relationData.junctionTableName = junction.junctionTableName;
+                relationData.junctionSourceColumn =
+                  junction.junctionSourceColumn;
+                relationData.junctionTargetColumn =
+                  junction.junctionTargetColumn;
               }
             }
             let relObjectId;
@@ -1138,19 +1138,16 @@ export class MongoTableHandlerService {
                   rel.propertyName;
               }
               if (rel.type === 'many-to-many' && targetRelName) {
-                const junctionTableName = getJunctionTableName(
-                  exists.name,
-                  rel.propertyName,
-                  targetRelName,
-                );
-                const { sourceColumn, targetColumn } = getJunctionColumnNames(
-                  exists.name,
-                  rel.propertyName,
-                  targetRelName,
-                );
-                inverseData.junctionTableName = junctionTableName;
-                inverseData.junctionSourceColumn = targetColumn;
-                inverseData.junctionTargetColumn = sourceColumn;
+                const junction = getSqlJunctionPhysicalNames({
+                  sourceTable: exists.name,
+                  propertyName: rel.propertyName,
+                  targetTable: targetRelName,
+                });
+                inverseData.junctionTableName = junction.junctionTableName;
+                inverseData.junctionSourceColumn =
+                  junction.junctionTargetColumn;
+                inverseData.junctionTargetColumn =
+                  junction.junctionSourceColumn;
               }
               await this.queryBuilderService.insert(
                 'relation_definition',
@@ -1263,11 +1260,11 @@ export class MongoTableHandlerService {
                 )
               )
                 continue;
-              const newJunction = getJunctionTableName(
-                body.name,
-                rel.propertyName,
-                rel.targetTableName,
-              );
+              const newJunction = getSqlJunctionPhysicalNames({
+                sourceTable: body.name,
+                propertyName: rel.propertyName,
+                targetTable: rel.targetTableName,
+              }).junctionTableName;
               if (rel.junctionTableName !== newJunction) {
                 await this.mongoSchemaMigrationService.renameJunctionCollection(
                   rel.junctionTableName,

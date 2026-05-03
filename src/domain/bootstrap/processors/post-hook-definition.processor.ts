@@ -168,6 +168,14 @@ export class PostHookDefinitionProcessor extends BaseTableProcessor {
   getUniqueIdentifier(record: any): object {
     return { name: record.name };
   }
+  protected prepareRecordForWrite(record: any, _tableName: string): any {
+    if (DatabaseConfigService.instanceIsMongoDb()) {
+      return record;
+    }
+    const prepared = { ...record };
+    delete prepared._methods;
+    return prepared;
+  }
   protected getCompareFields(): string[] {
     return [
       'name',

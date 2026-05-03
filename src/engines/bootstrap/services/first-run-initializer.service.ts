@@ -59,13 +59,7 @@ export class FirstRunInitializer {
 
   async isNeeded(): Promise<boolean> {
     try {
-      const sortField = DatabaseConfigService.getPkField();
-      const result = await this.queryBuilderService.find({
-        table: 'setting_definition',
-        sort: [sortField],
-        limit: 1,
-      });
-      const setting = result.data[0] || null;
+      const setting = await this.findFirstSetting();
       return !setting || !setting.isInit;
     } catch (error: any) {
       if (
@@ -174,13 +168,7 @@ export class FirstRunInitializer {
 
   private async getInitMode(): Promise<'Installing' | 'Upgrading'> {
     try {
-      const sortField = DatabaseConfigService.getPkField();
-      const result = await this.queryBuilderService.find({
-        table: 'setting_definition',
-        sort: [sortField],
-        limit: 1,
-      });
-      return result.data[0] ? 'Upgrading' : 'Installing';
+      return (await this.findFirstSetting()) ? 'Upgrading' : 'Installing';
     } catch (error: any) {
       if (
         error.code === 'ER_NO_SUCH_TABLE' ||
@@ -244,13 +232,7 @@ export class FirstRunInitializer {
   }
 
   private async markInitialized(): Promise<void> {
-    const sortField = DatabaseConfigService.getPkField();
-    const result = await this.queryBuilderService.find({
-      table: 'setting_definition',
-      sort: [sortField],
-      limit: 1,
-    });
-    const setting = result.data[0] || null;
+    const setting = await this.findFirstSetting();
 
     if (!setting) {
       throw new Error(
@@ -259,31 +241,45 @@ export class FirstRunInitializer {
     }
 
     const settingId = setting._id || setting.id;
-    const idField = DatabaseConfigService.getPkField();
-    await this.queryBuilderService.update(
-      'setting_definition',
-      { where: [{ field: idField, operator: '=', value: settingId }] },
-      { isInit: true },
-    );
+    if (DatabaseConfigService.instanceIsMongoDb()) {
+      await this.queryBuilderService
+        .getMongoDb()
+        .collection('setting_definition')
+        .updateOne({ _id: settingId }, { $set: { isInit: true } });
+      return;
+    }
+
+    await this.queryBuilderService
+      .getKnex()('setting_definition')
+      .where({ id: settingId })
+      .update({ isInit: true });
   }
 
   private async waitUntilDone(maxWaitMs = 120000): Promise<void> {
     const interval = 2000;
     const maxAttempts = Math.ceil(maxWaitMs / interval);
-    const sortField = DatabaseConfigService.getPkField();
     for (let i = 0; i < maxAttempts; i++) {
       await this.commonService.delay(interval);
       try {
-        const result = await this.queryBuilderService.find({
-          table: 'setting_definition',
-          sort: [sortField],
-          limit: 1,
-        });
-        if (result.data[0]?.isInit) return;
+        if ((await this.findFirstSetting())?.isInit) return;
       } catch {}
     }
     this.logger.warn(
       'Timed out waiting for init by another instance, proceeding...',
     );
+  }
+
+  private async findFirstSetting(): Promise<any | null> {
+    if (DatabaseConfigService.instanceIsMongoDb()) {
+      return this.queryBuilderService
+        .getMongoDb()
+        .collection('setting_definition')
+        .findOne({});
+    }
+
+    return this.queryBuilderService
+      .getKnex()('setting_definition')
+      .orderBy('id', 'asc')
+      .first();
   }
 }

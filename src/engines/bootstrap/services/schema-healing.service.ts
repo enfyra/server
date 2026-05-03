@@ -2,8 +2,6 @@ import { Logger } from '../../../shared/logger';
 import {
   QueryBuilderService,
   getForeignKeyColumnName,
-  getJunctionColumnNames,
-  getJunctionTableName,
   getShortFkConstraintName,
 } from '@enfyra/kernel';
 import type { Knex } from 'knex';
@@ -394,30 +392,36 @@ export class SchemaHealingService {
         continue;
       }
 
-      const junctionTableName = getJunctionTableName(
+      const standard = getSqlJunctionPhysicalNames({
+        sourceTable: sourceTable.name,
+        propertyName: rel.propertyName,
+        targetTable: targetTable.name,
+      });
+      const legacyColumns = this.getLegacyJunctionColumnNames(
         sourceTable.name,
-        rel.propertyName,
-        targetTable.name,
-      );
-      const columns = getJunctionColumnNames(
-        sourceTable.name,
-        rel.propertyName,
         targetTable.name,
       );
       await this.ensureMongoJunctionCollection(db, {
         oldJunctionTableName: rel.junctionTableName || null,
         oldJunctionSourceColumn: rel.junctionSourceColumn || null,
         oldJunctionTargetColumn: rel.junctionTargetColumn || null,
-        junctionTableName,
-        junctionSourceColumn: columns.sourceColumn,
-        junctionTargetColumn: columns.targetColumn,
+        junctionTableName: standard.junctionTableName,
+        junctionSourceColumn: standard.junctionSourceColumn,
+        junctionTargetColumn: standard.junctionTargetColumn,
+        legacyJunctions: [
+          {
+            tableName: this.getLegacyJunctionTableName(
+              sourceTable.name,
+              rel.propertyName,
+              targetTable.name,
+            ),
+            sourceColumn: legacyColumns.sourceColumn,
+            targetColumn: legacyColumns.targetColumn,
+          },
+        ],
       });
 
-      const owningUpdate = this.diffJunctionMetadata(rel, {
-        junctionTableName,
-        junctionSourceColumn: columns.sourceColumn,
-        junctionTargetColumn: columns.targetColumn,
-      });
+      const owningUpdate = this.diffJunctionMetadata(rel, standard);
       if (Object.keys(owningUpdate).length > 0) {
         await db
           .collection('relation_definition')
@@ -427,9 +431,9 @@ export class SchemaHealingService {
 
       for (const inverseRel of byMappedBy.get(String(rel._id)) || []) {
         const inverseUpdate = this.diffJunctionMetadata(inverseRel, {
-          junctionTableName,
-          junctionSourceColumn: columns.targetColumn,
-          junctionTargetColumn: columns.sourceColumn,
+          junctionTableName: standard.junctionTableName,
+          junctionSourceColumn: standard.junctionTargetColumn,
+          junctionTargetColumn: standard.junctionSourceColumn,
         });
         if (Object.keys(inverseUpdate).length === 0) continue;
         await db
@@ -437,6 +441,65 @@ export class SchemaHealingService {
           .updateOne({ _id: inverseRel._id }, { $set: inverseUpdate });
         repaired++;
       }
+    }
+
+    repaired += await this.cleanupMongoLegacyJunctionCollections();
+
+    return repaired;
+  }
+
+  private async cleanupMongoLegacyJunctionCollections(): Promise<number> {
+    const db = this.queryBuilderService.getMongoDb();
+    const relations = await db.collection('relation_definition').find({}).toArray();
+    const tables = await db.collection('table_definition').find({}).toArray();
+    const tableById = new Map<string, any>(
+      tables.map((table: any) => [String(table._id), table]),
+    );
+    let repaired = 0;
+
+    for (const rel of relations) {
+      if (rel.type !== 'many-to-many' || rel.mappedBy) continue;
+      const sourceTable = tableById.get(String(rel.sourceTable));
+      const targetTable = tableById.get(String(rel.targetTable));
+      if (!sourceTable?.name || !targetTable?.name || !rel.propertyName) {
+        continue;
+      }
+
+      const standard = getSqlJunctionPhysicalNames({
+        sourceTable: sourceTable.name,
+        propertyName: rel.propertyName,
+        targetTable: targetTable.name,
+      });
+      const legacyColumns = this.getLegacyJunctionColumnNames(
+        sourceTable.name,
+        targetTable.name,
+      );
+      const legacyTable = this.getLegacyJunctionTableName(
+        sourceTable.name,
+        rel.propertyName,
+        targetTable.name,
+      );
+      if (
+        legacyTable === standard.junctionTableName ||
+        !(await this.mongoCollectionExists(db, legacyTable)) ||
+        !(await this.mongoCollectionExists(db, standard.junctionTableName))
+      ) {
+        continue;
+      }
+
+      await this.mergeMongoJunctionCollection(db, {
+        oldJunctionTableName: legacyTable,
+        oldJunctionSourceColumn: legacyColumns.sourceColumn,
+        oldJunctionTargetColumn: legacyColumns.targetColumn,
+        junctionTableName: standard.junctionTableName,
+        junctionSourceColumn: standard.junctionSourceColumn,
+        junctionTargetColumn: standard.junctionTargetColumn,
+      });
+      await db.collection(legacyTable).drop();
+      repaired++;
+      this.logger.log(
+        `Removed orphan legacy junction collection '${legacyTable}' after merging into '${standard.junctionTableName}'`,
+      );
     }
 
     return repaired;
@@ -451,23 +514,34 @@ export class SchemaHealingService {
       junctionTableName: string;
       junctionSourceColumn: string;
       junctionTargetColumn: string;
+      legacyJunctions?: Array<{
+        tableName: string;
+        sourceColumn: string;
+        targetColumn: string;
+      }>;
     },
   ): Promise<void> {
     const standardExists = await this.mongoCollectionExists(
       db,
       input.junctionTableName,
     );
+    const legacyCandidates = this.getMongoJunctionLegacyCandidates(input);
+    let renamedFrom:
+      | { tableName: string; sourceColumn: string | null; targetColumn: string | null }
+      | null = null;
+
     if (!standardExists) {
-      const oldExists =
-        input.oldJunctionTableName &&
-        input.oldJunctionTableName !== input.junctionTableName &&
-        (await this.mongoCollectionExists(db, input.oldJunctionTableName));
-      if (oldExists) {
+      const existingLegacy = await this.findExistingMongoJunctionCandidate(
+        db,
+        legacyCandidates,
+      );
+      if (existingLegacy) {
         await db
-          .collection(input.oldJunctionTableName)
+          .collection(existingLegacy.tableName)
           .rename(input.junctionTableName);
+        renamedFrom = existingLegacy;
         this.logger.log(
-          `Renamed junction collection '${input.oldJunctionTableName}' to '${input.junctionTableName}'`,
+          `Renamed junction collection '${existingLegacy.tableName}' to '${input.junctionTableName}'`,
         );
       } else {
         await db.createCollection(input.junctionTableName);
@@ -475,17 +549,35 @@ export class SchemaHealingService {
           `Created missing junction collection '${input.junctionTableName}'`,
         );
       }
+    } else {
+      for (const candidate of legacyCandidates) {
+        if (!(await this.mongoCollectionExists(db, candidate.tableName))) {
+          continue;
+        }
+        await this.mergeMongoJunctionCollection(db, {
+          oldJunctionTableName: candidate.tableName,
+          oldJunctionSourceColumn: candidate.sourceColumn,
+          oldJunctionTargetColumn: candidate.targetColumn,
+          junctionTableName: input.junctionTableName,
+          junctionSourceColumn: input.junctionSourceColumn,
+          junctionTargetColumn: input.junctionTargetColumn,
+        });
+        await db.collection(candidate.tableName).drop();
+        this.logger.log(
+          `Merged legacy junction collection '${candidate.tableName}' into '${input.junctionTableName}'`,
+        );
+      }
     }
 
     const collection = db.collection(input.junctionTableName);
     await this.renameMongoJunctionFieldIfNeeded(
       collection,
-      input.oldJunctionSourceColumn,
+      renamedFrom?.sourceColumn || input.oldJunctionSourceColumn,
       input.junctionSourceColumn,
     );
     await this.renameMongoJunctionFieldIfNeeded(
       collection,
-      input.oldJunctionTargetColumn,
+      renamedFrom?.targetColumn || input.oldJunctionTargetColumn,
       input.junctionTargetColumn,
     );
     try {
@@ -507,6 +599,136 @@ export class SchemaHealingService {
     } catch (error: any) {
       if (error.code !== 85 && error.code !== 86) throw error;
     }
+  }
+
+  private async mergeMongoJunctionCollection(
+    db: any,
+    input: {
+      oldJunctionTableName: string;
+      oldJunctionSourceColumn: string | null;
+      oldJunctionTargetColumn: string | null;
+      junctionTableName: string;
+      junctionSourceColumn: string;
+      junctionTargetColumn: string;
+    },
+  ): Promise<void> {
+    const sourceCollection = db.collection(input.oldJunctionTableName);
+    const targetCollection = db.collection(input.junctionTableName);
+    const cursor = sourceCollection.find({});
+
+    while (await cursor.hasNext()) {
+      const doc = await cursor.next();
+      if (!doc) continue;
+      const sourceValue =
+        doc[input.oldJunctionSourceColumn || ''] ??
+        doc[input.junctionSourceColumn];
+      const targetValue =
+        doc[input.oldJunctionTargetColumn || ''] ??
+        doc[input.junctionTargetColumn];
+      if (sourceValue == null || targetValue == null) continue;
+
+      await targetCollection.updateOne(
+        {
+          [input.junctionSourceColumn]: sourceValue,
+          [input.junctionTargetColumn]: targetValue,
+        },
+        {
+          $setOnInsert: {
+            [input.junctionSourceColumn]: sourceValue,
+            [input.junctionTargetColumn]: targetValue,
+          },
+        },
+        { upsert: true },
+      );
+    }
+  }
+
+  private getLegacyJunctionTableName(
+    sourceTable: string,
+    propertyName: string,
+    targetTable: string,
+  ): string {
+    return `${sourceTable}_${propertyName}_${targetTable}`;
+  }
+
+  private getLegacyJunctionColumnNames(
+    sourceTable: string,
+    targetTable: string,
+  ): { sourceColumn: string; targetColumn: string } {
+    return {
+      sourceColumn: `${this.toCamelCase(sourceTable)}Id`,
+      targetColumn: `${this.toCamelCase(targetTable)}Id`,
+    };
+  }
+
+  private toCamelCase(value: string): string {
+    return value.replace(/_([a-z])/g, (_, letter: string) =>
+      letter.toUpperCase(),
+    );
+  }
+
+  private getMongoJunctionLegacyCandidates(input: {
+    oldJunctionTableName: string | null;
+    oldJunctionSourceColumn: string | null;
+    oldJunctionTargetColumn: string | null;
+    junctionTableName: string;
+    legacyJunctions?: Array<{
+      tableName: string;
+      sourceColumn: string;
+      targetColumn: string;
+    }>;
+  }): Array<{
+    tableName: string;
+    sourceColumn: string | null;
+    targetColumn: string | null;
+  }> {
+    const candidates: Array<{
+      tableName: string;
+      sourceColumn: string | null;
+      targetColumn: string | null;
+    }> = [];
+    if (
+      input.oldJunctionTableName &&
+      input.oldJunctionTableName !== input.junctionTableName
+    ) {
+      candidates.push({
+        tableName: input.oldJunctionTableName,
+        sourceColumn: input.oldJunctionSourceColumn,
+        targetColumn: input.oldJunctionTargetColumn,
+      });
+    }
+    for (const legacy of input.legacyJunctions || []) {
+      if (legacy.tableName === input.junctionTableName) continue;
+      if (candidates.some((candidate) => candidate.tableName === legacy.tableName)) {
+        continue;
+      }
+      candidates.push({
+        tableName: legacy.tableName,
+        sourceColumn: legacy.sourceColumn,
+        targetColumn: legacy.targetColumn,
+      });
+    }
+    return candidates;
+  }
+
+  private async findExistingMongoJunctionCandidate(
+    db: any,
+    candidates: Array<{
+      tableName: string;
+      sourceColumn: string | null;
+      targetColumn: string | null;
+    }>,
+  ): Promise<{
+    tableName: string;
+    sourceColumn: string | null;
+    targetColumn: string | null;
+  } | null> {
+    for (const candidate of candidates) {
+      if (await this.mongoCollectionExists(db, candidate.tableName)) {
+        return candidate;
+      }
+    }
+    return null;
   }
 
   private async mongoCollectionExists(db: any, name: string): Promise<boolean> {
@@ -830,20 +1052,52 @@ export class SchemaHealingService {
   }
 
   private async loadSetting(): Promise<any | null> {
-    const sortField = DatabaseConfigService.getPkField();
     try {
-      const result = await this.queryBuilderService.find({
-        table: 'setting_definition',
-        sort: [sortField],
-        limit: 1,
-      });
-      return result?.data?.[0] ?? null;
+      if (DatabaseConfigService.instanceIsMongoDb()) {
+        return await this.queryBuilderService
+          .getMongoDb()
+          .collection('setting_definition')
+          .findOne({});
+      }
+
+      return await this.queryBuilderService
+        .getKnex()('setting_definition')
+        .orderBy('id', 'asc')
+        .first();
     } catch {
-      return null;
+      try {
+        const result = await this.queryBuilderService.find({
+          table: 'setting_definition',
+          sort: [DatabaseConfigService.getPkField()],
+          limit: 1,
+        });
+        return result?.data?.[0] ?? null;
+      } catch {
+        return null;
+      }
     }
   }
 
   private async markRepaired(setting: any): Promise<void> {
+    try {
+      if (DatabaseConfigService.instanceIsMongoDb()) {
+        await this.queryBuilderService
+          .getMongoDb()
+          .collection('setting_definition')
+          .updateOne(
+            { _id: setting._id },
+            { $set: { uniquesIndexesRepaired: true } },
+          );
+        return;
+      }
+
+      await this.queryBuilderService
+        .getKnex()('setting_definition')
+        .where({ id: setting.id })
+        .update({ uniquesIndexesRepaired: true });
+      return;
+    } catch {}
+
     const idField = DatabaseConfigService.getPkField();
     const settingId = setting._id || setting.id;
     await this.queryBuilderService.update(

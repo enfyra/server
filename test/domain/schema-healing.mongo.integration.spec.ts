@@ -2,6 +2,7 @@ import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { SchemaHealingService } from '../../src/engines/bootstrap';
 import { DatabaseConfigService } from '../../src/shared/services';
+import { getSqlJunctionPhysicalNames } from '../../src/modules/table-management/utils/sql-junction-naming.util';
 
 const MONGO_URI =
   process.env.MONGO_TEST_URI ||
@@ -132,5 +133,265 @@ describe('SchemaHealingService Mongo integration', () => {
       type: 'ObjectId',
       isPrimary: true,
     });
+  });
+
+  test('heals legacy Mongo junction metadata and merges existing legacy collection data', async () => {
+    if (!available || !db) {
+      console.warn('MongoDB not available, skipping real DB schema healing test');
+      return;
+    }
+
+    await db.collection('setting_definition').deleteMany({});
+    await db.collection('table_definition').deleteMany({});
+    await db.collection('relation_definition').deleteMany({});
+
+    const oldCollectionName =
+      'route_definition_availableMethods_method_definition';
+    try {
+      await db.collection(oldCollectionName).drop();
+    } catch {}
+
+    const junction = getSqlJunctionPhysicalNames({
+      sourceTable: 'route_definition',
+      propertyName: 'availableMethods',
+      targetTable: 'method_definition',
+    });
+    try {
+      await db.collection(junction.junctionTableName).drop();
+    } catch {}
+
+    const routeTableId = new ObjectId();
+    const methodTableId = new ObjectId();
+    const owningRelationId = new ObjectId();
+    const inverseRelationId = new ObjectId();
+    const routeIdA = new ObjectId();
+    const routeIdB = new ObjectId();
+    const methodIdA = new ObjectId();
+    const methodIdB = new ObjectId();
+
+    await db.collection('setting_definition').insertOne({
+      _id: new ObjectId(),
+      uniquesIndexesRepaired: true,
+    });
+    await db.collection('table_definition').insertMany([
+      { _id: routeTableId, name: 'route_definition', isSystem: true },
+      { _id: methodTableId, name: 'method_definition', isSystem: true },
+    ]);
+    await db.collection('relation_definition').insertMany([
+      {
+        _id: owningRelationId,
+        sourceTable: routeTableId,
+        targetTable: methodTableId,
+        propertyName: 'availableMethods',
+        type: 'many-to-many',
+        junctionTableName: oldCollectionName,
+        junctionSourceColumn: 'route_definitionId',
+        junctionTargetColumn: 'method_definitionId',
+      },
+      {
+        _id: inverseRelationId,
+        sourceTable: methodTableId,
+        targetTable: routeTableId,
+        propertyName: 'routesWithAvailable',
+        type: 'many-to-many',
+        mappedBy: owningRelationId,
+        junctionTableName: oldCollectionName,
+        junctionSourceColumn: 'method_definitionId',
+        junctionTargetColumn: 'route_definitionId',
+      },
+    ]);
+    await db.collection(oldCollectionName).insertOne({
+      route_definitionId: routeIdA,
+      method_definitionId: methodIdA,
+    });
+    await db.collection(junction.junctionTableName).insertOne({
+      [junction.junctionSourceColumn]: routeIdB,
+      [junction.junctionTargetColumn]: methodIdB,
+    });
+
+    const tables = new Map<string, any>([
+      ['setting_definition', makeTableMetadata('setting_definition')],
+      ['table_definition', makeTableMetadata('table_definition')],
+      ['relation_definition', makeTableMetadata('relation_definition')],
+    ]);
+    const queryBuilderService = new QueryBuilderService({
+      mongoService: {
+        getDb: () => db,
+        collection: (name: string) => db.collection(name),
+      },
+      databaseConfigService: {
+        getDbType: () => 'mongodb',
+        isMongoDb: () => true,
+      },
+      lazyRef: {
+        metadataCacheService: {
+          isLoaded: () => true,
+          getMetadata: async () => ({ tables }),
+        },
+      },
+    } as any);
+    const service = new SchemaHealingService({
+      queryBuilderService,
+      metadataCacheService: { getAllTablesMetadata: async () => [] } as any,
+    });
+
+    await service.runIfNeeded();
+
+    const owningRelation = await db
+      .collection('relation_definition')
+      .findOne({ _id: owningRelationId });
+    const inverseRelation = await db
+      .collection('relation_definition')
+      .findOne({ _id: inverseRelationId });
+    const oldCollectionExists = await db
+      .listCollections({ name: oldCollectionName })
+      .toArray();
+    const healedRows = await db
+      .collection(junction.junctionTableName)
+      .find({})
+      .toArray();
+
+    expect(owningRelation).toMatchObject({
+      junctionTableName: junction.junctionTableName,
+      junctionSourceColumn: junction.junctionSourceColumn,
+      junctionTargetColumn: junction.junctionTargetColumn,
+    });
+    expect(inverseRelation).toMatchObject({
+      junctionTableName: junction.junctionTableName,
+      junctionSourceColumn: junction.junctionTargetColumn,
+      junctionTargetColumn: junction.junctionSourceColumn,
+    });
+    expect(oldCollectionExists).toHaveLength(0);
+    expect(healedRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          [junction.junctionSourceColumn]: routeIdA,
+          [junction.junctionTargetColumn]: methodIdA,
+        }),
+        expect.objectContaining({
+          [junction.junctionSourceColumn]: routeIdB,
+          [junction.junctionTargetColumn]: methodIdB,
+        }),
+      ]),
+    );
+  });
+
+  test('drops orphan legacy Mongo junction collection when metadata already uses standard contract', async () => {
+    if (!available || !db) {
+      console.warn('MongoDB not available, skipping real DB schema healing test');
+      return;
+    }
+
+    await db.collection('setting_definition').deleteMany({});
+    await db.collection('table_definition').deleteMany({});
+    await db.collection('relation_definition').deleteMany({});
+
+    const oldCollectionName =
+      'route_definition_availableMethods_method_definition';
+    try {
+      await db.collection(oldCollectionName).drop();
+    } catch {}
+
+    const junction = getSqlJunctionPhysicalNames({
+      sourceTable: 'route_definition',
+      propertyName: 'availableMethods',
+      targetTable: 'method_definition',
+    });
+    try {
+      await db.collection(junction.junctionTableName).drop();
+    } catch {}
+
+    const routeTableId = new ObjectId();
+    const methodTableId = new ObjectId();
+    const owningRelationId = new ObjectId();
+    const inverseRelationId = new ObjectId();
+    const routeId = new ObjectId();
+    const methodId = new ObjectId();
+
+    await db.collection('setting_definition').insertOne({
+      _id: new ObjectId(),
+      uniquesIndexesRepaired: true,
+    });
+    await db.collection('table_definition').insertMany([
+      { _id: routeTableId, name: 'route_definition', isSystem: true },
+      { _id: methodTableId, name: 'method_definition', isSystem: true },
+    ]);
+    await db.collection('relation_definition').insertMany([
+      {
+        _id: owningRelationId,
+        sourceTable: routeTableId,
+        targetTable: methodTableId,
+        propertyName: 'availableMethods',
+        type: 'many-to-many',
+        junctionTableName: junction.junctionTableName,
+        junctionSourceColumn: junction.junctionSourceColumn,
+        junctionTargetColumn: junction.junctionTargetColumn,
+      },
+      {
+        _id: inverseRelationId,
+        sourceTable: methodTableId,
+        targetTable: routeTableId,
+        propertyName: 'routesWithAvailable',
+        type: 'many-to-many',
+        mappedBy: owningRelationId,
+        junctionTableName: junction.junctionTableName,
+        junctionSourceColumn: junction.junctionTargetColumn,
+        junctionTargetColumn: junction.junctionSourceColumn,
+      },
+    ]);
+    await db.collection(oldCollectionName).insertOne({
+      route_definitionId: routeId,
+      method_definitionId: methodId,
+    });
+    await db.collection(junction.junctionTableName).insertOne({
+      [junction.junctionSourceColumn]: routeId,
+      [junction.junctionTargetColumn]: methodId,
+    });
+
+    const tables = new Map<string, any>([
+      ['setting_definition', makeTableMetadata('setting_definition')],
+      ['table_definition', makeTableMetadata('table_definition')],
+      ['relation_definition', makeTableMetadata('relation_definition')],
+    ]);
+    const queryBuilderService = new QueryBuilderService({
+      mongoService: {
+        getDb: () => db,
+        collection: (name: string) => db.collection(name),
+      },
+      databaseConfigService: {
+        getDbType: () => 'mongodb',
+        isMongoDb: () => true,
+      },
+      lazyRef: {
+        metadataCacheService: {
+          isLoaded: () => true,
+          getMetadata: async () => ({ tables }),
+        },
+      },
+    } as any);
+    const service = new SchemaHealingService({
+      queryBuilderService,
+      metadataCacheService: { getAllTablesMetadata: async () => [] } as any,
+    });
+
+    await service.runIfNeeded();
+
+    const oldCollectionExists = await db
+      .listCollections({ name: oldCollectionName })
+      .toArray();
+    const healedRows = await db
+      .collection(junction.junctionTableName)
+      .find({})
+      .toArray();
+
+    expect(oldCollectionExists).toHaveLength(0);
+    expect(healedRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          [junction.junctionSourceColumn]: routeId,
+          [junction.junctionTargetColumn]: methodId,
+        }),
+      ]),
+    );
   });
 });
