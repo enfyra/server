@@ -1,9 +1,9 @@
 import {
   getForeignKeyColumnName,
   getShortFkConstraintName,
-  getShortIndexName,
   getShortPkName,
 } from '@enfyra/kernel';
+import { createHash } from 'crypto';
 import type {
   ColumnDef,
   JunctionTableDef,
@@ -24,6 +24,7 @@ type RelationLike = RelationDef & {
   referencedColumn?: string;
   constraintName?: string;
   mappedBy?: string;
+  mappedById?: string | number | null;
   onDelete?: string | null;
   junctionTableName?: string;
   junctionSourceColumn?: string;
@@ -37,9 +38,21 @@ type TableLike = TableDef & {
 
 const RELATION_FK_TYPES = new Set(['many-to-one', 'one-to-one']);
 const TEMPORAL_TYPES = new Set(['date', 'datetime', 'timestamp']);
+const SQL_IDENTIFIER_LIMIT = 63;
+
+function shortHash(input: string): string {
+  return createHash('md5').update(input).digest('hex').slice(0, 8);
+}
+
+function getShortSqlIdentifier(prefix: string, ...parts: string[]): string {
+  const raw = [prefix, ...parts].filter(Boolean).join('_');
+  if (raw.length <= SQL_IDENTIFIER_LIMIT) return raw;
+  return `${prefix}_${shortHash(raw)}`;
+}
 
 export function isSqlForeignKeyRelation(relation: RelationLike): boolean {
   if (!RELATION_FK_TYPES.has(relation.type)) return false;
+  if (relation.mappedBy || relation.mappedById) return false;
   if (relation.type === 'one-to-one' && relation._isInverseGenerated) {
     return false;
   }
@@ -228,17 +241,20 @@ export function buildSqlJunctionTableContract(
       junction.targetColumn,
       'tgt',
     ),
-    sourceIndexName: getShortIndexName(
+    sourceIndexName: getShortSqlIdentifier(
+      'idx',
       junction.sourceTable,
       junction.sourcePropertyName,
       'src',
     ),
-    targetIndexName: getShortIndexName(
+    targetIndexName: getShortSqlIdentifier(
+      'idx',
       junction.sourceTable,
       junction.sourcePropertyName,
       'tgt',
     ),
-    reverseIndexName: getShortIndexName(
+    reverseIndexName: getShortSqlIdentifier(
+      'idx',
       junction.sourceTable,
       junction.sourcePropertyName,
       'rev',

@@ -1,7 +1,6 @@
 import {
   isCanonicalTableRoutePath,
   DEFAULT_REST_HANDLER_LOGIC,
-  REST_HANDLER_METHOD_NAMES,
 } from '../../src/domain/bootstrap';
 
 describe('isCanonicalTableRoutePath', () => {
@@ -47,10 +46,11 @@ describe('isCanonicalTableRoutePath', () => {
 });
 
 describe('default REST handler map', () => {
-  it('covers all wired method names', () => {
-    for (const m of REST_HANDLER_METHOD_NAMES) {
-      expect(typeof DEFAULT_REST_HANDLER_LOGIC[m]).toBe('string');
-      expect(DEFAULT_REST_HANDLER_LOGIC[m].length).toBeGreaterThan(10);
+  it('defines executable logic for every built-in default handler', () => {
+    for (const [method, logic] of Object.entries(DEFAULT_REST_HANDLER_LOGIC)) {
+      expect(method.length).toBeGreaterThan(0);
+      expect(typeof logic).toBe('string');
+      expect(logic.length).toBeGreaterThan(10);
     }
   });
 });

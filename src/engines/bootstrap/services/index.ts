@@ -5,5 +5,5 @@ export * from './metadata-migration.service';
 export * from './metadata-provision-mongo.service';
 export * from './metadata-provision-sql.service';
 export * from './metadata-provision.service';
-export * from './metadata-repair.service';
+export * from './schema-healing.service';
 export * from './provision.service';

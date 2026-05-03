@@ -107,7 +107,7 @@ describe('DynamicRepository — strip client-supplied IDs on create', () => {
 
 describe('QueryBuilderService — isSql()', () => {
   function isSql(dbType: string): boolean {
-    return ['mysql', 'postgres', 'mariadb', 'sqlite'].includes(dbType);
+    return ['mysql', 'postgres', 'mariadb'].includes(dbType);
   }
 
   function isMongoDb(dbType: string): boolean {
@@ -126,10 +126,6 @@ describe('QueryBuilderService — isSql()', () => {
     expect(isSql('mariadb')).toBe(true);
   });
 
-  it('returns true for sqlite', () => {
-    expect(isSql('sqlite')).toBe(true);
-  });
-
   it('returns false for mongodb', () => {
     expect(isSql('mongodb')).toBe(false);
   });
@@ -140,7 +136,7 @@ describe('QueryBuilderService — isSql()', () => {
   });
 
   it('isSql and isMongoDb are mutually exclusive for supported types', () => {
-    const types = ['mysql', 'postgres', 'mariadb', 'sqlite', 'mongodb'];
+    const types = ['mysql', 'postgres', 'mariadb', 'mongodb'];
     for (const t of types) {
       expect(isSql(t) !== isMongoDb(t)).toBe(true);
     }

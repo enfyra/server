@@ -1,9 +1,5 @@
 import { Logger } from '../../../shared/logger';
-import {
-  QueryBuilderService,
-  getJunctionTableName,
-  getJunctionColumnNames,
-} from '@enfyra/kernel';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { ObjectId, type Db } from 'mongodb';
 import {
   BaseTableProcessor,
@@ -12,6 +8,7 @@ import {
 import { buildMongoFullIndexSpecs } from '../../mongo';
 import { normalizeMongoPrimaryKeyColumn } from '../../../modules/table-management/utils/mongo-primary-key.util';
 import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
+import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';
 class TableDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[]): Promise<any[]> {
     const now = new Date();
@@ -246,6 +243,7 @@ export class MetadataProvisionMongoService {
       owningTableName: string;
       owningPropertyName: string;
     }> = [];
+    const generatedInverseKeys = new Set<string>();
     for (const [tableName, defRaw] of Object.entries(snapshot)) {
       const def = defRaw as any;
       const tableId = tableNameToId[tableName];
@@ -254,6 +252,11 @@ export class MetadataProvisionMongoService {
         if (!rel.propertyName || !rel.targetTable || !rel.type) continue;
         const targetTableId = tableNameToId[rel.targetTable];
         if (!targetTableId) continue;
+        const currentKey = `${tableName}.${rel.propertyName}`;
+        if (generatedInverseKeys.has(currentKey)) continue;
+        if (rel.inversePropertyName) {
+          generatedInverseKeys.add(`${rel.targetTable}.${rel.inversePropertyName}`);
+        }
         if (rel.inversePropertyName && rel.type === 'one-to-many') {
           pendingInverses.push({
             tableName: rel.targetTable,
@@ -271,19 +274,16 @@ export class MetadataProvisionMongoService {
         directRelationRecord[sourceTableFieldName] = tableId;
         directRelationRecord[targetTableFieldName] = targetTableId;
         if (rel.type === 'many-to-many' && !rel.mappedBy) {
-          const junctionTableName = getJunctionTableName(
-            tableName,
-            rel.propertyName,
-            rel.targetTable,
-          );
-          const { sourceColumn, targetColumn } = getJunctionColumnNames(
-            tableName,
-            rel.propertyName,
-            rel.targetTable,
-          );
-          directRelationRecord.junctionTableName = junctionTableName;
-          directRelationRecord.junctionSourceColumn = sourceColumn;
-          directRelationRecord.junctionTargetColumn = targetColumn;
+          const junction = getSqlJunctionPhysicalNames({
+            sourceTable: tableName,
+            propertyName: rel.propertyName,
+            targetTable: rel.targetTable,
+          });
+          directRelationRecord.junctionTableName = junction.junctionTableName;
+          directRelationRecord.junctionSourceColumn =
+            junction.junctionSourceColumn;
+          directRelationRecord.junctionTargetColumn =
+            junction.junctionTargetColumn;
         }
         const oldPropertyName =
           relationRenameMap[tableName]?.[rel.propertyName];
@@ -306,19 +306,16 @@ export class MetadataProvisionMongoService {
             if (rel.description !== undefined)
               updatePayload.description = rel.description;
             if (rel.type === 'many-to-many' && !rel.mappedBy) {
-              const jt = getJunctionTableName(
-                tableName,
-                rel.propertyName,
-                rel.targetTable,
-              );
-              const jc = getJunctionColumnNames(
-                tableName,
-                rel.propertyName,
-                rel.targetTable,
-              );
-              updatePayload.junctionTableName = jt;
-              updatePayload.junctionSourceColumn = jc.sourceColumn;
-              updatePayload.junctionTargetColumn = jc.targetColumn;
+              const junction = getSqlJunctionPhysicalNames({
+                sourceTable: tableName,
+                propertyName: rel.propertyName,
+                targetTable: rel.targetTable,
+              });
+              updatePayload.junctionTableName = junction.junctionTableName;
+              updatePayload.junctionSourceColumn =
+                junction.junctionSourceColumn;
+              updatePayload.junctionTargetColumn =
+                junction.junctionTargetColumn;
             }
             updatePayload.updatedAt = new Date();
             await relationColl.updateOne(
@@ -465,13 +462,17 @@ export class MetadataProvisionMongoService {
         const owningDoc = snapshotRelId
           ? await relationColl.findOne({ _id: snapshotRelId })
           : null;
+        const junction = getSqlJunctionPhysicalNames({
+          sourceTable: owningTableName,
+          propertyName: owningPropertyName,
+          targetTable: tableName,
+        });
         inverseRelationRecord.junctionTableName =
-          owningDoc?.junctionTableName ||
-          getJunctionTableName(owningTableName, owningPropertyName, tableName);
+          owningDoc?.junctionTableName || junction.junctionTableName;
         inverseRelationRecord.junctionSourceColumn =
-          owningDoc?.junctionTargetColumn || null;
+          owningDoc?.junctionTargetColumn || junction.junctionTargetColumn;
         inverseRelationRecord.junctionTargetColumn =
-          owningDoc?.junctionSourceColumn || null;
+          owningDoc?.junctionSourceColumn || junction.junctionSourceColumn;
       }
       const existing = await relationColl.findOne({
         [sourceTableFieldName]: tableId,
@@ -486,17 +487,17 @@ export class MetadataProvisionMongoService {
           const owningDoc = snapshotRelId
             ? await relationColl.findOne({ _id: snapshotRelId })
             : null;
+          const junction = getSqlJunctionPhysicalNames({
+            sourceTable: owningTableName,
+            propertyName: owningPropertyName,
+            targetTable: tableName,
+          });
           inverseJunctionUpdate.junctionTableName =
-            owningDoc?.junctionTableName ||
-            getJunctionTableName(
-              owningTableName,
-              owningPropertyName,
-              tableName,
-            );
+            owningDoc?.junctionTableName || junction.junctionTableName;
           inverseJunctionUpdate.junctionSourceColumn =
-            owningDoc?.junctionTargetColumn || null;
+            owningDoc?.junctionTargetColumn || junction.junctionTargetColumn;
           inverseJunctionUpdate.junctionTargetColumn =
-            owningDoc?.junctionSourceColumn || null;
+            owningDoc?.junctionSourceColumn || junction.junctionSourceColumn;
         }
         const needsUpdate =
           existing.mappedBy?.toString() !== mappedByValue?.toString() ||

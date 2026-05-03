@@ -1,13 +1,15 @@
 import { Logger } from '../../../shared/logger';
 import { TCreateTableBody } from '../types/table-handler.types';
 import { getDeletedIds } from '../utils/get-deleted-ids';
-import {
-  getJunctionTableName,
-  getJunctionColumnNames,
-  getForeignKeyColumnName,
-} from '@enfyra/kernel';
+import { getForeignKeyColumnName } from '@enfyra/kernel';
 import { DatabaseConfigService } from '../../../shared/services';
 import { ValidationException } from '../../../domain/exceptions';
+import {
+  getRelationMappedByProperty,
+  getRelationTargetTableId,
+  relationTargetTableMapKey,
+} from '../utils/relation-target-id.util';
+import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
 
 export class SqlTableMetadataWriterService {
   private readonly logger = new Logger(SqlTableMetadataWriterService.name);
@@ -19,14 +21,24 @@ export class SqlTableMetadataWriterService {
     exists: any,
     affectedTableNames: Set<string>,
   ): Promise<void> {
+    const allowedConstraintFields = this.getAllowedConstraintFields(body);
+    const uniques =
+      body.uniques && allowedConstraintFields
+        ? this.filterConstraintGroups(body.uniques, allowedConstraintFields)
+        : body.uniques;
+    const indexes =
+      body.indexes && allowedConstraintFields
+        ? this.filterConstraintGroups(body.indexes, allowedConstraintFields)
+        : body.indexes;
+
     await queryRunner('table_definition')
       .where({ id })
       .update({
         name: body.name,
         alias: body.alias,
         description: body.description,
-        uniques: body.uniques ? JSON.stringify(body.uniques) : exists.uniques,
-        indexes: body.indexes ? JSON.stringify(body.indexes) : exists.indexes,
+        uniques: uniques ? JSON.stringify(uniques) : exists.uniques,
+        indexes: indexes ? JSON.stringify(indexes) : exists.indexes,
         ...(body.isSingleRecord !== undefined && {
           isSingleRecord: body.isSingleRecord,
         }),
@@ -36,16 +48,24 @@ export class SqlTableMetadataWriterService {
       });
 
     if (body.columns) {
+      const ignoredFkColumns = await this.getInverseRelationFkColumnNames(
+        queryRunner,
+        id,
+        body.relations || [],
+      );
+      const bodyColumns = body.columns.filter(
+        (col: any) => !ignoredFkColumns.has(col.name),
+      );
       const existingColumns = await queryRunner('column_definition')
         .where({ tableId: id })
         .select('id');
-      const deletedColumnIds = getDeletedIds(existingColumns, body.columns);
+      const deletedColumnIds = getDeletedIds(existingColumns, bodyColumns);
       if (deletedColumnIds.length > 0) {
         await queryRunner('column_definition')
           .whereIn('id', deletedColumnIds)
           .delete();
       }
-      for (const col of body.columns) {
+      for (const col of bodyColumns) {
         if (
           col.name === 'id' ||
           col.name === 'createdAt' ||
@@ -127,30 +147,28 @@ export class SqlTableMetadataWriterService {
           .delete();
       }
       const targetTableIds = body.relations
-        .map((rel: any) =>
-          typeof rel.targetTable === 'object'
-            ? rel.targetTable.id
-            : rel.targetTable,
-        )
+        .map((rel: any) => getRelationTargetTableId(rel))
         .filter((tid: any) => tid != null);
-      const targetTablesMap = new Map<number, string>();
+      const targetTablesMap = new Map<string, string>();
       if (targetTableIds.length > 0) {
         const targetTables = await queryRunner('table_definition')
           .select('id', 'name')
           .whereIn('id', targetTableIds);
         for (const table of targetTables) {
-          targetTablesMap.set(table.id, table.name);
+          targetTablesMap.set(relationTargetTableMapKey(table.id), table.name);
         }
       }
       for (const rel of body.relations) {
-        const targetTableId =
-          typeof rel.targetTable === 'object'
-            ? rel.targetTable.id
-            : rel.targetTable;
+        const targetTableId = getRelationTargetTableId(rel);
+        const mappedByProperty = getRelationMappedByProperty(rel);
+        const targetTableName = targetTablesMap.get(
+          relationTargetTableMapKey(targetTableId),
+        );
+        if (targetTableName) affectedTableNames.add(targetTableName);
+        const existingRel = rel.id
+          ? await queryRunner('relation_definition').where({ id: rel.id }).first()
+          : null;
         if (rel.id) {
-          const existingRel = await queryRunner('relation_definition')
-            .where({ id: rel.id })
-            .first();
           if (existingRel && existingRel.type !== rel.type) {
             throw new Error(
               `Cannot change relation type from '${existingRel.type}' to '${rel.type}' for property '${rel.propertyName}'. ` +
@@ -159,12 +177,33 @@ export class SqlTableMetadataWriterService {
           }
         }
         let updateMappedById: number | null = null;
-        if (rel.mappedBy) {
-          const owningRel = await queryRunner('relation_definition')
-            .where({ sourceTableId: targetTableId, propertyName: rel.mappedBy })
-            .select('id')
+        let mappedByRelation: any = null;
+        if (mappedByProperty) {
+          mappedByRelation = await queryRunner('relation_definition')
+            .where({ sourceTableId: targetTableId, propertyName: mappedByProperty })
+            .select(
+              'id',
+              'propertyName',
+              'foreignKeyColumn',
+              'referencedColumn',
+              'constraintName',
+            )
             .first();
-          updateMappedById = owningRel?.id || null;
+          updateMappedById = mappedByRelation?.id || null;
+        } else if (rel.id && existingRel) {
+          updateMappedById = existingRel.mappedById || null;
+          if (updateMappedById) {
+            mappedByRelation = await queryRunner('relation_definition')
+              .where({ id: updateMappedById })
+              .select(
+                'id',
+                'propertyName',
+                'foreignKeyColumn',
+                'referencedColumn',
+                'constraintName',
+              )
+              .first();
+          }
         }
         const relationData: any = {
           propertyName: rel.propertyName,
@@ -179,12 +218,11 @@ export class SqlTableMetadataWriterService {
           description: rel.description,
           sourceTableId: id,
         };
-        if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-          const existingRel = rel.id
-            ? await queryRunner('relation_definition')
-                .where({ id: rel.id })
-                .first()
-            : null;
+        const relationOwnsForeignKey =
+          (rel.type === 'many-to-one' || rel.type === 'one-to-one') &&
+          !rel.mappedBy &&
+          !updateMappedById;
+        if (relationOwnsForeignKey) {
           relationData.foreignKeyColumn =
             existingRel?.foreignKeyColumn ||
             rel.foreignKeyColumn ||
@@ -193,16 +231,23 @@ export class SqlTableMetadataWriterService {
             existingRel?.referencedColumn || rel.referencedColumn || 'id';
           relationData.constraintName =
             existingRel?.constraintName || rel.constraintName || null;
+        } else if (updateMappedById && mappedByRelation) {
+          relationData.foreignKeyColumn =
+            mappedByRelation.foreignKeyColumn ||
+            getForeignKeyColumnName(mappedByRelation.propertyName);
+          relationData.referencedColumn =
+            mappedByRelation.referencedColumn || 'id';
+          relationData.constraintName = mappedByRelation.constraintName || null;
+        } else if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+          relationData.foreignKeyColumn = null;
+          relationData.referencedColumn = null;
+          relationData.constraintName = null;
         }
         if (rel.type === 'many-to-many') {
-          const targetTableName = targetTablesMap.get(targetTableId);
           if (!targetTableName) {
             throw new Error(`Target table with ID ${targetTableId} not found`);
           }
           if (rel.id) {
-            const existingRel = await queryRunner('relation_definition')
-              .where({ id: rel.id })
-              .first();
             if (existingRel && existingRel.junctionTableName) {
               relationData.junctionTableName = existingRel.junctionTableName;
               relationData.junctionSourceColumn =
@@ -210,19 +255,14 @@ export class SqlTableMetadataWriterService {
               relationData.junctionTargetColumn =
                 existingRel.junctionTargetColumn;
             } else {
-              const junctionTableName = getJunctionTableName(
-                exists.name,
-                rel.propertyName,
-                targetTableName,
-              );
-              const { sourceColumn, targetColumn } = getJunctionColumnNames(
-                exists.name,
-                rel.propertyName,
-                targetTableName,
-              );
-              relationData.junctionTableName = junctionTableName;
-              relationData.junctionSourceColumn = sourceColumn;
-              relationData.junctionTargetColumn = targetColumn;
+              const junction = getSqlJunctionPhysicalNames({
+                sourceTable: exists.name,
+                propertyName: rel.propertyName,
+                targetTable: targetTableName,
+              });
+              relationData.junctionTableName = junction.junctionTableName;
+              relationData.junctionSourceColumn = junction.junctionSourceColumn;
+              relationData.junctionTargetColumn = junction.junctionTargetColumn;
             }
           } else if (updateMappedById) {
             const owningRel = await queryRunner('relation_definition')
@@ -236,19 +276,14 @@ export class SqlTableMetadataWriterService {
                 owningRel.junctionSourceColumn;
             }
           } else {
-            const junctionTableName = getJunctionTableName(
-              exists.name,
-              rel.propertyName,
-              targetTablesMap.get(targetTableId)!,
-            );
-            const { sourceColumn, targetColumn } = getJunctionColumnNames(
-              exists.name,
-              rel.propertyName,
-              targetTablesMap.get(targetTableId)!,
-            );
-            relationData.junctionTableName = junctionTableName;
-            relationData.junctionSourceColumn = sourceColumn;
-            relationData.junctionTargetColumn = targetColumn;
+            const junction = getSqlJunctionPhysicalNames({
+              sourceTable: exists.name,
+              propertyName: rel.propertyName,
+              targetTable: targetTablesMap.get(relationTargetTableMapKey(targetTableId))!,
+            });
+            relationData.junctionTableName = junction.junctionTableName;
+            relationData.junctionSourceColumn = junction.junctionSourceColumn;
+            relationData.junctionTargetColumn = junction.junctionTargetColumn;
           }
         }
         let relationId: number | string;
@@ -285,10 +320,12 @@ export class SqlTableMetadataWriterService {
             .first();
           if (existingOnTarget) {
             throw new ValidationException(
-              `Cannot create inverse '${rel.inversePropertyName}' on '${targetTablesMap.get(targetTableId)}': property name already exists`,
+              `Cannot create inverse '${rel.inversePropertyName}' on '${targetTablesMap.get(relationTargetTableMapKey(targetTableId))}': property name already exists`,
               {
                 relationName: rel.inversePropertyName,
-                targetTable: targetTablesMap.get(targetTableId),
+                targetTable: targetTablesMap.get(
+                  relationTargetTableMapKey(targetTableId),
+                ),
               },
             );
           }
@@ -327,7 +364,9 @@ export class SqlTableMetadataWriterService {
             }
           }
           await queryRunner('relation_definition').insert(inverseData);
-          const targetName = targetTablesMap.get(targetTableId);
+          const targetName = targetTablesMap.get(
+            relationTargetTableMapKey(targetTableId),
+          );
           if (targetName) affectedTableNames.add(targetName);
           this.logger.log(
             `Auto-created inverse relation '${rel.inversePropertyName}' on '${targetName}'`,
@@ -351,6 +390,61 @@ export class SqlTableMetadataWriterService {
     }
     const [insertedId] = await queryRunner(tableName).insert(data);
     return insertedId;
+  }
+
+  private async getInverseRelationFkColumnNames(
+    queryRunner: any,
+    tableId: string | number,
+    relations: any[],
+  ): Promise<Set<string>> {
+    const existingRelations = await queryRunner('relation_definition')
+      .where({ sourceTableId: tableId })
+      .select('id', 'propertyName', 'foreignKeyColumn', 'mappedById');
+    const existingById = new Map(
+      existingRelations.map((rel: any) => [String(rel.id), rel]),
+    );
+    const columns = new Set<string>();
+    for (const rel of relations || []) {
+      const existingRel: any = rel.id ? existingById.get(String(rel.id)) : null;
+      const isInverse = Boolean(
+        rel.mappedBy || rel.mappedById || existingRel?.mappedById,
+      );
+      if (!isInverse) continue;
+      if (rel.foreignKeyColumn) columns.add(rel.foreignKeyColumn);
+      if (rel.propertyName) {
+        columns.add(getForeignKeyColumnName(rel.propertyName));
+      }
+      if (existingRel?.foreignKeyColumn) {
+        columns.add(existingRel.foreignKeyColumn);
+      }
+      if (existingRel?.propertyName) {
+        columns.add(getForeignKeyColumnName(existingRel.propertyName));
+      }
+    }
+    return columns;
+  }
+
+  private getAllowedConstraintFields(body: TCreateTableBody): Set<string> | null {
+    if (!body.columns && !body.relations) return null;
+    const fields = new Set<string>(['id', 'createdAt', 'updatedAt']);
+    for (const col of body.columns || []) {
+      if (col?.name) fields.add(col.name);
+    }
+    for (const rel of body.relations || []) {
+      if (rel?.propertyName) fields.add(rel.propertyName);
+    }
+    return fields;
+  }
+
+  private filterConstraintGroups(
+    groups: any[],
+    allowedFields: Set<string>,
+  ): any[] {
+    return (groups || []).filter((group) =>
+      (Array.isArray(group) ? group : group?.value || []).every((field: string) =>
+        allowedFields.has(field),
+      ),
+    );
   }
 
   private async writeNestedRules(

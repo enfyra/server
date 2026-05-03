@@ -2,11 +2,15 @@ import { Logger } from '../../../shared/logger';
 import {
   QueryBuilderService,
   getForeignKeyColumnName,
-  getJunctionTableName,
-  getJunctionColumnNames,
 } from '@enfyra/kernel';
 import { MetadataCacheService } from '../../../engines/cache';
 import { TCreateTableBody } from '../types/table-handler.types';
+import {
+  getRelationMappedByProperty,
+  getRelationTargetTableId,
+  relationTargetTableMapKey,
+} from '../utils/relation-target-id.util';
+import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
 export class SqlTableMetadataBuilderService {
   private readonly logger = new Logger(SqlTableMetadataBuilderService.name);
   private readonly queryBuilderService: QueryBuilderService;
@@ -80,7 +84,11 @@ export class SqlTableMetadataBuilderService {
           );
         }
       }
-      if (['many-to-one', 'one-to-one'].includes(rel.type)) {
+      if (
+        ['many-to-one', 'one-to-one'].includes(rel.type) &&
+        !rel.mappedBy &&
+        !rel.mappedById
+      ) {
         if (!rel.targetTableName) {
           throw new Error(
             `Relation '${rel.propertyName}' (${rel.type}) from table '${table.name}' has invalid targetTableId: ${rel.targetTableId}. Target table not found.`,
@@ -99,7 +107,7 @@ export class SqlTableMetadataBuilderService {
     exists: any,
     body: TCreateTableBody,
     oldMetadata: any,
-    targetTablesMap: Map<number, string>,
+    targetTablesMap: Map<string, string>,
   ): any {
     const metadata: any = {
       name: body.name ?? exists.name,
@@ -107,8 +115,14 @@ export class SqlTableMetadataBuilderService {
       indexes: body.indexes ?? oldMetadata?.indexes,
     };
 
-    metadata.columns = (body.columns ?? oldMetadata?.columns ?? []).map(
-      (col: any) => ({
+    const ignoredFkColumns = this.getInverseRelationFkColumnNames(
+      body.relations ?? oldMetadata?.relations ?? [],
+      oldMetadata?.relations ?? [],
+    );
+
+    metadata.columns = (body.columns ?? oldMetadata?.columns ?? [])
+      .filter((col: any) => !ignoredFkColumns.has(col.name))
+      .map((col: any) => ({
         id: col.id,
         name: col.name,
         type: col.type,
@@ -120,20 +134,17 @@ export class SqlTableMetadataBuilderService {
         isPublished: col.isPublished ?? true,
         defaultValue: col.defaultValue ?? null,
         tableId: exists.id,
-      }),
-    );
+      }));
 
     metadata.relations = (body.relations ?? oldMetadata?.relations ?? []).map(
       (rel: any) => {
-        const targetTableId =
-          typeof rel.targetTable === 'object'
-            ? rel.targetTable.id
-            : rel.targetTable;
+        const oldRel = oldMetadata?.relations?.find((r: any) => r.id === rel.id);
+        const targetTableId = getRelationTargetTableId(rel);
         const targetTableName =
-          targetTablesMap.get(targetTableId) ??
-          oldMetadata?.relations?.find((r: any) => r.id === rel.id)
-            ?.targetTableName ??
+          targetTablesMap.get(relationTargetTableMapKey(targetTableId)) ??
+          oldRel?.targetTableName ??
           '';
+        const mappedByProperty = getRelationMappedByProperty(rel);
         const relation: any = {
           id: rel.id,
           propertyName: rel.propertyName,
@@ -141,19 +152,28 @@ export class SqlTableMetadataBuilderService {
           targetTableId,
           targetTableName,
           sourceTableName: exists.name,
-          mappedBy: rel.mappedBy || null,
-          mappedById: null,
+          mappedBy: mappedByProperty,
+          mappedById: rel.mappedById ?? oldRel?.mappedById ?? null,
           isNullable: rel.isNullable ?? true,
           isSystem: rel.isSystem || false,
           isUpdatable: rel.isUpdatable ?? true,
           isPublished: rel.isPublished ?? true,
         };
 
-        if (['many-to-one', 'one-to-one'].includes(rel.type)) {
+        if (
+          ['many-to-one', 'one-to-one'].includes(rel.type) &&
+          !rel.mappedBy &&
+          !rel.mappedById &&
+          !oldRel?.mappedById
+        ) {
           relation.foreignKeyColumn =
-            rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
-          relation.referencedColumn = rel.referencedColumn || 'id';
-          relation.constraintName = rel.constraintName || null;
+            oldRel?.foreignKeyColumn ||
+            rel.foreignKeyColumn ||
+            getForeignKeyColumnName(rel.propertyName);
+          relation.referencedColumn =
+            oldRel?.referencedColumn || rel.referencedColumn || 'id';
+          relation.constraintName =
+            oldRel?.constraintName || rel.constraintName || null;
         }
 
         if (rel.type === 'many-to-many') {
@@ -168,18 +188,14 @@ export class SqlTableMetadataBuilderService {
             }
           }
           if (!relation.junctionTableName && targetTableName) {
-            relation.junctionTableName = getJunctionTableName(
-              exists.name,
-              rel.propertyName,
-              targetTableName,
-            );
-            const { sourceColumn, targetColumn } = getJunctionColumnNames(
-              exists.name,
-              rel.propertyName,
-              targetTableName,
-            );
-            relation.junctionSourceColumn = sourceColumn;
-            relation.junctionTargetColumn = targetColumn;
+            const junction = getSqlJunctionPhysicalNames({
+              sourceTable: exists.name,
+              propertyName: rel.propertyName,
+              targetTable: targetTableName,
+            });
+            relation.junctionTableName = junction.junctionTableName;
+            relation.junctionSourceColumn = junction.junctionSourceColumn;
+            relation.junctionTargetColumn = junction.junctionTargetColumn;
           }
         }
 
@@ -188,5 +204,29 @@ export class SqlTableMetadataBuilderService {
     );
 
     return metadata;
+  }
+
+  private getInverseRelationFkColumnNames(
+    relations: any[],
+    oldRelations: any[],
+  ): Set<string> {
+    const oldById = new Map(
+      oldRelations.map((rel: any) => [String(rel.id), rel]),
+    );
+    const columns = new Set<string>();
+    for (const rel of relations || []) {
+      const oldRel = rel.id ? oldById.get(String(rel.id)) : null;
+      const isInverse = Boolean(
+        rel.mappedBy || rel.mappedById || oldRel?.mappedById,
+      );
+      if (!isInverse) continue;
+      if (rel.foreignKeyColumn) columns.add(rel.foreignKeyColumn);
+      if (rel.propertyName) columns.add(getForeignKeyColumnName(rel.propertyName));
+      if (oldRel?.foreignKeyColumn) columns.add(oldRel.foreignKeyColumn);
+      if (oldRel?.propertyName) {
+        columns.add(getForeignKeyColumnName(oldRel.propertyName));
+      }
+    }
+    return columns;
   }
 }

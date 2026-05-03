@@ -90,7 +90,7 @@ const BOOTSTRAP_QUIET_CONTEXTS = new Set([
   'DataMigrationService',
   'DataProvisionService',
   'MetadataMigrationService',
-  'MetadataRepairService',
+  'SchemaHealingService',
   'MetadataProvisionMongoService',
   'MetadataProvisionSqlService',
 ]);

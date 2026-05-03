@@ -4,9 +4,18 @@ import { DatabaseConfigService } from '../../src/shared/services';
 
 function makeKnex(rowsByTable: Record<string, any[]>) {
   return {
-    table: (name: string) => ({
-      select: async () => rowsByTable[name] ?? [],
-    }),
+    table: (name: string) => {
+      const builder: any = {
+        select: async () => rowsByTable[name] ?? [],
+        whereIn: async (column: string, values: any[]) => {
+          const valueSet = new Set(values.map(String));
+          return (rowsByTable[name] ?? []).filter((row: any) =>
+            valueSet.has(String(row[column])),
+          );
+        },
+      };
+      return builder;
+    },
   };
 }
 
@@ -210,5 +219,97 @@ describe('MetadataCacheService', () => {
     expect(
       posts.columns.filter((column: any) => column.name === 'updatedAt'),
     ).toHaveLength(1);
+  });
+
+  it('resolves inverse FK metadata from existing cache during partial reload', async () => {
+    const service = makeService({
+      table_definition: [{ id: 2, name: 'teachers', indexes: '[]', uniques: '[]' }],
+      column_definition: [{ id: 20, tableId: 2, name: 'id', type: 'int', isPrimary: true }],
+      relation_definition: [
+        {
+          id: 41,
+          sourceTableId: 2,
+          targetTableId: 1,
+          propertyName: 'mentoredCourses',
+          type: 'one-to-many',
+          mappedById: 40,
+          isNullable: true,
+        },
+      ],
+    });
+    (service as any).inMemoryCache = {
+      tables: new Map([
+        [
+          'teachers',
+          {
+            id: 2,
+            name: 'teachers',
+            relations: [],
+            columns: [],
+          },
+        ],
+        [
+          'courses',
+          {
+            id: 1,
+            name: 'courses',
+            relations: [
+              {
+                id: 40,
+                sourceTableId: 1,
+                targetTableId: 2,
+                propertyName: 'mentor',
+                type: 'many-to-one',
+                foreignKeyColumn: 'teacherId',
+                referencedColumn: 'id',
+              },
+            ],
+            columns: [],
+          },
+        ],
+      ]),
+      tablesList: [
+        {
+          id: 2,
+          name: 'teachers',
+          relations: [],
+          columns: [],
+        },
+        {
+          id: 1,
+          name: 'courses',
+          relations: [
+            {
+              id: 40,
+              sourceTableId: 1,
+              targetTableId: 2,
+              propertyName: 'mentor',
+              type: 'many-to-one',
+              foreignKeyColumn: 'teacherId',
+              referencedColumn: 'id',
+            },
+          ],
+          columns: [],
+        },
+      ],
+      version: 1,
+      timestamp: new Date(),
+    };
+
+    await (service as any).applyPartialUpdate({
+      table: 'table_definition',
+      action: 'reload',
+      scope: 'partial',
+      ids: [2],
+      timestamp: Date.now(),
+    });
+
+    const teachers = (service as any).inMemoryCache.tables.get('teachers');
+    expect(teachers.relations[0]).toMatchObject({
+      propertyName: 'mentoredCourses',
+      mappedBy: 'mentor',
+      foreignKeyColumn: 'teacherId',
+      referencedColumn: 'id',
+    });
   });
 });

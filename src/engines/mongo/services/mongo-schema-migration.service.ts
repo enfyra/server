@@ -184,6 +184,11 @@ export class MongoSchemaMigrationService {
           oldMetadata,
           newMetadata,
         );
+        await this.handleMetadataUpdates(
+          collectionName,
+          oldMetadata,
+          newMetadata,
+        );
         await this.migrationJournalService.markCompleted(journalUuid);
       } catch (execError) {
         this.logger.warn(
@@ -229,26 +234,26 @@ export class MongoSchemaMigrationService {
   ): Promise<void> {
     const columnRenames: Map<string, string> = new Map();
     const propertyNameRenames: Map<string, string> = new Map();
-    const oldColMap = new Map<number, any>(
-      (oldMetadata.columns || []).map((c: any) => [c.id, c]),
+    const oldColMap = new Map<string, any>(
+      (oldMetadata.columns || []).map((c: any) => [String(c.id ?? c._id), c]),
     );
-    const newColMap = new Map<number, any>(
-      (newMetadata.columns || []).map((c: any) => [c.id, c]),
+    const newColMap = new Map<string, any>(
+      (newMetadata.columns || []).map((c: any) => [String(c.id ?? c._id), c]),
     );
     for (const [colId, newCol] of newColMap) {
-      const oldCol = oldColMap.get(colId as number);
+      const oldCol = oldColMap.get(colId);
       if (oldCol && oldCol.name !== newCol.name) {
         columnRenames.set(oldCol.name, newCol.name);
       }
     }
-    const oldRelMap = new Map<number, any>(
-      (oldMetadata.relations || []).map((r: any) => [r.id, r]),
+    const oldRelMap = new Map<string, any>(
+      (oldMetadata.relations || []).map((r: any) => [String(r.id ?? r._id), r]),
     );
-    const newRelMap = new Map<number, any>(
-      (newMetadata.relations || []).map((r: any) => [r.id, r]),
+    const newRelMap = new Map<string, any>(
+      (newMetadata.relations || []).map((r: any) => [String(r.id ?? r._id), r]),
     );
     for (const [relId, newRel] of newRelMap) {
-      const oldRel = oldRelMap.get(relId as number);
+      const oldRel = oldRelMap.get(relId);
       if (oldRel && oldRel.propertyName !== newRel.propertyName) {
         propertyNameRenames.set(oldRel.propertyName, newRel.propertyName);
       }

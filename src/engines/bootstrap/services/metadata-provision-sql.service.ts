@@ -170,6 +170,7 @@ export class MetadataProvisionSqlService {
   async createInitMetadata(snapshot: any): Promise<void> {
     const qb = this.queryBuilderService.getConnection();
     await this.ensureCoreTables();
+    let hasExistingMetadata = false;
     await qb.transaction(async (trx: any) => {
       const tableNameToId: Record<string, number> = {};
       this.verbose('Phase 1: Processing table definitions...');
@@ -182,6 +183,7 @@ export class MetadataProvisionSqlService {
           throw error;
         }
       }
+      hasExistingMetadata = existingTables.length > 0;
       const existingTableMap = new Map<string, any>(
         existingTables.map((t: any) => [t.name, t]),
       );
@@ -323,6 +325,7 @@ export class MetadataProvisionSqlService {
         owningTableName: string;
         owningPropertyName: string;
       }> = [];
+      const generatedInverseKeys = new Set<string>();
 
       for (const [name, defRaw] of tableEntries) {
         const def = defRaw as any;
@@ -332,10 +335,14 @@ export class MetadataProvisionSqlService {
           if (!rel.propertyName || !rel.targetTable || !rel.type) continue;
           const targetId = tableNameToId[rel.targetTable];
           if (!targetId) continue;
+          const currentKey = `${name}.${rel.propertyName}`;
+          if (generatedInverseKeys.has(currentKey)) continue;
           if (rel.inversePropertyName) {
             if (rel.type !== 'one-to-many') {
               owningRelations.push({ tableName: name, tableId, relation: rel });
             }
+            const inverseKey = `${rel.targetTable}.${rel.inversePropertyName}`;
+            generatedInverseKeys.add(inverseKey);
             let inverseType = rel.type;
             if (rel.type === 'many-to-one') inverseType = 'one-to-many';
             else if (rel.type === 'one-to-many') inverseType = 'many-to-one';
@@ -581,20 +588,30 @@ export class MetadataProvisionSqlService {
       this.verbose('SQL metadata sync completed');
     });
     this.verbose('Phase 4: Syncing physical schema from metadata...');
-    await this.syncPhysicalSchemaFromMetadata(snapshot);
+    await this.syncPhysicalSchemaFromMetadata(snapshot, {
+      skipJunctionTables: hasExistingMetadata,
+    });
     this.verbose('Physical schema sync completed');
   }
-  private async syncPhysicalSchemaFromMetadata(snapshot: any): Promise<void> {
+  private async syncPhysicalSchemaFromMetadata(
+    snapshot: any,
+    options: { skipJunctionTables?: boolean } = {},
+  ): Promise<void> {
     const qb = this.queryBuilderService.getConnection();
     const schemas = parseSnapshotToSchema(snapshot);
+    const physicalSchemas = options.skipJunctionTables
+      ? schemas.map((schema) => ({ ...schema, junctionTables: [] }))
+      : schemas;
 
-    await createAllTables(qb, schemas, this.dbType);
+    await createAllTables(qb, physicalSchemas, this.dbType);
 
-    for (const schema of schemas) {
-      await syncTable(qb, schema, schemas);
+    for (const schema of physicalSchemas) {
+      await syncTable(qb, schema, physicalSchemas);
     }
 
-    await syncJunctionTables(qb, schemas);
+    if (!options.skipJunctionTables) {
+      await syncJunctionTables(qb, physicalSchemas);
+    }
   }
 
   private addColumnToTable(tableBuilder: any, col: any): void {
