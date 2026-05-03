@@ -782,7 +782,7 @@ export class SqlSchemaMigrationService {
           columnName,
         ]);
       }
-      await this.removeColumnFromMetadataIndexes(tableName, columnName);
+      await this.removeColumnFromMetadataConstraints(tableName, columnName);
     } catch (error) {
       this.logger.error(
         `Failed to drop column ${tableName}.${columnName}: ${getErrorMessage(error)}`,
@@ -791,7 +791,7 @@ export class SqlSchemaMigrationService {
     }
   }
 
-  private async removeColumnFromMetadataIndexes(
+  private async removeColumnFromMetadataConstraints(
     tableName: string,
     columnName: string,
   ): Promise<void> {
@@ -800,16 +800,28 @@ export class SqlSchemaMigrationService {
       const row = await knex('table_definition')
         .where('name', tableName)
         .first();
-      if (!row?.indexes) return;
-      const indexes: string[][] = JSON.parse(row.indexes);
-      const cleaned = indexes.filter((group) => !group.includes(columnName));
-      if (cleaned.length === indexes.length) return;
+      const updateData: Record<string, string> = {};
+      if (row?.uniques) {
+        const uniques: string[][] = JSON.parse(row.uniques);
+        const cleaned = uniques.filter((group) => !group.includes(columnName));
+        if (cleaned.length !== uniques.length) {
+          updateData.uniques = JSON.stringify(cleaned);
+        }
+      }
+      if (row?.indexes) {
+        const indexes: string[][] = JSON.parse(row.indexes);
+        const cleaned = indexes.filter((group) => !group.includes(columnName));
+        if (cleaned.length !== indexes.length) {
+          updateData.indexes = JSON.stringify(cleaned);
+        }
+      }
+      if (Object.keys(updateData).length === 0) return;
       await knex('table_definition')
         .where('name', tableName)
-        .update({ indexes: JSON.stringify(cleaned) });
+        .update(updateData);
     } catch (error) {
       this.logger.warn(
-        `  Failed to clean up metadata indexes for ${tableName}.${columnName}: ${getErrorMessage(error)}`,
+        `  Failed to clean up metadata constraints for ${tableName}.${columnName}: ${getErrorMessage(error)}`,
       );
     }
   }
