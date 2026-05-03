@@ -127,7 +127,7 @@ export class DynamicService {
         const details = err.details;
         throw new HttpException(
           details && typeof details === 'object'
-            ? details
+            ? { message: getErrorMessage(error), details }
             : getErrorMessage(error),
           httpStatus!,
         );

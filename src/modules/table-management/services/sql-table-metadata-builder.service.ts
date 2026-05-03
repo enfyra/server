@@ -7,6 +7,10 @@ import {
 } from '@enfyra/kernel';
 import { MetadataCacheService } from '../../../engines/cache';
 import { TCreateTableBody } from '../types/table-handler.types';
+import {
+  getRelationTargetTableId,
+  relationTargetTableMapKey,
+} from '../utils/relation-target-id.util';
 export class SqlTableMetadataBuilderService {
   private readonly logger = new Logger(SqlTableMetadataBuilderService.name);
   private readonly queryBuilderService: QueryBuilderService;
@@ -99,7 +103,7 @@ export class SqlTableMetadataBuilderService {
     exists: any,
     body: TCreateTableBody,
     oldMetadata: any,
-    targetTablesMap: Map<number, string>,
+    targetTablesMap: Map<string, string>,
   ): any {
     const metadata: any = {
       name: body.name ?? exists.name,
@@ -125,12 +129,9 @@ export class SqlTableMetadataBuilderService {
 
     metadata.relations = (body.relations ?? oldMetadata?.relations ?? []).map(
       (rel: any) => {
-        const targetTableId =
-          typeof rel.targetTable === 'object'
-            ? rel.targetTable.id
-            : rel.targetTable;
+        const targetTableId = getRelationTargetTableId(rel);
         const targetTableName =
-          targetTablesMap.get(targetTableId) ??
+          targetTablesMap.get(relationTargetTableMapKey(targetTableId)) ??
           oldMetadata?.relations?.find((r: any) => r.id === rel.id)
             ?.targetTableName ??
           '';

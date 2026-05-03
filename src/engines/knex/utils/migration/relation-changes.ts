@@ -12,6 +12,26 @@ import {
 
 const logger = new Logger('RelationChanges');
 
+function isInverseRelation(rel: any): boolean {
+  return Boolean(rel?.mappedBy || rel?.mappedById);
+}
+
+async function hasOtherOwningJunctionRelation(
+  knex: Knex,
+  relation: any,
+  junctionTableName: string,
+): Promise<boolean> {
+  const rows = await knex('relation_definition')
+    .where({ junctionTableName })
+    .select('id', 'mappedById');
+
+  return rows.some(
+    (row: any) =>
+      String(row.id) !== String(relation.id) &&
+      (row.mappedById === null || row.mappedById === undefined),
+  );
+}
+
 async function validateFkColumnNotConflict(
   fkColumnName: string,
   existingColumns: any[],
@@ -206,9 +226,16 @@ async function handleDeletedRelations(
     } else if (rel.type === 'one-to-many') {
       continue;
     } else if (rel.type === 'many-to-many') {
+      if (isInverseRelation(rel)) continue;
+
       const junctionTableName =
         rel.junctionTableName ||
         getJunctionTableName(tableName, rel.propertyName, rel.targetTableName);
+      if (
+        await hasOtherOwningJunctionRelation(knex, rel, junctionTableName)
+      ) {
+        continue;
+      }
 
       if (!diff.junctionTables) {
         diff.junctionTables = { create: [], drop: [], update: [] };
@@ -634,6 +661,8 @@ async function handleRelationPropertyNameChange(
     !mappedByChanged
   ) {
   } else if (relationType === 'many-to-many' && propertyNameChanged) {
+    if (isInverseRelation(oldRel) || isInverseRelation(newRel)) return;
+
     const oldJunctionTableName = oldRel.junctionTableName;
     const newJunctionTableName = getJunctionTableName(
       tableName,
@@ -676,6 +705,8 @@ async function handleRelationTypeChange(
 
   const oldType = oldRel.type;
   const newType = newRel.type;
+
+  if (isInverseRelation(oldRel) || isInverseRelation(newRel)) return;
 
   if (
     (oldType === 'many-to-one' || oldType === 'one-to-one') &&
@@ -1013,6 +1044,8 @@ async function handleRelationTargetChange(
       },
     });
   } else if (relationType === 'many-to-many') {
+    if (isInverseRelation(oldRel) || isInverseRelation(newRel)) return;
+
     if (!diff.junctionTables) {
       diff.junctionTables = { create: [], drop: [], update: [], rename: [] };
     }
