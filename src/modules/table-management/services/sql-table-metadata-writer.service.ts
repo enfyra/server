@@ -8,6 +8,10 @@ import {
 } from '@enfyra/kernel';
 import { DatabaseConfigService } from '../../../shared/services';
 import { ValidationException } from '../../../domain/exceptions';
+import {
+  getRelationTargetTableId,
+  relationTargetTableMapKey,
+} from '../utils/relation-target-id.util';
 
 export class SqlTableMetadataWriterService {
   private readonly logger = new Logger(SqlTableMetadataWriterService.name);
@@ -127,30 +131,23 @@ export class SqlTableMetadataWriterService {
           .delete();
       }
       const targetTableIds = body.relations
-        .map((rel: any) =>
-          typeof rel.targetTable === 'object'
-            ? rel.targetTable.id
-            : rel.targetTable,
-        )
+        .map((rel: any) => getRelationTargetTableId(rel))
         .filter((tid: any) => tid != null);
-      const targetTablesMap = new Map<number, string>();
+      const targetTablesMap = new Map<string, string>();
       if (targetTableIds.length > 0) {
         const targetTables = await queryRunner('table_definition')
           .select('id', 'name')
           .whereIn('id', targetTableIds);
         for (const table of targetTables) {
-          targetTablesMap.set(table.id, table.name);
+          targetTablesMap.set(relationTargetTableMapKey(table.id), table.name);
         }
       }
       for (const rel of body.relations) {
-        const targetTableId =
-          typeof rel.targetTable === 'object'
-            ? rel.targetTable.id
-            : rel.targetTable;
+        const targetTableId = getRelationTargetTableId(rel);
+        const existingRel = rel.id
+          ? await queryRunner('relation_definition').where({ id: rel.id }).first()
+          : null;
         if (rel.id) {
-          const existingRel = await queryRunner('relation_definition')
-            .where({ id: rel.id })
-            .first();
           if (existingRel && existingRel.type !== rel.type) {
             throw new Error(
               `Cannot change relation type from '${existingRel.type}' to '${rel.type}' for property '${rel.propertyName}'. ` +
@@ -165,6 +162,8 @@ export class SqlTableMetadataWriterService {
             .select('id')
             .first();
           updateMappedById = owningRel?.id || null;
+        } else if (rel.id && existingRel) {
+          updateMappedById = existingRel.mappedById || null;
         }
         const relationData: any = {
           propertyName: rel.propertyName,
@@ -180,11 +179,6 @@ export class SqlTableMetadataWriterService {
           sourceTableId: id,
         };
         if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-          const existingRel = rel.id
-            ? await queryRunner('relation_definition')
-                .where({ id: rel.id })
-                .first()
-            : null;
           relationData.foreignKeyColumn =
             existingRel?.foreignKeyColumn ||
             rel.foreignKeyColumn ||
@@ -195,14 +189,13 @@ export class SqlTableMetadataWriterService {
             existingRel?.constraintName || rel.constraintName || null;
         }
         if (rel.type === 'many-to-many') {
-          const targetTableName = targetTablesMap.get(targetTableId);
+          const targetTableName = targetTablesMap.get(
+            relationTargetTableMapKey(targetTableId),
+          );
           if (!targetTableName) {
             throw new Error(`Target table with ID ${targetTableId} not found`);
           }
           if (rel.id) {
-            const existingRel = await queryRunner('relation_definition')
-              .where({ id: rel.id })
-              .first();
             if (existingRel && existingRel.junctionTableName) {
               relationData.junctionTableName = existingRel.junctionTableName;
               relationData.junctionSourceColumn =
@@ -239,12 +232,12 @@ export class SqlTableMetadataWriterService {
             const junctionTableName = getJunctionTableName(
               exists.name,
               rel.propertyName,
-              targetTablesMap.get(targetTableId)!,
+              targetTablesMap.get(relationTargetTableMapKey(targetTableId))!,
             );
             const { sourceColumn, targetColumn } = getJunctionColumnNames(
               exists.name,
               rel.propertyName,
-              targetTablesMap.get(targetTableId)!,
+              targetTablesMap.get(relationTargetTableMapKey(targetTableId))!,
             );
             relationData.junctionTableName = junctionTableName;
             relationData.junctionSourceColumn = sourceColumn;
@@ -285,10 +278,12 @@ export class SqlTableMetadataWriterService {
             .first();
           if (existingOnTarget) {
             throw new ValidationException(
-              `Cannot create inverse '${rel.inversePropertyName}' on '${targetTablesMap.get(targetTableId)}': property name already exists`,
+              `Cannot create inverse '${rel.inversePropertyName}' on '${targetTablesMap.get(relationTargetTableMapKey(targetTableId))}': property name already exists`,
               {
                 relationName: rel.inversePropertyName,
-                targetTable: targetTablesMap.get(targetTableId),
+                targetTable: targetTablesMap.get(
+                  relationTargetTableMapKey(targetTableId),
+                ),
               },
             );
           }
@@ -327,7 +322,9 @@ export class SqlTableMetadataWriterService {
             }
           }
           await queryRunner('relation_definition').insert(inverseData);
-          const targetName = targetTablesMap.get(targetTableId);
+          const targetName = targetTablesMap.get(
+            relationTargetTableMapKey(targetTableId),
+          );
           if (targetName) affectedTableNames.add(targetName);
           this.logger.log(
             `Auto-created inverse relation '${rel.inversePropertyName}' on '${targetName}'`,

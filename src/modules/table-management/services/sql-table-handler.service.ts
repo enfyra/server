@@ -31,6 +31,10 @@ import { TDynamicContext } from '../../../shared/types';
 import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
 import { TCreateTableBody } from '../types/table-handler.types';
 import { generateDefaultRecord } from '../utils/generate-default-record';
+import {
+  getRelationTargetTableId,
+  relationTargetTableMapKey,
+} from '../utils/relation-target-id.util';
 import { DEFAULT_REST_HANDLER_LOGIC } from '../../../domain/bootstrap';
 import { TableManagementValidationService } from './table-validation.service';
 import { SqlTableMetadataBuilderService } from './sql-table-metadata-builder.service';
@@ -71,7 +75,7 @@ export class SqlTableHandlerService {
     columns: any[],
     relations: any[],
     tableName: string,
-    targetTablesMap: Map<number, string>,
+    targetTablesMap: Map<string, string>,
   ) {
     const allColumnNames = new Set<string>();
     const duplicates: string[] = [];
@@ -92,11 +96,10 @@ export class SqlTableHandlerService {
     }
     for (const rel of relations || []) {
       if (rel.type === 'many-to-many') {
-        const targetTableId =
-          typeof rel.targetTable === 'object'
-            ? rel.targetTable.id
-            : rel.targetTable;
-        const targetTableName = targetTablesMap.get(targetTableId);
+        const targetTableId = getRelationTargetTableId(rel);
+        const targetTableName = targetTablesMap.get(
+          relationTargetTableMapKey(targetTableId),
+        );
         if (targetTableName) {
           const { sourceColumn, targetColumn } = getJunctionColumnNames(
             tableName,
@@ -259,19 +262,15 @@ export class SqlTableHandlerService {
       const targetTableIds =
         bodyRelations
           .filter((rel: any) => rel.type === 'many-to-many')
-          .map((rel: any) =>
-            typeof rel.targetTable === 'object'
-              ? rel.targetTable.id
-              : rel.targetTable,
-          )
+          .map((rel: any) => getRelationTargetTableId(rel))
           ?.filter((id: any) => id != null) || [];
-      const targetTablesMap = new Map<number, string>();
+      const targetTablesMap = new Map<string, string>();
       if (targetTableIds.length > 0) {
         const targetTables = await trx('table_definition')
           .select('id', 'name')
           .whereIn('id', targetTableIds);
         for (const table of targetTables) {
-          targetTablesMap.set(table.id, table.name);
+          targetTablesMap.set(relationTargetTableMapKey(table.id), table.name);
         }
       }
       try {
@@ -327,27 +326,23 @@ export class SqlTableHandlerService {
       }
       if (bodyRelations.length > 0) {
         const targetTableIds = bodyRelations
-          .map((rel: any) =>
-            typeof rel.targetTable === 'object'
-              ? rel.targetTable.id
-              : rel.targetTable,
-          )
+          .map((rel: any) => getRelationTargetTableId(rel))
           .filter((id: any) => id != null);
-        const targetTablesMap = new Map<number, string>();
+        const targetTablesMap = new Map<string, string>();
         if (targetTableIds.length > 0) {
           const targetTables = await trx('table_definition')
             .select('id', 'name')
             .whereIn('id', targetTableIds);
           for (const table of targetTables) {
-            targetTablesMap.set(table.id, table.name);
+            targetTablesMap.set(
+              relationTargetTableMapKey(table.id),
+              table.name,
+            );
           }
         }
         const relationsToInsert: Array<{ insertData: any; rel: any }> = [];
         for (const rel of bodyRelations) {
-          const targetTableId =
-            typeof rel.targetTable === 'object'
-              ? rel.targetTable.id
-              : rel.targetTable;
+          const targetTableId = getRelationTargetTableId(rel);
           let mappedById: number | null = null;
           if (rel.mappedBy) {
             const owningRel = await trx('relation_definition')
@@ -373,7 +368,9 @@ export class SqlTableHandlerService {
             sourceTableId: tableId,
           };
           if (rel.type === 'many-to-many') {
-            const targetTableName = targetTablesMap.get(targetTableId);
+            const targetTableName = targetTablesMap.get(
+              relationTargetTableMapKey(targetTableId),
+            );
             if (!targetTableName) {
               throw new Error(
                 `Target table with ID ${targetTableId} not found`,
@@ -411,7 +408,9 @@ export class SqlTableHandlerService {
             );
           }
           const targetTableId = inserted.targetTableId;
-          const targetTableName = targetTablesMap.get(targetTableId);
+          const targetTableName = targetTablesMap.get(
+            relationTargetTableMapKey(targetTableId),
+          );
           const existingOnTarget = await trx('relation_definition')
             .where({
               sourceTableId: targetTableId,
@@ -684,19 +683,18 @@ export class SqlTableHandlerService {
       const m2mTargetTableIds =
         bodyRelations
           .filter((rel: any) => rel.type === 'many-to-many')
-          .map((rel: any) =>
-            typeof rel.targetTable === 'object'
-              ? rel.targetTable.id
-              : rel.targetTable,
-          )
+          .map((rel: any) => getRelationTargetTableId(rel))
           ?.filter((tid: any) => tid != null) || [];
-      const m2mTargetTablesMap = new Map<number, string>();
+      const m2mTargetTablesMap = new Map<string, string>();
       if (m2mTargetTableIds.length > 0) {
         const targetTables = await knex('table_definition')
           .select('id', 'name')
           .whereIn('id', m2mTargetTableIds);
         for (const table of targetTables) {
-          m2mTargetTablesMap.set(table.id, table.name);
+          m2mTargetTablesMap.set(
+            relationTargetTableMapKey(table.id),
+            table.name,
+          );
         }
       }
       this.validateAllColumnsUnique(
@@ -717,19 +715,18 @@ export class SqlTableHandlerService {
       // Compute full target tables map (all relation targets)
       const allTargetTableIds =
         bodyRelations
-          .map((rel: any) =>
-            typeof rel.targetTable === 'object'
-              ? rel.targetTable.id
-              : rel.targetTable,
-          )
+          .map((rel: any) => getRelationTargetTableId(rel))
           ?.filter((tid: any) => tid != null) || [];
-      const allTargetTablesMap = new Map<number, string>();
+      const allTargetTablesMap = new Map<string, string>();
       if (allTargetTableIds.length > 0) {
         const targetTables = await knex('table_definition')
           .select('id', 'name')
           .whereIn('id', allTargetTableIds);
         for (const table of targetTables) {
-          allTargetTablesMap.set(table.id, table.name);
+          allTargetTablesMap.set(
+            relationTargetTableMapKey(table.id),
+            table.name,
+          );
         }
       }
 

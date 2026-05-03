@@ -1,11 +1,23 @@
 import { Knex } from 'knex';
 
 export class KnexEntityManager {
+  private static readonly idColumnCache = new Map<string, boolean>();
+
   constructor(
     private knexOrTrx: Knex | Knex.Transaction,
     private hooks: any,
     private dbType: string,
   ) {}
+
+  private async tableHasIdColumn(tableName: string): Promise<boolean> {
+    const cached = KnexEntityManager.idColumnCache.get(tableName);
+    if (cached !== undefined) return cached;
+
+    const info = await this.knexOrTrx(tableName).columnInfo('id');
+    const hasId = Boolean(info);
+    KnexEntityManager.idColumnCache.set(tableName, hasId);
+    return hasId;
+  }
 
   async insert(tableName: string, data: any): Promise<any> {
     let processedData = data;
@@ -15,16 +27,14 @@ export class KnexEntityManager {
 
     let insertedId: any;
     if (this.dbType === 'pg' || this.dbType === 'postgres') {
-      const isJunctionTable = tableName.split('_').length >= 4;
-
-      if (isJunctionTable) {
-        await this.knexOrTrx(tableName).insert(processedData);
-        insertedId = null;
-      } else {
+      if (await this.tableHasIdColumn(tableName)) {
         const result = await this.knexOrTrx(tableName)
           .insert(processedData)
           .returning('id');
         insertedId = result[0]?.id || result[0];
+      } else {
+        await this.knexOrTrx(tableName).insert(processedData);
+        insertedId = null;
       }
     } else {
       const result = await this.knexOrTrx(tableName).insert(processedData);
