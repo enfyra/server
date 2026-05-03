@@ -4,7 +4,6 @@ import { ObjectId } from 'mongodb';
 import {
   DEFAULT_REST_HANDLER_LOGIC,
   isCanonicalTableRoutePath,
-  REST_HANDLER_METHOD_NAMES,
 } from '../utils/canonical-table-route.util';
 import { DatabaseConfigService } from '../../../shared/services';
 import { compileScriptSource } from '@enfyra/kernel';
@@ -480,16 +479,9 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
 
     if (available.length === 0) return;
 
-    for (const methodName of REST_HANDLER_METHOD_NAMES) {
-      if (!available.includes(methodName)) continue;
-
+    for (const methodName of available) {
       const logic = DEFAULT_REST_HANDLER_LOGIC[methodName];
-      if (!logic) {
-        this.logger.warn(
-          `[${path}] No default logic for method: ${methodName}`,
-        );
-        continue;
-      }
+      if (!logic) continue;
 
       const methodRow = await this.queryBuilderService.findOne({
         table: 'method_definition',
