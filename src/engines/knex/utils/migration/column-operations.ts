@@ -4,7 +4,7 @@ import { supportsSqlColumnDefault } from './sql-generator';
 export function addColumnToTable(
   table: Knex.CreateTableBuilder,
   col: any,
-  dbType: 'mysql' | 'postgres' | 'sqlite' | string = 'mysql',
+  dbType: 'mysql' | 'postgres' | string = 'mysql',
 ): void {
   let column: Knex.ColumnBuilder;
   switch (col.type) {

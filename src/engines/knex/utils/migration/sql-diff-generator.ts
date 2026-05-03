@@ -138,7 +138,7 @@ export async function generateSQLFromDiff(
   knex: Knex,
   tableName: string,
   diff: any,
-  dbType: 'mysql' | 'postgres' | 'sqlite',
+  dbType: 'mysql' | 'postgres',
   metadataCacheService?: any,
 ): Promise<string[]> {
   const sqlStatements: string[] = [];
@@ -155,6 +155,18 @@ export async function generateSQLFromDiff(
   const junctionDiff = diff.junctionTables || {};
   const fkDiff = diff.foreignKeys || {};
   const crossTableOps = ensureArray(diff.crossTableOperations);
+  const plannedColumns = new Set<string>();
+  const canIndexColumns = async (cols: string[]): Promise<boolean> => {
+    for (const col of cols) {
+      if (plannedColumns.has(col)) continue;
+      if (await knex.schema.hasColumn(tableName, col)) continue;
+      logger.warn(
+        `Skipping index on ${tableName}(${cols.join(', ')}): column '${col}' does not exist`,
+      );
+      return false;
+    }
+    return true;
+  };
   if (tableDiff.update) {
     sqlStatements.push(
       generateRenameTableSQL(
@@ -176,6 +188,7 @@ export async function generateSQLFromDiff(
     );
     renamedColumns.add(rename.oldName);
     renamedColumns.add(rename.newName);
+    plannedColumns.add(rename.newName);
   }
   for (const col of ensureArray(columnDiff.delete)) {
     if (col.isForeignKey) {
@@ -184,6 +197,7 @@ export async function generateSQLFromDiff(
     sqlStatements.push(generateDropColumnSQL(tableName, col.name, dbType));
   }
   for (const col of ensureArray(columnDiff.create)) {
+    plannedColumns.add(col.name);
     const columnDef = generateColumnDefinition(col, dbType);
     sqlStatements.push(
       `ALTER TABLE ${qt(tableName)} ADD COLUMN ${qt(col.name)} ${columnDef}`,
@@ -260,6 +274,12 @@ export async function generateSQLFromDiff(
       ? indexGroup
       : indexGroup?.value || [];
     if (cols.length === 0) continue;
+    if (dbType === 'mysql' && cols.some((col: string) => renamedColumns.has(col))) {
+      logger.log(
+        `  Skip dropping index on renamed column(s): ${cols.join(', ')}`,
+      );
+      continue;
+    }
     const indexName = `idx_${tableName}_${cols.join('_')}`;
     sqlStatements.push(generateDropIndexSQL(tableName, indexName, dbType));
     logger.log(`  Drop index ${indexName} (columns: ${cols.join(', ')})`);
@@ -269,6 +289,7 @@ export async function generateSQLFromDiff(
       ? indexGroup
       : indexGroup?.value || [];
     if (cols.length === 0) continue;
+    if (!(await canIndexColumns(cols))) continue;
     const indexName = `idx_${tableName}_${cols.join('_')}`;
     sqlStatements.push(
       generateAddIndexSQL(tableName, indexName, cols, dbType),
@@ -362,8 +383,6 @@ export async function generateSQLFromDiff(
       }
       if (dbType === 'postgres') {
         return 'INTEGER';
-      } else if (dbType === 'sqlite') {
-        return 'INTEGER';
       } else {
         return 'INT UNSIGNED';
       }
@@ -378,8 +397,6 @@ export async function generateSQLFromDiff(
       }
       if (dbType === 'postgres') {
         return 'INTEGER';
-      } else if (dbType === 'sqlite') {
-        return 'INTEGER';
       } else {
         return 'INT UNSIGNED';
       }
@@ -388,18 +405,6 @@ export async function generateSQLFromDiff(
     const targetColType = getTargetColumnType();
     let createJunctionSQL: string;
     if (dbType === 'postgres') {
-      createJunctionSQL = `
-        CREATE TABLE ${qt(junctionName)} (
-          ${qt(sourceColumn)} ${sourceColType} NOT NULL,
-          ${qt(targetColumn)} ${targetColType} NOT NULL,
-          PRIMARY KEY (${qt(junction.sourceColumn)}, ${qt(junction.targetColumn)}),
-          FOREIGN KEY (${qt(junction.sourceColumn)}) REFERENCES ${qt(junction.sourceTable)} (${qt('id')}) ON DELETE ${junction.onDelete} ON UPDATE ${junction.onUpdate},
-          FOREIGN KEY (${qt(junction.targetColumn)}) REFERENCES ${qt(junction.targetTable)} (${qt('id')}) ON DELETE ${junction.onDelete} ON UPDATE ${junction.onUpdate}
-        )
-      `
-        .trim()
-        .replace(/\s+/g, ' ');
-    } else if (dbType === 'sqlite') {
       createJunctionSQL = `
         CREATE TABLE ${qt(junctionName)} (
           ${qt(sourceColumn)} ${sourceColType} NOT NULL,
@@ -480,7 +485,7 @@ export interface JournalContext {
 export async function executeBatchSQL(
   knex: Knex,
   batchSQL: string,
-  dbType?: 'mysql' | 'postgres' | 'sqlite',
+  dbType?: 'mysql' | 'postgres',
   trx?: Knex.Transaction,
   journal?: JournalContext,
 ): Promise<void> {

@@ -11,7 +11,7 @@ export async function dropForeignKeyIfExists(
   knex: Knex,
   tableName: string,
   columnName: string,
-  dbType: 'mysql' | 'postgres' | 'sqlite',
+  dbType: 'mysql' | 'postgres',
 ): Promise<void> {
   try {
     logger.log(
@@ -31,11 +31,6 @@ export async function dropForeignKeyIfExists(
     } else if (dbType === 'postgres') {
       if (fkConstraints.rows && fkConstraints.rows.length > 0) {
         constraintName = fkConstraints.rows[0].constraint_name;
-      }
-    } else if (dbType === 'sqlite') {
-      if (fkConstraints && fkConstraints.length > 0) {
-        logger.log(`SQLite FK drop requires table recreation`);
-        return;
       }
     }
     if (constraintName) {
@@ -121,7 +116,7 @@ export async function dropForeignKeyIfExists(
 export async function dropAllForeignKeysReferencingTable(
   knex: Knex,
   targetTableName: string,
-  dbType: 'mysql' | 'postgres' | 'sqlite',
+  dbType: 'mysql' | 'postgres',
 ): Promise<void> {
   logger.log(
     `Checking for FK constraints referencing table: ${targetTableName}`,
@@ -136,9 +131,6 @@ export async function dropAllForeignKeysReferencingTable(
     constraints = fkConstraints[0] || [];
   } else if (dbType === 'postgres') {
     constraints = fkConstraints.rows || [];
-  } else if (dbType === 'sqlite') {
-    logger.log(`SQLite does not support querying all FKs referencing a table`);
-    return;
   }
   if (constraints.length > 0) {
     logger.log(
@@ -170,7 +162,7 @@ export function generateForeignKeySQL(
   targetTable: string,
   targetColumn: string = 'id',
   isNullable: boolean = true,
-  dbType: 'mysql' | 'postgres' | 'sqlite' = 'mysql',
+  dbType: 'mysql' | 'postgres' = 'mysql',
   onDelete?: string,
 ): string {
   const qt = (id: string) => quoteIdentifier(id, dbType);
@@ -183,7 +175,7 @@ export function generateForeignKeySQL(
 }
 function getAllForeignKeyConstraintsReferencingTableQuery(
   tableName: string,
-  dbType: 'mysql' | 'postgres' | 'sqlite',
+  dbType: 'mysql' | 'postgres',
 ): { query: string; bindings: any[] } {
   if (dbType === 'mysql') {
     return {

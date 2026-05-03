@@ -25,11 +25,9 @@ export class DatabaseConfigService {
         return 'postgres';
       case 'mongodb':
         return 'mongodb';
-      case 'sqlite':
-        return 'sqlite';
       default:
         throw new Error(
-          `Unsupported database protocol "${protocol}" in URI. Supported: mysql, postgres, postgresql, mongodb, sqlite.`,
+          `Unsupported database protocol "${protocol}" in URI. Supported: mysql, postgres, postgresql, mongodb.`,
         );
     }
   }

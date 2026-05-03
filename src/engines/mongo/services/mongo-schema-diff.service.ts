@@ -307,12 +307,18 @@ export class MongoSchemaDiffService {
 
     const oldM2m = new Map<string, any>(
       (oldMetadata.relations || [])
-        .filter((r: any) => r.type === 'many-to-many' && r.junctionTableName)
+        .filter(
+          (r: any) =>
+            r.type === 'many-to-many' && !r.mappedBy && r.junctionTableName,
+        )
         .map((r: any) => [r.junctionTableName, r] as [string, any]),
     );
     const newM2m = new Map<string, any>(
       (newMetadata.relations || [])
-        .filter((r: any) => r.type === 'many-to-many' && r.junctionTableName)
+        .filter(
+          (r: any) =>
+            r.type === 'many-to-many' && !r.mappedBy && r.junctionTableName,
+        )
         .map((r: any) => [r.junctionTableName, r] as [string, any]),
     );
 

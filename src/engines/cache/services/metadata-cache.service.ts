@@ -222,10 +222,15 @@ export class MetadataCacheService implements IMetadataCache {
     const existingRelations = this.inMemoryCache.tablesList.flatMap(
       (t: any) => t.relations || [],
     );
+    const reloadedSourceTableIds = new Set(uniqueTableIds);
     for (const rel of existingRelations) {
       const relId = String(DatabaseConfigService.getRecordId(rel));
       if (!relationIdMap.has(relId)) {
         relationIdMap.set(relId, rel);
+        const sourceId = String(isMongoDB ? rel.sourceTable : rel.sourceTableId);
+        if (!reloadedSourceTableIds.has(sourceId)) {
+          allRelations.push(rel);
+        }
       }
     }
 
@@ -412,20 +417,23 @@ export class MetadataCacheService implements IMetadataCache {
 
         if (rel.type === 'many-to-one') {
           relationMetadata.foreignKeyColumn = isMongoDB
-            ? rel.propertyName
+            ? rel.foreignKeyColumn || rel.propertyName
             : rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
           relationMetadata.referencedColumn = rel.referencedColumn || 'id';
           relationMetadata.constraintName = rel.constraintName || null;
         }
         if (rel.type === 'one-to-one') {
           if (relationMetadata.isInverse) {
+            const mappedByRelationId = isMongoDB
+              ? rel.mappedByRelationId
+              : rel.mappedById;
             const owningRel = allRelations.find(
               (candidate: any) =>
                 String(DatabaseConfigService.getRecordId(candidate)) ===
-                String(rel.mappedById),
+                String(mappedByRelationId),
             );
             relationMetadata.foreignKeyColumn = isMongoDB
-              ? rel.mappedBy
+              ? rel.foreignKeyColumn || owningRel?.foreignKeyColumn || rel.mappedBy
               : owningRel?.foreignKeyColumn ||
                 getForeignKeyColumnName(rel.mappedBy || rel.propertyName);
             relationMetadata.referencedColumn =
@@ -434,7 +442,7 @@ export class MetadataCacheService implements IMetadataCache {
               owningRel?.constraintName || null;
           } else {
             relationMetadata.foreignKeyColumn = isMongoDB
-              ? rel.propertyName
+              ? rel.foreignKeyColumn || rel.propertyName
               : rel.foreignKeyColumn ||
                 getForeignKeyColumnName(rel.propertyName);
             relationMetadata.referencedColumn = rel.referencedColumn || 'id';
@@ -450,13 +458,16 @@ export class MetadataCacheService implements IMetadataCache {
               `One-to-many relation '${rel.propertyName}' in table '${table.name}' MUST have mappedBy`,
             );
           }
+          const mappedByRelationId = isMongoDB
+            ? rel.mappedByRelationId
+            : rel.mappedById;
           const owningRel = allRelations.find(
             (candidate: any) =>
               String(DatabaseConfigService.getRecordId(candidate)) ===
-              String(rel.mappedById),
+              String(mappedByRelationId),
           );
           relationMetadata.foreignKeyColumn = isMongoDB
-            ? rel.mappedBy
+            ? rel.foreignKeyColumn || owningRel?.foreignKeyColumn || rel.mappedBy
             : owningRel?.foreignKeyColumn ||
               getForeignKeyColumnName(rel.mappedBy || rel.propertyName);
           relationMetadata.referencedColumn =

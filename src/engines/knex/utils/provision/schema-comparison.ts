@@ -292,7 +292,11 @@ export function compareSchemas(
       ) {
         changes.push('type');
       }
-      if (snapshotCol.type === 'enum' && Array.isArray(snapshotCol.options)) {
+      if (
+        snapshotCol.type === 'enum' &&
+        Array.isArray(snapshotCol.options) &&
+        Array.isArray(currentCol.enumValues)
+      ) {
         const currentEnumValues = currentCol.enumValues || [];
         const snapshotEnumValues = snapshotCol.options || [];
         const enumValuesMatch =
@@ -495,6 +499,7 @@ export function isTypeCompatible(type1: string, type2: string): boolean {
     ],
     boolean: ['tinyint', 'boolean', 'bool'],
     real: ['real', 'float', 'double precision'],
+    enum: ['enum', 'varchar', 'text', 'character varying'],
   };
   for (const [baseType, variants] of Object.entries(compatibleTypes)) {
     if (

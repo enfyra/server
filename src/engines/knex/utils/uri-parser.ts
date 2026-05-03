@@ -4,6 +4,7 @@ export interface ParsedDatabaseUri {
   user: string;
   password: string;
   database: string;
+  filename?: string;
 }
 
 export function parseDatabaseUri(uri: string): ParsedDatabaseUri {

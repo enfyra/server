@@ -35,6 +35,18 @@ function createQueryRunner(existingRelations: Record<number, any> = {}) {
       first() {
         if (
           table === 'relation_definition' &&
+          state.whereValue?.sourceTableId !== undefined &&
+          state.whereValue?.propertyName !== undefined
+        ) {
+          const relation = Object.values(existingRelations).find(
+            (row: any) =>
+              row.sourceTableId === state.whereValue.sourceTableId &&
+              row.propertyName === state.whereValue.propertyName,
+          );
+          return Promise.resolve(relation ?? null);
+        }
+        if (
+          table === 'relation_definition' &&
           state.whereValue?.sourceTableId === 2 &&
           state.whereValue?.propertyName === 'posts'
         ) {
@@ -187,5 +199,48 @@ describe('SqlTableMetadataWriterService relation onDelete metadata', () => {
     expect(update?.junctionTableName).toBe('course_students');
     expect(update?.junctionSourceColumn).toBe('studentId');
     expect(update?.junctionTargetColumn).toBe('courseId');
+  });
+
+  it('copies owning FK metadata when creating an inverse relation via mappedBy', async () => {
+    const { runner, inserts } = createQueryRunner({
+      701: {
+        id: 701,
+        sourceTableId: 1,
+        propertyName: 'mentor',
+        type: 'many-to-one',
+        targetTableId: 2,
+        foreignKeyColumn: 'teacherId',
+        referencedColumn: 'id',
+        constraintName: 'fk_courses_teacher',
+      },
+    });
+    const service = new SqlTableMetadataWriterService();
+
+    await service.writeTableMetadataUpdates(
+      runner,
+      2,
+      {
+        name: 'teachers',
+        columns: [],
+        relations: [
+          {
+            propertyName: 'mentoredCourses',
+            type: 'one-to-many',
+            targetTable: { id: 1 },
+            mappedBy: 'mentor',
+          },
+        ],
+      },
+      { id: 2, name: 'teachers', uniques: '[]', indexes: '[]' },
+      new Set<string>(),
+    );
+
+    const relationRows = inserts.relation_definition || [];
+    const inverse = relationRows.find((row) => row.propertyName === 'mentoredCourses');
+
+    expect(inverse?.mappedById).toBe(701);
+    expect(inverse?.foreignKeyColumn).toBe('teacherId');
+    expect(inverse?.referencedColumn).toBe('id');
+    expect(inverse?.constraintName).toBe('fk_courses_teacher');
   });
 });

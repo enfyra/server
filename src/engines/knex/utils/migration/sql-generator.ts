@@ -11,7 +11,7 @@ const MYSQL_DEFAULT_UNSUPPORTED_TYPES = new Set([
 
 export function supportsSqlColumnDefault(
   col: any,
-  dbType: 'mysql' | 'postgres' | 'sqlite' | string = 'mysql',
+  dbType: 'mysql' | 'postgres' | string = 'mysql',
 ): boolean {
   const normalizedDbType = dbType === 'pg' ? 'postgres' : dbType;
   const type = String(col?.type || '').toLowerCase();
@@ -25,7 +25,7 @@ export function supportsSqlColumnDefault(
 
 export function generateColumnDefinition(
   col: any,
-  dbType: 'mysql' | 'postgres' | 'sqlite' = 'mysql',
+  dbType: 'mysql' | 'postgres' = 'mysql',
 ): string {
   let definition = '';
   switch (col.type) {
@@ -40,15 +40,11 @@ export function generateColumnDefinition(
       if (col.isPrimary) {
         if (dbType === 'postgres') {
           definition = 'SERIAL';
-        } else if (dbType === 'sqlite') {
-          definition = 'INTEGER';
         } else {
           definition = 'INT UNSIGNED AUTO_INCREMENT';
         }
       } else {
         if (dbType === 'postgres') {
-          definition = 'INTEGER';
-        } else if (dbType === 'sqlite') {
           definition = 'INTEGER';
         } else {
           definition = 'INT UNSIGNED';
@@ -58,15 +54,13 @@ export function generateColumnDefinition(
     case 'bigint':
       if (dbType === 'postgres') {
         definition = 'BIGINT';
-      } else if (dbType === 'sqlite') {
-        definition = 'INTEGER';
       } else {
         definition = 'BIGINT';
       }
       break;
     case 'richtext':
     case 'code':
-      if (dbType === 'postgres' || dbType === 'sqlite') {
+      if (dbType === 'postgres') {
         definition = 'TEXT';
       } else {
         definition = 'LONGTEXT';
@@ -81,8 +75,6 @@ export function generateColumnDefinition(
     case 'longtext':
       if (dbType === 'postgres') {
         definition = 'TEXT';
-      } else if (dbType === 'sqlite') {
-        definition = 'TEXT';
       } else {
         definition = 'LONGTEXT';
       }
@@ -90,8 +82,6 @@ export function generateColumnDefinition(
     case 'boolean':
       if (dbType === 'postgres') {
         definition = 'BOOLEAN';
-      } else if (dbType === 'sqlite') {
-        definition = 'INTEGER';
       } else {
         definition = 'BOOLEAN';
       }
@@ -100,8 +90,6 @@ export function generateColumnDefinition(
     case 'timestamp':
       if (dbType === 'postgres') {
         definition = 'TIMESTAMP';
-      } else if (dbType === 'sqlite') {
-        definition = 'TEXT';
       } else {
         definition = 'TIMESTAMP';
       }
@@ -109,18 +97,12 @@ export function generateColumnDefinition(
     case 'date':
       if (dbType === 'postgres') {
         definition = 'DATE';
-      } else if (dbType === 'sqlite') {
-        definition = 'TEXT';
       } else {
         definition = 'DATE';
       }
       break;
     case 'decimal':
-      if (dbType === 'sqlite') {
-        definition = 'REAL';
-      } else {
-        definition = `DECIMAL(${col.options?.precision || 10}, ${col.options?.scale || 2})`;
-      }
+      definition = `DECIMAL(${col.options?.precision || 10}, ${col.options?.scale || 2})`;
       break;
     case 'simple-json':
       definition = dbType === 'mysql' ? 'LONGTEXT' : 'TEXT';
@@ -129,8 +111,6 @@ export function generateColumnDefinition(
       if (dbType === 'postgres' && Array.isArray(col.options)) {
         const enumValues = col.options.map((opt: any) => `'${opt}'`).join(', ');
         definition = `VARCHAR(255) CHECK (${col.name} IN (${enumValues}))`;
-      } else if (dbType === 'sqlite') {
-        definition = 'TEXT';
       } else if (Array.isArray(col.options)) {
         const enumValues = col.options.map((opt: any) => `'${opt}'`).join(', ');
         definition = `ENUM(${enumValues})`;
@@ -144,8 +124,6 @@ export function generateColumnDefinition(
   if (col.isPrimary) {
     if (col.type === 'uuid') {
       definition += ' PRIMARY KEY';
-    } else if (col.type === 'int' && dbType === 'sqlite') {
-      definition += ' PRIMARY KEY AUTOINCREMENT';
     }
   }
   if (col.isNullable === false && !col.isPrimary) {

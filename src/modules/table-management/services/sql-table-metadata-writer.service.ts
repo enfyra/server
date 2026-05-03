@@ -1,17 +1,15 @@
 import { Logger } from '../../../shared/logger';
 import { TCreateTableBody } from '../types/table-handler.types';
 import { getDeletedIds } from '../utils/get-deleted-ids';
-import {
-  getJunctionTableName,
-  getJunctionColumnNames,
-  getForeignKeyColumnName,
-} from '@enfyra/kernel';
+import { getForeignKeyColumnName } from '@enfyra/kernel';
 import { DatabaseConfigService } from '../../../shared/services';
 import { ValidationException } from '../../../domain/exceptions';
 import {
+  getRelationMappedByProperty,
   getRelationTargetTableId,
   relationTargetTableMapKey,
 } from '../utils/relation-target-id.util';
+import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
 
 export class SqlTableMetadataWriterService {
   private readonly logger = new Logger(SqlTableMetadataWriterService.name);
@@ -40,16 +38,24 @@ export class SqlTableMetadataWriterService {
       });
 
     if (body.columns) {
+      const ignoredFkColumns = await this.getInverseRelationFkColumnNames(
+        queryRunner,
+        id,
+        body.relations || [],
+      );
+      const bodyColumns = body.columns.filter(
+        (col: any) => !ignoredFkColumns.has(col.name),
+      );
       const existingColumns = await queryRunner('column_definition')
         .where({ tableId: id })
         .select('id');
-      const deletedColumnIds = getDeletedIds(existingColumns, body.columns);
+      const deletedColumnIds = getDeletedIds(existingColumns, bodyColumns);
       if (deletedColumnIds.length > 0) {
         await queryRunner('column_definition')
           .whereIn('id', deletedColumnIds)
           .delete();
       }
-      for (const col of body.columns) {
+      for (const col of bodyColumns) {
         if (
           col.name === 'id' ||
           col.name === 'createdAt' ||
@@ -144,6 +150,11 @@ export class SqlTableMetadataWriterService {
       }
       for (const rel of body.relations) {
         const targetTableId = getRelationTargetTableId(rel);
+        const mappedByProperty = getRelationMappedByProperty(rel);
+        const targetTableName = targetTablesMap.get(
+          relationTargetTableMapKey(targetTableId),
+        );
+        if (targetTableName) affectedTableNames.add(targetTableName);
         const existingRel = rel.id
           ? await queryRunner('relation_definition').where({ id: rel.id }).first()
           : null;
@@ -156,14 +167,33 @@ export class SqlTableMetadataWriterService {
           }
         }
         let updateMappedById: number | null = null;
-        if (rel.mappedBy) {
-          const owningRel = await queryRunner('relation_definition')
-            .where({ sourceTableId: targetTableId, propertyName: rel.mappedBy })
-            .select('id')
+        let mappedByRelation: any = null;
+        if (mappedByProperty) {
+          mappedByRelation = await queryRunner('relation_definition')
+            .where({ sourceTableId: targetTableId, propertyName: mappedByProperty })
+            .select(
+              'id',
+              'propertyName',
+              'foreignKeyColumn',
+              'referencedColumn',
+              'constraintName',
+            )
             .first();
-          updateMappedById = owningRel?.id || null;
+          updateMappedById = mappedByRelation?.id || null;
         } else if (rel.id && existingRel) {
           updateMappedById = existingRel.mappedById || null;
+          if (updateMappedById) {
+            mappedByRelation = await queryRunner('relation_definition')
+              .where({ id: updateMappedById })
+              .select(
+                'id',
+                'propertyName',
+                'foreignKeyColumn',
+                'referencedColumn',
+                'constraintName',
+              )
+              .first();
+          }
         }
         const relationData: any = {
           propertyName: rel.propertyName,
@@ -178,7 +208,11 @@ export class SqlTableMetadataWriterService {
           description: rel.description,
           sourceTableId: id,
         };
-        if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+        const relationOwnsForeignKey =
+          (rel.type === 'many-to-one' || rel.type === 'one-to-one') &&
+          !rel.mappedBy &&
+          !updateMappedById;
+        if (relationOwnsForeignKey) {
           relationData.foreignKeyColumn =
             existingRel?.foreignKeyColumn ||
             rel.foreignKeyColumn ||
@@ -187,11 +221,19 @@ export class SqlTableMetadataWriterService {
             existingRel?.referencedColumn || rel.referencedColumn || 'id';
           relationData.constraintName =
             existingRel?.constraintName || rel.constraintName || null;
+        } else if (updateMappedById && mappedByRelation) {
+          relationData.foreignKeyColumn =
+            mappedByRelation.foreignKeyColumn ||
+            getForeignKeyColumnName(mappedByRelation.propertyName);
+          relationData.referencedColumn =
+            mappedByRelation.referencedColumn || 'id';
+          relationData.constraintName = mappedByRelation.constraintName || null;
+        } else if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+          relationData.foreignKeyColumn = null;
+          relationData.referencedColumn = null;
+          relationData.constraintName = null;
         }
         if (rel.type === 'many-to-many') {
-          const targetTableName = targetTablesMap.get(
-            relationTargetTableMapKey(targetTableId),
-          );
           if (!targetTableName) {
             throw new Error(`Target table with ID ${targetTableId} not found`);
           }
@@ -203,19 +245,14 @@ export class SqlTableMetadataWriterService {
               relationData.junctionTargetColumn =
                 existingRel.junctionTargetColumn;
             } else {
-              const junctionTableName = getJunctionTableName(
-                exists.name,
-                rel.propertyName,
-                targetTableName,
-              );
-              const { sourceColumn, targetColumn } = getJunctionColumnNames(
-                exists.name,
-                rel.propertyName,
-                targetTableName,
-              );
-              relationData.junctionTableName = junctionTableName;
-              relationData.junctionSourceColumn = sourceColumn;
-              relationData.junctionTargetColumn = targetColumn;
+              const junction = getSqlJunctionPhysicalNames({
+                sourceTable: exists.name,
+                propertyName: rel.propertyName,
+                targetTable: targetTableName,
+              });
+              relationData.junctionTableName = junction.junctionTableName;
+              relationData.junctionSourceColumn = junction.junctionSourceColumn;
+              relationData.junctionTargetColumn = junction.junctionTargetColumn;
             }
           } else if (updateMappedById) {
             const owningRel = await queryRunner('relation_definition')
@@ -229,19 +266,14 @@ export class SqlTableMetadataWriterService {
                 owningRel.junctionSourceColumn;
             }
           } else {
-            const junctionTableName = getJunctionTableName(
-              exists.name,
-              rel.propertyName,
-              targetTablesMap.get(relationTargetTableMapKey(targetTableId))!,
-            );
-            const { sourceColumn, targetColumn } = getJunctionColumnNames(
-              exists.name,
-              rel.propertyName,
-              targetTablesMap.get(relationTargetTableMapKey(targetTableId))!,
-            );
-            relationData.junctionTableName = junctionTableName;
-            relationData.junctionSourceColumn = sourceColumn;
-            relationData.junctionTargetColumn = targetColumn;
+            const junction = getSqlJunctionPhysicalNames({
+              sourceTable: exists.name,
+              propertyName: rel.propertyName,
+              targetTable: targetTablesMap.get(relationTargetTableMapKey(targetTableId))!,
+            });
+            relationData.junctionTableName = junction.junctionTableName;
+            relationData.junctionSourceColumn = junction.junctionSourceColumn;
+            relationData.junctionTargetColumn = junction.junctionTargetColumn;
           }
         }
         let relationId: number | string;
@@ -348,6 +380,38 @@ export class SqlTableMetadataWriterService {
     }
     const [insertedId] = await queryRunner(tableName).insert(data);
     return insertedId;
+  }
+
+  private async getInverseRelationFkColumnNames(
+    queryRunner: any,
+    tableId: string | number,
+    relations: any[],
+  ): Promise<Set<string>> {
+    const existingRelations = await queryRunner('relation_definition')
+      .where({ sourceTableId: tableId })
+      .select('id', 'propertyName', 'foreignKeyColumn', 'mappedById');
+    const existingById = new Map(
+      existingRelations.map((rel: any) => [String(rel.id), rel]),
+    );
+    const columns = new Set<string>();
+    for (const rel of relations || []) {
+      const existingRel: any = rel.id ? existingById.get(String(rel.id)) : null;
+      const isInverse = Boolean(
+        rel.mappedBy || rel.mappedById || existingRel?.mappedById,
+      );
+      if (!isInverse) continue;
+      if (rel.foreignKeyColumn) columns.add(rel.foreignKeyColumn);
+      if (rel.propertyName) {
+        columns.add(getForeignKeyColumnName(rel.propertyName));
+      }
+      if (existingRel?.foreignKeyColumn) {
+        columns.add(existingRel.foreignKeyColumn);
+      }
+      if (existingRel?.propertyName) {
+        columns.add(getForeignKeyColumnName(existingRel.propertyName));
+      }
+    }
+    return columns;
   }
 
   private async writeNestedRules(
