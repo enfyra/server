@@ -12,6 +12,22 @@ import {
   USER_CACHE_TTL_MS,
 } from '../../shared/utils/load-user-with-role.util';
 
+function isPublishedRequest(req: any): boolean {
+  if (req.routeData?.isPublished === true) return true;
+  return (
+    req.routeData?.publishedMethods?.some(
+      (method: any) => method?.method === req.method || method === req.method,
+    ) === true
+  );
+}
+
+function setAnonymousUser(req: any): void {
+  req.user = null;
+  if (req.routeData) {
+    req.routeData.context.$user = null;
+  }
+}
+
 export function jwtAuthMiddleware(
   queryBuilderService: QueryBuilderService,
   cacheService: CacheService,
@@ -23,10 +39,7 @@ export function jwtAuthMiddleware(
     try {
       const authHeader = req.headers.authorization;
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        req.user = null;
-        if (req.routeData) {
-          req.routeData.context.$user = null;
-        }
+        setAnonymousUser(req);
         return next();
       }
 
@@ -37,6 +50,10 @@ export function jwtAuthMiddleware(
         const { payload: decoded } = await jwtVerify(token, key);
         payload = decoded;
       } catch (err: any) {
+        if (isPublishedRequest(req)) {
+          setAnonymousUser(req);
+          return next();
+        }
         if (err.code === 'ERR_JWT_EXPIRED') {
           throw new TokenExpiredException();
         }
@@ -44,10 +61,7 @@ export function jwtAuthMiddleware(
       }
 
       if (!payload || !payload.id) {
-        req.user = null;
-        if (req.routeData) {
-          req.routeData.context.$user = null;
-        }
+        setAnonymousUser(req);
         return next();
       }
 
@@ -64,10 +78,7 @@ export function jwtAuthMiddleware(
       }
 
       if (!user) {
-        req.user = null;
-        if (req.routeData) {
-          req.routeData.context.$user = null;
-        }
+        setAnonymousUser(req);
         return next();
       }
 
