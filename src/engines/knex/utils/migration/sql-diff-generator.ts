@@ -155,6 +155,7 @@ export async function generateSQLFromDiff(
   const junctionDiff = diff.junctionTables || {};
   const fkDiff = diff.foreignKeys || {};
   const crossTableOps = ensureArray(diff.crossTableOperations);
+  let activeTableName = tableName;
   const plannedColumns = new Set<string>();
   const canIndexColumns = async (cols: string[]): Promise<boolean> => {
     for (const col of cols) {
@@ -175,12 +176,13 @@ export async function generateSQLFromDiff(
         dbType,
       ),
     );
+    activeTableName = tableDiff.update.newName;
   }
   const renamedColumns = new Set<string>();
   for (const rename of ensureArray(columnDiff.rename)) {
     sqlStatements.push(
       generateRenameColumnSQL(
-        tableName,
+        activeTableName,
         rename.oldName,
         rename.newName,
         dbType,
@@ -194,24 +196,24 @@ export async function generateSQLFromDiff(
     if (col.isForeignKey) {
       await dropForeignKeyIfExists(knex, tableName, col.name, dbType);
     }
-    sqlStatements.push(generateDropColumnSQL(tableName, col.name, dbType));
+    sqlStatements.push(generateDropColumnSQL(activeTableName, col.name, dbType));
   }
   for (const col of ensureArray(columnDiff.create)) {
     plannedColumns.add(col.name);
     const columnDef = generateColumnDefinition(col, dbType);
     sqlStatements.push(
-      `ALTER TABLE ${qt(tableName)} ADD COLUMN ${qt(col.name)} ${columnDef}`,
+      `ALTER TABLE ${qt(activeTableName)} ADD COLUMN ${qt(col.name)} ${columnDef}`,
     );
     if (col.isForeignKey && col.foreignKeyTarget) {
       const onDelete = resolveSqlRelationOnDelete(col);
       sqlStatements.push(
-        `ALTER TABLE ${qt(tableName)} ADD CONSTRAINT ${qt(`fk_${tableName}_${col.name}`)} FOREIGN KEY (${qt(col.name)}) REFERENCES ${qt(col.foreignKeyTarget)} (${qt(col.foreignKeyColumn || 'id')}) ON DELETE ${onDelete} ON UPDATE CASCADE`,
+        `ALTER TABLE ${qt(activeTableName)} ADD CONSTRAINT ${qt(`fk_${activeTableName}_${col.name}`)} FOREIGN KEY (${qt(col.name)}) REFERENCES ${qt(col.foreignKeyTarget)} (${qt(col.foreignKeyColumn || 'id')}) ON DELETE ${onDelete} ON UPDATE CASCADE`,
       );
     }
     if (col.isUnique) {
-      const uniqueConstraintName = `uq_${tableName}_${col.name}`;
+      const uniqueConstraintName = `uq_${activeTableName}_${col.name}`;
       sqlStatements.push(
-        `ALTER TABLE ${qt(tableName)} ADD CONSTRAINT ${qt(uniqueConstraintName)} UNIQUE (${qt(col.name)})`,
+        `ALTER TABLE ${qt(activeTableName)} ADD CONSTRAINT ${qt(uniqueConstraintName)} UNIQUE (${qt(col.name)})`,
       );
       logger.log(
         `  Added UNIQUE constraint on ${col.name} for one-to-one relation`,
@@ -222,9 +224,9 @@ export async function generateSQLFromDiff(
       col.type === 'timestamp' ||
       col.type === 'date'
     ) {
-      const indexName = `idx_${tableName}_${col.name}`;
+      const indexName = `idx_${activeTableName}_${col.name}`;
       sqlStatements.push(
-        generateAddIndexSQL(tableName, indexName, [col.name, 'id'], dbType),
+        generateAddIndexSQL(activeTableName, indexName, [col.name, 'id'], dbType),
       );
       logger.log(`  Added index on datetime column: ${col.name}`);
     }
@@ -243,7 +245,7 @@ export async function generateSQLFromDiff(
     processedUpdates.add(colName);
     const columnDef = generateColumnDefinition(update.newColumn, dbType);
     const modifySQL = generateModifyColumnSQL(
-      tableName,
+      activeTableName,
       update.newColumn.name,
       columnDef,
       dbType,
@@ -257,9 +259,9 @@ export async function generateSQLFromDiff(
   }
   for (const uniqueGroup of ensureArray(constraintDiff.uniques?.create) || []) {
     const columns = uniqueGroup.map((col: string) => qt(col)).join(', ');
-    const constraintName = `uq_${tableName}_${uniqueGroup.join('_')}`;
+    const constraintName = `uq_${activeTableName}_${uniqueGroup.join('_')}`;
     sqlStatements.push(
-      `ALTER TABLE ${qt(tableName)} ADD CONSTRAINT ${qt(constraintName)} UNIQUE (${columns})`,
+      `ALTER TABLE ${qt(activeTableName)} ADD CONSTRAINT ${qt(constraintName)} UNIQUE (${columns})`,
     );
     logger.log(
       `  Added UNIQUE constraint ${constraintName} on (${uniqueGroup.join(', ')})`,
@@ -267,7 +269,7 @@ export async function generateSQLFromDiff(
   }
   for (const uniqueGroup of ensureArray(constraintDiff.uniques?.update) || []) {
     const columns = uniqueGroup.map((col: string) => qt(col)).join(', ');
-    sqlStatements.push(`ALTER TABLE ${qt(tableName)} ADD UNIQUE (${columns})`);
+    sqlStatements.push(`ALTER TABLE ${qt(activeTableName)} ADD UNIQUE (${columns})`);
   }
   for (const indexGroup of ensureArray(constraintDiff.indexes?.delete) || []) {
     const cols = Array.isArray(indexGroup)
@@ -280,8 +282,8 @@ export async function generateSQLFromDiff(
       );
       continue;
     }
-    const indexName = `idx_${tableName}_${cols.join('_')}`;
-    sqlStatements.push(generateDropIndexSQL(tableName, indexName, dbType));
+    const indexName = `idx_${activeTableName}_${cols.join('_')}`;
+    sqlStatements.push(generateDropIndexSQL(activeTableName, indexName, dbType));
     logger.log(`  Drop index ${indexName} (columns: ${cols.join(', ')})`);
   }
   for (const indexGroup of ensureArray(constraintDiff.indexes?.create) || []) {
@@ -290,9 +292,9 @@ export async function generateSQLFromDiff(
       : indexGroup?.value || [];
     if (cols.length === 0) continue;
     if (!(await canIndexColumns(cols))) continue;
-    const indexName = `idx_${tableName}_${cols.join('_')}`;
+    const indexName = `idx_${activeTableName}_${cols.join('_')}`;
     sqlStatements.push(
-      generateAddIndexSQL(tableName, indexName, cols, dbType),
+      generateAddIndexSQL(activeTableName, indexName, cols, dbType),
     );
     logger.log(`  Add index ${indexName} (columns: ${cols.join(', ')})`);
   }

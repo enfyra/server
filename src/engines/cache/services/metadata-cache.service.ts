@@ -265,6 +265,29 @@ export class MetadataCacheService implements IMetadataCache {
     }
 
     for (const table of tables) {
+      const tableIdValue = String(DatabaseConfigService.getRecordId(table));
+      const namesToRemove = new Set<string>();
+      const rename = payload.tableRenames?.find(
+        (item) => String(item.id) === tableIdValue,
+      );
+      if (rename?.oldName && rename.oldName !== table.name) {
+        namesToRemove.add(rename.oldName);
+      }
+      for (const cached of this.inMemoryCache.tablesList) {
+        const cachedId = String(DatabaseConfigService.getRecordId(cached));
+        if (cachedId === tableIdValue && cached.name !== table.name) {
+          namesToRemove.add(cached.name);
+        }
+      }
+      for (const name of namesToRemove) {
+        this.inMemoryCache.tables.delete(name);
+      }
+      if (namesToRemove.size > 0) {
+        this.inMemoryCache.tablesList = this.inMemoryCache.tablesList.filter(
+          (t: any) => !namesToRemove.has(t.name),
+        );
+      }
+
       const metadata = this.buildTableMetadata(
         table,
         columnsByTable,
@@ -275,7 +298,9 @@ export class MetadataCacheService implements IMetadataCache {
       if (!metadata) continue;
 
       const existingIndex = this.inMemoryCache.tablesList.findIndex(
-        (t: any) => t.name === table.name,
+        (t: any) =>
+          String(DatabaseConfigService.getRecordId(t)) === tableIdValue ||
+          t.name === table.name,
       );
       if (existingIndex >= 0) {
         this.inMemoryCache.tablesList[existingIndex] = metadata;
