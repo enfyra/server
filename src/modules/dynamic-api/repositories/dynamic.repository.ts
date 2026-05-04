@@ -860,6 +860,7 @@ export class DynamicRepository {
         await this.reload({
           ids: [tableId],
           affectedTables: table.affectedTables,
+          tableRenames: table.tableRenames,
         });
         return this.find({
           filter: { [this.getIdField()]: { _eq: tableId } },
@@ -1272,6 +1273,7 @@ export class DynamicRepository {
   private async reload(opts?: {
     ids?: (string | number)[];
     affectedTables?: string[];
+    tableRenames?: TCacheInvalidationPayload['tableRenames'];
   }) {
     const payload: TCacheInvalidationPayload = {
       table: this.tableName,
@@ -1280,6 +1282,7 @@ export class DynamicRepository {
       scope: opts?.ids?.length ? 'partial' : 'full',
       ids: opts?.ids,
       affectedTables: opts?.affectedTables,
+      tableRenames: opts?.tableRenames,
     };
     if (typeof this.eventEmitter.emitAsync === 'function') {
       await this.eventEmitter.emitAsync(CACHE_EVENTS.INVALIDATE, payload);

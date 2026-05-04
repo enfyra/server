@@ -185,7 +185,7 @@ export class MongoSchemaMigrationService {
           newMetadata,
         );
         await this.handleMetadataUpdates(
-          collectionName,
+          diff.collection.rename?.newName || collectionName,
           oldMetadata,
           newMetadata,
         );

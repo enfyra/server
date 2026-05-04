@@ -644,16 +644,17 @@ export class SqlSchemaMigrationService {
       : undefined;
 
     try {
+      const activeTableName = schemaDiff.table?.update?.newName || tableName;
       await this.schemaDiffService.executeSchemaDiff(
         tableName,
         schemaDiff,
         trx,
         journalContext,
       );
-      await this.compareMetadataWithActualSchema(tableName, newMetadata);
+      await this.compareMetadataWithActualSchema(activeTableName, newMetadata);
 
       return {
-        pendingMetadataUpdate: { tableName, diff: schemaDiff },
+        pendingMetadataUpdate: { tableName: activeTableName, diff: schemaDiff },
         journalUuid,
       };
     } catch (error) {

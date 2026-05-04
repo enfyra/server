@@ -40,6 +40,7 @@ import {
   syncMongoGqlDefinition,
 } from './table-post-migration.service';
 import { MongoTableHandlerService } from './mongo-table-handler-base.service';
+import { renameMongoAutoTableRoute } from './table-route-artifacts.service';
 
 export class MongoTableUpdateService extends MongoTableHandlerService {
   async updateTable(
@@ -89,6 +90,41 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
             tableId: id,
             tableName: exists.name,
           });
+        }
+        const tableRenamed = !!body.name && body.name !== exists.name;
+        if (tableRenamed) {
+          const incomingRelations = await this.mongoService
+            .getDb()
+            .collection('relation_definition')
+            .find({
+              targetTable: queryId,
+              sourceTable: { $ne: queryId },
+            })
+            .project({ sourceTable: 1 })
+            .toArray();
+          const incomingSourceIds = [
+            ...new Set(
+              incomingRelations
+                .map((rel: any) => rel.sourceTable)
+                .filter((sourceId: any) => sourceId != null)
+                .map((sourceId: any) => String(sourceId)),
+            ),
+          ];
+          if (incomingSourceIds.length > 0) {
+            const incomingSourceTables = await this.mongoService
+              .getDb()
+              .collection('table_definition')
+              .find({
+                _id: {
+                  $in: incomingSourceIds.map((sourceId) => new ObjectId(sourceId)),
+                },
+              })
+              .project({ name: 1 })
+              .toArray();
+            for (const table of incomingSourceTables) {
+              if (table?.name) affectedTableNames.add(table.name);
+            }
+          }
         }
         validateUniquePropertyNames(body.columns || [], body.relations || []);
         stepLog(`STEP 4 validators done (+${lap()}ms)`);
@@ -256,6 +292,28 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
             updateData,
           );
         }
+        await renameMongoAutoTableRoute({
+          mongoService: this.mongoService,
+          tableId: queryId,
+          oldTableName: exists.name,
+          newTableName: body.name,
+        });
+        if (tableRenamed) {
+          await this.mongoService
+            .getDb()
+            .collection('relation_definition')
+            .updateMany(
+              { sourceTable: queryId },
+              { $set: { sourceTableName: body.name, updatedAt: new Date() } },
+            );
+          await this.mongoService
+            .getDb()
+            .collection('relation_definition')
+            .updateMany(
+              { targetTable: queryId },
+              { $set: { targetTableName: body.name, updatedAt: new Date() } },
+            );
+        }
         stepLog(`STEP 7 updated table_definition row (+${lap()}ms)`);
         const renamedColumns: Array<{ oldName: string; newName: string }> = [];
         if (body.columns) {
@@ -269,6 +327,16 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
           );
           const deletedColumnIds = getDeletedIds(existingColumns, body.columns);
           for (const colId of deletedColumnIds) {
+            const colObjectId =
+              typeof colId === 'string' ? new ObjectId(colId) : colId;
+            await this.mongoService
+              .getDb()
+              .collection('column_rule_definition')
+              .deleteMany({ column: colObjectId });
+            await this.mongoService
+              .getDb()
+              .collection('field_permission_definition')
+              .deleteMany({ column: colObjectId });
             await this.queryBuilderService.delete('column_definition', colId);
           }
           for (const col of body.columns) {
@@ -355,6 +423,12 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
             body.relations,
           );
           for (const relId of deletedRelationIds) {
+            const relObjectId =
+              typeof relId === 'string' ? new ObjectId(relId) : relId;
+            await this.mongoService
+              .getDb()
+              .collection('field_permission_definition')
+              .deleteMany({ relation: relObjectId });
             const deletedRelation = existingRelations.find(
               (r: any) => r._id?.toString() === relId.toString(),
             );
@@ -368,6 +442,10 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
               for (const inv of inverseRels) {
                 if (inv.sourceTableName)
                   affectedTableNames.add(inv.sourceTableName);
+                await this.mongoService
+                  .getDb()
+                  .collection('field_permission_definition')
+                  .deleteMany({ relation: inv._id });
                 await this.queryBuilderService.delete(
                   'relation_definition',
                   inv._id,
@@ -760,6 +838,16 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
         }
 
         finalMetadata.affectedTables = [...affectedTableNames];
+        finalMetadata.tableRenames =
+          tableRenamed
+            ? [
+                {
+                  id: String(queryId),
+                  oldName: exists.name,
+                  newName: body.name,
+                },
+              ]
+            : undefined;
         stepLog(`STEP 15 isSingleRecord cleanup done (+${lap()}ms)`);
         return finalMetadata;
       } catch (error: any) {

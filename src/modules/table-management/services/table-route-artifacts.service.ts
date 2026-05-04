@@ -75,6 +75,22 @@ export async function ensureSqlTableRouteArtifacts(input: {
   );
 }
 
+export async function renameSqlAutoTableRoute(input: {
+  trx: Knex.Transaction;
+  tableId: string | number;
+  oldTableName: string;
+  newTableName: string;
+}): Promise<void> {
+  const { trx, tableId, oldTableName, newTableName } = input;
+  if (!newTableName || oldTableName === newTableName) return;
+  await trx('route_definition')
+    .where({ mainTableId: tableId, path: `/${oldTableName}` })
+    .update({
+      path: `/${newTableName}`,
+      updatedAt: new Date(),
+    });
+}
+
 export async function ensureMongoTableRouteArtifacts(input: {
   mongoService: MongoService;
   queryBuilderService: QueryBuilderService;
@@ -145,4 +161,26 @@ export async function ensureMongoTableRouteArtifacts(input: {
   } catch (error: any) {
     if (error?.code !== 11000) throw error;
   }
+}
+
+export async function renameMongoAutoTableRoute(input: {
+  mongoService: MongoService;
+  tableId: any;
+  oldTableName: string;
+  newTableName: string;
+}): Promise<void> {
+  const { mongoService, tableId, oldTableName, newTableName } = input;
+  if (!newTableName || oldTableName === newTableName) return;
+  await mongoService.getDb().collection('route_definition').updateOne(
+    {
+      mainTable: tableId,
+      path: `/${oldTableName}`,
+    },
+    {
+      $set: {
+        path: `/${newTableName}`,
+        updatedAt: new Date(),
+      },
+    },
+  );
 }
