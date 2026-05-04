@@ -97,6 +97,24 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
       if (!exists) {
         throw new ResourceNotFoundException('table_definition', String(id));
       }
+      const tableRenamed = !!body.name && body.name !== exists.name;
+      if (tableRenamed) {
+        const incomingRelations = await knex('relation_definition')
+          .where({ targetTableId: exists.id })
+          .whereNot({ sourceTableId: exists.id })
+          .select('sourceTableId');
+        const incomingSourceIds = [
+          ...new Set(incomingRelations.map((rel: any) => rel.sourceTableId)),
+        ].filter((sourceId) => sourceId != null);
+        if (incomingSourceIds.length > 0) {
+          const incomingSourceTables = await knex('table_definition')
+            .whereIn('id', incomingSourceIds)
+            .select('name');
+          for (const table of incomingSourceTables) {
+            if (table?.name) affectedTableNames.add(table.name);
+          }
+        }
+      }
       validateUniquePropertyNames(body.columns || [], bodyRelations);
 
       const m2mTargetTableIds =
@@ -440,8 +458,18 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
 
       return {
         id: exists.id,
-        name: exists.name,
+        name: body.name ?? exists.name,
         affectedTables: [...affectedTableNames],
+        tableRenames:
+          tableRenamed
+            ? [
+                {
+                  id: exists.id,
+                  oldName: exists.name,
+                  newName: body.name,
+                },
+              ]
+            : undefined,
       };
     } catch (error: any) {
       this.loggingService.error('Table update failed', {

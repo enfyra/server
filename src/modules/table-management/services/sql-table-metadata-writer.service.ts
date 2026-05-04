@@ -10,6 +10,7 @@ import {
   relationTargetTableMapKey,
 } from '../utils/relation-target-id.util';
 import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
+import { renameSqlAutoTableRoute } from './table-route-artifacts.service';
 
 export class SqlTableMetadataWriterService {
   private readonly logger = new Logger(SqlTableMetadataWriterService.name);
@@ -46,6 +47,13 @@ export class SqlTableMetadataWriterService {
           validateBody: body.validateBody,
         }),
       });
+
+    await renameSqlAutoTableRoute({
+      trx: queryRunner,
+      tableId: id,
+      oldTableName: exists.name,
+      newTableName: body.name,
+    });
 
     if (body.columns) {
       const ignoredFkColumns = await this.getInverseRelationFkColumnNames(

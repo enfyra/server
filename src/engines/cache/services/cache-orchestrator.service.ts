@@ -302,12 +302,14 @@ export class CacheOrchestratorService implements LifecycleAware {
       this.pendingPayload.scope = 'full';
       this.pendingPayload.ids = undefined;
       this.pendingPayload.affectedTables = undefined;
+      this.pendingPayload.tableRenames = undefined;
       return;
     }
     if (payload.scope === 'full' || this.pendingPayload.scope === 'full') {
       this.pendingPayload.scope = 'full';
       this.pendingPayload.ids = undefined;
       this.pendingPayload.affectedTables = undefined;
+      this.pendingPayload.tableRenames = undefined;
       return;
     }
     const mergedIds = new Set([
@@ -318,9 +320,16 @@ export class CacheOrchestratorService implements LifecycleAware {
       ...(this.pendingPayload.affectedTables || []),
       ...(payload.affectedTables || []),
     ]);
+    const mergedRenames = [
+      ...(this.pendingPayload.tableRenames || []),
+      ...(payload.tableRenames || []),
+    ];
     this.pendingPayload.ids = [...mergedIds];
     this.pendingPayload.affectedTables = mergedTables.size
       ? [...mergedTables]
+      : undefined;
+    this.pendingPayload.tableRenames = mergedRenames.length
+      ? mergedRenames
       : undefined;
   }
 
