@@ -82,6 +82,20 @@ export class SqlPoolClusterCoordinatorService {
       .slice(0, 12);
   }
 
+  private isCurrentAppInstance(id: string): boolean {
+    return id.startsWith(`${this.getNodeName()}:`);
+  }
+
+  private toMonitorInstanceId(id: string): string {
+    if (this.isCurrentAppInstance(id)) {
+      return id;
+    }
+    return `external:${createHash('sha256')
+      .update(id)
+      .digest('hex')
+      .slice(0, 12)}`;
+  }
+
   async init(): Promise<void> {
     if (this.databaseConfigService.isMongoDb()) {
       return;
@@ -154,7 +168,12 @@ export class SqlPoolClusterCoordinatorService {
     staleAfterMs: number;
     heartbeatIntervalMs: number;
     reconcileIntervalMs: number;
-    instances: Array<{ id: string; lastSeenAt: string; ageMs: number }>;
+    instances: Array<{
+      id: string;
+      lastSeenAt: string;
+      ageMs: number;
+      isCurrentApp: boolean;
+    }>;
     serverMaxConnections: number | null;
     reserveConnections: number | null;
     targetPoolMax: number | null;
@@ -174,6 +193,7 @@ export class SqlPoolClusterCoordinatorService {
             id: this.instanceId,
             lastSeenAt: new Date().toISOString(),
             ageMs: 0,
+            isCurrentApp: true,
           },
         ],
         serverMaxConnections: null,
@@ -190,16 +210,22 @@ export class SqlPoolClusterCoordinatorService {
       now - SQL_COORD_STALE_MS,
     );
     const rows = await this.redis.zrange(this.zsetKey, 0, -1, 'WITHSCORES');
-    const instances: Array<{ id: string; lastSeenAt: string; ageMs: number }> =
-      [];
+    const instances: Array<{
+      id: string;
+      lastSeenAt: string;
+      ageMs: number;
+      isCurrentApp: boolean;
+    }> = [];
     for (let i = 0; i < rows.length; i += 2) {
       const id = rows[i];
       const score = Number(rows[i + 1]);
       if (!id || !Number.isFinite(score)) continue;
+      const isCurrentApp = this.isCurrentAppInstance(id);
       instances.push({
-        id,
+        id: this.toMonitorInstanceId(id),
         lastSeenAt: new Date(score).toISOString(),
         ageMs: Math.max(0, now - score),
+        isCurrentApp,
       });
     }
 
