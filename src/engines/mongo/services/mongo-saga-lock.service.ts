@@ -525,6 +525,7 @@ export class MongoSagaLockService {
       );
 
       await this.releaseLocks(txId);
+      await this.getMetaCollection().deleteOne({ txId });
 
       this.logger.debug(`[${txId}] Transaction committed`);
     } catch (error) {
@@ -550,6 +551,7 @@ export class MongoSagaLockService {
       );
 
       await this.releaseLocks(txId);
+      await this.getMetaCollection().deleteOne({ txId });
 
       this.logger.debug(
         `[${txId}] Transaction aborted${reason ? `: ${reason}` : ''}`,
