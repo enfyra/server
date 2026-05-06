@@ -1,8 +1,8 @@
 import { Logger } from '../../../shared/logger';
 import { Server, Socket } from 'socket.io';
-import { Queue } from 'bullmq';
 import * as jwt from 'jsonwebtoken';
 import { randomUUID } from 'node:crypto';
+import { appendFileSync } from 'node:fs';
 import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import { getErrorMessage } from '../../../shared/utils/error.util';
@@ -16,11 +16,17 @@ import {
 } from '../../../shared/utils/constant';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { RedisAdminService } from '../../admin/services/redis-admin.service';
+import type {
+  WebsocketDataShapeField,
+  WebsocketNativeAction,
+  WebsocketNativeFlowTrigger,
+} from '../types/native-event.types';
 import {
   loadUserWithRole,
   userCacheKey,
   USER_CACHE_TTL_MS,
 } from '../../../shared/utils/load-user-with-role.util';
+import type { Cradle } from '../../../container';
 
 interface SocketData extends Socket {
   data: {
@@ -30,26 +36,38 @@ interface SocketData extends Socket {
   };
 }
 
+type RoomFanoutJob = {
+  path: string;
+  room: string;
+  event: string;
+  data: any;
+  done?: () => void;
+};
+
 export class DynamicWebSocketGateway {
   server!: Server;
   private readonly logger = new Logger(DynamicWebSocketGateway.name);
+  private readonly roomFanoutCommand = 'enfyra:chunk-room-emit';
+  private readonly roomFanoutChunkThreshold: number;
+  private readonly roomFanoutChunkSize: number;
+  private readonly roomFanoutParallelChunks: number;
+  private readonly roomFanoutBackpressureThreshold: number;
   private registeredGateways = new Set<string>();
   private gatewayConfigsByPath = new Map<string, any>();
+  private roomFanoutQueues = new Map<string, RoomFanoutJob[]>();
+  private activeRoomFanoutQueues = new Set<string>();
   private redisPubClient: Redis | null = null;
   private redisSubClient: Redis | null = null;
-  private readonly connectionQueue: Queue;
-  private readonly eventQueue: Queue;
   private readonly websocketCacheService: WebsocketCacheService;
   private readonly builtInRegistry: BuiltInSocketRegistry;
   private readonly envService: EnvService;
   private readonly queryBuilderService: QueryBuilderService;
   private readonly cacheService: CacheService;
   private readonly redisAdminService: RedisAdminService;
+  private readonly lazyRef: Cradle;
   private eventEmitter: any;
 
   constructor(deps: {
-    wsConnectionQueue: Queue;
-    wsEventQueue: Queue;
     websocketCacheService: WebsocketCacheService;
     builtInSocketRegistry: BuiltInSocketRegistry;
     eventEmitter: any;
@@ -57,26 +75,45 @@ export class DynamicWebSocketGateway {
     queryBuilderService: QueryBuilderService;
     cacheService: CacheService;
     redisAdminService: RedisAdminService;
+    lazyRef: Cradle;
   }) {
-    this.connectionQueue = deps.wsConnectionQueue;
-    this.eventQueue = deps.wsEventQueue;
     this.websocketCacheService = deps.websocketCacheService;
     this.builtInRegistry = deps.builtInSocketRegistry;
     this.envService = deps.envService;
     this.queryBuilderService = deps.queryBuilderService;
     this.cacheService = deps.cacheService;
     this.redisAdminService = deps.redisAdminService;
+    this.lazyRef = deps.lazyRef;
     this.eventEmitter = deps.eventEmitter;
+    this.roomFanoutChunkThreshold = this.readPositiveEnvNumber(
+      'WS_ROOM_FANOUT_CHUNK_THRESHOLD',
+      200,
+    );
+    this.roomFanoutChunkSize = this.readPositiveEnvNumber(
+      'WS_ROOM_FANOUT_CHUNK_SIZE',
+      100,
+    );
+    this.roomFanoutParallelChunks = this.readPositiveEnvNumber(
+      'WS_ROOM_FANOUT_PARALLEL_CHUNKS',
+      4,
+    );
+    this.roomFanoutBackpressureThreshold = this.readPositiveEnvNumber(
+      'WS_ROOM_FANOUT_BACKPRESSURE_THRESHOLD',
+      1000,
+    );
     this.setupEventListeners();
   }
 
   private setupEventListeners() {
     this.eventEmitter.on(`${CACHE_IDENTIFIERS.WEBSOCKET}_LOADED`, () => {
-      this.registerGateways();
+      const reload = this.server ? this.reloadGateways() : this.registerGateways();
+      reload.catch((error) =>
+        this.logger.error('Failed to reload websocket gateways:', error),
+      );
     });
   }
 
-  private setupRedisAdapter(server: Server) {
+  private async setupRedisAdapter(server: Server) {
     const redisUri = this.envService.get('REDIS_URI');
     const redisHost = this.envService.get('REDIS_HOST') || 'localhost';
     const redisPort = 6379;
@@ -109,24 +146,26 @@ export class DynamicWebSocketGateway {
     this.redisPubClient = pubClient;
     this.redisSubClient = subClient;
 
-    pubClient
-      .connect()
-      .catch((err) =>
-        this.logger.error('Redis adapter pub client error:', err),
-      );
-    subClient
-      .connect()
-      .catch((err) =>
-        this.logger.error('Redis adapter sub client error:', err),
-      );
+    await Promise.all([pubClient.connect(), subClient.connect()]);
 
     server.adapter(createAdapter(pubClient, subClient, { key: keyPrefix }));
     this.logger.log(`Redis adapter configured (prefix: ${keyPrefix})`);
   }
 
+  private setupRoomFanoutCommandListener(server: Server) {
+    server.removeAllListeners(this.roomFanoutCommand);
+    server.on(
+      this.roomFanoutCommand,
+      (path: string, room: string, event: string, data: any) => {
+        this.enqueueChunkedLocalRoomEmit(path, room, event, data);
+      },
+    );
+  }
+
   async afterInit(server: Server) {
     this.server = server;
-    this.setupRedisAdapter(server);
+    await this.setupRedisAdapter(server);
+    this.setupRoomFanoutCommandListener(server);
     await this.registerGateways();
     this.logger.log('WebSocket Gateway initialized');
   }
@@ -144,6 +183,7 @@ export class DynamicWebSocketGateway {
       const gateways = await this.websocketCacheService.getGateways();
       const newPaths = new Set(gateways.map((g: any) => g.path));
       for (const path of this.registeredGateways) {
+        if (path === ENFYRA_ADMIN_WEBSOCKET_NAMESPACE) continue;
         if (!newPaths.has(path)) {
           const namespace = this.server.of(path);
           namespace.disconnectSockets();
@@ -254,33 +294,7 @@ export class DynamicWebSocketGateway {
         gatewayData.connectionHandlerScript;
       if (connectionScript) {
         try {
-          await this.connectionQueue.add(
-            `${gatewayData.path}:${socket.id}`,
-            {
-              socketId: socket.id,
-              userId: socket.data.userId || null,
-              clientInfo: {
-                id: socket.id,
-                ip: socket.handshake.address,
-                headers: socket.handshake.headers,
-              },
-              gatewayId: gatewayData.id,
-              gatewayPath: gatewayData.path,
-              script: connectionScript,
-              timeout: gatewayData.connectionHandlerTimeout,
-            },
-            {
-              attempts: 0,
-              removeOnComplete: {
-                count: 100,
-                age: 3600,
-              },
-              removeOnFail: {
-                count: 500,
-                age: 24 * 3600,
-              },
-            },
-          );
+          await this.runConnectionScript(socket, gatewayData, connectionScript);
         } catch (error) {
           this.logger.error(
             `Connection handler failed for ${socket.id}:`,
@@ -298,26 +312,32 @@ export class DynamicWebSocketGateway {
         const eventName = event.eventName;
         socket.on(eventName, async (payload: any, ack: any) => {
           const requestId = randomUUID();
-          if (typeof ack === 'function') {
-            ack({ queued: true, requestId, eventName });
-          }
+          const socketReceivedAt = Date.now();
+          let ackSentAt: number | null = null;
           try {
             const builtInScript = this.builtInRegistry.getEventScript(
               path,
               eventName,
             );
-            let script = builtInScript;
-            let freshEvent: any = event;
-            if (!script) {
-              const freshGateway =
-                await this.websocketCacheService.getGatewayByPath(
-                  gatewayData.path,
-                );
-              freshEvent =
-                freshGateway?.events?.find(
-                  (e: any) => e.eventName === eventName,
-                ) ?? event;
-              script = freshEvent?.handlerScript ?? event.handlerScript;
+            const freshEvent: any = event;
+            const script = builtInScript ?? event.handlerScript;
+
+            if (this.hasNativeEventConfig(freshEvent)) {
+              await this.runNativeEvent({
+                requestId,
+                socket,
+                eventName,
+                payload,
+                gatewayPath: gatewayData.path,
+                event: freshEvent,
+                socketReceivedAt,
+                ackSentAt,
+              });
+              if (typeof ack === 'function') {
+                ack({ accepted: true, queued: false, requestId, eventName });
+                ackSentAt = Date.now();
+              }
+              return;
             }
 
             if (!script) {
@@ -326,6 +346,7 @@ export class DynamicWebSocketGateway {
               );
               if (typeof ack === 'function') {
                 ack({
+                  accepted: false,
                   queued: false,
                   requestId,
                   eventName,
@@ -337,55 +358,461 @@ export class DynamicWebSocketGateway {
               }
               return;
             }
-            await this.eventQueue.add(
-              `ws-event-${gatewayData.id}-${eventName}`,
-              {
-                requestId,
-                socketId: socket.id,
-                userId: socket.data.userId || null,
-                eventName,
-                payload,
-                gatewayId: gatewayData.id,
-                gatewayPath: gatewayData.path,
-                eventId: freshEvent?.id ?? event.id,
-                script,
-                timeout: freshEvent?.timeout ?? event.timeout,
-              },
-              {
-                attempts: 0,
-                removeOnComplete: {
-                  count: 100,
-                  age: 3600,
-                },
-                removeOnFail: {
-                  count: 500,
-                  age: 24 * 3600,
-                },
-              },
-            );
+            await this.runEventScript({
+              requestId,
+              socket,
+              eventName,
+              payload,
+              gatewayPath: gatewayData.path,
+              script,
+              timeout: freshEvent?.timeout ?? event.timeout,
+              socketReceivedAt,
+              ackSentAt,
+            });
+            if (typeof ack === 'function') {
+              ack({ accepted: true, queued: false, requestId, eventName });
+              ackSentAt = Date.now();
+            }
           } catch (error) {
             this.logger.error(`Event handler failed for ${eventName}:`, error);
             if (typeof ack === 'function') {
               ack({
+                accepted: false,
                 queued: false,
                 requestId,
                 eventName,
                 error: {
-                  code: 'QUEUE_ERROR',
-                  message: getErrorMessage(error) || 'Failed to queue event',
+                  code: 'WS_HANDLER_ERROR',
+                  message: getErrorMessage(error) || 'Websocket handler failed',
                 },
               });
             }
             socket.emit('ws:error', {
               requestId,
               eventName,
-              code: 'QUEUE_ERROR',
-              message: getErrorMessage(error) || 'Failed to queue event',
+              code: 'WS_HANDLER_ERROR',
+              message: getErrorMessage(error) || 'Websocket handler failed',
             });
           }
         });
       }
     });
+  }
+
+  private async runConnectionScript(
+    socket: SocketData,
+    gatewayData: any,
+    script: string,
+  ) {
+    const userId = socket.data.userId || null;
+    const ctx = this.lazyRef.dynamicContextFactory.createWebsocketConnection({
+      gatewayPath: gatewayData.path,
+      socketId: socket.id,
+      clientInfo: {
+        id: socket.id,
+        ip: socket.handshake.address,
+        headers: socket.handshake.headers,
+      },
+      user: userId ? { id: userId } : null,
+    });
+    ctx.$repos = this.lazyRef.repoRegistryService.createReposProxy(ctx);
+    ctx.$trigger = (flowIdOrName: string | number, payload?: any) =>
+      this.lazyRef.flowService.trigger(
+        flowIdOrName,
+        payload,
+        userId ? { id: userId } : null,
+      );
+
+    await this.lazyRef.executorEngineService.run(
+      script,
+      ctx,
+      gatewayData.connectionHandlerTimeout,
+    );
+  }
+
+  private async runEventScript(options: {
+    requestId: string;
+    socket: SocketData;
+    eventName: string;
+    payload: any;
+    gatewayPath: string;
+    script: string;
+    timeout: number;
+    socketReceivedAt: number;
+    ackSentAt: number | null;
+  }) {
+    const startedAt = Date.now();
+    const {
+      requestId,
+      socket,
+      eventName,
+      payload,
+      gatewayPath,
+      script,
+      timeout,
+      socketReceivedAt,
+      ackSentAt,
+    } = options;
+    const userId = socket.data.userId || null;
+    const ctx = this.lazyRef.dynamicContextFactory.createWebsocketEvent({
+      gatewayPath,
+      socketId: socket.id,
+      eventName,
+      payload,
+      user: userId ? { id: userId } : null,
+    });
+    ctx.$repos = this.lazyRef.repoRegistryService.createReposProxy(ctx);
+    ctx.$trigger = (flowIdOrName: string | number, payload?: any) =>
+      this.lazyRef.flowService.trigger(
+        flowIdOrName,
+        payload,
+        userId ? { id: userId } : null,
+      );
+
+    try {
+      const result = await this.lazyRef.executorEngineService.run(
+        script,
+        ctx,
+        timeout,
+      );
+      const endedAt = Date.now();
+      if (payload?.__suppressResult !== true) {
+        ctx.$socket?.reply?.('ws:result', {
+          requestId,
+          eventName,
+          success: true,
+          result,
+          logs: ctx.$share?.$logs || [],
+        });
+      }
+      this.writeEventTrace({
+        type: 'ws_event',
+        mode: 'inline',
+        status: 'success',
+        requestId,
+        eventName,
+        gatewayPath,
+        socketReceivedAt,
+        ackSentAt,
+        workerStartedAt: startedAt,
+        executorEndedAt: endedAt,
+        queueWaitMs: 0,
+        executorMs: endedAt - startedAt,
+        inlineExecutorMs: endedAt - startedAt,
+        totalHandlerMs: endedAt - socketReceivedAt,
+        messageId: payload?.id,
+        kind: payload?.kind,
+        suppressResult: payload?.__suppressResult === true,
+      });
+    } catch (error: any) {
+      const failedAt = Date.now();
+      ctx.$socket?.reply?.('ws:error', {
+        requestId,
+        eventName,
+        success: false,
+        code: error?.errorCode || error?.code || 'WS_HANDLER_ERROR',
+        message: error?.message || 'Websocket handler failed',
+        logs: ctx.$share?.$logs || [],
+        details: error?.details,
+      });
+      this.writeEventTrace({
+        type: 'ws_event',
+        mode: 'inline',
+        status: 'error',
+        requestId,
+        eventName,
+        gatewayPath,
+        socketReceivedAt,
+        ackSentAt,
+        workerStartedAt: startedAt,
+        failedAt,
+        queueWaitMs: 0,
+        totalHandlerMs: failedAt - socketReceivedAt,
+        messageId: payload?.id,
+        kind: payload?.kind,
+        error: error?.message || String(error),
+      });
+      throw error;
+    }
+  }
+
+  private async runNativeEvent(options: {
+    requestId: string;
+    socket: SocketData;
+    eventName: string;
+    payload: any;
+    gatewayPath: string;
+    event: any;
+    socketReceivedAt: number;
+    ackSentAt: number | null;
+  }) {
+    const startedAt = Date.now();
+    const {
+      requestId,
+      socket,
+      eventName,
+      payload,
+      gatewayPath,
+      event,
+      socketReceivedAt,
+      ackSentAt,
+    } = options;
+
+    try {
+      this.validateNativePayload(event.dataShape, payload);
+      for (const action of this.getNativeActions(event)) {
+        if (!this.matchesCondition(action.when, payload)) continue;
+        await this.executeNativeAction(socket, gatewayPath, action, payload);
+      }
+      const flowTriggerStartedAt = Date.now();
+      let triggeredFlowCount = 0;
+      for (const flow of this.getNativeFlowTriggers(event)) {
+        if (!this.matchesCondition(flow.when, payload)) continue;
+        await this.triggerNativeFlow(flow, payload, socket.data.userId || null);
+        triggeredFlowCount++;
+      }
+      const endedAt = Date.now();
+      this.writeEventTrace({
+        type: 'ws_event',
+        mode: 'native',
+        status: 'success',
+        requestId,
+        eventName,
+        gatewayPath,
+        socketReceivedAt,
+        ackSentAt,
+        workerStartedAt: startedAt,
+        nativeEndedAt: endedAt,
+        queueWaitMs: 0,
+        nativeMs: endedAt - startedAt,
+        triggerFlowMs:
+          triggeredFlowCount > 0 ? endedAt - flowTriggerStartedAt : undefined,
+        triggeredFlowCount,
+        totalHandlerMs: endedAt - socketReceivedAt,
+        clientSentAt: payload?.sentAt,
+        serverReceiveLagMs:
+          typeof payload?.sentAt === 'number'
+            ? socketReceivedAt - payload.sentAt
+            : undefined,
+        messageId: payload?.id,
+        kind: payload?.kind,
+        suppressResult: true,
+      });
+    } catch (error: any) {
+      const failedAt = Date.now();
+      socket.emit('ws:error', {
+        requestId,
+        eventName,
+        success: false,
+        code: error?.code || 'WS_NATIVE_HANDLER_ERROR',
+        message: error?.message || 'Websocket native handler failed',
+      });
+      this.writeEventTrace({
+        type: 'ws_event',
+        mode: 'native',
+        status: 'error',
+        requestId,
+        eventName,
+        gatewayPath,
+        socketReceivedAt,
+        ackSentAt,
+        workerStartedAt: startedAt,
+        failedAt,
+        queueWaitMs: 0,
+        totalHandlerMs: failedAt - socketReceivedAt,
+        clientSentAt: payload?.sentAt,
+        serverReceiveLagMs:
+          typeof payload?.sentAt === 'number'
+            ? socketReceivedAt - payload.sentAt
+            : undefined,
+        messageId: payload?.id,
+        kind: payload?.kind,
+        error: error?.message || String(error),
+      });
+      throw error;
+    }
+  }
+
+  private hasNativeEventConfig(event: any) {
+    return (
+      event?.socketAction != null ||
+      event?.socketActions != null ||
+      event?.triggerFlow != null ||
+      event?.triggerFlows != null
+    );
+  }
+
+  private getNativeActions(event: any): WebsocketNativeAction[] {
+    const actions = event?.socketActions ?? event?.socketAction;
+    if (!actions) return [];
+    return Array.isArray(actions) ? actions : [actions];
+  }
+
+  private getNativeFlowTriggers(event: any): WebsocketNativeFlowTrigger[] {
+    const flows = event?.triggerFlows ?? event?.triggerFlow;
+    if (!flows) return [];
+    return Array.isArray(flows) ? flows : [flows];
+  }
+
+  private async executeNativeAction(
+    socket: SocketData,
+    gatewayPath: string,
+    action: WebsocketNativeAction,
+    payload: any,
+  ): Promise<void> {
+    const type = action.action ?? action.type;
+    const event = String(action.event ?? action.eventName ?? '');
+    const data = this.resolvePayloadExpression(
+      action.payloadExpression ?? action.payload ?? '$data',
+      payload,
+    );
+
+    switch (type) {
+      case 'joinRoom':
+        socket.join(this.resolveTemplate(action.room ?? action.roomTemplate, payload));
+        return;
+      case 'leaveRoom':
+        socket.leave(this.resolveTemplate(action.room ?? action.roomTemplate, payload));
+        return;
+      case 'emitToRoom':
+        await this.emitToNamespaceRoom(
+          gatewayPath,
+          this.resolveTemplate(action.room ?? action.roomTemplate, payload),
+          event,
+          data,
+        );
+        return;
+      case 'emitToUser':
+        this.emitToUser(
+          this.resolveTemplate(action.userId ?? action.userTemplate, payload),
+          event,
+          data,
+        );
+        return;
+      case 'reply':
+        socket.emit(event, data);
+        return;
+      case 'broadcast':
+        this.emitToNamespace(gatewayPath, event, data);
+        return;
+      case 'disconnect':
+        socket.disconnect(true);
+        return;
+      default:
+        throw new Error(`Unsupported websocket native action "${String(type)}"`);
+    }
+  }
+
+  private async triggerNativeFlow(
+    flow: WebsocketNativeFlowTrigger,
+    payload: any,
+    userId: number | string | null,
+  ) {
+    const flowIdOrName = flow.flowId ?? flow.flowName ?? flow.flow;
+    if (flowIdOrName === undefined || flowIdOrName === null || flowIdOrName === '') {
+      throw new Error('Native websocket flow trigger requires flowId or flowName');
+    }
+    const flowPayload = this.resolvePayloadExpression(
+      flow.payloadExpression ?? flow.payload ?? '$data',
+      payload,
+    );
+    await this.lazyRef.flowService.trigger(
+      flowIdOrName,
+      flowPayload,
+      userId ? { id: userId } : null,
+    );
+  }
+
+  private validateNativePayload(
+    shape: WebsocketDataShapeField[] | null | undefined,
+    payload: any,
+    prefix = '',
+  ) {
+    if (!Array.isArray(shape) || shape.length === 0) return;
+    for (const field of shape) {
+      if (!field?.name) continue;
+      const path = prefix ? `${prefix}.${field.name}` : field.name;
+      const value = this.getPathValue(payload, path);
+      if (field.required && (value === undefined || value === null || value === '')) {
+        const error = new Error(`Missing required websocket payload field "${path}"`);
+        (error as any).code = 'WS_PAYLOAD_VALIDATION_ERROR';
+        throw error;
+      }
+      if (
+        value != null &&
+        field.type === 'object' &&
+        Array.isArray(field.children) &&
+        !Array.isArray(value)
+      ) {
+        this.validateNativePayload(field.children, value, '');
+      }
+    }
+  }
+
+  private matchesCondition(condition: any, payload: any) {
+    if (!condition) return true;
+    const path = condition.field ?? condition.path;
+    if (!path) return true;
+    const value = this.getPathValue(payload, String(path));
+    if ('exists' in condition) {
+      return condition.exists ? value !== undefined && value !== null : value === undefined || value === null;
+    }
+    if ('eq' in condition) return value === condition.eq;
+    if ('ne' in condition) return value !== condition.ne;
+    return Boolean(value);
+  }
+
+  private resolvePayloadExpression(expression: any, payload: any): any {
+    if (expression === undefined || expression === null || expression === '$data') {
+      return payload;
+    }
+    if (typeof expression === 'string') {
+      const trimmed = expression.trim();
+      if (trimmed === '$data') return payload;
+      if (trimmed.startsWith('$data.')) {
+        return this.getPathValue(payload, trimmed.slice('$data.'.length));
+      }
+      const tokenOnly = trimmed.match(/^\{\{\s*data\.([^}]+)\s*\}\}$/);
+      if (tokenOnly) return this.getPathValue(payload, tokenOnly[1].trim());
+      return this.resolveTemplate(trimmed, payload);
+    }
+    if (Array.isArray(expression)) {
+      return expression.map((item) => this.resolvePayloadExpression(item, payload));
+    }
+    if (typeof expression === 'object') {
+      return Object.fromEntries(
+        Object.entries(expression).map(([key, value]) => [
+          key,
+          this.resolvePayloadExpression(value, payload),
+        ]),
+      );
+    }
+    return expression;
+  }
+
+  private resolveTemplate(template: any, payload: any) {
+    if (template === undefined || template === null) return '';
+    return String(template).replace(/\{\{\s*data\.([^}]+)\s*\}\}/g, (_, path) => {
+      const value = this.getPathValue(payload, String(path).trim());
+      return value == null ? '' : String(value);
+    });
+  }
+
+  private getPathValue(source: any, path: string) {
+    return path.split('.').reduce((current, segment) => {
+      if (current == null) return undefined;
+      const normalized = segment.endsWith('[]') ? segment.slice(0, -2) : segment;
+      const value = current[normalized];
+      return Array.isArray(value) ? value[0] : value;
+    }, source);
+  }
+
+  private writeEventTrace(entry: Record<string, any>) {
+    const file = process.env.WS_EVENT_TRACE_FILE;
+    if (!file) return;
+    try {
+      appendFileSync(file, `${JSON.stringify(entry)}\n`);
+    } catch {}
   }
 
   private async setupAdminSocket(socket: SocketData) {
@@ -485,12 +912,19 @@ export class DynamicWebSocketGateway {
 
   async reloadGateways() {
     this.logger.log('Reloading websocket gateways...');
+    const keepAdminNamespace = this.registeredGateways.has(
+      ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+    );
     for (const path of this.registeredGateways) {
+      if (path === ENFYRA_ADMIN_WEBSOCKET_NAMESPACE) continue;
       const namespace = this.server.of(path);
       namespace.disconnectSockets();
       namespace.removeAllListeners();
     }
     this.registeredGateways.clear();
+    if (keepAdminNamespace) {
+      this.registeredGateways.add(ENFYRA_ADMIN_WEBSOCKET_NAMESPACE);
+    }
     await this.registerGateways();
     this.logger.log(
       `Gateways reloaded. Total registered: ${this.registeredGateways.size}`,
@@ -521,7 +955,7 @@ export class DynamicWebSocketGateway {
 
   emitToRoom(room: string, event: string, data: any) {
     for (const path of this.registeredGateways) {
-      this.server.of(path).to(room).emit(event, data);
+      void this.emitToNamespaceRoom(path, room, event, data);
     }
   }
 
@@ -529,8 +963,122 @@ export class DynamicWebSocketGateway {
     this.server.of(path).emit(event, data);
   }
 
-  emitToNamespaceRoom(path: string, room: string, event: string, data: any) {
-    this.server.of(path).to(room).emit(event, data);
+  async emitToNamespaceRoom(path: string, room: string, event: string, data: any) {
+    const localSize = this.localNamespaceRoomSize(path, room);
+    if (localSize < this.roomFanoutChunkThreshold) {
+      this.server.of(path).to(room).emit(event, data);
+      return;
+    }
+    const backpressure = this.enqueueChunkedLocalRoomEmit(path, room, event, data);
+    this.emitRoomFanoutCommand(path, room, event, data);
+    await backpressure;
+  }
+
+  private emitRoomFanoutCommand(
+    path: string,
+    room: string,
+    event: string,
+    data: any,
+  ) {
+    try {
+      this.server.serverSideEmit(this.roomFanoutCommand, path, room, event, data);
+    } catch (error) {
+      this.logger.error(
+        `Failed to publish chunked room fanout for ${path}:${room}:`,
+        error,
+      );
+    }
+  }
+
+  private enqueueChunkedLocalRoomEmit(
+    path: string,
+    room: string,
+    event: string,
+    data: any,
+  ): Promise<void> {
+    const key = `${path}:${room}`;
+    const queue = this.roomFanoutQueues.get(key);
+    const queueDepth = queue?.length || 0;
+    let done: (() => void) | undefined;
+    const shouldBackpressure =
+      queueDepth >= this.roomFanoutBackpressureThreshold;
+    const backpressure = shouldBackpressure
+      ? new Promise<void>((resolve) => {
+          done = resolve;
+        })
+      : Promise.resolve();
+    const job = { path, room, event, data, done };
+    if (queue) {
+      queue.push(job);
+    } else {
+      this.roomFanoutQueues.set(key, [job]);
+    }
+    if (this.activeRoomFanoutQueues.has(key)) return backpressure;
+    this.activeRoomFanoutQueues.add(key);
+    void this.drainRoomFanoutQueue(key);
+    return backpressure;
+  }
+
+  private async drainRoomFanoutQueue(key: string) {
+    try {
+      while (true) {
+        const queue = this.roomFanoutQueues.get(key);
+        const job = queue?.shift();
+        if (!job) {
+          this.roomFanoutQueues.delete(key);
+          return;
+        }
+        if (!queue?.length) this.roomFanoutQueues.delete(key);
+        await this.emitLocalRoomInChunks(job);
+        job.done?.();
+      }
+    } catch (error) {
+      this.logger.error(`Chunked room fanout failed for ${key}:`, error);
+    } finally {
+      this.activeRoomFanoutQueues.delete(key);
+      const queue = this.roomFanoutQueues.get(key);
+      if (queue?.length) {
+        this.activeRoomFanoutQueues.add(key);
+        void this.drainRoomFanoutQueue(key);
+      }
+    }
+  }
+
+  private async emitLocalRoomInChunks(job: RoomFanoutJob) {
+    const namespace = this.server.of(job.path);
+    const socketIds = [...(namespace.adapter.rooms.get(job.room) ?? [])];
+    const windowSize = Math.max(
+      this.roomFanoutChunkSize,
+      this.roomFanoutChunkSize * this.roomFanoutParallelChunks,
+    );
+    for (let i = 0; i < socketIds.length; i += windowSize) {
+      const window = socketIds.slice(i, i + windowSize);
+      for (let j = 0; j < window.length; j += this.roomFanoutChunkSize) {
+        const chunk = window.slice(j, j + this.roomFanoutChunkSize);
+        queueMicrotask(() => {
+          for (const socketId of chunk) {
+            namespace.sockets.get(socketId)?.emit(job.event, job.data);
+          }
+        });
+      }
+      if (i + windowSize < socketIds.length) {
+        await this.yieldToEventLoop();
+      }
+    }
+    await this.yieldToEventLoop();
+  }
+
+  private localNamespaceRoomSize(path: string, room: string) {
+    return this.server.of(path).adapter.rooms.get(room)?.size || 0;
+  }
+
+  private yieldToEventLoop() {
+    return new Promise<void>((resolve) => setImmediate(resolve));
+  }
+
+  private readPositiveEnvNumber(name: string, fallback: number) {
+    const value = Number(process.env[name]);
+    return Number.isFinite(value) && value > 0 ? value : fallback;
   }
 
   emitToSocket(path: string, socketId: string, event: string, data: any) {
@@ -577,14 +1125,25 @@ export class DynamicWebSocketGateway {
   async roomSize(room: string): Promise<number> {
     let total = 0;
     for (const path of this.registeredGateways) {
-      const sockets = await this.server.of(path).in(room).allSockets();
-      total += sockets.size;
+      total += await this.countNamespaceRoom(path, room);
     }
     return total;
   }
 
   async namespaceRoomSize(path: string, room: string): Promise<number> {
-    const sockets = await this.server.of(path).in(room).allSockets();
+    return await this.countNamespaceRoom(path, room);
+  }
+
+  private async countNamespaceRoom(
+    path: string,
+    room: string,
+  ): Promise<number> {
+    const operator = this.server.of(path).in(room);
+    if (typeof operator.fetchSockets === 'function') {
+      const sockets = await operator.fetchSockets();
+      return sockets.length;
+    }
+    const sockets = await operator.allSockets();
     return sockets.size;
   }
 }

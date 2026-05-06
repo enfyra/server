@@ -9,6 +9,11 @@ import {
   resolveExecutableScript,
 } from '@enfyra/kernel';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+import type {
+  WebsocketDataShapeField,
+  WebsocketNativeAction,
+  WebsocketNativeFlowTrigger,
+} from '../../../modules/websocket/types/native-event.types';
 
 const WEBSOCKET_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.WEBSOCKET,
@@ -19,9 +24,15 @@ const WEBSOCKET_CONFIG: CacheConfig = {
 export interface WebSocketEvent {
   id: number;
   name: string;
+  eventName?: string;
   sourceCode?: string | null;
   compiledCode?: string | null;
   handlerScript?: string | null;
+  dataShape?: WebsocketDataShapeField[] | null;
+  socketAction?: WebsocketNativeAction | WebsocketNativeAction[] | null;
+  socketActions?: WebsocketNativeAction[] | null;
+  triggerFlow?: WebsocketNativeFlowTrigger | WebsocketNativeFlowTrigger[] | null;
+  triggerFlows?: WebsocketNativeFlowTrigger[] | null;
   gatewayId: number;
   isEnabled: boolean;
 }

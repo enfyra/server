@@ -157,7 +157,7 @@ export class MongoSagaCoordinator {
       const recoveredOpenSessions =
         source === 'boot' ? await this.rollbackOpenSessionsOnBoot() : 0;
       const orphanedLocks = await this.lockService.cleanupOrphanedLocks();
-      const oldSnapshots = await this.snapshotService.cleanupOldSnapshots(7);
+      const oldSnapshots = await this.snapshotService.cleanupOldSnapshots(0);
       const recovered = recoveredOpenSessions;
 
       const result = { cleaned: orphanedLocks + oldSnapshots, recovered };
@@ -313,8 +313,7 @@ export class MongoSagaCoordinator {
       }
 
       await this.commit(txId, context);
-
-      const txStats = await this.snapshotService.getTransactionStats(txId);
+      const operationsCount = context.snapshots.length;
 
       return {
         success: true,
@@ -322,7 +321,7 @@ export class MongoSagaCoordinator {
         txId,
         stats: {
           durationMs: duration,
-          operationsCount: txStats.completed + txStats.failed + txStats.pending,
+          operationsCount,
           locksAcquired: context.lockedResources.size,
         },
       };
@@ -362,6 +361,7 @@ export class MongoSagaCoordinator {
 
     try {
       await this.lockService.commitTransaction(txId);
+      await this.deleteSnapshotsAfterTerminalState(txId);
       context.status = 'completed';
     } catch (error) {
       context.status = 'aborted';
@@ -381,10 +381,23 @@ export class MongoSagaCoordinator {
       txId,
       rollbackResult.success ? 'user rollback' : 'rollback failed',
     );
+    if (rollbackResult.success) {
+      await this.deleteSnapshotsAfterTerminalState(txId);
+    }
 
     context.status = rollbackResult.success ? 'aborted' : 'failed';
 
     return rollbackResult;
+  }
+
+  private async deleteSnapshotsAfterTerminalState(txId: string): Promise<void> {
+    try {
+      await this.snapshotService.deleteSnapshotsForSession(txId);
+    } catch (error) {
+      this.logger.warn(
+        `[${txId}] Saga snapshot cleanup failed: ${getErrorMessage(error)}`,
+      );
+    }
   }
 
   async abort(txId: string, reason?: string): Promise<void> {

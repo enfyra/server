@@ -119,9 +119,11 @@ export class MongoService {
       },
     );
 
-    this.mongoHookManagerService.addHook(
-      'afterInsert',
-      async (collectionName, result, context) => {
+    const cascadeAfterInsert = async (
+      collectionName: string,
+      result: any,
+      context: MongoHookContext,
+    ) => {
         await this.mongoRelationManagerService?.updateInverseRelationsOnUpdate(
           collectionName,
           context.insertedId,
@@ -134,6 +136,32 @@ export class MongoService {
           collectionName,
           context.insertedId,
           context.relationData,
+          (name) => this.collection(name),
+        );
+
+        return result;
+      };
+    (cascadeAfterInsert as any).batchedByAfterInsertMany = true;
+    this.mongoHookManagerService.addHook('afterInsert', cascadeAfterInsert);
+
+    this.mongoHookManagerService.addHook(
+      'afterInsertMany',
+      async (collectionName, result, context) => {
+        const entries =
+          context.insertManyEntries?.map((entry) => ({
+            recordId: entry.insertedId,
+            data: entry.context.relationData,
+          })) || [];
+
+        await this.mongoRelationManagerService?.updateInverseRelationsOnInsertMany?.(
+          collectionName,
+          entries,
+          (name) => this.collection(name),
+        );
+
+        await this.mongoRelationManagerService?.writeM2mJunctionsForInsertMany?.(
+          collectionName,
+          entries,
           (name) => this.collection(name),
         );
 
@@ -262,6 +290,36 @@ export class MongoService {
     callback: () => Promise<T>,
   ): Promise<T> {
     return this.fieldPermissionContext.run({ check: checker }, callback);
+  }
+
+  getMutationContextSnapshot(): any {
+    return {
+      policy: this.policyContext.getStore() || null,
+      fieldPermission: this.fieldPermissionContext.getStore() || null,
+    };
+  }
+
+  async runWithMutationContextSnapshot<T>(
+    snapshot: any,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    const runWithFieldPermission = () => {
+      if (snapshot?.fieldPermission) {
+        return this.fieldPermissionContext.run(
+          snapshot.fieldPermission,
+          callback,
+        );
+      }
+      return callback();
+    };
+
+    if (snapshot?.policy) {
+      return await this.policyContext.run(
+        snapshot.policy,
+        runWithFieldPermission,
+      );
+    }
+    return await runWithFieldPermission();
   }
 
   private async checkFieldPermission(
@@ -630,6 +688,103 @@ export class MongoService {
     );
 
     return hookResult;
+  }
+
+  async insertManyWithCascade(collectionName: string, rows: any[]): Promise<any[]> {
+    if (rows.length === 0) {
+      return [];
+    }
+
+    if (!this.isInSaga() && this.client) {
+      const result = await this.runInSaga(() =>
+        this.insertManyWithCascade(collectionName, rows),
+      );
+      return result.data || [];
+    }
+
+    const collection = this.collection(collectionName);
+    const processedRows = [];
+    const rowContexts: MongoHookContext[] = [];
+
+    for (const row of rows) {
+      const context: MongoHookContext = {
+        collectionName,
+        operation: 'insert',
+        originalData: row,
+      };
+      const processedData = await this.mongoHookManagerService.runHooks(
+        'beforeInsert',
+        collectionName,
+        row,
+        context,
+      );
+      rowContexts.push(context);
+      processedRows.push({
+        ...processedData,
+        _id: processedData._id instanceof ObjectId ? processedData._id : new ObjectId(),
+      });
+    }
+
+    try {
+      await collection.insertMany(processedRows as any);
+    } catch (err: any) {
+      const errorMessage = err.errInfo?.details?.details
+        ? JSON.stringify(err.errInfo.details.details, null, 2)
+        : err.errInfo
+          ? JSON.stringify(err.errInfo, null, 2)
+          : err.message || 'Unknown validation error';
+
+      console.error(
+        `[insertManyWithCascade] Validation error for ${collectionName}:`,
+        errorMessage,
+      );
+
+      const validationError = new Error(
+        `MongoDB validation failed for ${collectionName}: ${errorMessage}`,
+      );
+      (validationError as any).errInfo = err.errInfo;
+      throw validationError;
+    }
+
+    const entries = processedRows.map((row, index) => {
+      const insertedId = row._id;
+      rowContexts[index].insertedId = insertedId;
+      return {
+        insertedId,
+        data: row,
+        context: rowContexts[index],
+      };
+    });
+
+    const batchContext: MongoHookContext = {
+      collectionName,
+      operation: 'insert',
+      originalData: rows,
+      insertedIds: entries.map((entry) => entry.insertedId),
+      insertManyEntries: entries,
+    };
+
+    await this.mongoHookManagerService.runHooks(
+      'afterInsertMany',
+      collectionName,
+      entries.map((entry) => entry.data),
+      batchContext,
+    );
+
+    const hooks = this.mongoHookManagerService.getHooks();
+    const regularAfterInsertHooks = hooks.afterInsert.filter(
+      (hook: any) => hook.batchedByAfterInsertMany !== true,
+    );
+
+    if (regularAfterInsertHooks.length > 0) {
+      for (const entry of entries) {
+        for (const hook of regularAfterInsertHooks) {
+          await hook(collectionName, entry.data, entry.context);
+        }
+      }
+    }
+
+    return entries.map((entry) => entry.data);
   }
 
   async find(options: {

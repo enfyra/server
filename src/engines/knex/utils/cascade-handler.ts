@@ -51,6 +51,11 @@ export class CascadeHandler {
         data: any,
       ) => Promise<void>;
     } | null,
+    private insertManyWithCascade?: (
+      tableName: string,
+      rows: any[],
+      trx?: Knex | Knex.Transaction,
+    ) => Promise<any[]>,
   ) {}
 
   private async checkPolicy(
@@ -390,6 +395,337 @@ export class CascadeHandler {
     cascadeContextMap.delete(tableName);
   }
 
+  private async handleManyToOneBatch(
+    tableName: string,
+    relation: any,
+    entries: Array<{ recordId: any; relationData: any }>,
+    knex: Knex | Knex.Transaction,
+  ): Promise<void> {
+    const relName = relation.propertyName;
+    const foreignKeyColumn =
+      relation.foreignKeyColumn || getForeignKeyColumnName(relName);
+    let targetTableName = relation.targetTableName || relation.targetTable;
+    if (!targetTableName) {
+      targetTableName = await this.resolveTargetTableName(relName, tableName);
+    }
+    if (!foreignKeyColumn || !targetTableName) return;
+
+    const groupedUpdates = new Map<any, any[]>();
+    const createRows: any[] = [];
+    const createParentIds: any[] = [];
+
+    for (const entry of entries) {
+      const relValue = entry.relationData[relName];
+      if (relValue == null) {
+        this.pushGroupedUpdate(groupedUpdates, null, entry.recordId);
+        continue;
+      }
+      if (typeof relValue === 'number' || typeof relValue === 'string') {
+        this.pushGroupedUpdate(groupedUpdates, relValue, entry.recordId);
+        continue;
+      }
+      const valueObject = Array.isArray(relValue) ? relValue[0] : relValue;
+      if (valueObject && typeof valueObject === 'object') {
+        if (valueObject.id != null) {
+          this.pushGroupedUpdate(groupedUpdates, valueObject.id, entry.recordId);
+        } else {
+          createRows.push(valueObject);
+          createParentIds.push(entry.recordId);
+        }
+      }
+    }
+
+    if (createRows.length > 0) {
+      const createdIds = await this.insertRecordsAndGetIds(
+        targetTableName,
+        createRows,
+        knex,
+      );
+      for (let index = 0; index < createdIds.length; index++) {
+        const id = createdIds[index];
+        if (id != null) {
+          this.pushGroupedUpdate(groupedUpdates, id, createParentIds[index]);
+        }
+      }
+    }
+
+    await this.applyParentFkUpdates(
+      tableName,
+      foreignKeyColumn,
+      groupedUpdates,
+      knex,
+    );
+  }
+
+  private async handleManyToManyBatch(
+    tableName: string,
+    relation: any,
+    entries: Array<{ recordId: any; relationData: any }>,
+    knex: Knex | Knex.Transaction,
+  ): Promise<void> {
+    const relName = relation.propertyName;
+    const junctionTable = relation.junctionTableName;
+    const sourceColumn = relation.junctionSourceColumn;
+    const targetColumn = relation.junctionTargetColumn;
+    let targetTableName = relation.targetTableName || relation.targetTable;
+    if (!targetTableName) {
+      targetTableName = await this.resolveTargetTableName(relName, tableName);
+    }
+    if (!junctionTable || !sourceColumn || !targetColumn || !targetTableName) {
+      return;
+    }
+
+    const sourceIds = entries.map((entry) => entry.recordId);
+    await knex(junctionTable).whereIn(sourceColumn, sourceIds).delete();
+
+    const junctionRows: any[] = [];
+    const createRows: any[] = [];
+    const createSourceIds: any[] = [];
+
+    for (const entry of entries) {
+      const relValue = entry.relationData[relName];
+      if (!Array.isArray(relValue)) continue;
+      for (const item of relValue) {
+        if (item == null) continue;
+        if (typeof item === 'object') {
+          if (item.id != null) {
+            junctionRows.push({
+              [sourceColumn]: entry.recordId,
+              [targetColumn]: item.id,
+            });
+          } else {
+            createRows.push(item);
+            createSourceIds.push(entry.recordId);
+          }
+        } else {
+          junctionRows.push({
+            [sourceColumn]: entry.recordId,
+            [targetColumn]: item,
+          });
+        }
+      }
+    }
+
+    if (createRows.length > 0) {
+      const createdIds = await this.insertRecordsAndGetIds(
+        targetTableName,
+        createRows,
+        knex,
+      );
+      for (let index = 0; index < createdIds.length; index++) {
+        const id = createdIds[index];
+        if (id != null) {
+          junctionRows.push({
+            [sourceColumn]: createSourceIds[index],
+            [targetColumn]: id,
+          });
+        }
+      }
+    }
+
+    if (junctionRows.length > 0) {
+      await knex(junctionTable).insert(junctionRows);
+    }
+  }
+
+  private async handleOneToManyBatch(
+    relation: any,
+    entries: Array<{ recordId: any; relationData: any }>,
+    knex: Knex | Knex.Transaction,
+  ): Promise<void> {
+    const relName = relation.propertyName;
+    const targetTableName = relation.targetTableName || relation.targetTable;
+    const foreignKeyColumn = relation.foreignKeyColumn;
+    if (!targetTableName || !foreignKeyColumn) return;
+
+    const createRows: any[] = [];
+    const existingByParent = new Map<any, any[]>();
+
+    for (const entry of entries) {
+      const relValue = entry.relationData[relName];
+      if (!Array.isArray(relValue)) continue;
+      for (const item of relValue) {
+        if (item?.id) {
+          const ids = existingByParent.get(entry.recordId) || [];
+          ids.push(item.id);
+          existingByParent.set(entry.recordId, ids);
+        } else if (item && typeof item === 'object') {
+          createRows.push({
+            ...item,
+            [foreignKeyColumn]: entry.recordId,
+          });
+        }
+      }
+    }
+
+    for (const [parentId, childIds] of existingByParent) {
+      if (childIds.length > 0) {
+        await knex(targetTableName)
+          .whereIn('id', childIds)
+          .update({ [foreignKeyColumn]: parentId });
+      }
+    }
+
+    if (createRows.length > 0) {
+      await this.insertRecordsAndGetIds(targetTableName, createRows, knex);
+    }
+  }
+
+  private async handleOneToOneBatch(
+    tableName: string,
+    relation: any,
+    entries: Array<{ recordId: any; relationData: any }>,
+    knex: Knex | Knex.Transaction,
+  ): Promise<void> {
+    const relName = relation.propertyName;
+    const targetTableName = relation.targetTableName || relation.targetTable;
+    const foreignKeyColumn = relation.foreignKeyColumn;
+    if (!targetTableName || !foreignKeyColumn) return;
+
+    const parentFkUpdates = new Map<any, any[]>();
+    const inverseCreateRows: any[] = [];
+    const ownerCreateRows: any[] = [];
+    const ownerCreateParentIds: any[] = [];
+    const inverseExistingByParent = new Map<any, any[]>();
+
+    for (const entry of entries) {
+      const rawValue = entry.relationData[relName];
+      const items = (Array.isArray(rawValue) ? rawValue : [rawValue]).filter(
+        (item: any) => item != null,
+      );
+      for (const rawItem of items) {
+        const item =
+          typeof rawItem === 'object' ? rawItem : { id: rawItem };
+        if (!item || typeof item !== 'object') continue;
+
+        if (relation.isInverse) {
+          if (item.id != null) {
+            const ids = inverseExistingByParent.get(entry.recordId) || [];
+            ids.push(item.id);
+            inverseExistingByParent.set(entry.recordId, ids);
+          } else {
+            inverseCreateRows.push({
+              ...item,
+              [foreignKeyColumn]: entry.recordId,
+            });
+          }
+        } else if (item.id != null) {
+          this.pushGroupedUpdate(parentFkUpdates, item.id, entry.recordId);
+        } else {
+          ownerCreateRows.push(item);
+          ownerCreateParentIds.push(entry.recordId);
+        }
+      }
+    }
+
+    for (const [parentId, ownerIds] of inverseExistingByParent) {
+      if (ownerIds.length > 0) {
+        await knex(targetTableName)
+          .whereIn('id', ownerIds)
+          .update({ [foreignKeyColumn]: parentId });
+      }
+    }
+
+    if (inverseCreateRows.length > 0) {
+      await this.insertRecordsAndGetIds(targetTableName, inverseCreateRows, knex);
+    }
+
+    if (ownerCreateRows.length > 0) {
+      const createdIds = await this.insertRecordsAndGetIds(
+        targetTableName,
+        ownerCreateRows,
+        knex,
+      );
+      for (let index = 0; index < createdIds.length; index++) {
+        const id = createdIds[index];
+        if (id != null) {
+          this.pushGroupedUpdate(parentFkUpdates, id, ownerCreateParentIds[index]);
+        }
+      }
+    }
+
+    await this.applyParentFkUpdates(
+      tableName,
+      foreignKeyColumn,
+      parentFkUpdates,
+      knex,
+    );
+  }
+
+  async handleCascadeRelationsBatch(
+    tableName: string,
+    entries: Array<{ recordId: any; contextData: any }>,
+    cascadeContextMap: Map<string, any>,
+    knexOrTrx?: Knex | Knex.Transaction,
+  ): Promise<void> {
+    const knex = knexOrTrx || this.knexInstance;
+    const activeEntries = entries
+      .map((entry) => ({
+        recordId: entry.recordId,
+        relationData:
+          entry.contextData?.relationData || entry.contextData || {},
+      }))
+      .filter(
+        (entry) =>
+          entry.recordId != null &&
+          entry.relationData &&
+          typeof entry.relationData === 'object',
+      );
+    if (activeEntries.length === 0) {
+      cascadeContextMap.delete(tableName);
+      return;
+    }
+
+    const metadata = await this.metadataCacheService.getMetadata();
+    const tableMetadata =
+      metadata.tables?.get?.(tableName) ||
+      metadata.tablesList?.find((t: any) => t.name === tableName);
+
+    const relations = Array.isArray(tableMetadata?.relations)
+      ? tableMetadata.relations
+      : Object.values(tableMetadata?.relations || {});
+
+    if (relations.length === 0) {
+      cascadeContextMap.delete(tableName);
+      return;
+    }
+
+    for (const relation of relations as any[]) {
+      const relName = relation.propertyName;
+      const relationEntries = activeEntries.filter(
+        (entry) => relName in entry.relationData,
+      );
+      if (relationEntries.length === 0) continue;
+
+      if (relation.type === 'many-to-one') {
+        await this.handleManyToOneBatch(
+          tableName,
+          relation,
+          relationEntries,
+          knex,
+        );
+      } else if (relation.type === 'many-to-many') {
+        await this.handleManyToManyBatch(
+          tableName,
+          relation,
+          relationEntries,
+          knex,
+        );
+      } else if (relation.type === 'one-to-many') {
+        await this.handleOneToManyBatch(relation, relationEntries, knex);
+      } else if (relation.type === 'one-to-one') {
+        await this.handleOneToOneBatch(
+          tableName,
+          relation,
+          relationEntries,
+          knex,
+        );
+      }
+    }
+
+    cascadeContextMap.delete(tableName);
+  }
+
   async syncManyToManyRelations(tableName: string, data: any): Promise<void> {
     if (!data || typeof data !== 'object') return;
     if (Array.isArray(data)) {
@@ -537,6 +873,61 @@ export class CascadeHandler {
     }
 
     return newId ?? null;
+  }
+
+  private async insertRecordsAndGetIds(
+    targetTableName: string,
+    rows: any[],
+    knexOrTrx?: Knex | Knex.Transaction,
+  ): Promise<any[]> {
+    if (rows.length === 0) return [];
+
+    const preparedRows: any[] = [];
+    for (const row of rows) {
+      await this.checkPolicy(targetTableName, 'create', row);
+      await this.checkFieldPermission(targetTableName, 'create', row);
+      const nextRow = { ...row };
+      delete nextRow.id;
+      preparedRows.push(nextRow);
+    }
+
+    if (this.insertManyWithCascade) {
+      return await this.insertManyWithCascade(
+        targetTableName,
+        preparedRows,
+        knexOrTrx,
+      );
+    }
+
+    const ids: any[] = [];
+    for (const row of preparedRows) {
+      ids.push(await this.insertRecordAndGetId(targetTableName, row, knexOrTrx));
+    }
+    return ids;
+  }
+
+  private pushGroupedUpdate(
+    groupedUpdates: Map<any, any[]>,
+    value: any,
+    recordId: any,
+  ): void {
+    const records = groupedUpdates.get(value) || [];
+    records.push(recordId);
+    groupedUpdates.set(value, records);
+  }
+
+  private async applyParentFkUpdates(
+    tableName: string,
+    foreignKeyColumn: string,
+    groupedUpdates: Map<any, any[]>,
+    knex: Knex | Knex.Transaction,
+  ): Promise<void> {
+    for (const [value, recordIds] of groupedUpdates) {
+      if (recordIds.length === 0) continue;
+      await knex(tableName)
+        .whereIn('id', recordIds)
+        .update({ [foreignKeyColumn]: value });
+    }
   }
 
   private async prepareUpdateData(

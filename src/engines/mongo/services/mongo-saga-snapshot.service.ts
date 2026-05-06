@@ -248,6 +248,16 @@ export class MongoSagaSnapshotService {
     );
   }
 
+  async deleteSnapshotsForSession(sessionId: string): Promise<number> {
+    await this.ensureCollection();
+    const result = await this.getSnapshotCollection().deleteMany({ sessionId });
+    await this.mongoService
+      .getDb()
+      .collection(this.counterCollectionName)
+      .deleteOne({ _id: sessionId as any });
+    return result.deletedCount || 0;
+  }
+
   async rollbackTransaction(sessionId: string): Promise<IRollbackResult> {
     await this.ensureCollection();
 
@@ -419,24 +429,32 @@ export class MongoSagaSnapshotService {
   }
 
   async cleanupOldSnapshots(olderThanDays: number = 7): Promise<number> {
-    const cutoffDate = new Date(
-      Date.now() - olderThanDays * 24 * 60 * 60 * 1000,
-    );
-    const result = await this.getSnapshotCollection().deleteMany({
-      createdAt: { $lt: cutoffDate },
+    await this.ensureCollection();
+    const filter: Record<string, any> = {
       status: { $in: ['completed', 'rolled_back', 'aborted'] },
-    });
+    };
+    if (olderThanDays > 0) {
+      filter.createdAt = {
+        $lt: new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000),
+      };
+    }
+    const sessionIds = await this.getSnapshotCollection().distinct(
+      'sessionId',
+      filter,
+    );
+    const result = await this.getSnapshotCollection().deleteMany(filter);
 
-    const staleSessionIds = await this.getSnapshotCollection().distinct(
+    const remainingSessionIds = await this.getSnapshotCollection().distinct(
       'sessionId',
       {
-        createdAt: { $lt: cutoffDate },
+        sessionId: { $in: sessionIds },
       },
     );
-    const activeSessionIds =
-      await this.getSnapshotCollection().distinct('sessionId');
-    const orphanedCounterIds = staleSessionIds.filter(
-      (id: any) => !activeSessionIds.includes(id),
+    const remainingSessionIdSet = new Set(
+      remainingSessionIds.map((id: any) => String(id)),
+    );
+    const orphanedCounterIds = sessionIds.filter(
+      (id: any) => !remainingSessionIdSet.has(String(id)),
     );
     if (orphanedCounterIds.length > 0) {
       await this.mongoService

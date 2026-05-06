@@ -21,12 +21,15 @@ function makeService() {
     processNestedRelations: vi.fn(async (_table, data) => data),
     clearUniqueFKHolders: vi.fn().mockResolvedValue(undefined),
     updateInverseRelationsOnUpdate: vi.fn().mockResolvedValue(undefined),
+    updateInverseRelationsOnInsertMany: vi.fn().mockResolvedValue(undefined),
     writeM2mJunctionsForInsert: vi.fn().mockResolvedValue(undefined),
+    writeM2mJunctionsForInsertMany: vi.fn().mockResolvedValue(undefined),
     writeM2mJunctionsForUpdate: vi.fn().mockResolvedValue(undefined),
     cleanupInverseRelationsOnDelete: vi.fn().mockResolvedValue(undefined),
   };
   const collection = {
     insertOne: vi.fn(async () => ({ insertedId: new ObjectId() })),
+    insertMany: vi.fn(async () => ({ acknowledged: true })),
     updateOne: vi.fn(async () => ({ matchedCount: 1, modifiedCount: 1 })),
     deleteOne: vi.fn(async () => ({ deletedCount: 1 })),
     findOne: vi.fn(async () => ({ _id: new ObjectId(), name: 'old' })),
@@ -119,5 +122,34 @@ describe('MongoHookManagerService integration', () => {
         'afterSelect',
       ]),
     );
+  });
+});
+
+describe('MongoService insertManyWithCascade', () => {
+  it('uses one insertMany and one batched cascade hook for multiple documents', async () => {
+    const { service, collection, relationManager } = makeService();
+    const events: string[] = [];
+
+    service.getHookManager().addHook('beforeInsert', async (_table, data) => {
+      events.push(`before:${data.name}`);
+      return data;
+    });
+    service.getHookManager().addHook('afterInsertMany', async (_table, rows) => {
+      events.push(`afterMany:${rows.length}`);
+      return rows;
+    });
+
+    const rows = await service.insertManyWithCascade('post', [
+      { name: 'a' },
+      { name: 'b' },
+    ]);
+
+    expect(rows).toHaveLength(2);
+    expect(collection.insertMany).toHaveBeenCalledTimes(1);
+    expect(collection.insertOne).not.toHaveBeenCalled();
+    expect(relationManager.updateInverseRelationsOnInsertMany).toHaveBeenCalledTimes(1);
+    expect(relationManager.writeM2mJunctionsForInsertMany).toHaveBeenCalledTimes(1);
+    expect(relationManager.updateInverseRelationsOnUpdate).not.toHaveBeenCalled();
+    expect(events).toEqual(['before:a', 'before:b', 'afterMany:2']);
   });
 });

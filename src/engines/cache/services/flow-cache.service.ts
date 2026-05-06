@@ -1,6 +1,5 @@
 import { DatabaseConfigService } from '../../../shared/services';
 import { EventEmitter2 } from 'eventemitter2';
-import { QueryBuilderService } from '@enfyra/kernel';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import {
@@ -8,7 +7,9 @@ import {
   CACHE_IDENTIFIERS,
 } from '../../../shared/utils/cache-events.constants';
 import {
+  normalizeFlowStepScriptConfig,
   normalizeScriptLanguage,
+  QueryBuilderService,
   resolveExecutableScript,
 } from '@enfyra/kernel';
 import { FlowDefinition, FlowStep } from '../../../shared/types/flow.types';
@@ -54,19 +55,27 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
 
       const steps: FlowStep[] = [];
       for (const step of rawSteps) {
-        if (
-          (step.type === 'script' || step.type === 'condition') &&
-          (step.config?.sourceCode || step.config?.code)
-        ) {
-          step.config.sourceCode = step.config.sourceCode ?? step.config.code;
-          step.config.scriptLanguage = normalizeScriptLanguage(
-            step.config.scriptLanguage,
-          );
-          const result = resolveExecutableScript(step.config);
-          step.config.compiledCode = result.compiledCode;
-          step.config.code = result.code;
-          if (result.shouldPersistCompiledCode) {
-            await this.persistStepConfigRepair(step, idField);
+        if (step.type === 'script' || step.type === 'condition') {
+          const hadLegacyScriptConfig =
+            typeof step.config === 'string' || this.hasLegacyScriptConfig(step);
+          const normalizedStep = normalizeFlowStepScriptConfig(step);
+          Object.assign(step, normalizedStep);
+          if (step.sourceCode || step.compiledCode) {
+            step.scriptLanguage = normalizeScriptLanguage(step.scriptLanguage);
+            const result = resolveExecutableScript(step);
+            step.compiledCode = result.compiledCode;
+            if (result.code) {
+              step.config = {
+                ...(step.config || {}),
+                sourceCode: step.sourceCode,
+                scriptLanguage: step.scriptLanguage,
+                compiledCode: step.compiledCode,
+                code: result.code,
+              };
+            }
+            if (result.shouldPersistCompiledCode || hadLegacyScriptConfig) {
+              await this.persistStepScriptRepair(step, idField);
+            }
           }
         }
         steps.push({
@@ -75,6 +84,9 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
           stepOrder: step.stepOrder,
           type: step.type,
           config: step.config,
+          sourceCode: step.sourceCode ?? null,
+          scriptLanguage: step.scriptLanguage ?? 'typescript',
+          compiledCode: step.compiledCode ?? null,
           timeout: step.timeout || 5000,
           onError: step.onError || 'stop',
           retryAttempts: step.retryAttempts || 0,
@@ -101,15 +113,33 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
     return flows;
   }
 
-  private async persistStepConfigRepair(
+  private hasLegacyScriptConfig(step: any): boolean {
+    const config = step?.config;
+    return Boolean(
+      config &&
+        typeof config === 'object' &&
+        ('sourceCode' in config ||
+          'scriptLanguage' in config ||
+          'compiledCode' in config ||
+          'code' in config),
+    );
+  }
+
+  private async persistStepScriptRepair(
     step: any,
     idField: string,
   ): Promise<void> {
     const id = step[idField];
     if (id == null) return;
-    const config = { ...step.config };
+    const config = { ...(step.config || {}) };
+    delete config.sourceCode;
+    delete config.scriptLanguage;
+    delete config.compiledCode;
     delete config.code;
     await this.queryBuilderService.update('flow_step_definition', id, {
+      sourceCode: step.sourceCode ?? null,
+      scriptLanguage: step.scriptLanguage ?? 'typescript',
+      compiledCode: step.compiledCode ?? null,
       config,
     });
   }

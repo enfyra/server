@@ -37,6 +37,12 @@ import {
 } from '@enfyra/kernel';
 import { FlowQueueMaintenanceService } from '../../flow';
 
+interface DynamicBatchCreateResult {
+  accepted: true;
+  batch: true;
+  count: number;
+}
+
 export class DynamicRepository {
   public context: TDynamicContext;
   private tableName: string;
@@ -665,55 +671,23 @@ export class DynamicRepository {
     return Array.isArray(result?.data) && result.data.length > 0;
   }
 
-  async create(opt: { data: any; fields?: string | string[] }) {
+  async create(opt: {
+    data: any;
+    fields?: string | string[];
+    batch?: boolean;
+  }): Promise<any | DynamicBatchCreateResult> {
     await this.ensureInit();
     try {
-      const { data: body, fields } = opt;
-      if (!body || typeof body !== 'object') {
-        throw new BadRequestException('data is required and must be an object');
+      const { data, fields, batch } = opt;
+      if (batch) {
+        return await this.createBatch(data);
       }
 
-      await this.assertDirectFieldPermission('create', body);
-
-      await this.tableValidationService.assertTableValid({
-        operation: 'create',
-        tableName: this.tableName,
-        tableMetadata: this.tableMetadata,
-      });
-      const createDecision = await this.policyService.checkMutationSafety({
-        operation: 'create',
-        tableName: this.tableName,
-        data: body,
-        existing: null,
-        currentUser: this.context.$user,
-      });
-      if (isPolicyDeny(createDecision)) {
-        throw new BadRequestException(createDecision.message);
-      }
-      if (this.tableName === 'route_definition') {
-        this.filterMethodsSubsetOfAvailable(body, null, 'publishedMethods');
-        this.filterMethodsSubsetOfAvailable(body, null, 'skipRoleGuardMethods');
-      }
-      if (this.tableName === 'extension_definition' && body.code) {
-        const { processExtensionDefinition } =
-          await import('../../extension-definition/utils/processor.util');
-        const { processedBody } = await processExtensionDefinition(
-          body,
-          'POST',
-        );
-        Object.assign(body, processedBody);
-      }
-      Object.assign(body, normalizeScriptRecord(this.tableName, body));
-      if (this.tableName === 'flow_step_definition') {
-        Object.assign(body, normalizeFlowStepScriptConfig(body));
-      }
-      if (this.tableName === 'column_rule_definition') {
-        await this.assertColumnRuleUnique(body, null);
-      }
+      const body = await this.prepareCreateBody(data);
       if (this.tableName === 'table_definition') {
         body.isSystem = false;
         const table: any = await this.tableHandlerService.createTable(
-          body,
+          body as any,
           this.context,
         );
         const idValue = table._id || table.id;
@@ -726,18 +700,7 @@ export class DynamicRepository {
           fields,
         });
       }
-      if (body.id !== undefined) {
-        delete body.id;
-      }
-      if (body._id !== undefined) {
-        delete body._id;
-      }
-      const inserted = await this.wrapWithFieldPermissionCheck(() =>
-        this.queryBuilderService.runWithPolicy(
-          (tbl, op, d) => this.cascadePolicyCheck(tbl, op, d),
-          () => this.queryBuilderService.insert(this.tableName, body),
-        ),
-      );
+      const inserted = await this.executeCreateBody(body);
       const createdId = inserted.id || inserted._id || body.id;
       try {
         const result = await this.find({
@@ -777,6 +740,92 @@ export class DynamicRepository {
         error.message || 'Document failed validation',
       );
     }
+  }
+
+  private async createBatch(data: any): Promise<DynamicBatchCreateResult> {
+    if (this.tableName === 'table_definition') {
+      throw new BadRequestException('Batch create is not supported for tables');
+    }
+
+    const rows = Array.isArray(data) ? data : [data];
+    if (rows.length === 0) {
+      throw new BadRequestException('data must contain at least one record');
+    }
+
+    const preparedRows: Record<string, any>[] = [];
+    for (const row of rows) {
+      preparedRows.push(await this.prepareCreateBody(row));
+    }
+
+    for (const body of preparedRows) {
+      await (this.queryBuilderService as any).insert(this.tableName, body, {
+        batch: true,
+      });
+    }
+
+    return {
+      accepted: true,
+      batch: true,
+      count: preparedRows.length,
+    };
+  }
+
+  private async prepareCreateBody(raw: any): Promise<Record<string, any>> {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new BadRequestException('data is required and must be an object');
+    }
+
+    const body = { ...raw };
+    await this.assertDirectFieldPermission('create', body);
+
+    await this.tableValidationService.assertTableValid({
+      operation: 'create',
+      tableName: this.tableName,
+      tableMetadata: this.tableMetadata,
+    });
+    const createDecision = await this.policyService.checkMutationSafety({
+      operation: 'create',
+      tableName: this.tableName,
+      data: body,
+      existing: null,
+      currentUser: this.context.$user,
+    });
+    if (isPolicyDeny(createDecision)) {
+      throw new BadRequestException(createDecision.message);
+    }
+    if (this.tableName === 'route_definition') {
+      this.filterMethodsSubsetOfAvailable(body, null, 'publishedMethods');
+      this.filterMethodsSubsetOfAvailable(body, null, 'skipRoleGuardMethods');
+    }
+    if (this.tableName === 'extension_definition' && body.code) {
+      const { processExtensionDefinition } =
+        await import('../../extension-definition/utils/processor.util');
+      const { processedBody } = await processExtensionDefinition(body, 'POST');
+      Object.assign(body, processedBody);
+    }
+    Object.assign(body, normalizeScriptRecord(this.tableName, body));
+    if (this.tableName === 'flow_step_definition') {
+      Object.assign(body, normalizeFlowStepScriptConfig(body));
+    }
+    if (this.tableName === 'column_rule_definition') {
+      await this.assertColumnRuleUnique(body, null);
+    }
+    if (body.id !== undefined) {
+      delete body.id;
+    }
+    if (body._id !== undefined) {
+      delete body._id;
+    }
+    return body;
+  }
+
+  private async executeCreateBody(body: Record<string, any>): Promise<any> {
+    return await this.wrapWithFieldPermissionCheck(() =>
+      this.queryBuilderService.runWithPolicy(
+        (tbl, op, d) => this.cascadePolicyCheck(tbl, op, d),
+        () => this.queryBuilderService.insert(this.tableName, body),
+      ),
+    );
   }
 
   async update(opt: {
@@ -840,6 +889,15 @@ export class DynamicRepository {
           ...exists,
           ...body,
         });
+        if ('sourceCode' in normalizedFlowStep) {
+          body.sourceCode = normalizedFlowStep.sourceCode;
+        }
+        if ('scriptLanguage' in normalizedFlowStep) {
+          body.scriptLanguage = normalizedFlowStep.scriptLanguage;
+        }
+        if ('compiledCode' in normalizedFlowStep) {
+          body.compiledCode = normalizedFlowStep.compiledCode;
+        }
         if ('config' in normalizedFlowStep) {
           body.config = normalizedFlowStep.config;
         }

@@ -9,6 +9,7 @@ export class MongoHookManagerService {
   private hooks: MongoHookRegistry = {
     beforeInsert: [],
     afterInsert: [],
+    afterInsertMany: [],
     beforeUpdate: [],
     afterUpdate: [],
     beforeDelete: [],

@@ -1,6 +1,11 @@
 import { Logger } from '../../../shared/logger';
 import { Job, Queue, Worker } from 'bullmq';
-import { ExecutorEngineService } from '@enfyra/kernel';
+import { appendFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
+import { dirname } from 'node:path';
+import {
+  ExecutorEngineService,
+  type IsolatedExecutorService,
+} from '@enfyra/kernel';
 import { RepoRegistryService, FlowCacheService } from '../../../engines/cache';
 import {
   getErrorMessage,
@@ -14,7 +19,10 @@ import {
   FlowStep,
   FlowJobData,
 } from '../../../shared/types/flow.types';
-import { executeStepCore } from '../utils/step-executor.util';
+import {
+  executeStepCore,
+  getExecutableStepConfig,
+} from '../utils/step-executor.util';
 import {
   DynamicContextFactory,
   EnvService,
@@ -37,8 +45,10 @@ export class FlowExecutionQueueService {
   private readonly websocketEmitService: WebsocketEmitService;
   private readonly dynamicContextFactory: DynamicContextFactory;
   private readonly envService: EnvService;
+  private readonly isolatedExecutorService: IsolatedExecutorService;
   private readonly runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
   private readonly flowQueue: Queue;
+  private readonly traceFile?: string;
   private worker?: Worker;
 
   constructor(deps: {
@@ -49,6 +59,7 @@ export class FlowExecutionQueueService {
     websocketEmitService: WebsocketEmitService;
     dynamicContextFactory: DynamicContextFactory;
     envService: EnvService;
+    isolatedExecutorService: IsolatedExecutorService;
     runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
     flowQueue: Queue;
   }) {
@@ -59,14 +70,24 @@ export class FlowExecutionQueueService {
     this.websocketEmitService = deps.websocketEmitService;
     this.dynamicContextFactory = deps.dynamicContextFactory;
     this.envService = deps.envService;
+    this.isolatedExecutorService = deps.isolatedExecutorService;
     this.runtimeMetricsCollectorService = deps.runtimeMetricsCollectorService;
     this.flowQueue = deps.flowQueue;
+    const traceFile = this.envService.get('FLOW_WORKER_TRACE_FILE');
+    this.traceFile =
+      traceFile && (!existsSync(traceFile) || !statSync(traceFile).isDirectory())
+        ? traceFile
+        : undefined;
+    if (this.traceFile) {
+      mkdirSync(dirname(this.traceFile), { recursive: true });
+    }
   }
 
   async init() {
     if (this.worker) return;
 
     const nodeName = this.envService.get('NODE_NAME') || 'enfyra';
+    const concurrency = this.resolveConcurrency();
     this.worker = new Worker(
       SYSTEM_QUEUES.FLOW_EXECUTION,
       async (job: Job<FlowJobData>) => {
@@ -84,7 +105,7 @@ export class FlowExecutionQueueService {
           url: this.envService.get('REDIS_URI'),
           maxRetriesPerRequest: null,
         },
-        concurrency: 5,
+        concurrency,
       },
     );
 
@@ -98,7 +119,25 @@ export class FlowExecutionQueueService {
       this.logger.error(`Flow queue worker error: ${err.message}`);
     });
     this.logger.log(
-      `Flow queue worker started on ${SYSTEM_QUEUES.FLOW_EXECUTION}`,
+      `Flow queue worker started on ${SYSTEM_QUEUES.FLOW_EXECUTION} with concurrency ${concurrency}`,
+    );
+  }
+
+  private resolveConcurrency(): number {
+    const configured = this.envService.get('FLOW_WORKER_CONCURRENCY');
+    if (configured) return configured;
+
+    const executorWorkers =
+      this.isolatedExecutorService.getMetrics().tuning.maxConcurrentWorkers;
+    const sqlPoolMax = this.envService.get('SQL_POOL_MAX') || 4;
+    return Math.max(1, Math.min(sqlPoolMax + 1, executorWorkers * 2 + 1));
+  }
+
+  private trace(event: string, data: Record<string, any>): void {
+    if (!this.traceFile) return;
+    appendFileSync(
+      this.traceFile,
+      JSON.stringify({ event, ts: Date.now(), ...data }) + '\n',
     );
   }
 
@@ -110,6 +149,7 @@ export class FlowExecutionQueueService {
   }
 
   async process(job: Job<FlowJobData>): Promise<any> {
+    const processStarted = Date.now();
     const {
       flowId,
       flowName,
@@ -137,12 +177,14 @@ export class FlowExecutionQueueService {
         : await this.flowCacheService.getFlowById(flowId);
     };
 
+    const resolveStarted = Date.now();
     let flow = await resolveFlow();
 
     if (!flow) {
       await this.flowCacheService.reload();
       flow = await resolveFlow();
     }
+    const resolveFlowMs = Date.now() - resolveStarted;
 
     if (!flow) {
       throw new Error(`Flow ${flowName || flowId} not found`);
@@ -155,8 +197,7 @@ export class FlowExecutionQueueService {
     }
 
     const currentVisited = [...visitedFlowIds, flow.id];
-
-    const executionId = await this.createExecution(flow, payload, triggeredBy);
+    const executionId = String(job.id ?? `${flow.id}:${Date.now()}`);
 
     this.emitFlowEvent(triggeredBy, {
       executionId,
@@ -169,11 +210,6 @@ export class FlowExecutionQueueService {
     this.runtimeMetricsCollectorService?.startFlow(flow.id, flow.name);
 
     try {
-      await this.updateExecution(executionId, {
-        status: 'running',
-        startedAt: new Date(),
-      });
-
       this.emitFlowEvent(triggeredBy, {
         executionId,
         flowId: flow.id,
@@ -181,6 +217,7 @@ export class FlowExecutionQueueService {
         status: 'running',
       });
 
+      const executeFlowStarted = Date.now();
       const result = await this.executeFlow(
         flow,
         payload,
@@ -190,14 +227,19 @@ export class FlowExecutionQueueService {
         depth,
         currentVisited,
       );
+      const executeFlowMs = Date.now() - executeFlowStarted;
 
-      await this.updateExecution(executionId, {
+      const historyEnqueueStarted = Date.now();
+      this.enqueueExecutionHistory(flow, payload, triggeredBy, {
         status: 'completed',
+        startedAt: new Date(startTime),
         completedAt: new Date(),
         duration: Date.now() - startTime,
         context: result.context,
         completedSteps: result.completedSteps,
+        currentStep: result.context?.$meta?.currentStep || null,
       });
+      const historyEnqueueMs = Date.now() - historyEnqueueStarted;
 
       this.emitFlowEvent(triggeredBy, {
         executionId,
@@ -218,14 +260,27 @@ export class FlowExecutionQueueService {
         durationMs: Date.now() - startTime,
         status: 'completed',
       });
+      this.trace('flow_job', {
+        jobId: job.id,
+        flowId: flow.id,
+        flowName: flow.name,
+        status: 'completed',
+        resolveFlowMs,
+        executeFlowMs,
+        historyEnqueueMs,
+        totalMs: Date.now() - processStarted,
+      });
       return { success: true, executionId, context: result.context };
     } catch (error) {
-      await this.updateExecution(executionId, {
+      const historyEnqueueStarted = Date.now();
+      this.enqueueExecutionHistory(flow, payload, triggeredBy, {
         status: 'failed',
+        startedAt: new Date(startTime),
         completedAt: new Date(),
         duration: Date.now() - startTime,
         error: { message: getErrorMessage(error), stack: getErrorStack(error) },
       });
+      const historyEnqueueMs = Date.now() - historyEnqueueStarted;
 
       this.emitFlowEvent(triggeredBy, {
         executionId,
@@ -246,6 +301,16 @@ export class FlowExecutionQueueService {
         flowName: flow.name,
         durationMs: Date.now() - startTime,
         status: 'failed',
+      });
+      this.trace('flow_job', {
+        jobId: job.id,
+        flowId: flow.id,
+        flowName: flow.name,
+        status: 'failed',
+        resolveFlowMs,
+        historyEnqueueMs,
+        totalMs: Date.now() - processStarted,
+        error: getErrorMessage(error),
       });
       return { success: false, executionId, error: getErrorMessage(error) };
     }
@@ -296,33 +361,29 @@ export class FlowExecutionQueueService {
     }
   }
 
-  private async createExecution(
+  private enqueueExecutionHistory(
     flow: FlowDefinition,
     payload: any,
     triggeredBy: any,
-  ): Promise<string> {
-    const execution = await this.queryBuilderService.insert(
-      'flow_execution_definition',
-      {
-        flow: flow.id,
-        status: 'pending',
-        triggeredBy: triggeredBy?.id || null,
-        payload: payload || {},
-        startedAt: new Date(),
-      },
-    );
-    return execution.id || execution._id;
-  }
-
-  private async updateExecution(
-    executionId: number | string,
-    updates: any,
-  ): Promise<void> {
-    await this.queryBuilderService.update(
-      'flow_execution_definition',
-      executionId as any,
-      updates,
-    );
+    finalState: Record<string, any>,
+  ): void {
+    void (this.queryBuilderService as any)
+      .insert(
+        'flow_execution_definition',
+        {
+          flow: flow.id,
+          status: finalState.status,
+          triggeredBy: triggeredBy?.id || null,
+          payload: payload || {},
+          ...finalState,
+        },
+        { batch: true },
+      )
+      .catch((error: any) =>
+        this.logger.error(
+          `Flow execution history enqueue failed for ${flow.name}: ${getErrorMessage(error)}`,
+        ),
+      );
   }
 
   private async executeFlow(
@@ -397,19 +458,32 @@ export class FlowExecutionQueueService {
     const runStep = async (step: FlowStep): Promise<void> => {
       if (!step.isEnabled) return;
 
-      await this.updateExecution(executionId, { currentStep: step.key });
       flowContext.$meta.currentStep = step.key;
       const stepStart = Date.now();
 
       try {
+        const executeStepStarted = Date.now();
         const result = await this.executeStep(
           step,
           ctx,
           (flow as any).timeout,
           visitedFlowIds,
         );
+        const executeStepMs = Date.now() - executeStepStarted;
         flowContext[step.key] = result;
         flowContext.$last = result;
+        this.trace('flow_step', {
+          jobId: job.id,
+          executionId,
+          flowId: flow.id,
+          flowName: flow.name,
+          stepKey: step.key,
+          stepType: step.type,
+          status: 'completed',
+          updateCurrentStepMs: 0,
+          executeStepMs,
+          totalMs: Date.now() - stepStart,
+        });
 
         const entry: any = {
           key: step.key,
@@ -430,11 +504,13 @@ export class FlowExecutionQueueService {
           completedSteps.push(entry);
         }
 
-        await job.updateProgress({
-          completedSteps,
-          currentStep: step.key,
-          totalSteps: allSteps.length,
-        });
+        job
+          .updateProgress({
+            completedSteps,
+            currentStep: step.key,
+            totalSteps: allSteps.length,
+          })
+          .catch(() => {});
         this.runtimeMetricsCollectorService?.recordFlowStep({
           flowId: flow.id,
           flowName: flow.name,
@@ -442,13 +518,27 @@ export class FlowExecutionQueueService {
           durationMs: Date.now() - stepStart,
         });
       } catch (error: any) {
+        this.trace('flow_step', {
+          jobId: job.id,
+          executionId,
+          flowId: flow.id,
+          flowName: flow.name,
+          stepKey: step.key,
+          stepType: step.type,
+          status: 'failed',
+          updateCurrentStepMs: 0,
+          totalMs: Date.now() - stepStart,
+          error: getErrorMessage(error),
+        });
         try {
-          await job.updateProgress({
-            completedSteps,
-            currentStep: step.key,
-            failedStep: step.key,
-            totalSteps: allSteps.length,
-          });
+          job
+            .updateProgress({
+              completedSteps,
+              currentStep: step.key,
+              failedStep: step.key,
+              totalSteps: allSteps.length,
+            })
+            .catch(() => {});
         } catch {}
         this.runtimeMetricsCollectorService?.recordFlowStep({
           flowId: flow.id,
@@ -524,7 +614,7 @@ export class FlowExecutionQueueService {
   ): Promise<any> {
     const raw = (step as any).timeout || flowTimeout || 5000;
     const timeout = Math.min(Math.max(raw, 1), MAX_STEP_TIMEOUT);
-    const config = step.config || {};
+    const config = getExecutableStepConfig(step);
 
     if (step.type === 'trigger_flow') {
       const targetFlow =
