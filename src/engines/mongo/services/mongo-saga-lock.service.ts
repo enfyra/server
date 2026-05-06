@@ -234,6 +234,10 @@ export class MongoSagaLockService {
   ): Promise<ILockAcquisitionResult> {
     await this.ensureCollections();
 
+    if (resources.length > 1 && resources.every((r) => r.mode === 'write')) {
+      return this.acquireWriteLocksBatch(txId, resources);
+    }
+
     const maxRetries = options?.maxRetries || this.maxRetries;
     const acquiredLocks: string[] = [];
     const failedLocks: string[] = [];
@@ -399,6 +403,97 @@ export class MongoSagaLockService {
         return true;
       }
       throw error;
+    }
+  }
+
+  private async acquireWriteLocksBatch(
+    txId: string,
+    resources: Array<{ type: string; id: string; mode: 'read' | 'write' }>,
+  ): Promise<ILockAcquisitionResult> {
+    await this.updateTransactionActivity(txId);
+    await this.cleanupExpiredLocks();
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + this.lockTimeoutMs);
+    const sortedResources = [...resources].sort((a, b) => {
+      const keyA = `${a.type}:${a.id}`;
+      const keyB = `${b.type}:${b.id}`;
+      return keyA.localeCompare(keyB);
+    });
+    const resourceByKey = new Map<string, (typeof sortedResources)[number]>();
+    for (const resource of sortedResources) {
+      resourceByKey.set(`${resource.type}:${resource.id}`, resource);
+    }
+    const resourceKeys = Array.from(resourceByKey.keys());
+
+    const conflictingLocks = await this.getLocksCollection()
+      .find({
+        resourceKey: { $in: resourceKeys },
+        txId: { $ne: txId },
+        expiresAt: { $gt: now },
+      })
+      .toArray();
+
+    if (conflictingLocks.length > 0) {
+      return {
+        success: false,
+        txId,
+        acquiredLocks: [],
+        failedLocks: conflictingLocks.map((lock) => lock.resourceKey),
+        error: 'Conflicting locks exist on requested resources',
+      };
+    }
+
+    const lockDocs = resourceKeys.map((resourceKey) => {
+      const resource = resourceByKey.get(resourceKey)!;
+      return {
+        _id: `${txId}:${resourceKey}`,
+        txId,
+        resourceKey,
+        resourceType: resource.type,
+        resourceId: resource.id,
+        lockMode: 'write' as const,
+        lockedAt: now,
+        expiresAt,
+        lockedBy: this.instanceId,
+        lockedByInstance: this.instanceId,
+        retryCount: 0,
+      };
+    });
+
+    try {
+      await this.getLocksCollection().insertMany(lockDocs as any[], {
+        ordered: false,
+      });
+
+      await this.getMetaCollection().updateOne(
+        { txId },
+        {
+          $addToSet: {
+            resources: { $each: resourceKeys },
+            collections: { $each: this.getCollectionNames(resources) },
+          },
+          $set: {
+            lastActivityAt: new Date(),
+            expiresAt: new Date(Date.now() + this.txTimeoutMs),
+          },
+        },
+      );
+
+      return {
+        success: true,
+        txId,
+        acquiredLocks: resourceKeys,
+      };
+    } catch (error) {
+      await this.releaseLocks(txId, resourceKeys);
+      throw new DatabaseException(
+        `Batch lock acquisition failed: ${getErrorMessage(error)}`,
+        {
+          txId,
+          resources: resourceKeys,
+        },
+      );
     }
   }
 
