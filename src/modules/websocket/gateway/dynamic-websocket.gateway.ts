@@ -412,6 +412,7 @@ export class DynamicWebSocketGateway {
         id: socket.id,
         ip: socket.handshake.address,
         headers: socket.handshake.headers,
+        auth: socket.handshake.auth,
       },
       user: userId ? { id: userId } : null,
     });
@@ -663,7 +664,7 @@ export class DynamicWebSocketGateway {
     const type = action.action ?? action.type;
     const event = String(action.event ?? action.eventName ?? '');
     const data = this.resolvePayloadExpression(
-      action.payloadExpression ?? action.payload ?? '$data',
+      action.payloadExpression ?? action.payload ?? '{{ data }}',
       payload,
     );
 
@@ -713,7 +714,7 @@ export class DynamicWebSocketGateway {
       throw new Error('Native websocket flow trigger requires flowId or flowName');
     }
     const flowPayload = this.resolvePayloadExpression(
-      flow.payloadExpression ?? flow.payload ?? '$data',
+      flow.payloadExpression ?? flow.payload ?? '{{ data }}',
       payload,
     );
     await this.lazyRef.flowService.trigger(
@@ -763,12 +764,17 @@ export class DynamicWebSocketGateway {
   }
 
   private resolvePayloadExpression(expression: any, payload: any): any {
-    if (expression === undefined || expression === null || expression === '$data') {
+    if (
+      expression === undefined ||
+      expression === null ||
+      expression === '$data' ||
+      expression === '{{ data }}'
+    ) {
       return payload;
     }
     if (typeof expression === 'string') {
       const trimmed = expression.trim();
-      if (trimmed === '$data') return payload;
+      if (trimmed === '$data' || trimmed === '{{ data }}') return payload;
       if (trimmed.startsWith('$data.')) {
         return this.getPathValue(payload, trimmed.slice('$data.'.length));
       }

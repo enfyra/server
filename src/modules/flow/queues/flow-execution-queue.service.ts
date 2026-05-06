@@ -2,6 +2,7 @@ import { Logger } from '../../../shared/logger';
 import { Job, Queue, Worker } from 'bullmq';
 import { appendFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 import {
   ExecutorEngineService,
   type IsolatedExecutorService,
@@ -35,6 +36,16 @@ export type { FlowJobData } from '../../../shared/types/flow.types';
 const MAX_FLOW_DEPTH = 10;
 const MAX_STEP_TIMEOUT = 300000;
 const MAX_PAYLOAD_SIZE = 1024 * 1024;
+const DEFAULT_MAX_CONCURRENCY_MULTIPLIER = 2;
+
+type FlowWorkerConcurrencyTuning = {
+  mode: 'adaptive' | 'fixed';
+  initial: number;
+  min: number;
+  max: number;
+  intervalMs: number;
+  maxEventLoopLagMs: number;
+};
 
 export class FlowExecutionQueueService {
   private readonly logger = new Logger(FlowExecutionQueueService.name);
@@ -49,7 +60,14 @@ export class FlowExecutionQueueService {
   private readonly runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
   private readonly flowQueue: Queue;
   private readonly traceFile?: string;
+  private readonly flowWorkerEventLoopDelay = monitorEventLoopDelay({
+    resolution: 20,
+  });
   private worker?: Worker;
+  private tuneInterval?: NodeJS.Timeout;
+  private tuning?: FlowWorkerConcurrencyTuning;
+  private currentConcurrency = 0;
+  private idleTuneTicks = 0;
 
   constructor(deps: {
     executorEngineService: ExecutorEngineService;
@@ -87,7 +105,9 @@ export class FlowExecutionQueueService {
     if (this.worker) return;
 
     const nodeName = this.envService.get('NODE_NAME') || 'enfyra';
-    const concurrency = this.resolveConcurrency();
+    const tuning = this.resolveConcurrencyTuning();
+    this.tuning = tuning;
+    this.currentConcurrency = tuning.initial;
     this.worker = new Worker(
       SYSTEM_QUEUES.FLOW_EXECUTION,
       async (job: Job<FlowJobData>) => {
@@ -105,7 +125,7 @@ export class FlowExecutionQueueService {
           url: this.envService.get('REDIS_URI'),
           maxRetriesPerRequest: null,
         },
-        concurrency,
+        concurrency: tuning.initial,
       },
     );
 
@@ -119,18 +139,123 @@ export class FlowExecutionQueueService {
       this.logger.error(`Flow queue worker error: ${err.message}`);
     });
     this.logger.log(
-      `Flow queue worker started on ${SYSTEM_QUEUES.FLOW_EXECUTION} with concurrency ${concurrency}`,
+      `Flow queue worker started on ${SYSTEM_QUEUES.FLOW_EXECUTION} with concurrency ${tuning.initial}`,
     );
+    this.startAdaptiveConcurrencyTuning();
   }
 
-  private resolveConcurrency(): number {
+  private resolveConcurrencyTuning(): FlowWorkerConcurrencyTuning {
     const configured = this.envService.get('FLOW_WORKER_CONCURRENCY');
-    if (configured) return configured;
-
     const executorWorkers =
       this.isolatedExecutorService.getMetrics().tuning.maxConcurrentWorkers;
     const sqlPoolMax = this.envService.get('SQL_POOL_MAX') || 4;
-    return Math.max(1, Math.min(sqlPoolMax + 1, executorWorkers * 2 + 1));
+    const computed = Math.max(
+      1,
+      Math.min(sqlPoolMax + 1, executorWorkers * 2 + 1),
+    );
+    const initial = configured || computed;
+    const min = Math.min(
+      initial,
+      this.envService.get('FLOW_WORKER_CONCURRENCY_MIN') || initial,
+    );
+    const configuredMax = this.envService.get('FLOW_WORKER_CONCURRENCY_MAX');
+    const defaultMax = Math.max(
+      initial,
+      Math.min(32, initial * DEFAULT_MAX_CONCURRENCY_MULTIPLIER),
+    );
+    const max = Math.max(initial, configuredMax || defaultMax);
+    return {
+      mode: this.envService.get('FLOW_WORKER_CONCURRENCY_MODE'),
+      initial,
+      min,
+      max,
+      intervalMs: this.envService.get('FLOW_WORKER_TUNE_INTERVAL_MS'),
+      maxEventLoopLagMs: this.envService.get(
+        'FLOW_WORKER_TUNE_MAX_EVENT_LOOP_LAG_MS',
+      ),
+    };
+  }
+
+  private startAdaptiveConcurrencyTuning(): void {
+    const tuning = this.tuning;
+    if (!this.worker || !tuning || tuning.mode === 'fixed') return;
+    if (tuning.max <= tuning.min) return;
+
+    this.flowWorkerEventLoopDelay.enable();
+    this.tuneInterval = setInterval(() => {
+      void this.tuneWorkerConcurrency().catch((error) => {
+        this.logger.warn(
+          `Flow worker concurrency tuning failed: ${getErrorMessage(error)}`,
+        );
+      });
+    }, tuning.intervalMs);
+    this.tuneInterval.unref?.();
+  }
+
+  private async tuneWorkerConcurrency(): Promise<void> {
+    const worker = this.worker;
+    const tuning = this.tuning;
+    if (!worker || !tuning || tuning.mode !== 'adaptive') return;
+
+    const counts = await this.flowQueue.getJobCounts(
+      'waiting',
+      'active',
+      'delayed',
+    );
+    const waiting = counts.waiting ?? 0;
+    const active = counts.active ?? 0;
+    const delayed = counts.delayed ?? 0;
+    const eventLoopLagMs = this.readAndResetFlowWorkerEventLoopLag();
+    const executorMetrics = this.isolatedExecutorService.getMetrics();
+    const executorWaiting = executorMetrics.pool.waitingTasks;
+    const current = this.currentConcurrency;
+    let next = current;
+
+    const backlogPressure =
+      waiting > current * 8 || (waiting > current && active >= current);
+    const hasHeadroom =
+      eventLoopLagMs < tuning.maxEventLoopLagMs && executorWaiting === 0;
+    const eventLoopPressure =
+      eventLoopLagMs > tuning.maxEventLoopLagMs * 1.6;
+
+    if (eventLoopPressure && current > tuning.min) {
+      next = Math.max(tuning.min, current - 1);
+      this.idleTuneTicks = 0;
+    } else if (backlogPressure && hasHeadroom && current < tuning.max) {
+      next = Math.min(tuning.max, current + 1);
+      this.idleTuneTicks = 0;
+    } else if (waiting === 0 && delayed === 0 && active < current / 2) {
+      this.idleTuneTicks += 1;
+      if (this.idleTuneTicks >= 3 && current > tuning.min) {
+        next = Math.max(tuning.min, current - 1);
+        this.idleTuneTicks = 0;
+      }
+    } else {
+      this.idleTuneTicks = 0;
+    }
+
+    if (next === current) return;
+
+    worker.concurrency = next;
+    this.currentConcurrency = next;
+    this.trace('flow-worker-concurrency', {
+      previous: current,
+      next,
+      waiting,
+      active,
+      delayed,
+      eventLoopLagMs,
+      executorWaiting,
+    });
+    this.logger.log(
+      `Flow worker concurrency tuned ${current} -> ${next} (waiting=${waiting}, active=${active}, eventLoopLagMs=${eventLoopLagMs.toFixed(1)})`,
+    );
+  }
+
+  private readAndResetFlowWorkerEventLoopLag(): number {
+    const mean = this.flowWorkerEventLoopDelay.mean / 1e6;
+    this.flowWorkerEventLoopDelay.reset();
+    return Number.isFinite(mean) ? mean : 0;
   }
 
   private trace(event: string, data: Record<string, any>): void {
@@ -146,6 +271,11 @@ export class FlowExecutionQueueService {
       await this.worker.close();
       this.worker = undefined;
     }
+    if (this.tuneInterval) {
+      clearInterval(this.tuneInterval);
+      this.tuneInterval = undefined;
+    }
+    this.flowWorkerEventLoopDelay.disable();
   }
 
   async process(job: Job<FlowJobData>): Promise<any> {

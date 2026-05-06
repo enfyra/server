@@ -54,7 +54,17 @@ const DB_DRAIN_OBSERVE_MS = Number(
 const KEEP_ROWS = process.env.CHAT_LOAD_KEEP_ROWS === '1';
 const SUPPRESS_WS_RESULT = process.env.CHAT_LOAD_SUPPRESS_WS_RESULT !== '0';
 const TRIGGER_FLOW = process.env.CHAT_LOAD_TRIGGER_FLOW !== '0';
+const EXTERNAL_URLS = (process.env.CHAT_LOAD_EXTERNAL_URLS || '')
+  .split(',')
+  .map((v) => v.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+const EXTERNAL_INSTANCE_COUNT = Number(
+  process.env.CHAT_LOAD_EXTERNAL_INSTANCE_COUNT || EXTERNAL_URLS.length || 0,
+);
+const AUTH_BEARER = process.env.CHAT_LOAD_AUTH_BEARER || '';
+const AUTH_COOKIE = process.env.CHAT_LOAD_AUTH_COOKIE || '';
 const NAMESPACE = '/e2e-chat-load';
+const CLIENT_NAMESPACE = EXTERNAL_URLS.length ? `/ws${NAMESPACE}` : NAMESPACE;
 const TABLE_NAME = 'e2e_chat_message';
 const FLOW_NAME = 'e2e_chat_message_persist';
 const RUN_ID = `app_chat_${Date.now()}`;
@@ -63,10 +73,11 @@ const TRACE_FILE = `${TRACE_DIR}/ws-event.ndjson`;
 const SUMMARY_FILE = `${TRACE_DIR}/summary.json`;
 
 type AppInstance = {
-  container: ReturnType<typeof buildContainer>;
-  httpServer: http.Server;
-  ioServer: Server;
-  port: number;
+  container?: ReturnType<typeof buildContainer>;
+  httpServer?: http.Server;
+  ioServer?: Server;
+  port?: number;
+  url: string;
 };
 
 type TrackedClient = {
@@ -450,13 +461,15 @@ async function ensureFlowStepScriptColumns(
 
 function connectionSource() {
   return `
-    const userId = String($ctx.$data?.headers?.['x-chat-user-id'] || '');
+    const auth = $ctx.$data?.auth || {};
+    const userId = String(auth.chatUserId || $ctx.$data?.headers?.['x-chat-user-id'] || '');
     if (userId) {
       $ctx.$socket.join('user_' + userId);
     }
-    const groups = Array.isArray($ctx.$data?.headers?.['x-chat-groups'])
-      ? $ctx.$data.headers['x-chat-groups']
-      : String($ctx.$data?.headers?.['x-chat-groups'] || '').split(',').filter(Boolean);
+    const rawGroups = auth.chatGroups || $ctx.$data?.headers?.['x-chat-groups'];
+    const groups = Array.isArray(rawGroups)
+      ? rawGroups
+      : String(rawGroups || '').split(',').filter(Boolean);
     for (const group of groups) {
       $ctx.$socket.join(group);
     }
@@ -739,18 +752,24 @@ async function startAppInstance(): Promise<AppInstance> {
     );
   });
   await container.cradle.flowExecutionQueueService?.init?.();
-  return { container, httpServer, ioServer, port };
+  return { container, httpServer, ioServer, port, url: `http://127.0.0.1:${port}` };
 }
 
 async function stopAppInstance(instance: AppInstance) {
-  instance.ioServer.disconnectSockets(true);
-  await new Promise<void>((resolve) =>
-    instance.ioServer.close(() => resolve()),
-  );
-  await new Promise<void>((resolve) =>
-    instance.httpServer.close(() => resolve()),
-  );
-  await shutdown(instance.container);
+  instance.ioServer?.disconnectSockets(true);
+  if (instance.ioServer) {
+    await new Promise<void>((resolve) =>
+      instance.ioServer!.close(() => resolve()),
+    );
+  }
+  if (instance.httpServer) {
+    await new Promise<void>((resolve) =>
+      instance.httpServer!.close(() => resolve()),
+    );
+  }
+  if (instance.container) {
+    await shutdown(instance.container);
+  }
 }
 
 async function connectClients(
@@ -773,11 +792,25 @@ async function connectClients(
         roomMembers.get(group)!.add(userId);
       }
       const target = instances[(userId - 1) % instances.length];
-      const socket = clientIo(`http://127.0.0.1:${target.port}${NAMESPACE}`, {
-        transports: ['websocket'],
+      const socket = clientIo(`${target.url}${CLIENT_NAMESPACE}`, {
+        ...(EXTERNAL_URLS.length ? {} : { transports: ['websocket'] }),
         forceNew: true,
         reconnection: false,
+        auth: {
+          chatUserId: String(userId),
+          chatGroups: groups,
+        },
         extraHeaders: {
+          ...(AUTH_BEARER
+            ? {
+                authorization: `Bearer ${AUTH_BEARER}`,
+              }
+            : {}),
+          ...(AUTH_COOKIE
+            ? {
+                cookie: AUTH_COOKIE,
+              }
+            : {}),
           'x-chat-user-id': String(userId),
           'x-chat-groups': groups.join(','),
         },
@@ -796,7 +829,7 @@ async function connectClients(
           }
         });
       }
-      clients.push({ userId, socket, groups, port: target.port });
+      clients.push({ userId, socket, groups, port: target.port || 0 });
       batch.push(
         new Promise((resolve) => {
           let settled = false;
@@ -852,6 +885,7 @@ async function countRows(
   instanceCount: number,
   userCount: number,
 ) {
+  assert(instance.container, 'row count requires a local probe container');
   if (instance.container.cradle.databaseConfigService.isMongoDb()) {
     return await instance.container.cradle.mongoService
       .collection(TABLE_NAME)
@@ -1026,14 +1060,16 @@ async function runScenario(instances: AppInstance[], userCount: number) {
     const probe: any[] = [];
     for (const [room, members] of roomMembers) {
       const size =
-        await instances[0].container.cradle.dynamicWebSocketGateway.namespaceRoomSize(
-          NAMESPACE,
-          room,
-        );
+        instances[0].container && instances[0].ioServer
+          ? await instances[0].container.cradle.dynamicWebSocketGateway.namespaceRoomSize(
+              NAMESPACE,
+              room,
+            )
+          : members.size;
       if (size < members.size) {
         const localSizes = instances.map((instance) => {
-          const namespace = instance.ioServer.of(NAMESPACE);
-          return namespace.adapter.rooms.get(room)?.size || 0;
+          const namespace = instance.ioServer?.of(NAMESPACE);
+          return namespace?.adapter.rooms.get(room)?.size || 0;
         });
         probe.push({
           room,
@@ -1143,20 +1179,40 @@ function passed(result: any) {
 async function main() {
   setupTraceFiles();
   console.log(
-    `Real app realtime chat E2E run=${RUN_ID} namespace=${NAMESPACE} instances=${INSTANCE_STEPS.join(',')} users=${USER_STEPS.join(',')}`,
+    `Real app realtime chat E2E run=${RUN_ID} namespace=${CLIENT_NAMESPACE} instances=${EXTERNAL_URLS.length ? EXTERNAL_INSTANCE_COUNT : INSTANCE_STEPS.join(',')} users=${USER_STEPS.join(',')}`,
   );
   console.log(
     `mode=${CHAT_LOAD_MODE} activeRatio=${ACTIVE_USER_RATIO} durationMs=${REALISTIC_DURATION_MS}`,
   );
   console.log(`ws:result suppressed=${SUPPRESS_WS_RESULT}`);
   console.log(`triggerFlow enabled=${TRIGGER_FLOW}`);
+  if (EXTERNAL_URLS.length) {
+    console.log(`external websocket targets=${EXTERNAL_URLS.join(',')}`);
+  }
   await prepareAppMetadata();
   const allResults: any[] = [];
-  for (const instanceCount of INSTANCE_STEPS) {
+  const instanceSteps = EXTERNAL_URLS.length
+    ? [EXTERNAL_INSTANCE_COUNT]
+    : INSTANCE_STEPS;
+  for (const instanceCount of instanceSteps) {
     const instances: AppInstance[] = [];
     try {
-      for (let i = 0; i < instanceCount; i++) {
-        instances.push(await startAppInstance());
+      if (EXTERNAL_URLS.length) {
+        const probeContainer = buildContainer();
+        await init(probeContainer);
+        instances.push({
+          container: probeContainer,
+          url: EXTERNAL_URLS[0],
+        });
+        for (let i = 1; i < Math.max(1, instanceCount); i++) {
+          instances.push({
+            url: EXTERNAL_URLS[i % EXTERNAL_URLS.length],
+          });
+        }
+      } else {
+        for (let i = 0; i < instanceCount; i++) {
+          instances.push(await startAppInstance());
+        }
       }
       for (const users of USER_STEPS) {
         const result = await runScenario(instances, users);
