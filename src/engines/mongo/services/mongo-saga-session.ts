@@ -474,17 +474,32 @@ export class MongoSagaSession {
       return [];
     }
 
-    const predictedIds = documents.map(() => new ObjectId());
-    const lockResources = predictedIds.map((id) => ({
+    const documentIds = documents.map((doc) => {
+      if (doc?._id instanceof ObjectId) {
+        return doc._id;
+      }
+      if (typeof doc?._id === 'string' && ObjectId.isValid(doc._id)) {
+        return new ObjectId(doc._id);
+      }
+      return new ObjectId();
+    });
+    const lockResources = documentIds.map((id) => ({
       type: collectionName,
       id: id.toString(),
       mode: 'write' as const,
     }));
 
+    const lockStart = performance.now();
     const lockResult = await this.lockService.acquireLocks(
       this.txId,
       lockResources,
     );
+    this.mongoService.traceSaga('saga_insert_many_locks', {
+      txId: this.txId,
+      collectionName,
+      count: documents.length,
+      durationMs: Math.round(performance.now() - lockStart),
+    });
 
     if (!lockResult.success) {
       throw new DatabaseException(
@@ -498,39 +513,58 @@ export class MongoSagaSession {
 
     const docsWithIds = documents.map((doc, index) => ({
       ...doc,
-      _id: predictedIds[index],
+      _id: documentIds[index],
     }));
 
     let snapshots: ISagaSnapshot[] = [];
 
     if (!options?.skipLogging) {
-      snapshots = [];
-      for (let i = 0; i < predictedIds.length; i++) {
-        const entry = await this.snapshotService.createSnapshot(
-          this.txId,
-          'insert',
-          collectionName,
-          predictedIds[i],
-          null,
-          documents[i],
-        );
-        snapshots.push(entry);
-        this.trackSnapshot(entry);
+      const snapshotStart = performance.now();
+      snapshots = await this.snapshotService.createSnapshotsBatch(
+        this.txId,
+        docsWithIds.map((doc) => ({
+          op: 'insert',
+          collection: collectionName,
+          documentId: doc._id,
+          before: null,
+          afterPatch: doc,
+        })),
+      );
+      for (const snapshot of snapshots) {
+        this.trackSnapshot(snapshot);
       }
+      this.mongoService.traceSaga('saga_insert_many_snapshots', {
+        txId: this.txId,
+        collectionName,
+        count: snapshots.length,
+        durationMs: Math.round(performance.now() - snapshotStart),
+      });
     }
 
     try {
       const collection = this.mongoService.getDb().collection(collectionName);
+      const insertStart = performance.now();
       await collection.insertMany(docsWithIds, {
         ordered: options?.ordered ?? true,
       });
+      this.mongoService.traceSaga('saga_insert_many_raw_insert', {
+        txId: this.txId,
+        collectionName,
+        count: docsWithIds.length,
+        durationMs: Math.round(performance.now() - insertStart),
+      });
 
       if (snapshots.length > 0) {
-        await Promise.all(
-          snapshots.map((entry) =>
-            this.snapshotService.markSnapshotCompleted(entry.snapshotId),
-          ),
+        const markStart = performance.now();
+        await this.snapshotService.markSnapshotsBatchCompleted(
+          snapshots.map((entry) => entry.snapshotId),
         );
+        this.mongoService.traceSaga('saga_insert_many_mark_completed', {
+          txId: this.txId,
+          collectionName,
+          count: snapshots.length,
+          durationMs: Math.round(performance.now() - markStart),
+        });
       }
 
       return docsWithIds.map((doc) => ({
@@ -539,13 +573,9 @@ export class MongoSagaSession {
       }));
     } catch (error) {
       if (snapshots.length > 0) {
-        await Promise.all(
-          snapshots.map((entry) =>
-            this.snapshotService.markSnapshotFailed(
-              entry.snapshotId,
-              getErrorMessage(error),
-            ),
-          ),
+        await this.snapshotService.markSnapshotsBatchFailed(
+          snapshots.map((entry) => entry.snapshotId),
+          getErrorMessage(error),
         );
       }
       throw error;

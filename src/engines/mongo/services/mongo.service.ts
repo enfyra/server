@@ -8,6 +8,8 @@ import {
   ClientSession,
 } from 'mongodb';
 import { randomUUID } from 'crypto';
+import { appendFileSync, mkdirSync } from 'fs';
+import { dirname } from 'path';
 import { AsyncLocalStorage } from 'async_hooks';
 import type { Cradle } from '../../../container';
 import { Logger } from '../../../shared/logger';
@@ -17,7 +19,10 @@ import { MongoRelationManagerService } from './mongo-relation-manager.service';
 import { MongoHookManagerService } from './mongo-hook-manager.service';
 import type { MongoSagaSession } from './mongo-saga-session';
 import { mongoTopologySupportsNativeTransactions } from '../utils/mongo-native-transaction-topology.util';
-import { buildMongoWritableFieldSet } from '../utils/mongo-physical-schema-contract';
+import {
+  buildMongoWritableFieldSet,
+  getMongoStoredRelationField,
+} from '../utils/mongo-physical-schema-contract';
 import { DatabaseException } from '../../../domain/exceptions';
 import type { MongoHookContext } from '../types/mongo-hook.types';
 
@@ -31,6 +36,7 @@ export class MongoService {
   private readonly mongoRelationManagerService: MongoRelationManagerService;
   private readonly mongoHookManagerService: MongoHookManagerService;
   private readonly lazyRef: Cradle;
+  private readonly sagaTraceFile?: string;
 
   private readonly policyContext = new AsyncLocalStorage<{
     check: (
@@ -70,6 +76,10 @@ export class MongoService {
     this.mongoHookManagerService =
       deps.mongoHookManagerService || new MongoHookManagerService();
     this.lazyRef = deps.lazyRef as any;
+    this.sagaTraceFile = process.env.MONGO_SAGA_TRACE_FILE;
+    if (this.sagaTraceFile) {
+      mkdirSync(dirname(this.sagaTraceFile), { recursive: true });
+    }
     this.registerDefaultHooks();
   }
 
@@ -691,6 +701,7 @@ export class MongoService {
   }
 
   async insertManyWithCascade(collectionName: string, rows: any[]): Promise<any[]> {
+    const totalStart = performance.now();
     if (rows.length === 0) {
       return [];
     }
@@ -703,28 +714,49 @@ export class MongoService {
     }
 
     const collection = this.collection(collectionName);
-    const processedRows = [];
-    const rowContexts: MongoHookContext[] = [];
+    let processedRows: any[];
+    let rowContexts: MongoHookContext[];
 
-    for (const row of rows) {
-      const context: MongoHookContext = {
-        collectionName,
-        operation: 'insert',
-        originalData: row,
-      };
-      const processedData = await this.mongoHookManagerService.runHooks(
-        'beforeInsert',
-        collectionName,
-        row,
-        context,
-      );
-      rowContexts.push(context);
-      processedRows.push({
-        ...processedData,
-        _id: processedData._id instanceof ObjectId ? processedData._id : new ObjectId(),
-      });
+    const beforeHooksStart = performance.now();
+    const fastPrepared = await this.prepareSimpleInsertManyRows(
+      collectionName,
+      rows,
+    );
+    if (fastPrepared) {
+      processedRows = fastPrepared.processedRows;
+      rowContexts = fastPrepared.rowContexts;
+    } else {
+      processedRows = [];
+      rowContexts = [];
+      for (const row of rows) {
+        const context: MongoHookContext = {
+          collectionName,
+          operation: 'insert',
+          originalData: row,
+        };
+        const processedData = await this.mongoHookManagerService.runHooks(
+          'beforeInsert',
+          collectionName,
+          row,
+          context,
+        );
+        rowContexts.push(context);
+        processedRows.push({
+          ...processedData,
+          _id:
+            processedData._id instanceof ObjectId
+              ? processedData._id
+              : new ObjectId(),
+        });
+      }
     }
+    this.traceSaga('mongo_insert_many_before_hooks', {
+      collectionName,
+      count: rows.length,
+      durationMs: Math.round(performance.now() - beforeHooksStart),
+    });
 
+    const insertStart = performance.now();
     try {
       await collection.insertMany(processedRows as any);
     } catch (err: any) {
@@ -745,6 +777,11 @@ export class MongoService {
       (validationError as any).errInfo = err.errInfo;
       throw validationError;
     }
+    this.traceSaga('mongo_insert_many_collection', {
+      collectionName,
+      count: rows.length,
+      durationMs: Math.round(performance.now() - insertStart),
+    });
 
     const entries = processedRows.map((row, index) => {
       const insertedId = row._id;
@@ -764,12 +801,18 @@ export class MongoService {
       insertManyEntries: entries,
     };
 
+    const afterHooksStart = performance.now();
     await this.mongoHookManagerService.runHooks(
       'afterInsertMany',
       collectionName,
       entries.map((entry) => entry.data),
       batchContext,
     );
+    this.traceSaga('mongo_insert_many_after_many_hooks', {
+      collectionName,
+      count: rows.length,
+      durationMs: Math.round(performance.now() - afterHooksStart),
+    });
 
     const hooks = this.mongoHookManagerService.getHooks();
     const regularAfterInsertHooks = hooks.afterInsert.filter(
@@ -777,14 +820,215 @@ export class MongoService {
     );
 
     if (regularAfterInsertHooks.length > 0) {
+      const regularHooksStart = performance.now();
       for (const entry of entries) {
         for (const hook of regularAfterInsertHooks) {
           await hook(collectionName, entry.data, entry.context);
         }
       }
+      this.traceSaga('mongo_insert_many_regular_after_hooks', {
+        collectionName,
+        count: rows.length,
+        durationMs: Math.round(performance.now() - regularHooksStart),
+      });
     }
 
+    this.traceSaga('mongo_insert_many_total', {
+      collectionName,
+      count: rows.length,
+      durationMs: Math.round(performance.now() - totalStart),
+    });
     return entries.map((entry) => entry.data);
+  }
+
+  private async prepareSimpleInsertManyRows(
+    collectionName: string,
+    rows: any[],
+  ): Promise<
+    | {
+        processedRows: any[];
+        rowContexts: MongoHookContext[];
+      }
+    | null
+  > {
+    const hooks = this.mongoHookManagerService.getHooks();
+    if (
+      hooks.beforeInsert.length !== 1 ||
+      this.fieldPermissionContext.getStore()
+    ) {
+      return null;
+    }
+
+    const metadata =
+      await this.metadataCacheService.lookupTableByName(collectionName);
+    const columns = metadata?.columns || [];
+    const relations = metadata?.relations || [];
+    const validFields = metadata ? buildMongoWritableFieldSet(metadata) : null;
+    const now = new Date();
+    const processedRows: any[] = [];
+    const rowContexts: MongoHookContext[] = [];
+    const referencesByTarget = new Map<string, Map<string, ObjectId>>();
+
+    for (const row of rows) {
+      const context: MongoHookContext = {
+        collectionName,
+        operation: 'insert',
+        originalData: row,
+      };
+      let result = { ...row };
+
+      for (const column of columns) {
+        const fieldName = column.name;
+        const fieldValue = result[fieldName];
+        if (fieldValue === undefined || fieldValue === null) {
+          continue;
+        }
+        if (column.type === 'bigint' && typeof fieldValue === 'number') {
+          result[fieldName] = Long.fromNumber(fieldValue);
+          continue;
+        }
+        if (
+          (column.type === 'simple-json' || column.type === 'json') &&
+          typeof fieldValue === 'string'
+        ) {
+          try {
+            result[fieldName] = JSON.parse(fieldValue);
+          } catch (error: any) {
+            this.logger.warn(
+              `Failed to parse JSON field '${fieldName}': ${error.message}`,
+            );
+          }
+        }
+      }
+
+      for (const column of columns) {
+        if (result[column.name] !== undefined && result[column.name] !== null) {
+          continue;
+        }
+        if (column.defaultValue === undefined || column.defaultValue === null) {
+          continue;
+        }
+        if (typeof column.defaultValue === 'string') {
+          try {
+            result[column.name] = JSON.parse(column.defaultValue);
+          } catch {
+            result[column.name] = column.defaultValue;
+          }
+        } else {
+          result[column.name] = column.defaultValue;
+        }
+      }
+
+      for (const relation of relations) {
+        const inputFieldName = relation.propertyName;
+        const storedFieldName =
+          getMongoStoredRelationField(relation) || inputFieldName;
+        const fieldName =
+          inputFieldName in result ? inputFieldName : storedFieldName;
+
+        if (!(fieldName in result)) {
+          continue;
+        }
+
+        const isInverse =
+          relation.type === 'one-to-many' ||
+          (relation.type === 'one-to-one' &&
+            (relation.mappedBy || relation.isInverse));
+        if (isInverse || relation.type === 'many-to-many') {
+          return null;
+        }
+
+        const fieldValue = result[fieldName];
+        if (fieldValue === null || fieldValue === undefined) {
+          result[storedFieldName] = null;
+          if (storedFieldName !== fieldName) delete result[fieldName];
+          continue;
+        }
+
+        let objectId: ObjectId | null = null;
+        if (fieldValue instanceof ObjectId) {
+          objectId = fieldValue;
+        } else if (typeof fieldValue === 'string' && ObjectId.isValid(fieldValue)) {
+          objectId = new ObjectId(fieldValue);
+        } else if (
+          typeof fieldValue === 'object' &&
+          !Array.isArray(fieldValue) &&
+          !(fieldValue instanceof Date)
+        ) {
+          const rawId = fieldValue._id ?? fieldValue.id;
+          if (typeof rawId === 'string' && ObjectId.isValid(rawId)) {
+            objectId = new ObjectId(rawId);
+          }
+        }
+
+        if (!objectId) {
+          return null;
+        }
+
+        result[storedFieldName] = objectId;
+        if (storedFieldName !== fieldName) delete result[fieldName];
+
+        const targetCollection = relation.targetTableName || relation.targetTable;
+        if (!targetCollection) {
+          return null;
+        }
+        let targetRefs = referencesByTarget.get(targetCollection);
+        if (!targetRefs) {
+          targetRefs = new Map<string, ObjectId>();
+          referencesByTarget.set(targetCollection, targetRefs);
+        }
+        targetRefs.set(objectId.toHexString(), objectId);
+      }
+
+      if (validFields) {
+        for (const key of Object.keys(result)) {
+          if (!validFields.has(key)) {
+            delete result[key];
+          }
+        }
+      }
+
+      const { id: _id, createdAt: _ca, updatedAt: _ua, ...cleanRecord } =
+        result;
+      const dataWithTimestamps = {
+        ...cleanRecord,
+        createdAt: now,
+        updatedAt: now,
+      };
+      context.relationData = dataWithTimestamps;
+      rowContexts.push(context);
+      processedRows.push({
+        ...dataWithTimestamps,
+        _id:
+          dataWithTimestamps._id instanceof ObjectId
+            ? dataWithTimestamps._id
+            : new ObjectId(),
+      });
+    }
+
+    for (const [targetCollection, refs] of referencesByTarget.entries()) {
+      const ids = Array.from(refs.values());
+      if (ids.length === 0) continue;
+      const existing = await this.collection(targetCollection)
+        .find({ _id: { $in: ids } } as any)
+        .toArray();
+      const existingIds = new Set(
+        existing.map((doc: any) => doc._id?.toString()).filter(Boolean),
+      );
+      if (ids.some((id) => !existingIds.has(id.toHexString()))) {
+        return null;
+      }
+    }
+
+    return { processedRows, rowContexts };
+  }
+
+  traceSaga(event: string, payload: Record<string, unknown>): void {
+    if (!this.sagaTraceFile) return;
+    appendFileSync(
+      this.sagaTraceFile,
+      `${JSON.stringify({ event, ts: Date.now(), ...payload })}\n`,
+    );
   }
 
   async find(options: {
