@@ -554,30 +554,11 @@ export class MongoSagaSession {
         durationMs: Math.round(performance.now() - insertStart),
       });
 
-      if (snapshots.length > 0) {
-        const markStart = performance.now();
-        await this.snapshotService.markSnapshotsBatchCompleted(
-          snapshots.map((entry) => entry.snapshotId),
-        );
-        this.mongoService.traceSaga('saga_insert_many_mark_completed', {
-          txId: this.txId,
-          collectionName,
-          count: snapshots.length,
-          durationMs: Math.round(performance.now() - markStart),
-        });
-      }
-
       return docsWithIds.map((doc) => ({
         ...doc,
         id: doc._id.toString(),
       }));
     } catch (error) {
-      if (snapshots.length > 0) {
-        await this.snapshotService.markSnapshotsBatchFailed(
-          snapshots.map((entry) => entry.snapshotId),
-          getErrorMessage(error),
-        );
-      }
       throw error;
     }
   }
