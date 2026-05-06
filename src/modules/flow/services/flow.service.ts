@@ -4,7 +4,10 @@ import { FlowCacheService, RepoRegistryService } from '../../../engines/cache';
 import { FlowJobData } from '../../../shared/types/flow.types';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { ExecutorEngineService } from '@enfyra/kernel';
-import { executeStepCore } from '../utils/step-executor.util';
+import {
+  executeStepCore,
+  getExecutableStepConfig,
+} from '../utils/step-executor.util';
 import { SocketEmitCapture } from '../../websocket';
 import { DynamicContextFactory } from '../../../shared/services';
 import type { FlowDefinition, FlowStep } from '../../../shared/types/flow.types';
@@ -16,6 +19,9 @@ interface FlowStepTestInput {
   flowName?: string;
   type: string;
   config: any;
+  sourceCode?: string | null;
+  scriptLanguage?: string | null;
+  compiledCode?: string | null;
   timeout?: number;
   key?: string;
 }
@@ -80,7 +86,7 @@ export class FlowService {
       removeOnFail: { count: 500, age: 3600 * 24 * 7 },
     });
 
-    this.logger.log(`Flow "${flow.name}" triggered, job ${job.id}`);
+    this.logger.debug(`Flow "${flow.name}" triggered, job ${job.id}`);
     return { jobId: String(job.id), flowId: flow.id };
   }
 
@@ -136,7 +142,7 @@ export class FlowService {
     try {
       const resolved = await this.resolveTestFlowStep(step);
       const targetStep = resolved?.step ?? step;
-      const targetConfig = targetStep.config || {};
+      const targetConfig = getExecutableStepConfig(targetStep);
 
       if (resolved) {
         await this.primeFlowTestContext({
@@ -165,7 +171,7 @@ export class FlowService {
       } else {
         result = await executeStepCore({
           type: targetStep.type,
-          config: targetStep.config || {},
+          config: targetConfig,
           timeout,
           ctx,
           executorEngineService: this.executorEngineService,
@@ -214,7 +220,7 @@ export class FlowService {
     } else if (
       stepId !== undefined ||
       step.key ||
-      this.getStepSourceCode(step.config)
+      this.getStepSourceCode(step)
     ) {
       if (typeof this.flowCacheService.getFlows !== 'function') return null;
       flows = await this.flowCacheService.getFlows();
@@ -230,6 +236,9 @@ export class FlowService {
         ...liveStep,
         type: step.type || liveStep.type,
         config: step.config ?? liveStep.config,
+        sourceCode: step.sourceCode ?? liveStep.sourceCode,
+        scriptLanguage: step.scriptLanguage ?? liveStep.scriptLanguage,
+        compiledCode: step.compiledCode ?? liveStep.compiledCode,
         timeout: step.timeout ?? liveStep.timeout,
         key: liveStep.key,
       } as FlowStep;
@@ -259,8 +268,8 @@ export class FlowService {
       return true;
     }
 
-    const candidateSource = this.getStepSourceCode(candidate.config);
-    const testSource = this.getStepSourceCode(step.config);
+    const candidateSource = this.getStepSourceCode(candidate);
+    const testSource = this.getStepSourceCode(step);
     if (candidateSource && testSource && candidateSource === testSource) {
       return true;
     }
@@ -268,9 +277,20 @@ export class FlowService {
     return !!step.key && candidate.key === step.key;
   }
 
-  private getStepSourceCode(config: any): string {
-    if (!config || typeof config !== 'object') return '';
-    return String(config.sourceCode ?? config.code ?? config.compiledCode ?? '');
+  private getStepSourceCode(step: {
+    config?: any;
+    sourceCode?: string | null;
+    compiledCode?: string | null;
+  }): string {
+    if (!step || typeof step !== 'object') return '';
+    return String(
+      step.sourceCode ??
+        step.config?.sourceCode ??
+        step.config?.code ??
+        step.compiledCode ??
+        step.config?.compiledCode ??
+        '',
+    );
   }
 
   private async primeFlowTestContext(opts: {
@@ -334,7 +354,7 @@ export class FlowService {
     ctx: any,
     timeout: number,
   ): Promise<any> {
-    const config = step.config || {};
+    const config = getExecutableStepConfig(step);
     if (step.type === 'trigger_flow') {
       return {
         triggered: true,

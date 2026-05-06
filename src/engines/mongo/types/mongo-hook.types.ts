@@ -1,5 +1,6 @@
 export type MongoHookEvent =
   | 'beforeInsert'
+  | 'afterInsertMany'
   | 'afterInsert'
   | 'beforeUpdate'
   | 'afterUpdate'
@@ -24,6 +25,12 @@ export interface MongoHookContext {
   deletedRecord?: any;
   relationData?: any;
   insertedId?: any;
+  insertedIds?: any[];
+  insertManyEntries?: Array<{
+    insertedId: any;
+    data: any;
+    context: MongoHookContext;
+  }>;
   updateResult?: any;
   deleteResult?: any;
 }
@@ -37,6 +44,13 @@ export interface MongoHookRegistry {
     ) => any | Promise<any>
   >;
   afterInsert: Array<
+    (
+      collectionName: string,
+      result: any,
+      context: MongoHookContext,
+    ) => any | Promise<any>
+  >;
+  afterInsertMany: Array<
     (
       collectionName: string,
       result: any,

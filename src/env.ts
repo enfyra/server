@@ -62,6 +62,31 @@ const EnvSchema = z.object({
     .enum(['0', '1'])
     .optional()
     .transform((v) => v === '1'),
+  FLOW_WORKER_CONCURRENCY: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional(),
+  FLOW_WORKER_TRACE_FILE: z.string().optional(),
+  DYNAMIC_CREATE_BATCH_SIZE: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .default(100),
+  DYNAMIC_CREATE_BATCH_WAIT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .default(100),
+  DYNAMIC_CREATE_BATCH_CONCURRENCY: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .default(5),
+  DYNAMIC_CREATE_BATCH_TRACE_FILE: z.string().optional(),
   JEST_WORKER_ID: z.string().optional(),
 });
 

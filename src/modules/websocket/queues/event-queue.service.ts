@@ -1,5 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { Job, Worker } from 'bullmq';
+import { appendFileSync } from 'node:fs';
 import { ExecutorEngineService } from '@enfyra/kernel';
 import { RepoRegistryService } from '../../../engines/cache';
 import { FlowService } from '../../flow';
@@ -17,6 +18,9 @@ export interface EventJobData {
   eventId: number | string;
   script: string;
   timeout: number;
+  socketReceivedAt?: number;
+  ackSentAt?: number | null;
+  enqueuedAt?: number;
 }
 
 export class EventQueueService {
@@ -75,6 +79,7 @@ export class EventQueueService {
   }
 
   async process(job: Job<EventJobData>): Promise<any> {
+    const workerStartedAt = Date.now();
     const {
       requestId,
       socketId,
@@ -84,6 +89,9 @@ export class EventQueueService {
       gatewayPath,
       script,
       timeout,
+      socketReceivedAt,
+      ackSentAt,
+      enqueuedAt,
     } = job.data;
 
     this.logger.debug(
@@ -107,15 +115,41 @@ export class EventQueueService {
 
     try {
       const result = await this.executorEngineService.run(script, ctx, timeout);
-      ctx.$socket?.reply?.('ws:result', {
+      const executorEndedAt = Date.now();
+      if (payload?.__suppressResult !== true) {
+        ctx.$socket?.reply?.('ws:result', {
+          requestId,
+          eventName,
+          success: true,
+          result,
+          logs: ctx.$share?.$logs || [],
+        });
+      }
+      this.writeTrace({
+        type: 'ws_event',
+        status: 'success',
         requestId,
         eventName,
-        success: true,
-        result,
-        logs: ctx.$share?.$logs || [],
+        gatewayPath,
+        socketReceivedAt,
+        ackSentAt,
+        enqueuedAt,
+        workerStartedAt,
+        executorEndedAt,
+        queueWaitMs:
+          enqueuedAt != null ? workerStartedAt - Number(enqueuedAt) : null,
+        executorMs: executorEndedAt - workerStartedAt,
+        totalHandlerMs:
+          socketReceivedAt != null
+            ? executorEndedAt - Number(socketReceivedAt)
+            : null,
+        messageId: payload?.id,
+        kind: payload?.kind,
+        suppressResult: payload?.__suppressResult === true,
       });
       return { success: true, requestId, eventName };
     } catch (error: any) {
+      const failedAt = Date.now();
       ctx.$socket?.reply?.('ws:error', {
         requestId,
         eventName,
@@ -125,8 +159,35 @@ export class EventQueueService {
         logs: ctx.$share?.$logs || [],
         details: error?.details,
       });
+      this.writeTrace({
+        type: 'ws_event',
+        status: 'error',
+        requestId,
+        eventName,
+        gatewayPath,
+        socketReceivedAt,
+        ackSentAt,
+        enqueuedAt,
+        workerStartedAt,
+        failedAt,
+        queueWaitMs:
+          enqueuedAt != null ? workerStartedAt - Number(enqueuedAt) : null,
+        totalHandlerMs:
+          socketReceivedAt != null ? failedAt - Number(socketReceivedAt) : null,
+        messageId: payload?.id,
+        kind: payload?.kind,
+        error: error?.message || String(error),
+      });
       return { success: false, requestId, eventName };
     }
+  }
+
+  private writeTrace(entry: Record<string, any>) {
+    const file = process.env.WS_EVENT_TRACE_FILE;
+    if (!file) return;
+    try {
+      appendFileSync(file, `${JSON.stringify(entry)}\n`);
+    } catch {}
   }
 
   onCompleted(job: Job) {

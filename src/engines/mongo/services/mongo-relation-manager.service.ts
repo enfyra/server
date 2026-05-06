@@ -777,6 +777,119 @@ export class MongoRelationManagerService {
     }
   }
 
+  async updateInverseRelationsOnInsertMany(
+    tableName: string,
+    entries: Array<{ recordId: ObjectId; data: any }>,
+    getCollection: (name: string) => Collection<Document>,
+  ): Promise<void> {
+    if (entries.length === 0) return;
+
+    const metadata =
+      await this.metadataCacheService.lookupTableByName(tableName);
+    if (!metadata?.relations) return;
+
+    for (const relation of metadata.relations) {
+      if (relation.type === 'many-to-many') continue;
+      if (!relation.mappedBy) continue;
+
+      const fieldName =
+        getMongoStoredRelationField(relation) || relation.propertyName;
+      const targetCollection = relation.targetTableName || relation.targetTable;
+      if (!targetCollection) continue;
+
+      if (relation.type === 'many-to-one') {
+        const grouped = new Map<string, { targetId: ObjectId; recordIds: ObjectId[] }>();
+        for (const entry of entries) {
+          if (!(fieldName in entry.data)) continue;
+          const targetId = this.safeObjectId(entry.data[fieldName]);
+          if (!targetId) continue;
+          const key = targetId.toHexString();
+          const group = grouped.get(key);
+          if (group) {
+            group.recordIds.push(entry.recordId);
+          } else {
+            grouped.set(key, { targetId, recordIds: [entry.recordId] });
+          }
+        }
+
+        for (const group of grouped.values()) {
+          await getCollection(targetCollection).updateOne(
+            { _id: group.targetId },
+            { $addToSet: { [relation.mappedBy]: { $each: group.recordIds } } },
+          );
+        }
+        continue;
+      }
+
+      if (relation.type === 'one-to-one') {
+        const operations = [];
+        for (const entry of entries) {
+          if (!(fieldName in entry.data)) continue;
+          const targetId = this.safeObjectId(entry.data[fieldName]);
+          if (!targetId) continue;
+          operations.push({
+            updateOne: {
+              filter: { _id: targetId },
+              update: { $set: { [relation.mappedBy]: entry.recordId } },
+            },
+          });
+        }
+        if (operations.length > 0) {
+          await getCollection(targetCollection).bulkWrite(operations);
+        }
+      }
+    }
+  }
+
+  async writeM2mJunctionsForInsertMany(
+    tableName: string,
+    entries: Array<{ recordId: ObjectId; data: any }>,
+    getCollection: (name: string) => Collection<Document>,
+  ): Promise<void> {
+    if (entries.length === 0) return;
+
+    const metadata =
+      await this.metadataCacheService.lookupTableByName(tableName);
+    if (!metadata?.relations) return;
+
+    const rowsByJunction = new Map<string, any[]>();
+
+    for (const entry of entries) {
+      const pending = this.getM2mPending(entry.data);
+      if (!pending || pending.size === 0) continue;
+
+      for (const [propertyName, targetIds] of pending.entries()) {
+        const relation = metadata.relations.find(
+          (r: any) => r.propertyName === propertyName,
+        );
+        if (!relation) continue;
+        const info = this.resolveJunctionInfo(tableName, relation);
+        if (!info) continue;
+        if (!targetIds.length) continue;
+
+        const rows = rowsByJunction.get(info.junctionName) || [];
+        for (const otherId of targetIds) {
+          rows.push({
+            [info.selfColumn]: entry.recordId,
+            [info.otherColumn]: otherId,
+          });
+        }
+        rowsByJunction.set(info.junctionName, rows);
+      }
+    }
+
+    for (const [junctionName, rows] of rowsByJunction.entries()) {
+      if (rows.length === 0) continue;
+      try {
+        await getCollection(junctionName).insertMany(rows as any, {
+          ordered: false,
+        });
+      } catch (err: any) {
+        if (err?.code !== 11000) throw err;
+      }
+    }
+  }
+
   async writeM2mJunctionsForUpdate(
     tableName: string,
     recordId: ObjectId,
@@ -943,5 +1056,17 @@ export class MongoRelationManagerService {
     }
 
     return false;
+  }
+
+  private safeObjectId(value: any): ObjectId | null {
+    if (value === null || value === undefined) return null;
+    if (value instanceof ObjectId) return value;
+    if (typeof value === 'object' && value._id) {
+      return this.safeObjectId(value._id);
+    }
+    if (typeof value === 'string' && ObjectId.isValid(value)) {
+      return new ObjectId(value);
+    }
+    return null;
   }
 }
