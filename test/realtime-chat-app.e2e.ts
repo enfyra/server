@@ -52,7 +52,6 @@ const DB_DRAIN_OBSERVE_MS = Number(
   process.env.CHAT_LOAD_DB_DRAIN_OBSERVE_MS || 5000,
 );
 const KEEP_ROWS = process.env.CHAT_LOAD_KEEP_ROWS === '1';
-const SUPPRESS_WS_RESULT = process.env.CHAT_LOAD_SUPPRESS_WS_RESULT !== '0';
 const TRIGGER_FLOW = process.env.CHAT_LOAD_TRIGGER_FLOW !== '0';
 const EXTERNAL_URLS = (process.env.CHAT_LOAD_EXTERNAL_URLS || '')
   .split(',')
@@ -188,7 +187,6 @@ function summarizeTrace() {
     queueWaitMs: stat('queueWaitMs'),
     executorMs: stat('executorMs'),
     inlineExecutorMs: stat('inlineExecutorMs'),
-    nativeMs: stat('nativeMs'),
     serverReceiveLagMs: stat('serverReceiveLagMs'),
     totalHandlerMs: stat('totalHandlerMs'),
   };
@@ -274,85 +272,6 @@ async function ensureMessageTable(
         uniques: [['message_id']],
       },
     });
-  }
-  await reloadRuntime(container);
-}
-
-async function ensureNativeWebsocketEventColumns(
-  container: ReturnType<typeof buildContainer>,
-) {
-  const c = container.cradle;
-  const table = await c.queryBuilderService.findOne({
-    table: 'table_definition',
-    where: { name: 'websocket_event_definition' },
-  });
-  assert(table, 'websocket_event_definition metadata not found');
-  const tableId = table.id ?? table._id;
-  const isMongo = c.databaseConfigService.isMongoDb();
-  const columns = [
-    {
-      name: 'dataShape',
-      description: 'Payload field schema used by native WebSocket actions and flow triggers',
-    },
-    {
-      name: 'socketAction',
-      description: 'Native socket action or action chain executed inline on the gateway instance',
-    },
-    {
-      name: 'triggerFlow',
-      description: 'Flow trigger or trigger chain started fire-and-forget after native socket actions',
-    },
-  ];
-  for (const column of columns) {
-    if (isMongo) {
-      const collection = c.mongoService.getDb().collection('column_definition');
-      const existing = await collection.findOne({
-        table: tableId,
-        name: column.name,
-      });
-      if (!existing) {
-        await collection.insertOne({
-          table: tableId,
-          name: column.name,
-          type: 'simple-json',
-          isNullable: true,
-          isSystem: true,
-          isPrimary: false,
-          isGenerated: false,
-          isUpdatable: true,
-          isPublished: true,
-          description: column.description,
-        });
-      }
-      continue;
-    }
-    const knex = c.queryBuilderService.getKnex();
-    const hasPhysicalColumn = await knex.schema.hasColumn(
-      'websocket_event_definition',
-      column.name,
-    );
-    if (!hasPhysicalColumn) {
-      await knex.schema.alterTable('websocket_event_definition', (t) => {
-        t.text(column.name, 'longtext').nullable();
-      });
-    }
-    const existing = await knex('column_definition')
-      .where({ tableId, name: column.name })
-      .first();
-    if (!existing) {
-      await knex('column_definition').insert({
-        tableId,
-        name: column.name,
-        type: 'simple-json',
-        isNullable: true,
-        isSystem: true,
-        isPrimary: false,
-        isGenerated: false,
-        isUpdatable: true,
-        isPublished: true,
-        description: column.description,
-      });
-    }
   }
   await reloadRuntime(container);
 }
@@ -500,6 +419,24 @@ function messageSource() {
   `;
 }
 
+function chatEventSource() {
+  return `
+    const data = $ctx.$data || {};
+    const kind = data.kind === 'dm' ? 'dm' : 'group';
+    if (!data.id || !data.runId || !data.room || !data.senderId || !data.text || !data.sentAt) {
+      throw new Error('Invalid chat payload');
+    }
+    if (kind === 'group') {
+      $ctx.$socket.emitToRoom(data.room, 'chat:message', data);
+    } else {
+      $ctx.$socket.emitToUser(data.senderId, 'chat:message', data);
+      $ctx.$socket.emitToUser(data.targetId, 'chat:message', data);
+    }
+    ${TRIGGER_FLOW ? `await $ctx.$trigger('${FLOW_NAME}', data);` : ''}
+    return { accepted: true, id: data.id, kind, room: data.room };
+  `;
+}
+
 async function upsertPersistFlow(container: ReturnType<typeof buildContainer>) {
   const c = container.cradle;
   const ctx = createRootContext(container);
@@ -604,63 +541,24 @@ async function upsertGateway(container: ReturnType<typeof buildContainer>) {
     table: 'websocket_event_definition',
     where: { gatewayId, eventName: 'chat:send' },
   });
-  const nativeEventConfig = {
+  const eventConfig = {
     isEnabled: true,
-    sourceCode: null,
+    sourceCode: chatEventSource(),
     compiledCode: null,
     scriptLanguage: 'typescript',
     timeout: 10000,
-    dataShape: [
-      { name: 'id', type: 'string', required: true },
-      { name: 'runId', type: 'string', required: true },
-      { name: 'kind', type: 'string', required: true },
-      { name: 'room', type: 'string', required: true },
-      { name: 'senderId', type: 'number', required: true },
-      { name: 'targetId', type: 'string', required: false },
-      { name: 'text', type: 'string', required: true },
-      { name: 'sentAt', type: 'number', required: true },
-    ],
-    socketAction: [
-      {
-        action: 'emitToRoom',
-        when: { field: 'kind', eq: 'group' },
-        room: '{{ data.room }}',
-        event: 'chat:message',
-        payload: '$data',
-      },
-      {
-        action: 'emitToUser',
-        when: { field: 'kind', eq: 'dm' },
-        userId: '{{ data.senderId }}',
-        event: 'chat:message',
-        payload: '$data',
-      },
-      {
-        action: 'emitToUser',
-        when: { field: 'kind', eq: 'dm' },
-        userId: '{{ data.targetId }}',
-        event: 'chat:message',
-        payload: '$data',
-      },
-    ],
-    triggerFlow: TRIGGER_FLOW
-      ? {
-          flowName: FLOW_NAME,
-          payload: '$data',
-        }
-      : null,
   };
   if (existingEvent) {
     await eventRepo.update({
       id: existingEvent.id ?? existingEvent._id,
-      data: nativeEventConfig,
+      data: eventConfig,
     });
   } else {
     await eventRepo.create({
       data: {
         gateway: gatewayId,
         eventName: 'chat:send',
-        ...nativeEventConfig,
+        ...eventConfig,
       },
     });
   }
@@ -686,7 +584,6 @@ async function prepareAppMetadata() {
   const container = buildContainer();
   await init(container);
   try {
-    await ensureNativeWebsocketEventColumns(container);
     await ensureFlowStepScriptColumns(container);
     await ensureMessageTable(container);
     await upsertPersistFlow(container);
@@ -819,16 +716,6 @@ async function connectClients(
         metrics.delivered++;
         metrics.deliveryLatencies.push(Date.now() - Number(msg.sentAt));
       });
-      if (!SUPPRESS_WS_RESULT) {
-        socket.on('ws:result', (msg: any) => {
-          if (msg.eventName === 'chat:send') {
-            metrics.results++;
-            metrics.resultLatencies.push(
-              Date.now() - metrics.sentAtById.get(msg.requestId),
-            );
-          }
-        });
-      }
       clients.push({ userId, socket, groups, port: target.port || 0 });
       batch.push(
         new Promise((resolve) => {
@@ -928,7 +815,6 @@ async function sendChatMessage(options: {
     senderId: userId,
     text: `real app chat ${sequence} from ${userId}`,
     sentAt,
-    __suppressResult: SUPPRESS_WS_RESULT,
   };
   if (isGroup) {
     const group = groups[randomInt(rng, 0, groups.length - 1)];
@@ -948,7 +834,6 @@ async function sendChatMessage(options: {
   if (ack.ok) {
     metrics.acked++;
     metrics.ackLatencies.push(ack.latency);
-    if (ack.requestId) metrics.sentAtById.set(ack.requestId, Date.now());
   } else {
     metrics.ackFailed++;
   }
@@ -1040,9 +925,7 @@ async function runScenario(instances: AppInstance[], userCount: number) {
     delivered: 0,
     expectedDeliveries: 0,
     ackLatencies: [] as number[],
-    resultLatencies: [] as number[],
     deliveryLatencies: [] as number[],
-    sentAtById: new Map<string, number>(),
     activeUsers: 0,
   };
   const roomMembers = new Map<string, Set<number>>();
@@ -1109,12 +992,6 @@ async function runScenario(instances: AppInstance[], userCount: number) {
     });
   }
 
-  const allResults =
-    SUPPRESS_WS_RESULT ||
-    (await waitUntil(
-      () => metrics.results >= metrics.acked,
-      RESULT_TIMEOUT_MS,
-    ));
   const allDelivered = await waitUntil(
     () => metrics.delivered >= metrics.expectedDeliveries,
     DELIVERY_TIMEOUT_MS,
@@ -1137,14 +1014,13 @@ async function runScenario(instances: AppInstance[], userCount: number) {
     instances: instances.length,
     users: userCount,
     mode: CHAT_LOAD_MODE,
+    eventHandlerMode: 'script',
     activeUsers: metrics.activeUsers,
     connected: metrics.connected,
     connectFailed: metrics.connectFailed,
     messages: metrics.attempted,
     acked: metrics.acked,
     ackFailed: metrics.ackFailed,
-    handlerResults: SUPPRESS_WS_RESULT ? null : metrics.results,
-    allResults,
     delivered: metrics.delivered,
     expectedDeliveries: metrics.expectedDeliveries,
     allDelivered,
@@ -1158,9 +1034,6 @@ async function runScenario(instances: AppInstance[], userCount: number) {
     messagesPerSec: Number((metrics.attempted / durationSec).toFixed(1)),
     deliveryEventsPerSec: Number((metrics.delivered / durationSec).toFixed(1)),
     ackP95Ms: percentile(metrics.ackLatencies, 95),
-    resultP95Ms: SUPPRESS_WS_RESULT
-      ? null
-      : percentile(metrics.resultLatencies, 95),
     deliveryP95Ms: percentile(metrics.deliveryLatencies, 95),
     eventLoopP95Ms: Number((h.percentile(95) / 1e6).toFixed(1)),
     rssMb: Number((process.memoryUsage().rss / 1024 / 1024).toFixed(1)),
@@ -1171,7 +1044,6 @@ function passed(result: any) {
   return (
     result.connected / result.users >= 0.98 &&
     result.acked / result.messages >= 0.99 &&
-    (SUPPRESS_WS_RESULT || result.handlerResults / result.messages >= 0.99) &&
     result.delivered / result.expectedDeliveries >= 0.99
   );
 }
@@ -1184,8 +1056,8 @@ async function main() {
   console.log(
     `mode=${CHAT_LOAD_MODE} activeRatio=${ACTIVE_USER_RATIO} durationMs=${REALISTIC_DURATION_MS}`,
   );
-  console.log(`ws:result suppressed=${SUPPRESS_WS_RESULT}`);
-  console.log(`triggerFlow enabled=${TRIGGER_FLOW}`);
+  console.log('eventHandlerMode=script');
+  console.log(`script flow trigger enabled=${TRIGGER_FLOW}`);
   if (EXTERNAL_URLS.length) {
     console.log(`external websocket targets=${EXTERNAL_URLS.join(',')}`);
   }
@@ -1247,7 +1119,6 @@ async function main() {
       {
         runId: RUN_ID,
         namespace: NAMESPACE,
-        wsResultSuppressed: SUPPRESS_WS_RESULT,
         results: allResults,
         trace: traceSummary,
       },

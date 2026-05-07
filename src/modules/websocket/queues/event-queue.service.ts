@@ -114,17 +114,8 @@ export class EventQueueService {
       );
 
     try {
-      const result = await this.executorEngineService.run(script, ctx, timeout);
+      await this.executorEngineService.run(script, ctx, timeout);
       const executorEndedAt = Date.now();
-      if (payload?.__suppressResult !== true) {
-        ctx.$socket?.reply?.('ws:result', {
-          requestId,
-          eventName,
-          success: true,
-          result,
-          logs: ctx.$share?.$logs || [],
-        });
-      }
       this.writeTrace({
         type: 'ws_event',
         status: 'success',
@@ -145,7 +136,6 @@ export class EventQueueService {
             : null,
         messageId: payload?.id,
         kind: payload?.kind,
-        suppressResult: payload?.__suppressResult === true,
       });
       return { success: true, requestId, eventName };
     } catch (error: any) {

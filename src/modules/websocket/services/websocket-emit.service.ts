@@ -15,6 +15,16 @@ export class WebsocketEmitService {
     this.dynamicWebSocketGateway.emitToRoom(room, event, data);
   }
 
+  broadcastToRoom(
+    path: string,
+    socketId: string,
+    room: string,
+    event: string,
+    data: any,
+  ) {
+    this.dynamicWebSocketGateway.broadcastToRoom(path, socketId, room, event, data);
+  }
+
   emitToGateway(path: string, event: string, data: any) {
     this.dynamicWebSocketGateway.emitToNamespace(path, event, data);
   }
