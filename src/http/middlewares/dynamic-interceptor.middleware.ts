@@ -69,15 +69,17 @@ export function dynamicInterceptorBegin(
           type: 'preHook',
         });
       }
-    }
-
-    const hasDynamicHandler = Boolean(req.routeData?.handler?.trim?.());
-    if (!hasDynamicHandler && preHooks?.length) {
       try {
-        await executorEngineService.runBatch(req);
+        const result = await executorEngineService.runBatch(req);
         req.routeData.__codeBlocks = [];
         if (req.routeData.context?.$body !== undefined) {
           req.body = req.routeData.context.$body;
+        }
+        if (req.routeData.context?.$query !== undefined) {
+          req.query = req.routeData.context.$query;
+        }
+        if (result.shortCircuit) {
+          return res.json(appendLogs(result.value));
         }
       } catch (error) {
         return next(error);
