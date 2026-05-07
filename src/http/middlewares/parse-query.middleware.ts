@@ -22,6 +22,12 @@ export function parseQueryMiddleware(
       parsedQuery[key] = value;
     }
   }
+  if (parsedQuery.filter === undefined) {
+    parsedQuery.filter = {};
+  }
+  if (parsedQuery._filter === undefined) {
+    parsedQuery._filter = {};
+  }
   Object.defineProperty(req, 'query', {
     value: parsedQuery,
     writable: true,
