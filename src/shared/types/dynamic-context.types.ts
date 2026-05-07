@@ -120,6 +120,7 @@ export interface TDynamicContext {
     reply?: (event: string, data: any) => void;
     emitToUser?: (userId: any, event: string, data: any) => void;
     emitToRoom?: (room: string, event: string, data: any) => void;
+    broadcastToRoom?: (room: string, event: string, data: any) => void;
     emitToGateway?: (path: string, event: string, data: any) => void;
     broadcast?: (event: string, data: any) => void;
     roomSize?: (room: string) => Promise<number>;

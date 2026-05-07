@@ -1,7 +1,12 @@
 import { createServer, type Server as HttpServer } from 'http';
 import { Server } from 'socket.io';
 import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
-import { DynamicWebSocketGateway } from '../../src/modules/websocket';
+import { vi } from 'vitest';
+import {
+  DynamicWebSocketGateway,
+  WebsocketContextFactory,
+} from '../../src/modules/websocket';
+import { DynamicContextFactory } from '../../src/shared/services';
 
 function waitConnected(client: ClientSocket, timeoutMs = 3000): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -31,12 +36,22 @@ function emitWithAck<T = any>(
   });
 }
 
-describe('DynamicWebSocketGateway native dataShape validation — real socket E2E', () => {
-  const namespace = `/native-validation-${Date.now()}`;
+describe('DynamicWebSocketGateway event script execution — real socket E2E', () => {
+  const namespace = `/script-event-${Date.now()}`;
   let httpServer: HttpServer;
   let ioServer: Server;
   let port: number;
   let client: ClientSocket;
+  const executorRun = vi.fn(async (script: string, ctx: any) => {
+    if (script.includes('profile:accepted')) {
+      ctx.$socket.reply('profile:accepted', {
+        id: ctx.$data.userId,
+        name: ctx.$data.displayName,
+      });
+      return { handled: true };
+    }
+    return { handled: true };
+  });
 
   beforeAll(async () => {
     httpServer = createServer();
@@ -51,18 +66,11 @@ describe('DynamicWebSocketGateway native dataShape validation — real socket E2
             events: [
               {
                 eventName: 'profile:update',
-                dataShape: [
-                  { name: 'userId', type: 'string', required: true },
-                  { name: 'displayName', type: 'string', required: true },
-                ],
-                socketAction: {
-                  action: 'reply',
-                  event: 'profile:accepted',
-                  payloadExpression: {
-                    id: '{{ data.userId }}',
-                    name: '{{ data.displayName }}',
-                  },
-                },
+                handlerScript:
+                  'return await $ctx.$socket.reply("profile:accepted", { id: $ctx.$data.userId, name: $ctx.$data.displayName });',
+              },
+              {
+                eventName: 'legacy-config:ignored',
               },
             ],
           },
@@ -79,6 +87,20 @@ describe('DynamicWebSocketGateway native dataShape validation — real socket E2
       redisAdminService: {} as any,
       lazyRef: {} as any,
     });
+    const dynamicContextFactory = new DynamicContextFactory({
+      bcryptService: {} as any,
+      userCacheService: {} as any,
+      envService: { get: () => undefined } as any,
+      websocketContextFactory: new WebsocketContextFactory({
+        dynamicWebSocketGateway: gateway,
+      }),
+    });
+    (gateway as any).lazyRef = {
+      dynamicContextFactory,
+      executorEngineService: { run: executorRun },
+      repoRegistryService: { createReposProxy: () => ({}) },
+      flowService: { trigger: vi.fn() },
+    };
 
     (gateway as any).server = ioServer;
     await gateway.registerGateways();
@@ -110,7 +132,7 @@ describe('DynamicWebSocketGateway native dataShape validation — real socket E2
     if (client.connected) client.disconnect();
   });
 
-  it('accepts valid payload and resolves native payload templates', async () => {
+  it('runs event handler scripts inline through the executor', async () => {
     const received = new Promise<any>((resolve) => {
       client.once('profile:accepted', resolve);
     });
@@ -129,35 +151,29 @@ describe('DynamicWebSocketGateway native dataShape validation — real socket E2
       id: 'user_1',
       name: 'Alice',
     });
+    expect(executorRun).toHaveBeenCalledWith(
+      'return await $ctx.$socket.reply("profile:accepted", { id: $ctx.$data.userId, name: $ctx.$data.displayName });',
+      expect.objectContaining({
+        $data: {
+          userId: 'user_1',
+          displayName: 'Alice',
+        },
+      }),
+      undefined,
+    );
   });
 
-  it('rejects missing required fields before native socket actions run', async () => {
-    const errorEvent = new Promise<any>((resolve) => {
-      client.once('ws:error', resolve);
-    });
-    let emitted = false;
-    client.once('profile:accepted', () => {
-      emitted = true;
-    });
-
-    const ack = await emitWithAck(client, 'profile:update', {
-      userId: 'user_1',
-    });
+  it('rejects events without handler scripts', async () => {
+    const ack = await emitWithAck(client, 'legacy-config:ignored', {});
 
     expect(ack).toMatchObject({
       accepted: false,
       queued: false,
-      eventName: 'profile:update',
+      eventName: 'legacy-config:ignored',
       error: {
-        code: 'WS_HANDLER_ERROR',
-        message: 'Missing required websocket payload field "displayName"',
+        code: 'NO_HANDLER',
+        message: 'No handler configured',
       },
     });
-    await expect(errorEvent).resolves.toMatchObject({
-      eventName: 'profile:update',
-      code: 'WS_PAYLOAD_VALIDATION_ERROR',
-      message: 'Missing required websocket payload field "displayName"',
-    });
-    expect(emitted).toBe(false);
   });
 });

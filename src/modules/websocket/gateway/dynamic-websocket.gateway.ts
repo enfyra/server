@@ -16,11 +16,6 @@ import {
 } from '../../../shared/utils/constant';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { RedisAdminService } from '../../admin/services/redis-admin.service';
-import type {
-  WebsocketDataShapeField,
-  WebsocketNativeAction,
-  WebsocketNativeFlowTrigger,
-} from '../types/native-event.types';
 import {
   loadUserWithRole,
   userCacheKey,
@@ -30,7 +25,7 @@ import type { Cradle } from '../../../container';
 
 interface SocketData extends Socket {
   data: {
-    user?: { id: number | string };
+    user?: any;
     userId?: number | string;
     gateway?: any;
   };
@@ -280,6 +275,20 @@ export class DynamicWebSocketGateway {
         socket.disconnect(true);
         return;
       }
+      if (gatewayData.requireAuth) {
+        const user = await this.loadSocketUser(socket);
+        if (!user) {
+          this.logger.warn(
+            `Connection rejected: authenticated user not found for ${gatewayData.path}`,
+          );
+          socket.emit('auth_error', {
+            code: 'AUTH_USER_NOT_FOUND',
+            message: 'Authenticated user not found',
+          });
+          socket.disconnect(true);
+          return;
+        }
+      }
       if (path === ENFYRA_ADMIN_WEBSOCKET_NAMESPACE) {
         try {
           await this.setupAdminSocket(socket);
@@ -322,14 +331,15 @@ export class DynamicWebSocketGateway {
             const freshEvent: any = event;
             const script = builtInScript ?? event.handlerScript;
 
-            if (this.hasNativeEventConfig(freshEvent)) {
-              await this.runNativeEvent({
+            if (script) {
+              await this.runEventScript({
                 requestId,
                 socket,
                 eventName,
                 payload,
                 gatewayPath: gatewayData.path,
-                event: freshEvent,
+                script,
+                timeout: freshEvent?.timeout ?? event.timeout,
                 socketReceivedAt,
                 ackSentAt,
               });
@@ -340,39 +350,22 @@ export class DynamicWebSocketGateway {
               return;
             }
 
-            if (!script) {
-              this.logger.warn(
-                `No handler for event ${eventName} on ${gatewayData.path}`,
-              );
-              if (typeof ack === 'function') {
-                ack({
-                  accepted: false,
-                  queued: false,
-                  requestId,
-                  eventName,
-                  error: {
-                    code: 'NO_HANDLER',
-                    message: 'No handler configured',
-                  },
-                });
-              }
-              return;
-            }
-            await this.runEventScript({
-              requestId,
-              socket,
-              eventName,
-              payload,
-              gatewayPath: gatewayData.path,
-              script,
-              timeout: freshEvent?.timeout ?? event.timeout,
-              socketReceivedAt,
-              ackSentAt,
-            });
+            this.logger.warn(
+              `No handler for event ${eventName} on ${gatewayData.path}`,
+            );
             if (typeof ack === 'function') {
-              ack({ accepted: true, queued: false, requestId, eventName });
-              ackSentAt = Date.now();
+              ack({
+                accepted: false,
+                queued: false,
+                requestId,
+                eventName,
+                error: {
+                  code: 'NO_HANDLER',
+                  message: 'No handler configured',
+                },
+              });
             }
+            return;
           } catch (error) {
             this.logger.error(`Event handler failed for ${eventName}:`, error);
             if (typeof ack === 'function') {
@@ -404,7 +397,8 @@ export class DynamicWebSocketGateway {
     gatewayData: any,
     script: string,
   ) {
-    const userId = socket.data.userId || null;
+    const user = this.getSocketUser(socket);
+    const userId = socket.data.userId || user?.id || user?._id || null;
     const ctx = this.lazyRef.dynamicContextFactory.createWebsocketConnection({
       gatewayPath: gatewayData.path,
       socketId: socket.id,
@@ -414,14 +408,14 @@ export class DynamicWebSocketGateway {
         headers: socket.handshake.headers,
         auth: socket.handshake.auth,
       },
-      user: userId ? { id: userId } : null,
+      user,
     });
     ctx.$repos = this.lazyRef.repoRegistryService.createReposProxy(ctx);
     ctx.$trigger = (flowIdOrName: string | number, payload?: any) =>
       this.lazyRef.flowService.trigger(
         flowIdOrName,
         payload,
-        userId ? { id: userId } : null,
+        user,
       );
 
     await this.lazyRef.executorEngineService.run(
@@ -454,38 +448,30 @@ export class DynamicWebSocketGateway {
       socketReceivedAt,
       ackSentAt,
     } = options;
-    const userId = socket.data.userId || null;
+    const user = this.getSocketUser(socket);
+    const userId = socket.data.userId || user?.id || user?._id || null;
     const ctx = this.lazyRef.dynamicContextFactory.createWebsocketEvent({
       gatewayPath,
       socketId: socket.id,
       eventName,
       payload,
-      user: userId ? { id: userId } : null,
+      user,
     });
     ctx.$repos = this.lazyRef.repoRegistryService.createReposProxy(ctx);
     ctx.$trigger = (flowIdOrName: string | number, payload?: any) =>
       this.lazyRef.flowService.trigger(
         flowIdOrName,
         payload,
-        userId ? { id: userId } : null,
+        user,
       );
 
     try {
-      const result = await this.lazyRef.executorEngineService.run(
+      await this.lazyRef.executorEngineService.run(
         script,
         ctx,
         timeout,
       );
       const endedAt = Date.now();
-      if (payload?.__suppressResult !== true) {
-        ctx.$socket?.reply?.('ws:result', {
-          requestId,
-          eventName,
-          success: true,
-          result,
-          logs: ctx.$share?.$logs || [],
-        });
-      }
       this.writeEventTrace({
         type: 'ws_event',
         mode: 'inline',
@@ -503,7 +489,6 @@ export class DynamicWebSocketGateway {
         totalHandlerMs: endedAt - socketReceivedAt,
         messageId: payload?.id,
         kind: payload?.kind,
-        suppressResult: payload?.__suppressResult === true,
       });
     } catch (error: any) {
       const failedAt = Date.now();
@@ -537,280 +522,10 @@ export class DynamicWebSocketGateway {
     }
   }
 
-  private async runNativeEvent(options: {
-    requestId: string;
-    socket: SocketData;
-    eventName: string;
-    payload: any;
-    gatewayPath: string;
-    event: any;
-    socketReceivedAt: number;
-    ackSentAt: number | null;
-  }) {
-    const startedAt = Date.now();
-    const {
-      requestId,
-      socket,
-      eventName,
-      payload,
-      gatewayPath,
-      event,
-      socketReceivedAt,
-      ackSentAt,
-    } = options;
-
-    try {
-      this.validateNativePayload(event.dataShape, payload);
-      for (const action of this.getNativeActions(event)) {
-        if (!this.matchesCondition(action.when, payload)) continue;
-        await this.executeNativeAction(socket, gatewayPath, action, payload);
-      }
-      const flowTriggerStartedAt = Date.now();
-      let triggeredFlowCount = 0;
-      for (const flow of this.getNativeFlowTriggers(event)) {
-        if (!this.matchesCondition(flow.when, payload)) continue;
-        await this.triggerNativeFlow(flow, payload, socket.data.userId || null);
-        triggeredFlowCount++;
-      }
-      const endedAt = Date.now();
-      this.writeEventTrace({
-        type: 'ws_event',
-        mode: 'native',
-        status: 'success',
-        requestId,
-        eventName,
-        gatewayPath,
-        socketReceivedAt,
-        ackSentAt,
-        workerStartedAt: startedAt,
-        nativeEndedAt: endedAt,
-        queueWaitMs: 0,
-        nativeMs: endedAt - startedAt,
-        triggerFlowMs:
-          triggeredFlowCount > 0 ? endedAt - flowTriggerStartedAt : undefined,
-        triggeredFlowCount,
-        totalHandlerMs: endedAt - socketReceivedAt,
-        clientSentAt: payload?.sentAt,
-        serverReceiveLagMs:
-          typeof payload?.sentAt === 'number'
-            ? socketReceivedAt - payload.sentAt
-            : undefined,
-        messageId: payload?.id,
-        kind: payload?.kind,
-        suppressResult: true,
-      });
-    } catch (error: any) {
-      const failedAt = Date.now();
-      socket.emit('ws:error', {
-        requestId,
-        eventName,
-        success: false,
-        code: error?.code || 'WS_NATIVE_HANDLER_ERROR',
-        message: error?.message || 'Websocket native handler failed',
-      });
-      this.writeEventTrace({
-        type: 'ws_event',
-        mode: 'native',
-        status: 'error',
-        requestId,
-        eventName,
-        gatewayPath,
-        socketReceivedAt,
-        ackSentAt,
-        workerStartedAt: startedAt,
-        failedAt,
-        queueWaitMs: 0,
-        totalHandlerMs: failedAt - socketReceivedAt,
-        clientSentAt: payload?.sentAt,
-        serverReceiveLagMs:
-          typeof payload?.sentAt === 'number'
-            ? socketReceivedAt - payload.sentAt
-            : undefined,
-        messageId: payload?.id,
-        kind: payload?.kind,
-        error: error?.message || String(error),
-      });
-      throw error;
-    }
-  }
-
-  private hasNativeEventConfig(event: any) {
-    return (
-      event?.socketAction != null ||
-      event?.socketActions != null ||
-      event?.triggerFlow != null ||
-      event?.triggerFlows != null
-    );
-  }
-
-  private getNativeActions(event: any): WebsocketNativeAction[] {
-    const actions = event?.socketActions ?? event?.socketAction;
-    if (!actions) return [];
-    return Array.isArray(actions) ? actions : [actions];
-  }
-
-  private getNativeFlowTriggers(event: any): WebsocketNativeFlowTrigger[] {
-    const flows = event?.triggerFlows ?? event?.triggerFlow;
-    if (!flows) return [];
-    return Array.isArray(flows) ? flows : [flows];
-  }
-
-  private async executeNativeAction(
-    socket: SocketData,
-    gatewayPath: string,
-    action: WebsocketNativeAction,
-    payload: any,
-  ): Promise<void> {
-    const type = action.action ?? action.type;
-    const event = String(action.event ?? action.eventName ?? '');
-    const data = this.resolvePayloadExpression(
-      action.payloadExpression ?? action.payload ?? '{{ data }}',
-      payload,
-    );
-
-    switch (type) {
-      case 'joinRoom':
-        socket.join(this.resolveTemplate(action.room ?? action.roomTemplate, payload));
-        return;
-      case 'leaveRoom':
-        socket.leave(this.resolveTemplate(action.room ?? action.roomTemplate, payload));
-        return;
-      case 'emitToRoom':
-        await this.emitToNamespaceRoom(
-          gatewayPath,
-          this.resolveTemplate(action.room ?? action.roomTemplate, payload),
-          event,
-          data,
-        );
-        return;
-      case 'emitToUser':
-        this.emitToUser(
-          this.resolveTemplate(action.userId ?? action.userTemplate, payload),
-          event,
-          data,
-        );
-        return;
-      case 'reply':
-        socket.emit(event, data);
-        return;
-      case 'broadcast':
-        this.emitToNamespace(gatewayPath, event, data);
-        return;
-      case 'disconnect':
-        socket.disconnect(true);
-        return;
-      default:
-        throw new Error(`Unsupported websocket native action "${String(type)}"`);
-    }
-  }
-
-  private async triggerNativeFlow(
-    flow: WebsocketNativeFlowTrigger,
-    payload: any,
-    userId: number | string | null,
-  ) {
-    const flowIdOrName = flow.flowId ?? flow.flowName ?? flow.flow;
-    if (flowIdOrName === undefined || flowIdOrName === null || flowIdOrName === '') {
-      throw new Error('Native websocket flow trigger requires flowId or flowName');
-    }
-    const flowPayload = this.resolvePayloadExpression(
-      flow.payloadExpression ?? flow.payload ?? '{{ data }}',
-      payload,
-    );
-    await this.lazyRef.flowService.trigger(
-      flowIdOrName,
-      flowPayload,
-      userId ? { id: userId } : null,
-    );
-  }
-
-  private validateNativePayload(
-    shape: WebsocketDataShapeField[] | null | undefined,
-    payload: any,
-    prefix = '',
-  ) {
-    if (!Array.isArray(shape) || shape.length === 0) return;
-    for (const field of shape) {
-      if (!field?.name) continue;
-      const path = prefix ? `${prefix}.${field.name}` : field.name;
-      const value = this.getPathValue(payload, path);
-      if (field.required && (value === undefined || value === null || value === '')) {
-        const error = new Error(`Missing required websocket payload field "${path}"`);
-        (error as any).code = 'WS_PAYLOAD_VALIDATION_ERROR';
-        throw error;
-      }
-      if (
-        value != null &&
-        field.type === 'object' &&
-        Array.isArray(field.children) &&
-        !Array.isArray(value)
-      ) {
-        this.validateNativePayload(field.children, value, '');
-      }
-    }
-  }
-
-  private matchesCondition(condition: any, payload: any) {
-    if (!condition) return true;
-    const path = condition.field ?? condition.path;
-    if (!path) return true;
-    const value = this.getPathValue(payload, String(path));
-    if ('exists' in condition) {
-      return condition.exists ? value !== undefined && value !== null : value === undefined || value === null;
-    }
-    if ('eq' in condition) return value === condition.eq;
-    if ('ne' in condition) return value !== condition.ne;
-    return Boolean(value);
-  }
-
-  private resolvePayloadExpression(expression: any, payload: any): any {
-    if (
-      expression === undefined ||
-      expression === null ||
-      expression === '$data' ||
-      expression === '{{ data }}'
-    ) {
-      return payload;
-    }
-    if (typeof expression === 'string') {
-      const trimmed = expression.trim();
-      if (trimmed === '$data' || trimmed === '{{ data }}') return payload;
-      if (trimmed.startsWith('$data.')) {
-        return this.getPathValue(payload, trimmed.slice('$data.'.length));
-      }
-      const tokenOnly = trimmed.match(/^\{\{\s*data\.([^}]+)\s*\}\}$/);
-      if (tokenOnly) return this.getPathValue(payload, tokenOnly[1].trim());
-      return this.resolveTemplate(trimmed, payload);
-    }
-    if (Array.isArray(expression)) {
-      return expression.map((item) => this.resolvePayloadExpression(item, payload));
-    }
-    if (typeof expression === 'object') {
-      return Object.fromEntries(
-        Object.entries(expression).map(([key, value]) => [
-          key,
-          this.resolvePayloadExpression(value, payload),
-        ]),
-      );
-    }
-    return expression;
-  }
-
-  private resolveTemplate(template: any, payload: any) {
-    if (template === undefined || template === null) return '';
-    return String(template).replace(/\{\{\s*data\.([^}]+)\s*\}\}/g, (_, path) => {
-      const value = this.getPathValue(payload, String(path).trim());
-      return value == null ? '' : String(value);
-    });
-  }
-
-  private getPathValue(source: any, path: string) {
-    return path.split('.').reduce((current, segment) => {
-      if (current == null) return undefined;
-      const normalized = segment.endsWith('[]') ? segment.slice(0, -2) : segment;
-      const value = current[normalized];
-      return Array.isArray(value) ? value[0] : value;
-    }, source);
+  private getSocketUser(socket: SocketData) {
+    if (socket.data.user) return socket.data.user;
+    const userId = socket.data.userId;
+    return userId === undefined || userId === null ? null : { id: userId };
   }
 
   private writeEventTrace(entry: Record<string, any>) {
@@ -963,6 +678,16 @@ export class DynamicWebSocketGateway {
     for (const path of this.registeredGateways) {
       void this.emitToNamespaceRoom(path, room, event, data);
     }
+  }
+
+  broadcastToRoom(
+    path: string,
+    socketId: string,
+    room: string,
+    event: string,
+    data: any,
+  ) {
+    this.server.of(path).sockets.get(socketId)?.to(room).emit(event, data);
   }
 
   emitToNamespace(path: string, event: string, data: any) {

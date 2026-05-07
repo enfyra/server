@@ -686,9 +686,6 @@
       { "name": "sourceCode", "type": "code", "isSystem": true, "isNullable": true, "description": "JavaScript or TypeScript source code to execute" },
       { "name": "scriptLanguage", "type": "enum", "options": ["javascript", "typescript"], "isSystem": true, "isNullable": false, "defaultValue": "typescript", "description": "Language used by sourceCode before server compilation" },
       { "name": "compiledCode", "type": "code", "isSystem": true, "isNullable": true, "isGenerated": true, "isUpdatable": false, "description": "Server-compiled JavaScript code executed by the runtime" },
-      { "name": "dataShape", "type": "simple-json", "isSystem": true, "isNullable": true, "description": "Payload field schema used by native WebSocket actions and flow triggers" },
-      { "name": "socketAction", "type": "simple-json", "isSystem": true, "isNullable": true, "description": "Native socket action or action chain executed inline on the gateway instance" },
-      { "name": "triggerFlow", "type": "simple-json", "isSystem": true, "isNullable": true, "description": "Flow trigger or trigger chain started fire-and-forget after native socket actions" },
       { "name": "timeout", "type": "int", "isSystem": true, "isNullable": true, "description": "Timeout in milliseconds for event handler execution. If not set, uses default system timeout." }
     ],
     "relations": [
