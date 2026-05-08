@@ -686,7 +686,7 @@ describe('buildZodFromMetadata — cascade create vs update semantics', () => {
   });
 });
 
-describe('buildZodFromMetadata — cycle detection + depth cap', () => {
+describe('buildZodFromMetadata — cycle detection + seen graph', () => {
   const author: any = {
     name: 'author',
     validateBody: true,
@@ -754,6 +754,55 @@ describe('buildZodFromMetadata — cycle detection + depth cap', () => {
     expect(s.safeParse({ name: 'x', parent: 5 }).success).toBe(true);
     expect(
       s.safeParse({ name: 'x', parent: { name: 'new-parent' } }).success,
+    ).toBe(true);
+  });
+
+  it('broad relation graph expands each table once during schema build', () => {
+    const tableCount = 24;
+    const metas = new Map<string, any>();
+
+    for (let i = 0; i < tableCount; i++) {
+      metas.set(`t${i}`, {
+        name: `t${i}`,
+        validateBody: true,
+        columns: [
+          col('id', 'int', { isPrimary: true, isGenerated: true }),
+          col('name', 'varchar', { isNullable: false }),
+        ],
+        relations: [],
+      });
+    }
+
+    for (let i = 0; i < tableCount; i++) {
+      const current = metas.get(`t${i}`);
+      current.relations = [1, 2, 3, 4, 5, 6].flatMap((offset) => {
+        const target = metas.get(`t${i + offset}`);
+        if (!target) return [];
+        return [
+          {
+            type: 'many-to-one',
+            propertyName: `rel${offset}`,
+            targetTable: target.name,
+          },
+        ];
+      });
+    }
+
+    const seenLookups = new Set<string>();
+    const s = build(metas.get('t0'), 'create', (name: string) => {
+      seenLookups.add(name);
+      return metas.get(name) ?? null;
+    });
+
+    expect(seenLookups.size).toBeLessThanOrEqual(tableCount - 1);
+    expect(
+      s.safeParse({
+        name: 'root',
+        rel1: {
+          name: 'one',
+          rel1: { name: 'two', rel1: { name: 'three' } },
+        },
+      }).success,
     ).toBe(true);
   });
 });

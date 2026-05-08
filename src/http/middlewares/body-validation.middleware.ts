@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { z } from 'zod';
+import type { ZodType } from 'zod';
 import type { Cradle } from '../../container';
 import type { AwilixContainer } from 'awilix';
 import {
@@ -12,18 +12,8 @@ import { BadRequestException } from '../../domain/exceptions';
 
 type Mode = 'create' | 'update';
 
-const schemaCache = new Map<string, z.ZodType>();
-
-function cacheKey(
-  tableName: string,
-  mode: Mode,
-  version: number | string,
-): string {
-  return `${tableName}:${mode}:${version}`;
-}
-
 export function invalidateBodyValidationCache(): void {
-  schemaCache.clear();
+  return;
 }
 
 function buildSchema(
@@ -31,7 +21,7 @@ function buildSchema(
   tableMeta: any,
   metadata: Awaited<ReturnType<MetadataCacheService['getMetadata']>>,
   rulesByColumn: Map<string, any[]>,
-): z.ZodType | null {
+): ZodType | null {
   if (!tableMeta) return null;
 
   return buildZodFromMetadata({
@@ -72,11 +62,6 @@ function assignValidationBody(req: Request, routeData: any, body: any): void {
 export function bodyValidationMiddleware(container: AwilixContainer<Cradle>) {
   const metadataCache = container.cradle.metadataCacheService;
   const ruleCache = container.cradle.columnRuleCacheService;
-  const eventEmitter = container.cradle.eventEmitter;
-
-  eventEmitter?.on('cache:metadata:loaded', invalidateBodyValidationCache);
-  eventEmitter?.on('metadata_LOADED', invalidateBodyValidationCache);
-  eventEmitter?.on('column-rule_LOADED', invalidateBodyValidationCache);
 
   return async (req: Request, res: Response, next: NextFunction) => {
     const method = req.method?.toUpperCase();
@@ -94,23 +79,13 @@ export function bodyValidationMiddleware(container: AwilixContainer<Cradle>) {
 
     const mode: Mode = method === 'POST' ? 'create' : 'update';
     const metadata = await metadataCache.getMetadata();
-    const version = metadata?.version ?? 0;
-    const key = cacheKey(mainTable.name, mode, version);
-    let tableMeta = mainTable;
-
-    let schema = schemaCache.get(key);
-    if (!schema) {
-      const buildMetadata = await metadataCache.getMetadata();
-      const rulesByColumn = await ruleCache.getCacheAsync();
-      tableMeta = buildMetadata?.tables?.get(mainTable.name) ?? null;
-      const built = tableMeta
-        ? buildSchema(mode, tableMeta, buildMetadata, rulesByColumn)
-        : null;
-      if (!built) return next();
-      if (schemaCache.size > 500) schemaCache.clear();
-      schemaCache.set(key, built);
-      schema = built;
-    }
+    if (!metadata) return next();
+    const rulesByColumn = await ruleCache.getCacheAsync();
+    const tableMeta = metadata.tables?.get(mainTable.name) ?? null;
+    const schema = tableMeta
+      ? buildSchema(mode, tableMeta, metadata, rulesByColumn)
+      : null;
+    if (!schema) return next();
 
     const body = req.body;
     if (body === null || body === undefined) {
