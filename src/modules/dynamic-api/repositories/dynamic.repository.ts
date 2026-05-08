@@ -587,13 +587,15 @@ export class DynamicRepository {
       sort?: string;
       meta?: string | string[];
       aggregate?: any;
+      deep?: Record<string, any>;
     } = {},
   ) {
     await this.ensureInit();
     await this.assertQueryAllowed();
 
     const rawFields = opt?.fields || this.context.$query?.fields;
-    const rawDeep: Record<string, any> = this.context.$query?.deep || {};
+    const rawDeep: Record<string, any> =
+      opt && 'deep' in opt ? (opt.deep || {}) : (this.context.$query?.deep || {});
 
     if (rawDeep && Object.keys(rawDeep).length > 0) {
       const metadata = await this.metadataCacheService.getMetadata();
@@ -640,7 +642,7 @@ export class DynamicRepository {
 
     const requested = buildRequestedShapeFromQuery({
       fields: opt?.fields || this.context.$query?.fields,
-      deep: this.context.$query?.deep,
+      deep: rawDeep,
     });
 
     const sanitizedData = await sanitizeFieldPermissionsResult({
