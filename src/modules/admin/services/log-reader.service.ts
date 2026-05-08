@@ -10,6 +10,23 @@ import type { LogContent, LogFile, ParsedLogEntry } from '../types';
 
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE = 1000;
+const PINO_LEVEL_LABELS: Record<number, string> = {
+  10: 'trace',
+  20: 'debug',
+  30: 'info',
+  40: 'warn',
+  50: 'error',
+  60: 'fatal',
+};
+
+function normalizeLevel(level: unknown): string {
+  if (typeof level === 'number') return PINO_LEVEL_LABELS[level] || String(level);
+  return typeof level === 'string' && level ? level : 'info';
+}
+
+function normalizeFilter(filter?: string): string | undefined {
+  return typeof filter === 'string' && filter ? filter : undefined;
+}
 
 export class LogReaderService {
   private readonly logger = new Logger(LogReaderService.name);
@@ -43,7 +60,7 @@ export class LogReaderService {
       return {
         id: parsed.id || '',
         timestamp: parsed.timestamp || '',
-        level: parsed.level || 'info',
+        level: normalizeLevel(parsed.level),
         context: parsed.context,
         correlationId: parsed.correlationId || parsed.context?.correlationId,
         message: parsed.message || line,
@@ -76,6 +93,7 @@ export class LogReaderService {
     id?: string,
     correlationId?: string,
   ): boolean {
+    filter = normalizeFilter(filter);
     if (!filter && !level && !id && !correlationId) return true;
 
     let parsed: any;
@@ -92,7 +110,7 @@ export class LogReaderService {
       parsed.context?.correlationId !== correlationId
     )
       return false;
-    if (level && parsed.level !== level) return false;
+    if (level && normalizeLevel(parsed.level) !== level) return false;
     if (filter && !line.toLowerCase().includes(filter.toLowerCase()))
       return false;
 

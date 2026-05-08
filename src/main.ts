@@ -6,10 +6,23 @@ import { buildExpressApp } from './express-app';
 import { env } from './env';
 import { Logger } from './shared/logger';
 
+function registerProcessErrorHandlers(logger: Logger): void {
+  process.on('unhandledRejection', (reason) => {
+    logger.fatal('Unhandled promise rejection', reason);
+    setTimeout(() => process.exit(1), 250).unref();
+  });
+
+  process.on('uncaughtException', (error) => {
+    logger.fatal('Uncaught exception', error);
+    setTimeout(() => process.exit(1), 250).unref();
+  });
+}
+
 async function main() {
   process.stdout.write('\x1Bc');
   const startTime = Date.now();
   const logger = new Logger('Server');
+  registerProcessErrorHandlers(logger);
 
   logger.log('Starting Cold Start...');
 
@@ -106,6 +119,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('Fatal:', err);
-  process.exit(1);
+  const logger = new Logger('Server');
+  logger.fatal('Fatal boot error', err);
+  setTimeout(() => process.exit(1), 250).unref();
 });
