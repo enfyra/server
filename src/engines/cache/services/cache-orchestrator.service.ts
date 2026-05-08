@@ -22,6 +22,7 @@ import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
+import { logMemory } from '../../../shared/utils/memory-log.util';
 import { DynamicWebSocketGateway } from '../../../modules/websocket';
 import { GraphqlService } from '../../../modules/graphql';
 import { BootstrapScriptService } from '../../../domain/bootstrap';
@@ -373,16 +374,42 @@ export class CacheOrchestratorService implements LifecycleAware {
         error?: string;
       }> = [];
       let reloadError: unknown = null;
+      const memoryMeta = {
+        reloadId,
+        flow,
+        table: payload.table,
+        scope: payload.scope,
+        chain,
+        sharedRuntimeCache,
+        sharedReplay,
+      };
+
+      logMemory(this.logger, 'cache chain start', memoryMeta);
 
       const runStep = async (name: string, fn: () => Promise<void>) => {
         const s = Date.now();
+        logMemory(this.logger, 'cache step start', {
+          ...memoryMeta,
+          step: name,
+        });
         try {
           await fn();
           const durationMs = Date.now() - s;
+          logMemory(this.logger, 'cache step done', {
+            ...memoryMeta,
+            step: name,
+            durationMs,
+          });
           steps.push({ name, durationMs, status: 'success' });
           return durationMs;
         } catch (error: any) {
           const durationMs = Date.now() - s;
+          logMemory(this.logger, 'cache step failed', {
+            ...memoryMeta,
+            step: name,
+            durationMs,
+            error: error?.message || String(error),
+          });
           steps.push({
             name,
             durationMs,
@@ -451,6 +478,10 @@ export class CacheOrchestratorService implements LifecycleAware {
       this.logger.log(
         `${payload.scope === 'partial' ? 'Partial' : 'Full'} chain [${stepTimings.join(' → ')}] for ${payload.table} in ${elapsed}ms`,
       );
+      logMemory(this.logger, 'cache chain done', {
+        ...memoryMeta,
+        durationMs: elapsed,
+      });
     };
     this.reloadLock = this.runtimeMetricsCollectorService
       ? this.runtimeMetricsCollectorService.runWithQueryContext(

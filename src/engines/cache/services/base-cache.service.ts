@@ -1,6 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import { EventEmitter2 } from 'eventemitter2';
 import { getErrorMessage } from '../../../shared/utils/error.util';
+import { logMemory } from '../../../shared/utils/memory-log.util';
 import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
@@ -47,11 +48,22 @@ export abstract class BaseCacheService<T> {
     this.loadingPromise = (async () => {
       try {
         const start = Date.now();
+        logMemory(this.logger, 'cache reload start', {
+          cache: this.config.cacheName,
+        });
         const data = await this.loadFreshCacheData();
+        logMemory(this.logger, 'cache reload data loaded', {
+          cache: this.config.cacheName,
+        });
         await this.setLoadedCache(data, { persistShared: true });
 
         const elapsed = Date.now() - start;
         this.logger.log(`Loaded ${this.getLogCount()} in ${elapsed}ms`);
+        logMemory(this.logger, 'cache reload done', {
+          cache: this.config.cacheName,
+          durationMs: elapsed,
+          count: this.getLogCount(),
+        });
 
         this.emitLoadedEvent();
       } catch (error) {
@@ -78,6 +90,12 @@ export abstract class BaseCacheService<T> {
     }
     try {
       const start = Date.now();
+      logMemory(this.logger, 'cache partial reload start', {
+        cache: this.config.cacheName,
+        table: payload.table,
+        scope: payload.scope,
+        ids: payload.ids?.length ?? 0,
+      });
       if (this.usesSharedRuntimeCache()) {
         const lockValue =
           await this.redisRuntimeCacheStore!.acquireRefreshLockWithWait(
@@ -121,6 +139,13 @@ export abstract class BaseCacheService<T> {
       this.logger.log(
         `Partial reload (${payload.ids?.length ?? 0} ids) in ${elapsed}ms`,
       );
+      logMemory(this.logger, 'cache partial reload done', {
+        cache: this.config.cacheName,
+        table: payload.table,
+        scope: payload.scope,
+        ids: payload.ids?.length ?? 0,
+        durationMs: elapsed,
+      });
 
       this.emitLoadedEvent();
     } catch (error) {
