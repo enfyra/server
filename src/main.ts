@@ -1,4 +1,5 @@
 import * as http from 'http';
+import * as net from 'net';
 import { Server } from 'socket.io';
 import { buildContainer } from './container';
 import { init, shutdown } from './init';
@@ -18,11 +19,47 @@ function registerProcessErrorHandlers(logger: Logger): void {
   });
 }
 
+async function assertPortAvailable(port: number, logger: Logger): Promise<void> {
+  const probe = net.createServer();
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onError = (err: NodeJS.ErrnoException) => {
+        probe.removeListener('listening', onListening);
+        reject(err);
+      };
+      const onListening = () => {
+        probe.removeListener('error', onError);
+        resolve();
+      };
+      probe.once('error', onError);
+      probe.once('listening', onListening);
+      probe.listen(port, '0.0.0.0');
+    });
+  } catch (err: any) {
+    if (err?.code === 'EADDRINUSE') {
+      logger.error(
+        `Port ${port} is already in use. Another server instance may be running.`,
+      );
+      process.exit(1);
+    }
+    throw err;
+  } finally {
+    if (probe.listening) {
+      await new Promise<void>((resolve, reject) => {
+        probe.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
+  }
+}
+
 async function main() {
   process.stdout.write('\x1Bc');
   const startTime = Date.now();
   const logger = new Logger('Server');
   registerProcessErrorHandlers(logger);
+
+  await assertPortAvailable(env.PORT, logger);
 
   logger.log('Starting Cold Start...');
 

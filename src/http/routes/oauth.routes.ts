@@ -47,7 +47,8 @@ export function registerOAuthRoutes(
 
     const provider = req.params.provider;
     const redirectUrl = req.query.redirect as string;
-    const cookieBridgePrefix = req.query.cookieBridgePrefix;
+    const cookieBridgePrefixValue = req.query.cookieBridgePrefix;
+    let cookieBridgePrefix: string | undefined;
 
     if (!VALID_OAUTH_PROVIDERS.includes(provider as any)) {
       throw new BadRequestException(`Invalid OAuth provider: ${provider}`);
@@ -58,8 +59,8 @@ export function registerOAuthRoutes(
     }
 
     validateRedirectUrl(redirectUrl, provider);
-    if (cookieBridgePrefix !== undefined) {
-      validateCookieBridgePrefix(cookieBridgePrefix);
+    if (cookieBridgePrefixValue !== undefined) {
+      cookieBridgePrefix = normalizeCookieBridgePrefix(cookieBridgePrefixValue);
     }
 
     const config = await oauthConfigCache.getDirectConfigByProvider(
@@ -185,16 +186,14 @@ function parseStatePayload(
     }
 
     validateRedirectUrl(parsed.redirect, 'state');
-    if (parsed.cookieBridgePrefix !== undefined) {
-      validateCookieBridgePrefix(parsed.cookieBridgePrefix);
-    }
+    const cookieBridgePrefix =
+      parsed.cookieBridgePrefix === undefined
+        ? undefined
+        : normalizeCookieBridgePrefix(parsed.cookieBridgePrefix);
 
     return {
       redirect: parsed.redirect,
-      cookieBridgePrefix:
-        typeof parsed.cookieBridgePrefix === 'string'
-          ? parsed.cookieBridgePrefix
-          : undefined,
+      cookieBridgePrefix,
       ts: parsed.ts || 0,
     };
   } catch {
@@ -214,17 +213,17 @@ function validateRedirectUrl(url: string, _provider: string): void {
   }
 }
 
-function validateCookieBridgePrefix(prefix: unknown): asserts prefix is string {
-  if (
-    typeof prefix !== 'string' ||
-    !prefix.startsWith('/') ||
-    prefix.startsWith('//') ||
-    prefix.includes('?') ||
-    prefix.includes('#') ||
-    prefix.includes('..')
-  ) {
+function normalizeCookieBridgePrefix(prefix: unknown): string {
+  if (typeof prefix !== 'string') {
     throw new BadRequestException('Invalid cookie bridge prefix');
   }
+
+  const segment = prefix.trim().replace(/^\/+/, '').split(/[/?#]/)[0];
+  if (!segment || segment === '..' || segment.includes('..')) {
+    throw new BadRequestException('Invalid cookie bridge prefix');
+  }
+
+  return `/${segment}`;
 }
 
 function getSuccessCallbackUrl(

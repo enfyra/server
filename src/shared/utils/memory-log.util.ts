@@ -24,7 +24,9 @@ export function logMemory(
   label: string,
   meta: MemoryLogMeta = {},
 ): void {
-  logger.warn({
+  if (process.env.MEMORY_LOG !== '1') return;
+
+  logger.log({
     message: `[memory] ${label}`,
     memory: createMemorySnapshot(),
     ...meta,
