@@ -68,6 +68,7 @@ describe('RuntimeMonitorService', () => {
       app: { requests: { total: 1 } },
       appCluster: {
         ttlMs: 10000,
+        activeCount: 1,
         instances: [
           {
             instanceId: 'a',
@@ -152,6 +153,7 @@ describe('RuntimeMonitorService', () => {
         cluster: { instances: [{ instanceId: 'a' }, { instanceId: 'b' }] },
         app: expect.any(Object),
         appCluster: expect.objectContaining({
+          activeCount: expect.any(Number),
           instances: expect.any(Array),
         }),
       }),
