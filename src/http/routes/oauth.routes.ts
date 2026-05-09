@@ -7,7 +7,7 @@ import type { IOAuthConfig } from '../../domain/shared/interfaces/oauth-config-c
 
 type OAuthStatePayload = {
   redirect: string;
-  appOrigin?: string;
+  cookieBridgePrefix?: string;
   ts: number;
 };
 
@@ -47,7 +47,7 @@ export function registerOAuthRoutes(
 
     const provider = req.params.provider;
     const redirectUrl = req.query.redirect as string;
-    const appOrigin = req.query.appOrigin as string | undefined;
+    const cookieBridgePrefix = req.query.cookieBridgePrefix;
 
     if (!VALID_OAUTH_PROVIDERS.includes(provider as any)) {
       throw new BadRequestException(`Invalid OAuth provider: ${provider}`);
@@ -58,6 +58,9 @@ export function registerOAuthRoutes(
     }
 
     validateRedirectUrl(redirectUrl, provider);
+    if (cookieBridgePrefix !== undefined) {
+      validateCookieBridgePrefix(cookieBridgePrefix);
+    }
 
     const config = await oauthConfigCache.getDirectConfigByProvider(
       provider as any,
@@ -68,13 +71,9 @@ export function registerOAuthRoutes(
       );
     }
 
-    if (config.autoSetCookies) {
-      validateAppOrigin(appOrigin);
-    }
-
     const payload = JSON.stringify({
       redirect: redirectUrl,
-      appOrigin: appOrigin ?? undefined,
+      cookieBridgePrefix: cookieBridgePrefix ?? undefined,
       ts: Date.now(),
     } satisfies OAuthStatePayload);
     const sig = signState(payload, configService);
@@ -186,15 +185,16 @@ function parseStatePayload(
     }
 
     validateRedirectUrl(parsed.redirect, 'state');
-
-    if (parsed.appOrigin !== undefined) {
-      validateAppOrigin(parsed.appOrigin);
+    if (parsed.cookieBridgePrefix !== undefined) {
+      validateCookieBridgePrefix(parsed.cookieBridgePrefix);
     }
 
     return {
       redirect: parsed.redirect,
-      appOrigin:
-        typeof parsed.appOrigin === 'string' ? parsed.appOrigin : undefined,
+      cookieBridgePrefix:
+        typeof parsed.cookieBridgePrefix === 'string'
+          ? parsed.cookieBridgePrefix
+          : undefined,
       ts: parsed.ts || 0,
     };
   } catch {
@@ -214,24 +214,16 @@ function validateRedirectUrl(url: string, _provider: string): void {
   }
 }
 
-function validateAppOrigin(appOrigin: string | undefined): asserts appOrigin is string {
-  if (!appOrigin) {
-    throw new BadRequestException('App origin is required');
-  }
-
-  try {
-    const parsed = new URL(appOrigin);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new Error('Invalid app origin protocol');
-    }
-    if (parsed.pathname !== '/' || parsed.search || parsed.hash) {
-      throw new Error('App origin must not include a path');
-    }
-  } catch (error) {
-    if (error instanceof BadRequestException) {
-      throw error;
-    }
-    throw new BadRequestException('App origin must be a valid absolute origin');
+function validateCookieBridgePrefix(prefix: unknown): asserts prefix is string {
+  if (
+    typeof prefix !== 'string' ||
+    !prefix.startsWith('/') ||
+    prefix.startsWith('//') ||
+    prefix.includes('?') ||
+    prefix.includes('#') ||
+    prefix.includes('..')
+  ) {
+    throw new BadRequestException('Invalid cookie bridge prefix');
   }
 }
 
@@ -240,8 +232,11 @@ function getSuccessCallbackUrl(
   config: IOAuthConfig,
 ) {
   if (config.autoSetCookies) {
-    validateAppOrigin(statePayload.appOrigin);
-    return new URL('/api/auth/set-cookies', statePayload.appOrigin);
+    const redirectUrl = new URL(statePayload.redirect);
+    const cookieBridgePrefix = statePayload.cookieBridgePrefix ?? '/api';
+    const cookieBridgePath = `${cookieBridgePrefix.replace(/\/+$/, '')}/auth/set-cookies`;
+
+    return new URL(cookieBridgePath, redirectUrl.origin);
   }
 
   return getValidatedAppCallbackUrl(config.appCallbackUrl);
