@@ -76,14 +76,16 @@ describe('OAuth routes', () => {
     );
   });
 
-  it('uses cookieBridgePrefix for third-app auto cookie callback', async () => {
+  it.each(['enfyra', '/enfyra', '/enfyra/'])(
+    'normalizes cookieBridgePrefix %s for third-app auto cookie callback',
+    async (cookieBridgePrefix) => {
     const { get } = createHarness();
     const start = await get(
       '/auth/:provider',
       { provider: 'google' },
       {
         redirect: 'https://chat.example.com/chat',
-        cookieBridgePrefix: '/enfyra',
+        cookieBridgePrefix,
       },
     );
     const callback = await get(
@@ -99,5 +101,6 @@ describe('OAuth routes', () => {
     expect(location.searchParams.get('redirect')).toBe(
       'https://chat.example.com/chat',
     );
-  });
+    },
+  );
 });
