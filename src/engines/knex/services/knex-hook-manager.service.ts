@@ -12,6 +12,12 @@ import { getForeignKeyColumnName } from '@enfyra/kernel';
 type HookRegistry = {
   beforeInsert: Array<(tableName: string, data: any) => any>;
   afterInsert: Array<(tableName: string, result: any) => any>;
+  afterInsertMany: Array<
+    (
+      tableName: string,
+      entries: Array<{ recordId: any; contextData: any }>,
+    ) => any
+  >;
   beforeUpdate: Array<(tableName: string, data: any) => any>;
   afterUpdate: Array<(tableName: string, result: any) => any>;
   beforeDelete: Array<(tableName: string, criteria: any) => any>;
@@ -31,6 +37,7 @@ export class KnexHookManagerService {
   private hooks: HookRegistry = {
     beforeInsert: [],
     afterInsert: [],
+    afterInsertMany: [],
     beforeUpdate: [],
     afterUpdate: [],
     beforeDelete: [],
@@ -86,6 +93,11 @@ export class KnexHookManagerService {
       data: any,
       trx?: Knex | Knex.Transaction,
     ) => any,
+    insertManyWithCascade?: (
+      tableName: string,
+      rows: any[],
+      trx?: Knex | Knex.Transaction,
+    ) => any,
   ) {
     this.dbType = dbType;
     this.knexContext = knexContext;
@@ -101,6 +113,7 @@ export class KnexHookManagerService {
       updateWithCascade,
       () => policyContext.getStore() || null,
       () => fieldPermissionContext.getStore() || null,
+      insertManyWithCascade,
     );
 
     this.fieldStripper = new FieldStripper(this.metadataCacheService);
@@ -166,7 +179,7 @@ export class KnexHookManagerService {
       return data;
     });
 
-    this.addHook('beforeInsert', (tableName, data) => {
+    this.addHook('beforeInsert', async (tableName, data) => {
       const originalRelationData: any = {};
 
       if (typeof data === 'object' && !Array.isArray(data)) {
@@ -191,17 +204,19 @@ export class KnexHookManagerService {
       });
 
       if (Array.isArray(data)) {
-        return data.map((record) =>
-          this.transformRelationsToFK(tableName, record),
+        return Promise.all(
+          data.map((record) => this.transformRelationsToFK(tableName, record)),
         );
       }
       return this.transformRelationsToFK(tableName, data);
     });
 
-    this.addHook('beforeInsert', (tableName, data) => {
+    this.addHook('beforeInsert', async (tableName, data) => {
       if (Array.isArray(data)) {
-        return data.map((record) =>
-          this.fieldStripper.stripUnknownColumns(tableName, record),
+        return Promise.all(
+          data.map((record) =>
+            this.fieldStripper.stripUnknownColumns(tableName, record),
+          ),
         );
       }
       return this.fieldStripper.stripUnknownColumns(tableName, data);
@@ -269,9 +284,16 @@ export class KnexHookManagerService {
       return result;
     });
 
-    this.addHook('afterInsert', async (tableName, result) => {
+    const cascadeAfterInsert = async (tableName: string, result: any) => {
       await this.handleCascadeRelations(tableName, result);
       return result;
+    };
+    (cascadeAfterInsert as any).batchedByAfterInsertMany = true;
+    this.addHook('afterInsert', cascadeAfterInsert);
+
+    this.addHook('afterInsertMany', async (tableName, entries) => {
+      await this.handleCascadeRelationsBatch(tableName, entries);
+      return entries;
     });
 
     this.addHook('beforeUpdate', async (tableName, data) => {
@@ -440,8 +462,9 @@ export class KnexHookManagerService {
   }
 
   removeHook<E extends HookEvent>(event: E, handler: HookHandler<E>): void {
-    const index = this.hooks[event].indexOf(handler);
-    if (index > -1) this.hooks[event].splice(index, 1);
+    const hooks = this.hooks[event] as HookHandler<E>[];
+    const index = hooks.indexOf(handler);
+    if (index > -1) hooks.splice(index, 1);
   }
 
   async runHooks(event: HookEvent, ...args: any[]): Promise<any> {
@@ -577,6 +600,20 @@ export class KnexHookManagerService {
     return this.cascadeHandler.handleCascadeRelations(
       tableName,
       recordId,
+      cascadeMap,
+      connection,
+    );
+  }
+
+  private async handleCascadeRelationsBatch(
+    tableName: string,
+    entries: Array<{ recordId: any; contextData: any }>,
+  ): Promise<void> {
+    const connection = this.knexContext.getStore();
+    const cascadeMap = this.cascadeContext.getStore() || new Map();
+    return this.cascadeHandler.handleCascadeRelationsBatch(
+      tableName,
+      entries,
       cascadeMap,
       connection,
     );

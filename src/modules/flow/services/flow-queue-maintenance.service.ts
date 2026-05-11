@@ -107,12 +107,14 @@ export class FlowQueueMaintenanceService {
         );
         if (jobs.length === 0) break;
 
+        let removedFromPage = 0;
         for (const job of jobs) {
           result.checked++;
           if (!shouldRemove(job as Job)) continue;
           try {
             await job.remove();
             result.removed++;
+            removedFromPage++;
           } catch (error) {
             result.skipped++;
             this.logger.warn(
@@ -122,7 +124,9 @@ export class FlowQueueMaintenanceService {
         }
 
         if (jobs.length < batchSize) break;
-        start += batchSize;
+        if (removedFromPage === 0) {
+          start += batchSize;
+        }
       }
     }
   }

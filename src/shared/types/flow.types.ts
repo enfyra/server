@@ -19,6 +19,9 @@ export interface FlowStep {
   stepOrder: number;
   type: StepType;
   config?: any;
+  sourceCode?: string | null;
+  scriptLanguage?: string | null;
+  compiledCode?: string | null;
   timeout?: number;
   onError: StepErrorHandling;
   retryAttempts: number;

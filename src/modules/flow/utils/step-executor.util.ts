@@ -103,6 +103,20 @@ export interface StepExecOptions {
   shouldTransformCode?: boolean;
 }
 
+export function getExecutableStepConfig(step: {
+  config?: Record<string, any> | null;
+  sourceCode?: string | null;
+  scriptLanguage?: string | null;
+  compiledCode?: string | null;
+}): Record<string, any> {
+  return {
+    ...(step.config || {}),
+    sourceCode: step.sourceCode ?? step.config?.sourceCode,
+    scriptLanguage: step.scriptLanguage ?? step.config?.scriptLanguage,
+    compiledCode: step.compiledCode ?? step.config?.compiledCode,
+  };
+}
+
 export async function executeStepCore(opts: StepExecOptions): Promise<any> {
   const {
     type,

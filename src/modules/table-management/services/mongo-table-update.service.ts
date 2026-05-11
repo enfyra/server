@@ -41,6 +41,7 @@ import {
 } from './table-post-migration.service';
 import { MongoTableHandlerService } from './mongo-table-handler-base.service';
 import { renameMongoAutoTableRoute } from './table-route-artifacts.service';
+import { logMemory } from '../../../shared/utils/memory-log.util';
 
 export class MongoTableUpdateService extends MongoTableHandlerService {
   async updateTable(
@@ -59,8 +60,13 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
       return e;
     };
     stepLog(`STEP 0 acquiring schema lock`);
+    logMemory(this.logger, 'mongo updateTable start', { tableId: id });
     const out = await this.runWithSchemaLock(`mongo:update:${id}`, async () => {
       stepLog(`STEP 1 lock acquired (+${Date.now() - t0}ms)`);
+      logMemory(this.logger, 'mongo updateTable lock acquired', {
+        tableId: id,
+        waitMs: Date.now() - t0,
+      });
       t = Date.now();
       if (body.name && /[A-Z]/.test(body.name)) {
         throw new ValidationException('Table name must be lowercase.', {
@@ -868,6 +874,10 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
       }
     });
     stepLog(`STEP DONE total=${Date.now() - t0}ms`);
+    logMemory(this.logger, 'mongo updateTable done', {
+      tableId: id,
+      durationMs: Date.now() - t0,
+    });
     return out;
 }
 

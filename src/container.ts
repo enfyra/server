@@ -418,7 +418,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     wsEventQueue: asFunction(() => createRuntimeQueue(SYSTEM_QUEUES.WS_EVENT))
       .singleton()
       .disposer((queue) => closeRuntimeQueue(queue)),
-  cleanupQueue: asFunction(() =>
+    cleanupQueue: asFunction(() =>
       createRuntimeQueue(SYSTEM_QUEUES.SESSION_CLEANUP),
     )
       .singleton()
@@ -434,9 +434,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     lazyRef: asFunction((cradle) => cradle).singleton(),
     instanceService: asClass(InstanceService).singleton(),
     dynamicContextFactory: asClass(DynamicContextFactory).singleton(),
-    runtimeMetricsCollectorService: asClass(
-      RuntimeMetricsCollectorService,
-    )
+    runtimeMetricsCollectorService: asClass(RuntimeMetricsCollectorService)
       .singleton()
       .disposer((service) => service.onDestroy()),
     clusterTelemetryService: asClass(ClusterTelemetryService).singleton(),

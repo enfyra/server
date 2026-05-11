@@ -58,8 +58,6 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
   await Promise.all([
     c.sessionCleanupService?.init?.(),
     c.userRevocationService?.init?.(),
-    c.eventQueueService?.init?.(),
-    c.connectionQueueService?.init?.(),
     c.mongoPhysicalMigrationService?.init?.(),
   ]);
 
@@ -69,5 +67,7 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
 export async function shutdown(
   container: AwilixContainer<Cradle>,
 ): Promise<void> {
+  await container.cradle.flowExecutionQueueService?.onDestroy?.();
+  await container.cradle.queryBuilderService?.flushBatchInserts?.();
   await container.dispose();
 }

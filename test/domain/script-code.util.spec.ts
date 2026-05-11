@@ -30,7 +30,7 @@ describe('script-code util', () => {
     expect(record.logic).toBeUndefined();
   });
 
-  it('normalizes flow script config into source and compiled code', () => {
+  it('normalizes flow script fields into source and compiled code', () => {
     const record = normalizeFlowStepScriptConfig({
       type: 'script',
       config: {
@@ -38,10 +38,11 @@ describe('script-code util', () => {
       },
     });
 
-    expect(record.config.scriptLanguage).toBe('typescript');
-    expect(record.config.sourceCode).toContain('@FLOW_PAYLOAD.id');
-    expect(record.config.compiledCode).toContain('$ctx.$flow.$payload.id');
+    expect(record.scriptLanguage).toBe('typescript');
+    expect(record.sourceCode).toContain('@FLOW_PAYLOAD.id');
+    expect(record.compiledCode).toContain('$ctx.$flow.$payload.id');
     expect(record.config.code).toBeUndefined();
+    expect(record.config.sourceCode).toBeUndefined();
   });
 
   it('executes sourceCode over stale compiledCode', () => {
@@ -144,7 +145,8 @@ describe('script-code util', () => {
     expect(typeof normalized.config).toBe('string');
     const config = JSON.parse(normalized.config);
     expect(config.code).toBeUndefined();
-    expect(config.sourceCode).toContain('@BODY.enabled');
-    expect(config.compiledCode).toContain('$ctx.$body.enabled');
+    expect(config.sourceCode).toBeUndefined();
+    expect(normalized.sourceCode).toContain('@BODY.enabled');
+    expect(normalized.compiledCode).toContain('$ctx.$body.enabled');
   });
 });

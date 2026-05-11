@@ -173,6 +173,8 @@ export class KnexService implements LifecycleAware {
       (tableName, data, trx) => this.insertWithCascade(tableName, data, trx),
       (tableName, recordId, data, trx) =>
         this.updateWithCascade(tableName, recordId, data, trx),
+      (tableName, rows, trx) =>
+        this.insertManyWithCascade(tableName, rows, trx),
     );
 
     try {
@@ -780,6 +782,36 @@ export class KnexService implements LifecycleAware {
     return this.fieldPermissionContext.run({ check: checker }, callback);
   }
 
+  getMutationContextSnapshot(): any {
+    return {
+      policy: this.policyServiceContext.getStore() || null,
+      fieldPermission: this.fieldPermissionContext.getStore() || null,
+    };
+  }
+
+  async runWithMutationContextSnapshot<T>(
+    snapshot: any,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    const runWithFieldPermission = () => {
+      if (snapshot?.fieldPermission) {
+        return this.fieldPermissionContext.run(
+          snapshot.fieldPermission,
+          callback,
+        );
+      }
+      return callback();
+    };
+
+    if (snapshot?.policy) {
+      return await this.policyServiceContext.run(
+        snapshot.policy,
+        runWithFieldPermission,
+      );
+    }
+    return await runWithFieldPermission();
+  }
+
   async insertWithCascade(
     tableName: string,
     data: any,
@@ -792,12 +824,41 @@ export class KnexService implements LifecycleAware {
       connection,
       this.hookManager.getHooks(),
       this.dbType,
+      cascadeMap,
     );
 
     const run = () =>
       this.knexContext.run(connection, () =>
         this.cascadeContext.run(cascadeMap, () =>
           manager.insert(tableName, data),
+        ),
+      );
+
+    if (existingPolicy) {
+      return await this.policyServiceContext.run(existingPolicy, run);
+    }
+    return await run();
+  }
+
+  async insertManyWithCascade(
+    tableName: string,
+    rows: any[],
+    trx?: Knex | Knex.Transaction,
+  ): Promise<any[]> {
+    const connection = trx || this.knexContext.getStore() || this.knexInstance;
+    const cascadeMap = this.cascadeContext.getStore() || new Map<string, any>();
+    const existingPolicy = this.policyServiceContext.getStore() || null;
+    const manager = new KnexEntityManager(
+      connection,
+      this.hookManager.getHooks(),
+      this.dbType,
+      cascadeMap,
+    );
+
+    const run = () =>
+      this.knexContext.run(connection, () =>
+        this.cascadeContext.run(cascadeMap, () =>
+          manager.insertMany(tableName, rows),
         ),
       );
 

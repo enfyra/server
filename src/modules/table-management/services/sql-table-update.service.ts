@@ -40,6 +40,7 @@ import {
   syncSqlGqlDefinition,
 } from './table-post-migration.service';
 import { SqlTableHandlerService } from './sql-table-handler-base.service';
+import { logMemory } from '../../../shared/utils/memory-log.util';
 
 export class SqlTableUpdateService extends SqlTableHandlerService {
   async updateTable(
@@ -49,13 +50,22 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
   ) {
     const t0 = Date.now();
     this.logger.log(`[updateTable:${id}] STEP 0 acquiring schema lock`);
+    logMemory(this.logger, 'sql updateTable start', { tableId: id });
     const result = await this.runWithSchemaLock(`table:update:${id}`, () => {
       this.logger.log(
         `[updateTable:${id}] STEP 1 lock acquired (+${Date.now() - t0}ms) → calling updateTableInternal`,
       );
+      logMemory(this.logger, 'sql updateTable lock acquired', {
+        tableId: id,
+        waitMs: Date.now() - t0,
+      });
       return this.updateTableInternal(id, body, context);
     });
     this.logger.log(`[updateTable:${id}] STEP DONE total=${Date.now() - t0}ms`);
+    logMemory(this.logger, 'sql updateTable done', {
+      tableId: id,
+      durationMs: Date.now() - t0,
+    });
     return result;
   }
   private async updateTableInternal(
