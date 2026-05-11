@@ -13,6 +13,7 @@ import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { EventEmitter2 } from 'eventemitter2';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { normalizeMongoPrimaryKeyColumn } from '../../../modules/table-management/utils/mongo-primary-key.util';
+import { logMemory } from '../../../shared/utils/memory-log.util';
 
 const COLOR = '\x1b[36m';
 const RESET = '\x1b[0m';
@@ -61,12 +62,19 @@ export class MetadataCacheService implements IMetadataCache {
     this.isLoading = true;
     this.loadingPromise = (async () => {
       try {
+        logMemory(this.logger, 'metadata reload start');
         const metadata = await this.loadFreshMetadataForReload();
+        logMemory(this.logger, 'metadata reload data loaded', {
+          tables: metadata.tablesList.length,
+        });
         await this.setLoadedMetadata(metadata);
 
         this.logger.log(
           `Loaded ${metadata.tablesList.length} table definitions`,
         );
+        logMemory(this.logger, 'metadata reload done', {
+          tables: metadata.tablesList.length,
+        });
       } catch (error) {
         await this.releaseActiveSharedLock();
         this.logger.error('Failed to reload metadata cache:', error);
@@ -86,6 +94,12 @@ export class MetadataCacheService implements IMetadataCache {
     }
     try {
       const start = Date.now();
+      logMemory(this.logger, 'metadata partial reload start', {
+        table: payload.table,
+        scope: payload.scope,
+        ids: payload.ids?.length ?? 0,
+        affectedTables: payload.affectedTables?.length ?? 0,
+      });
       if (this.usesSharedRuntimeCache()) {
         const lockValue =
           await this.redisRuntimeCacheStore!.acquireRefreshLockWithWait(
@@ -116,6 +130,13 @@ export class MetadataCacheService implements IMetadataCache {
       this.logger.log(
         `Partial reload (${payload.ids?.length ?? 0} tables) in ${Date.now() - start}ms`,
       );
+      logMemory(this.logger, 'metadata partial reload done', {
+        table: payload.table,
+        scope: payload.scope,
+        ids: payload.ids?.length ?? 0,
+        affectedTables: payload.affectedTables?.length ?? 0,
+        durationMs: Date.now() - start,
+      });
     } catch (error) {
       await this.releaseActiveSharedLock();
       this.logger.warn(

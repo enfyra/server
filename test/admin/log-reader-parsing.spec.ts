@@ -116,6 +116,33 @@ describe('LogReaderService — compat with pino JSON output', () => {
     expect(m.matchesFilter(lines[1], undefined, 'error')).toBe(true);
   });
 
+  it('matchesFilter and parseLogLine support numeric pino levels', () => {
+    const reader = new LogReaderService();
+    const line = JSON.stringify({
+      level: 50,
+      timestamp: '2026-05-08T00:00:00.000Z',
+      id: 'log_numeric',
+      context: 'Svc',
+      message: 'numeric-error',
+    });
+    const m = reader as any;
+    const parsed = m.parseLogLine(line);
+    expect(parsed.level).toBe('error');
+    expect(m.matchesFilter(line, undefined, 'error')).toBe(true);
+    expect(m.matchesFilter(line, undefined, 'info')).toBe(false);
+  });
+
+  it('matchesFilter ignores parser default filter objects', () => {
+    const reader = new LogReaderService();
+    const line = JSON.stringify({
+      level: 30,
+      timestamp: '2026-05-08T00:00:00.000Z',
+      message: 'line',
+    });
+    const m = reader as any;
+    expect(m.matchesFilter(line, {})).toBe(true);
+  });
+
   it('getLogFiles lists .log files, skipping dotfiles and pm2-', () => {
     const logs = path.join(tmpDir, 'logs');
     fs.writeFileSync(path.join(logs, 'app-2026-04-19.log'), '');

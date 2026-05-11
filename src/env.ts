@@ -62,6 +62,56 @@ const EnvSchema = z.object({
     .enum(['0', '1'])
     .optional()
     .transform((v) => v === '1'),
+  FLOW_WORKER_CONCURRENCY: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional(),
+  FLOW_WORKER_CONCURRENCY_MODE: z
+    .enum(['adaptive', 'fixed'])
+    .optional()
+    .default('adaptive'),
+  FLOW_WORKER_CONCURRENCY_MIN: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional(),
+  FLOW_WORKER_CONCURRENCY_MAX: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional(),
+  FLOW_WORKER_TUNE_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .default(2000),
+  FLOW_WORKER_TUNE_MAX_EVENT_LOOP_LAG_MS: z.coerce
+    .number()
+    .positive()
+    .optional()
+    .default(75),
+  FLOW_WORKER_TRACE_FILE: z.string().optional(),
+  DYNAMIC_CREATE_BATCH_SIZE: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .default(100),
+  DYNAMIC_CREATE_BATCH_WAIT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .default(100),
+  DYNAMIC_CREATE_BATCH_CONCURRENCY: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .default(5),
+  DYNAMIC_CREATE_BATCH_TRACE_FILE: z.string().optional(),
   JEST_WORKER_ID: z.string().optional(),
 });
 

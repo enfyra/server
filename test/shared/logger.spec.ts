@@ -1,5 +1,6 @@
 process.env.LOG_DISABLE_FILES = '1';
 process.env.LOG_DISABLE_CONSOLE = '1';
+process.env.LOG_LEVEL = 'trace';
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Logger, __pinoInstanceForTests } from '../../src/shared/logger';

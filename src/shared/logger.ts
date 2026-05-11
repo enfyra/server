@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
+import { createRequire } from 'module';
 import pino, { Logger as PinoLogger } from 'pino';
 import { logStore } from './log-store';
 import { getBootstrapLogMode } from './bootstrap-log-context';
@@ -112,6 +113,9 @@ const NOOP_STREAM: pino.DestinationStream = {
   write: () => {},
 };
 
+const requireModule = createRequire(__filename);
+const PINO_ROLL_TARGET = requireModule.resolve('pino-roll');
+
 function buildTransport(): pino.DestinationStream | undefined {
   if (process.env.LOG_DISABLE_FILES === '1') return NOOP_STREAM;
   try {
@@ -119,7 +123,7 @@ function buildTransport(): pino.DestinationStream | undefined {
       targets: [
         {
           level: 'info',
-          target: 'pino-roll',
+          target: PINO_ROLL_TARGET,
           options: {
             file: path.join(LOG_DIR, 'app'),
             frequency: 'daily',
@@ -130,7 +134,7 @@ function buildTransport(): pino.DestinationStream | undefined {
         },
         {
           level: 'error',
-          target: 'pino-roll',
+          target: PINO_ROLL_TARGET,
           options: {
             file: path.join(LOG_DIR, 'error'),
             frequency: 'daily',
@@ -141,8 +145,12 @@ function buildTransport(): pino.DestinationStream | undefined {
         },
       ],
     });
-  } catch {
-    return undefined;
+  } catch (error) {
+    if (process.env.LOG_ALLOW_STDOUT_ONLY === '1') {
+      console.error('File log transport disabled after setup failure:', error);
+      return undefined;
+    }
+    throw error;
   }
 }
 
@@ -151,9 +159,6 @@ const pinoInstance: PinoLogger = pino(
     level: 'info',
     messageKey: 'message',
     base: { service: 'enfyra-server' },
-    formatters: {
-      level: (label: string) => ({ level: label }),
-    },
     timestamp: () => `,"timestamp":"${new Date().toISOString()}"`,
     mixin: () => {
       const store = logStore.getStore();

@@ -1,4 +1,5 @@
 import * as http from 'http';
+import * as net from 'net';
 import { Server } from 'socket.io';
 import { buildContainer } from './container';
 import { init, shutdown } from './init';
@@ -6,10 +7,59 @@ import { buildExpressApp } from './express-app';
 import { env } from './env';
 import { Logger } from './shared/logger';
 
+function registerProcessErrorHandlers(logger: Logger): void {
+  process.on('unhandledRejection', (reason) => {
+    logger.fatal('Unhandled promise rejection', reason);
+    setTimeout(() => process.exit(1), 250).unref();
+  });
+
+  process.on('uncaughtException', (error) => {
+    logger.fatal('Uncaught exception', error);
+    setTimeout(() => process.exit(1), 250).unref();
+  });
+}
+
+async function assertPortAvailable(port: number, logger: Logger): Promise<void> {
+  const probe = net.createServer();
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onError = (err: NodeJS.ErrnoException) => {
+        probe.removeListener('listening', onListening);
+        reject(err);
+      };
+      const onListening = () => {
+        probe.removeListener('error', onError);
+        resolve();
+      };
+      probe.once('error', onError);
+      probe.once('listening', onListening);
+      probe.listen(port, '0.0.0.0');
+    });
+  } catch (err: any) {
+    if (err?.code === 'EADDRINUSE') {
+      logger.error(
+        `Port ${port} is already in use. Another server instance may be running.`,
+      );
+      process.exit(1);
+    }
+    throw err;
+  } finally {
+    if (probe.listening) {
+      await new Promise<void>((resolve, reject) => {
+        probe.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
+  }
+}
+
 async function main() {
   process.stdout.write('\x1Bc');
   const startTime = Date.now();
   const logger = new Logger('Server');
+  registerProcessErrorHandlers(logger);
+
+  await assertPortAvailable(env.PORT, logger);
 
   logger.log('Starting Cold Start...');
 
@@ -106,6 +156,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('Fatal:', err);
-  process.exit(1);
+  const logger = new Logger('Server');
+  logger.fatal('Fatal boot error', err);
+  setTimeout(() => process.exit(1), 250).unref();
 });

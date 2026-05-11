@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import { TColumnRule } from '../../engines/cache';
 
-export const ZOD_META_MAX_DEPTH = 10;
-
 const AUTO_MANAGED_COLUMNS = new Set(['id', '_id', 'createdAt', 'updatedAt']);
 
 /**
@@ -22,7 +20,6 @@ export interface BuildZodOpts {
   rulesForColumn: (columnId: string | number) => TColumnRule[];
   getTableMetadata: (tableName: string) => any | null;
   visited?: Set<string>;
-  depth?: number;
   skipChildRelationName?: string | null;
   strict?: boolean;
 }
@@ -194,7 +191,7 @@ function buildRelationZod(
   ctx: Required<
     Pick<
       BuildZodOpts,
-      'rulesForColumn' | 'getTableMetadata' | 'visited' | 'depth'
+      'rulesForColumn' | 'getTableMetadata' | 'visited'
     >
   >,
 ): z.ZodType | null {
@@ -210,8 +207,7 @@ function buildRelationZod(
   const canCascade =
     !!targetMeta &&
     targetMeta.validateBody === true &&
-    !ctx.visited.has(targetName) &&
-    ctx.depth < ZOD_META_MAX_DEPTH;
+    !ctx.visited.has(targetName);
 
   switch (rel.type) {
     case 'one-to-one': {
@@ -222,8 +218,7 @@ function buildRelationZod(
           mode: 'create',
           rulesForColumn: ctx.rulesForColumn,
           getTableMetadata: ctx.getTableMetadata,
-          visited: new Set([...ctx.visited, targetName]),
-          depth: ctx.depth + 1,
+          visited: ctx.visited,
           skipChildRelationName: rel.mappedBy ?? null,
           strict: false,
         });
@@ -238,8 +233,7 @@ function buildRelationZod(
           mode: 'create',
           rulesForColumn: ctx.rulesForColumn,
           getTableMetadata: ctx.getTableMetadata,
-          visited: new Set([...ctx.visited, targetName]),
-          depth: ctx.depth + 1,
+          visited: ctx.visited,
           skipChildRelationName: rel.mappedBy ?? null,
           strict: false,
         });
@@ -254,8 +248,7 @@ function buildRelationZod(
           mode: 'create',
           rulesForColumn: ctx.rulesForColumn,
           getTableMetadata: ctx.getTableMetadata,
-          visited: new Set([...ctx.visited, targetName]),
-          depth: ctx.depth + 1,
+          visited: ctx.visited,
           skipChildRelationName: rel.mappedBy ?? null,
           strict: false,
         });
@@ -270,8 +263,7 @@ function buildRelationZod(
           mode: 'create',
           rulesForColumn: ctx.rulesForColumn,
           getTableMetadata: ctx.getTableMetadata,
-          visited: new Set([...ctx.visited, targetName]),
-          depth: ctx.depth + 1,
+          visited: ctx.visited,
           skipChildRelationName: rel.mappedBy ?? null,
           strict: false,
         });
@@ -287,7 +279,6 @@ function buildRelationZod(
 export function buildZodFromMetadata(opts: BuildZodOpts): z.ZodObject<any> {
   const { tableMeta, mode, rulesForColumn, getTableMetadata } = opts;
   const visited = opts.visited ?? new Set<string>();
-  const depth = opts.depth ?? 0;
   const skipChildRelationName = opts.skipChildRelationName ?? null;
 
   if (tableMeta?.name) visited.add(tableMeta.name);
@@ -338,7 +329,6 @@ export function buildZodFromMetadata(opts: BuildZodOpts): z.ZodObject<any> {
       rulesForColumn,
       getTableMetadata,
       visited,
-      depth,
     });
     if (s) shape[rel.propertyName] = s;
   }

@@ -99,6 +99,7 @@ export class RuntimeMonitorService {
     );
     return {
       ttlMs: cluster.ttlMs,
+      activeCount: cluster.instances.length,
       instances: cluster.instances.map((item) => ({
         instanceId: item.instanceId,
         sampledAt: item.sampledAt,

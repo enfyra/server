@@ -352,7 +352,7 @@ describe('bodyValidationMiddleware — column rules applied', () => {
   });
 });
 
-describe('bodyValidationMiddleware — schema caching', () => {
+describe('bodyValidationMiddleware — schema rebuilding', () => {
   const tableMeta = {
     name: 'post',
     validateBody: true,
@@ -360,11 +360,15 @@ describe('bodyValidationMiddleware — schema caching', () => {
     relations: [],
   };
 
-  it('second request with same metadata version reuses cached schema', async () => {
+  it('second request with same metadata version rebuilds schema', async () => {
     const container = makeContainer({ tableMeta });
     const getMetaSpy = vi.spyOn(
       container.cradle.metadataCacheService,
       'getMetadata',
+    );
+    const getRulesSpy = vi.spyOn(
+      container.cradle.columnRuleCacheService,
+      'getCacheAsync',
     );
     getMetaSpy.mockResolvedValue({
       tables: new Map([[tableMeta.name, tableMeta]]),
@@ -394,12 +398,11 @@ describe('bodyValidationMiddleware — schema caching', () => {
     );
     const secondTotal = getMetaSpy.mock.calls.length;
 
-    // Schema built once (2 getMetadata calls: version + build).
-    // Second request: only version lookup (1 call), no build.
-    expect(secondTotal - firstTotal).toBeLessThanOrEqual(1);
+    expect(secondTotal - firstTotal).toBe(1);
+    expect(getRulesSpy).toHaveBeenCalledTimes(2);
   });
 
-  it('metadata version change triggers rebuild', async () => {
+  it('metadata version change still validates from current metadata', async () => {
     const container = makeContainer({ tableMeta });
     let currentVersion = 1;
     const getMetaSpy = vi.spyOn(
@@ -427,7 +430,7 @@ describe('bodyValidationMiddleware — schema caching', () => {
     );
     const firstTotal = getMetaSpy.mock.calls.length;
 
-    currentVersion = 2; // bump — new cache key
+    currentVersion = 2;
     await mw(
       {
         method: 'POST',
@@ -439,11 +442,10 @@ describe('bodyValidationMiddleware — schema caching', () => {
     );
     const secondTotal = getMetaSpy.mock.calls.length;
 
-    // Rebuild needed → expect 2+ additional calls (version + schema build)
-    expect(secondTotal - firstTotal).toBeGreaterThanOrEqual(2);
+    expect(secondTotal - firstTotal).toBe(1);
   });
 
-  it('invalidateBodyValidationCache() rebuilds on next call', async () => {
+  it('invalidateBodyValidationCache() is a compatibility no-op', async () => {
     const container = makeContainer({ tableMeta });
     const getMetaSpy = vi.spyOn(
       container.cradle.metadataCacheService,

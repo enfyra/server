@@ -2,6 +2,10 @@ import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 
+function queryString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
 export function registerLogRoutes(
   app: Express,
   container: AwilixContainer<Cradle>,
@@ -25,12 +29,12 @@ export function registerLogRoutes(
     const logReaderService =
       req.scope?.cradle?.logReaderService ?? container.cradle.logReaderService;
     const filename = req.params.filename;
-    const page = parseInt(req.query.page as string) || 1;
-    const pageSize = parseInt(req.query.pageSize as string) || 100;
-    const filter = req.query.filter as string;
-    const level = req.query.level as string;
-    const id = req.query.id as string;
-    const correlationId = req.query.correlationId as string;
+    const page = parseInt(queryString(req.query.page) || '') || 1;
+    const pageSize = parseInt(queryString(req.query.pageSize) || '') || 100;
+    const filter = queryString(req.query.filter);
+    const level = queryString(req.query.level);
+    const id = queryString(req.query.id);
+    const correlationId = queryString(req.query.correlationId);
     const raw = req.query.raw === 'true';
 
     const content = await logReaderService.getLogContent(
@@ -50,7 +54,7 @@ export function registerLogRoutes(
     const logReaderService =
       req.scope?.cradle?.logReaderService ?? container.cradle.logReaderService;
     const filename = req.params.filename;
-    const lines = parseInt(req.query.lines as string) || 50;
+    const lines = parseInt(queryString(req.query.lines) || '') || 50;
     const raw = req.query.raw === 'true';
 
     const result = logReaderService.tailLog(filename, lines, raw);

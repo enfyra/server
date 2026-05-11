@@ -26,6 +26,7 @@ import {
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { EnvService } from '../../../shared/services';
+import { logMemory } from '../../../shared/utils/memory-log.util';
 
 const COLOR = '\x1b[95m';
 const RESET = '\x1b[0m';
@@ -73,6 +74,12 @@ export class GraphqlService {
   ): Promise<void> {
     try {
       const start = Date.now();
+      logMemory(this.logger, 'graphql reload start', {
+        table: payload?.table,
+        scope: payload?.scope,
+        ids: payload?.ids?.length ?? 0,
+        definitionFromSharedCache: options.definitionFromSharedCache === true,
+      });
 
       if (options.definitionFromSharedCache) {
         await this.gqlDefinitionCacheService.syncFromSharedCache();
@@ -119,9 +126,21 @@ export class GraphqlService {
 
       await this.assembleAndRegisterSchema();
 
+      const rebuildMode = affectedTables
+        ? `incremental:${affectedTables.size}`
+        : `full:${this.queryableTableNames.size}`;
       this.logger.log(
         `${affectedTables ? `Incremental update (${affectedTables.size} tables)` : `Full build (${this.queryableTableNames.size} types)`} in ${Date.now() - start}ms`,
       );
+      logMemory(this.logger, 'graphql reload done', {
+        table: payload?.table,
+        scope: payload?.scope,
+        ids: payload?.ids?.length ?? 0,
+        rebuildMode,
+        durationMs: Date.now() - start,
+        tableDefCacheSize: this.tableDefCache.size,
+        typeRegistrySize: this.typeRegistry.size,
+      });
       this.eventEmitter.emit(CACHE_EVENTS.GRAPHQL_LOADED);
     } catch (error) {
       this.logger.error(

@@ -338,4 +338,79 @@ describe('CascadeHandler – getPolicyContext callback', () => {
     expect(policyCheck).not.toHaveBeenCalled();
     expect(insertWithCascade).not.toHaveBeenCalled();
   });
+
+  it('batches many-to-many cascade work for insertMany parents', async () => {
+    const policyCheck = jest.fn().mockResolvedValue(undefined);
+    const insertManyWithCascade = jest.fn(async () => [101, 102]);
+
+    const junctionQb = {
+      whereIn: jest.fn().mockReturnThis(),
+      delete: jest.fn().mockResolvedValue(1),
+      insert: jest.fn().mockResolvedValue([1]),
+    };
+    const knexCallable = jest.fn(() => junctionQb) as any;
+    knexCallable.client = { config: { client: 'mysql' } };
+
+    const cascadeHandler = new CascadeHandler(
+      knexCallable,
+      makeMetadataCacheService({
+        post: [
+          {
+            propertyName: 'tags',
+            type: 'many-to-many',
+            targetTableName: 'tag',
+            junctionTableName: 'post_tag',
+            junctionSourceColumn: 'postId',
+            junctionTargetColumn: 'tagId',
+          },
+        ],
+      }),
+      makeLogger(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => ({ check: policyCheck }),
+      undefined,
+      insertManyWithCascade,
+    );
+
+    await cascadeHandler.handleCascadeRelationsBatch(
+      'post',
+      [
+        {
+          recordId: 1,
+          contextData: {
+            relationData: {
+              tags: [5, { name: 'new-tag-1' }],
+            },
+          },
+        },
+        {
+          recordId: 2,
+          contextData: {
+            relationData: {
+              tags: [{ id: 6 }, { name: 'new-tag-2' }],
+            },
+          },
+        },
+      ],
+      new Map(),
+      knexCallable,
+    );
+
+    expect(junctionQb.whereIn).toHaveBeenCalledWith('postId', [1, 2]);
+    expect(insertManyWithCascade).toHaveBeenCalledWith(
+      'tag',
+      [{ name: 'new-tag-1' }, { name: 'new-tag-2' }],
+      knexCallable,
+    );
+    expect(junctionQb.insert).toHaveBeenCalledWith([
+      { postId: 1, tagId: 5 },
+      { postId: 2, tagId: 6 },
+      { postId: 1, tagId: 101 },
+      { postId: 2, tagId: 102 },
+    ]);
+    expect(policyCheck).toHaveBeenCalledTimes(2);
+  });
 });

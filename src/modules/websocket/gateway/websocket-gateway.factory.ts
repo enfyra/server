@@ -20,6 +20,16 @@ export class WebsocketGatewayFactory {
     this.dynamicWebSocketGateway.emitToRoom(room, event, data);
   }
 
+  async broadcastToRoom(
+    path: string,
+    socketId: string,
+    room: string,
+    event: string,
+    data: any,
+  ): Promise<void> {
+    this.dynamicWebSocketGateway.broadcastToRoom(path, socketId, room, event, data);
+  }
+
   async emitToGateway(path: string, event: string, data: any): Promise<void> {
     this.dynamicWebSocketGateway.emitToNamespace(path, event, data);
   }

@@ -4,6 +4,7 @@ import {
   ForbiddenException,
 } from '../../../domain/exceptions';
 import { EventEmitter2 } from 'eventemitter2';
+import { Logger } from '../../../shared/logger';
 import {
   QueryBuilderService,
   validateDeepOptions,
@@ -36,8 +37,16 @@ import {
   normalizeScriptRecord,
 } from '@enfyra/kernel';
 import { FlowQueueMaintenanceService } from '../../flow';
+import { logMemory } from '../../../shared/utils/memory-log.util';
+
+interface DynamicBatchCreateResult {
+  accepted: true;
+  batch: true;
+  count: number;
+}
 
 export class DynamicRepository {
+  private readonly logger = new Logger('DynamicRepository');
   public context: TDynamicContext;
   private tableName: string;
   private queryBuilderService: QueryBuilderService;
@@ -581,13 +590,15 @@ export class DynamicRepository {
       sort?: string;
       meta?: string | string[];
       aggregate?: any;
+      deep?: Record<string, any>;
     } = {},
   ) {
     await this.ensureInit();
     await this.assertQueryAllowed();
 
     const rawFields = opt?.fields || this.context.$query?.fields;
-    const rawDeep: Record<string, any> = this.context.$query?.deep || {};
+    const rawDeep: Record<string, any> =
+      opt && 'deep' in opt ? (opt.deep || {}) : (this.context.$query?.deep || {});
 
     if (rawDeep && Object.keys(rawDeep).length > 0) {
       const metadata = await this.metadataCacheService.getMetadata();
@@ -634,7 +645,7 @@ export class DynamicRepository {
 
     const requested = buildRequestedShapeFromQuery({
       fields: opt?.fields || this.context.$query?.fields,
-      deep: this.context.$query?.deep,
+      deep: rawDeep,
     });
 
     const sanitizedData = await sanitizeFieldPermissionsResult({
@@ -665,86 +676,81 @@ export class DynamicRepository {
     return Array.isArray(result?.data) && result.data.length > 0;
   }
 
-  async create(opt: { data: any; fields?: string | string[] }) {
+  async create(opt: {
+    data: any;
+    fields?: string | string[];
+    batch?: boolean;
+  }): Promise<any | DynamicBatchCreateResult> {
     await this.ensureInit();
+    const startedAt = Date.now();
+    const writeMeta = {
+      table: this.tableName,
+      operation: 'create',
+      batch: opt.batch === true,
+    };
+    logMemory(this.logger, 'dynamic create start', writeMeta);
     try {
-      const { data: body, fields } = opt;
-      if (!body || typeof body !== 'object') {
-        throw new BadRequestException('data is required and must be an object');
+      const { data, fields, batch } = opt;
+      if (batch) {
+        const result = await this.createBatch(data);
+        logMemory(this.logger, 'dynamic create batch done', {
+          ...writeMeta,
+          durationMs: Date.now() - startedAt,
+          count: result.count,
+        });
+        return result;
       }
 
-      await this.assertDirectFieldPermission('create', body);
-
-      await this.tableValidationService.assertTableValid({
-        operation: 'create',
-        tableName: this.tableName,
-        tableMetadata: this.tableMetadata,
+      const body = await this.prepareCreateBody(data);
+      logMemory(this.logger, 'dynamic create body prepared', {
+        ...writeMeta,
+        bodyKeys: Object.keys(body).length,
       });
-      const createDecision = await this.policyService.checkMutationSafety({
-        operation: 'create',
-        tableName: this.tableName,
-        data: body,
-        existing: null,
-        currentUser: this.context.$user,
-      });
-      if (isPolicyDeny(createDecision)) {
-        throw new BadRequestException(createDecision.message);
-      }
-      if (this.tableName === 'route_definition') {
-        this.filterMethodsSubsetOfAvailable(body, null, 'publishedMethods');
-        this.filterMethodsSubsetOfAvailable(body, null, 'skipRoleGuardMethods');
-      }
-      if (this.tableName === 'extension_definition' && body.code) {
-        const { processExtensionDefinition } =
-          await import('../../extension-definition/utils/processor.util');
-        const { processedBody } = await processExtensionDefinition(
-          body,
-          'POST',
-        );
-        Object.assign(body, processedBody);
-      }
-      Object.assign(body, normalizeScriptRecord(this.tableName, body));
-      if (this.tableName === 'flow_step_definition') {
-        Object.assign(body, normalizeFlowStepScriptConfig(body));
-      }
-      if (this.tableName === 'column_rule_definition') {
-        await this.assertColumnRuleUnique(body, null);
-      }
       if (this.tableName === 'table_definition') {
         body.isSystem = false;
         const table: any = await this.tableHandlerService.createTable(
-          body,
+          body as any,
           this.context,
         );
+        logMemory(this.logger, 'dynamic create table handler done', {
+          ...writeMeta,
+          durationMs: Date.now() - startedAt,
+        });
         const idValue = table._id || table.id;
         await this.reload({
           ids: [idValue],
           affectedTables: table.affectedTables,
         });
-        return await this.find({
+        const result = await this.find({
           filter: { [this.getIdField()]: { _eq: idValue } },
           fields,
         });
+        logMemory(this.logger, 'dynamic create done', {
+          ...writeMeta,
+          durationMs: Date.now() - startedAt,
+        });
+        return result;
       }
-      if (body.id !== undefined) {
-        delete body.id;
-      }
-      if (body._id !== undefined) {
-        delete body._id;
-      }
-      const inserted = await this.wrapWithFieldPermissionCheck(() =>
-        this.queryBuilderService.runWithPolicy(
-          (tbl, op, d) => this.cascadePolicyCheck(tbl, op, d),
-          () => this.queryBuilderService.insert(this.tableName, body),
-        ),
-      );
+      const inserted = await this.executeCreateBody(body);
+      logMemory(this.logger, 'dynamic create persisted', {
+        ...writeMeta,
+        durationMs: Date.now() - startedAt,
+      });
       const createdId = inserted.id || inserted._id || body.id;
       try {
         const result = await this.find({
           filter: { [this.getIdField()]: { _eq: createdId } },
           fields,
         });
+        logMemory(this.logger, 'dynamic create result loaded', {
+          ...writeMeta,
+          durationMs: Date.now() - startedAt,
+        });
         await this.reload({ ids: [createdId] });
+        logMemory(this.logger, 'dynamic create done', {
+          ...writeMeta,
+          durationMs: Date.now() - startedAt,
+        });
         return result;
       } catch (error: any) {
         const errorMessage = error?.message || error?.toString() || '';
@@ -753,6 +759,11 @@ export class DynamicRepository {
           errorMessage.includes('character varying')
         ) {
           await this.reload({ ids: [createdId] });
+          logMemory(this.logger, 'dynamic create done', {
+            ...writeMeta,
+            durationMs: Date.now() - startedAt,
+            fallbackResult: true,
+          });
           return {
             data: [inserted],
             count: 1,
@@ -779,12 +790,105 @@ export class DynamicRepository {
     }
   }
 
+  private async createBatch(data: any): Promise<DynamicBatchCreateResult> {
+    if (this.tableName === 'table_definition') {
+      throw new BadRequestException('Batch create is not supported for tables');
+    }
+
+    const rows = Array.isArray(data) ? data : [data];
+    if (rows.length === 0) {
+      throw new BadRequestException('data must contain at least one record');
+    }
+
+    const preparedRows: Record<string, any>[] = [];
+    for (const row of rows) {
+      preparedRows.push(await this.prepareCreateBody(row));
+    }
+
+    for (const body of preparedRows) {
+      await (this.queryBuilderService as any).insert(this.tableName, body, {
+        batch: true,
+      });
+    }
+
+    return {
+      accepted: true,
+      batch: true,
+      count: preparedRows.length,
+    };
+  }
+
+  private async prepareCreateBody(raw: any): Promise<Record<string, any>> {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new BadRequestException('data is required and must be an object');
+    }
+
+    const body = { ...raw };
+    await this.assertDirectFieldPermission('create', body);
+
+    await this.tableValidationService.assertTableValid({
+      operation: 'create',
+      tableName: this.tableName,
+      tableMetadata: this.tableMetadata,
+    });
+    const createDecision = await this.policyService.checkMutationSafety({
+      operation: 'create',
+      tableName: this.tableName,
+      data: body,
+      existing: null,
+      currentUser: this.context.$user,
+    });
+    if (isPolicyDeny(createDecision)) {
+      throw new BadRequestException(createDecision.message);
+    }
+    if (this.tableName === 'route_definition') {
+      this.filterMethodsSubsetOfAvailable(body, null, 'publishedMethods');
+      this.filterMethodsSubsetOfAvailable(body, null, 'skipRoleGuardMethods');
+    }
+    if (this.tableName === 'extension_definition' && body.code) {
+      const { processExtensionDefinition } =
+        await import('../../extension-definition/utils/processor.util');
+      const { processedBody } = await processExtensionDefinition(body, 'POST');
+      Object.assign(body, processedBody);
+    }
+    Object.assign(body, normalizeScriptRecord(this.tableName, body));
+    if (this.tableName === 'flow_step_definition') {
+      Object.assign(body, normalizeFlowStepScriptConfig(body));
+    }
+    if (this.tableName === 'column_rule_definition') {
+      await this.assertColumnRuleUnique(body, null);
+    }
+    if (body.id !== undefined) {
+      delete body.id;
+    }
+    if (body._id !== undefined) {
+      delete body._id;
+    }
+    return body;
+  }
+
+  private async executeCreateBody(body: Record<string, any>): Promise<any> {
+    return await this.wrapWithFieldPermissionCheck(() =>
+      this.queryBuilderService.runWithPolicy(
+        (tbl, op, d) => this.cascadePolicyCheck(tbl, op, d),
+        () => this.queryBuilderService.insert(this.tableName, body),
+      ),
+    );
+  }
+
   async update(opt: {
     id: string | number;
     data: any;
     fields?: string | string[];
   }) {
     await this.ensureInit();
+    const startedAt = Date.now();
+    const writeMeta = {
+      table: this.tableName,
+      operation: 'update',
+      id: opt.id,
+    };
+    logMemory(this.logger, 'dynamic update start', writeMeta);
     try {
       const { id, fields } = opt;
       const originalBody = opt.data;
@@ -792,11 +896,19 @@ export class DynamicRepository {
         originalBody,
         this.tableMetadata,
       );
+      logMemory(this.logger, 'dynamic update body stripped', {
+        ...writeMeta,
+        bodyKeys: body && typeof body === 'object' ? Object.keys(body).length : 0,
+      });
       const existsResult = await this.find({
         filter: { [this.getIdField()]: { _eq: id } },
       });
       const exists = existsResult?.data?.[0];
       if (!exists) throw new BadRequestException(`id ${id} is not exists!`);
+      logMemory(this.logger, 'dynamic update existing loaded', {
+        ...writeMeta,
+        durationMs: Date.now() - startedAt,
+      });
 
       await this.assertDirectFieldPermission('update', body, exists);
 
@@ -840,6 +952,15 @@ export class DynamicRepository {
           ...exists,
           ...body,
         });
+        if ('sourceCode' in normalizedFlowStep) {
+          body.sourceCode = normalizedFlowStep.sourceCode;
+        }
+        if ('scriptLanguage' in normalizedFlowStep) {
+          body.scriptLanguage = normalizedFlowStep.scriptLanguage;
+        }
+        if ('compiledCode' in normalizedFlowStep) {
+          body.compiledCode = normalizedFlowStep.compiledCode;
+        }
         if ('config' in normalizedFlowStep) {
           body.config = normalizedFlowStep.config;
         }
@@ -853,6 +974,10 @@ export class DynamicRepository {
           body,
           this.context,
         );
+        logMemory(this.logger, 'dynamic update table handler done', {
+          ...writeMeta,
+          durationMs: Date.now() - startedAt,
+        });
         if (table?._preview) {
           return { data: [table] };
         }
@@ -862,10 +987,15 @@ export class DynamicRepository {
           affectedTables: table.affectedTables,
           tableRenames: table.tableRenames,
         });
-        return this.find({
+        const result = await this.find({
           filter: { [this.getIdField()]: { _eq: tableId } },
           fields,
         });
+        logMemory(this.logger, 'dynamic update done', {
+          ...writeMeta,
+          durationMs: Date.now() - startedAt,
+        });
+        return result;
       }
       await this.wrapWithFieldPermissionCheck(() =>
         this.queryBuilderService.runWithPolicy(
@@ -873,11 +1003,23 @@ export class DynamicRepository {
           () => this.queryBuilderService.update(this.tableName, id, body),
         ),
       );
+      logMemory(this.logger, 'dynamic update persisted', {
+        ...writeMeta,
+        durationMs: Date.now() - startedAt,
+      });
       const result = await this.find({
         filter: { [this.getIdField()]: { _eq: id } },
         fields,
       });
+      logMemory(this.logger, 'dynamic update result loaded', {
+        ...writeMeta,
+        durationMs: Date.now() - startedAt,
+      });
       await this.reload({ ids: [id] });
+      logMemory(this.logger, 'dynamic update done', {
+        ...writeMeta,
+        durationMs: Date.now() - startedAt,
+      });
       if (
         this.tableName === 'user_definition' &&
         body &&
@@ -900,6 +1042,13 @@ export class DynamicRepository {
 
   async delete(opt: { id: string | number }) {
     await this.ensureInit();
+    const startedAt = Date.now();
+    const writeMeta = {
+      table: this.tableName,
+      operation: 'delete',
+      id: opt.id,
+    };
+    logMemory(this.logger, 'dynamic delete start', writeMeta);
     try {
       const { id } = opt;
       const idField = this.getIdField();
@@ -908,6 +1057,10 @@ export class DynamicRepository {
       });
       const exists = existsResult?.data?.[0];
       if (!exists) throw new BadRequestException(`id ${id} is not exists!`);
+      logMemory(this.logger, 'dynamic delete existing loaded', {
+        ...writeMeta,
+        durationMs: Date.now() - startedAt,
+      });
       await this.tableValidationService.assertTableValid({
         operation: 'delete',
         tableName: this.tableName,
@@ -931,6 +1084,10 @@ export class DynamicRepository {
         await this.reload({
           ids: [id],
           affectedTables: deleted?.affectedTables,
+        });
+        logMemory(this.logger, 'dynamic delete done', {
+          ...writeMeta,
+          durationMs: Date.now() - startedAt,
         });
         return { message: 'Success', statusCode: 200 };
       }
@@ -1014,6 +1171,10 @@ export class DynamicRepository {
           }
         }
         await this.reload({ ids: [sourceTableId] });
+        logMemory(this.logger, 'dynamic delete relation done', {
+          ...writeMeta,
+          durationMs: Date.now() - startedAt,
+        });
         return { message: 'Success', statusCode: 200 };
       }
       await this.queryBuilderService.runWithPolicy(
@@ -1027,6 +1188,10 @@ export class DynamicRepository {
         });
       }
       await this.reload({ ids: [id] });
+      logMemory(this.logger, 'dynamic delete done', {
+        ...writeMeta,
+        durationMs: Date.now() - startedAt,
+      });
       if (this.tableName === 'user_definition' && this.userRevocationService) {
         await this.userRevocationService.publish(id);
       }
