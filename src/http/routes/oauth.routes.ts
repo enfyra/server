@@ -233,7 +233,7 @@ function getSuccessCallbackUrl(
   if (config.autoSetCookies) {
     const redirectUrl = new URL(statePayload.redirect);
     const cookieBridgePrefix = statePayload.cookieBridgePrefix ?? '/api';
-    const cookieBridgePath = `${cookieBridgePrefix.replace(/\/+$/, '')}/auth/set-cookies`;
+    const cookieBridgePath = `${cookieBridgePrefix}/auth/set-cookies`;
 
     return new URL(cookieBridgePath, redirectUrl.origin);
   }
