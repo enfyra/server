@@ -335,7 +335,9 @@
           "_eq": "/assets/:id"
         }
       },
-      "publishedMethods": []
+      "publishedMethods": [
+        "GET"
+      ]
     },
     {
       "_unique": {

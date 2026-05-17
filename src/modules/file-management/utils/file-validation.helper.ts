@@ -46,13 +46,16 @@ export class FileValidationHelper {
     if (file.isPublished) return;
 
     const user = req.user || req.routeData?.context?.$user;
-    if (!user?.id) throw new AuthenticationException('Authentication required');
-    if (user.isRootAdmin) return;
+    if (user?.isRootAdmin) return;
+    const userIdValue = user?.id ?? user?._id;
+    if (!userIdValue) throw new AuthenticationException('Authentication required');
 
-    const userId = String(user.id);
+    const userId = String(userIdValue);
     const userRoleId =
-      user.role?.id !== undefined && user.role?.id !== null
-        ? String(user.role.id)
+      user.role?._id !== undefined && user.role?._id !== null
+        ? String(user.role._id)
+        : user.role?.id !== undefined && user.role?.id !== null
+          ? String(user.role.id)
         : user.role !== undefined && user.role !== null
           ? String(user.role)
           : user.roleId !== undefined && user.roleId !== null
@@ -63,13 +66,15 @@ export class FileValidationHelper {
       (p: any) => {
         if (p.isEnabled === false) return false;
         const allowedUserMatch = Array.isArray(p.allowedUsers)
-          ? p.allowedUsers.some((u: any) => String(u?.id || u) === userId)
+          ? p.allowedUsers.some((u: any) => String(u?._id ?? u?.id ?? u) === userId)
           : p.allowedUsers
-            ? String(p.allowedUsers?.id || p.allowedUsers) === userId
+            ? String(p.allowedUsers?._id ?? p.allowedUsers?.id ?? p.allowedUsers) === userId
             : false;
         const permissionRoleId =
-          p.role?.id !== undefined && p.role?.id !== null
-            ? String(p.role.id)
+          p.role?._id !== undefined && p.role?._id !== null
+            ? String(p.role._id)
+            : p.role?.id !== undefined && p.role?.id !== null
+              ? String(p.role.id)
             : p.role !== undefined && p.role !== null
               ? String(p.role)
               : p.roleId !== undefined && p.roleId !== null

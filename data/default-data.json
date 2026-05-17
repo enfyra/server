@@ -420,6 +420,9 @@
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:download",
+      "publishedMethods": [
+        "GET"
+      ],
       "availableMethods": [
         "GET"
       ]
