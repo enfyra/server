@@ -10,6 +10,7 @@ import { QueryBuilderService } from '@enfyra/kernel';
 import { StorageConfigCacheService } from '../../../engines/cache';
 import { StorageFactoryService } from '../storage/storage-factory.service';
 import { Readable } from 'stream';
+import { FileSignatureHelper } from '../utils/file-signature.helper';
 
 export class FileManagementService {
   private readonly logger = new Logger(FileManagementService.name);
@@ -105,9 +106,14 @@ export class FileManagementService {
     fileData: FileUploadDto,
     storageConfigId?: number | string,
   ): Promise<ProcessedFileInfo> {
-    const uniqueFilename = this.generateUniqueFilename(fileData.filename);
+    const normalizedFile = FileSignatureHelper.normalizeUploadMetadata(
+      fileData.filename,
+      fileData.mimetype,
+      fileData.buffer,
+    );
+    const uniqueFilename = this.generateUniqueFilename(normalizedFile.filename);
     const relativePath = `uploads/${uniqueFilename}`;
-    const fileType = this.getFileType(fileData.mimetype);
+    const fileType = this.getFileType(normalizedFile.mimetype);
 
     try {
       const storageConfig = await this.getStorageConfig(storageConfigId);
@@ -150,13 +156,13 @@ export class FileManagementService {
       const uploadResult = await storageService.upload(
         fileData.buffer,
         relativePath,
-        fileData.mimetype,
+        normalizedFile.mimetype,
         storageConfig,
       );
 
       const processedInfo: ProcessedFileInfo = {
-        filename: fileData.filename,
-        mimetype: fileData.mimetype,
+        filename: normalizedFile.filename,
+        mimetype: normalizedFile.mimetype,
         type: fileType,
         filesize: fileData.size,
         storage_config_id: normalizedStorageConfigId,

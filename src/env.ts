@@ -23,17 +23,29 @@ const EnvSchema = z.object({
     .optional()
     .default('false')
     .transform((v) => v === 'true'),
-  REDIS_USER_CACHE_LIMIT_MB: z.coerce
-    .number()
-    .min(0)
-    .optional()
-    .default(30),
+  REDIS_USER_CACHE_LIMIT_MB: z.coerce.number().min(0).optional().default(30),
   REDIS_USER_CACHE_MAX_VALUE_BYTES: z.coerce
     .number()
     .int()
     .min(0)
     .optional()
     .default(0),
+  ASSET_CACHE_MEMORY_PRESSURE_RATIO: z.coerce
+    .number()
+    .min(0)
+    .optional()
+    .default(0.8),
+  ASSET_CACHE_MIN_FREE_MEMORY_MB: z.coerce
+    .number()
+    .min(0)
+    .optional()
+    .default(256),
+  ASSET_CACHE_PRESSURE_CLEAR_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .default(5000),
   DEFAULT_TTL: z.coerce.number().int().positive().optional().default(5),
   NODE_NAME: z.string().optional().default('enfyra'),
   PORT: z.coerce.number().int().positive().default(1105),
@@ -62,25 +74,13 @@ const EnvSchema = z.object({
     .enum(['0', '1'])
     .optional()
     .transform((v) => v === '1'),
-  FLOW_WORKER_CONCURRENCY: z.coerce
-    .number()
-    .int()
-    .positive()
-    .optional(),
+  FLOW_WORKER_CONCURRENCY: z.coerce.number().int().positive().optional(),
   FLOW_WORKER_CONCURRENCY_MODE: z
     .enum(['adaptive', 'fixed'])
     .optional()
     .default('adaptive'),
-  FLOW_WORKER_CONCURRENCY_MIN: z.coerce
-    .number()
-    .int()
-    .positive()
-    .optional(),
-  FLOW_WORKER_CONCURRENCY_MAX: z.coerce
-    .number()
-    .int()
-    .positive()
-    .optional(),
+  FLOW_WORKER_CONCURRENCY_MIN: z.coerce.number().int().positive().optional(),
+  FLOW_WORKER_CONCURRENCY_MAX: z.coerce.number().int().positive().optional(),
   FLOW_WORKER_TUNE_INTERVAL_MS: z.coerce
     .number()
     .int()

@@ -159,16 +159,6 @@
     {
       "_unique": {
         "name": {
-          "_eq": "file_permission_definition"
-        }
-      },
-      "relationsToRemove": [
-        "allowedUsers"
-      ]
-    },
-    {
-      "_unique": {
-        "name": {
           "_eq": "package_definition"
         }
       },
