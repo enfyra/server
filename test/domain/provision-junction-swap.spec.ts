@@ -41,7 +41,11 @@ describe('Provision M2M inverse junction column swap', () => {
     expect(inverse.junctionSourceColumn).toBe('methodDefinitionId');
     expect(inverse.junctionTargetColumn).toBe('preHookDefinitionId');
     expect(inverse.junctionTableName).toBe(
-      'pre_hook_definition_methods_method_definition',
+      getJunctionTableName(
+        'pre_hook_definition',
+        'methods',
+        'method_definition',
+      ),
     );
   });
 
@@ -114,8 +118,8 @@ describe('Provision M2M inverse junction column swap', () => {
       'methods',
       'method_definition',
     );
-    expect(sourceColumn).toBe('pre_hook_definitionId');
-    expect(targetColumn).toBe('method_definitionId');
+    expect(sourceColumn).toBe('sourceId');
+    expect(targetColumn).toBe('targetId');
   });
 
   it('should never produce mixed naming when swapping from owning with explicit columns', () => {

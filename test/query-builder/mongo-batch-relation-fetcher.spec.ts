@@ -1,6 +1,7 @@
 import { MongoClient, Db, ObjectId } from 'mongodb';
 import {
   executeMongoBatchFetches,
+  getJunctionTableName,
   MongoBatchFetchDescriptor,
 } from '@enfyra/kernel';
 
@@ -28,6 +29,7 @@ const nodeIds: ObjectId[] = [
   new ObjectId(),
   new ObjectId(),
 ];
+const junctionName = getJunctionTableName('posts', 'tags', 'tags');
 
 const META: Record<string, any> = {
   users: {
@@ -81,6 +83,9 @@ const META: Record<string, any> = {
         type: 'many-to-many',
         targetTableName: 'tags',
         isInverse: false,
+        junctionTableName: getJunctionTableName('posts', 'tags', 'tags'),
+        junctionSourceColumn: 'sourceId',
+        junctionTargetColumn: 'targetId',
       },
     ],
   },
@@ -105,6 +110,9 @@ const META: Record<string, any> = {
         targetTableName: 'posts',
         mappedBy: 'tags',
         isInverse: true,
+        junctionTableName: getJunctionTableName('posts', 'tags', 'tags'),
+        junctionSourceColumn: 'targetId',
+        junctionTargetColumn: 'sourceId',
       },
     ],
   },
@@ -201,11 +209,11 @@ beforeAll(async () => {
     { _id: postIds[3], title: 'Post D', author: null, category: null },
   ]);
   // M2M junction collection (posts ↔ tags)
-  await db.collection('posts_tags_tags').insertMany([
-    { postsId: postIds[0], tagsId: tagIds[0] },
-    { postsId: postIds[0], tagsId: tagIds[1] },
-    { postsId: postIds[1], tagsId: tagIds[1] },
-    { postsId: postIds[2], tagsId: tagIds[2] },
+  await db.collection(junctionName).insertMany([
+    { sourceId: postIds[0], targetId: tagIds[0] },
+    { sourceId: postIds[0], targetId: tagIds[1] },
+    { sourceId: postIds[1], targetId: tagIds[1] },
+    { sourceId: postIds[2], targetId: tagIds[2] },
   ]);
   await db.collection('profiles').insertMany([
     { _id: profileIds[0], user: userIds[0], bio: 'Software dev' },

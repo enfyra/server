@@ -201,7 +201,7 @@ describe('PackageCacheService CDN preload', () => {
     );
     expect(queryBuilderService.update).toHaveBeenCalledWith(
       'package_definition',
-      { where: [{ field: 'id', operator: '=', value: 7 }] },
+      7,
       { status: 'installed', lastError: null },
     );
   });

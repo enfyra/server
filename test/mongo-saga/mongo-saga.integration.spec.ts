@@ -1313,30 +1313,32 @@ describe('MongoDB Saga System - Integration Tests', () => {
       ]);
 
       const txId = await lockService.beginTransaction();
-      await snapshotService.createSnapshotsBatch(txId, [
-        {
-          op: 'update',
-          collection: COLLECTIONS.orders,
-          documentId: existingId,
-          before: {
-            _id: existingId,
-            customerId: 'boot-existing',
-            status: 'original',
+      await snapshotService
+        .createSnapshotsBatch(txId, [
+          {
+            op: 'update',
+            collection: COLLECTIONS.orders,
+            documentId: existingId,
+            before: {
+              _id: existingId,
+              customerId: 'boot-existing',
+              status: 'original',
+            },
+            afterPatch: { status: 'dirty' },
           },
-          afterPatch: { status: 'dirty' },
-        },
-        {
-          op: 'insert',
-          collection: COLLECTIONS.orders,
-          documentId: insertedId,
-          before: null,
-          afterPatch: { customerId: 'boot-inserted', status: 'temporary' },
-        },
-      ]).then((snapshots) =>
-        snapshotService.markSnapshotsBatchCompleted(
-          snapshots.map((log) => log.snapshotId),
-        ),
-      );
+          {
+            op: 'insert',
+            collection: COLLECTIONS.orders,
+            documentId: insertedId,
+            before: null,
+            afterPatch: { customerId: 'boot-inserted', status: 'temporary' },
+          },
+        ])
+        .then((snapshots) =>
+          snapshotService.markSnapshotsBatchCompleted(
+            snapshots.map((log) => log.snapshotId),
+          ),
+        );
 
       await db
         .collection(COLLECTIONS.orders)
@@ -1351,7 +1353,6 @@ describe('MongoDB Saga System - Integration Tests', () => {
       const inserted = await db
         .collection(COLLECTIONS.orders)
         .findOne({ _id: insertedId });
-      const status = await lockService.getSagaStatus(txId);
 
       expect(restored).toEqual(
         expect.objectContaining({
@@ -1360,7 +1361,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
         }),
       );
       expect(inserted).toBeNull();
-      expect(status?.status).toBe('aborted');
+      await expect(lockService.getSagaStatus(txId)).resolves.toBeNull();
     });
   });
 

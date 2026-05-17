@@ -1,8 +1,5 @@
 import { ValidationException } from '../../src/domain/exceptions';
-import {
-  getJunctionTableName,
-  getJunctionColumnNames,
-} from '@enfyra/kernel';
+import { getJunctionTableName, getJunctionColumnNames } from '@enfyra/kernel';
 
 type TRelation = {
   id?: number;
@@ -1088,8 +1085,8 @@ describe('Inverse relation auto-creation', () => {
         'products',
       );
 
-      expect(sourceColumn).toBe('productsId');
-      expect(targetColumn).toBe('relatedProductsId');
+      expect(sourceColumn).toBe('sourceId');
+      expect(targetColumn).toBe('targetId');
       expect(sourceColumn).not.toBe(targetColumn);
 
       const owning = makeRel({
@@ -1116,8 +1113,8 @@ describe('Inverse relation auto-creation', () => {
         allRelationsOnSource: [owning],
       });
 
-      expect(inverse.junctionSourceColumn).toBe('relatedProductsId');
-      expect(inverse.junctionTargetColumn).toBe('productsId');
+      expect(inverse.junctionSourceColumn).toBe('targetId');
+      expect(inverse.junctionTargetColumn).toBe('sourceId');
     });
 
     it('relation without inversePropertyName produces no inverse (guard skipped in handler)', () => {
