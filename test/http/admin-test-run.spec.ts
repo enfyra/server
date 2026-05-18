@@ -42,11 +42,15 @@ function createAppHarness(cradle: any) {
   };
   registerAdminRoutes(app as any, { cradle } as any);
 
-  return async (body: any) => {
+  return async (body: any, path = '/admin/test/run') => {
     let response: any;
-    await handlers.get('/admin/test/run')(
+    const res = {
+      status: () => res,
+      json: (value: any) => (response = value),
+    };
+    await handlers.get(path)(
       { body, user: { id: 7 }, scope: { cradle } },
-      { json: (value: any) => (response = value) },
+      res,
     );
     return response;
   };
@@ -160,5 +164,39 @@ describe('admin test run', () => {
     expect(result.success).toBe(true);
     expect(result.result).toBe('done');
     expect(result.logs).toEqual(['admin-log', { ok: true }]);
+  });
+
+  it('validates dynamic scripts without executing them', async () => {
+    const cradle = {
+      executorEngineService: new InlineExecutor(),
+      repoRegistryService: {
+        createReposProxy: () => ({}),
+      },
+      dynamicContextFactory: createDynamicContextFactory(),
+      flowService: { trigger: async () => ({ triggered: true }) },
+    };
+    const postTest = createAppHarness(cradle);
+
+    const valid = await postTest(
+      {
+        sourceCode: 'const value: string = @BODY.value; return value;',
+        scriptLanguage: 'typescript',
+      },
+      '/admin/script/validate',
+    );
+    const invalid = await postTest(
+      {
+        sourceCode: 'const broken = ; return broken;',
+        scriptLanguage: 'typescript',
+      },
+      '/admin/script/validate',
+    );
+
+    expect(valid.success).toBe(true);
+    expect(valid.valid).toBe(true);
+    expect(valid.data.compiledCode).toContain('$ctx.$body.value');
+    expect(invalid.success).toBe(false);
+    expect(invalid.valid).toBe(false);
+    expect(invalid.error.message).toBeTruthy();
   });
 });
