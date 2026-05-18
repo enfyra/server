@@ -124,6 +124,40 @@ export class DynamicRepository {
     return this.queryBuilderService.getPkField();
   }
 
+  private toScriptBadRequest(error: any): BadRequestException {
+    const message = error?.message || String(error) || 'Invalid script source';
+    return new BadRequestException(`Invalid script source: ${message}`, {
+      code: error?.code || error?.name || 'SCRIPT_VALIDATION_ERROR',
+    });
+  }
+
+  private normalizeScriptRecordOrThrow(body: Record<string, any>) {
+    try {
+      return normalizeScriptRecord(this.tableName, body);
+    } catch (error) {
+      throw this.toScriptBadRequest(error);
+    }
+  }
+
+  private normalizeScriptPatchOrThrow(
+    body: Record<string, any>,
+    existing: Record<string, any>,
+  ) {
+    try {
+      return normalizeScriptPatch(this.tableName, body, existing);
+    } catch (error) {
+      throw this.toScriptBadRequest(error);
+    }
+  }
+
+  private normalizeFlowStepScriptConfigOrThrow(body: Record<string, any>) {
+    try {
+      return normalizeFlowStepScriptConfig(body);
+    } catch (error) {
+      throw this.toScriptBadRequest(error);
+    }
+  }
+
   private isPlainObject(value: any): value is Record<string, any> {
     return (
       value !== null &&
@@ -851,9 +885,9 @@ export class DynamicRepository {
       const { processedBody } = await processExtensionDefinition(body, 'POST');
       Object.assign(body, processedBody);
     }
-    Object.assign(body, normalizeScriptRecord(this.tableName, body));
+    Object.assign(body, this.normalizeScriptRecordOrThrow(body));
     if (this.tableName === 'flow_step_definition') {
-      Object.assign(body, normalizeFlowStepScriptConfig(body));
+      Object.assign(body, this.normalizeFlowStepScriptConfigOrThrow(body));
     }
     if (this.tableName === 'column_rule_definition') {
       await this.assertColumnRuleUnique(body, null);
@@ -946,9 +980,9 @@ export class DynamicRepository {
         );
         Object.assign(body, processedBody);
       }
-      Object.assign(body, normalizeScriptPatch(this.tableName, body, exists));
+      Object.assign(body, this.normalizeScriptPatchOrThrow(body, exists));
       if (this.tableName === 'flow_step_definition') {
-        const normalizedFlowStep = normalizeFlowStepScriptConfig({
+        const normalizedFlowStep = this.normalizeFlowStepScriptConfigOrThrow({
           ...exists,
           ...body,
         });
