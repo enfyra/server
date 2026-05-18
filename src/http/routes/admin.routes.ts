@@ -40,6 +40,36 @@ export function registerAdminRoutes(
   app: Express,
   container: AwilixContainer<Cradle>,
 ) {
+  app.post('/admin/script/validate', async (req: any, res: Response) => {
+    const body = req.routeData?.context?.$body ?? req.body ?? {};
+    const sourceCode = String(body.sourceCode ?? body.code ?? '');
+    const scriptLanguage = body.scriptLanguage ?? 'typescript';
+    try {
+      const compiledCode = compileScriptSource(sourceCode, scriptLanguage);
+      const AsyncFunction = Object.getPrototypeOf(async function () {})
+        .constructor;
+      new AsyncFunction('$ctx', compiledCode || '');
+      res.json({
+        success: true,
+        valid: true,
+        data: {
+          compiledCode,
+          scriptLanguage,
+        },
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        valid: false,
+        error: {
+          code: error?.errorCode || error?.code || 'SCRIPT_VALIDATION_FAILED',
+          message: error?.message || 'Script validation failed',
+          details: error?.details,
+        },
+      });
+    }
+  });
+
   app.get('/admin/redis/overview', async (req: any, res: Response) => {
     const redisAdminService = resolveRedisAdmin(req, container);
     res.json({
