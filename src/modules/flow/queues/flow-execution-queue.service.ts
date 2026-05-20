@@ -365,7 +365,6 @@ export class FlowExecutionQueueService {
         startedAt: new Date(startTime),
         completedAt: new Date(),
         duration: Date.now() - startTime,
-        context: result.context,
         completedSteps: result.completedSteps,
         currentStep: result.context?.$meta?.currentStep || null,
       });
@@ -400,7 +399,7 @@ export class FlowExecutionQueueService {
         historyEnqueueMs,
         totalMs: Date.now() - processStarted,
       });
-      return { success: true, executionId, context: result.context };
+      return { success: true, executionId };
     } catch (error) {
       const historyEnqueueStarted = Date.now();
       this.enqueueExecutionHistory(flow, payload, triggeredBy, {
