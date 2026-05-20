@@ -747,7 +747,6 @@
       { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
       { "name": "status", "type": "enum", "options": ["pending", "running", "completed", "failed", "cancelled"], "isNullable": false, "isSystem": true, "defaultValue": "pending", "description": "Current execution status" },
       { "name": "payload", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Input data from the trigger" },
-      { "name": "context", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Full data chain state ($trigger, $last, step results)" },
       { "name": "completedSteps", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Array of completed step keys for resumability" },
       { "name": "currentStep", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Key of the currently executing step" },
       { "name": "error", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Error details if execution failed" },
