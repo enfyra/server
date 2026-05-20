@@ -25,6 +25,7 @@ import {
 } from '../utils/mongo-physical-schema-contract';
 import { DatabaseException } from '../../../domain/exceptions';
 import type { MongoHookContext } from '../types/mongo-hook.types';
+import { isGeneratedScriptPersistenceField } from '../../../shared/utils/script-persistence-contract.util';
 
 export class MongoService {
   private client!: MongoClient;
@@ -1110,6 +1111,9 @@ export class MongoService {
 
     for (const column of tableMetadata.columns) {
       if (column.isUpdatable === false && column.name in filteredData) {
+        if (isGeneratedScriptPersistenceField(collectionName, column.name)) {
+          continue;
+        }
         delete filteredData[column.name];
       }
     }
