@@ -206,27 +206,11 @@
         }
       },
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/route_definition",
-            "actions": [
-              "read"
-            ]
-          },
-          {
-            "or": [
-              {
-                "route": "/route_definition",
-                "actions": [
-                  "create"
-                ]
-              },
-              {
-                "route": "/route_definition",
-                "actions": [
-                  "update"
-                ]
-              }
+            "methods": [
+              "GET"
             ]
           }
         ]
