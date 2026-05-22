@@ -8,8 +8,6 @@ const ROUTE_METHOD_FIELDS = [
   'skipRoleGuardMethods',
   'availableMethods',
 ];
-const PERMISSION_ACTIONS = new Set(['read', 'create', 'update', 'delete']);
-
 function routePath(record: any) {
   return record.path ?? record._unique?.path?._eq;
 }
@@ -38,7 +36,7 @@ function nestedTableName(value: any) {
 function collectPermissionRules(permission: any): any[] {
   if (!permission || typeof permission !== 'object') return [];
   const rules: any[] = [];
-  if (permission.route || permission.actions) rules.push(permission);
+  if (permission.route || permission.methods || permission.actions) rules.push(permission);
   for (const key of ['and', 'or']) {
     if (Array.isArray(permission[key])) {
       for (const item of permission[key]) {
@@ -68,7 +66,17 @@ function validateRouteRefs(input: {
       message: `Route "${route}" is not defined in bootstrap route_definition.`,
     });
   }
-  for (const field of ['methods', 'actions']) {
+  if (input.record.actions !== undefined) {
+    issues.push({
+      file: input.file,
+      table: input.table,
+      path: route,
+      field: 'actions',
+      message: 'Permission actions are no longer supported; use HTTP methods.',
+    });
+  }
+
+  for (const field of ['methods']) {
     if (input.record[field] === undefined) continue;
     if (!Array.isArray(input.record[field])) {
       issues.push({
@@ -81,20 +89,13 @@ function validateRouteRefs(input: {
       continue;
     }
     for (const method of input.record[field]) {
-      const valid =
-        field === 'actions'
-          ? PERMISSION_ACTIONS.has(method)
-          : input.methods.has(method);
-      if (!valid) {
+      if (!input.methods.has(method)) {
         issues.push({
           file: input.file,
           table: input.table,
           path: route,
           field,
-          message:
-            field === 'actions'
-              ? `Permission action "${method}" is not supported.`
-              : `Method "${method}" is not defined in method_definition.`,
+          message: `Method "${method}" is not defined in method_definition.`,
         });
       }
     }

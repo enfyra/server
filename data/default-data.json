@@ -909,20 +909,8 @@
         "or": [
           {
             "route": "/table_definition",
-            "actions": [
-              "create"
-            ]
-          },
-          {
-            "route": "/table_definition",
-            "actions": [
-              "update"
-            ]
-          },
-          {
-            "route": "/table_definition",
-            "actions": [
-              "delete"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -955,9 +943,8 @@
         "or": [
           {
             "route": "/setting_definition",
-            "actions": [
-              "read",
-              "update"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -977,26 +964,8 @@
         "or": [
           {
             "route": "/menu_definition",
-            "actions": [
-              "read"
-            ]
-          },
-          {
-            "route": "/menu_definition",
-            "actions": [
-              "create"
-            ]
-          },
-          {
-            "route": "/menu_definition",
-            "actions": [
-              "update"
-            ]
-          },
-          {
-            "route": "/menu_definition",
-            "actions": [
-              "delete"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1013,11 +982,11 @@
       "order": 4,
       "parent": "Settings",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/extension_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1034,33 +1003,11 @@
       "order": 5,
       "parent": "Settings",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/route_definition",
-            "actions": [
-              "read"
-            ]
-          },
-          {
-            "or": [
-              {
-                "route": "/route_definition",
-                "actions": [
-                  "create"
-                ]
-              },
-              {
-                "route": "/route_definition",
-                "actions": [
-                  "update"
-                ]
-              },
-              {
-                "route": "/route_definition",
-                "actions": [
-                  "delete"
-                ]
-              }
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1077,33 +1024,11 @@
       "order": 5,
       "parent": "Settings",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/guard_definition",
-            "actions": [
-              "read"
-            ]
-          },
-          {
-            "or": [
-              {
-                "route": "/guard_definition",
-                "actions": [
-                  "create"
-                ]
-              },
-              {
-                "route": "/guard_definition",
-                "actions": [
-                  "update"
-                ]
-              },
-              {
-                "route": "/guard_definition",
-                "actions": [
-                  "delete"
-                ]
-              }
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1120,27 +1045,11 @@
       "order": 6,
       "parent": "Settings",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/route_definition",
-            "actions": [
-              "read"
-            ]
-          },
-          {
-            "or": [
-              {
-                "route": "/route_definition",
-                "actions": [
-                  "create"
-                ]
-              },
-              {
-                "route": "/route_definition",
-                "actions": [
-                  "update"
-                ]
-              }
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1157,33 +1066,11 @@
       "order": 6,
       "parent": "Settings",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/websocket_definition",
-            "actions": [
-              "read"
-            ]
-          },
-          {
-            "or": [
-              {
-                "route": "/websocket_definition",
-                "actions": [
-                  "create"
-                ]
-              },
-              {
-                "route": "/websocket_definition",
-                "actions": [
-                  "update"
-                ]
-              },
-              {
-                "route": "/websocket_definition",
-                "actions": [
-                  "delete"
-                ]
-              }
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1200,33 +1087,11 @@
       "order": 7,
       "parent": "Settings",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/flow_definition",
-            "actions": [
-              "read"
-            ]
-          },
-          {
-            "or": [
-              {
-                "route": "/flow_definition",
-                "actions": [
-                  "create"
-                ]
-              },
-              {
-                "route": "/flow_definition",
-                "actions": [
-                  "update"
-                ]
-              },
-              {
-                "route": "/flow_definition",
-                "actions": [
-                  "delete"
-                ]
-              }
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1246,8 +1111,8 @@
         "or": [
           {
             "route": "/bootstrap_script_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1267,8 +1132,8 @@
         "or": [
           {
             "route": "/logs",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1301,8 +1166,8 @@
         "or": [
           {
             "route": "/package_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1319,11 +1184,11 @@
       "order": 9,
       "parent": "Settings",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/user_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1340,11 +1205,11 @@
       "order": 10,
       "parent": "Settings",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/role_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1364,14 +1229,14 @@
         "or": [
           {
             "route": "/oauth_config_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           },
           {
             "route": "/oauth_account_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1388,11 +1253,11 @@
       "order": 1,
       "parent": "OAuth",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/oauth_config_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1409,11 +1274,11 @@
       "order": 2,
       "parent": "OAuth",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/oauth_account_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1432,14 +1297,14 @@
         "or": [
           {
             "route": "/file_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           },
           {
             "route": "/storage/config",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1459,8 +1324,8 @@
         "or": [
           {
             "route": "/storage/config",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1480,8 +1345,8 @@
         "or": [
           {
             "route": "/file_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
