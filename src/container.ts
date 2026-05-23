@@ -32,6 +32,7 @@ async function closeRuntimeQueue(queue: QueueWithConnection): Promise<void> {
 import {
   BcryptService,
   AuthService,
+  ApiTokenService,
   OAuthService,
   SessionCleanupService,
   UserRevocationService,
@@ -229,6 +230,7 @@ export interface Cradle {
   lazyRef: Cradle;
   bcryptService: BcryptService;
   authService: AuthService;
+  apiTokenService: ApiTokenService;
   oauthService: OAuthService;
   sessionCleanupService: SessionCleanupService;
   userRevocationService: UserRevocationService;
@@ -440,6 +442,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     clusterTelemetryService: asClass(ClusterTelemetryService).singleton(),
     bcryptService: asClass(BcryptService).singleton(),
     authService: asClass(AuthService).singleton(),
+    apiTokenService: asClass(ApiTokenService).singleton(),
     oauthService: asClass(OAuthService).singleton(),
     sessionCleanupService: asClass(SessionCleanupService)
       .singleton()

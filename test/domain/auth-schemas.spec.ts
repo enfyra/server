@@ -3,6 +3,8 @@ import {
   loginSchema,
   refreshTokenSchema,
   logoutSchema,
+  createApiTokenSchema,
+  exchangeApiTokenSchema,
 } from '../../src/domain/auth';
 import { parseOrBadRequest } from '../../src/shared/utils/zod-parse.util';
 
@@ -66,6 +68,47 @@ describe('loginSchema', () => {
         remember: 'yes',
       }),
     ).toThrow(/remember must be a boolean/);
+  });
+});
+
+describe('createApiTokenSchema / exchangeApiTokenSchema', () => {
+  it('accepts explicit no-expiration API tokens', () => {
+    const body = parseOrBadRequest(createApiTokenSchema, {
+      name: 'MCP token',
+      expiresAt: 'never',
+    });
+    expect(body).toEqual({ name: 'MCP token', expiresAt: 'never' });
+  });
+
+  it('accepts ISO datetime API token expiration', () => {
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const body = parseOrBadRequest(createApiTokenSchema, {
+      name: 'CLI',
+      expiresAt,
+    });
+    expect(body.expiresAt).toBe(expiresAt);
+  });
+
+  it('rejects missing API token expiration', () => {
+    expect(() =>
+      parseOrBadRequest(createApiTokenSchema, { name: 'MCP token' }),
+    ).toThrow(/expiresAt is required/);
+  });
+
+  it('rejects malformed API token expiration', () => {
+    expect(() =>
+      parseOrBadRequest(createApiTokenSchema, {
+        name: 'MCP token',
+        expiresAt: 'no expires',
+      }),
+    ).toThrow(/expiresAt/);
+  });
+
+  it('accepts exchange token payload', () => {
+    const body = parseOrBadRequest(exchangeApiTokenSchema, {
+      apiToken: 'efy_pat_secret',
+    });
+    expect(body).toEqual({ apiToken: 'efy_pat_secret' });
   });
 });
 
