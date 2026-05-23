@@ -26,4 +26,32 @@ export function registerAuthRoutes(
     const result = await authService.refreshToken(req.body);
     res.json(result);
   });
+
+  app.get('/auth/api-tokens', async (req: any, res: Response) => {
+    const apiTokenService =
+      req.scope?.cradle?.apiTokenService ?? container.cradle.apiTokenService;
+    const result = await apiTokenService.list(req);
+    res.json(result);
+  });
+
+  app.post('/auth/api-tokens', async (req: any, res: Response) => {
+    const apiTokenService =
+      req.scope?.cradle?.apiTokenService ?? container.cradle.apiTokenService;
+    const result = await apiTokenService.create(req.body, req);
+    res.json(result);
+  });
+
+  app.delete('/auth/api-tokens/:id', async (req: any, res: Response) => {
+    const apiTokenService =
+      req.scope?.cradle?.apiTokenService ?? container.cradle.apiTokenService;
+    const result = await apiTokenService.revoke(req.params.id, req);
+    res.json(result);
+  });
+
+  app.post('/auth/token/exchange', async (req: any, res: Response) => {
+    const apiTokenService =
+      req.scope?.cradle?.apiTokenService ?? container.cradle.apiTokenService;
+    const result = await apiTokenService.exchange(req.body);
+    res.json(result);
+  });
 }

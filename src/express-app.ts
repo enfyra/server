@@ -137,6 +137,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
       c.queryBuilderService,
       c.cacheService,
       c.envService.get('SECRET_KEY'),
+      c.apiTokenService,
     ),
   );
   app.use((req: any, _res: any, next: any) => {

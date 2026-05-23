@@ -378,6 +378,29 @@
       { "propertyName": "user", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "User who owns this session" }
     ]
   },
+  "api_token_definition": {
+    "name": "api_token_definition",
+    "description": "Stores user-owned API tokens for programmatic access",
+    "isSystem": true,
+    "columns": [
+      { "name": "id", "type": "uuid", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Unique API token identifier" },
+      { "name": "name", "type": "varchar", "isNullable": false, "isSystem": true, "description": "User-facing API token name" },
+      { "name": "tokenHash", "type": "varchar", "isNullable": false, "isSystem": true, "isPublished": false, "description": "SHA-256 hash of the API token" },
+      { "name": "prefix", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Safe token prefix for display" },
+      { "name": "last4", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Safe final token characters for display" },
+      { "name": "expiresAt", "type": "date", "isNullable": true, "isSystem": true, "description": "When the API token expires; null means never expires" },
+      { "name": "lastUsedAt", "type": "date", "isNullable": true, "isSystem": true, "description": "When the API token was last exchanged for an access token" },
+      { "name": "lastUsedIp", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Last client IP seen for this API token" }
+    ],
+    "uniques": [
+      [
+        "tokenHash"
+      ]
+    ],
+    "relations": [
+      { "propertyName": "user", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "User who owns this API token" }
+    ]
+  },
   "schema_migration_definition": {
     "name": "schema_migration_definition",
     "description": "Tracks schema migration operations with up/down scripts for automatic recovery",
