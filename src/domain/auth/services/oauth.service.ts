@@ -20,6 +20,7 @@ import {
   userCacheKey,
   USER_CACHE_TTL_MS,
 } from '../../../shared/utils/load-user-with-role.util';
+import type { OAuthExchangeTokenPayload } from '../types/oauth-exchange-code.types';
 
 type OAuthProvider = 'google' | 'facebook' | 'github';
 
@@ -124,12 +125,7 @@ export class OAuthService {
   async handleCallback(
     provider: OAuthProvider,
     code: string,
-  ): Promise<{
-    accessToken: string;
-    refreshToken: string;
-    expTime: number;
-    loginProvider: string | null;
-  }> {
+  ): Promise<OAuthExchangeTokenPayload> {
     const config =
       await this.oauthConfigCacheService.getDirectConfigByProvider(provider);
     if (!config || !config.isEnabled) {
@@ -404,12 +400,7 @@ export class OAuthService {
   private async generateTokens(
     user: any,
     session: any,
-  ): Promise<{
-    accessToken: string;
-    refreshToken: string;
-    expTime: number;
-    loginProvider: string | null;
-  }> {
+  ): Promise<OAuthExchangeTokenPayload> {
     const userId = DatabaseConfigService.getRecordId(user);
     const sessionId = DatabaseConfigService.getRecordId(session);
     const loginProvider = session.loginProvider ?? null;
@@ -460,6 +451,7 @@ export class OAuthService {
       refreshToken,
       expTime: decoded.exp * 1000,
       loginProvider,
+      sessionId: sessionId?.toString() ?? null,
     };
   }
 }

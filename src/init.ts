@@ -59,6 +59,7 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
     c.sessionCleanupService?.init?.(),
     c.userRevocationService?.init?.(),
     c.apiTokenService?.init?.(),
+    c.oauthExchangeCodeService?.init?.(),
     c.mongoPhysicalMigrationService?.init?.(),
   ]);
 

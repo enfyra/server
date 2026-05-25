@@ -54,4 +54,17 @@ export function registerAuthRoutes(
     const result = await apiTokenService.exchange(req.body);
     res.json(result);
   });
+
+  app.post('/auth/oauth/exchange', async (req: any, res: Response) => {
+    const oauthExchangeCodeService =
+      req.scope?.cradle?.oauthExchangeCodeService ??
+      container.cradle.oauthExchangeCodeService;
+    const result = await oauthExchangeCodeService.exchange(req.body?.code);
+    res.json({
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      expTime: result.expTime,
+      loginProvider: result.loginProvider,
+    });
+  });
 }
