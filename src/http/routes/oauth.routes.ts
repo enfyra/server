@@ -94,6 +94,9 @@ export function registerOAuthRoutes(
     const oauthConfigCache =
       req.scope?.cradle?.oauthConfigCacheService ??
       container.cradle.oauthConfigCacheService;
+    const oauthExchangeCodeService =
+      req.scope?.cradle?.oauthExchangeCodeService ??
+      container.cradle.oauthExchangeCodeService;
     const configService =
       req.scope?.cradle?.configService ?? container.cradle.configService;
 
@@ -133,11 +136,10 @@ export function registerOAuthRoutes(
 
     try {
       const tokens = await oauthService.handleCallback(provider as any, code);
+      const exchangeCode =
+        await oauthExchangeCodeService.createCodeForTokens(tokens);
       const callbackUrl = getSuccessCallbackUrl(statePayload, config);
-      callbackUrl.searchParams.set('accessToken', tokens.accessToken);
-      callbackUrl.searchParams.set('refreshToken', tokens.refreshToken);
-      callbackUrl.searchParams.set('expTime', String(tokens.expTime));
-      callbackUrl.searchParams.set('loginProvider', tokens.loginProvider ?? '');
+      callbackUrl.searchParams.set('code', exchangeCode);
       callbackUrl.searchParams.set('redirect', statePayload.redirect);
 
       return res.redirect(callbackUrl.toString());

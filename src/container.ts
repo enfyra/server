@@ -34,6 +34,7 @@ import {
   AuthService,
   ApiTokenService,
   OAuthService,
+  OAuthExchangeCodeService,
   SessionCleanupService,
   UserRevocationService,
 } from './domain/auth';
@@ -232,6 +233,7 @@ export interface Cradle {
   authService: AuthService;
   apiTokenService: ApiTokenService;
   oauthService: OAuthService;
+  oauthExchangeCodeService: OAuthExchangeCodeService;
   sessionCleanupService: SessionCleanupService;
   userRevocationService: UserRevocationService;
   loggingService: LoggingService;
@@ -444,6 +446,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     authService: asClass(AuthService).singleton(),
     apiTokenService: asClass(ApiTokenService).singleton(),
     oauthService: asClass(OAuthService).singleton(),
+    oauthExchangeCodeService: asClass(OAuthExchangeCodeService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
     sessionCleanupService: asClass(SessionCleanupService)
       .singleton()
       .disposer((service) => service.onDestroy()),
