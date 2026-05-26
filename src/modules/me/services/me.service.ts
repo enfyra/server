@@ -4,7 +4,7 @@ import { Request } from 'express';
 export class MeService {
   async find(req: Request & { user: any; routeData?: any }) {
     if (!req.user) throw new UnauthorizedException();
-    const repo = req.routeData?.context?.$repos?.main;
+    const repo = req.routeData?.context?.$repos?.user_definition;
     if (!repo) {
       throw new Error('Repository not found in route context');
     }
@@ -22,7 +22,7 @@ export class MeService {
 
   async update(body: any, req: Request & { user: any; routeData?: any }) {
     if (!req.user) throw new UnauthorizedException();
-    const repo = req.routeData?.context?.$repos?.main;
+    const repo = req.routeData?.context?.$repos?.user_definition;
     if (!repo) {
       throw new Error('Repository not found in route context');
     }
@@ -32,12 +32,14 @@ export class MeService {
 
   async findOAuthAccounts(req: Request & { user: any; routeData?: any }) {
     if (!req.user) throw new UnauthorizedException();
-    const repo = req.routeData?.context?.$repos?.main;
+    const repo = req.routeData?.context?.$repos?.oauth_account_definition;
     if (!repo) {
       throw new Error('Repository not found in route context');
     }
     const userId = req.user._id || req.user.id;
-    const { data } = await repo.find({ filter: { userId } });
+    const { data } = await repo.find({
+      filter: { user: { id: { _eq: userId } } },
+    });
     return { data };
   }
 }

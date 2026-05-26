@@ -129,7 +129,6 @@
     },
     {
       "path": "/auth/login",
-      "mainTable": "user_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -142,7 +141,6 @@
     },
     {
       "path": "/auth/logout",
-      "mainTable": "user_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -155,7 +153,6 @@
     },
     {
       "path": "/auth/refresh-token",
-      "mainTable": "user_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -168,7 +165,6 @@
     },
     {
       "path": "/auth/providers",
-      "mainTable": "user_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -181,7 +177,6 @@
     },
     {
       "path": "/auth/:provider",
-      "mainTable": "user_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -194,7 +189,6 @@
     },
     {
       "path": "/auth/:provider/callback",
-      "mainTable": "user_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -207,7 +201,6 @@
     },
     {
       "path": "/me",
-      "mainTable": "user_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -222,7 +215,6 @@
     },
     {
       "path": "/me/oauth-accounts",
-      "mainTable": "oauth_account_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:key",
@@ -355,7 +347,6 @@
     },
     {
       "path": "/extension_definition/preview",
-      "mainTable": "extension_definition",
       "isEnabled": true,
       "isSystem": true,
       "availableMethods": [
@@ -377,7 +368,6 @@
     },
     {
       "path": "/folder_definition/tree",
-      "mainTable": "folder_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:folder-tree",
@@ -416,7 +406,6 @@
     },
     {
       "path": "/assets/:id",
-      "mainTable": "file_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:download",
