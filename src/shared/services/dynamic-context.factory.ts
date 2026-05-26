@@ -53,7 +53,7 @@ export class DynamicContextFactory {
       $data: options.data,
       $debug: options.debug,
       $throw: ScriptErrorFactory.createThrowHandlers(),
-      $helpers: options.helpers ?? {},
+      $helpers: this.createHelpers(options.helpers),
       $cache: cache,
       $params: options.params ?? {},
       $query: options.query ?? {},
@@ -73,6 +73,21 @@ export class DynamicContextFactory {
     };
 
     return ctx;
+  }
+
+  private createHelpers(
+    helpers?: TDynamicContext['$helpers'],
+  ): TDynamicContext['$helpers'] {
+    return {
+      $bcrypt: {
+        hash: async (plain: string) => await this.bcryptService.hash(plain),
+        compare: async (p: string, h: string) =>
+          await this.bcryptService.compare(p, h),
+      },
+      autoSlug,
+      $fetch: createFetchHelper(),
+      ...(helpers ?? {}),
+    };
   }
 
   private createCacheFacade(

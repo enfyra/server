@@ -9,6 +9,7 @@ import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
 import { getSqlJunctionMetadata } from '../../../domain/bootstrap/utils/sql-junction-metadata.util';
 import { replaceSqlJunctionRows } from '../../../domain/bootstrap/utils/sql-junction-writer.util';
 import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';
+import { isCanonicalTableRoutePath } from '../../../domain/bootstrap/utils/canonical-table-route.util';
 
 interface InitOld {
   [tableName: string]: any | any[];
@@ -103,6 +104,8 @@ export class DataMigrationService {
       const count = await this.migrateTable(tableName, records);
       totalMigrated += count;
     }
+
+    totalMigrated += await this.clearCustomRouteMainTables();
 
     this.verbose(
       `Data migrations completed: ${totalMigrated} record(s) migrated`,
@@ -291,6 +294,50 @@ export class DataMigrationService {
           }
         }
       }
+    }
+  }
+
+  private async clearCustomRouteMainTables(): Promise<number> {
+    const idField = DatabaseConfigService.getPkField();
+
+    try {
+      const routes = await this.queryBuilderService.find({
+        table: 'route_definition',
+        filter: {},
+        limit: -1,
+        fields: [idField, 'path', 'mainTable.name'],
+      });
+
+      let cleared = 0;
+      for (const route of routes.data || []) {
+        const tableName = route.mainTable?.name;
+        if (!tableName || isCanonicalTableRoutePath(route.path, tableName)) {
+          continue;
+        }
+
+        const data = DatabaseConfigService.instanceIsMongoDb()
+          ? { mainTable: null }
+          : { mainTableId: null };
+
+        await this.queryBuilderService.update(
+          'route_definition',
+          { where: [{ field: idField, operator: '=', value: route[idField] }] },
+          data,
+        );
+        cleared++;
+      }
+
+      if (cleared > 0) {
+        this.verbose(
+          `Cleared mainTable from ${cleared} custom route(s)`,
+        );
+      }
+      return cleared;
+    } catch (error) {
+      this.logger.warn(
+        `Failed to clear custom route mainTable links: ${getErrorMessage(error)}`,
+      );
+      return 0;
     }
   }
 
