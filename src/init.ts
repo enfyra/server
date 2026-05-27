@@ -52,6 +52,8 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
     c.sqlFunctionService?.installExtensions?.(),
   ]);
 
+  await c.flowSchedulerService?.init?.();
+
   await c.graphqlService?.reloadSchema?.();
   c.eventEmitter.emit(CACHE_EVENTS.GRAPHQL_LOADED);
 

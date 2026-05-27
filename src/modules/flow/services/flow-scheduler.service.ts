@@ -1,20 +1,34 @@
 import { Logger } from '../../../shared/logger';
 import { parseExpression } from 'cron-parser';
 import { Queue } from 'bullmq';
-import { FlowCacheService } from '../../../engines/cache';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
+
+interface ScheduledFlow {
+  id: string | number;
+  name: string;
+  triggerConfig?: {
+    cron?: string;
+    timezone?: string;
+  } | null;
+}
+
+interface FlowCacheSource {
+  getFlowsByTriggerType(triggerType: string): Promise<ScheduledFlow[]>;
+}
 
 export class FlowSchedulerService {
   private readonly logger = new Logger(FlowSchedulerService.name);
   private registeredSchedulers = new Set<string>();
+  private initialized = false;
+  private rebuildPromise: Promise<void> | null = null;
   private readonly flowQueue: Queue;
-  private readonly flowCacheService: FlowCacheService;
+  private readonly flowCacheService: FlowCacheSource;
   private eventEmitter: any;
 
   constructor(deps: {
     flowQueue: Queue;
-    flowCacheService: FlowCacheService;
+    flowCacheService: FlowCacheSource;
     eventEmitter: any;
   }) {
     this.flowQueue = deps.flowQueue;
@@ -25,13 +39,30 @@ export class FlowSchedulerService {
 
   private setupEventListeners() {
     this.eventEmitter.on(CACHE_EVENTS.FLOW_LOADED, () => {
-      this.rebuildSchedules();
+      void this.rebuildSchedules();
     });
   }
 
+  async init(): Promise<void> {
+    if (this.initialized) return;
+    this.initialized = true;
+    await this.rebuildSchedules();
+  }
+
   private async rebuildSchedules(): Promise<void> {
+    if (this.rebuildPromise) return this.rebuildPromise;
+    this.rebuildPromise = this.rebuildSchedulesInternal();
     try {
-      for (const schedulerId of this.registeredSchedulers) {
+      await this.rebuildPromise;
+    } finally {
+      this.rebuildPromise = null;
+    }
+  }
+
+  private async rebuildSchedulesInternal(): Promise<void> {
+    try {
+      const schedulerIds = await this.resolveExistingSchedulerIds();
+      for (const schedulerId of schedulerIds) {
         try {
           await this.flowQueue.removeJobScheduler(schedulerId);
         } catch (err) {
@@ -95,5 +126,20 @@ export class FlowSchedulerService {
         `Failed to rebuild flow schedules: ${getErrorMessage(error)}`,
       );
     }
+  }
+
+  private async resolveExistingSchedulerIds(): Promise<Set<string>> {
+    const schedulerIds = new Set(this.registeredSchedulers);
+    const getJobSchedulers = (this.flowQueue as any).getJobSchedulers;
+    if (typeof getJobSchedulers !== 'function') return schedulerIds;
+
+    const schedulers = await getJobSchedulers.call(this.flowQueue, 0, -1, true);
+    for (const scheduler of schedulers || []) {
+      const key = scheduler?.key ?? scheduler?.id;
+      if (typeof key === 'string' && key.startsWith('flow-schedule-')) {
+        schedulerIds.add(key);
+      }
+    }
+    return schedulerIds;
   }
 }
