@@ -110,6 +110,11 @@ export class FirstRunInitializer {
 
       this.logProgress(mode, 5, 'acquired init lock');
 
+      const t0 = Date.now();
+      this.logProgress(mode, 8, 'preparing system schema');
+      await this.schemaHealingService.repairSystemPhysicalColumnsBeforeMetadataProvision();
+      this.logVerbose(`System schema preflight: ${Date.now() - t0}ms`);
+
       const t1 = Date.now();
       this.logProgress(mode, 10, 'provisioning metadata');
       await this.metadataProvisionService.createInitMetadata();
