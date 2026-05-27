@@ -23,6 +23,15 @@ export interface UploadResult {
   url?: string; // Full URL if available
 }
 
+export type StorageByteRange = {
+  start: number;
+  end: number;
+};
+
+export type StorageStreamOptions = {
+  range?: StorageByteRange;
+};
+
 export interface IStorageService {
   /**
    * Upload file to storage
@@ -42,7 +51,11 @@ export interface IStorageService {
   /**
    * Get file stream from storage
    */
-  getStream(location: string, config: StorageConfig): Promise<Readable>;
+  getStream(
+    location: string,
+    config: StorageConfig,
+    options?: StorageStreamOptions,
+  ): Promise<Readable>;
 
   /**
    * Get file buffer from storage

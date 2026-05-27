@@ -5,6 +5,7 @@ import { Readable } from 'stream';
 import {
   IStorageService,
   StorageConfig,
+  StorageStreamOptions,
   UploadResult,
 } from './storage.interface';
 
@@ -17,10 +18,15 @@ export class LocalStorageService implements IStorageService {
   }
 
   private resolveLocalPath(location: string): string {
-    const relativePath = location.startsWith('/') ? location.slice(1) : location;
+    const relativePath = location.startsWith('/')
+      ? location.slice(1)
+      : location;
     const basePath = path.resolve(this.basePath);
     const absolutePath = path.resolve(basePath, relativePath);
-    if (absolutePath !== basePath && !absolutePath.startsWith(`${basePath}${path.sep}`)) {
+    if (
+      absolutePath !== basePath &&
+      !absolutePath.startsWith(`${basePath}${path.sep}`)
+    ) {
       throw new Error(`Invalid local storage path: ${location}`);
     }
     return absolutePath;
@@ -55,12 +61,16 @@ export class LocalStorageService implements IStorageService {
     }
   }
 
-  async getStream(location: string, config: StorageConfig): Promise<Readable> {
+  async getStream(
+    location: string,
+    config: StorageConfig,
+    options?: StorageStreamOptions,
+  ): Promise<Readable> {
     const absolutePath = this.resolveLocalPath(location);
     if (!(await this.exists(location, config))) {
       throw new Error(`File not found in local storage: ${location}`);
     }
-    const stream = fs.createReadStream(absolutePath);
+    const stream = fs.createReadStream(absolutePath, options?.range);
     try {
       const stats = await fs.promises.stat(absolutePath);
       (stream as any).contentLength = stats.size;

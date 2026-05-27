@@ -46,9 +46,8 @@ describe('asset cache memory pressure', () => {
     vi.stubEnv('ASSET_CACHE_MEMORY_PRESSURE_RATIO', '0.000001');
     vi.stubEnv('ASSET_CACHE_MIN_FREE_MEMORY_MB', '0');
 
-    const { FileAssetsService } = await import(
-      '../../src/modules/file-management'
-    );
+    const { FileAssetsService } =
+      await import('../../src/modules/file-management');
     const queryBuilderService = makeQueryBuilder();
     const service = new FileAssetsService({
       queryBuilderService,
