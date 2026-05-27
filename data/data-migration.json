@@ -786,6 +786,42 @@
           {
             "table": {
               "name": {
+                "_eq": "column_definition"
+              }
+            }
+          },
+          {
+            "name": {
+              "_eq": "type"
+            }
+          }
+        ]
+      },
+      "options": [
+        "int",
+        "varchar",
+        "text",
+        "boolean",
+        "uuid",
+        "ObjectId",
+        "bigint",
+        "date",
+        "datetime",
+        "timestamp",
+        "enum",
+        "simple-json",
+        "code",
+        "array-select",
+        "richtext",
+        "float"
+      ]
+    },
+    {
+      "_unique": {
+        "_and": [
+          {
+            "table": {
+              "name": {
                 "_eq": "route_definition"
               }
             }

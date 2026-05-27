@@ -1,4 +1,6 @@
 import { Logger } from '../../../shared/logger';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   QueryBuilderService,
   getForeignKeyColumnName,
@@ -13,6 +15,7 @@ import {
 } from '../../../modules/table-management/utils/mongo-primary-key.util';
 import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';
 import { buildSqlJunctionTableContract } from '../../knex/utils/sql-physical-schema-contract';
+import { addColumnToTable } from '../../knex/utils/migration/column-operations';
 
 export class SchemaHealingService {
   private readonly logger = new Logger(SchemaHealingService.name);
@@ -53,10 +56,18 @@ export class SchemaHealingService {
     const mongoSystemShapeRepairCount = isMongoDB
       ? await this.repairMongoSystemRecordShapes()
       : 0;
+    const sqlSystemPhysicalColumnRepairCount = isMongoDB
+      ? 0
+      : await this.repairSqlSystemPhysicalColumns();
 
     if (mongoSystemShapeRepairCount > 0) {
       this.logger.log(
         `Repaired Mongo system record shapes on ${mongoSystemShapeRepairCount} collection(s)`,
+      );
+    }
+    if (sqlSystemPhysicalColumnRepairCount > 0) {
+      this.logger.log(
+        `Repaired SQL system physical columns on ${sqlSystemPhysicalColumnRepairCount} column(s)`,
       );
     }
 
@@ -79,6 +90,17 @@ export class SchemaHealingService {
           `Repaired uniques/indexes metadata on ${repairedCount} user table(s)`,
         );
       }
+    }
+  }
+
+  async repairSystemPhysicalColumnsBeforeMetadataProvision(): Promise<void> {
+    if (DatabaseConfigService.instanceIsMongoDb()) return;
+
+    const repairedCount = await this.repairSqlSystemPhysicalColumnsFromSnapshot();
+    if (repairedCount > 0) {
+      this.logger.log(
+        `Repaired SQL system physical columns before metadata provision on ${repairedCount} column(s)`,
+      );
     }
   }
 
@@ -125,6 +147,74 @@ export class SchemaHealingService {
 
       await knex('relation_definition').where({ id: rel.id }).update(updateData);
       repaired++;
+    }
+
+    return repaired;
+  }
+
+  private async repairSqlSystemPhysicalColumns(): Promise<number> {
+    const knex = this.queryBuilderService.getKnex();
+    if (!knex?.schema?.hasTable) return 0;
+    if (!(await knex.schema.hasTable('table_definition'))) return 0;
+    if (!(await knex.schema.hasTable('column_definition'))) return 0;
+
+    const systemTables = await knex('table_definition')
+      .where({ isSystem: true })
+      .select('id', 'name');
+    let repaired = 0;
+
+    for (const tableDef of systemTables) {
+      if (!tableDef?.id || !tableDef?.name) continue;
+      if (!(await knex.schema.hasTable(tableDef.name))) continue;
+
+      const columns = await knex('column_definition')
+        .where({ tableId: tableDef.id })
+        .select('*');
+      for (const column of columns) {
+        if (!column?.name || column.isPrimary) continue;
+        if (await knex.schema.hasColumn(tableDef.name, column.name)) continue;
+        await knex.schema.alterTable(tableDef.name, (table: Knex.TableBuilder) => {
+          addColumnToTable(table as any, column, this.queryBuilderService.getDatabaseType());
+        });
+        repaired++;
+      }
+    }
+
+    return repaired;
+  }
+
+  private async repairSqlSystemPhysicalColumnsFromSnapshot(): Promise<number> {
+    const knex = this.queryBuilderService.getKnex();
+    if (!knex?.schema?.hasTable) return 0;
+
+    const snapshotPath = path.resolve(process.cwd(), 'data/snapshot.json');
+    if (!fs.existsSync(snapshotPath)) return 0;
+
+    const snapshot = JSON.parse(fs.readFileSync(snapshotPath, 'utf8')) as Record<
+      string,
+      { name?: string; isSystem?: boolean; columns?: any[] }
+    >;
+    let repaired = 0;
+
+    for (const tableDef of Object.values(snapshot)) {
+      const tableName = tableDef?.name;
+      if (!tableDef?.isSystem || !tableName || !tableDef.columns?.length) {
+        continue;
+      }
+      if (!(await knex.schema.hasTable(tableName))) continue;
+
+      for (const column of tableDef.columns) {
+        if (!column?.name || column.isPrimary) continue;
+        if (await knex.schema.hasColumn(tableName, column.name)) continue;
+        await knex.schema.alterTable(tableName, (table: Knex.TableBuilder) => {
+          addColumnToTable(
+            table as any,
+            column,
+            this.queryBuilderService.getDatabaseType(),
+          );
+        });
+        repaired++;
+      }
     }
 
     return repaired;

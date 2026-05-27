@@ -27,6 +27,8 @@
               "ObjectId",
               "bigint",
               "date",
+              "datetime",
+              "timestamp",
               "enum",
               "simple-json",
               "code",
