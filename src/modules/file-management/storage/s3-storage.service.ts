@@ -11,6 +11,7 @@ import { Readable } from 'stream';
 import {
   IStorageService,
   StorageConfig,
+  StorageStreamOptions,
   UploadResult,
 } from './storage.interface';
 
@@ -90,13 +91,20 @@ export class S3StorageService implements IStorageService {
     }
   }
 
-  async getStream(location: string, config: StorageConfig): Promise<Readable> {
+  async getStream(
+    location: string,
+    config: StorageConfig,
+    options?: StorageStreamOptions,
+  ): Promise<Readable> {
     try {
       const s3Client = this.getS3Client(config);
 
       const command = new GetObjectCommand({
         Bucket: config.bucket!,
         Key: location,
+        Range: options?.range
+          ? `bytes=${options.range.start}-${options.range.end}`
+          : undefined,
       });
 
       const response = await s3Client.send(command);
@@ -106,6 +114,9 @@ export class S3StorageService implements IStorageService {
       }
 
       const stream = response.Body as Readable;
+      if (response.ContentLength !== undefined) {
+        (stream as any).contentLength = response.ContentLength;
+      }
 
       return stream;
     } catch (error: any) {

@@ -110,147 +110,46 @@ export class UploadFileHelper {
 
         if (options.buffer) {
           const buffer = this.normalizeBuffer(options.buffer);
-          const filename =
-            options.originalname || options.filename || currentFile.filename;
-          const mimetype = options.mimetype || currentFile.mimetype;
-          const size = options.size || buffer.length;
-
-          let storageConfigId = currentFile.storageConfig?.id || null;
-          if (options.storageConfig) {
-            storageConfigId =
-              typeof options.storageConfig === 'object'
-                ? options.storageConfig.id
-                : options.storageConfig;
-          }
-
-          let storageConfig = null;
-          if (storageConfigId) {
-            storageConfig =
-              await this.fileManagementService.getStorageConfigById(
-                storageConfigId,
-              );
-          }
-
-          if (
-            storageConfig &&
-            (storageConfig.type === 'Google Cloud Storage' ||
-              storageConfig.type === 'Cloudflare R2' ||
-              storageConfig.type === 'Amazon S3')
-          ) {
-            await this.fileManagementService.replaceFileOnStorage(
-              currentFile.location,
-              buffer,
-              mimetype,
-              storageConfigId,
-            );
-
-            const updateData = {
-              filename: filename,
-              mimetype: mimetype,
-              filesize: size,
-              storageConfig:
-                this.fileManagementService.createIdReference(storageConfigId),
-              description:
-                options.description !== undefined
-                  ? options.description
-                  : currentFile.description,
-              folder: currentFile.folder,
-              uploadedBy: currentFile.uploadedBy,
-              status: currentFile.status,
-            };
-
-            return await fileRepo.update({ id: fileId, data: updateData });
-          }
-
-          const processedFile =
-            await this.fileManagementService.processFileUpload(
-              {
-                filename: filename,
-                mimetype: mimetype,
-                buffer: buffer,
-                size: size,
-                folder: currentFile.folder,
-                title: options.title || filename,
-                description:
-                  options.description !== undefined
-                    ? options.description
-                    : currentFile.description,
-              },
-              storageConfigId,
-            );
-
-          const backupPath = await this.fileManagementService.backupFile(
-            currentFile.location,
+          return await this.fileManagementService.replaceFileAndUpdateRecord(
+            fileRepo,
+            fileId,
+            currentFile,
+            {
+              filename:
+                options.originalname ||
+                options.filename ||
+                currentFile.filename,
+              mimetype: options.mimetype || currentFile.mimetype,
+              buffer: buffer,
+              size: options.size || buffer.length,
+            },
+            {
+              folder:
+                options.folder !== undefined
+                  ? options.folder
+                  : currentFile.folder,
+              storageConfig: options.storageConfig,
+              title: options.title,
+              description: options.description,
+              status: options.status,
+              isPublished: options.isPublished,
+            },
           );
-
-          try {
-            await this.fileManagementService.replacePhysicalFile(
-              currentFile.location,
-              processedFile.location,
-            );
-
-            const updateData = {
-              filename: processedFile.filename,
-              mimetype: processedFile.mimetype,
-              type: processedFile.type,
-              filesize: processedFile.filesize,
-              location: currentFile.location,
-              description: processedFile.description,
-              folder: currentFile.folder,
-              uploadedBy: currentFile.uploadedBy,
-              status: currentFile.status,
-              storageConfig: processedFile.storage_config_id
-                ? this.fileManagementService.createIdReference(
-                    processedFile.storage_config_id,
-                  )
-                : null,
-            };
-
-            const result = await fileRepo.update({
-              id: fileId,
-              data: updateData,
-            });
-
-            await this.fileManagementService.rollbackFileCreation(
-              processedFile.location,
-              processedFile.storage_config_id,
-            );
-            await this.fileManagementService.deleteBackupFile(backupPath);
-
-            return result;
-          } catch (error) {
-            await this.fileManagementService.restoreFromBackup(
-              currentFile.location,
-              backupPath,
-            );
-            throw error;
-          }
         }
 
-        const updateData: any = {};
-        if (options.folder !== undefined) {
-          updateData.folder =
-            typeof options.folder === 'object'
-              ? options.folder
-              : { id: options.folder };
-        }
-        if (options.title !== undefined) updateData.title = options.title;
-        if (options.description !== undefined)
-          updateData.description = options.description;
-        if (options.storageConfig !== undefined) {
-          updateData.storageConfig =
-            typeof options.storageConfig === 'object'
-              ? options.storageConfig
-              : this.fileManagementService.createIdReference(
-                  options.storageConfig,
-                );
-        }
-
-        if (Object.keys(updateData).length === 0) {
-          return currentFile;
-        }
-
-        return await fileRepo.update({ id: fileId, data: updateData });
+        return await this.fileManagementService.updateFileMetadataRecord(
+          fileRepo,
+          fileId,
+          currentFile,
+          {
+            folder: options.folder,
+            storageConfig: options.storageConfig,
+            title: options.title,
+            description: options.description,
+            status: options.status,
+            isPublished: options.isPublished,
+          },
+        );
       } catch (error: any) {
         this.handleError(error, 'updateFile');
       }
@@ -269,14 +168,11 @@ export class UploadFileHelper {
           throw new Error(`File with ID ${fileId} not found`);
         }
 
-        const { location, storageConfig } = file;
-
-        await this.fileManagementService.deletePhysicalFile(
-          location,
-          storageConfig?.id || null,
+        return await this.fileManagementService.deleteFileAndRecord(
+          fileRepo,
+          fileId,
+          file,
         );
-
-        return await fileRepo.delete({ id: fileId });
       } catch (error: any) {
         this.handleError(error, 'deleteFile');
       }

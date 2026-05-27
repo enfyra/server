@@ -15,6 +15,7 @@ function makeFile(overrides: Record<string, any> = {}) {
     mimetype: 'text/plain',
     type: 'document',
     location: '/uploads/avatar.txt',
+    filesize: Buffer.byteLength('asset-body'),
     isPublished: true,
     storageConfig: null,
     ...overrides,
@@ -32,16 +33,15 @@ function makePermission(overrides: Record<string, any> = {}) {
   };
 }
 
-function makeQueryBuilder(state: {
-  files: any[];
-  permissions: any[];
-}) {
+function makeQueryBuilder(state: { files: any[]; permissions: any[] }) {
   return {
     getPkField: vi.fn(() => 'id'),
     find: vi.fn(async (args: any) => {
       if (args.table === 'file_definition') {
         const id = args.filter?.id?._eq;
-        return { data: state.files.filter((file) => String(file.id) === String(id)) };
+        return {
+          data: state.files.filter((file) => String(file.id) === String(id)),
+        };
       }
 
       if (args.table === 'file_permission_definition') {
@@ -55,8 +55,8 @@ function makeQueryBuilder(state: {
           };
         }
 
-        const fileId =
-          args.filter?._and?.find((entry: any) => entry.file)?.file?.id?._eq;
+        const fileId = args.filter?._and?.find((entry: any) => entry.file)?.file
+          ?.id?._eq;
         return {
           data: state.permissions.filter((permission) => {
             const permissionFileId =
@@ -82,11 +82,17 @@ function makeQueryBuilder(state: {
 function makeStorageFactory() {
   return {
     getStorageService: vi.fn(() => ({
-      getStream: vi.fn(async () => {
-        const stream = Readable.from(['asset-body']);
-        (stream as any).contentLength = Buffer.byteLength('asset-body');
-        return stream;
-      }),
+      getStream: vi.fn(
+        async (_location: string, _config: any, options?: any) => {
+          const body = Buffer.from('asset-body');
+          const payload = options?.range
+            ? body.subarray(options.range.start, options.range.end + 1)
+            : body;
+          const stream = Readable.from([payload]);
+          (stream as any).contentLength = payload.length;
+          return stream;
+        },
+      ),
     })),
   } as any;
 }
@@ -165,7 +171,9 @@ describe('assets route cache e2e', () => {
     const state = { files: [makeFile()], permissions: [] };
     const { service, queryBuilderService } = makeService(state);
     const app = express();
-    registerAssetsRoutes(app, { cradle: { fileAssetsService: service } } as any);
+    registerAssetsRoutes(app, {
+      cradle: { fileAssetsService: service },
+    } as any);
     server = await listen(app);
 
     const { port } = server.address() as AddressInfo;
@@ -176,6 +184,64 @@ describe('assets route cache e2e', () => {
     expect(second.status).toBe(200);
     expect(await second.text()).toBe('asset-body');
     expect(countFinds(queryBuilderService, 'file_definition')).toBe(1);
+  });
+
+  it('streams byte ranges for video playback', async () => {
+    const state = {
+      files: [
+        makeFile({
+          filename: 'clip.mp4',
+          mimetype: 'video/mp4',
+          type: 'video',
+        }),
+      ],
+      permissions: [],
+    };
+    const { service } = makeService(state);
+    const app = express();
+    registerAssetsRoutes(app, {
+      cradle: { fileAssetsService: service },
+    } as any);
+    server = await listen(app);
+
+    const { port } = server.address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${port}/assets/file-1`, {
+      headers: { Range: 'bytes=0-4' },
+    });
+
+    expect(response.status).toBe(206);
+    expect(response.headers.get('accept-ranges')).toBe('bytes');
+    expect(response.headers.get('content-range')).toBe('bytes 0-4/10');
+    expect(response.headers.get('content-length')).toBe('5');
+    expect(response.headers.get('content-type')).toBe('video/mp4');
+    expect(await response.text()).toBe('asset');
+  });
+
+  it('rejects invalid asset byte ranges', async () => {
+    const state = {
+      files: [
+        makeFile({
+          filename: 'clip.mp4',
+          mimetype: 'video/mp4',
+          type: 'video',
+        }),
+      ],
+      permissions: [],
+    };
+    const { service } = makeService(state);
+    const app = express();
+    registerAssetsRoutes(app, {
+      cradle: { fileAssetsService: service },
+    } as any);
+    server = await listen(app);
+
+    const { port } = server.address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${port}/assets/file-1`, {
+      headers: { Range: 'bytes=99-100' },
+    });
+
+    expect(response.status).toBe(416);
+    expect(response.headers.get('content-range')).toBe('bytes */10');
   });
 
   it('invalidates cached file metadata when that file is reloaded', async () => {
@@ -214,7 +280,9 @@ describe('assets route cache e2e', () => {
     await service.streamFile(req, makeResponse());
     await service.streamFile(req, makeResponse());
     expect(countFinds(queryBuilderService, 'file_definition')).toBe(1);
-    expect(countFinds(queryBuilderService, 'file_permission_definition')).toBe(1);
+    expect(countFinds(queryBuilderService, 'file_permission_definition')).toBe(
+      1,
+    );
 
     await eventEmitter.emitAsync(CACHE_EVENTS.INVALIDATE, {
       table: 'file_permission_definition',
@@ -226,7 +294,9 @@ describe('assets route cache e2e', () => {
 
     await service.streamFile(req, makeResponse());
     expect(countFinds(queryBuilderService, 'file_definition')).toBe(1);
-    expect(countFinds(queryBuilderService, 'file_permission_definition')).toBe(3);
+    expect(countFinds(queryBuilderService, 'file_permission_definition')).toBe(
+      3,
+    );
   });
 
   it('allows root admin to stream private files without file permissions', async () => {
@@ -244,6 +314,8 @@ describe('assets route cache e2e', () => {
     await service.streamFile(req, makeResponse());
 
     expect(countFinds(queryBuilderService, 'file_definition')).toBe(1);
-    expect(countFinds(queryBuilderService, 'file_permission_definition')).toBe(0);
+    expect(countFinds(queryBuilderService, 'file_permission_definition')).toBe(
+      0,
+    );
   });
 });

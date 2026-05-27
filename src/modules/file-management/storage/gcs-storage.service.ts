@@ -5,6 +5,7 @@ import { Readable } from 'stream';
 import {
   IStorageService,
   StorageConfig,
+  StorageStreamOptions,
   UploadResult,
 } from './storage.interface';
 
@@ -72,7 +73,11 @@ export class GCSStorageService implements IStorageService {
     }
   }
 
-  async getStream(location: string, config: StorageConfig): Promise<Readable> {
+  async getStream(
+    location: string,
+    config: StorageConfig,
+    options?: StorageStreamOptions,
+  ): Promise<Readable> {
     try {
       const credentials =
         typeof config.credentials === 'string'
@@ -91,7 +96,7 @@ export class GCSStorageService implements IStorageService {
         throw new BadRequestException(`File not found in GCS: ${location}`);
       }
 
-      const stream = file.createReadStream();
+      const stream = file.createReadStream(options?.range);
 
       return stream;
     } catch (error: any) {

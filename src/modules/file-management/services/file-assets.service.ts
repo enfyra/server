@@ -50,7 +50,10 @@ export class FileAssetsService {
   private readonly storageFactoryService: StorageFactoryService;
   private readonly eventEmitter?: EventEmitter2;
   private readonly fileCache = new Map<string, any>();
-  private readonly permissionsByFileCache = new Map<string, AssetPermissionRow[]>();
+  private readonly permissionsByFileCache = new Map<
+    string,
+    AssetPermissionRow[]
+  >();
   private readonly permissionToFileIndex = new Map<string, string>();
   private readonly effectiveMemoryBytes = getEffectiveMemoryBytes();
   private lastMemoryPressureClearAt = 0;
@@ -79,14 +82,18 @@ export class FileAssetsService {
       ? location.slice(1)
       : location;
     const filePath = path.resolve(basePath, relativePath);
-    if (filePath !== basePath && !filePath.startsWith(`${basePath}${path.sep}`)) {
+    if (
+      filePath !== basePath &&
+      !filePath.startsWith(`${basePath}${path.sep}`)
+    ) {
       throw new NotFoundException('Physical file not found');
     }
     return filePath;
   }
 
   private cloneRow<T>(row: T): T {
-    if (row === null || row === undefined || typeof row !== 'object') return row;
+    if (row === null || row === undefined || typeof row !== 'object')
+      return row;
     return JSON.parse(JSON.stringify(row));
   }
 
@@ -101,6 +108,11 @@ export class FileAssetsService {
       return (id as any).toString();
     }
     return String(id);
+  }
+
+  private getFileSize(file: any): number | undefined {
+    const size = Number(file?.filesize);
+    return Number.isSafeInteger(size) && size >= 0 ? size : undefined;
   }
 
   private getFileIdFromPermission(permission: any): string | null {
@@ -148,7 +160,9 @@ export class FileAssetsService {
     return this.cloneRow(file);
   }
 
-  private async getPermissionsForFile(fileId: string): Promise<AssetPermissionRow[]> {
+  private async getPermissionsForFile(
+    fileId: string,
+  ): Promise<AssetPermissionRow[]> {
     const key = String(fileId);
     const cached = this.getAndPromoteCacheEntry(
       this.permissionsByFileCache,
@@ -229,7 +243,9 @@ export class FileAssetsService {
   }
 
   private trimPermissionCache(): void {
-    while (this.permissionsByFileCache.size > ASSET_PERMISSION_CACHE_MAX_ENTRIES) {
+    while (
+      this.permissionsByFileCache.size > ASSET_PERMISSION_CACHE_MAX_ENTRIES
+    ) {
       const oldestKey = this.permissionsByFileCache.keys().next().value;
       if (oldestKey === undefined) return;
       this.invalidatePermissionsForFile(oldestKey);
@@ -252,7 +268,9 @@ export class FileAssetsService {
     this.permissionsByFileCache.delete(key);
   }
 
-  private async getPermissionFileIds(permissionIds: (string | number)[]): Promise<Set<string>> {
+  private async getPermissionFileIds(
+    permissionIds: (string | number)[],
+  ): Promise<Set<string>> {
     const fileIds = new Set<string>();
 
     for (const permissionId of permissionIds) {
@@ -265,7 +283,9 @@ export class FileAssetsService {
     try {
       const result = await this.queryBuilderService.find({
         table: 'file_permission_definition',
-        filter: { [this.queryBuilderService.getPkField()]: { _in: permissionIds } },
+        filter: {
+          [this.queryBuilderService.getPkField()]: { _in: permissionIds },
+        },
         fields: ['id', 'file.id'],
         limit: permissionIds.length,
       });
@@ -349,7 +369,9 @@ export class FileAssetsService {
   ): Promise<void> {
     try {
       const query = req.routeData?.context?.$query || req.query;
-      const requestedFormat = (query.format as string | undefined)?.toLowerCase();
+      const requestedFormat = (
+        query.format as string | undefined
+      )?.toLowerCase();
       const outputFormat = requestedFormat || 'jpeg';
       const quality = query.quality
         ? parseInt(query.quality as string, 10)
@@ -382,7 +404,8 @@ export class FileAssetsService {
         return void res.status(400).json({ error: gravityValidation.error });
       }
 
-      const formatValidation = ImageProcessorHelper.validateFormat(outputFormat);
+      const formatValidation =
+        ImageProcessorHelper.validateFormat(outputFormat);
       if (!formatValidation.valid) {
         return void res.status(400).json({ error: formatValidation.error });
       }
@@ -394,7 +417,9 @@ export class FileAssetsService {
         quality: quality ? quality / 100 : 0.85,
       });
       const decoded = Buffer.from(
-        converted instanceof ArrayBuffer ? new Uint8Array(converted) : converted,
+        converted instanceof ArrayBuffer
+          ? new Uint8Array(converted)
+          : converted,
       );
 
       let output: Buffer<ArrayBufferLike> = decoded;
@@ -450,7 +475,9 @@ export class FileAssetsService {
 
     if (!file.isPublished) {
       const currentUser = req.user || req.routeData?.context?.$user;
-      const currentUserId = this.normalizeId(currentUser?.id ?? currentUser?._id);
+      const currentUserId = this.normalizeId(
+        currentUser?.id ?? currentUser?._id,
+      );
       const isRootAdmin = currentUser?.isRootAdmin === true;
       if (
         currentUserId &&
@@ -490,6 +517,8 @@ export class FileAssetsService {
     } = file as any;
     const storageType = storageConfig?.type || 'Local Storage';
     const storageConfigId = storageConfig?._id || storageConfig?.id || null;
+    const rangeHeader = req.headers?.range as string | undefined;
+    const totalSize = this.getFileSize(file);
 
     if (
       storageType === 'Google Cloud Storage' ||
@@ -512,9 +541,19 @@ export class FileAssetsService {
       const query = req.routeData?.context?.$query || req.query;
       const shouldDownload =
         query.download === 'true' || query.download === true;
+      const parsedRange = this.streamHelper.parseHttpRange(
+        rangeHeader,
+        totalSize,
+      );
+      if (parsedRange.type === 'invalid') {
+        return void this.streamHelper.sendRangeNotSatisfiable(res, totalSize);
+      }
       const stream = await this.fileManagementService.getStreamFromStorage(
         location,
         storageConfigId,
+        parsedRange.type === 'partial'
+          ? { range: parsedRange.range }
+          : undefined,
       );
       return void (await this.streamHelper.streamCloudFile(
         stream,
@@ -522,6 +561,8 @@ export class FileAssetsService {
         filename,
         mimetype,
         shouldDownload,
+        parsedRange.type === 'partial' ? parsedRange.range : undefined,
+        totalSize,
       ));
     }
 
@@ -532,7 +573,10 @@ export class FileAssetsService {
       const actualSignature = await this.detectLocalFileSignature(location);
       const actualMimeType = actualSignature?.mimetype || mimetype;
       const actualFilename = actualSignature
-        ? FileSignatureHelper.replaceExtension(filename, actualSignature.extension)
+        ? FileSignatureHelper.replaceExtension(
+            filename,
+            actualSignature.extension,
+          )
         : filename;
       if (this.isHeicMimeType(actualMimeType) && !shouldDownload) {
         return void (await this.processHeicInline(
@@ -576,8 +620,21 @@ export class FileAssetsService {
       }
 
       let stream;
+      const parsedRange = this.streamHelper.parseHttpRange(
+        rangeHeader,
+        totalSize,
+      );
+      if (parsedRange.type === 'invalid') {
+        return void this.streamHelper.sendRangeNotSatisfiable(res, totalSize);
+      }
       try {
-        stream = await storageService.getStream(location, sc);
+        stream = await storageService.getStream(
+          location,
+          sc,
+          parsedRange.type === 'partial'
+            ? { range: parsedRange.range }
+            : undefined,
+        );
       } catch (error) {
         this.logger.error(`Local file not found: ${location}`, error);
         throw new NotFoundException('Physical file not found');
@@ -588,6 +645,8 @@ export class FileAssetsService {
         actualFilename,
         actualMimeType,
         shouldDownload,
+        parsedRange.type === 'partial' ? parsedRange.range : undefined,
+        totalSize,
       ));
     }
 
@@ -620,6 +679,7 @@ export class FileAssetsService {
       filename,
       mimetype,
       shouldDownload,
+      rangeHeader,
     );
   }
 

@@ -33,4 +33,29 @@ describe('FileSignatureHelper', () => {
       mimetype: 'image/heic',
     });
   });
+
+  it('detects MP4 files from ISO brand bytes', () => {
+    const buffer = Buffer.concat([
+      Buffer.from([0x00, 0x00, 0x00, 0x18]),
+      Buffer.from('ftypmp42', 'ascii'),
+      Buffer.alloc(16),
+    ]);
+
+    expect(FileSignatureHelper.detect(buffer)).toEqual({
+      extension: 'mp4',
+      mimetype: 'video/mp4',
+    });
+  });
+
+  it('detects WebM files from EBML bytes', () => {
+    const buffer = Buffer.concat([
+      Buffer.from([0x1a, 0x45, 0xdf, 0xa3]),
+      Buffer.alloc(16),
+    ]);
+
+    expect(FileSignatureHelper.detect(buffer)).toEqual({
+      extension: 'webm',
+      mimetype: 'video/webm',
+    });
+  });
 });
