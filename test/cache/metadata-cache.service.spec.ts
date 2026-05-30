@@ -20,14 +20,20 @@ function makeKnex(rowsByTable: Record<string, any[]>) {
 }
 
 function makeService(rowsByTable: Record<string, any[]>) {
-  return new MetadataCacheService({
+  const getKnexOptions: any[] = [];
+  const service = new MetadataCacheService({
     databaseConfigService: { getDbType: () => 'postgres' } as any,
     lazyRef: {
       knexService: {
-        getKnex: () => makeKnex(rowsByTable),
+        getKnex: (options?: any) => {
+          getKnexOptions.push(options);
+          return makeKnex(rowsByTable);
+        },
       },
     } as any,
-  });
+  }) as MetadataCacheService & { __getKnexOptions: any[] };
+  service.__getKnexOptions = getKnexOptions;
+  return service;
 }
 
 describe('MetadataCacheService', () => {
@@ -137,6 +143,9 @@ describe('MetadataCacheService', () => {
     expect(authors.columns.map((column: any) => column.name)).toEqual(
       expect.arrayContaining(['createdAt', 'updatedAt']),
     );
+    expect(
+      service.__getKnexOptions.every((options) => options?.skipMetadataHooks),
+    ).toBe(true);
   });
 
   it('marks explicit FK and timestamp metadata instead of duplicating it', async () => {

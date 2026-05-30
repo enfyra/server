@@ -2,71 +2,156 @@ import type { AwilixContainer } from 'awilix';
 import type { Cradle } from './container';
 import { ensureDatabaseExists } from './engines/knex';
 import { CACHE_EVENTS } from './shared/utils/cache-events.constants';
+import { Logger } from './shared/logger';
+
+const logger = new Logger('Init');
+
+async function runInitStep(
+  label: string,
+  callback: () => Promise<unknown> | unknown,
+): Promise<void> {
+  const start = Date.now();
+  logger.log(`Init step started: ${label}`);
+  try {
+    await callback();
+    logger.log(`Init step completed: ${label} (${Date.now() - start}ms)`);
+  } catch (error) {
+    logger.error(`Init step failed: ${label}`, error);
+    throw error;
+  }
+}
 
 export async function init(container: AwilixContainer<Cradle>): Promise<void> {
   const c: any = container.cradle;
 
-  await c.mongoService?.init?.();
-  const dbType = c.databaseConfigService?.getDbType?.();
-  if (dbType === 'mysql' || dbType === 'postgres') {
-    await ensureDatabaseExists();
-  }
-  await c.replicationManager?.init?.();
-  await c.knexService?.init?.();
-  await c.sqlPoolClusterCoordinatorService?.init?.();
+  await runInitStep('mongoService.init', () => c.mongoService?.init?.());
+  await runInitStep('ensureDatabaseExists', async () => {
+    const dbType = c.databaseConfigService?.getDbType?.();
+    if (dbType === 'mysql' || dbType === 'postgres') {
+      await ensureDatabaseExists();
+    }
+  });
+  await runInitStep('replicationManager.init', () =>
+    c.replicationManager?.init?.(),
+  );
+  await runInitStep('knexService.init', () => c.knexService?.init?.());
+  await runInitStep('sqlPoolClusterCoordinatorService.init', () =>
+    c.sqlPoolClusterCoordinatorService?.init?.(),
+  );
 
-  await c.redisPubSubService?.init?.();
+  await runInitStep('redisPubSubService.init', () =>
+    c.redisPubSubService?.init?.(),
+  );
 
   try {
-    await c.mongoSagaCoordinator?.init?.();
+    await runInitStep('mongoSagaCoordinator.init', () =>
+      c.mongoSagaCoordinator?.init?.(),
+    );
   } catch (e: any) {
-    console.warn('MongoSagaCoordinator init skipped:', e.message);
+    logger.warn(`MongoSagaCoordinator init skipped: ${e.message}`);
   }
 
-  await c.provisionService.waitForDatabase();
-  await c.provisionService.recoverJournals();
+  await runInitStep('provisionService.waitForDatabase', () =>
+    c.provisionService.waitForDatabase(),
+  );
+  await runInitStep('provisionService.recoverJournals', () =>
+    c.provisionService.recoverJournals(),
+  );
 
-  if (await c.firstRunInitializer.isNeeded()) {
-    await c.firstRunInitializer.run();
-  }
-  await c.schemaHealingService?.repairSystemMetadataFromSnapshot?.();
+  await runInitStep('firstRunInitializer', async () => {
+    if (await c.firstRunInitializer.isNeeded()) {
+      await c.firstRunInitializer.run();
+    }
+  });
+  await runInitStep('schemaHealingService.repairSystemMetadataFromSnapshot', () =>
+    c.schemaHealingService?.repairSystemMetadataFromSnapshot?.(),
+  );
 
-  await c.cacheOrchestratorService?.init?.();
-  await c.metadataCacheService?.reload?.();
+  await runInitStep('cacheOrchestratorService.init', () =>
+    c.cacheOrchestratorService?.init?.(),
+  );
+  await runInitStep('metadataCacheService.reload', () =>
+    c.metadataCacheService?.reload?.(),
+  );
   c.eventEmitter.emit(CACHE_EVENTS.METADATA_LOADED);
-  await c.repoRegistryService?.rebuildFromMetadata?.(c.metadataCacheService);
+  logger.log('Init event emitted: METADATA_LOADED');
+  await runInitStep('repoRegistryService.rebuildFromMetadata', () =>
+    c.repoRegistryService?.rebuildFromMetadata?.(c.metadataCacheService),
+  );
 
   await Promise.all([
-    c.routeCacheService?.reload?.(),
-    c.fieldPermissionCacheService?.reload?.(),
-    c.columnRuleCacheService?.reload?.(),
-    c.settingCacheService?.reload?.(),
-    c.storageConfigCacheService?.reload?.(),
-    c.oauthConfigCacheService?.reload?.(),
-    c.websocketCacheService?.reload?.(),
-    c.flowCacheService?.reload?.(),
-    c.packageCacheService?.reload?.(),
-    c.folderTreeCacheService?.reload?.(),
-    c.guardCacheService?.reload?.(),
-    c.gqlDefinitionCacheService?.reload?.(),
-    c.bootstrapScriptService?.onMetadataLoaded?.(),
-    c.sqlFunctionService?.installExtensions?.(),
+    runInitStep('routeCacheService.reload', () =>
+      c.routeCacheService?.reload?.(),
+    ),
+    runInitStep('fieldPermissionCacheService.reload', () =>
+      c.fieldPermissionCacheService?.reload?.(),
+    ),
+    runInitStep('columnRuleCacheService.reload', () =>
+      c.columnRuleCacheService?.reload?.(),
+    ),
+    runInitStep('settingCacheService.reload', () =>
+      c.settingCacheService?.reload?.(),
+    ),
+    runInitStep('storageConfigCacheService.reload', () =>
+      c.storageConfigCacheService?.reload?.(),
+    ),
+    runInitStep('oauthConfigCacheService.reload', () =>
+      c.oauthConfigCacheService?.reload?.(),
+    ),
+    runInitStep('websocketCacheService.reload', () =>
+      c.websocketCacheService?.reload?.(),
+    ),
+    runInitStep('flowCacheService.reload', () =>
+      c.flowCacheService?.reload?.(),
+    ),
+    runInitStep('packageCacheService.reload', () =>
+      c.packageCacheService?.reload?.(),
+    ),
+    runInitStep('folderTreeCacheService.reload', () =>
+      c.folderTreeCacheService?.reload?.(),
+    ),
+    runInitStep('guardCacheService.reload', () =>
+      c.guardCacheService?.reload?.(),
+    ),
+    runInitStep('gqlDefinitionCacheService.reload', () =>
+      c.gqlDefinitionCacheService?.reload?.(),
+    ),
+    runInitStep('bootstrapScriptService.onMetadataLoaded', () =>
+      c.bootstrapScriptService?.onMetadataLoaded?.(),
+    ),
+    runInitStep('sqlFunctionService.installExtensions', () =>
+      c.sqlFunctionService?.installExtensions?.(),
+    ),
   ]);
 
-  await c.flowSchedulerService?.init?.();
+  await runInitStep('flowSchedulerService.init', () =>
+    c.flowSchedulerService?.init?.(),
+  );
 
-  await c.graphqlService?.reloadSchema?.();
+  await runInitStep('graphqlService.reloadSchema', () =>
+    c.graphqlService?.reloadSchema?.(),
+  );
   c.eventEmitter.emit(CACHE_EVENTS.GRAPHQL_LOADED);
+  logger.log('Init event emitted: GRAPHQL_LOADED');
 
   await Promise.all([
-    c.sessionCleanupService?.init?.(),
-    c.userRevocationService?.init?.(),
-    c.apiTokenService?.init?.(),
-    c.oauthExchangeCodeService?.init?.(),
-    c.mongoPhysicalMigrationService?.init?.(),
+    runInitStep('sessionCleanupService.init', () =>
+      c.sessionCleanupService?.init?.(),
+    ),
+    runInitStep('userRevocationService.init', () =>
+      c.userRevocationService?.init?.(),
+    ),
+    runInitStep('apiTokenService.init', () => c.apiTokenService?.init?.()),
+    runInitStep('oauthExchangeCodeService.init', () =>
+      c.oauthExchangeCodeService?.init?.(),
+    ),
+    runInitStep('mongoPhysicalMigrationService.init', () =>
+      c.mongoPhysicalMigrationService?.init?.(),
+    ),
   ]);
 
   c.eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
+  logger.log('Init event emitted: SYSTEM_READY');
 }
 
 export async function shutdown(
