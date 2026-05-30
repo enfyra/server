@@ -33,6 +33,10 @@ export class RedisPubSubService implements IRedisPubSub {
       await Promise.all([
         this.pub.ping(),
         new Promise<void>((resolve, reject) => {
+          if (this.sub.status === 'ready') {
+            resolve();
+            return;
+          }
           const timeout = setTimeout(
             () => reject(new Error('Redis sub timeout')),
             5000,

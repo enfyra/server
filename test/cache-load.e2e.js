@@ -1,7 +1,7 @@
 /**
  * Cache Load E2E Test
  * Verifies FlowCacheService and WebsocketCacheService load data correctly
- * using single-query with relation joins (fields: ['*', 'steps.*'] / ['*', 'events.*'])
+ * using direct step queries for flows and relation joins for websocket events.
  *
  * Run: node test/cache-load.e2e.js
  */
@@ -34,19 +34,16 @@ class MockQueryBuilder {
 
   async select(params) {
     this.calls.push(params);
-    const rows = this.data[params.tableName] || [];
+    const tableName = params.tableName || params.table;
+    const rows = this.data[tableName] || [];
 
     let filtered = [...rows];
     if (params.filter?.isEnabled) {
       filtered = filtered.filter(r => r.isEnabled === true);
     }
-
-    if (params.fields?.includes('steps.*')) {
-      const allSteps = this.data['flow_step_definition'] || [];
-      filtered = filtered.map(flow => ({
-        ...flow,
-        steps: allSteps.filter(s => s.flowId === (flow._id || flow.id)),
-      }));
+    if (tableName === 'flow_step_definition' && params.filter?.flow) {
+      const expected = params.filter.flow.id?._eq ?? params.filter.flow._id?._eq;
+      filtered = filtered.filter(s => s.flowId === expected);
     }
 
     if (params.fields?.includes('events.*')) {
@@ -58,6 +55,10 @@ class MockQueryBuilder {
     }
 
     return { data: filtered };
+  }
+
+  async find(params) {
+    return this.select(params);
   }
 }
 
@@ -84,13 +85,20 @@ async function simulateFlowCacheLoad(queryBuilder) {
   const idField = isMongoDB ? '_id' : 'id';
 
   const flowsResult = await queryBuilder.select({
-    tableName: 'flow_definition',
+    table: 'flow_definition',
     filter: { isEnabled: { _eq: true } },
-    fields: ['*', 'steps.*'],
+    fields: ['*'],
   });
 
-  return flowsResult.data.map((flow) => {
-    const rawSteps = (flow.steps || [])
+  const flows = [];
+  for (const flow of flowsResult.data) {
+    const stepsResult = await queryBuilder.select({
+      table: 'flow_step_definition',
+      filter: { flow: { [idField]: { _eq: flow[idField] } } },
+      fields: ['*', 'parent.*'],
+      limit: 1000,
+    });
+    const rawSteps = (stepsResult.data || [])
       .filter((s) => s.isEnabled)
       .sort((a, b) => (a.stepOrder || 0) - (b.stepOrder || 0));
 
@@ -113,7 +121,7 @@ async function simulateFlowCacheLoad(queryBuilder) {
       };
     });
 
-    return {
+    flows.push({
       id: flow[idField],
       name: flow.name,
       description: flow.description,
@@ -123,8 +131,10 @@ async function simulateFlowCacheLoad(queryBuilder) {
       timeout: flow.timeout || 30000,
       isEnabled: flow.isEnabled,
       steps,
-    };
-  });
+    });
+  }
+
+  return flows;
 }
 
 // ─── WebSocket Cache ───
@@ -173,8 +183,8 @@ async function testFlowCacheSingleQuery() {
 
   const flows = await simulateFlowCacheLoad(qb);
 
-  log('Flow: single query issued', qb.calls.length === 1, `queries: ${qb.calls.length}`);
-  log('Flow: query uses fields with steps.*', qb.calls[0].fields.includes('steps.*'));
+  log('Flow: one flow query plus per-flow step queries issued', qb.calls.length === 3, `queries: ${qb.calls.length}`);
+  log('Flow: step queries use parent.*', qb.calls.slice(1).every(c => c.fields.includes('parent.*')));
   log('Flow: disabled flow filtered out', flows.length === 2, `flows: ${flows.length}`);
   log('Flow: first flow has correct name', flows[0].name === 'daily-report');
   log('Flow: first flow has 2 enabled steps', flows[0].steps.length === 2, `steps: ${flows[0].steps.length}`);

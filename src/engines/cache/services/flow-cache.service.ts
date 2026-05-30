@@ -44,12 +44,18 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
     const flowsResult = await this.queryBuilderService.find({
       table: 'flow_definition',
       filter: { isEnabled: { _eq: true } },
-      fields: ['*', 'steps.*'],
+      fields: ['*'],
     });
 
     const flows = [];
     for (const flow of flowsResult.data) {
-      const rawSteps = (flow.steps || [])
+      const stepsResult = await this.queryBuilderService.find({
+        table: 'flow_step_definition',
+        filter: { flow: { [idField]: { _eq: flow[idField] } } },
+        fields: ['*', 'parent.*'],
+        limit: 1000,
+      });
+      const rawSteps = (stepsResult.data || [])
         .filter((s: any) => s.isEnabled)
         .sort((a: any, b: any) => (a.stepOrder || 0) - (b.stepOrder || 0));
 
