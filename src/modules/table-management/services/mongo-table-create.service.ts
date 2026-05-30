@@ -172,6 +172,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                     isSystem: col.isSystem || false,
                     isUpdatable: col.isUpdatable ?? true,
                     isPublished: col.isPublished ?? true,
+                    isEncrypted: col.isEncrypted ?? false,
                     defaultValue: col.defaultValue || null,
                     options: col.options || null,
                     description: col.description,
@@ -275,7 +276,9 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                     where: { _id: resolvedMappedBy },
                   });
                   relationData.foreignKeyColumn =
-                    owningRel?.foreignKeyColumn || owningRel?.propertyName || null;
+                    owningRel?.foreignKeyColumn ||
+                    owningRel?.propertyName ||
+                    null;
                 }
                 if (
                   rel.type === 'many-to-many' &&
@@ -350,10 +353,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                     isPublished: rel.isPublished ?? true,
                     onDelete: rel.onDelete || 'SET NULL',
                   };
-                  if (
-                    rel.type === 'many-to-one' ||
-                    rel.type === 'one-to-one'
-                  ) {
+                  if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
                     inverseData.foreignKeyColumn =
                       relationData.foreignKeyColumn ||
                       rel.foreignKeyColumn ||
@@ -471,6 +471,5 @@ export class MongoTableCreateService extends MongoTableHandlerService {
         }
       },
     );
-}
-
+  }
 }

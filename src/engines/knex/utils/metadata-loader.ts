@@ -6,10 +6,7 @@ import {
   MetadataCache,
   JunctionTableInfo,
 } from '../types/knex-types';
-import {
-  getJunctionTableName,
-  getForeignKeyColumnName,
-} from '@enfyra/kernel';
+import { getJunctionTableName, getForeignKeyColumnName } from '@enfyra/kernel';
 export async function loadAllTableMetadata(
   knex: Knex,
 ): Promise<Map<string, TableMetadata>> {
@@ -72,6 +69,7 @@ export async function loadTableMetadata(
     options: col.options,
     isUpdatable: col.isUpdatable !== false,
     isPublished: col.isPublished !== false,
+    isEncrypted: col.isEncrypted === true || col.isEncrypted === 1,
     description: col.description,
     placeholder: col.placeholder,
     tableId: col.tableId,
@@ -184,7 +182,9 @@ export function getForeignKeyColumn(relation: RelationMetadata): string | null {
   if (relation.type === 'many-to-many' || relation.type === 'one-to-many') {
     return null;
   }
-  return relation.foreignKeyColumn || getForeignKeyColumnName(relation.propertyName);
+  return (
+    relation.foreignKeyColumn || getForeignKeyColumnName(relation.propertyName)
+  );
 }
 export function createMetadataCache(ttl: number = 60000): MetadataCache {
   return {

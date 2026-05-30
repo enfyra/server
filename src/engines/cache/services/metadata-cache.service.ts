@@ -109,9 +109,10 @@ export class MetadataCacheService implements IMetadataCache {
           throw new Error('Metadata shared cache refresh lock timed out');
         }
         this.sharedRefreshLockValue = lockValue;
-        const snapshot = await this.redisRuntimeCacheStore!.getSnapshot<EnfyraMetadata>(
-          'metadata',
-        );
+        const snapshot =
+          await this.redisRuntimeCacheStore!.getSnapshot<EnfyraMetadata>(
+            'metadata',
+          );
         if (!snapshot) {
           await this.releaseActiveSharedLock();
           await this.reload();
@@ -248,7 +249,9 @@ export class MetadataCacheService implements IMetadataCache {
       const relId = String(DatabaseConfigService.getRecordId(rel));
       if (!relationIdMap.has(relId)) {
         relationIdMap.set(relId, rel);
-        const sourceId = String(isMongoDB ? rel.sourceTable : rel.sourceTableId);
+        const sourceId = String(
+          isMongoDB ? rel.sourceTable : rel.sourceTableId,
+        );
         if (!reloadedSourceTableIds.has(sourceId)) {
           allRelations.push(rel);
         }
@@ -411,6 +414,7 @@ export class MetadataCacheService implements IMetadataCache {
           'isSystem',
           'isUpdatable',
           'isPublished',
+          'isEncrypted',
         ];
         for (const field of booleanFields) {
           if (column[field] !== undefined && column[field] !== null) {
@@ -479,13 +483,14 @@ export class MetadataCacheService implements IMetadataCache {
                 String(mappedByRelationId),
             );
             relationMetadata.foreignKeyColumn = isMongoDB
-              ? rel.foreignKeyColumn || owningRel?.foreignKeyColumn || rel.mappedBy
+              ? rel.foreignKeyColumn ||
+                owningRel?.foreignKeyColumn ||
+                rel.mappedBy
               : owningRel?.foreignKeyColumn ||
                 getForeignKeyColumnName(rel.mappedBy || rel.propertyName);
             relationMetadata.referencedColumn =
               owningRel?.referencedColumn || 'id';
-            relationMetadata.constraintName =
-              owningRel?.constraintName || null;
+            relationMetadata.constraintName = owningRel?.constraintName || null;
           } else {
             relationMetadata.foreignKeyColumn = isMongoDB
               ? rel.foreignKeyColumn || rel.propertyName
@@ -513,7 +518,9 @@ export class MetadataCacheService implements IMetadataCache {
               String(mappedByRelationId),
           );
           relationMetadata.foreignKeyColumn = isMongoDB
-            ? rel.foreignKeyColumn || owningRel?.foreignKeyColumn || rel.mappedBy
+            ? rel.foreignKeyColumn ||
+              owningRel?.foreignKeyColumn ||
+              rel.mappedBy
             : owningRel?.foreignKeyColumn ||
               getForeignKeyColumnName(rel.mappedBy || rel.propertyName);
           relationMetadata.referencedColumn =
@@ -610,6 +617,7 @@ export class MetadataCacheService implements IMetadataCache {
       isSystem: true,
       isUpdatable: false,
       isPublished: true,
+      isEncrypted: false,
       defaultValue: 'now',
     });
     this.ensureColumn(columns, {
@@ -621,6 +629,7 @@ export class MetadataCacheService implements IMetadataCache {
       isSystem: true,
       isUpdatable: false,
       isPublished: true,
+      isEncrypted: false,
       defaultValue: 'now',
     });
   }
@@ -630,6 +639,7 @@ export class MetadataCacheService implements IMetadataCache {
     if (existing) {
       if (column.isSystem === true) existing.isSystem = true;
       if (column.isUpdatable === false) existing.isUpdatable = false;
+      if (column.isEncrypted === true) existing.isEncrypted = true;
       return;
     }
     columns.push(column);
@@ -735,9 +745,10 @@ export class MetadataCacheService implements IMetadataCache {
   async getMetadata(): Promise<EnfyraMetadata> {
     if (this.usesSharedRuntimeCache()) {
       if (this.inMemoryCache) return this.inMemoryCache;
-      const snapshot = await this.redisRuntimeCacheStore!.getSnapshot<EnfyraMetadata>(
-        'metadata',
-      );
+      const snapshot =
+        await this.redisRuntimeCacheStore!.getSnapshot<EnfyraMetadata>(
+          'metadata',
+        );
       if (snapshot) {
         this.sharedCacheLoaded = true;
         return snapshot.data;

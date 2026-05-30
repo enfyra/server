@@ -54,6 +54,7 @@ class ColumnDefinitionProcessor extends BaseTableProcessor {
       'isSystem',
       'isUpdatable',
       'isPublished',
+      'isEncrypted',
       'defaultValue',
       'options',
       'description',
@@ -255,7 +256,9 @@ export class MetadataProvisionMongoService {
         const currentKey = `${tableName}.${rel.propertyName}`;
         if (generatedInverseKeys.has(currentKey)) continue;
         if (rel.inversePropertyName) {
-          generatedInverseKeys.add(`${rel.targetTable}.${rel.inversePropertyName}`);
+          generatedInverseKeys.add(
+            `${rel.targetTable}.${rel.inversePropertyName}`,
+          );
         }
         if (rel.inversePropertyName && rel.type === 'one-to-many') {
           pendingInverses.push({

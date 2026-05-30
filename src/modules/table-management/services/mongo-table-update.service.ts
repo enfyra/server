@@ -122,7 +122,9 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
               .collection('table_definition')
               .find({
                 _id: {
-                  $in: incomingSourceIds.map((sourceId) => new ObjectId(sourceId)),
+                  $in: incomingSourceIds.map(
+                    (sourceId) => new ObjectId(sourceId),
+                  ),
                 },
               })
               .project({ name: 1 })
@@ -370,6 +372,9 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
               isSystem: col.isSystem || false,
               isUpdatable: col.isUpdatable ?? true,
               isPublished: col.isPublished ?? true,
+              ...(col._id || col.id
+                ? {}
+                : { isEncrypted: col.isEncrypted ?? false }),
               defaultValue: col.defaultValue || null,
               options: col.options || null,
               description: col.description,
@@ -844,16 +849,15 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
         }
 
         finalMetadata.affectedTables = [...affectedTableNames];
-        finalMetadata.tableRenames =
-          tableRenamed
-            ? [
-                {
-                  id: String(queryId),
-                  oldName: exists.name,
-                  newName: body.name,
-                },
-              ]
-            : undefined;
+        finalMetadata.tableRenames = tableRenamed
+          ? [
+              {
+                id: String(queryId),
+                oldName: exists.name,
+                newName: body.name,
+              },
+            ]
+          : undefined;
         stepLog(`STEP 15 isSingleRecord cleanup done (+${lap()}ms)`);
         return finalMetadata;
       } catch (error: any) {
@@ -879,6 +883,5 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
       durationMs: Date.now() - t0,
     });
     return out;
-}
-
+  }
 }

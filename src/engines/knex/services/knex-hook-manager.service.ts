@@ -8,6 +8,10 @@ import { RelationTransformer } from '../utils/relation-transformer';
 import { stringifyRecordJsonFields } from '../utils/json-parser';
 import { ReplicationManager } from './replication-manager.service';
 import { getForeignKeyColumnName } from '@enfyra/kernel';
+import {
+  decryptResultFields,
+  encryptRecordFields,
+} from '../../../shared/utils/encrypted-field.util';
 
 type HookRegistry = {
   beforeInsert: Array<(tableName: string, data: any) => any>;
@@ -236,6 +240,19 @@ export class KnexHookManagerService {
     });
 
     this.addHook('beforeInsert', async (tableName, data) => {
+      const tableMetadata =
+        await this.metadataCacheService.getTableMetadata(tableName);
+      if (!tableMetadata?.columns) return data;
+
+      if (Array.isArray(data)) {
+        return data.map((record) =>
+          encryptRecordFields(record, tableMetadata.columns),
+        );
+      }
+      return encryptRecordFields(data, tableMetadata.columns);
+    });
+
+    this.addHook('beforeInsert', async (tableName, data) => {
       if (await this.isJunctionTable(tableName)) return data;
 
       const tableMetadata =
@@ -393,6 +410,13 @@ export class KnexHookManagerService {
       return stringifyRecordJsonFields(data, tableMetadata);
     });
 
+    this.addHook('beforeUpdate', async (tableName, data) => {
+      const tableMetadata =
+        await this.metadataCacheService.getTableMetadata(tableName);
+      if (!tableMetadata?.columns) return data;
+      return encryptRecordFields(data, tableMetadata.columns);
+    });
+
     this.addHook('beforeUpdate', (tableName, data) => {
       const {
         createdAt: _createdAt,
@@ -454,6 +478,13 @@ export class KnexHookManagerService {
       await this.handleCascadeRelations(tableName, recordId);
       return result;
     });
+
+    this.addHook('afterSelect', async (tableName, result) => {
+      const tableMetadata =
+        await this.metadataCacheService.getTableMetadata(tableName);
+      if (!tableMetadata?.columns) return result;
+      return decryptResultFields(result, tableMetadata.columns);
+    });
   }
 
   addHook<E extends HookEvent>(event: E, handler: HookHandler<E>): void {
@@ -511,8 +542,7 @@ export class KnexHookManagerService {
         return run();
       }
       return activeKnex.transaction(async (trx) => {
-        const { getIoAbortSignal } =
-          await import('@enfyra/kernel');
+        const { getIoAbortSignal } = await import('@enfyra/kernel');
         const signal = getIoAbortSignal();
         if (signal) {
           const onAbort = () => {

@@ -90,6 +90,7 @@ export class SqlTableMetadataWriterService {
           isSystem: col.isSystem || false,
           isUpdatable: col.isUpdatable ?? true,
           isPublished: col.isPublished ?? true,
+          ...(col.id ? {} : { isEncrypted: col.isEncrypted ?? false }),
           defaultValue:
             col.defaultValue !== undefined
               ? JSON.stringify(col.defaultValue)
@@ -174,7 +175,9 @@ export class SqlTableMetadataWriterService {
         );
         if (targetTableName) affectedTableNames.add(targetTableName);
         const existingRel = rel.id
-          ? await queryRunner('relation_definition').where({ id: rel.id }).first()
+          ? await queryRunner('relation_definition')
+              .where({ id: rel.id })
+              .first()
           : null;
         if (rel.id) {
           if (existingRel && existingRel.type !== rel.type) {
@@ -188,7 +191,10 @@ export class SqlTableMetadataWriterService {
         let mappedByRelation: any = null;
         if (mappedByProperty) {
           mappedByRelation = await queryRunner('relation_definition')
-            .where({ sourceTableId: targetTableId, propertyName: mappedByProperty })
+            .where({
+              sourceTableId: targetTableId,
+              propertyName: mappedByProperty,
+            })
             .select(
               'id',
               'propertyName',
@@ -287,7 +293,9 @@ export class SqlTableMetadataWriterService {
             const junction = getSqlJunctionPhysicalNames({
               sourceTable: exists.name,
               propertyName: rel.propertyName,
-              targetTable: targetTablesMap.get(relationTargetTableMapKey(targetTableId))!,
+              targetTable: targetTablesMap.get(
+                relationTargetTableMapKey(targetTableId),
+              )!,
             });
             relationData.junctionTableName = junction.junctionTableName;
             relationData.junctionSourceColumn = junction.junctionSourceColumn;
@@ -432,7 +440,9 @@ export class SqlTableMetadataWriterService {
     return columns;
   }
 
-  private getAllowedConstraintFields(body: TCreateTableBody): Set<string> | null {
+  private getAllowedConstraintFields(
+    body: TCreateTableBody,
+  ): Set<string> | null {
     if (!body.columns && !body.relations) return null;
     const fields = new Set<string>(['id', 'createdAt', 'updatedAt']);
     for (const col of body.columns || []) {
@@ -449,8 +459,8 @@ export class SqlTableMetadataWriterService {
     allowedFields: Set<string>,
   ): any[] {
     return (groups || []).filter((group) =>
-      (Array.isArray(group) ? group : group?.value || []).every((field: string) =>
-        allowedFields.has(field),
+      (Array.isArray(group) ? group : group?.value || []).every(
+        (field: string) => allowedFields.has(field),
       ),
     );
   }

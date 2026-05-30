@@ -10,6 +10,7 @@ export interface ColumnMetadata {
   options?: any[] | any;
   isUpdatable: boolean;
   isPublished?: boolean;
+  isEncrypted?: boolean;
   description?: string;
   placeholder?: string;
   tableId: number;
