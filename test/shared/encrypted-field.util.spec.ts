@@ -49,4 +49,22 @@ describe('encrypted field utilities', () => {
 
     expect(decryptRecordFields(encrypted, columns).secretValue).toBe('123');
   });
+
+  it('round-trips non-string values through the JSON envelope', () => {
+    const columns = [
+      { name: 'numberValue', isEncrypted: true },
+      { name: 'objectValue', isEncrypted: true },
+    ];
+
+    const encrypted = encryptRecordFields(
+      { numberValue: 123, objectValue: { nested: true } },
+      columns,
+    );
+
+    expect(decryptRecordFields(encrypted, columns)).toEqual({
+      numberValue: 123,
+      objectValue: { nested: true },
+    });
+  });
+
 });

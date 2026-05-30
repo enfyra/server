@@ -38,6 +38,13 @@ const MAX_STEP_TIMEOUT = 300000;
 const MAX_PAYLOAD_SIZE = 1024 * 1024;
 const DEFAULT_MAX_CONCURRENCY_MULTIPLIER = 2;
 
+type FlowProgressSnapshot = {
+  completedSteps?: any[];
+  currentStep?: string | null;
+  failedStep?: string | null;
+  totalSteps?: number;
+};
+
 type FlowWorkerConcurrencyTuning = {
   mode: 'adaptive' | 'fixed';
   initial: number;
@@ -130,7 +137,26 @@ export class FlowExecutionQueueService {
     );
 
     this.worker.on('failed', (job, err) => {
-      this.logger.error(`Flow job ${job?.id} failed: ${err.message}`);
+      const data = job?.data as FlowJobData | undefined;
+      const progress = this.getJobProgressSnapshot(job);
+      this.logger.error(
+        {
+          message: `Flow job ${job?.id ?? 'unknown'} failed`,
+          jobId: job?.id,
+          jobName: job?.name,
+          flowId: data?.flowId,
+          flowName: data?.flowName,
+          sourceFlowId: (data as any)?.sourceFlowId,
+          sourceFlowName: (data as any)?.sourceFlowName,
+          sourceStepKey: (data as any)?.sourceStepKey,
+          currentStep: progress?.currentStep,
+          failedStep: progress?.failedStep,
+          completedStepCount: progress?.completedSteps?.length,
+          attemptsMade: job?.attemptsMade,
+          failedReason: job?.failedReason,
+        },
+        err,
+      );
     });
     this.worker.on('completed', (job) => {
       this.logger.debug(`Flow job ${job.id} completed`);
@@ -401,22 +427,47 @@ export class FlowExecutionQueueService {
       });
       return { success: true, executionId };
     } catch (error) {
+      const progress = this.getFailureProgressSnapshot(error, job);
       const historyEnqueueStarted = Date.now();
       this.enqueueExecutionHistory(flow, payload, triggeredBy, {
         status: 'failed',
         startedAt: new Date(startTime),
         completedAt: new Date(),
         duration: Date.now() - startTime,
-        error: { message: getErrorMessage(error), stack: getErrorStack(error) },
+        completedSteps: progress?.completedSteps || [],
+        currentStep: progress?.currentStep || null,
+        error: {
+          message: getErrorMessage(error),
+          stack: getErrorStack(error),
+          currentStep: progress?.currentStep || null,
+          failedStep: progress?.failedStep || progress?.currentStep || null,
+        },
       });
       const historyEnqueueMs = Date.now() - historyEnqueueStarted;
+      const duration = Date.now() - startTime;
+
+      this.logger.error(
+        {
+          message: `Flow "${flow.name}" failed`,
+          jobId: job.id,
+          executionId,
+          flowId: flow.id,
+          flowName: flow.name,
+          currentStep: progress?.currentStep,
+          failedStep: progress?.failedStep || progress?.currentStep,
+          completedStepCount: progress?.completedSteps?.length || 0,
+          durationMs: duration,
+          triggeredBy: triggeredBy?.id || null,
+        },
+        error,
+      );
 
       this.emitFlowEvent(triggeredBy, {
         executionId,
         flowId: flow.id,
         flowName: flow.name,
         status: 'failed',
-        duration: Date.now() - startTime,
+        duration,
         error: getErrorMessage(error),
       });
 
@@ -428,7 +479,7 @@ export class FlowExecutionQueueService {
       this.runtimeMetricsCollectorService?.completeFlow({
         flowId: flow.id,
         flowName: flow.name,
-        durationMs: Date.now() - startTime,
+        durationMs: duration,
         status: 'failed',
       });
       this.trace('flow_job', {
@@ -439,6 +490,8 @@ export class FlowExecutionQueueService {
         resolveFlowMs,
         historyEnqueueMs,
         totalMs: Date.now() - processStarted,
+        currentStep: progress?.currentStep,
+        failedStep: progress?.failedStep || progress?.currentStep,
         error: getErrorMessage(error),
       });
       return { success: false, executionId, error: getErrorMessage(error) };
@@ -660,14 +713,14 @@ export class FlowExecutionQueueService {
           error: getErrorMessage(error),
         });
         try {
-          job
-            .updateProgress({
-              completedSteps,
-              currentStep: step.key,
-              failedStep: step.key,
-              totalSteps: allSteps.length,
-            })
-            .catch(() => {});
+          const failureProgress = {
+            completedSteps,
+            currentStep: step.key,
+            failedStep: step.key,
+            totalSteps: allSteps.length,
+          };
+          (error as any).flowProgress = failureProgress;
+          await job.updateProgress(failureProgress).catch(() => {});
         } catch {}
         this.runtimeMetricsCollectorService?.recordFlowStep({
           flowId: flow.id,
@@ -733,6 +786,25 @@ export class FlowExecutionQueueService {
     }
 
     return { context: flowContext, completedSteps };
+  }
+
+  private getJobProgressSnapshot(
+    job?: Job<FlowJobData> | null,
+  ): FlowProgressSnapshot | null {
+    const progress = job?.progress;
+    if (!progress || typeof progress !== 'object') return null;
+    return progress as FlowProgressSnapshot;
+  }
+
+  private getFailureProgressSnapshot(
+    error: unknown,
+    job: Job<FlowJobData>,
+  ): FlowProgressSnapshot | null {
+    const errorProgress = (error as any)?.flowProgress;
+    if (errorProgress && typeof errorProgress === 'object') {
+      return errorProgress as FlowProgressSnapshot;
+    }
+    return this.getJobProgressSnapshot(job);
   }
 
   private async executeStep(

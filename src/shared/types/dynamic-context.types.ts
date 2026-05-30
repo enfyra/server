@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { UploadedFileInfo } from './file-management.types';
-import type { FetchHelper } from '../helpers';
+import type { CryptoHelper } from '../helpers/crypto.helper';
+import type { FetchHelper } from '../helpers/fetch.helper';
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -26,6 +27,8 @@ export interface RateLimitHelper {
   reset: (key: string) => Promise<void>;
   status: (key: string, options: RateLimitOptions) => Promise<RateLimitResult>;
 }
+
+export type EnvSnapshot = Record<string, string | undefined>;
 
 export interface TDynamicContext {
   $body?: any;
@@ -70,6 +73,8 @@ export interface TDynamicContext {
     ) => Promise<any>;
     $deleteFile?: (fileId: string | number) => Promise<any>;
     $fetch?: FetchHelper;
+    $sleep?: (ms: number) => Promise<void>;
+    $crypto?: CryptoHelper;
   };
   $cache: {
     acquire?: (key: string, value: any, ttlMs: number) => Promise<boolean>;
@@ -82,6 +87,7 @@ export interface TDynamicContext {
   };
   $params?: any;
   $query?: any;
+  $env?: EnvSnapshot;
   $user?: any;
   $repos: Record<string, any>;
   $req?: Request;

@@ -1,8 +1,9 @@
 import * as jwt from 'jsonwebtoken';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { TDynamicContext } from '../types';
 import { BcryptService } from '../../domain/auth';
 import { UserCacheService } from '../../engines/cache';
-import { createFetchHelper } from '../helpers';
+import { createCryptoHelper, createFetchHelper } from '../helpers';
 import { autoSlug } from '../utils/auto-slug.helper';
 import { ScriptErrorFactory } from '../utils/script-error-factory';
 import { EnvService } from './env.service';
@@ -27,6 +28,14 @@ type DynamicContextOptions = {
   apiRequest?: NonNullable<TDynamicContext['$api']>['request'];
   uploadedFile?: TDynamicContext['$uploadedFile'];
 };
+
+const ENV_EXPOSE_DENY_KEYS = new Set([
+  'DB_URI',
+  'DB_REPLICA_URIS',
+  'REDIS_URI',
+  'SECRET_KEY',
+  'ADMIN_PASSWORD',
+]);
 
 export class DynamicContextFactory {
   private readonly bcryptService: BcryptService;
@@ -57,6 +66,7 @@ export class DynamicContextFactory {
       $cache: cache,
       $params: options.params ?? {},
       $query: options.query ?? {},
+      $env: this.createEnvSnapshot(),
       $user: options.user ?? null,
       $repos: options.repos ?? {},
       $req: options.req,
@@ -75,9 +85,19 @@ export class DynamicContextFactory {
     return ctx;
   }
 
+  private createEnvSnapshot(): TDynamicContext['$env'] {
+    const out: TDynamicContext['$env'] = {};
+    for (const [key, value] of Object.entries(process.env)) {
+      if (ENV_EXPOSE_DENY_KEYS.has(key)) continue;
+      out[key] = value;
+    }
+    return out;
+  }
+
   private createHelpers(
     helpers?: TDynamicContext['$helpers'],
   ): TDynamicContext['$helpers'] {
+    const crypto = createCryptoHelper();
     return {
       $bcrypt: {
         hash: async (plain: string) => await this.bcryptService.hash(plain),
@@ -86,6 +106,9 @@ export class DynamicContextFactory {
       },
       autoSlug,
       $fetch: createFetchHelper(),
+      $sleep: (ms: number) =>
+        sleep(Math.max(0, Math.min(Number(ms) || 0, 30000))),
+      $crypto: crypto,
       ...(helpers ?? {}),
     };
   }
