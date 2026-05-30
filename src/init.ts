@@ -29,6 +29,7 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
   if (await c.firstRunInitializer.isNeeded()) {
     await c.firstRunInitializer.run();
   }
+  await c.schemaHealingService?.repairSystemMetadataFromSnapshot?.();
 
   await c.cacheOrchestratorService?.init?.();
   await c.metadataCacheService?.reload?.();

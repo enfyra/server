@@ -14,6 +14,7 @@ export interface TCreateColumnBody {
   isUnique?: boolean;
   isPublished?: boolean;
   isUpdatable?: boolean;
+  isEncrypted?: boolean;
   isIndex?: boolean;
   isSystem?: boolean;
   options?: any;

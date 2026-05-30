@@ -104,6 +104,48 @@ export class SchemaHealingService {
     }
   }
 
+  async repairSystemMetadataFromSnapshot(): Promise<void> {
+    const snapshot = this.loadSnapshot();
+    if (!snapshot) return;
+
+    if (DatabaseConfigService.instanceIsMongoDb()) {
+      const repairedCount =
+        await this.repairMongoSystemColumnMetadataFromSnapshot(snapshot);
+      if (repairedCount > 0) {
+        this.logger.log(
+          `Repaired Mongo system column metadata from snapshot on ${repairedCount} column(s)`,
+        );
+      }
+      return;
+    }
+
+    const physicalRepairedCount =
+      await this.repairSqlSystemPhysicalColumnsFromSnapshot(snapshot);
+    const metadataRepairedCount =
+      await this.repairSqlSystemColumnMetadataFromSnapshot(snapshot);
+    if (physicalRepairedCount > 0) {
+      this.logger.log(
+        `Repaired SQL system physical columns from snapshot on ${physicalRepairedCount} column(s)`,
+      );
+    }
+    if (metadataRepairedCount > 0) {
+      this.logger.log(
+        `Repaired SQL system column metadata from snapshot on ${metadataRepairedCount} column(s)`,
+      );
+    }
+  }
+
+  private loadSnapshot():
+    | Record<string, { name?: string; isSystem?: boolean; columns?: any[] }>
+    | null {
+    const snapshotPath = path.resolve(process.cwd(), 'data/snapshot.json');
+    if (!fs.existsSync(snapshotPath)) return null;
+    return JSON.parse(fs.readFileSync(snapshotPath, 'utf8')) as Record<
+      string,
+      { name?: string; isSystem?: boolean; columns?: any[] }
+    >;
+  }
+
   private async repairRelationPhysicalMappings(
     isMongoDB: boolean,
   ): Promise<number> {
@@ -183,17 +225,17 @@ export class SchemaHealingService {
     return repaired;
   }
 
-  private async repairSqlSystemPhysicalColumnsFromSnapshot(): Promise<number> {
+  private async repairSqlSystemPhysicalColumnsFromSnapshot(
+    snapshotInput?: Record<
+      string,
+      { name?: string; isSystem?: boolean; columns?: any[] }
+    >,
+  ): Promise<number> {
     const knex = this.queryBuilderService.getKnex();
     if (!knex?.schema?.hasTable) return 0;
 
-    const snapshotPath = path.resolve(process.cwd(), 'data/snapshot.json');
-    if (!fs.existsSync(snapshotPath)) return 0;
-
-    const snapshot = JSON.parse(fs.readFileSync(snapshotPath, 'utf8')) as Record<
-      string,
-      { name?: string; isSystem?: boolean; columns?: any[] }
-    >;
+    const snapshot = snapshotInput || this.loadSnapshot();
+    if (!snapshot) return 0;
     let repaired = 0;
 
     for (const tableDef of Object.values(snapshot)) {
@@ -212,6 +254,107 @@ export class SchemaHealingService {
             column,
             this.queryBuilderService.getDatabaseType(),
           );
+        });
+        repaired++;
+      }
+    }
+
+    return repaired;
+  }
+
+  private async repairSqlSystemColumnMetadataFromSnapshot(
+    snapshot: Record<string, { name?: string; isSystem?: boolean; columns?: any[] }>,
+  ): Promise<number> {
+    const knex = this.queryBuilderService.getKnex();
+    if (!knex?.schema?.hasTable) return 0;
+    if (!(await knex.schema.hasTable('table_definition'))) return 0;
+    if (!(await knex.schema.hasTable('column_definition'))) return 0;
+
+    let repaired = 0;
+    for (const tableDef of Object.values(snapshot)) {
+      const tableName = tableDef?.name;
+      if (!tableDef?.isSystem || !tableName || !tableDef.columns?.length) {
+        continue;
+      }
+
+      const tableRecord = await knex('table_definition')
+        .where({ name: tableName })
+        .first();
+      if (!tableRecord?.id) continue;
+
+      const existingColumns = await knex('column_definition')
+        .where({ tableId: tableRecord.id })
+        .select('name');
+      const existingNames = new Set(existingColumns.map((column: any) => column.name));
+
+      for (const column of tableDef.columns) {
+        if (!column?.name || existingNames.has(column.name)) continue;
+        await knex('column_definition').insert({
+          name: column.name,
+          type: column.type,
+          isPrimary: column.isPrimary || false,
+          isGenerated: column.isGenerated || false,
+          isNullable: column.isNullable ?? true,
+          isSystem: column.isSystem || false,
+          isUpdatable: column.isUpdatable ?? true,
+          isPublished: column.isPublished ?? true,
+          isEncrypted: column.isEncrypted ?? false,
+          defaultValue: JSON.stringify(column.defaultValue ?? null),
+          options: JSON.stringify(column.options || null),
+          description: column.description,
+          placeholder: column.placeholder,
+          tableId: tableRecord.id,
+        });
+        repaired++;
+      }
+    }
+
+    return repaired;
+  }
+
+  private async repairMongoSystemColumnMetadataFromSnapshot(
+    snapshot: Record<string, { name?: string; isSystem?: boolean; columns?: any[] }>,
+  ): Promise<number> {
+    const db = this.queryBuilderService.getMongoDb?.();
+    if (!db) return 0;
+
+    const tableCollection = db.collection('table_definition');
+    const columnCollection = db.collection('column_definition');
+    let repaired = 0;
+
+    for (const tableDef of Object.values(snapshot)) {
+      const tableName = tableDef?.name;
+      if (!tableDef?.isSystem || !tableName || !tableDef.columns?.length) {
+        continue;
+      }
+
+      const tableRecord = await tableCollection.findOne({ name: tableName });
+      if (!tableRecord?._id) continue;
+
+      const existingColumns = await columnCollection
+        .find({ table: tableRecord._id }, { projection: { name: 1 } })
+        .toArray();
+      const existingNames = new Set(existingColumns.map((column: any) => column.name));
+
+      for (const column of tableDef.columns) {
+        if (!column?.name || existingNames.has(column.name)) continue;
+        await columnCollection.insertOne({
+          name: column.name,
+          type: column.type,
+          isPrimary: column.isPrimary || false,
+          isGenerated: column.isGenerated || false,
+          isNullable: column.isNullable ?? true,
+          isSystem: column.isSystem || false,
+          isUpdatable: column.isUpdatable ?? true,
+          isPublished: column.isPublished ?? true,
+          isEncrypted: column.isEncrypted ?? false,
+          defaultValue: column.defaultValue ?? null,
+          options: column.options || null,
+          description: column.description,
+          placeholder: column.placeholder,
+          table: tableRecord._id,
+          createdAt: new Date(),
+          updatedAt: new Date(),
         });
         repaired++;
       }

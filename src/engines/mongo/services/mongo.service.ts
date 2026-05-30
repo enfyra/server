@@ -26,6 +26,10 @@ import {
 import { DatabaseException } from '../../../domain/exceptions';
 import type { MongoHookContext } from '../types/mongo-hook.types';
 import { isGeneratedScriptPersistenceField } from '../../../shared/utils/script-persistence-contract.util';
+import {
+  decryptResultFields,
+  encryptRecordFields,
+} from '../../../shared/utils/encrypted-field.util';
 
 export class MongoService {
   private client!: MongoClient;
@@ -119,14 +123,19 @@ export class MongoService {
           dataWithTimestamps,
         );
 
+        const dataEncrypted = await this.encryptEncryptedFields(
+          collectionName,
+          dataWithTimestamps,
+        );
+
         await this.mongoRelationManagerService?.clearUniqueFKHolders(
           collectionName,
           new ObjectId(),
-          dataWithTimestamps,
+          dataEncrypted,
           (name) => this.collection(name),
         );
 
-        return dataWithTimestamps;
+        return dataEncrypted;
       },
     );
 
@@ -135,23 +144,23 @@ export class MongoService {
       result: any,
       context: MongoHookContext,
     ) => {
-        await this.mongoRelationManagerService?.updateInverseRelationsOnUpdate(
-          collectionName,
-          context.insertedId,
-          {},
-          context.relationData,
-          (name) => this.collection(name),
-        );
+      await this.mongoRelationManagerService?.updateInverseRelationsOnUpdate(
+        collectionName,
+        context.insertedId,
+        {},
+        context.relationData,
+        (name) => this.collection(name),
+      );
 
-        await this.mongoRelationManagerService?.writeM2mJunctionsForInsert(
-          collectionName,
-          context.insertedId,
-          context.relationData,
-          (name) => this.collection(name),
-        );
+      await this.mongoRelationManagerService?.writeM2mJunctionsForInsert(
+        collectionName,
+        context.insertedId,
+        context.relationData,
+        (name) => this.collection(name),
+      );
 
-        return result;
-      };
+      return result;
+    };
     (cascadeAfterInsert as any).batchedByAfterInsertMany = true;
     this.mongoHookManagerService.addHook('afterInsert', cascadeAfterInsert);
 
@@ -216,14 +225,19 @@ export class MongoService {
           dataWithTimestamp,
         );
 
+        const dataEncrypted = await this.encryptEncryptedFields(
+          collectionName,
+          dataWithTimestamp,
+        );
+
         await this.mongoRelationManagerService?.clearUniqueFKHolders(
           collectionName,
           context.recordId,
-          dataWithTimestamp,
+          dataEncrypted,
           (name) => this.collection(name),
         );
 
-        return dataWithTimestamp;
+        return dataEncrypted;
       },
     );
 
@@ -266,6 +280,16 @@ export class MongoService {
         );
 
         return filter;
+      },
+    );
+
+    this.mongoHookManagerService.addHook(
+      'afterSelect',
+      async (collectionName, result) => {
+        const metadata =
+          await this.metadataCacheService.lookupTableByName(collectionName);
+        if (!metadata?.columns) return result;
+        return decryptResultFields(result, metadata.columns);
       },
     );
   }
@@ -701,7 +725,10 @@ export class MongoService {
     return hookResult;
   }
 
-  async insertManyWithCascade(collectionName: string, rows: any[]): Promise<any[]> {
+  async insertManyWithCascade(
+    collectionName: string,
+    rows: any[],
+  ): Promise<any[]> {
     const totalStart = performance.now();
     if (rows.length === 0) {
       return [];
@@ -845,13 +872,10 @@ export class MongoService {
   private async prepareSimpleInsertManyRows(
     collectionName: string,
     rows: any[],
-  ): Promise<
-    | {
-        processedRows: any[];
-        rowContexts: MongoHookContext[];
-      }
-    | null
-  > {
+  ): Promise<{
+    processedRows: any[];
+    rowContexts: MongoHookContext[];
+  } | null> {
     const hooks = this.mongoHookManagerService.getHooks();
     if (
       hooks.beforeInsert.length !== 1 ||
@@ -949,7 +973,10 @@ export class MongoService {
         let objectId: ObjectId | null = null;
         if (fieldValue instanceof ObjectId) {
           objectId = fieldValue;
-        } else if (typeof fieldValue === 'string' && ObjectId.isValid(fieldValue)) {
+        } else if (
+          typeof fieldValue === 'string' &&
+          ObjectId.isValid(fieldValue)
+        ) {
           objectId = new ObjectId(fieldValue);
         } else if (
           typeof fieldValue === 'object' &&
@@ -969,7 +996,8 @@ export class MongoService {
         result[storedFieldName] = objectId;
         if (storedFieldName !== fieldName) delete result[fieldName];
 
-        const targetCollection = relation.targetTableName || relation.targetTable;
+        const targetCollection =
+          relation.targetTableName || relation.targetTable;
         if (!targetCollection) {
           return null;
         }
@@ -989,20 +1017,28 @@ export class MongoService {
         }
       }
 
-      const { id: _id, createdAt: _ca, updatedAt: _ua, ...cleanRecord } =
-        result;
+      const {
+        id: _id,
+        createdAt: _ca,
+        updatedAt: _ua,
+        ...cleanRecord
+      } = result;
       const dataWithTimestamps = {
         ...cleanRecord,
         createdAt: now,
         updatedAt: now,
       };
       context.relationData = dataWithTimestamps;
+      const dataEncrypted = await this.encryptEncryptedFields(
+        collectionName,
+        dataWithTimestamps,
+      );
       rowContexts.push(context);
       processedRows.push({
-        ...dataWithTimestamps,
+        ...dataEncrypted,
         _id:
-          dataWithTimestamps._id instanceof ObjectId
-            ? dataWithTimestamps._id
+          dataEncrypted._id instanceof ObjectId
+            ? dataEncrypted._id
             : new ObjectId(),
       });
     }
@@ -1119,6 +1155,16 @@ export class MongoService {
     }
 
     return filteredData;
+  }
+
+  private async encryptEncryptedFields(
+    collectionName: string,
+    data: any,
+  ): Promise<any> {
+    const tableMetadata =
+      await this.metadataCacheService.lookupTableByName(collectionName);
+    if (!tableMetadata?.columns) return data;
+    return encryptRecordFields(data, tableMetadata.columns);
   }
 
   async stripUnknownColumns(collectionName: string, data: any): Promise<any> {

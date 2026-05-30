@@ -89,6 +89,7 @@ export class MetadataProvisionSqlService {
             table.boolean('isSystem').notNullable().defaultTo(false);
             table.boolean('isUpdatable').notNullable().defaultTo(true);
             table.boolean('isPublished').notNullable().defaultTo(true);
+            table.boolean('isEncrypted').notNullable().defaultTo(false);
             table.text('defaultValue').nullable();
             table.text('options').nullable();
             table.text('description').nullable();
@@ -148,12 +149,10 @@ export class MetadataProvisionSqlService {
     }
   }
 
-  private async ensureRelationDefinitionPhysicalColumns(qb: any): Promise<void> {
-    const columns = [
-      'foreignKeyColumn',
-      'referencedColumn',
-      'constraintName',
-    ];
+  private async ensureRelationDefinitionPhysicalColumns(
+    qb: any,
+  ): Promise<void> {
+    const columns = ['foreignKeyColumn', 'referencedColumn', 'constraintName'];
     for (const columnName of columns) {
       const hasColumn = await qb.schema.hasColumn(
         'relation_definition',
@@ -235,9 +234,7 @@ export class MetadataProvisionSqlService {
           tableNameToId[name] = insertedId;
         }
       }
-      this.verbose(
-        `Phase 1 done: ${Object.keys(tableNameToId).length} tables`,
-      );
+      this.verbose(`Phase 1 done: ${Object.keys(tableNameToId).length} tables`);
 
       this.verbose('Phase 2: Processing column definitions...');
       let allColumns: any[] = [];
@@ -271,6 +268,7 @@ export class MetadataProvisionSqlService {
               isSystem: snapshotCol.isSystem || false,
               isUpdatable: snapshotCol.isUpdatable ?? true,
               isPublished: snapshotCol.isPublished ?? true,
+              isEncrypted: snapshotCol.isEncrypted ?? false,
               defaultValue: JSON.stringify(snapshotCol.defaultValue ?? null),
               options: JSON.stringify(snapshotCol.options || null),
               description: snapshotCol.description,
@@ -289,6 +287,7 @@ export class MetadataProvisionSqlService {
                 options: JSON.stringify(snapshotCol.options || null),
                 isUpdatable: snapshotCol.isUpdatable ?? true,
                 isPublished: snapshotCol.isPublished ?? true,
+                isEncrypted: snapshotCol.isEncrypted ?? false,
               });
           }
         }
@@ -760,7 +759,9 @@ export class MetadataProvisionSqlService {
       JSON.stringify(snapshotCol.options) !==
         JSON.stringify(parseJson(existingCol.options)) ||
       snapshotCol.isUpdatable !== existingCol.isUpdatable ||
-      (snapshotCol.isPublished ?? true) !== (existingCol.isPublished ?? true);
+      (snapshotCol.isPublished ?? true) !== (existingCol.isPublished ?? true) ||
+      (snapshotCol.isEncrypted ?? false) !==
+        (existingCol.isEncrypted === true || existingCol.isEncrypted === 1);
     return hasChanges;
   }
 
