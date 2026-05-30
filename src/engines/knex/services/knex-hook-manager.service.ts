@@ -12,6 +12,7 @@ import {
   decryptResultFields,
   encryptRecordFields,
 } from '../../../shared/utils/encrypted-field.util';
+import type { KnexQueryOptions } from '../types/knex-extended.types';
 
 type HookRegistry = {
   beforeInsert: Array<(tableName: string, data: any) => any>;
@@ -513,6 +514,7 @@ export class KnexHookManagerService {
     getKnexForWrite: () => Knex,
     knexContext: AsyncLocalStorage<Knex | Knex.Transaction>,
     cascadeContext: AsyncLocalStorage<Map<string, any>>,
+    options: KnexQueryOptions = {},
   ): any {
     const runHooks = (event: HookEvent, ...args: any[]) =>
       this.runHooks(event, ...args);
@@ -598,11 +600,16 @@ export class KnexHookManagerService {
     };
 
     qb.then = function (onFulfilled: any, onRejected: any) {
-      runHooks('beforeSelect', this, tableName);
+      if (!options.skipMetadataHooks) {
+        runHooks('beforeSelect', this, tableName);
+      }
 
       return originalThen.call(
         this,
         async (result: any) => {
+          if (options.skipMetadataHooks) {
+            return onFulfilled ? onFulfilled(result) : result;
+          }
           const processedResult = await runHooks(
             'afterSelect',
             tableName,

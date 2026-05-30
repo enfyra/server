@@ -892,7 +892,7 @@ export class MetadataCacheService implements IMetadataCache {
     } else if (this.lazyRef.knexService) {
       const pkField = DatabaseConfigService.getPkField();
       const rows = await this.lazyRef.knexService
-        .getKnex()
+        .getKnex({ skipMetadataHooks: true })
         .table('table_definition')
         .whereIn(pkField, ids);
       return rows;
@@ -909,7 +909,7 @@ export class MetadataCacheService implements IMetadataCache {
       return docs;
     } else if (this.lazyRef.knexService) {
       const rows = await this.lazyRef.knexService
-        .getKnex()
+        .getKnex({ skipMetadataHooks: true })
         .table('table_definition')
         .whereIn('name', names);
       return rows;
@@ -931,7 +931,7 @@ export class MetadataCacheService implements IMetadataCache {
       return docs;
     } else if (this.lazyRef.knexService) {
       const rows = await this.lazyRef.knexService
-        .getKnex()
+        .getKnex({ skipMetadataHooks: true })
         .table('column_definition')
         .whereIn('tableId', tableIds);
       return rows;
@@ -953,7 +953,7 @@ export class MetadataCacheService implements IMetadataCache {
       return docs;
     } else if (this.lazyRef.knexService) {
       const rows = await this.lazyRef.knexService
-        .getKnex()
+        .getKnex({ skipMetadataHooks: true })
         .table('relation_definition')
         .whereIn('sourceTableId', tableIds);
       return rows;
@@ -969,7 +969,7 @@ export class MetadataCacheService implements IMetadataCache {
       return await collection.find({}).toArray();
     } else if (this.lazyRef.knexService) {
       return await this.lazyRef.knexService
-        .getKnex()
+        .getKnex({ skipMetadataHooks: true })
         .table('table_definition')
         .select();
     }
@@ -984,7 +984,7 @@ export class MetadataCacheService implements IMetadataCache {
       return await collection.find({}).toArray();
     } else if (this.lazyRef.knexService) {
       return await this.lazyRef.knexService
-        .getKnex()
+        .getKnex({ skipMetadataHooks: true })
         .table('column_definition')
         .select();
     }
@@ -999,7 +999,7 @@ export class MetadataCacheService implements IMetadataCache {
       return await collection.find({}).toArray();
     } else if (this.lazyRef.knexService) {
       return await this.lazyRef.knexService
-        .getKnex()
+        .getKnex({ skipMetadataHooks: true })
         .table('relation_definition')
         .select();
     }

@@ -166,6 +166,10 @@ export class FirstRunInitializer {
       await this.markInitialized();
 
       this.logProgress(mode, 100, `completed in ${Date.now() - start}ms`);
+    } catch (error) {
+      this.logProgress(mode, 100, `failed after ${Date.now() - start}ms`);
+      this.logger.error(`${mode} failed after ${Date.now() - start}ms`, error);
+      throw error;
     } finally {
       await this.cacheService.release(PROVISION_LOCK_KEY, lockValue);
     }
