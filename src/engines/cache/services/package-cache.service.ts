@@ -156,7 +156,11 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     );
 
     this.emitEvent('installing', {
-      packages: toPreload.map((p) => ({ id: p.id, name: p.name })),
+      packages: toPreload.map((p) => ({
+        id: p.id,
+        name: p.name,
+        version: p.version,
+      })),
     });
 
     let loaded = 0;
@@ -168,7 +172,11 @@ export class PackageCacheService extends BaseCacheService<string[]> {
         await this.updatePackageStatus(pkg.id, 'installed', {
           lastError: null,
         });
-        this.emitEvent('installed', { id: pkg.id, name: pkg.name });
+        this.emitEvent('installed', {
+          id: pkg.id,
+          name: pkg.name,
+          version: pkg.version,
+        });
         loaded++;
       } catch (error) {
         const errorDetail = extractErrorMessage(error);
@@ -179,6 +187,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
         this.emitEvent('failed', {
           id: pkg.id,
           name: pkg.name,
+          version: pkg.version,
           error: errorDetail,
           operation: 'preload',
         });
