@@ -2,7 +2,7 @@ import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { ObjectId } from 'mongodb';
 import { DatabaseConfigService } from '../../../shared/services';
-import { normalizeScriptRecord } from '@enfyra/kernel';
+import { normalizeScriptRecord } from '../../../shared/utils/script-code.util';
 import { getSqlJunctionMetadata } from '../utils/sql-junction-metadata.util';
 
 export class PreHookDefinitionProcessor extends BaseTableProcessor {

@@ -6,7 +6,7 @@ import {
   isCanonicalTableRoutePath,
 } from '../utils/canonical-table-route.util';
 import { DatabaseConfigService } from '../../../shared/services';
-import { compileScriptSource } from '@enfyra/kernel';
+import { compileScriptSource } from '../../../shared/utils/script-code.util';
 import { getSqlJunctionMetadata } from '../utils/sql-junction-metadata.util';
 import { replaceSqlJunctionRows } from '../utils/sql-junction-writer.util';
 import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';

@@ -9,9 +9,9 @@ import {
 import {
   normalizeFlowStepScriptConfig,
   normalizeScriptLanguage,
-  QueryBuilderService,
   resolveExecutableScript,
-} from '@enfyra/kernel';
+} from '../../../shared/utils/script-code.util';
+import { QueryBuilderService } from '@enfyra/kernel';
 import { FlowDefinition, FlowStep } from '../../../shared/types/flow.types';
 
 export type {

@@ -600,10 +600,10 @@
   dependencies:
     tslib "^2.4.0"
 
-"@enfyra/kernel@1.1.9":
-  version "1.1.9"
-  resolved "https://registry.yarnpkg.com/@enfyra/kernel/-/kernel-1.1.9.tgz#ce88c39a5424efb320f155b9defe0d47c268cdd9"
-  integrity sha512-aJCRqyDsHHoJ93NiTr4P0v32DscTkagpicrqCc3me4K1AgZf7lJpNdWxCMuZl66hG/Qj+OI5i6XSG9RnNMQHFQ==
+"@enfyra/kernel@1.1.11":
+  version "1.1.11"
+  resolved "https://registry.yarnpkg.com/@enfyra/kernel/-/kernel-1.1.11.tgz#4943cbbafca5d41eac3bfd167662e4f8eef829bb"
+  integrity sha512-Foqf2qI3el2cnWgOY5uTDLYdVuvGLImJhgJeL/7AymK6ovOOmnLeX5diZG4o6KJBSbEY1fWWDKUZCQP2YaG/oA==
   dependencies:
     "@types/node" "^24.12.2"
     isolated-vm "^6.1.2"

@@ -1,5 +1,5 @@
 import type { Knex } from 'knex';
-import { compileScriptSource } from '@enfyra/kernel';
+import { compileScriptSource } from '../../../shared/utils/script-code.util';
 import { DEFAULT_REST_HANDLER_LOGIC } from '../../../domain/bootstrap';
 import type { MetadataCacheService } from '../../../engines/cache';
 import type { MongoService } from '../../../engines/mongo';

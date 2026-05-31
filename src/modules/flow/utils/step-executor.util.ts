@@ -1,10 +1,8 @@
 import * as dns from 'dns';
 import * as net from 'net';
 import { TDynamicContext } from '../../../shared/types';
-import {
-  ExecutorEngineService,
-  compileScriptSource,
-} from '@enfyra/kernel';
+import { ExecutorEngineService } from '@enfyra/kernel';
+import { compileScriptSource } from '../../../shared/utils/script-code.util';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 
 const DEFAULT_HTTP_TIMEOUT = 30000;
