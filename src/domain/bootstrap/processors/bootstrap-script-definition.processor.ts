@@ -1,6 +1,6 @@
 import { BaseTableProcessor } from './base-table-processor';
 import { DatabaseConfigService } from '../../../shared/services';
-import { normalizeScriptRecord } from '@enfyra/kernel';
+import { normalizeScriptRecord } from '../../../shared/utils/script-code.util';
 
 export class BootstrapScriptDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[]): Promise<any[]> {

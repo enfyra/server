@@ -10,10 +10,8 @@ import { BadRequestException } from '../../../shared/errors';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { IOAuthConfigCache } from '../../shared/interfaces/oauth-config-cache.interface';
 import { ICache } from '../../shared/interfaces/cache.interface';
-import {
-  ExecutorEngineService,
-  resolveExecutableScript,
-} from '@enfyra/kernel';
+import { ExecutorEngineService } from '@enfyra/kernel';
+import { resolveExecutableScript } from '../../../shared/utils/script-code.util';
 import { RepoRegistryService } from '../../../engines/cache';
 import {
   loadUserWithRole,

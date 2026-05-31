@@ -35,7 +35,7 @@ import {
   normalizeFlowStepScriptConfig,
   normalizeScriptPatch,
   normalizeScriptRecord,
-} from '@enfyra/kernel';
+} from '../../../shared/utils/script-code.util';
 import { FlowQueueMaintenanceService } from '../../flow';
 import { logMemory } from '../../../shared/utils/memory-log.util';
 
