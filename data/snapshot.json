@@ -432,6 +432,8 @@
     "columns": [
       { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
       { "name": "method", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Method name (GET, POST, PATCH, DELETE, GQL_QUERY, GQL_MUTATION)" },
+      { "name": "buttonColor", "type": "varchar", "isNullable": false, "isSystem": true, "defaultValue": "#f3f4f6", "description": "Hex background color used when rendering this method in admin UI controls" },
+      { "name": "textColor", "type": "varchar", "isNullable": false, "isSystem": true, "defaultValue": "#374151", "description": "Hex text color used when rendering this method in admin UI controls" },
       { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined method" }
     ],
     "relations": [

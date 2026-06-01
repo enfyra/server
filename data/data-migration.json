@@ -153,6 +153,44 @@
       }
     }
   ],
+  "method_definition": [
+    {
+      "_unique": {
+        "method": {
+          "_eq": "GET"
+        }
+      },
+      "buttonColor": "#dbeafe",
+      "textColor": "#1d4ed8"
+    },
+    {
+      "_unique": {
+        "method": {
+          "_eq": "POST"
+        }
+      },
+      "buttonColor": "#dcfce7",
+      "textColor": "#15803d"
+    },
+    {
+      "_unique": {
+        "method": {
+          "_eq": "PATCH"
+        }
+      },
+      "buttonColor": "#fef3c7",
+      "textColor": "#b45309"
+    },
+    {
+      "_unique": {
+        "method": {
+          "_eq": "DELETE"
+        }
+      },
+      "buttonColor": "#fee2e2",
+      "textColor": "#b91c1c"
+    }
+  ],
   "field_permission_definition": [
     {
       "_unique": {
