@@ -119,7 +119,7 @@ export function routeDetectMiddleware(
           originalname: req.file.originalname,
           mimetype: req.file.mimetype,
           encoding: req.file.encoding || 'utf8',
-          buffer: req.file.buffer,
+          path: req.file.path,
           size: req.file.size,
           fieldname: req.file.fieldname,
         };

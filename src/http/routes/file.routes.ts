@@ -1,6 +1,15 @@
 import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
+import fs from 'fs/promises';
+import { createReadStream } from 'fs';
+
+async function cleanupUploadedTempFile(file: any) {
+  if (!file?.path) return;
+  try {
+    await fs.unlink(file.path);
+  } catch {}
+}
 
 export function registerFileRoutes(
   app: Express,
@@ -27,23 +36,27 @@ export function registerFileRoutes(
     }
 
     const body = req.body;
-    const result = await fileManagementService.uploadFileAndCreateRecord(
-      {
-        filename: file.originalname,
-        mimetype: file.mimetype,
-        buffer: file.buffer,
-        size: file.size,
-      },
-      {
-        folder: body.folder,
-        storageConfig: body.storageConfig,
-        title: file.originalname,
-        description: null,
-        userId: req.user?.id,
-      },
-      fileRepo,
-    );
-    return res.json(result);
+    try {
+      const result = await fileManagementService.uploadFileAndCreateRecord(
+        {
+          filename: file.originalname,
+          mimetype: file.mimetype,
+          stream: createReadStream(file.path),
+          size: file.size,
+        },
+        {
+          folder: body.folder,
+          storageConfig: body.storageConfig,
+          title: file.originalname,
+          description: null,
+          userId: req.user?.id,
+        },
+        fileRepo,
+      );
+      return res.json(result);
+    } finally {
+      await cleanupUploadedTempFile(file);
+    }
   });
 
   app.get('/file_definition', async (req: any, res: Response) => {
@@ -86,26 +99,30 @@ export function registerFileRoutes(
     }
 
     if (file) {
-      const result = await fileManagementService.replaceFileAndUpdateRecord(
-        fileRepo,
-        id,
-        currentFile,
-        {
-          filename: file.originalname,
-          mimetype: file.mimetype,
-          buffer: file.buffer,
-          size: file.size,
-        },
-        {
-          folder: body.folder,
-          storageConfig: body.storageConfig,
-          title: file.originalname,
-          description: body.description,
-          status: body.status,
-          isPublished: body.isPublished,
-        },
-      );
-      return res.json(result);
+      try {
+        const result = await fileManagementService.replaceFileAndUpdateRecord(
+          fileRepo,
+          id,
+          currentFile,
+          {
+            filename: file.originalname,
+            mimetype: file.mimetype,
+            stream: createReadStream(file.path),
+            size: file.size,
+          },
+          {
+            folder: body.folder,
+            storageConfig: body.storageConfig,
+            title: file.originalname,
+            description: body.description,
+            status: body.status,
+            isPublished: body.isPublished,
+          },
+        );
+        return res.json(result);
+      } finally {
+        await cleanupUploadedTempFile(file);
+      }
     }
 
     const result = await fileManagementService.updateFileMetadataRecord(

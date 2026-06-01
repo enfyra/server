@@ -45,6 +45,7 @@ const ROUTE_CACHE_ROUTE_FIELDS = [
   'isEnabled',
   'isSystem',
   'icon',
+  'maxUploadFileSize',
   'description',
   'createdAt',
   'updatedAt',

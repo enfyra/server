@@ -110,7 +110,6 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
 
   app.use(bodyParserMiddleware(c.settingCacheService));
   app.use(parseQueryMiddleware);
-  app.use(fileUploadMiddleware(c.settingCacheService));
   app.use((req: any, _res: any, next: any) => {
     req._perfRouteDetect = performance.now();
     next();
@@ -146,6 +145,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   });
   app.use(roleGuardMiddleware(c.policyService));
   app.use(postAuthMetadataGuard(c.guardCacheService, c.guardEvaluatorService));
+  app.use(fileUploadMiddleware(c.settingCacheService));
   app.use(requestLoggingBegin);
   app.use(bodyValidationMiddleware(container));
   app.use(dynamicInterceptorBegin(c.executorEngineService));

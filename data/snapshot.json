@@ -228,6 +228,7 @@
       { "name": "isEnabled", "type": "boolean", "isNullable": true, "isSystem": true, "defaultValue": true, "description": "Whether the route is active and accessible" },
       { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined route" },
       { "name": "icon", "type": "varchar", "isNullable": true, "isSystem": true, "defaultValue": "lucide:route", "description": "Icon identifier for UI display" },
+      { "name": "maxUploadFileSize", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": null, "description": "Optional route-specific maximum upload file size in MB. Overrides setting_definition.maxUploadFileSize for multipart requests when set." },
       { "name": "description", "type": "text", "isSystem": true, "description": "Description of what the route does" }
     ],
     "relations": [

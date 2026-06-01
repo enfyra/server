@@ -137,7 +137,7 @@ export class FileManagementService {
     const normalizedFile = FileSignatureHelper.normalizeUploadMetadata(
       fileData.filename,
       fileData.mimetype,
-      fileData.buffer,
+      fileData.signatureBuffer,
     );
     const uniqueFilename = this.generateUniqueFilename(normalizedFile.filename);
     const relativePath = `uploads/${uniqueFilename}`;
@@ -182,7 +182,7 @@ export class FileManagementService {
       }
 
       const uploadResult = await storageService.upload(
-        fileData.buffer,
+        fileData.stream,
         relativePath,
         normalizedFile.mimetype,
         storageConfig,
@@ -215,7 +215,8 @@ export class FileManagementService {
     fileData: {
       filename: string;
       mimetype: string;
-      buffer: Buffer;
+      stream: Readable;
+      signatureBuffer?: Buffer;
       size: number;
     },
     options: {
@@ -244,7 +245,8 @@ export class FileManagementService {
       {
         filename: fileData.filename,
         mimetype: fileData.mimetype,
-        buffer: fileData.buffer,
+        stream: fileData.stream,
+        signatureBuffer: fileData.signatureBuffer,
         size: fileData.size,
         folder: folderData,
         title: options.title || fileData.filename,
@@ -303,7 +305,8 @@ export class FileManagementService {
     fileData: {
       filename: string;
       mimetype: string;
-      buffer: Buffer;
+      stream: Readable;
+      signatureBuffer?: Buffer;
       size: number;
     },
     options: {
@@ -340,7 +343,8 @@ export class FileManagementService {
       {
         filename: fileData.filename,
         mimetype: fileData.mimetype,
-        buffer: fileData.buffer,
+        stream: fileData.stream,
+        signatureBuffer: fileData.signatureBuffer,
         size: fileData.size,
         folder: nextFolder,
         title: options.title || fileData.filename,

@@ -46,11 +46,12 @@ export interface TDynamicContext {
     autoSlug?: (text: string) => string;
     $rateLimit?: RateLimitHelper;
     $uploadFile?: (options: {
+      file?: UploadedFileInfo;
       originalname?: string;
       filename?: string;
-      mimetype: string;
-      buffer: Buffer;
-      size: number;
+      mimetype?: string;
+      buffer?: Buffer;
+      size?: number;
       encoding?: string;
       folder?: number | { id: number };
       storageConfig?: number;
@@ -60,6 +61,7 @@ export interface TDynamicContext {
     $updateFile?: (
       fileId: string | number,
       options: {
+        file?: UploadedFileInfo;
         buffer?: Buffer;
         originalname?: string;
         filename?: string;

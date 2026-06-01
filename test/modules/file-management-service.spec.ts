@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { Readable } from 'stream';
 import { FileManagementService } from '../../src/modules/file-management/services/file-management.service';
 
 function makeMp4Buffer() {
@@ -27,9 +28,11 @@ function makeService(overrides: Record<string, any> = {}) {
     })),
   };
   const storageService = {
-    upload: vi.fn(async (_buffer: Buffer, relativePath: string) => ({
-      location: relativePath,
-    })),
+    upload: vi.fn(async (stream: Readable, relativePath: string) => {
+      for await (const _ of stream) {
+      }
+      return { location: relativePath };
+    }),
     delete: vi.fn(async () => undefined),
   };
   const service = new FileManagementService({
@@ -48,11 +51,39 @@ function makeService(overrides: Record<string, any> = {}) {
 }
 
 describe('FileManagementService file replacement', () => {
+  it('passes uploaded files through the storage adapter as a stream', async () => {
+    const { service, storageService } = makeService();
+    const fileRepo = {
+      create: vi.fn(async ({ data }) => ({ data: [data] })),
+    };
+
+    await service.uploadFileAndCreateRecord(
+      {
+        filename: 'backup.sql.gz',
+        mimetype: 'application/gzip',
+        stream: Readable.from('backup'),
+        size: 1024,
+      },
+      {
+        storageConfig: 'local',
+      },
+      fileRepo,
+    );
+
+    expect(storageService.upload).toHaveBeenCalledWith(
+      expect.any(Readable),
+      expect.stringMatching(/^uploads\/backupsql_/),
+      'application/gzip',
+      expect.objectContaining({ id: 'local' }),
+    );
+  });
+
   it('normalizes replacement MIME metadata and updates the record to the new blob location', async () => {
     const { service, storageService } = makeService();
     const fileRepo = {
       update: vi.fn(async ({ data }) => ({ data: [data] })),
     };
+    const buffer = makeMp4Buffer();
 
     await service.replaceFileAndUpdateRecord(
       fileRepo,
@@ -71,13 +102,14 @@ describe('FileManagementService file replacement', () => {
       {
         filename: 'clip.txt',
         mimetype: 'text/plain',
-        buffer: makeMp4Buffer(),
-        size: makeMp4Buffer().length,
+        stream: Readable.from(buffer),
+        signatureBuffer: buffer,
+        size: buffer.length,
       },
     );
 
     expect(storageService.upload).toHaveBeenCalledWith(
-      expect.any(Buffer),
+      expect.any(Readable),
       expect.stringMatching(/^uploads\/clip_/),
       'video/mp4',
       expect.objectContaining({ id: 's3' }),
@@ -105,6 +137,7 @@ describe('FileManagementService file replacement', () => {
         throw new Error('db failed');
       }),
     };
+    const buffer = makeMp4Buffer();
 
     await expect(
       service.replaceFileAndUpdateRecord(
@@ -120,8 +153,9 @@ describe('FileManagementService file replacement', () => {
         {
           filename: 'clip.mp4',
           mimetype: 'video/mp4',
-          buffer: makeMp4Buffer(),
-          size: makeMp4Buffer().length,
+          stream: Readable.from(buffer),
+          signatureBuffer: buffer,
+          size: buffer.length,
         },
       ),
     ).rejects.toThrow('db failed');
