@@ -6,7 +6,7 @@ describe('PolicyService.checkRequestAccess', () => {
   it('allows published methods without user', () => {
     const d = policy.checkRequestAccess({
       method: 'GET',
-      routeData: { publishedMethods: [{ method: 'GET' }] },
+      routeData: { publishedMethods: [{ name: 'GET' }] },
     });
     expect(d.allow).toBe(true);
   });
@@ -45,7 +45,7 @@ describe('PolicyService.checkRequestAccess', () => {
       method: 'GET',
       user: { id: 1, role: null },
       routeData: {
-        routePermissions: [{ methods: [{ method: 'GET' }], role: { id: 5 } }],
+        routePermissions: [{ methods: [{ name: 'GET' }], role: { id: 5 } }],
       },
     });
     expect(d.allow).toBe(false);
@@ -56,7 +56,7 @@ describe('PolicyService.checkRequestAccess', () => {
       method: 'GET',
       user: { id: 1 },
       routeData: {
-        routePermissions: [{ methods: [{ method: 'GET' }], role: { id: 5 } }],
+        routePermissions: [{ methods: [{ name: 'GET' }], role: { id: 5 } }],
       },
     });
     expect(d.allow).toBe(false);
@@ -67,7 +67,7 @@ describe('PolicyService.checkRequestAccess', () => {
       method: 'GET',
       user: { id: 1, role: { id: 5 } },
       routeData: {
-        routePermissions: [{ methods: [{ method: 'GET' }], role: { id: 5 } }],
+        routePermissions: [{ methods: [{ name: 'GET' }], role: { id: 5 } }],
       },
     });
     expect(d.allow).toBe(true);
@@ -79,7 +79,7 @@ describe('PolicyService.checkRequestAccess', () => {
       user: { _id: 'abc', role: { _id: 'role1' } },
       routeData: {
         routePermissions: [
-          { methods: [{ method: 'GET' }], role: { _id: 'role1' } },
+          { methods: [{ name: 'GET' }], role: { _id: 'role1' } },
         ],
       },
     });
@@ -93,7 +93,7 @@ describe('PolicyService.checkRequestAccess', () => {
       routeData: {
         routePermissions: [
           {
-            methods: [{ method: 'GET' }],
+            methods: [{ name: 'GET' }],
             allowedUsers: [{ _id: 'user1' }],
             role: { _id: 'role1' },
           },
@@ -108,7 +108,7 @@ describe('PolicyService.checkRequestAccess', () => {
       method: 'GET',
       user: { id: 1, role: { id: 5 } },
       routeData: {
-        routePermissions: [{ methods: [{ method: 'GET' }], role: { id: '5' } }],
+        routePermissions: [{ methods: [{ name: 'GET' }], role: { id: '5' } }],
       },
     });
     expect(d.allow).toBe(true);
@@ -119,7 +119,7 @@ describe('PolicyService.checkRequestAccess', () => {
       method: 'DELETE',
       user: { id: 1, role: { id: 5 } },
       routeData: {
-        routePermissions: [{ methods: [{ method: 'GET' }], role: { id: 5 } }],
+        routePermissions: [{ methods: [{ name: 'GET' }], role: { id: 5 } }],
       },
     });
     expect(d.allow).toBe(false);
@@ -131,7 +131,7 @@ describe('PolicyService.checkRequestAccess', () => {
       method: 'GET',
       user: { id: 1, role: { id: 5 } },
       routeData: {
-        skipRoleGuardMethods: [{ method: 'GET' }],
+        skipRoleGuardMethods: [{ name: 'GET' }],
         routePermissions: [],
       },
     });
@@ -143,7 +143,7 @@ describe('PolicyService.checkRequestAccess', () => {
       method: 'PATCH',
       user: { id: 1 },
       routeData: {
-        skipRoleGuardMethods: [{ method: 'PATCH' }],
+        skipRoleGuardMethods: [{ name: 'PATCH' }],
       },
     });
     expect(d.allow).toBe(true);
@@ -153,7 +153,7 @@ describe('PolicyService.checkRequestAccess', () => {
     const d = policy.checkRequestAccess({
       method: 'GET',
       routeData: {
-        skipRoleGuardMethods: [{ method: 'GET' }],
+        skipRoleGuardMethods: [{ name: 'GET' }],
       },
     });
     expect(d.allow).toBe(false);
@@ -165,8 +165,8 @@ describe('PolicyService.checkRequestAccess', () => {
       method: 'DELETE',
       user: { id: 1, role: { id: 5 } },
       routeData: {
-        skipRoleGuardMethods: [{ method: 'GET' }],
-        routePermissions: [{ methods: [{ method: 'GET' }], role: { id: 5 } }],
+        skipRoleGuardMethods: [{ name: 'GET' }],
+        routePermissions: [{ methods: [{ name: 'GET' }], role: { id: 5 } }],
       },
     });
     expect(d.allow).toBe(false);

@@ -203,13 +203,13 @@ describe('Redis runtime cache mode', () => {
         {
           id: 1,
           path: '/posts/:id',
-          availableMethods: [{ method: 'GET' }],
+          availableMethods: [{ name: 'GET' }],
           mainTable: { name: 'posts' },
         },
         {
           id: 2,
           path: '/posts/archive',
-          availableMethods: [{ method: 'GET' }],
+          availableMethods: [{ name: 'GET' }],
           mainTable: { name: 'posts' },
         },
       ],
@@ -250,12 +250,12 @@ describe('Redis runtime cache mode', () => {
     await store.setAux(CACHE_IDENTIFIERS.ROUTE, 'route:1', {
       id: 1,
       path: '/posts/:id',
-      availableMethods: [{ method: 'GET' }],
+      availableMethods: [{ name: 'GET' }],
     });
     await store.setAux(CACHE_IDENTIFIERS.ROUTE, 'route:2', {
       id: 2,
       path: '/posts/archive',
-      availableMethods: [{ method: 'GET' }],
+      availableMethods: [{ name: 'GET' }],
     });
 
     const dynamicMatch = await routeCache.matchRoute('GET', '/posts/123');

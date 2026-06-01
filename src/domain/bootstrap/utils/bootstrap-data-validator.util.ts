@@ -15,7 +15,7 @@ function routePath(record: any) {
 function methodNames(defaultData: Record<string, any[]>) {
   return new Set(
     (defaultData.method_definition ?? [])
-      .map((method: any) => method.method)
+      .map((method: any) => method.name)
       .filter(Boolean),
   );
 }

@@ -23,9 +23,9 @@ export class MethodDefinitionProcessor extends BaseTableProcessor {
     });
   }
   getUniqueIdentifier(record: any): object {
-    return { method: record.method };
+    return { name: record.name };
   }
   protected getCompareFields(): string[] {
-    return ['method', 'isSystem'];
+    return ['name', 'isSystem'];
   }
 }

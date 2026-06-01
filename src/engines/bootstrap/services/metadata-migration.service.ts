@@ -85,6 +85,24 @@ export class MetadataMigrationService {
     this.verbose('Metadata migrations completed');
   }
 
+  async runPhysicalMigrationsBeforeMetadataSync(): Promise<void> {
+    if (!this.hasMigrations()) return;
+    if (this.queryBuilderService.isMongoDb()) return;
+
+    const migrations = this.migrations!;
+    for (const tableMigration of migrations.tables || []) {
+      const tableName = tableMigration._unique.name._eq;
+      for (const columnMigration of tableMigration.columnsToModify || []) {
+        if (columnMigration.from.name === columnMigration.to.name) continue;
+        await this.renameSqlPhysicalColumnIfNeeded(
+          tableName,
+          columnMigration.from.name,
+          columnMigration.to.name,
+        );
+      }
+    }
+  }
+
   private async findTableId(
     tableName: string,
     isMongoDB: boolean,
@@ -168,6 +186,7 @@ export class MetadataMigrationService {
 
     if (columnsToModify.length > 0) {
       await this.modifyColumnMetadata(
+        tableName,
         tableId,
         tableIdField,
         columnsToModify,
@@ -195,6 +214,7 @@ export class MetadataMigrationService {
   }
 
   private async modifyColumnMetadata(
+    tableName: string,
     tableId: any,
     tableIdField: string,
     modifications: ColumnModifyDef[],
@@ -217,6 +237,7 @@ export class MetadataMigrationService {
 
       try {
         let columnId: any;
+        let targetColumnId: any;
 
         if (isMongoDB) {
           const db = this.getMongoDb()!;
@@ -224,17 +245,35 @@ export class MetadataMigrationService {
             table: tableId,
             name: oldName,
           });
-          if (!column) continue;
-          columnId = column._id;
+          const targetColumn = await db.collection('column_definition').findOne({
+            table: tableId,
+            name: mod.to.name,
+          });
+          columnId = column?._id;
+          targetColumnId = targetColumn?._id;
+
+          if (mod.to.name !== mod.from.name) {
+            await this.renameMongoDocumentFieldIfNeeded(
+              tableName,
+              mod.from.name,
+              mod.to.name,
+            );
+          }
         } else {
           const knex = this.queryBuilderService.getKnex();
           const column = await knex('column_definition')
             .where(tableIdField, tableId)
             .where('name', oldName)
             .first();
-          if (!column) continue;
-          columnId = column.id;
+          const targetColumn = await knex('column_definition')
+            .where(tableIdField, tableId)
+            .where('name', mod.to.name)
+            .first();
+          columnId = column?.id;
+          targetColumnId = targetColumn?.id;
         }
+
+        if (!columnId && !targetColumnId) continue;
 
         const updateData: any = {};
 
@@ -257,22 +296,48 @@ export class MetadataMigrationService {
           updateData.description = mod.to.description;
         }
 
+        if (mod.to.name !== mod.from.name && !isMongoDB) {
+          await this.renameSqlPhysicalColumnIfNeeded(
+            tableName,
+            mod.from.name,
+            mod.to.name,
+          );
+        }
+
         if (Object.keys(updateData).length > 0) {
           if (isMongoDB) {
             const db = this.getMongoDb()!;
             updateData.updatedAt = new Date();
-            await db
-              .collection('column_definition')
-              .updateOne({ _id: columnId }, { $set: updateData });
+            await db.collection('column_definition').updateOne(
+              { _id: targetColumnId ?? columnId },
+              {
+                $set: targetColumnId
+                  ? { ...updateData, name: mod.to.name }
+                  : updateData,
+              },
+            );
           } else {
             const knex = this.queryBuilderService.getKnex();
             await knex('column_definition')
-              .where('id', columnId)
+              .where('id', targetColumnId ?? columnId)
               .update(updateData);
           }
           this.verbose(
             `  Modified column metadata: ${oldName} → ${mod.to.name}`,
           );
+        }
+
+        if (targetColumnId && columnId && targetColumnId !== columnId) {
+          if (isMongoDB) {
+            const db = this.getMongoDb()!;
+            await db
+              .collection('column_definition')
+              .deleteOne({ _id: columnId });
+          } else {
+            const knex = this.queryBuilderService.getKnex();
+            await knex('column_definition').where('id', columnId).delete();
+          }
+          this.verbose(`  Removed duplicate old column metadata: ${oldName}`);
         }
       } catch (err) {
         this.logger.warn(
@@ -280,6 +345,66 @@ export class MetadataMigrationService {
         );
       }
     }
+  }
+
+  private async renameMongoDocumentFieldIfNeeded(
+    tableName: string,
+    oldName: string,
+    newName: string,
+  ): Promise<void> {
+    const db = this.getMongoDb();
+    if (!db) return;
+
+    await db.collection(tableName).updateMany(
+      { [oldName]: { $exists: true }, [newName]: { $exists: false } },
+      [{ $set: { [newName]: `$${oldName}` } }],
+    );
+    await db
+      .collection(tableName)
+      .updateMany(
+        { [oldName]: { $exists: true } },
+        { $unset: { [oldName]: '' } },
+      );
+    this.verbose(
+      `  Renamed document field: ${tableName}.${oldName} → ${newName}`,
+    );
+  }
+
+  private async renameSqlPhysicalColumnIfNeeded(
+    tableName: string,
+    oldName: string,
+    newName: string,
+  ): Promise<void> {
+    const knex = this.queryBuilderService.getKnex();
+    if (!knex?.schema?.hasTable) return;
+    if (!(await knex.schema.hasTable(tableName))) return;
+
+    const oldExists = await knex.schema.hasColumn(tableName, oldName);
+    const newExists = await knex.schema.hasColumn(tableName, newName);
+    if (!oldExists) return;
+
+    if (newExists) {
+      await knex.raw('UPDATE ?? SET ?? = ?? WHERE ?? IS NULL', [
+        tableName,
+        newName,
+        oldName,
+        newName,
+      ]);
+      await knex.schema.alterTable(tableName, (table: any) => {
+        table.dropColumn(oldName);
+      });
+      this.verbose(
+        `  Dropped duplicate old physical column: ${tableName}.${oldName}`,
+      );
+      return;
+    }
+
+    await knex.schema.alterTable(tableName, (table: any) => {
+      table.renameColumn(oldName, newName);
+    });
+    this.verbose(
+      `  Renamed physical column: ${tableName}.${oldName} → ${newName}`,
+    );
   }
 
   private async removeColumnMetadata(

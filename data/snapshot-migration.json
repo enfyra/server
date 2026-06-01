@@ -146,6 +146,19 @@
             "propertyName": "routePermissions"
           }
         }
+      ],
+      "columnsToModify": [
+        {
+          "from": {
+            "name": "method",
+            "type": "varchar"
+          },
+          "to": {
+            "name": "name",
+            "type": "varchar",
+            "description": "HTTP method name (GET, POST, PATCH, DELETE, PUT, HEAD, OPTIONS)"
+          }
+        }
       ]
     },
     {

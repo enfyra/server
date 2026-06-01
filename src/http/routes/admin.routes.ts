@@ -555,7 +555,7 @@ function findRouteScriptRecord(options: {
       if (recordId !== undefined && String(record.id) === String(recordId)) {
         return true;
       }
-      if (method && record.method?.method === method) return true;
+      if (method && record.method?.name === method) return true;
       return false;
     });
     if (found) return found;

@@ -21,7 +21,7 @@ export class PolicyService {
 
   checkRequestAccess(ctx: TPolicyRequestContext): TPolicyDecision {
     const isPublished = ctx.routeData?.publishedMethods?.some(
-      (m: any) => m.method === ctx.method,
+      (m: any) => m.name === ctx.method,
     );
 
     if (isPublished) return { allow: true };
@@ -36,7 +36,7 @@ export class PolicyService {
     }
 
     const skipRoleGuard = ctx.routeData?.skipRoleGuardMethods?.some(
-      (m: any) => m.method === ctx.method,
+      (m: any) => m.name === ctx.method,
     );
 
     if (skipRoleGuard) return { allow: true };
@@ -59,7 +59,7 @@ export class PolicyService {
 
     const canPass = ctx.routeData.routePermissions.find((permission: any) => {
       const hasMethodAccess = permission.methods.some(
-        (item: any) => item.method === ctx.method,
+        (item: any) => item.name === ctx.method,
       );
       if (!hasMethodAccess) return false;
       if (

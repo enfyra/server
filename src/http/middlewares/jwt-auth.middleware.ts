@@ -17,7 +17,7 @@ function isPublishedRequest(req: any): boolean {
   if (req.routeData?.isPublished === true) return true;
   return (
     req.routeData?.publishedMethods?.some(
-      (method: any) => method?.method === req.method || method === req.method,
+      (method: any) => method?.name === req.method || method === req.method,
     ) === true
   );
 }

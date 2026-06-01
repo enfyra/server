@@ -37,7 +37,7 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
           const method = await this.queryBuilderService.findOne({
             table: 'method_definition',
             where: {
-              method: handler.method,
+              name: handler.method,
             },
           });
           if (!method) {

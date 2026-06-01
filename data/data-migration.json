@@ -139,7 +139,7 @@
     {
       "table": "method_definition",
       "filter": {
-        "method": {
+        "name": {
           "_eq": "GQL_QUERY"
         }
       }
@@ -147,7 +147,7 @@
     {
       "table": "method_definition",
       "filter": {
-        "method": {
+        "name": {
           "_eq": "GQL_MUTATION"
         }
       }
@@ -156,7 +156,7 @@
   "method_definition": [
     {
       "_unique": {
-        "method": {
+        "name": {
           "_eq": "GET"
         }
       },
@@ -165,7 +165,7 @@
     },
     {
       "_unique": {
-        "method": {
+        "name": {
           "_eq": "POST"
         }
       },
@@ -174,7 +174,7 @@
     },
     {
       "_unique": {
-        "method": {
+        "name": {
           "_eq": "PATCH"
         }
       },
@@ -183,7 +183,7 @@
     },
     {
       "_unique": {
-        "method": {
+        "name": {
           "_eq": "DELETE"
         }
       },
