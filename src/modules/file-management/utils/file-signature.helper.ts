@@ -94,8 +94,9 @@ export class FileSignatureHelper {
   static normalizeUploadMetadata(
     filename: string,
     mimetype: string,
-    buffer: Buffer,
+    buffer?: Buffer,
   ): { filename: string; mimetype: string } {
+    if (!buffer) return { filename, mimetype };
     const detected = this.detect(buffer);
     if (!detected) return { filename, mimetype };
     return {

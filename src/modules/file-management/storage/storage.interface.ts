@@ -37,7 +37,7 @@ export interface IStorageService {
    * Upload file to storage
    */
   upload(
-    buffer: Buffer,
+    stream: Readable,
     relativePath: string,
     mimetype: string,
     config: StorageConfig,
@@ -67,7 +67,7 @@ export interface IStorageService {
    */
   replaceFile(
     location: string,
-    buffer: Buffer,
+    stream: Readable,
     mimetype: string,
     config: StorageConfig,
   ): Promise<void>;

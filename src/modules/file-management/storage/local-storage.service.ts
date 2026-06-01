@@ -2,6 +2,7 @@ import { Logger } from '../../../shared/logger';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 import {
   IStorageService,
   StorageConfig,
@@ -41,14 +42,14 @@ export class LocalStorageService implements IStorageService {
   }
 
   async upload(
-    buffer: Buffer,
+    stream: Readable,
     relativePath: string,
     _mimetype: string,
     _config: StorageConfig,
   ): Promise<UploadResult> {
     const filePath = this.resolveLocalPath(relativePath);
     await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.promises.writeFile(filePath, buffer);
+    await pipeline(stream, fs.createWriteStream(filePath));
     return {
       location: `/${relativePath}`,
     };
@@ -89,12 +90,12 @@ export class LocalStorageService implements IStorageService {
 
   async replaceFile(
     location: string,
-    buffer: Buffer,
+    stream: Readable,
     _mimetype: string,
     _config: StorageConfig,
   ): Promise<void> {
     const absolutePath = this.resolveLocalPath(location);
-    await fs.promises.writeFile(absolutePath, buffer);
+    await pipeline(stream, fs.createWriteStream(absolutePath));
   }
 
   async exists(location: string, _config: StorageConfig): Promise<boolean> {

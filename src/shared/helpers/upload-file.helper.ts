@@ -1,5 +1,15 @@
 import { FileManagementService } from '../../modules/file-management';
-import { TDynamicContext } from '../types';
+import type { TDynamicContext, UploadedFileInfo } from '../types';
+import { Readable } from 'stream';
+import { createReadStream } from 'fs';
+
+type UploadFileInput = {
+  filename: string;
+  mimetype: string;
+  stream: Readable;
+  signatureBuffer?: Buffer;
+  size: number;
+};
 
 export class UploadFileHelper {
   private readonly fileManagementService: FileManagementService;
@@ -46,6 +56,71 @@ export class UploadFileHelper {
     return buffer;
   }
 
+  private normalizeUploadedFile(file: any): UploadedFileInfo | null {
+    if (!file) return null;
+    if (!file.path) {
+      throw new Error('Invalid uploaded file: path is required');
+    }
+    if (!file.originalname && !file.filename) {
+      throw new Error('Invalid uploaded file: originalname is required');
+    }
+    if (!file.mimetype) {
+      throw new Error('Invalid uploaded file: mimetype is required');
+    }
+    if (typeof file.size !== 'number') {
+      throw new Error('Invalid uploaded file: size is required');
+    }
+    return file;
+  }
+
+  private createUploadInput(options: any): UploadFileInput {
+    const uploadedFile = this.normalizeUploadedFile(options.file);
+    const hasBuffer = options.buffer !== undefined && options.buffer !== null;
+
+    if (uploadedFile && hasBuffer) {
+      throw new Error('Pass either file or buffer to $uploadFile, not both');
+    }
+
+    if (uploadedFile) {
+      const filePath = uploadedFile.path;
+      if (!filePath) {
+        throw new Error('Invalid uploaded file: path is required');
+      }
+      return {
+        filename:
+          options.originalname ||
+          options.filename ||
+          uploadedFile.originalname ||
+          (uploadedFile as any).filename,
+        mimetype: options.mimetype || uploadedFile.mimetype,
+        stream: createReadStream(filePath),
+        size: options.size || uploadedFile.size,
+      };
+    }
+
+    if (!hasBuffer) {
+      throw new Error('Either file or buffer is required for $uploadFile');
+    }
+
+    const buffer = this.normalizeBuffer(options.buffer);
+    if (!Buffer.isBuffer(buffer)) {
+      throw new Error('Invalid buffer format for $uploadFile');
+    }
+    if (!options.originalname && !options.filename) {
+      throw new Error('filename is required for $uploadFile buffer uploads');
+    }
+    if (!options.mimetype) {
+      throw new Error('mimetype is required for $uploadFile buffer uploads');
+    }
+    return {
+      filename: options.originalname || options.filename,
+      mimetype: options.mimetype,
+      stream: Readable.from(buffer),
+      signatureBuffer: buffer,
+      size: options.size || buffer.length,
+    };
+  }
+
   private handleError(error: any, operation: string): never {
     let errorMessage = `Unknown error in $${operation}`;
 
@@ -71,16 +146,11 @@ export class UploadFileHelper {
   createUploadFileHelper(context: TDynamicContext) {
     return async (options: any) => {
       try {
-        const buffer = this.normalizeBuffer(options.buffer);
+        const uploadInput = this.createUploadInput(options);
         const fileRepo = this.getFileRepo(context);
 
         return await this.fileManagementService.uploadFileAndCreateRecord(
-          {
-            filename: options.originalname || options.filename,
-            mimetype: options.mimetype,
-            buffer: buffer,
-            size: options.size,
-          },
+          uploadInput,
           {
             folder: options.folder,
             storageConfig: options.storageConfig,
@@ -108,21 +178,17 @@ export class UploadFileHelper {
           throw new Error(`File with ID ${fileId} not found`);
         }
 
-        if (options.buffer) {
-          const buffer = this.normalizeBuffer(options.buffer);
+        if (options.file || options.buffer) {
+          const uploadInput = this.createUploadInput({
+            filename: currentFile.filename,
+            mimetype: currentFile.mimetype,
+            ...options,
+          });
           return await this.fileManagementService.replaceFileAndUpdateRecord(
             fileRepo,
             fileId,
             currentFile,
-            {
-              filename:
-                options.originalname ||
-                options.filename ||
-                currentFile.filename,
-              mimetype: options.mimetype || currentFile.mimetype,
-              buffer: buffer,
-              size: options.size || buffer.length,
-            },
+            uploadInput,
             {
               folder:
                 options.folder !== undefined

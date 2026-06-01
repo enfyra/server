@@ -1,7 +1,10 @@
+import type { Readable } from 'stream';
+
 export interface FileUploadDto {
   filename: string;
   mimetype: string;
-  buffer: Buffer;
+  stream: Readable;
+  signatureBuffer?: Buffer;
   size: number;
   folder?: any; // Can be ID or object {id: ...}
   title?: string;
@@ -23,7 +26,7 @@ export interface UploadedFileInfo {
   originalname: string;
   mimetype: string;
   encoding: string;
-  buffer: Buffer;
+  path?: string;
   size: number;
   fieldname: string;
 }

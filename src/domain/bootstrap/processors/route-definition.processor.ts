@@ -579,6 +579,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       'icon',
       'description',
       'isSystem',
+      'maxUploadFileSize',
       'mainTable',
       'publishedMethods',
       'skipRoleGuardMethods',
