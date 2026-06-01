@@ -10,28 +10,28 @@
   },
   "method_definition": [
     {
-      "method": "GET",
       "buttonColor": "#dbeafe",
       "textColor": "#1d4ed8",
-      "isSystem": true
+      "isSystem": true,
+      "name": "GET"
     },
     {
-      "method": "POST",
       "buttonColor": "#dcfce7",
       "textColor": "#15803d",
-      "isSystem": true
+      "isSystem": true,
+      "name": "POST"
     },
     {
-      "method": "PATCH",
       "buttonColor": "#fef3c7",
       "textColor": "#b45309",
-      "isSystem": true
+      "isSystem": true,
+      "name": "PATCH"
     },
     {
-      "method": "DELETE",
       "buttonColor": "#fee2e2",
       "textColor": "#b91c1c",
-      "isSystem": true
+      "isSystem": true,
+      "name": "DELETE"
     }
   ],
   "route_definition": [

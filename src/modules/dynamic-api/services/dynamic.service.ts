@@ -64,7 +64,7 @@ export class DynamicService {
       }
 
       const routeHandler = routeData.handlers?.find(
-        (h) => h.method?.method === req.method,
+        (h) => h.method?.name === req.method,
       );
       const timeoutMs = routeHandler?.timeout || undefined;
 

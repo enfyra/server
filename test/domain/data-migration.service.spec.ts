@@ -34,7 +34,7 @@ function makeKnex(methodRows: any[] = []) {
         select: jest.fn().mockReturnThis(),
         whereIn: jest.fn((_field: string, values: string[]) =>
           Promise.resolve(
-            methodRows.filter((method) => values.includes(method.method)),
+            methodRows.filter((method) => values.includes(method.name)),
           ),
         ),
       };
@@ -216,8 +216,8 @@ describe('DataMigrationService.updateRelations', () => {
 
   it('calls update with method IDs when methods are provided', async () => {
     const knexMock = makeKnex([
-      { id: 1, method: 'GET' },
-      { id: 2, method: 'POST' },
+      { id: 1, name: 'GET' },
+      { id: 2, name: 'POST' },
     ]);
     const qb = makeQueryBuilder({
       getKnex: jest.fn(() => knexMock.knex),
@@ -262,7 +262,7 @@ describe('DataMigrationService.updateRelations', () => {
   });
 
   it('handles both publishedMethods and availableMethods in one call', async () => {
-    const knexMock = makeKnex([{ id: 3, method: 'POST' }]);
+    const knexMock = makeKnex([{ id: 3, name: 'POST' }]);
     const qb = makeQueryBuilder({
       getKnex: jest.fn(() => knexMock.knex),
     });

@@ -47,8 +47,8 @@ async function migrate(
 
     console.log(`Found ${routes.length} dynamic routes (excluding built-in)`);
 
-    const methods = await db('method_definition').select('id', 'method');
-    const httpMethods = methods.filter((m: any) => DEFAULT_HANDLERS[m.method]);
+    const methods = await db('method_definition').select('id', 'name');
+    const httpMethods = methods.filter((m: any) => DEFAULT_HANDLERS[m.name]);
 
     let created = 0;
     let skipped = 0;
@@ -64,7 +64,7 @@ async function migrate(
           continue;
         }
 
-        const logic = DEFAULT_HANDLERS[method.method];
+        const logic = DEFAULT_HANDLERS[method.name];
         if (!logic) continue;
 
         await db('route_handler_definition').insert({
@@ -74,7 +74,7 @@ async function migrate(
           timeout: DEFAULT_TIMEOUT,
         });
         created++;
-        console.log(`  + ${route.path} [${method.method}]`);
+        console.log(`  + ${route.path} [${method.name}]`);
       }
     }
 

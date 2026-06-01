@@ -11,7 +11,7 @@ function makeKnex(methodRows: any[] = []) {
         select: jest.fn().mockReturnThis(),
         whereIn: jest.fn((_field: string, values: string[]) =>
           Promise.resolve(
-            methodRows.filter((method) => values.includes(method.method)),
+            methodRows.filter((method) => values.includes(method.name)),
           ),
         ),
       };
@@ -66,8 +66,8 @@ describe('RouteDefinitionProcessor SQL relation writes', () => {
 
   it('strips method relations from route row insert and syncs junction rows', async () => {
     const knex = makeKnex([
-      { id: 1, method: 'GET' },
-      { id: 2, method: 'POST' },
+      { id: 1, name: 'GET' },
+      { id: 2, name: 'POST' },
     ]);
     const queryBuilder = {
       find: jest.fn().mockResolvedValue({ data: [] }),
@@ -114,7 +114,7 @@ describe('RouteDefinitionProcessor SQL relation writes', () => {
   });
 
   it('uses primitive insert result as inserted id', async () => {
-    const knex = makeKnex([{ id: 1, method: 'GET' }]);
+    const knex = makeKnex([{ id: 1, name: 'GET' }]);
     const queryBuilder = {
       find: jest.fn().mockResolvedValue({ data: [] }),
       findOne: jest.fn().mockResolvedValue(null),

@@ -27,7 +27,7 @@ export function routeDetectMiddleware(
       if (!methods || !Array.isArray(methods) || methods.length === 0)
         return false;
       const methodNames = methods
-        .map((m: any) => m?.method ?? m)
+        .map((m: any) => m?.name ?? m)
         .filter(Boolean);
       return methodNames.includes(method);
     };
@@ -150,7 +150,7 @@ export function routeDetectMiddleware(
       const filterHooks = (hooks: any[]) => {
         if (!hooks || !Array.isArray(hooks)) return [];
         return hooks.filter((hook: any) => {
-          const methodList = hook.methods?.map((m: any) => m.method) ?? [];
+          const methodList = hook.methods?.map((m: any) => m.name) ?? [];
           return methodList.includes(method);
         });
       };
@@ -159,7 +159,7 @@ export function routeDetectMiddleware(
       const filteredPostHooks = filterHooks(route.postHooks);
       const routeHandlers = Array.isArray(route.handlers) ? route.handlers : [];
       const handler =
-        routeHandlers.find((handler: any) => handler.method?.method === method)
+        routeHandlers.find((handler: any) => handler.method?.name === method)
           ?.logic ?? null;
 
       req.routeData = {
@@ -171,7 +171,7 @@ export function routeDetectMiddleware(
         postHooks: filteredPostHooks,
         isPublished:
           route.publishedMethods?.some(
-            (pubMethod: any) => pubMethod.method === req.method,
+            (pubMethod: any) => pubMethod.name === req.method,
           ) || false,
         context,
         res,

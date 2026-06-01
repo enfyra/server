@@ -822,7 +822,7 @@ describe('D. RouteCache partial reload logic', () => {
       handlers: [],
       preHooks: [],
       postHooks: [],
-      availableMethods: [{ method: 'GET' }],
+      availableMethods: [{ name: 'GET' }],
     };
   }
 

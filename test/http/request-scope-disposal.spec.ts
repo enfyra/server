@@ -91,8 +91,8 @@ function makeAppContainer(dispose = vi.fn()) {
           route: {
             path,
             route: { path },
-            availableMethods: [{ method: 'GET' }],
-            publishedMethods: [{ method: 'GET' }],
+            availableMethods: [{ name: 'GET' }],
+            publishedMethods: [{ name: 'GET' }],
             handlers: [],
             preHooks: [],
             postHooks: [],
@@ -109,8 +109,8 @@ function makeAppContainer(dispose = vi.fn()) {
             route: {
               path,
               route: { path },
-              availableMethods: [{ method: 'GET' }],
-              publishedMethods: [{ method: 'GET' }],
+              availableMethods: [{ name: 'GET' }],
+              publishedMethods: [{ name: 'GET' }],
               handlers: [],
               preHooks: [],
               postHooks: [],

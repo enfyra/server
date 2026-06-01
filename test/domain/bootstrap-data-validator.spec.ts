@@ -26,7 +26,7 @@ describe('validateBootstrapDataFiles', () => {
         route_definition: {},
       },
       defaultData: {
-        method_definition: [{ method: 'GET' }],
+        method_definition: [{ name: 'GET' }],
         route_definition: [
           {
             path: '/bad',
@@ -58,7 +58,7 @@ describe('validateBootstrapDataFiles', () => {
         known_table: {},
       },
       defaultData: {
-        method_definition: [{ method: 'GET' }],
+        method_definition: [{ name: 'GET' }],
         route_definition: [{ path: '/ok', availableMethods: ['GET'] }],
         menu_definition: [
           {

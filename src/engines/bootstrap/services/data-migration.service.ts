@@ -348,7 +348,7 @@ export class DataMigrationService {
       const idField = DatabaseConfigService.getPkField();
       const result = await this.queryBuilderService.find({
         table: 'method_definition',
-        filter: { method: { _in: methodNames } },
+        filter: { name: { _in: methodNames } },
         fields: [idField],
       });
       return result.data.map((m: any) => m._id || m.id).filter(Boolean);
@@ -356,8 +356,8 @@ export class DataMigrationService {
 
     const rows = await this.queryBuilderService
       .getKnex()('method_definition')
-      .select('id', 'method')
-      .whereIn('method', methodNames);
+      .select('id', 'name')
+      .whereIn('name', methodNames);
     return rows.map((m: any) => m.id).filter(Boolean);
   }
 
@@ -467,9 +467,6 @@ export class DataMigrationService {
     }
     if (record.name) {
       return { name: { _eq: record.name } };
-    }
-    if (record.method) {
-      return { method: { _eq: record.method } };
     }
     if (record.label && record.type) {
       return {

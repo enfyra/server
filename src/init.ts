@@ -63,9 +63,6 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
       await c.firstRunInitializer.run();
     }
   });
-  await runInitStep('schemaHealingService.repairSystemMetadataFromSnapshot', () =>
-    c.schemaHealingService?.repairSystemMetadataFromSnapshot?.(),
-  );
 
   await runInitStep('cacheOrchestratorService.init', () =>
     c.cacheOrchestratorService?.init?.(),

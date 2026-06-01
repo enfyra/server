@@ -93,8 +93,8 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
           if (isMongoDB) {
             const result = await this.queryBuilderService.find({
               table: 'method_definition',
-              filter: { method: { _in: hook.methods } },
-              fields: ['_id', 'method'],
+              filter: { name: { _in: hook.methods } },
+              fields: ['_id', 'name'],
             });
             const methods = result.data;
             transformedHook.methods = methods.map((m: any) =>
@@ -137,8 +137,8 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
       if (hookId === undefined || hookId === null) return;
       const methods = await this.queryBuilderService
         .getKnex()('method_definition')
-        .select('id', 'method')
-        .whereIn('method', methodNames);
+        .select('id', 'name')
+        .whereIn('name', methodNames);
       const methodIds = methods
         .map((m: any) => m.id)
         .filter((id: any) => id !== undefined && id !== null);
@@ -199,7 +199,7 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
     let methodsStr = '';
     if (methods && Array.isArray(methods)) {
       methodsStr = methods
-        .map((m) => (typeof m === 'string' ? m : m.method))
+        .map((m) => (typeof m === 'string' ? m : m.name))
         .join(', ');
     }
     return `[Pre-Hook] ${record.name}${routeStr ? ` on ${routeStr}` : ''}${methodsStr ? ` (${methodsStr})` : ''}`;

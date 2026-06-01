@@ -95,8 +95,8 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
           if (isMongoDB) {
             const result = await this.queryBuilderService.find({
               table: 'method_definition',
-              filter: { method: { _in: hook.methods } },
-              fields: ['_id', 'method'],
+              filter: { name: { _in: hook.methods } },
+              fields: ['_id', 'name'],
             });
             const methods = result.data;
             transformedHook.methods = methods.map((m: any) =>
@@ -129,8 +129,8 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
       const methodNames = record._methods;
       const result = await this.queryBuilderService.find({
         table: 'method_definition',
-        filter: { method: { _in: methodNames } },
-        fields: ['id', 'method'],
+        filter: { name: { _in: methodNames } },
+        fields: ['id', 'name'],
       });
       const methods = result.data;
       const methodIds = methods.map((m: any) => m.id);
@@ -181,7 +181,7 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
     let methodsStr = '';
     if (methods && Array.isArray(methods)) {
       methodsStr = methods
-        .map((m) => (typeof m === 'string' ? m : m.method))
+        .map((m) => (typeof m === 'string' ? m : m.name))
         .join(', ');
     }
     return `[Hook] ${record.name}${routeStr ? ` on ${routeStr}` : ''}${methodsStr ? ` (${methodsStr})` : ''}`;

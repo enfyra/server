@@ -69,7 +69,7 @@ describe('admin test run', () => {
             handlers: [
               {
                 id: 10,
-                method: { method: 'POST' },
+                method: { name: 'POST' },
                 sourceCode:
                   'return { table: $ctx.$repos.main.table, value: $ctx.$body.value, method: $ctx.$req.method };',
                 scriptLanguage: 'typescript',
