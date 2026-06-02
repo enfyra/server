@@ -26,9 +26,7 @@ export function routeDetectMiddleware(
       const methods = route?.availableMethods;
       if (!methods || !Array.isArray(methods) || methods.length === 0)
         return false;
-      const methodNames = methods
-        .map((m: any) => m?.name ?? m)
-        .filter(Boolean);
+      const methodNames = methods.map((m: any) => m?.name ?? m).filter(Boolean);
       return methodNames.includes(method);
     };
 
@@ -135,14 +133,9 @@ export function routeDetectMiddleware(
         flowService.trigger(flowIdOrName, payload, req.user);
 
       try {
-        context.$helpers.$uploadFile =
-          uploadFileHelper.createUploadFileHelper(context);
-        context.$helpers.$updateFile =
-          uploadFileHelper.createUpdateFileHelper(context);
-        context.$helpers.$deleteFile =
-          uploadFileHelper.createDeleteFileHelper(context);
+        context.$storage = uploadFileHelper.createStorageHelper(context);
       } catch (error) {
-        console.warn('Failed to initialize file helpers:', error);
+        console.warn('Failed to initialize storage helpers:', error);
       }
 
       const { route, params } = matchedRoute;

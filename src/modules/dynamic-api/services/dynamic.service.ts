@@ -12,6 +12,65 @@ import {
 } from '../../../shared/utils/error.util';
 import { ExecutorEngineService } from '@enfyra/kernel';
 import { RequestWithRouteData } from '../../../shared/types';
+import { Readable } from 'stream';
+
+export function attachStreamResponseHelper(res: any): void {
+  if (!res || res.stream) return;
+  res.stream = (
+    stream: NodeJS.ReadableStream,
+    options?: {
+      statusCode?: number;
+      mimetype?: string;
+      filename?: string;
+      headers?: Record<
+        string,
+        string | number | readonly string[] | undefined | null
+      >;
+    },
+  ) => {
+    const readable =
+      stream && typeof stream.pipe === 'function'
+        ? stream
+        : stream && typeof (Readable as any).fromWeb === 'function'
+          ? (Readable as any).fromWeb(stream)
+          : null;
+    if (!readable || typeof readable.pipe !== 'function') {
+      throw new Error('@RES.stream requires a readable stream');
+    }
+    for (const [key, value] of Object.entries(options?.headers ?? {})) {
+      if (value !== undefined && value !== null) {
+        res.setHeader(key, value);
+      }
+    }
+    if (options?.mimetype) res.setHeader('Content-Type', options.mimetype);
+    if (options?.filename) {
+      const safeFilename = String(options.filename).replace(/["\r\n]/g, '_');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${safeFilename}"`,
+      );
+    }
+    res.status(options?.statusCode || 200);
+    res.__enfyraStreamStarted = true;
+    readable.on('error', (error: Error) => {
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          message: 'Stream failed',
+          statusCode: 500,
+          error: {
+            code: 'STREAM_FAILED',
+            message: error.message,
+            timestamp: new Date().toISOString(),
+          },
+        });
+      } else {
+        res.destroy(error);
+      }
+    });
+    readable.pipe(res);
+  };
+}
 
 export class DynamicService {
   private readonly logger = new Logger(DynamicService.name);
@@ -44,6 +103,7 @@ export class DynamicService {
 
       const res = routeData.res;
       if (res) {
+        attachStreamResponseHelper(res);
         routeData.context.$res = res;
       }
 

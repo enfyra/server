@@ -1,10 +1,12 @@
 import { EventEmitter } from 'node:events';
 import { createServer, type Server } from 'node:http';
+import { Readable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildExpressApp,
   disposeRequestScopeOnResponse,
 } from '../../src/express-app';
+import { attachStreamResponseHelper } from '../../src/modules/dynamic-api/services/dynamic.service';
 
 function makeReqRes(dispose = vi.fn()) {
   const res = new EventEmitter();
@@ -83,7 +85,7 @@ function makeAppContainer(dispose = vi.fn()) {
     },
     routeCacheService: {
       matchRoute: async (method: string, path: string) => {
-        if (method !== 'GET' || !['/ok', '/boom'].includes(path)) {
+        if (method !== 'GET' || !['/ok', '/boom', '/stream'].includes(path)) {
           return null;
         }
         return {
@@ -101,7 +103,7 @@ function makeAppContainer(dispose = vi.fn()) {
       },
       getRouteEngine: () => ({
         find: (method: string, path: string) => {
-          if (method !== 'GET' || !['/ok', '/boom'].includes(path)) {
+          if (method !== 'GET' || !['/ok', '/boom', '/stream'].includes(path)) {
             return null;
           }
           return {
@@ -123,9 +125,7 @@ function makeAppContainer(dispose = vi.fn()) {
       createReposProxy: vi.fn(() => ({})),
     },
     uploadFileHelper: {
-      createUploadFileHelper: vi.fn(),
-      createUpdateFileHelper: vi.fn(),
-      createDeleteFileHelper: vi.fn(),
+      createStorageHelper: vi.fn(() => ({})),
     },
     rateLimitService: {
       check: vi.fn(),
@@ -168,13 +168,23 @@ function makeAppContainer(dispose = vi.fn()) {
         if (req.path === '/boom') {
           throw new Error('pipeline failure');
         }
+        if (req.path === '/stream') {
+          attachStreamResponseHelper(req.routeData.res);
+          req.routeData.context.$res = req.routeData.res;
+          req.routeData.context.$res.stream(Readable.from(['backup-stream']), {
+            mimetype: 'application/sql',
+            filename: 'backup.sql',
+            headers: {
+              'X-Backup': 'yes',
+            },
+          });
+          return undefined;
+        }
         return { success: true };
       }),
     },
     graphqlService: {
-      getYogaApp: vi.fn(
-        () => (_req: any, _res: any, next: any) => next(),
-      ),
+      getYogaApp: vi.fn(() => (_req: any, _res: any, next: any) => next()),
     },
   };
 
@@ -230,5 +240,25 @@ describe('request scope disposal through the Express pipeline', () => {
     });
 
     expect(() => buildExpressApp(container)).toThrow('schema missing');
+  });
+
+  it('streams dynamic handler responses without JSON wrapping', async () => {
+    const { container, dispose } = makeAppContainer();
+    const server = createServer(buildExpressApp(container));
+    const baseUrl = await listen(server);
+
+    try {
+      const response = await fetch(`${baseUrl}/stream`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('application/sql');
+      expect(response.headers.get('content-disposition')).toBe(
+        'attachment; filename="backup.sql"',
+      );
+      expect(await response.text()).toBe('backup-stream');
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(dispose).toHaveBeenCalledTimes(1);
+    } finally {
+      await close(server);
+    }
   });
 });

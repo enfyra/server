@@ -33,6 +33,9 @@ export function registerDynamicRoutes(
     const dynamicService =
       req.scope?.cradle?.dynamicService ?? container.cradle.dynamicService;
     const result = await dynamicService.runHandler(req);
+    if (res.headersSent || (res as any).__enfyraStreamStarted) {
+      return;
+    }
     const logs = req.routeData?.context?.$share?.$logs;
     let response = result;
     if (logs?.length) {

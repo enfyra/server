@@ -4,6 +4,7 @@ import { TDynamicContext } from '../types';
 import { BcryptService } from '../../domain/auth';
 import { UserCacheService } from '../../engines/cache';
 import { createCryptoHelper, createFetchHelper } from '../helpers';
+import { UploadFileHelper } from '../helpers/upload-file.helper';
 import { autoSlug } from '../utils/auto-slug.helper';
 import { ScriptErrorFactory } from '../utils/script-error-factory';
 import { EnvService } from './env.service';
@@ -25,6 +26,7 @@ type DynamicContextOptions = {
   req?: TDynamicContext['$req'];
   share?: TDynamicContext['$share'];
   socket?: TDynamicContext['$socket'];
+  storage?: TDynamicContext['$storage'];
   apiRequest?: NonNullable<TDynamicContext['$api']>['request'];
   uploadedFile?: TDynamicContext['$uploadedFile'];
 };
@@ -42,21 +44,26 @@ export class DynamicContextFactory {
   private readonly userCacheService: UserCacheService;
   private readonly envService: EnvService;
   private readonly websocketContextFactory: WebsocketContextFactory;
+  private readonly uploadFileHelper?: UploadFileHelper;
 
   constructor(deps: {
     bcryptService: BcryptService;
     userCacheService: UserCacheService;
     envService: EnvService;
     websocketContextFactory: WebsocketContextFactory;
+    uploadFileHelper?: UploadFileHelper;
   }) {
     this.bcryptService = deps.bcryptService;
     this.userCacheService = deps.userCacheService;
     this.envService = deps.envService;
     this.websocketContextFactory = deps.websocketContextFactory;
+    this.uploadFileHelper = deps.uploadFileHelper;
   }
 
   createBase(options: DynamicContextOptions = {}): TDynamicContext {
-    const cache = this.createCacheFacade(options.cache ?? this.userCacheService);
+    const cache = this.createCacheFacade(
+      options.cache ?? this.userCacheService,
+    );
     const ctx: TDynamicContext = {
       $body: options.body ?? {},
       $data: options.data,
@@ -72,9 +79,14 @@ export class DynamicContextFactory {
       $req: options.req,
       $share: options.share ?? { $logs: [] },
       $socket: options.socket,
+      $storage: options.storage,
       $api: options.apiRequest ? { request: options.apiRequest } : undefined,
       $uploadedFile: options.uploadedFile,
     };
+
+    if (!ctx.$storage && this.uploadFileHelper) {
+      ctx.$storage = this.uploadFileHelper.createStorageHelper(ctx);
+    }
 
     ctx.$logs = (...args: any[]) => {
       if (!ctx.$share) ctx.$share = { $logs: [] };
@@ -130,9 +142,7 @@ export class DynamicContextFactory {
       exists: cache.exists
         ? (key, value) => cache.exists!(key, value)
         : undefined,
-      deleteKey: cache.deleteKey
-        ? (key) => cache.deleteKey!(key)
-        : undefined,
+      deleteKey: cache.deleteKey ? (key) => cache.deleteKey!(key) : undefined,
       setNoExpire: cache.setNoExpire
         ? (key, value) => cache.setNoExpire!(key, value)
         : undefined,
@@ -223,7 +233,8 @@ export class DynamicContextFactory {
       body: options.payload || {},
       user: options.user ?? null,
       share: options.share,
-      socket: options.socket ?? this.websocketContextFactory.createGlobalProxy(),
+      socket:
+        options.socket ?? this.websocketContextFactory.createGlobalProxy(),
     });
   }
 

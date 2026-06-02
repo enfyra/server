@@ -11,6 +11,14 @@ type UploadFileInput = {
   size: number;
 };
 
+type RegisterFileInput = {
+  filename: string;
+  mimetype: string;
+  location: string;
+  size: number;
+  type?: string;
+};
+
 export class UploadFileHelper {
   private readonly fileManagementService: FileManagementService;
   constructor(deps: { fileManagementService: FileManagementService }) {
@@ -78,7 +86,9 @@ export class UploadFileHelper {
     const hasBuffer = options.buffer !== undefined && options.buffer !== null;
 
     if (uploadedFile && hasBuffer) {
-      throw new Error('Pass either file or buffer to $uploadFile, not both');
+      throw new Error(
+        'Pass either file or buffer to $storage.$upload, not both',
+      );
     }
 
     if (uploadedFile) {
@@ -99,18 +109,22 @@ export class UploadFileHelper {
     }
 
     if (!hasBuffer) {
-      throw new Error('Either file or buffer is required for $uploadFile');
+      throw new Error('Either file or buffer is required for $storage.$upload');
     }
 
     const buffer = this.normalizeBuffer(options.buffer);
     if (!Buffer.isBuffer(buffer)) {
-      throw new Error('Invalid buffer format for $uploadFile');
+      throw new Error('Invalid buffer format for $storage.$upload');
     }
     if (!options.originalname && !options.filename) {
-      throw new Error('filename is required for $uploadFile buffer uploads');
+      throw new Error(
+        'filename is required for $storage.$upload buffer uploads',
+      );
     }
     if (!options.mimetype) {
-      throw new Error('mimetype is required for $uploadFile buffer uploads');
+      throw new Error(
+        'mimetype is required for $storage.$upload buffer uploads',
+      );
     }
     return {
       filename: options.originalname || options.filename,
@@ -118,6 +132,37 @@ export class UploadFileHelper {
       stream: Readable.from(buffer),
       signatureBuffer: buffer,
       size: options.size || buffer.length,
+    };
+  }
+
+  private createRegisterFileInput(options: any): RegisterFileInput {
+    const filename = options.originalname || options.filename;
+    const size = options.size ?? options.filesize;
+
+    if (!filename || typeof filename !== 'string') {
+      throw new Error('filename is required for $storage.$registerFile');
+    }
+    if (!options.mimetype || typeof options.mimetype !== 'string') {
+      throw new Error('mimetype is required for $storage.$registerFile');
+    }
+    if (!options.location || typeof options.location !== 'string') {
+      throw new Error('location is required for $storage.$registerFile');
+    }
+    if (!Number.isFinite(Number(size)) || Number(size) < 0) {
+      throw new Error(
+        'size must be a non-negative number for $storage.$registerFile',
+      );
+    }
+    if (!options.storageConfig) {
+      throw new Error('storageConfig is required for $storage.$registerFile');
+    }
+
+    return {
+      filename,
+      mimetype: options.mimetype,
+      location: options.location,
+      size: Number(size),
+      type: options.type,
     };
   }
 
@@ -143,7 +188,16 @@ export class UploadFileHelper {
     throw uploadError;
   }
 
-  createUploadFileHelper(context: TDynamicContext) {
+  createStorageHelper(context: TDynamicContext) {
+    return {
+      $upload: this.createUpload(context),
+      $update: this.createUpdate(context),
+      $delete: this.createDelete(context),
+      $registerFile: this.createRegisterFile(context),
+    };
+  }
+
+  private createUpload(context: TDynamicContext) {
     return async (options: any) => {
       try {
         const uploadInput = this.createUploadInput(options);
@@ -161,12 +215,12 @@ export class UploadFileHelper {
           fileRepo,
         );
       } catch (error: any) {
-        this.handleError(error, 'uploadFile');
+        this.handleError(error, 'storage.$upload');
       }
     };
   }
 
-  createUpdateFileHelper(context: TDynamicContext) {
+  private createUpdate(context: TDynamicContext) {
     return async (fileId: string | number, options: any) => {
       try {
         const fileRepo = this.getFileRepo(context);
@@ -217,12 +271,12 @@ export class UploadFileHelper {
           },
         );
       } catch (error: any) {
-        this.handleError(error, 'updateFile');
+        this.handleError(error, 'storage.$update');
       }
     };
   }
 
-  createDeleteFileHelper(context: TDynamicContext) {
+  private createDelete(context: TDynamicContext) {
     return async (fileId: string | number) => {
       try {
         const fileRepo = this.getFileRepo(context);
@@ -240,7 +294,31 @@ export class UploadFileHelper {
           file,
         );
       } catch (error: any) {
-        this.handleError(error, 'deleteFile');
+        this.handleError(error, 'storage.$delete');
+      }
+    };
+  }
+
+  private createRegisterFile(context: TDynamicContext) {
+    return async (options: any) => {
+      try {
+        const fileInput = this.createRegisterFileInput(options);
+        const fileRepo = this.getFileRepo(context);
+
+        return await this.fileManagementService.registerExternalFileRecord(
+          fileInput,
+          {
+            folder: options.folder,
+            storageConfig: options.storageConfig,
+            title: options.title,
+            description: options.description,
+            userId: context.$user?.id,
+            verifyExists: options.verifyExists,
+          },
+          fileRepo,
+        );
+      } catch (error: any) {
+        this.handleError(error, 'storage.$registerFile');
       }
     };
   }

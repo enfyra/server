@@ -2,6 +2,7 @@ const TEMPLATE_MAPPINGS: Record<string, string> = {
   '@CACHE': '$ctx.$cache',
   '@REPOS': '$ctx.$repos',
   '@HELPERS': '$ctx.$helpers',
+  '@STORAGE': '$ctx.$storage',
   '@FETCH': '$ctx.$helpers.$fetch',
   '@LOGS': '$ctx.$logs',
   '@BODY': '$ctx.$body',
