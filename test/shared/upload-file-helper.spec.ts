@@ -44,7 +44,7 @@ describe('UploadFileHelper', () => {
     });
 
     try {
-      const uploadFile = helper.createUploadFileHelper(makeContext());
+      const uploadFile = helper.createStorageHelper(makeContext()).$upload;
 
       await uploadFile({
         file: {
@@ -101,7 +101,7 @@ describe('UploadFileHelper', () => {
     });
 
     try {
-      const uploadFile = helper.createUploadFileHelper(makeContext());
+      const uploadFile = helper.createStorageHelper(makeContext()).$upload;
 
       await uploadFile({
         file: {
@@ -135,7 +135,7 @@ describe('UploadFileHelper', () => {
     const helper = new UploadFileHelper({
       fileManagementService: fileManagementService as any,
     });
-    const uploadFile = helper.createUploadFileHelper(makeContext());
+    const uploadFile = helper.createStorageHelper(makeContext()).$upload;
 
     await uploadFile({
       filename: 'generated.txt',
@@ -163,7 +163,7 @@ describe('UploadFileHelper', () => {
         uploadFileAndCreateRecord: vi.fn(),
       } as any,
     });
-    const uploadFile = helper.createUploadFileHelper(makeContext());
+    const uploadFile = helper.createStorageHelper(makeContext()).$upload;
 
     await expect(
       uploadFile({
@@ -179,6 +179,45 @@ describe('UploadFileHelper', () => {
         mimetype: 'text/plain',
         buffer: Buffer.from('generated file'),
       }),
-    ).rejects.toThrow('Pass either file or buffer to $uploadFile, not both');
+    ).rejects.toThrow(
+      'Pass either file or buffer to $storage.$upload, not both',
+    );
+  });
+
+  it('registers an already-uploaded storage object without uploading bytes', async () => {
+    const fileManagementService = {
+      registerExternalFileRecord: vi.fn(async () => ({ data: [{ id: 12 }] })),
+    };
+    const helper = new UploadFileHelper({
+      fileManagementService: fileManagementService as any,
+    });
+
+    const result = await helper
+      .createStorageHelper(makeContext())
+      .$registerFile({
+        filename: 'backup.sql.gz',
+        mimetype: 'application/gzip',
+        location: 'backups/project-1/backup.sql.gz',
+        size: 1024,
+        storageConfig: 7,
+        verifyExists: true,
+      });
+
+    expect(result).toEqual({ data: [{ id: 12 }] });
+    expect(
+      fileManagementService.registerExternalFileRecord,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filename: 'backup.sql.gz',
+        mimetype: 'application/gzip',
+        location: 'backups/project-1/backup.sql.gz',
+        size: 1024,
+      }),
+      expect.objectContaining({
+        storageConfig: 7,
+        verifyExists: true,
+      }),
+      expect.anything(),
+    );
   });
 });

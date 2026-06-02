@@ -45,7 +45,12 @@ export interface TDynamicContext {
     };
     autoSlug?: (text: string) => string;
     $rateLimit?: RateLimitHelper;
-    $uploadFile?: (options: {
+    $fetch?: FetchHelper;
+    $sleep?: (ms: number) => Promise<void>;
+    $crypto?: CryptoHelper;
+  };
+  $storage?: {
+    $upload?: (options: {
       file?: UploadedFileInfo;
       originalname?: string;
       filename?: string;
@@ -58,7 +63,7 @@ export interface TDynamicContext {
       title?: string;
       description?: string;
     }) => Promise<any>;
-    $updateFile?: (
+    $update?: (
       fileId: string | number,
       options: {
         file?: UploadedFileInfo;
@@ -73,10 +78,21 @@ export interface TDynamicContext {
         description?: string;
       },
     ) => Promise<any>;
-    $deleteFile?: (fileId: string | number) => Promise<any>;
-    $fetch?: FetchHelper;
-    $sleep?: (ms: number) => Promise<void>;
-    $crypto?: CryptoHelper;
+    $delete?: (fileId: string | number) => Promise<any>;
+    $registerFile?: (options: {
+      filename?: string;
+      originalname?: string;
+      mimetype: string;
+      location: string;
+      size?: number;
+      filesize?: number;
+      type?: string;
+      folder?: number | string | { id: number | string };
+      storageConfig: number | string | { id: number | string };
+      title?: string;
+      description?: string;
+      verifyExists?: boolean;
+    }) => Promise<any>;
   };
   $cache: {
     acquire?: (key: string, value: any, ttlMs: number) => Promise<boolean>;
@@ -93,7 +109,20 @@ export interface TDynamicContext {
   $user?: any;
   $repos: Record<string, any>;
   $req?: Request;
-  $res?: Response;
+  $res?: Response & {
+    stream?: (
+      stream: NodeJS.ReadableStream | ReadableStream,
+      options?: {
+        statusCode?: number;
+        mimetype?: string;
+        filename?: string;
+        headers?: Record<
+          string,
+          string | number | readonly string[] | undefined | null
+        >;
+      },
+    ) => void;
+  };
   $share: {
     $logs: any[];
   };

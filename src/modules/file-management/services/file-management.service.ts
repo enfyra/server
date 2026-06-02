@@ -298,6 +298,83 @@ export class FileManagementService {
     }
   }
 
+  async registerExternalFileRecord(
+    fileData: {
+      filename: string;
+      mimetype: string;
+      location: string;
+      size: number;
+      type?: string;
+    },
+    options: {
+      folder?: number | string | { id: number | string };
+      storageConfig: number | string | { id: number | string };
+      title?: string;
+      description?: string;
+      userId?: number | string;
+      verifyExists?: boolean;
+    },
+    fileRepo: any,
+  ): Promise<any> {
+    const storageConfigId = this.getEntityId(options.storageConfig);
+    if (!storageConfigId) {
+      throw new BadRequestException('storageConfig is required');
+    }
+
+    if (!fileData.location || typeof fileData.location !== 'string') {
+      throw new BadRequestException('location is required');
+    }
+
+    if (!fileData.filename || typeof fileData.filename !== 'string') {
+      throw new BadRequestException('filename is required');
+    }
+
+    if (!fileData.mimetype || typeof fileData.mimetype !== 'string') {
+      throw new BadRequestException('mimetype is required');
+    }
+
+    if (!Number.isFinite(fileData.size) || fileData.size < 0) {
+      throw new BadRequestException('size must be a non-negative number');
+    }
+
+    const storageConfig = await this.getStorageConfigById(storageConfigId);
+    const storageService =
+      this.storageFactoryService.getStorageServiceByConfig(storageConfig);
+
+    if (options.verifyExists !== false) {
+      const exists = await storageService.exists(
+        fileData.location,
+        storageConfig,
+      );
+      if (!exists) {
+        throw new BadRequestException(
+          `Storage object not found: ${fileData.location}`,
+        );
+      }
+    }
+
+    const folderData =
+      options.folder !== undefined
+        ? this.normalizeRelationValue(options.folder)
+        : null;
+
+    return fileRepo.create({
+      data: {
+        filename: fileData.filename,
+        mimetype: fileData.mimetype,
+        type: fileData.type || this.getFileType(fileData.mimetype),
+        filesize: fileData.size,
+        location: fileData.location,
+        description: options.description || null,
+        folder: folderData,
+        uploadedBy: options.userId
+          ? this.createIdReference(options.userId)
+          : null,
+        storageConfig: this.createIdReference(storageConfigId),
+      },
+    });
+  }
+
   async replaceFileAndUpdateRecord(
     fileRepo: any,
     id: number | string,

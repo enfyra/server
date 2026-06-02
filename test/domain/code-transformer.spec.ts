@@ -53,6 +53,12 @@ describe('transformCode', () => {
     );
   });
 
+  it('expands @STORAGE to dynamic storage helpers', () => {
+    expect(
+      transformCode('return @STORAGE.$upload({ file: @UPLOADED_FILE });'),
+    ).toBe('return $ctx.$storage.$upload({ file: $ctx.$uploadedFile });');
+  });
+
   it('does not expand inside line comment', () => {
     expect(transformCode('// @BODY')).toBe('// @BODY');
   });
@@ -80,9 +86,7 @@ describe('transformCode', () => {
   it('expands secure repository shorthand through property access', () => {
     expect(
       transformCode('return await #secure.projects.find({ limit: 1 });'),
-    ).toBe(
-      'return await $ctx.$repos.secure.projects.find({ limit: 1 });',
-    );
+    ).toBe('return await $ctx.$repos.secure.projects.find({ limit: 1 });');
   });
 
   it('keeps template syntax behavior outside the kernel package', () => {

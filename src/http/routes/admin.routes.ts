@@ -11,11 +11,16 @@ function resolveOrchestrator(req: any, container: AwilixContainer<Cradle>) {
 }
 
 function resolveRedisAdmin(req: any, container: AwilixContainer<Cradle>) {
-  return req.scope?.cradle?.redisAdminService ?? container.cradle.redisAdminService;
+  return (
+    req.scope?.cradle?.redisAdminService ?? container.cradle.redisAdminService
+  );
 }
 
 function resolveRuntimeMonitor(req: any, container: AwilixContainer<Cradle>) {
-  return req.scope?.cradle?.runtimeMonitorService ?? container.cradle.runtimeMonitorService;
+  return (
+    req.scope?.cradle?.runtimeMonitorService ??
+    container.cradle.runtimeMonitorService
+  );
 }
 
 function startReload(
@@ -46,8 +51,9 @@ export function registerAdminRoutes(
     const scriptLanguage = body.scriptLanguage ?? 'typescript';
     try {
       const compiledCode = compileScriptSource(sourceCode, scriptLanguage);
-      const AsyncFunction = Object.getPrototypeOf(async function () {})
-        .constructor;
+      const AsyncFunction = Object.getPrototypeOf(
+        async function () {},
+      ).constructor;
       new AsyncFunction('$ctx', compiledCode || '');
       res.json({
         success: true,
@@ -427,9 +433,12 @@ async function runTest(body: any, cradle: any, currentUser: any = null) {
 
 async function resolveScriptTest(body: any, cradle: any) {
   const tableName = String(body?.tableName || body?.table || '').trim();
-  const recordId = body?.id ?? body?.recordId ?? body?.handlerId ?? body?.hookId;
+  const recordId =
+    body?.id ?? body?.recordId ?? body?.handlerId ?? body?.hookId;
   const routeId = body?.routeId ?? body?.route?.id;
-  const method = String(body?.method || '').trim().toUpperCase();
+  const method = String(body?.method || '')
+    .trim()
+    .toUpperCase();
 
   let record: any = null;
   let route: any = null;
@@ -538,7 +547,8 @@ function findRouteScriptRecord(options: {
   method?: string;
 }) {
   const { body, route, tableName, method } = options;
-  const recordId = body?.id ?? body?.recordId ?? body?.handlerId ?? body?.hookId;
+  const recordId =
+    body?.id ?? body?.recordId ?? body?.handlerId ?? body?.hookId;
   const source = String(tableName || body?.source || body?.target || '').trim();
 
   const pools =
@@ -590,7 +600,9 @@ function createHttpLikeTestContext(options: {
   const { body, cradle, currentUser, route } = options;
   const dynamicContextFactory = cradle.dynamicContextFactory;
   const method = String(body?.method || 'POST').toUpperCase();
-  const path = String(body?.path || body?.routePath || route?.path || '/__test__');
+  const path = String(
+    body?.path || body?.routePath || route?.path || '/__test__',
+  );
   const requestBody = body?.body ?? body?.payload ?? {};
   const query = body?.query ?? {};
   const params = body?.params ?? {};
@@ -616,15 +628,6 @@ function createHttpLikeTestContext(options: {
   ctx.$statusCode = body?.statusCode;
   ctx.$trigger = (flowIdOrName: string | number, payload?: any) =>
     cradle.flowService.trigger(flowIdOrName, payload, req.user);
-
-  if (cradle.uploadFileHelper) {
-    ctx.$helpers.$uploadFile =
-      cradle.uploadFileHelper.createUploadFileHelper(ctx);
-    ctx.$helpers.$updateFile =
-      cradle.uploadFileHelper.createUpdateFileHelper(ctx);
-    ctx.$helpers.$deleteFile =
-      cradle.uploadFileHelper.createDeleteFileHelper(ctx);
-  }
 
   return ctx;
 }
