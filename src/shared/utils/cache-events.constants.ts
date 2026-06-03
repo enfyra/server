@@ -29,6 +29,8 @@ export const CACHE_IDENTIFIERS = {
   FLOW: 'flow',
   GUARD: 'guard',
   SETTING: 'setting',
+  MENU: 'menu',
+  EXTENSION: 'extension',
   FIELD_PERMISSION: 'field-permission',
   COLUMN_RULE: 'column-rule',
 } as const;
@@ -77,6 +79,8 @@ export const CACHE_INVALIDATION_MAP: Record<string, CacheIdentifier[]> = {
   guard_definition: [CACHE_IDENTIFIERS.GUARD],
   guard_rule_definition: [CACHE_IDENTIFIERS.GUARD],
   setting_definition: [CACHE_IDENTIFIERS.SETTING],
+  menu_definition: [CACHE_IDENTIFIERS.MENU, CACHE_IDENTIFIERS.EXTENSION],
+  extension_definition: [CACHE_IDENTIFIERS.EXTENSION],
   gql_definition: [CACHE_IDENTIFIERS.GRAPHQL],
 };
 
