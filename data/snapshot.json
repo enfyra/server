@@ -481,7 +481,7 @@
   },
   "extension_definition": {
     "name": "extension_definition",
-    "description": "Stores custom UI extensions (pages and widgets) written in React/Vue",
+    "description": "Stores custom UI extensions (pages, widgets, and global shell extensions) written in Vue",
     "isSystem": true,
     "uniques": [
       [
@@ -490,7 +490,7 @@
     ],
     "columns": [
       { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
-      { "name": "type", "type": "enum", "options": ["page", "widget"], "isNullable": false, "isSystem": true, "defaultValue": "page", "description": "Type of extension (full page or embeddable widget)" },
+      { "name": "type", "type": "enum", "options": ["page", "widget", "global"], "isNullable": false, "isSystem": true, "defaultValue": "page", "description": "Type of extension (full page, embeddable widget, or global shell extension)" },
       { "name": "name", "type": "varchar", "isNullable": false, "isSystem": true, "isGenerated": false, "description": "Human-readable name for the extension" },
       { "name": "extensionId", "type": "varchar", "isNullable": false, "isSystem": true, "isGenerated": true, "description": "Unique identifier for the extension (auto-generated)" },
       { "name": "version", "type": "varchar", "isNullable": false, "isSystem": true, "defaultValue": "1.0.0", "description": "Version number of the extension" },

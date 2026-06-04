@@ -898,6 +898,30 @@
           {
             "table": {
               "name": {
+                "_eq": "extension_definition"
+              }
+            }
+          },
+          {
+            "name": {
+              "_eq": "type"
+            }
+          }
+        ]
+      },
+      "options": [
+        "page",
+        "widget",
+        "global"
+      ],
+      "description": "Type of extension (full page, embeddable widget, or global shell extension)"
+    },
+    {
+      "_unique": {
+        "_and": [
+          {
+            "table": {
+              "name": {
                 "_eq": "folder_definition"
               }
             }
