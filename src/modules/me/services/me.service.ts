@@ -16,10 +16,7 @@ export class MeService {
     this.dynamicContextFactory = deps.dynamicContextFactory;
   }
 
-  private getSecureRepo(req: Request & { routeData?: any }, tableName: string) {
-    const existing = req.routeData?.context?.$repos?.secure?.[tableName];
-    if (existing) return existing;
-
+  private getRepoContext(req: Request & { routeData?: any }) {
     const context =
       req.routeData?.context ||
       this.dynamicContextFactory.createHttp(req, {
@@ -32,12 +29,22 @@ export class MeService {
       context,
     };
 
+    return context;
+  }
+
+  private getSecureRepo(req: Request & { routeData?: any }, tableName: string) {
+    const context = this.getRepoContext(req);
     return context.$repos?.secure?.[tableName];
+  }
+
+  private getTrustedRepo(req: Request & { routeData?: any }, tableName: string) {
+    const context = this.getRepoContext(req);
+    return context.$repos?.[tableName];
   }
 
   async find(req: Request & { user: any; routeData?: any }) {
     if (!req.user) throw new UnauthorizedException();
-    const repo = this.getSecureRepo(req, 'user_definition');
+    const repo = this.getTrustedRepo(req, 'user_definition');
     if (!repo) {
       throw new Error('Repository not found in route context');
     }
@@ -65,7 +72,7 @@ export class MeService {
 
   async findOAuthAccounts(req: Request & { user: any; routeData?: any }) {
     if (!req.user) throw new UnauthorizedException();
-    const repo = this.getSecureRepo(req, 'oauth_account_definition');
+    const repo = this.getTrustedRepo(req, 'oauth_account_definition');
     if (!repo) {
       throw new Error('Repository not found in route context');
     }
