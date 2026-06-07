@@ -38,6 +38,7 @@ import {
 } from '../../../shared/utils/script-code.util';
 import { FlowQueueMaintenanceService } from '../../flow';
 import { logMemory } from '../../../shared/utils/memory-log.util';
+import { normalizeDynamicReadProjection } from '../utils/field-selection.util';
 
 interface DynamicBatchCreateResult {
   accepted: true;
@@ -746,12 +747,20 @@ export class DynamicRepository {
     const rawFields = opt?.fields || this.context.$query?.fields;
     const rawDeep: Record<string, any> =
       opt && 'deep' in opt ? opt.deep || {} : this.context.$query?.deep || {};
+    const metadata = await this.metadataCacheService.getMetadata();
+    const projection = normalizeDynamicReadProjection({
+      tableName: this.tableName,
+      fields: rawFields,
+      deep: rawDeep,
+      metadata,
+    });
+    const projectedFields = projection.fields;
+    const projectedDeep = projection.deep || {};
 
-    if (rawDeep && Object.keys(rawDeep).length > 0) {
-      const metadata = await this.metadataCacheService.getMetadata();
+    if (projectedDeep && Object.keys(projectedDeep).length > 0) {
       validateDeepOptions(
         this.tableName,
-        rawDeep,
+        projectedDeep,
         metadata,
         0,
         await this.settingCacheService.getMaxQueryDepth(),
@@ -762,7 +771,7 @@ export class DynamicRepository {
       fields: cleanFields,
       deep: cleanDeep,
       needsPostSql,
-    } = await this.stripDeniedFields(this.tableName, rawFields, rawDeep);
+    } = await this.stripDeniedFields(this.tableName, projectedFields, projectedDeep);
 
     const debugMode =
       this.context.$query?.debugMode === 'true' ||
@@ -799,8 +808,8 @@ export class DynamicRepository {
     }
 
     const requested = buildRequestedShapeFromQuery({
-      fields: opt?.fields || this.context.$query?.fields,
-      deep: rawDeep,
+      fields: projectedFields,
+      deep: projectedDeep,
     });
 
     const sanitizedData = await sanitizeFieldPermissionsResult({
