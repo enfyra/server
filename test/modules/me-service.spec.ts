@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { MeService } from '../../src/modules/me/services/me.service';
 
 describe('MeService', () => {
-  it('creates a secure repo context for built-in /me routes without dynamic routeData', async () => {
+  it('creates a trusted repo context for built-in /me routes without dynamic routeData', async () => {
     const userRepo = {
       find: vi.fn(async () => ({ data: [{ id: 'user-1', email: 'a@test.dev' }] })),
     };
@@ -12,8 +12,13 @@ describe('MeService', () => {
     };
     const repoRegistryService = {
       createReposProxy: vi.fn(() => ({
+        user_definition: userRepo,
         secure: {
-          user_definition: userRepo,
+          user_definition: {
+            find: vi.fn(async () => {
+              throw new Error('secure repo should not be used for /me');
+            }),
+          },
         },
       })),
     };
