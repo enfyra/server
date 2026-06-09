@@ -30,6 +30,10 @@ export interface RateLimitHelper {
 
 export type EnvSnapshot = Record<string, string | undefined>;
 
+export type DynamicRequestContext = Request & {
+  rawBody?: string;
+};
+
 export interface TDynamicContext {
   $body?: any;
   $data?: any;
@@ -108,7 +112,7 @@ export interface TDynamicContext {
   $env?: EnvSnapshot;
   $user?: any;
   $repos: Record<string, any>;
-  $req?: Request;
+  $req?: DynamicRequestContext;
   $res?: Response & {
     stream?: (
       stream: NodeJS.ReadableStream | ReadableStream,
@@ -171,6 +175,7 @@ export interface TDynamicContext {
 }
 
 export interface RequestWithRouteData extends Request {
+  rawBody?: string;
   routeData?: {
     context: TDynamicContext;
     params: any;

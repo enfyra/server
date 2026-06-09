@@ -180,6 +180,7 @@ export class DynamicContextFactory {
         protocol: req.protocol,
         path: req.path,
         originalUrl: req.originalUrl,
+        rawBody: req.rawBody,
       } as any,
       socket: this.websocketContextFactory.createGlobalProxy(),
       apiRequest: {

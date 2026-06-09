@@ -25,6 +25,7 @@ import {
 import { parseQueryMiddleware } from './http/middlewares/parse-query.middleware';
 import { bodyParserMiddleware } from './http/middlewares/body-parser.middleware';
 import { fileUploadMiddleware } from './http/middlewares/file-upload.middleware';
+import { captureRawBody } from './http/utils/raw-body-capture.util';
 
 import { registerAuthRoutes } from './http/routes/auth.routes';
 import { registerOAuthRoutes } from './http/routes/oauth.routes';
@@ -67,7 +68,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   });
 
   app.use(cors({ origin: true, credentials: true }));
-  app.use(express.json({ limit: '10mb' }));
+  app.use(express.json({ limit: '10mb', verify: captureRawBody }));
   app.use(express.urlencoded({ extended: true }));
   app.use(express.text({ type: 'text/plain' }));
 
