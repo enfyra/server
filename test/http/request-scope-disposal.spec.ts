@@ -85,7 +85,10 @@ function makeAppContainer(dispose = vi.fn()) {
     },
     routeCacheService: {
       matchRoute: async (method: string, path: string) => {
-        if (method !== 'GET' || !['/ok', '/boom', '/stream'].includes(path)) {
+        const isKnownGet =
+          method === 'GET' && ['/ok', '/boom', '/stream'].includes(path);
+        const isKnownPost = method === 'POST' && path === '/webhook';
+        if (!isKnownGet && !isKnownPost) {
           return null;
         }
         return {
@@ -93,8 +96,8 @@ function makeAppContainer(dispose = vi.fn()) {
           route: {
             path,
             route: { path },
-            availableMethods: [{ name: 'GET' }],
-            publishedMethods: [{ name: 'GET' }],
+            availableMethods: [{ name: method }],
+            publishedMethods: [{ name: method }],
             handlers: [],
             preHooks: [],
             postHooks: [],
@@ -103,19 +106,22 @@ function makeAppContainer(dispose = vi.fn()) {
       },
       getRouteEngine: () => ({
         find: (method: string, path: string) => {
-          if (method !== 'GET' || !['/ok', '/boom', '/stream'].includes(path)) {
-            return null;
-          }
-          return {
-            params: {},
-            route: {
-              path,
-              route: { path },
-              availableMethods: [{ name: 'GET' }],
-              publishedMethods: [{ name: 'GET' }],
-              handlers: [],
-              preHooks: [],
-              postHooks: [],
+        const isKnownGet =
+          method === 'GET' && ['/ok', '/boom', '/stream'].includes(path);
+        const isKnownPost = method === 'POST' && path === '/webhook';
+        if (!isKnownGet && !isKnownPost) {
+          return null;
+        }
+        return {
+          params: {},
+          route: {
+            path,
+            route: { path },
+            availableMethods: [{ name: method }],
+            publishedMethods: [{ name: method }],
+            handlers: [],
+            preHooks: [],
+            postHooks: [],
             },
           };
         },
@@ -141,7 +147,11 @@ function makeAppContainer(dispose = vi.fn()) {
         $helpers: {},
         $query: req.query || {},
         $share: { $logs: [] },
-        $req: { ip: '127.0.0.1' },
+        $req: {
+          headers: req.headers,
+          rawBody: req.rawBody,
+          ip: '127.0.0.1',
+        },
       })),
     },
     guardCacheService: {
@@ -165,6 +175,14 @@ function makeAppContainer(dispose = vi.fn()) {
     },
     dynamicService: {
       runHandler: vi.fn(async (req: any) => {
+        if (req.path === '/webhook') {
+          return {
+            body: req.routeData.context.$body,
+            signature:
+              req.routeData.context.$req.headers['paddle-signature'] ?? null,
+            rawBody: req.routeData.context.$req.rawBody,
+          };
+        }
         if (req.path === '/boom') {
           throw new Error('pipeline failure');
         }
@@ -255,6 +273,37 @@ describe('request scope disposal through the Express pipeline', () => {
         'attachment; filename="backup.sql"',
       );
       expect(await response.text()).toBe('backup-stream');
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(dispose).toHaveBeenCalledTimes(1);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it('exposes parsed body, headers, and rawBody to dynamic handlers', async () => {
+    const { container, dispose } = makeAppContainer();
+    const server = createServer(buildExpressApp(container));
+    const baseUrl = await listen(server);
+    const payload = '{"event_type":"transaction.completed","data":{"id":"txn_1"}}';
+
+    try {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Paddle-Signature': 'ts=1;h1=test',
+        },
+        body: payload,
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        body: {
+          event_type: 'transaction.completed',
+          data: { id: 'txn_1' },
+        },
+        signature: 'ts=1;h1=test',
+        rawBody: payload,
+      });
       await new Promise((resolve) => setImmediate(resolve));
       expect(dispose).toHaveBeenCalledTimes(1);
     } finally {
