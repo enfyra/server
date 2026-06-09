@@ -110,4 +110,34 @@ describe('dynamic context env and crypto helpers', () => {
       service.onDestroy();
     }
   });
+
+  it('exposes request headers and rawBody through isolated execution', async () => {
+    const service = createService();
+    try {
+      const ctx = createContextFactory().createBase({
+        body: { event_type: 'transaction.completed' },
+        req: {
+          headers: { 'paddle-signature': 'ts=1;h1=test' },
+          rawBody: '{"event_type":"transaction.completed"}',
+        } as any,
+      });
+      const result = await service.run(
+        `return {
+          signature: $ctx.$req.headers['paddle-signature'],
+          rawBody: $ctx.$req.rawBody,
+          body: $ctx.$body
+        };`,
+        ctx,
+        5000,
+      );
+
+      expect(result).toEqual({
+        signature: 'ts=1;h1=test',
+        rawBody: '{"event_type":"transaction.completed"}',
+        body: { event_type: 'transaction.completed' },
+      });
+    } finally {
+      service.onDestroy();
+    }
+  });
 });
