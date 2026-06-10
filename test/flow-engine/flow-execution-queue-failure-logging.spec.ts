@@ -31,6 +31,7 @@ describe('FlowExecutionQueueService failure diagnostics', () => {
   it('persists running flow progress before completing the same execution history row', async () => {
     const inserts: any[] = [];
     const updates: any[] = [];
+    const insertOptions: any[] = [];
     const progressUpdates: any[] = [];
     const flow = {
       id: 13,
@@ -57,8 +58,9 @@ describe('FlowExecutionQueueService failure diagnostics', () => {
         reload: vi.fn(),
       } as any,
       queryBuilderService: {
-        insert: vi.fn(async (_table: string, data: any) => {
+        insert: vi.fn(async (_table: string, data: any, options?: any) => {
           inserts.push(data);
+          insertOptions.push(options);
           return { data: [{ id: 101, ...data }] };
         }),
         update: vi.fn(async (_table: string, id: any, data: any) => {
@@ -90,6 +92,7 @@ describe('FlowExecutionQueueService failure diagnostics', () => {
 
     expect(result.success).toBe(true);
     expect(inserts).toHaveLength(1);
+    expect(insertOptions).toEqual([undefined]);
     expect(inserts[0]).toMatchObject({
       flow: 13,
       status: 'running',
@@ -123,6 +126,7 @@ describe('FlowExecutionQueueService failure diagnostics', () => {
   it('persists failed flow current step and completed steps in execution history', async () => {
     const inserts: any[] = [];
     const updates: any[] = [];
+    const insertOptions: any[] = [];
     const progressUpdates: any[] = [];
     const flow = {
       id: 12,
@@ -159,8 +163,9 @@ describe('FlowExecutionQueueService failure diagnostics', () => {
         reload: vi.fn(),
       } as any,
       queryBuilderService: {
-        insert: vi.fn(async (_table: string, data: any) => {
+        insert: vi.fn(async (_table: string, data: any, options?: any) => {
           inserts.push(data);
+          insertOptions.push(options);
           return { data: [{ id: 102, ...data }] };
         }),
         update: vi.fn(async (_table: string, id: any, data: any) => {
@@ -197,6 +202,7 @@ describe('FlowExecutionQueueService failure diagnostics', () => {
       failedStep: 'deploy',
     });
     expect(inserts).toHaveLength(1);
+    expect(insertOptions).toEqual([undefined]);
     expect(inserts[0]).toMatchObject({
       flow: 12,
       status: 'running',
