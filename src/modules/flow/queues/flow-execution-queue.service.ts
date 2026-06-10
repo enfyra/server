@@ -585,7 +585,6 @@ export class FlowExecutionQueueService {
           completedAt: null,
           duration: null,
         },
-        { batch: true },
       );
       return this.getExecutionHistoryId(result);
     } catch (error: any) {
@@ -622,7 +621,6 @@ export class FlowExecutionQueueService {
           payload: payload || {},
           ...finalState,
         },
-        { batch: true },
       );
     } catch (error: any) {
       this.logger.error(
