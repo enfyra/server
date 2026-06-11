@@ -35,9 +35,10 @@ import {
   normalizeFlowStepScriptConfig,
   normalizeScriptPatch,
   normalizeScriptRecord,
-} from '@enfyra/kernel';
+} from '../../../shared/utils/script-code.util';
 import { FlowQueueMaintenanceService } from '../../flow';
 import { logMemory } from '../../../shared/utils/memory-log.util';
+import { normalizeDynamicReadProjection } from '../utils/field-selection.util';
 
 interface DynamicBatchCreateResult {
   accepted: true;
@@ -122,6 +123,40 @@ export class DynamicRepository {
 
   private getIdField(): string {
     return this.queryBuilderService.getPkField();
+  }
+
+  private toScriptBadRequest(error: any): BadRequestException {
+    const message = error?.message || String(error) || 'Invalid script source';
+    return new BadRequestException(`Invalid script source: ${message}`, {
+      code: error?.code || error?.name || 'SCRIPT_VALIDATION_ERROR',
+    });
+  }
+
+  private normalizeScriptRecordOrThrow(body: Record<string, any>) {
+    try {
+      return normalizeScriptRecord(this.tableName, body);
+    } catch (error) {
+      throw this.toScriptBadRequest(error);
+    }
+  }
+
+  private normalizeScriptPatchOrThrow(
+    body: Record<string, any>,
+    existing: Record<string, any>,
+  ) {
+    try {
+      return normalizeScriptPatch(this.tableName, body, existing);
+    } catch (error) {
+      throw this.toScriptBadRequest(error);
+    }
+  }
+
+  private normalizeFlowStepScriptConfigOrThrow(body: Record<string, any>) {
+    try {
+      return normalizeFlowStepScriptConfig(body);
+    } catch (error) {
+      throw this.toScriptBadRequest(error);
+    }
   }
 
   private isPlainObject(value: any): value is Record<string, any> {
@@ -302,6 +337,119 @@ export class DynamicRepository {
           fields: deniedQueryFields,
         }),
       );
+    }
+  }
+
+  private async assertEncryptedQueryFieldsAllowed(
+    tableName: string,
+    filter: any,
+    sort: string | string[] | undefined,
+    deep: Record<string, any>,
+  ): Promise<void> {
+    const metadata = await this.metadataCacheService.getMetadata();
+    this.assertEncryptedFilterFields(tableName, filter, metadata);
+    this.assertEncryptedSortFields(tableName, sort, metadata);
+
+    const tableMeta = metadata?.tables?.get(tableName);
+    for (const [relationName, entry] of Object.entries(deep || {})) {
+      const relation = tableMeta?.relations?.find(
+        (rel: any) => rel.propertyName === relationName,
+      );
+      const targetTable = relation?.targetTableName || relation?.targetTable;
+      if (!targetTable || !entry || typeof entry !== 'object') continue;
+      await this.assertEncryptedQueryFieldsAllowed(
+        targetTable,
+        (entry as any).filter,
+        (entry as any).sort,
+        (entry as any).deep || {},
+      );
+    }
+  }
+
+  private assertEncryptedFilterFields(
+    tableName: string,
+    filter: any,
+    metadata: any,
+  ): void {
+    if (!filter || typeof filter !== 'object') return;
+    if (Array.isArray(filter)) {
+      for (const item of filter) {
+        this.assertEncryptedFilterFields(tableName, item, metadata);
+      }
+      return;
+    }
+
+    const tableMeta = metadata?.tables?.get(tableName);
+    for (const [key, value] of Object.entries(filter)) {
+      if (key === '_and' || key === '_or' || key === '_not') {
+        this.assertEncryptedFilterFields(tableName, value, metadata);
+        continue;
+      }
+      if (key.startsWith('_')) continue;
+
+      const relation = tableMeta?.relations?.find(
+        (rel: any) => rel.propertyName === key,
+      );
+      if (relation) {
+        const targetTable = relation.targetTableName || relation.targetTable;
+        if (targetTable) {
+          this.assertEncryptedFilterFields(targetTable, value, metadata);
+        }
+        continue;
+      }
+
+      const column = tableMeta?.columns?.find((col: any) => col.name === key);
+      if (column?.isEncrypted === true) {
+        throw new BadRequestException(
+          `Encrypted field '${key}' on '${tableName}' cannot be used for filter.`,
+        );
+      }
+    }
+  }
+
+  private assertEncryptedSortFields(
+    tableName: string,
+    sort: string | string[] | undefined,
+    metadata: any,
+  ): void {
+    if (!sort) return;
+
+    const tokens = Array.isArray(sort)
+      ? sort
+      : sort
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean);
+
+    for (const token of tokens) {
+      const path = token.startsWith('-') ? token.slice(1) : token;
+      if (!path || path.startsWith('_count(')) continue;
+
+      const parts = path.split('.');
+      let currentTable = tableName;
+      let field = parts[0];
+
+      for (let index = 0; index < parts.length; index++) {
+        field = parts[index];
+        const isLast = index === parts.length - 1;
+        if (isLast) break;
+
+        const tableMeta = metadata?.tables?.get(currentTable);
+        const relation = tableMeta?.relations?.find(
+          (rel: any) => rel.propertyName === field,
+        );
+        if (!relation) break;
+        currentTable =
+          relation.targetTableName || relation.targetTable || currentTable;
+      }
+
+      const tableMeta = metadata?.tables?.get(currentTable);
+      const column = tableMeta?.columns?.find((col: any) => col.name === field);
+      if (column?.isEncrypted === true) {
+        throw new BadRequestException(
+          `Encrypted field '${field}' on '${currentTable}' cannot be used for sort.`,
+        );
+      }
     }
   }
 
@@ -598,13 +746,21 @@ export class DynamicRepository {
 
     const rawFields = opt?.fields || this.context.$query?.fields;
     const rawDeep: Record<string, any> =
-      opt && 'deep' in opt ? (opt.deep || {}) : (this.context.$query?.deep || {});
+      opt && 'deep' in opt ? opt.deep || {} : this.context.$query?.deep || {};
+    const metadata = await this.metadataCacheService.getMetadata();
+    const projection = normalizeDynamicReadProjection({
+      tableName: this.tableName,
+      fields: rawFields,
+      deep: rawDeep,
+      metadata,
+    });
+    const projectedFields = projection.fields;
+    const projectedDeep = projection.deep || {};
 
-    if (rawDeep && Object.keys(rawDeep).length > 0) {
-      const metadata = await this.metadataCacheService.getMetadata();
+    if (projectedDeep && Object.keys(projectedDeep).length > 0) {
       validateDeepOptions(
         this.tableName,
-        rawDeep,
+        projectedDeep,
         metadata,
         0,
         await this.settingCacheService.getMaxQueryDepth(),
@@ -615,12 +771,20 @@ export class DynamicRepository {
       fields: cleanFields,
       deep: cleanDeep,
       needsPostSql,
-    } = await this.stripDeniedFields(this.tableName, rawFields, rawDeep);
+    } = await this.stripDeniedFields(this.tableName, projectedFields, projectedDeep);
 
     const debugMode =
       this.context.$query?.debugMode === 'true' ||
       this.context.$query?.debugMode === true;
     const filterValue = opt?.filter ?? this.context.$query?.filter ?? {};
+    const sortValue =
+      opt?.sort || this.context.$query?.sort || this.getIdField();
+    await this.assertEncryptedQueryFieldsAllowed(
+      this.tableName,
+      filterValue,
+      sortValue,
+      cleanDeep || {},
+    );
     if (this.tableName === 'table_definition') {
     }
     const result = await this.queryBuilderService.find({
@@ -632,7 +796,7 @@ export class DynamicRepository {
         opt && 'limit' in opt ? opt.limit : (this.context.$query?.limit ?? 10),
       meta: opt?.meta || this.context.$query?.meta,
       aggregate: opt?.aggregate || this.context.$query?.aggregate,
-      sort: opt?.sort || this.context.$query?.sort || this.getIdField(),
+      sort: sortValue,
       deep: cleanDeep || {},
       debugMode: debugMode,
       debugTrace: this.context.$debug || undefined,
@@ -644,8 +808,8 @@ export class DynamicRepository {
     }
 
     const requested = buildRequestedShapeFromQuery({
-      fields: opt?.fields || this.context.$query?.fields,
-      deep: rawDeep,
+      fields: projectedFields,
+      deep: projectedDeep,
     });
 
     const sanitizedData = await sanitizeFieldPermissionsResult({
@@ -851,9 +1015,9 @@ export class DynamicRepository {
       const { processedBody } = await processExtensionDefinition(body, 'POST');
       Object.assign(body, processedBody);
     }
-    Object.assign(body, normalizeScriptRecord(this.tableName, body));
+    Object.assign(body, this.normalizeScriptRecordOrThrow(body));
     if (this.tableName === 'flow_step_definition') {
-      Object.assign(body, normalizeFlowStepScriptConfig(body));
+      Object.assign(body, this.normalizeFlowStepScriptConfigOrThrow(body));
     }
     if (this.tableName === 'column_rule_definition') {
       await this.assertColumnRuleUnique(body, null);
@@ -898,7 +1062,8 @@ export class DynamicRepository {
       );
       logMemory(this.logger, 'dynamic update body stripped', {
         ...writeMeta,
-        bodyKeys: body && typeof body === 'object' ? Object.keys(body).length : 0,
+        bodyKeys:
+          body && typeof body === 'object' ? Object.keys(body).length : 0,
       });
       const existsResult = await this.find({
         filter: { [this.getIdField()]: { _eq: id } },
@@ -946,9 +1111,9 @@ export class DynamicRepository {
         );
         Object.assign(body, processedBody);
       }
-      Object.assign(body, normalizeScriptPatch(this.tableName, body, exists));
+      Object.assign(body, this.normalizeScriptPatchOrThrow(body, exists));
       if (this.tableName === 'flow_step_definition') {
-        const normalizedFlowStep = normalizeFlowStepScriptConfig({
+        const normalizedFlowStep = this.normalizeFlowStepScriptConfigOrThrow({
           ...exists,
           ...body,
         });
@@ -1136,6 +1301,7 @@ export class DynamicRepository {
             isSystem: !!c.isSystem,
             isUpdatable: c.isUpdatable ?? true,
             isPublished: c.isPublished ?? true,
+            isEncrypted: c.isEncrypted ?? false,
             defaultValue: c.defaultValue,
           })),
           relations: remainingRelations.map((r: any) => ({

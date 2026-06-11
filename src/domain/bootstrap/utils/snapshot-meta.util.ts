@@ -19,7 +19,7 @@ const LOOKUP_KEY_MAP: Record<string, string> = {
   table_definition: 'name',
   route_definition: 'path',
   role_definition: 'name',
-  method_definition: 'method',
+  method_definition: 'name',
   user_definition: 'email',
   menu_definition: 'label',
   websocket_definition: 'path',

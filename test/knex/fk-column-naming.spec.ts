@@ -62,9 +62,8 @@ describe('getJunctionColumnNames', () => {
       'the_loai',
       'the_loai',
     );
-    expect(sourceColumn).toBe('albumId');
-    // self-referencing: target uses propertyName
-    expect(targetColumn).toBe('the_loaiId');
+    expect(sourceColumn).toBe('sourceId');
+    expect(targetColumn).toBe('targetId');
   });
 
   it('should produce correct junction column names for different tables', () => {
@@ -73,7 +72,7 @@ describe('getJunctionColumnNames', () => {
       'the_loai',
       'genre',
     );
-    expect(sourceColumn).toBe('albumId');
-    expect(targetColumn).toBe('genreId');
+    expect(sourceColumn).toBe('sourceId');
+    expect(targetColumn).toBe('targetId');
   });
 });

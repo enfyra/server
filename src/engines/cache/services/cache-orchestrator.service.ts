@@ -44,6 +44,8 @@ const FLOW_PRIORITY = [
   'oauth',
   'folder',
   'package',
+  'menu',
+  'extension',
   'bootstrap',
   'graphql',
   'settingGraphql',
@@ -116,6 +118,8 @@ export const RELOAD_CHAINS: Record<string, string[]> = {
   flow_step_definition: ['flow'],
   folder_definition: ['folder'],
   bootstrap_script_definition: ['bootstrap'],
+  menu_definition: ['menu', 'extension'],
+  extension_definition: ['extension'],
   gql_definition: ['graphql'],
 };
 
@@ -233,6 +237,8 @@ export class CacheOrchestratorService implements LifecycleAware {
           p,
           options?.sharedReplay,
         ),
+      menu: async () => undefined,
+      extension: async () => undefined,
       fieldPermission: (p, options) =>
         this.reloadSimple(
           this.fieldPermissionCacheService,

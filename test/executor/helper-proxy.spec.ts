@@ -19,7 +19,12 @@ function createContext() {
     $query: {},
     $params: {},
     $share: { $logs: [] },
-    $helpers: { autoSlug },
+    $helpers: {
+      autoSlug,
+      secret: {
+        encrypt: async (value: string) => `enc:${value}`,
+      },
+    },
     $cache: {},
     $repos: {},
     $user: null,
@@ -54,6 +59,23 @@ describe('isolated executor helper proxy', () => {
       );
 
       expect(result).toBe('HELLO_WORLD');
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('auto-awaits helper results assigned into request body', async () => {
+    const service = createService();
+    const ctx = createContext();
+    try {
+      const result = await service.run(
+        `$ctx.$body.secret = $ctx.$helpers.secret.encrypt('plain');`,
+        ctx,
+        5000,
+      );
+
+      expect(result).toBeUndefined();
+      expect(ctx.$body.secret).toBe('enc:plain');
     } finally {
       service.onDestroy();
     }

@@ -1,9 +1,26 @@
 import { Response, NextFunction } from 'express';
 import multer from 'multer';
 import os from 'os';
-import fs from 'fs';
 import crypto from 'crypto';
 import { SettingCacheService } from '../../engines/cache';
+
+export function resolveUploadFileSizeLimitBytes(
+  globalLimitBytes: number,
+  routeMaxUploadFileSizeMb?: unknown,
+): number {
+  const routeLimitMb =
+    typeof routeMaxUploadFileSizeMb === 'number'
+      ? routeMaxUploadFileSizeMb
+      : typeof routeMaxUploadFileSizeMb === 'string'
+        ? Number(routeMaxUploadFileSizeMb)
+        : null;
+
+  if (routeLimitMb && Number.isFinite(routeLimitMb) && routeLimitMb > 0) {
+    return Math.floor(routeLimitMb * 1024 * 1024);
+  }
+
+  return globalLimitBytes;
+}
 
 const diskStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, os.tmpdir()),
@@ -23,26 +40,15 @@ export function fileUploadMiddleware(settingCacheService: SettingCacheService) {
     const upload = multer({
       storage: diskStorage,
       limits: {
-        fileSize: await settingCacheService.getMaxUploadFileSizeBytes(),
+        fileSize: resolveUploadFileSizeLimitBytes(
+          await settingCacheService.getMaxUploadFileSizeBytes(),
+          req.routeData?.maxUploadFileSize,
+        ),
       },
-      preservePath: true,
     });
     upload.single('file')(req, res, (error: any) => {
       if (error) {
         return next(error);
-      }
-      if (req.file?.path) {
-        try {
-          req.file.buffer = fs.readFileSync(req.file.path);
-        } catch (readError) {
-          try {
-            fs.unlinkSync(req.file.path);
-          } catch {}
-          return next(readError);
-        }
-        try {
-          fs.unlinkSync(req.file.path);
-        } catch {}
       }
       if (req.file && req.file.originalname) {
         try {
@@ -112,7 +118,7 @@ export function fileUploadMiddleware(settingCacheService: SettingCacheService) {
             originalname: req.file.originalname,
             mimetype: req.file.mimetype,
             encoding: req.file.encoding || 'utf8',
-            buffer: req.file.buffer,
+            path: req.file.path,
             size: req.file.size,
             fieldname: req.file.fieldname,
           };

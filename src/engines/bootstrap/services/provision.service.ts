@@ -10,6 +10,7 @@ import {
 
 export class ProvisionService {
   private readonly logger = new Logger(ProvisionService.name);
+  private readonly journalRecoveryTimeoutMs = 30000;
   private readonly commonService: CommonService;
   private readonly queryBuilderService: QueryBuilderService;
   private readonly routeDefinitionProcessor: RouteDefinitionProcessor;
@@ -51,14 +52,19 @@ export class ProvisionService {
   async recoverJournals(): Promise<void> {
     if (!this.queryBuilderService.isMongoDb()) {
       try {
-        await this.migrationJournalService.recoverPending();
+        await this.runJournalStep(
+          'SQL migration journal recovery',
+          () => this.migrationJournalService.recoverPending(),
+        );
       } catch (error) {
         this.logger.warn(
           `SQL migration journal recovery failed (non-fatal): ${(error as Error).message}`,
         );
       }
       try {
-        await this.migrationJournalService.cleanup();
+        await this.runJournalStep('SQL journal cleanup', () =>
+          this.migrationJournalService.cleanup(),
+        );
       } catch (error) {
         this.logger.warn(
           `SQL journal cleanup failed (non-fatal): ${(error as Error).message}`,
@@ -68,14 +74,18 @@ export class ProvisionService {
     }
 
     try {
-      await this.mongoSchemaMigrationService.recoverPendingMigrationSagas();
+      await this.runJournalStep('Mongo migration saga recovery', () =>
+        this.mongoSchemaMigrationService.recoverPendingMigrationSagas(),
+      );
     } catch (error) {
       this.logger.warn(
         `Mongo migration saga recovery failed (non-fatal): ${(error as Error).message}`,
       );
     }
     try {
-      await this.mongoMigrationJournalService.cleanup();
+      await this.runJournalStep('Mongo journal cleanup', () =>
+        this.mongoMigrationJournalService.cleanup(),
+      );
     } catch (error) {
       this.logger.warn(
         `Mongo journal cleanup failed (non-fatal): ${(error as Error).message}`,
@@ -91,5 +101,28 @@ export class ProvisionService {
         `Error ensuring route handlers: ${(error as Error).message}`,
       );
     }
+  }
+
+  private async runJournalStep(
+    label: string,
+    callback: () => Promise<void>,
+  ): Promise<void> {
+    const start = Date.now();
+    this.logger.log(`${label} started`);
+    await Promise.race([
+      callback(),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                `${label} timed out after ${this.journalRecoveryTimeoutMs}ms`,
+              ),
+            ),
+          this.journalRecoveryTimeoutMs,
+        ),
+      ),
+    ]);
+    this.logger.log(`${label} completed (${Date.now() - start}ms)`);
   }
 }

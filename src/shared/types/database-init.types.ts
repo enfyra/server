@@ -12,6 +12,7 @@ export interface ColumnDef {
   defaultValue?: any;
   options?: any[] | any; // For enum type
   isUpdatable?: boolean;
+  isEncrypted?: boolean;
   isUnique?: boolean;
   description?: string;
   placeholder?: string;

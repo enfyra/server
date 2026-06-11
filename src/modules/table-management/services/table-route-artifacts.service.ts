@@ -1,5 +1,5 @@
 import type { Knex } from 'knex';
-import { compileScriptSource } from '@enfyra/kernel';
+import { compileScriptSource } from '../../../shared/utils/script-code.util';
 import { DEFAULT_REST_HANDLER_LOGIC } from '../../../domain/bootstrap';
 import type { MetadataCacheService } from '../../../engines/cache';
 import type { MongoService } from '../../../engines/mongo';
@@ -36,7 +36,7 @@ export async function ensureSqlTableRouteArtifacts(input: {
     .first();
   if (!newRoute?.id) return;
 
-  const methods = await trx('method_definition').select('id', 'method');
+  const methods = await trx('method_definition').select('id', 'name');
   const routeTableMeta =
     await metadataCacheService.getTableMetadata('route_definition');
   const availableMethodsRel = routeTableMeta?.relations?.find(
@@ -57,17 +57,17 @@ export async function ensureSqlTableRouteArtifacts(input: {
   }
 
   const httpMethods = methods.filter(
-    (method: any) => DEFAULT_REST_HANDLER_LOGIC[method.method],
+    (method: any) => DEFAULT_REST_HANDLER_LOGIC[method.name],
   );
   if (httpMethods.length === 0) return;
   await trx('route_handler_definition').insert(
     httpMethods.map((method: any) => ({
       routeId: newRoute.id,
       methodId: method.id,
-      sourceCode: DEFAULT_REST_HANDLER_LOGIC[method.method] || null,
+      sourceCode: DEFAULT_REST_HANDLER_LOGIC[method.name] || null,
       scriptLanguage: 'typescript',
       compiledCode: compileScriptSource(
-        DEFAULT_REST_HANDLER_LOGIC[method.method] || null,
+        DEFAULT_REST_HANDLER_LOGIC[method.name] || null,
         'typescript',
       ),
       timeout: 30000,
@@ -107,7 +107,7 @@ export async function ensureMongoTableRouteArtifacts(input: {
   const db = mongoService.getDb();
   const methods = await db
     .collection('method_definition')
-    .find({}, { projection: { _id: 1, method: 1 } })
+    .find({}, { projection: { _id: 1, name: 1 } })
     .toArray();
   const allMethodIds = methods.map((method: any) => method._id);
   const routeResult = await db.collection('route_definition').insertOne({
@@ -126,14 +126,14 @@ export async function ensureMongoTableRouteArtifacts(input: {
   const routeId = routeResult.insertedId;
 
   const handlers = methods
-    .filter((method: any) => DEFAULT_REST_HANDLER_LOGIC[method.method])
+    .filter((method: any) => DEFAULT_REST_HANDLER_LOGIC[method.name])
     .map((method: any) => ({
       route: routeId,
       method: method._id,
-      sourceCode: DEFAULT_REST_HANDLER_LOGIC[method.method],
+      sourceCode: DEFAULT_REST_HANDLER_LOGIC[method.name],
       scriptLanguage: 'typescript',
       compiledCode: compileScriptSource(
-        DEFAULT_REST_HANDLER_LOGIC[method.method],
+        DEFAULT_REST_HANDLER_LOGIC[method.name],
         'typescript',
       ),
       timeout: 30000,

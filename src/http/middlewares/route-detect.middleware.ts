@@ -26,9 +26,7 @@ export function routeDetectMiddleware(
       const methods = route?.availableMethods;
       if (!methods || !Array.isArray(methods) || methods.length === 0)
         return false;
-      const methodNames = methods
-        .map((m: any) => m?.method ?? m)
-        .filter(Boolean);
+      const methodNames = methods.map((m: any) => m?.name ?? m).filter(Boolean);
       return methodNames.includes(method);
     };
 
@@ -119,7 +117,7 @@ export function routeDetectMiddleware(
           originalname: req.file.originalname,
           mimetype: req.file.mimetype,
           encoding: req.file.encoding || 'utf8',
-          buffer: req.file.buffer,
+          path: req.file.path,
           size: req.file.size,
           fieldname: req.file.fieldname,
         };
@@ -135,14 +133,9 @@ export function routeDetectMiddleware(
         flowService.trigger(flowIdOrName, payload, req.user);
 
       try {
-        context.$helpers.$uploadFile =
-          uploadFileHelper.createUploadFileHelper(context);
-        context.$helpers.$updateFile =
-          uploadFileHelper.createUpdateFileHelper(context);
-        context.$helpers.$deleteFile =
-          uploadFileHelper.createDeleteFileHelper(context);
+        context.$storage = uploadFileHelper.createStorageHelper(context);
       } catch (error) {
-        console.warn('Failed to initialize file helpers:', error);
+        console.warn('Failed to initialize storage helpers:', error);
       }
 
       const { route, params } = matchedRoute;
@@ -150,7 +143,7 @@ export function routeDetectMiddleware(
       const filterHooks = (hooks: any[]) => {
         if (!hooks || !Array.isArray(hooks)) return [];
         return hooks.filter((hook: any) => {
-          const methodList = hook.methods?.map((m: any) => m.method) ?? [];
+          const methodList = hook.methods?.map((m: any) => m.name) ?? [];
           return methodList.includes(method);
         });
       };
@@ -159,7 +152,7 @@ export function routeDetectMiddleware(
       const filteredPostHooks = filterHooks(route.postHooks);
       const routeHandlers = Array.isArray(route.handlers) ? route.handlers : [];
       const handler =
-        routeHandlers.find((handler: any) => handler.method?.method === method)
+        routeHandlers.find((handler: any) => handler.method?.name === method)
           ?.logic ?? null;
 
       req.routeData = {
@@ -171,7 +164,7 @@ export function routeDetectMiddleware(
         postHooks: filteredPostHooks,
         isPublished:
           route.publishedMethods?.some(
-            (pubMethod: any) => pubMethod.method === req.method,
+            (pubMethod: any) => pubMethod.name === req.method,
           ) || false,
         context,
         res,

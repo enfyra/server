@@ -104,6 +104,13 @@ export function generateColumnDefinition(
     case 'decimal':
       definition = `DECIMAL(${col.options?.precision || 10}, ${col.options?.scale || 2})`;
       break;
+    case 'float':
+      if (dbType === 'postgres') {
+        definition = 'DOUBLE PRECISION';
+      } else {
+        definition = 'FLOAT';
+      }
+      break;
     case 'simple-json':
       definition = dbType === 'mysql' ? 'LONGTEXT' : 'TEXT';
       break;

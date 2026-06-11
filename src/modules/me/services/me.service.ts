@@ -1,10 +1,50 @@
 import { UnauthorizedException } from '../../../shared/errors';
 import { Request } from 'express';
+import { RepoRegistryService } from '../../../engines/cache';
+import { DynamicContextFactory } from '../../../shared/services';
+import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
 
 export class MeService {
+  private readonly repoRegistryService: RepoRegistryService;
+  private readonly dynamicContextFactory: DynamicContextFactory;
+
+  constructor(deps: {
+    repoRegistryService: RepoRegistryService;
+    dynamicContextFactory: DynamicContextFactory;
+  }) {
+    this.repoRegistryService = deps.repoRegistryService;
+    this.dynamicContextFactory = deps.dynamicContextFactory;
+  }
+
+  private getRepoContext(req: Request & { routeData?: any }) {
+    const context =
+      req.routeData?.context ||
+      this.dynamicContextFactory.createHttp(req, {
+        params: req.routeData?.params ?? (req as any).params ?? {},
+        realClientIP: resolveClientIpFromRequest(req),
+      });
+    context.$repos = this.repoRegistryService.createReposProxy(context);
+    req.routeData = {
+      ...(req.routeData ?? {}),
+      context,
+    };
+
+    return context;
+  }
+
+  private getSecureRepo(req: Request & { routeData?: any }, tableName: string) {
+    const context = this.getRepoContext(req);
+    return context.$repos?.secure?.[tableName];
+  }
+
+  private getTrustedRepo(req: Request & { routeData?: any }, tableName: string) {
+    const context = this.getRepoContext(req);
+    return context.$repos?.[tableName];
+  }
+
   async find(req: Request & { user: any; routeData?: any }) {
     if (!req.user) throw new UnauthorizedException();
-    const repo = req.routeData?.context?.$repos?.main;
+    const repo = this.getTrustedRepo(req, 'user_definition');
     if (!repo) {
       throw new Error('Repository not found in route context');
     }
@@ -22,7 +62,7 @@ export class MeService {
 
   async update(body: any, req: Request & { user: any; routeData?: any }) {
     if (!req.user) throw new UnauthorizedException();
-    const repo = req.routeData?.context?.$repos?.main;
+    const repo = this.getSecureRepo(req, 'user_definition');
     if (!repo) {
       throw new Error('Repository not found in route context');
     }
@@ -32,12 +72,14 @@ export class MeService {
 
   async findOAuthAccounts(req: Request & { user: any; routeData?: any }) {
     if (!req.user) throw new UnauthorizedException();
-    const repo = req.routeData?.context?.$repos?.main;
+    const repo = this.getTrustedRepo(req, 'oauth_account_definition');
     if (!repo) {
       throw new Error('Repository not found in route context');
     }
     const userId = req.user._id || req.user.id;
-    const { data } = await repo.find({ filter: { userId } });
+    const { data } = await repo.find({
+      filter: { user: { id: { _eq: userId } } },
+    });
     return { data };
   }
 }

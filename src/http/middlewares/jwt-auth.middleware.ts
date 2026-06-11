@@ -11,12 +11,13 @@ import {
   userCacheKey,
   USER_CACHE_TTL_MS,
 } from '../../shared/utils/load-user-with-role.util';
+import type { ApiTokenService } from '../../domain/auth';
 
 function isPublishedRequest(req: any): boolean {
   if (req.routeData?.isPublished === true) return true;
   return (
     req.routeData?.publishedMethods?.some(
-      (method: any) => method?.method === req.method || method === req.method,
+      (method: any) => method?.name === req.method || method === req.method,
     ) === true
   );
 }
@@ -32,6 +33,7 @@ export function jwtAuthMiddleware(
   queryBuilderService: QueryBuilderService,
   cacheService: CacheService,
   secretKey: string,
+  apiTokenService?: ApiTokenService,
 ) {
   const key = new TextEncoder().encode(secretKey);
 
@@ -65,7 +67,14 @@ export function jwtAuthMiddleware(
         return next();
       }
 
-      const { id, loginProvider } = payload;
+      if (
+        payload.tokenType === 'api_token' &&
+        !(await apiTokenService?.validateAccessPayload(payload))
+      ) {
+        throw new InvalidTokenException();
+      }
+
+      const { id, loginProvider, tokenType, tokenId } = payload;
       const cacheKey = userCacheKey(id);
 
       let user = await cacheService.get<any>(cacheKey);
@@ -84,6 +93,8 @@ export function jwtAuthMiddleware(
 
       Object.assign(user, {
         loginProvider: loginProvider ?? null,
+        tokenType: tokenType ?? null,
+        apiTokenId: tokenId ?? null,
       });
 
       req.user = user;

@@ -139,7 +139,7 @@
     {
       "table": "method_definition",
       "filter": {
-        "method": {
+        "name": {
           "_eq": "GQL_QUERY"
         }
       }
@@ -147,10 +147,48 @@
     {
       "table": "method_definition",
       "filter": {
-        "method": {
+        "name": {
           "_eq": "GQL_MUTATION"
         }
       }
+    }
+  ],
+  "method_definition": [
+    {
+      "_unique": {
+        "name": {
+          "_eq": "GET"
+        }
+      },
+      "buttonColor": "#dbeafe",
+      "textColor": "#1d4ed8"
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "POST"
+        }
+      },
+      "buttonColor": "#dcfce7",
+      "textColor": "#15803d"
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "PATCH"
+        }
+      },
+      "buttonColor": "#fef3c7",
+      "textColor": "#b45309"
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "DELETE"
+        }
+      },
+      "buttonColor": "#fee2e2",
+      "textColor": "#b91c1c"
     }
   ],
   "field_permission_definition": [
@@ -206,27 +244,11 @@
         }
       },
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/route_definition",
-            "actions": [
-              "read"
-            ]
-          },
-          {
-            "or": [
-              {
-                "route": "/route_definition",
-                "actions": [
-                  "create"
-                ]
-              },
-              {
-                "route": "/route_definition",
-                "actions": [
-                  "update"
-                ]
-              }
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -306,7 +328,6 @@
           "_eq": "/auth/providers"
         }
       },
-      "mainTable": "user_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -335,7 +356,9 @@
           "_eq": "/assets/:id"
         }
       },
-      "publishedMethods": []
+      "publishedMethods": [
+        "GET"
+      ]
     },
     {
       "_unique": {
@@ -801,6 +824,42 @@
           {
             "table": {
               "name": {
+                "_eq": "column_definition"
+              }
+            }
+          },
+          {
+            "name": {
+              "_eq": "type"
+            }
+          }
+        ]
+      },
+      "options": [
+        "int",
+        "varchar",
+        "text",
+        "boolean",
+        "uuid",
+        "ObjectId",
+        "bigint",
+        "date",
+        "datetime",
+        "timestamp",
+        "enum",
+        "simple-json",
+        "code",
+        "array-select",
+        "richtext",
+        "float"
+      ]
+    },
+    {
+      "_unique": {
+        "_and": [
+          {
+            "table": {
+              "name": {
                 "_eq": "route_definition"
               }
             }
@@ -832,6 +891,30 @@
         ]
       },
       "defaultValue": "lucide:menu"
+    },
+    {
+      "_unique": {
+        "_and": [
+          {
+            "table": {
+              "name": {
+                "_eq": "extension_definition"
+              }
+            }
+          },
+          {
+            "name": {
+              "_eq": "type"
+            }
+          }
+        ]
+      },
+      "options": [
+        "page",
+        "widget",
+        "global"
+      ],
+      "description": "Type of extension (full page, embeddable widget, or global shell extension)"
     },
     {
       "_unique": {

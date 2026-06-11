@@ -4,6 +4,7 @@ import { ColumnRuleCacheService } from '../../src/engines/cache';
 
 function makeQb(rows: any[]) {
   return {
+    isMongoDb: vi.fn(() => false),
     find: vi.fn(async (args: any) => {
       const idsFilter = args?.filter?.id?._in;
       if (idsFilter) {
@@ -66,7 +67,7 @@ describe('ColumnRuleCacheService — partial reload', () => {
 
     const rules = svc.getRulesForColumnSync(100);
     expect(rules).toHaveLength(2);
-    expect(rules.find((r) => r.id === 2)?.ruleType).toBe('max');
+    expect(rules.find((r) => r.id === '2')?.ruleType).toBe('max');
     const calls = qb.find.mock.calls;
     expect(calls).toHaveLength(1);
     expect(calls[0][0].filter.id._in).toEqual(['2']);
@@ -108,7 +109,7 @@ describe('ColumnRuleCacheService — partial reload', () => {
 
     const rules = svc.getRulesForColumnSync(100);
     expect(rules).toHaveLength(1);
-    expect(rules[0].id).toBe(1);
+    expect(rules[0].id).toBe('1');
   });
 
   it('partialReload removes column from cache when last rule is deleted', async () => {

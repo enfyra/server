@@ -503,11 +503,61 @@ async function handleUpdatedRelations(
           mappedByChanged,
           metadataCacheService,
         );
-      } else if (onDeleteChanged) {
+      } else {
+        if (isNullableChanged) {
+          await handleRelationNullableChange(
+            knex,
+            oldRel,
+            newRel,
+            diff,
+            tableName,
+            oldColumns,
+            metadataCacheService,
+          );
+        }
+        if (onDeleteChanged) {
         await handleOnDeleteChange(knex, oldRel, newRel, diff, tableName);
+        }
       }
     }
   }
+}
+
+async function handleRelationNullableChange(
+  knex: Knex,
+  oldRel: any,
+  newRel: any,
+  diff: any,
+  tableName: string,
+  oldColumns: any[],
+  metadataCacheService?: any,
+): Promise<void> {
+  if (!ownsSqlForeignKey(newRel)) return;
+
+  const fkColumn = getSqlRelationForeignKeyColumn(newRel);
+  const targetPkType = await getPrimaryKeyTypeForTable(
+    knex,
+    newRel.targetTableName,
+    metadataCacheService,
+  );
+  const oldColumn = oldColumns.find((c: any) => c.name === fkColumn) || {
+    name: fkColumn,
+    type: targetPkType,
+    isNullable: oldRel.isNullable ?? true,
+    isForeignKey: true,
+  };
+
+  if (!diff.columns.update) diff.columns.update = [];
+  diff.columns.update.push({
+    oldColumn,
+    newColumn: {
+      ...oldColumn,
+      name: fkColumn,
+      type: targetPkType,
+      isNullable: newRel.isNullable ?? true,
+      isForeignKey: true,
+    },
+  });
 }
 
 async function handleRelationTargetAndPropertyChange(

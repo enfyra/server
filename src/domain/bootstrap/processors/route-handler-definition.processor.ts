@@ -1,7 +1,7 @@
 import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { DatabaseConfigService } from '../../../shared/services';
-import { normalizeScriptRecord } from '@enfyra/kernel';
+import { normalizeScriptRecord } from '../../../shared/utils/script-code.util';
 
 export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;
@@ -37,7 +37,7 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
           const method = await this.queryBuilderService.findOne({
             table: 'method_definition',
             where: {
-              method: handler.method,
+              name: handler.method,
             },
           });
           if (!method) {

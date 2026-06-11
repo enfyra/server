@@ -1,6 +1,7 @@
 import { MongoClient, Db, ObjectId } from 'mongodb';
 import {
   executeMongoBatchFetches,
+  getJunctionTableName,
   MongoBatchFetchDescriptor,
 } from '@enfyra/kernel';
 
@@ -53,6 +54,9 @@ const META: Record<string, any> = {
         type: 'many-to-many',
         targetTableName: 'tags',
         isInverse: false,
+        junctionTableName: getJunctionTableName('posts', 'tags', 'tags'),
+        junctionSourceColumn: 'sourceId',
+        junctionTargetColumn: 'targetId',
       },
     ],
   },
@@ -87,7 +91,7 @@ const META: Record<string, any> = {
   },
 };
 
-const junctionName = `posts_tags_tags`;
+const junctionName = getJunctionTableName('posts', 'tags', 'tags');
 
 const metadata = { tables: new Map(Object.entries(META)) };
 const metadataGetter = async (table: string) =>
@@ -169,12 +173,12 @@ beforeAll(async () => {
   ]);
 
   await db.collection(junctionName).insertMany([
-    { postsId: postIds[0], tagsId: tagIds[0] },
-    { postsId: postIds[0], tagsId: tagIds[1] },
-    { postsId: postIds[0], tagsId: tagIds[2] },
-    { postsId: postIds[1], tagsId: tagIds[1] },
-    { postsId: postIds[1], tagsId: tagIds[3] },
-    { postsId: postIds[2], tagsId: tagIds[0] },
+    { sourceId: postIds[0], targetId: tagIds[0] },
+    { sourceId: postIds[0], targetId: tagIds[1] },
+    { sourceId: postIds[0], targetId: tagIds[2] },
+    { sourceId: postIds[1], targetId: tagIds[1] },
+    { sourceId: postIds[1], targetId: tagIds[3] },
+    { sourceId: postIds[2], targetId: tagIds[0] },
   ]);
 });
 
@@ -320,8 +324,8 @@ describe('deep default limit on to-many (Mongo)', () => {
     );
     await db.collection(junctionName).insertMany(
       localTagIds.map((tagId) => ({
-        postsId: postId,
-        tagsId: tagId,
+        sourceId: postId,
+        targetId: tagId,
       })),
     );
 
@@ -591,14 +595,8 @@ describe('deep limit on m2m (Mongo)', () => {
 
     const post0Tags = rows[0].tags;
     const post1Tags = rows[1].tags;
-    expect(post0Tags.map((tag: any) => tag.label)).toEqual([
-      'beta',
-      'gamma',
-    ]);
-    expect(post1Tags.map((tag: any) => tag.label)).toEqual([
-      'beta',
-      'delta',
-    ]);
+    expect(post0Tags.map((tag: any) => tag.label)).toEqual(['beta', 'gamma']);
+    expect(post1Tags.map((tag: any) => tag.label)).toEqual(['beta', 'delta']);
     expect(post0Tags[0].priority).toBeUndefined();
   });
 });
@@ -612,13 +610,17 @@ describe('deep sort on m2m (Mongo)', () => {
       author: userIds[0],
     });
     await db.collection(junctionName).insertMany([
-      { postsId: reversePostId, tagsId: tagIds[2] },
-      { postsId: reversePostId, tagsId: tagIds[1] },
-      { postsId: reversePostId, tagsId: tagIds[0] },
+      { sourceId: reversePostId, targetId: tagIds[2] },
+      { sourceId: reversePostId, targetId: tagIds[1] },
+      { sourceId: reversePostId, targetId: tagIds[0] },
     ]);
 
     const rows = [
-      { _id: reversePostId, title: 'Reverse Junction Post', author: userIds[0] },
+      {
+        _id: reversePostId,
+        title: 'Reverse Junction Post',
+        author: userIds[0],
+      },
     ];
     const desc: MongoBatchFetchDescriptor = {
       relationName: 'tags',
@@ -661,8 +663,8 @@ describe('deep sort on m2m (Mongo)', () => {
     await db.collection('tags').insertMany(bulkTags);
     await db.collection(junctionName).insertMany(
       bulkTags.map((tag) => ({
-        postsId: bulkPostId,
-        tagsId: tag._id,
+        sourceId: bulkPostId,
+        targetId: tag._id,
       })),
     );
 
@@ -704,8 +706,7 @@ describe('debug trace (Mongo)', () => {
       BatchFetchEngine,
       PER_PARENT_CONCURRENCY: _PER_PARENT_CONCURRENCY,
     } = await import('@enfyra/kernel');
-    const { MongoBatchAdapter } =
-      await import('@enfyra/kernel');
+    const { MongoBatchAdapter } = await import('@enfyra/kernel');
 
     const traceEntries: any[] = [];
     const mockTrace = {

@@ -1,7 +1,7 @@
 import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { DatabaseConfigService } from '../../../shared/services';
-import { normalizeScriptRecord } from '@enfyra/kernel';
+import { normalizeScriptRecord } from '../../../shared/utils/script-code.util';
 
 export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;

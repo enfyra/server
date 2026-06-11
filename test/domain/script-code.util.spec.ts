@@ -5,7 +5,7 @@ import {
   normalizeScriptPatch,
   normalizeScriptRecord,
   resolveExecutableScript,
-} from '@enfyra/kernel';
+} from '../../src/shared/utils/script-code.util';
 
 describe('script-code util', () => {
   it('compiles TypeScript source into executable JavaScript', () => {

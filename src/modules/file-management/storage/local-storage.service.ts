@@ -2,9 +2,11 @@ import { Logger } from '../../../shared/logger';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 import {
   IStorageService,
   StorageConfig,
+  StorageStreamOptions,
   UploadResult,
 } from './storage.interface';
 
@@ -17,10 +19,15 @@ export class LocalStorageService implements IStorageService {
   }
 
   private resolveLocalPath(location: string): string {
-    const relativePath = location.startsWith('/') ? location.slice(1) : location;
+    const relativePath = location.startsWith('/')
+      ? location.slice(1)
+      : location;
     const basePath = path.resolve(this.basePath);
     const absolutePath = path.resolve(basePath, relativePath);
-    if (absolutePath !== basePath && !absolutePath.startsWith(`${basePath}${path.sep}`)) {
+    if (
+      absolutePath !== basePath &&
+      !absolutePath.startsWith(`${basePath}${path.sep}`)
+    ) {
       throw new Error(`Invalid local storage path: ${location}`);
     }
     return absolutePath;
@@ -35,14 +42,14 @@ export class LocalStorageService implements IStorageService {
   }
 
   async upload(
-    buffer: Buffer,
+    stream: Readable,
     relativePath: string,
     _mimetype: string,
     _config: StorageConfig,
   ): Promise<UploadResult> {
     const filePath = this.resolveLocalPath(relativePath);
     await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.promises.writeFile(filePath, buffer);
+    await pipeline(stream, fs.createWriteStream(filePath));
     return {
       location: `/${relativePath}`,
     };
@@ -55,12 +62,16 @@ export class LocalStorageService implements IStorageService {
     }
   }
 
-  async getStream(location: string, config: StorageConfig): Promise<Readable> {
+  async getStream(
+    location: string,
+    config: StorageConfig,
+    options?: StorageStreamOptions,
+  ): Promise<Readable> {
     const absolutePath = this.resolveLocalPath(location);
     if (!(await this.exists(location, config))) {
       throw new Error(`File not found in local storage: ${location}`);
     }
-    const stream = fs.createReadStream(absolutePath);
+    const stream = fs.createReadStream(absolutePath, options?.range);
     try {
       const stats = await fs.promises.stat(absolutePath);
       (stream as any).contentLength = stats.size;
@@ -79,12 +90,12 @@ export class LocalStorageService implements IStorageService {
 
   async replaceFile(
     location: string,
-    buffer: Buffer,
+    stream: Readable,
     _mimetype: string,
     _config: StorageConfig,
   ): Promise<void> {
     const absolutePath = this.resolveLocalPath(location);
-    await fs.promises.writeFile(absolutePath, buffer);
+    await pipeline(stream, fs.createWriteStream(absolutePath));
   }
 
   async exists(location: string, _config: StorageConfig): Promise<boolean> {

@@ -56,6 +56,9 @@ export function addColumnToTable(
         col.options?.scale || 2,
       );
       break;
+    case 'float':
+      column = table.float(col.name);
+      break;
     case 'simple-json':
       column = table.text(col.name, 'longtext');
       break;

@@ -41,7 +41,7 @@ function getRouteMethods(route: any): string[] {
     [];
   if (!Array.isArray(candidates)) return [];
   return candidates
-    .map((item: any) => String(item?.method ?? item).toUpperCase())
+    .map((item: any) => String(item?.name ?? item).toUpperCase())
     .filter(Boolean);
 }
 

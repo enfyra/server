@@ -1,10 +1,12 @@
 import { EventEmitter } from 'node:events';
 import { createServer, type Server } from 'node:http';
+import { Readable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildExpressApp,
   disposeRequestScopeOnResponse,
 } from '../../src/express-app';
+import { attachStreamResponseHelper } from '../../src/modules/dynamic-api/services/dynamic.service';
 
 function makeReqRes(dispose = vi.fn()) {
   const res = new EventEmitter();
@@ -83,7 +85,10 @@ function makeAppContainer(dispose = vi.fn()) {
     },
     routeCacheService: {
       matchRoute: async (method: string, path: string) => {
-        if (method !== 'GET' || !['/ok', '/boom'].includes(path)) {
+        const isKnownGet =
+          method === 'GET' && ['/ok', '/boom', '/stream'].includes(path);
+        const isKnownPost = method === 'POST' && path === '/webhook';
+        if (!isKnownGet && !isKnownPost) {
           return null;
         }
         return {
@@ -91,8 +96,8 @@ function makeAppContainer(dispose = vi.fn()) {
           route: {
             path,
             route: { path },
-            availableMethods: [{ method: 'GET' }],
-            publishedMethods: [{ method: 'GET' }],
+            availableMethods: [{ name: method }],
+            publishedMethods: [{ name: method }],
             handlers: [],
             preHooks: [],
             postHooks: [],
@@ -101,19 +106,22 @@ function makeAppContainer(dispose = vi.fn()) {
       },
       getRouteEngine: () => ({
         find: (method: string, path: string) => {
-          if (method !== 'GET' || !['/ok', '/boom'].includes(path)) {
-            return null;
-          }
-          return {
-            params: {},
-            route: {
-              path,
-              route: { path },
-              availableMethods: [{ method: 'GET' }],
-              publishedMethods: [{ method: 'GET' }],
-              handlers: [],
-              preHooks: [],
-              postHooks: [],
+        const isKnownGet =
+          method === 'GET' && ['/ok', '/boom', '/stream'].includes(path);
+        const isKnownPost = method === 'POST' && path === '/webhook';
+        if (!isKnownGet && !isKnownPost) {
+          return null;
+        }
+        return {
+          params: {},
+          route: {
+            path,
+            route: { path },
+            availableMethods: [{ name: method }],
+            publishedMethods: [{ name: method }],
+            handlers: [],
+            preHooks: [],
+            postHooks: [],
             },
           };
         },
@@ -123,9 +131,7 @@ function makeAppContainer(dispose = vi.fn()) {
       createReposProxy: vi.fn(() => ({})),
     },
     uploadFileHelper: {
-      createUploadFileHelper: vi.fn(),
-      createUpdateFileHelper: vi.fn(),
-      createDeleteFileHelper: vi.fn(),
+      createStorageHelper: vi.fn(() => ({})),
     },
     rateLimitService: {
       check: vi.fn(),
@@ -141,7 +147,11 @@ function makeAppContainer(dispose = vi.fn()) {
         $helpers: {},
         $query: req.query || {},
         $share: { $logs: [] },
-        $req: { ip: '127.0.0.1' },
+        $req: {
+          headers: req.headers,
+          rawBody: req.rawBody,
+          ip: '127.0.0.1',
+        },
       })),
     },
     guardCacheService: {
@@ -165,16 +175,34 @@ function makeAppContainer(dispose = vi.fn()) {
     },
     dynamicService: {
       runHandler: vi.fn(async (req: any) => {
+        if (req.path === '/webhook') {
+          return {
+            body: req.routeData.context.$body,
+            signature:
+              req.routeData.context.$req.headers['paddle-signature'] ?? null,
+            rawBody: req.routeData.context.$req.rawBody,
+          };
+        }
         if (req.path === '/boom') {
           throw new Error('pipeline failure');
+        }
+        if (req.path === '/stream') {
+          attachStreamResponseHelper(req.routeData.res);
+          req.routeData.context.$res = req.routeData.res;
+          req.routeData.context.$res.stream(Readable.from(['backup-stream']), {
+            mimetype: 'application/sql',
+            filename: 'backup.sql',
+            headers: {
+              'X-Backup': 'yes',
+            },
+          });
+          return undefined;
         }
         return { success: true };
       }),
     },
     graphqlService: {
-      getYogaApp: vi.fn(
-        () => (_req: any, _res: any, next: any) => next(),
-      ),
+      getYogaApp: vi.fn(() => (_req: any, _res: any, next: any) => next()),
     },
   };
 
@@ -230,5 +258,56 @@ describe('request scope disposal through the Express pipeline', () => {
     });
 
     expect(() => buildExpressApp(container)).toThrow('schema missing');
+  });
+
+  it('streams dynamic handler responses without JSON wrapping', async () => {
+    const { container, dispose } = makeAppContainer();
+    const server = createServer(buildExpressApp(container));
+    const baseUrl = await listen(server);
+
+    try {
+      const response = await fetch(`${baseUrl}/stream`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('application/sql');
+      expect(response.headers.get('content-disposition')).toBe(
+        'attachment; filename="backup.sql"',
+      );
+      expect(await response.text()).toBe('backup-stream');
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(dispose).toHaveBeenCalledTimes(1);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it('exposes parsed body, headers, and rawBody to dynamic handlers', async () => {
+    const { container, dispose } = makeAppContainer();
+    const server = createServer(buildExpressApp(container));
+    const baseUrl = await listen(server);
+    const payload = '{"event_type":"transaction.completed","data":{"id":"txn_1"}}';
+
+    try {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Paddle-Signature': 'ts=1;h1=test',
+        },
+        body: payload,
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        body: {
+          event_type: 'transaction.completed',
+          data: { id: 'txn_1' },
+        },
+        signature: 'ts=1;h1=test',
+        rawBody: payload,
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(dispose).toHaveBeenCalledTimes(1);
+    } finally {
+      await close(server);
+    }
   });
 });

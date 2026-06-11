@@ -27,6 +27,8 @@
               "ObjectId",
               "bigint",
               "date",
+              "datetime",
+              "timestamp",
               "enum",
               "simple-json",
               "code",
@@ -144,6 +146,19 @@
             "propertyName": "routePermissions"
           }
         }
+      ],
+      "columnsToModify": [
+        {
+          "from": {
+            "name": "method",
+            "type": "varchar"
+          },
+          "to": {
+            "name": "name",
+            "type": "varchar",
+            "description": "HTTP method name (GET, POST, PATCH, DELETE, PUT, HEAD, OPTIONS)"
+          }
+        }
       ]
     },
     {
@@ -154,16 +169,6 @@
       },
       "relationsToRemove": [
         "table"
-      ]
-    },
-    {
-      "_unique": {
-        "name": {
-          "_eq": "file_permission_definition"
-        }
-      },
-      "relationsToRemove": [
-        "allowedUsers"
       ]
     },
     {

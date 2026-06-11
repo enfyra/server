@@ -425,6 +425,7 @@ export class MongoSagaLockService {
       resourceByKey.set(`${resource.type}:${resource.id}`, resource);
     }
     const resourceKeys = Array.from(resourceByKey.keys());
+    const lockIds = resourceKeys.map((resourceKey) => `${txId}:${resourceKey}`);
 
     const conflictingLocks = await this.getLocksCollection()
       .find({
@@ -444,7 +445,24 @@ export class MongoSagaLockService {
       };
     }
 
-    const lockDocs = resourceKeys.map((resourceKey) => {
+    const existingOwnLocks = await this.getLocksCollection()
+      .find({ _id: { $in: lockIds }, txId })
+      .toArray();
+    const existingOwnResourceKeys = new Set(
+      existingOwnLocks.map((lock) => lock.resourceKey),
+    );
+
+    if (existingOwnLocks.length > 0) {
+      await this.getLocksCollection().updateMany(
+        { _id: { $in: existingOwnLocks.map((lock) => lock._id) }, txId },
+        { $set: { lockMode: 'write', expiresAt } },
+      );
+    }
+
+    const newResourceKeys = resourceKeys.filter(
+      (resourceKey) => !existingOwnResourceKeys.has(resourceKey),
+    );
+    const lockDocs = newResourceKeys.map((resourceKey) => {
       const resource = resourceByKey.get(resourceKey)!;
       return {
         _id: `${txId}:${resourceKey}`,
@@ -462,9 +480,11 @@ export class MongoSagaLockService {
     });
 
     try {
-      await this.getLocksCollection().insertMany(lockDocs as any[], {
-        ordered: false,
-      });
+      if (lockDocs.length > 0) {
+        await this.getLocksCollection().insertMany(lockDocs as any[], {
+          ordered: false,
+        });
+      }
 
       await this.getMetaCollection().updateOne(
         { txId },
@@ -483,10 +503,10 @@ export class MongoSagaLockService {
       return {
         success: true,
         txId,
-        acquiredLocks: resourceKeys,
+        acquiredLocks: newResourceKeys,
       };
     } catch (error) {
-      await this.releaseLocks(txId, resourceKeys);
+      await this.releaseLocks(txId, newResourceKeys);
       throw new DatabaseException(
         `Batch lock acquisition failed: ${getErrorMessage(error)}`,
         {

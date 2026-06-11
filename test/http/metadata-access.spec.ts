@@ -27,7 +27,7 @@ function policyService() {
   return {
     checkRequestAccess(ctx: any) {
       const published = ctx.routeData?.publishedMethods?.some(
-        (m: any) => m.method === ctx.method,
+        (m: any) => m.name === ctx.method,
       );
       if (published) return { allow: true };
       if (!ctx.user) return { allow: false };
@@ -35,7 +35,7 @@ function policyService() {
       const roleId = String(ctx.user.role?.id ?? ctx.user.role?._id ?? '');
       const allowed = ctx.routeData?.routePermissions?.some((permission: any) => {
         const methodAllowed = permission.methods?.some(
-          (item: any) => item.method === ctx.method,
+          (item: any) => item.name === ctx.method,
         );
         return methodAllowed && String(permission.role?.id) === roleId;
       });
@@ -126,15 +126,15 @@ describe('metadata access projection', () => {
         {
           path: '/public_post_definition',
           mainTable: { name: 'public_post_definition' },
-          availableMethods: [{ method: 'GET' }],
-          publishedMethods: [{ method: 'GET' }],
+          availableMethods: [{ name: 'GET' }],
+          publishedMethods: [{ name: 'GET' }],
         },
         {
           path: '/private_post_definition',
           mainTable: { name: 'private_post_definition' },
-          availableMethods: [{ method: 'GET' }],
+          availableMethods: [{ name: 'GET' }],
           routePermissions: [
-            { role: { id: 2 }, methods: [{ method: 'GET' }] },
+            { role: { id: 2 }, methods: [{ name: 'GET' }] },
           ],
         },
       ]),
@@ -162,17 +162,17 @@ describe('metadata access projection', () => {
         {
           path: '/post_definition',
           mainTable: { name: 'post_definition' },
-          availableMethods: [{ method: 'GET' }],
+          availableMethods: [{ name: 'GET' }],
           routePermissions: [
-            { role: { id: 2 }, methods: [{ method: 'GET' }] },
+            { role: { id: 2 }, methods: [{ name: 'GET' }] },
           ],
         },
         {
           path: '/secret_definition',
           mainTable: { name: 'secret_definition' },
-          availableMethods: [{ method: 'GET' }],
+          availableMethods: [{ name: 'GET' }],
           routePermissions: [
-            { role: { id: 3 }, methods: [{ method: 'GET' }] },
+            { role: { id: 3 }, methods: [{ name: 'GET' }] },
           ],
         },
       ]),
@@ -211,11 +211,11 @@ describe('metadata access projection', () => {
         {
           path: '/post_definition',
           mainTable: { name: 'post_definition' },
-          availableMethods: [{ method: 'GET' }, { method: 'POST' }],
+          availableMethods: [{ name: 'GET' }, { name: 'POST' }],
           routePermissions: [
             {
               role: { id: 2 },
-              methods: [{ method: 'GET' }, { method: 'POST' }],
+              methods: [{ name: 'GET' }, { name: 'POST' }],
             },
           ],
         },
@@ -301,9 +301,9 @@ describe('metadata access projection', () => {
         {
           path: '/post_definition',
           mainTable: { name: 'post_definition' },
-          availableMethods: [{ method: 'GET' }],
+          availableMethods: [{ name: 'GET' }],
           routePermissions: [
-            { role: { id: 2 }, methods: [{ method: 'GET' }] },
+            { role: { id: 2 }, methods: [{ name: 'GET' }] },
           ],
         },
       ]),
@@ -342,9 +342,9 @@ describe('metadata access projection', () => {
         {
           path: '/post_definition',
           mainTable: { name: 'post_definition' },
-          availableMethods: [{ method: 'GET' }],
+          availableMethods: [{ name: 'GET' }],
           routePermissions: [
-            { role: { id: 2 }, methods: [{ method: 'GET' }] },
+            { role: { id: 2 }, methods: [{ name: 'GET' }] },
           ],
         },
       ]),
@@ -380,9 +380,9 @@ describe('metadata access projection', () => {
         {
           path: '/post_definition',
           mainTable: { name: 'post_definition' },
-          availableMethods: [{ method: 'GET' }],
+          availableMethods: [{ name: 'GET' }],
           routePermissions: [
-            { role: { id: 2 }, methods: [{ method: 'GET' }] },
+            { role: { id: 2 }, methods: [{ name: 'GET' }] },
           ],
         },
       ]),

@@ -9,6 +9,7 @@ import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
 import { getSqlJunctionMetadata } from '../../../domain/bootstrap/utils/sql-junction-metadata.util';
 import { replaceSqlJunctionRows } from '../../../domain/bootstrap/utils/sql-junction-writer.util';
 import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';
+import { isCanonicalTableRoutePath } from '../../../domain/bootstrap/utils/canonical-table-route.util';
 
 interface InitOld {
   [tableName: string]: any | any[];
@@ -103,6 +104,8 @@ export class DataMigrationService {
       const count = await this.migrateTable(tableName, records);
       totalMigrated += count;
     }
+
+    totalMigrated += await this.clearCustomRouteMainTables();
 
     this.verbose(
       `Data migrations completed: ${totalMigrated} record(s) migrated`,
@@ -294,6 +297,50 @@ export class DataMigrationService {
     }
   }
 
+  private async clearCustomRouteMainTables(): Promise<number> {
+    const idField = DatabaseConfigService.getPkField();
+
+    try {
+      const routes = await this.queryBuilderService.find({
+        table: 'route_definition',
+        filter: {},
+        limit: -1,
+        fields: [idField, 'path', 'mainTable.name'],
+      });
+
+      let cleared = 0;
+      for (const route of routes.data || []) {
+        const tableName = route.mainTable?.name;
+        if (!tableName || isCanonicalTableRoutePath(route.path, tableName)) {
+          continue;
+        }
+
+        const data = DatabaseConfigService.instanceIsMongoDb()
+          ? { mainTable: null }
+          : { mainTableId: null };
+
+        await this.queryBuilderService.update(
+          'route_definition',
+          { where: [{ field: idField, operator: '=', value: route[idField] }] },
+          data,
+        );
+        cleared++;
+      }
+
+      if (cleared > 0) {
+        this.verbose(
+          `Cleared mainTable from ${cleared} custom route(s)`,
+        );
+      }
+      return cleared;
+    } catch (error) {
+      this.logger.warn(
+        `Failed to clear custom route mainTable links: ${getErrorMessage(error)}`,
+      );
+      return 0;
+    }
+  }
+
   private async resolveMethodIds(methodNames: string[]): Promise<any[]> {
     if (methodNames.length === 0) return [];
 
@@ -301,7 +348,7 @@ export class DataMigrationService {
       const idField = DatabaseConfigService.getPkField();
       const result = await this.queryBuilderService.find({
         table: 'method_definition',
-        filter: { method: { _in: methodNames } },
+        filter: { name: { _in: methodNames } },
         fields: [idField],
       });
       return result.data.map((m: any) => m._id || m.id).filter(Boolean);
@@ -309,8 +356,8 @@ export class DataMigrationService {
 
     const rows = await this.queryBuilderService
       .getKnex()('method_definition')
-      .select('id', 'method')
-      .whereIn('method', methodNames);
+      .select('id', 'name')
+      .whereIn('name', methodNames);
     return rows.map((m: any) => m.id).filter(Boolean);
   }
 
@@ -420,9 +467,6 @@ export class DataMigrationService {
     }
     if (record.name) {
       return { name: { _eq: record.name } };
-    }
-    if (record.method) {
-      return { method: { _eq: record.method } };
     }
     if (record.label && record.type) {
       return {

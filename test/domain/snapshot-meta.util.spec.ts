@@ -8,7 +8,7 @@ import {
 describe('snapshot-meta.util', () => {
   it('getLookupKey uses LOOKUP_KEY_MAP for known system tables', () => {
     expect(getLookupKey('route_definition')).toBe('path');
-    expect(getLookupKey('method_definition')).toBe('method');
+    expect(getLookupKey('method_definition')).toBe('name');
     expect(getLookupKey('user_definition')).toBe('email');
   });
 

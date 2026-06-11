@@ -69,6 +69,7 @@ export class SystemSafetyAuditorService {
         'skipRoleGuardMethods',
         'availableMethods',
         'icon',
+        'maxUploadFileSize',
       ]);
       const disallowed = changedFields.filter((f) => !allowed.includes(f));
       if (disallowed.length > 0) {

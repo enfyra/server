@@ -26,7 +26,7 @@ describe('validateBootstrapDataFiles', () => {
         route_definition: {},
       },
       defaultData: {
-        method_definition: [{ method: 'GET' }],
+        method_definition: [{ name: 'GET' }],
         route_definition: [
           {
             path: '/bad',
@@ -58,12 +58,12 @@ describe('validateBootstrapDataFiles', () => {
         known_table: {},
       },
       defaultData: {
-        method_definition: [{ method: 'GET' }],
+        method_definition: [{ name: 'GET' }],
         route_definition: [{ path: '/ok', availableMethods: ['GET'] }],
         menu_definition: [
           {
             path: '/menu',
-            permission: { route: '/missing', actions: ['POST'] },
+            permission: { route: '/missing', methods: ['NOPE'] },
           },
         ],
         pre_hook_definition: [{ route: '/missing-hook', methods: ['GET'] }],
@@ -79,7 +79,7 @@ describe('validateBootstrapDataFiles', () => {
     expect(issues.map((issue) => [issue.table, issue.field])).toEqual([
       ['pre_hook_definition', 'route'],
       ['menu_definition', 'permission'],
-      ['menu_definition', 'actions'],
+      ['menu_definition', 'methods'],
       ['gql_definition', 'table'],
       ['websocket_event_definition', 'gateway'],
       ['flow_step_definition', 'flow'],

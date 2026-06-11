@@ -207,7 +207,7 @@ describe('GuardCacheService — tree building', () => {
           priority: 0,
           parent: null,
           route: null,
-          methods: [{ method: 'POST' }],
+          methods: [{ name: 'POST' }],
         },
       ],
       [],
