@@ -4,6 +4,9 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: read
+
 jobs:
   notify-discord:
     runs-on: ubuntu-latest
@@ -18,4 +21,3 @@ jobs:
           content: "🚀 **New Backend Release Available!**"
           footer_title: "Backend Release Notes"
           reduce_headings: true
-

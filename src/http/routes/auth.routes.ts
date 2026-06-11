@@ -1,13 +1,43 @@
 import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
-import { BadRequestException } from '../../domain/exceptions';
+import {
+  BadRequestException,
+  TooManyRequestsException,
+} from '../../domain/exceptions';
+import { resolveClientIpFromRequest } from '../../shared/utils/client-ip.util';
+
+async function enforceAuthRateLimit(
+  req: any,
+  container: AwilixContainer<Cradle>,
+) {
+  const rateLimitService =
+    req.scope?.cradle?.rateLimitService ?? container.cradle.rateLimitService;
+  const clientIp = resolveClientIpFromRequest(req);
+  const routeKey =
+    req.route?.path || req.path || req.originalUrl?.split('?')?.[0];
+  const result = await rateLimitService.check(
+    `builtin-auth:${clientIp}:${routeKey}`,
+    {
+      maxRequests: 20,
+      perSeconds: 60,
+    },
+  );
+
+  if (!result.allowed) {
+    throw new TooManyRequestsException('Too many authentication requests', {
+      retryAfter: result.retryAfter,
+      resetAt: result.resetAt,
+    });
+  }
+}
 
 export function registerAuthRoutes(
   app: Express,
   container: AwilixContainer<Cradle>,
 ) {
   app.post('/auth/login', async (req: any, res: Response) => {
+    await enforceAuthRateLimit(req, container);
     const authService =
       req.scope?.cradle?.authService ?? container.cradle.authService;
     const result = await authService.login(req.body);
@@ -22,6 +52,7 @@ export function registerAuthRoutes(
   });
 
   app.post('/auth/refresh-token', async (req: any, res: Response) => {
+    await enforceAuthRateLimit(req, container);
     const authService =
       req.scope?.cradle?.authService ?? container.cradle.authService;
     const result = await authService.refreshToken(req.body);
@@ -50,6 +81,7 @@ export function registerAuthRoutes(
   });
 
   app.post('/auth/token/exchange', async (req: any, res: Response) => {
+    await enforceAuthRateLimit(req, container);
     const apiTokenService =
       req.scope?.cradle?.apiTokenService ?? container.cradle.apiTokenService;
     const result = await apiTokenService.exchange(req.body);
@@ -57,6 +89,7 @@ export function registerAuthRoutes(
   });
 
   app.post('/auth/oauth/exchange', async (req: any, res: Response) => {
+    await enforceAuthRateLimit(req, container);
     const oauthExchangeCodeService =
       req.scope?.cradle?.oauthExchangeCodeService ??
       container.cradle.oauthExchangeCodeService;
@@ -116,7 +149,11 @@ function requireValidRedirectUrl(value: unknown): string {
 
 function createAuthCookieHeaders(
   req: any,
-  tokens: { accessToken: string; refreshToken: string; expTime: number | string },
+  tokens: {
+    accessToken: string;
+    refreshToken: string;
+    expTime: number | string;
+  },
 ): string[] {
   return [
     createCookieHeader(req, 'accessToken', tokens.accessToken),

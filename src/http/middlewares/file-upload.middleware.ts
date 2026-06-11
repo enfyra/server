@@ -45,7 +45,6 @@ export function fileUploadMiddleware(settingCacheService: SettingCacheService) {
           req.routeData?.maxUploadFileSize,
         ),
       },
-      preservePath: true,
     });
     upload.single('file')(req, res, (error: any) => {
       if (error) {
