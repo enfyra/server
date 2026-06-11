@@ -3,11 +3,33 @@ import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 import fs from 'fs/promises';
 import { createReadStream } from 'fs';
+import os from 'os';
+import path from 'path';
+import { FileUploadException } from '../../domain/exceptions';
+
+export function resolveUploadedTempFilePath(file: any): string {
+  if (!file?.path) {
+    throw new FileUploadException('No uploaded temp file path provided');
+  }
+
+  const tmpDir = path.resolve(os.tmpdir());
+  const resolvedPath = path.resolve(file.path);
+  const basename = path.basename(resolvedPath);
+
+  if (
+    !resolvedPath.startsWith(`${tmpDir}${path.sep}`) ||
+    !basename.startsWith('enfyra-upload-')
+  ) {
+    throw new FileUploadException('Invalid uploaded temp file path');
+  }
+
+  return resolvedPath;
+}
 
 async function cleanupUploadedTempFile(file: any) {
   if (!file?.path) return;
   try {
-    await fs.unlink(file.path);
+    await fs.unlink(resolveUploadedTempFilePath(file));
   } catch {}
 }
 
@@ -22,7 +44,6 @@ export function registerFileRoutes(
     const file = req.file;
 
     if (!file) {
-      const { FileUploadException } = await import('../../domain/exceptions');
       throw new FileUploadException('No file provided');
     }
 
@@ -41,7 +62,7 @@ export function registerFileRoutes(
         {
           filename: file.originalname,
           mimetype: file.mimetype,
-          stream: createReadStream(file.path),
+          stream: createReadStream(resolveUploadedTempFilePath(file)),
           size: file.size,
         },
         {
@@ -107,7 +128,7 @@ export function registerFileRoutes(
           {
             filename: file.originalname,
             mimetype: file.mimetype,
-            stream: createReadStream(file.path),
+            stream: createReadStream(resolveUploadedTempFilePath(file)),
             size: file.size,
           },
           {
