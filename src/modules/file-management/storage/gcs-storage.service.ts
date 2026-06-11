@@ -2,9 +2,12 @@ import { Logger } from '../../../shared/logger';
 import { BadRequestException } from '../../../domain/exceptions';
 import { Storage } from '@google-cloud/storage';
 import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
+import fs from 'fs';
 import {
   IStorageService,
   StorageConfig,
+  StorageStreamOptions,
   UploadResult,
 } from './storage.interface';
 
@@ -12,7 +15,7 @@ export class GCSStorageService implements IStorageService {
   private readonly logger = new Logger(GCSStorageService.name);
 
   async upload(
-    buffer: Buffer,
+    stream: Readable,
     relativePath: string,
     mimetype: string,
     config: StorageConfig,
@@ -30,11 +33,14 @@ export class GCSStorageService implements IStorageService {
       const bucket = storage.bucket(config.bucket!);
       const file = bucket.file(relativePath);
 
-      await file.save(buffer, {
-        metadata: {
-          contentType: mimetype,
-        },
-      });
+      await pipeline(
+        stream,
+        file.createWriteStream({
+          metadata: {
+            contentType: mimetype,
+          },
+        }),
+      );
 
       return {
         location: relativePath,
@@ -72,7 +78,11 @@ export class GCSStorageService implements IStorageService {
     }
   }
 
-  async getStream(location: string, config: StorageConfig): Promise<Readable> {
+  async getStream(
+    location: string,
+    config: StorageConfig,
+    options?: StorageStreamOptions,
+  ): Promise<Readable> {
     try {
       const credentials =
         typeof config.credentials === 'string'
@@ -91,7 +101,7 @@ export class GCSStorageService implements IStorageService {
         throw new BadRequestException(`File not found in GCS: ${location}`);
       }
 
-      const stream = file.createReadStream();
+      const stream = file.createReadStream(options?.range);
 
       return stream;
     } catch (error: any) {
@@ -136,35 +146,11 @@ export class GCSStorageService implements IStorageService {
 
   async replaceFile(
     location: string,
-    buffer: Buffer,
+    stream: Readable,
     mimetype: string,
     config: StorageConfig,
   ): Promise<void> {
-    try {
-      const credentials =
-        typeof config.credentials === 'string'
-          ? JSON.parse(config.credentials)
-          : config.credentials;
-
-      const storage = new Storage({
-        credentials: credentials,
-      });
-
-      const bucket = storage.bucket(config.bucket!);
-      const file = bucket.file(location);
-
-      await file.save(buffer, {
-        metadata: {
-          contentType: mimetype,
-        },
-      });
-    } catch (error: any) {
-      const cloudError =
-        error.message || error.code || error.name || 'Unknown error';
-      const errorMessage = `Failed to replace file on GCS: ${cloudError}`;
-      this.logger.error(errorMessage, error);
-      throw new BadRequestException(errorMessage);
-    }
+    await this.upload(stream, location, mimetype, config);
   }
 
   async exists(location: string, config: StorageConfig): Promise<boolean> {

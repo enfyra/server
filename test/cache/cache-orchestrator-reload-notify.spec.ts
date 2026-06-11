@@ -90,6 +90,82 @@ describe('CacheOrchestratorService reload notifications', () => {
     ]);
   });
 
+  it('emits extension reload notifications for extension definition changes', async () => {
+    const { orchestrator, emitted } = createOrchestrator();
+
+    await (orchestrator as any).executeChain(
+      {
+        table: 'extension_definition',
+        action: 'reload',
+        scope: 'partial',
+        ids: [8],
+        timestamp: Date.now(),
+      },
+      true,
+    );
+
+    expect(emitted).toEqual([
+      {
+        event: '$system:reload',
+        data: expect.objectContaining({
+          flow: 'extension',
+          status: 'pending',
+          steps: ['extension'],
+          instanceId: 'test-instance',
+          reloadId: expect.any(String),
+        }),
+      },
+      {
+        event: '$system:reload',
+        data: expect.objectContaining({
+          flow: 'extension',
+          status: 'done',
+          steps: ['extension'],
+          instanceId: 'test-instance',
+          reloadId: expect.any(String),
+        }),
+      },
+    ]);
+  });
+
+  it('emits menu and extension reload notifications for menu definition changes', async () => {
+    const { orchestrator, emitted } = createOrchestrator();
+
+    await (orchestrator as any).executeChain(
+      {
+        table: 'menu_definition',
+        action: 'reload',
+        scope: 'partial',
+        ids: [12],
+        timestamp: Date.now(),
+      },
+      true,
+    );
+
+    expect(emitted).toEqual([
+      {
+        event: '$system:reload',
+        data: expect.objectContaining({
+          flow: 'menu',
+          status: 'pending',
+          steps: ['menu', 'extension'],
+          instanceId: 'test-instance',
+          reloadId: expect.any(String),
+        }),
+      },
+      {
+        event: '$system:reload',
+        data: expect.objectContaining({
+          flow: 'menu',
+          status: 'done',
+          steps: ['menu', 'extension'],
+          instanceId: 'test-instance',
+          reloadId: expect.any(String),
+        }),
+      },
+    ]);
+  });
+
   it('records cache reload metrics for granular admin reloads', async () => {
     const cases = [
       {

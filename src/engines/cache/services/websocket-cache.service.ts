@@ -7,7 +7,7 @@ import {
   compileScriptSource,
   normalizeScriptRecord,
   resolveExecutableScript,
-} from '@enfyra/kernel';
+} from '../../../shared/utils/script-code.util';
 import {
   CACHE_IDENTIFIERS,
   type TCacheInvalidationPayload,

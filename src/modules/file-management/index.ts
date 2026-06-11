@@ -1,4 +1,3 @@
-export * from './helpers/upload-file.helper';
 export * from './services/file-assets.service';
 export * from './services/file-management.service';
 export * from './storage/gcs-storage.service';

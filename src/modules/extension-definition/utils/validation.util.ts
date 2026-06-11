@@ -1,47 +1,99 @@
 import { BadRequestException } from '../../../domain/exceptions';
 
+const SFC_TAGS = ['template', 'script', 'style'] as const;
+type SfcTag = (typeof SFC_TAGS)[number];
+
+function isTagBoundary(char: string | undefined): boolean {
+  return !char || /\s|>|\//.test(char);
+}
+
+function scanSfcTags(content: string): {
+  counts: Record<SfcTag, { open: number; close: number }>;
+  firstScriptContent: string | null;
+} {
+  const counts: Record<SfcTag, { open: number; close: number }> = {
+    template: { open: 0, close: 0 },
+    script: { open: 0, close: 0 },
+    style: { open: 0, close: 0 },
+  };
+  let firstScriptContent: string | null = null;
+  const lower = content.toLowerCase();
+  let index = 0;
+
+  while (index < lower.length) {
+    const tagStart = lower.indexOf('<', index);
+    if (tagStart === -1) break;
+
+    const isClosing = lower[tagStart + 1] === '/';
+    const nameStart = tagStart + (isClosing ? 2 : 1);
+    const tagName = SFC_TAGS.find(
+      (name) =>
+        lower.startsWith(name, nameStart) &&
+        isTagBoundary(lower[nameStart + name.length]),
+    );
+
+    if (!tagName) {
+      index = tagStart + 1;
+      continue;
+    }
+
+    if (isClosing) {
+      counts[tagName].close += 1;
+      index = tagStart + 1;
+      continue;
+    }
+
+    counts[tagName].open += 1;
+    const openEnd = lower.indexOf('>', nameStart + tagName.length);
+    if (tagName === 'script' && firstScriptContent === null && openEnd !== -1) {
+      const closeStart = lower.indexOf('</script', openEnd + 1);
+      if (closeStart !== -1) {
+        firstScriptContent = content.slice(openEnd + 1, closeStart);
+      }
+    }
+    index = tagStart + 1;
+  }
+
+  return { counts, firstScriptContent };
+}
+
 export function isProbablyVueSFC(content: string): boolean {
   if (typeof content !== 'string') return false;
   const trimmed = content.trim();
   if (!trimmed) return false;
 
-  const hasSfcTags = /<template[\s>]|<script[\s>]|<style[\s>]/i.test(trimmed);
-  const hasClosing = /<\/template>|<\/script>|<\/style>/i.test(trimmed);
+  const { counts } = scanSfcTags(trimmed);
+  const hasSfcTags = SFC_TAGS.some((tag) => counts[tag].open > 0);
+  const hasClosing = SFC_TAGS.some((tag) => counts[tag].close > 0);
 
   return hasSfcTags && hasClosing;
 }
 
 export function assertValidVueSFC(content: string): void {
-  const templateOpen = (content.match(/<template[^>]*>/g) || []).length;
-  const templateClose = (content.match(/<\/template>/g) || []).length;
-  const scriptOpen = (content.match(/<script[^>]*>/g) || []).length;
-  const scriptClose = (content.match(/<\/script>/g) || []).length;
-  const styleOpen = (content.match(/<style[^>]*>/g) || []).length;
-  const styleClose = (content.match(/<\/style>/g) || []).length;
+  const { counts, firstScriptContent } = scanSfcTags(content);
 
   if (
-    templateOpen !== templateClose ||
-    scriptOpen !== scriptClose ||
-    styleOpen !== styleClose
+    counts.template.open !== counts.template.close ||
+    counts.script.open !== counts.script.close ||
+    counts.style.open !== counts.style.close
   ) {
     throw new BadRequestException('Invalid Vue SFC: unbalanced tags');
   }
 
-  if (templateOpen === 0 && scriptOpen === 0) {
+  if (counts.template.open === 0 && counts.script.open === 0) {
     throw new BadRequestException(
       'Invalid Vue SFC: must have at least <template> or <script>',
     );
   }
 
-  if (scriptOpen > 0) {
-    const scriptContent = content.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
-    if (scriptContent && scriptContent[1]) {
-      const script = scriptContent[1];
-      if (script.includes('export default') && !script.includes('{')) {
-        throw new BadRequestException(
-          'Invalid Vue SFC: script must have proper export default syntax',
-        );
-      }
+  if (counts.script.open > 0 && firstScriptContent) {
+    if (
+      firstScriptContent.includes('export default') &&
+      !firstScriptContent.includes('{')
+    ) {
+      throw new BadRequestException(
+        'Invalid Vue SFC: script must have proper export default syntax',
+      );
     }
   }
 }

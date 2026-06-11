@@ -1,4 +1,6 @@
 import type { MetadataCacheService } from '../../cache';
+import { isGeneratedScriptPersistenceField } from '../../../shared/utils/script-persistence-contract.util';
+
 export class FieldStripper {
   constructor(private metadataCacheService: MetadataCacheService | null) {}
   async stripUnknownColumns(tableName: string, data: any): Promise<any> {
@@ -48,6 +50,7 @@ export class FieldStripper {
       .map((col: any) => col.name);
     for (const column of tableMeta.columns) {
       if (column.isUpdatable === false && column.name in stripped) {
+        if (isGeneratedScriptPersistenceField(tableName, column.name)) continue;
         delete stripped[column.name];
       }
     }

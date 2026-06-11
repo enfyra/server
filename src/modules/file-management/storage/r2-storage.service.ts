@@ -2,15 +2,16 @@ import { Logger } from '../../../shared/logger';
 import { BadRequestException } from '../../../domain/exceptions';
 import {
   S3Client,
-  PutObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
 } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 import { Readable } from 'stream';
 import {
   IStorageService,
   StorageConfig,
+  StorageStreamOptions,
   UploadResult,
 } from './storage.interface';
 
@@ -48,22 +49,24 @@ export class R2StorageService implements IStorageService {
   }
 
   async upload(
-    buffer: Buffer,
+    stream: Readable,
     relativePath: string,
     mimetype: string,
     config: StorageConfig,
   ): Promise<UploadResult> {
     try {
       const s3Client = this.getS3Client(config);
-
-      const command = new PutObjectCommand({
-        Bucket: config.bucket,
-        Key: relativePath,
-        Body: buffer,
-        ContentType: mimetype,
+      const upload = new Upload({
+        client: s3Client,
+        params: {
+          Bucket: config.bucket,
+          Key: relativePath,
+          Body: stream,
+          ContentType: mimetype,
+        },
       });
 
-      await s3Client.send(command);
+      await upload.done();
 
       return {
         location: relativePath,
@@ -94,13 +97,20 @@ export class R2StorageService implements IStorageService {
     }
   }
 
-  async getStream(location: string, config: StorageConfig): Promise<Readable> {
+  async getStream(
+    location: string,
+    config: StorageConfig,
+    options?: StorageStreamOptions,
+  ): Promise<Readable> {
     try {
       const s3Client = this.getS3Client(config);
 
       const command = new GetObjectCommand({
         Bucket: config.bucket!,
         Key: location,
+        Range: options?.range
+          ? `bytes=${options.range.start}-${options.range.end}`
+          : undefined,
       });
 
       const response = await s3Client.send(command);
@@ -110,6 +120,9 @@ export class R2StorageService implements IStorageService {
       }
 
       const stream = response.Body as Readable;
+      if (response.ContentLength !== undefined) {
+        (stream as any).contentLength = response.ContentLength;
+      }
 
       return stream;
     } catch (error: any) {
@@ -155,18 +168,11 @@ export class R2StorageService implements IStorageService {
 
   async replaceFile(
     location: string,
-    buffer: Buffer,
+    stream: Readable,
     mimetype: string,
     config: StorageConfig,
   ): Promise<void> {
-    try {
-      await this.upload(buffer, location, mimetype, config);
-    } catch (error: any) {
-      const cloudError = error.message || error.name || 'Unknown error';
-      const errorMessage = `Failed to replace file on R2: ${cloudError}`;
-      this.logger.error(errorMessage, error);
-      throw new BadRequestException(errorMessage);
-    }
+    await this.upload(stream, location, mimetype, config);
   }
 
   async exists(location: string, config: StorageConfig): Promise<boolean> {

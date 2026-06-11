@@ -53,7 +53,8 @@ PORT=1105
 ############################################
 # Auth - required
 ############################################
-# JWT secret
+# Server secret for auth token signing and isEncrypted=true field encryption.
+# Keep this stable and backed up in production; changing it breaks decryption of existing encrypted field values.
 SECRET_KEY=my_secret
 # bcrypt salt rounds
 SALT_ROUNDS=10

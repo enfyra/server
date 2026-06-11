@@ -10,20 +10,28 @@
   },
   "method_definition": [
     {
-      "method": "GET",
-      "isSystem": true
+      "buttonColor": "#dbeafe",
+      "textColor": "#1d4ed8",
+      "isSystem": true,
+      "name": "GET"
     },
     {
-      "method": "POST",
-      "isSystem": true
+      "buttonColor": "#dcfce7",
+      "textColor": "#15803d",
+      "isSystem": true,
+      "name": "POST"
     },
     {
-      "method": "PATCH",
-      "isSystem": true
+      "buttonColor": "#fef3c7",
+      "textColor": "#b45309",
+      "isSystem": true,
+      "name": "PATCH"
     },
     {
-      "method": "DELETE",
-      "isSystem": true
+      "buttonColor": "#fee2e2",
+      "textColor": "#b91c1c",
+      "isSystem": true,
+      "name": "DELETE"
     }
   ],
   "route_definition": [
@@ -129,7 +137,6 @@
     },
     {
       "path": "/auth/login",
-      "mainTable": "user_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -142,7 +149,6 @@
     },
     {
       "path": "/auth/logout",
-      "mainTable": "user_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -155,7 +161,6 @@
     },
     {
       "path": "/auth/refresh-token",
-      "mainTable": "user_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -168,7 +173,6 @@
     },
     {
       "path": "/auth/providers",
-      "mainTable": "user_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -181,7 +185,6 @@
     },
     {
       "path": "/auth/:provider",
-      "mainTable": "user_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -194,7 +197,6 @@
     },
     {
       "path": "/auth/:provider/callback",
-      "mainTable": "user_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -207,7 +209,6 @@
     },
     {
       "path": "/me",
-      "mainTable": "user_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -222,7 +223,6 @@
     },
     {
       "path": "/me/oauth-accounts",
-      "mainTable": "oauth_account_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:key",
@@ -355,7 +355,6 @@
     },
     {
       "path": "/extension_definition/preview",
-      "mainTable": "extension_definition",
       "isEnabled": true,
       "isSystem": true,
       "availableMethods": [
@@ -377,7 +376,6 @@
     },
     {
       "path": "/folder_definition/tree",
-      "mainTable": "folder_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:folder-tree",
@@ -416,10 +414,12 @@
     },
     {
       "path": "/assets/:id",
-      "mainTable": "file_definition",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:download",
+      "publishedMethods": [
+        "GET"
+      ],
       "availableMethods": [
         "GET"
       ]
@@ -906,20 +906,8 @@
         "or": [
           {
             "route": "/table_definition",
-            "actions": [
-              "create"
-            ]
-          },
-          {
-            "route": "/table_definition",
-            "actions": [
-              "update"
-            ]
-          },
-          {
-            "route": "/table_definition",
-            "actions": [
-              "delete"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -952,9 +940,8 @@
         "or": [
           {
             "route": "/setting_definition",
-            "actions": [
-              "read",
-              "update"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -974,26 +961,8 @@
         "or": [
           {
             "route": "/menu_definition",
-            "actions": [
-              "read"
-            ]
-          },
-          {
-            "route": "/menu_definition",
-            "actions": [
-              "create"
-            ]
-          },
-          {
-            "route": "/menu_definition",
-            "actions": [
-              "update"
-            ]
-          },
-          {
-            "route": "/menu_definition",
-            "actions": [
-              "delete"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1010,11 +979,11 @@
       "order": 4,
       "parent": "Settings",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/extension_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1028,36 +997,35 @@
       "isEnabled": true,
       "isSystem": true,
       "description": "Route management",
+      "order": 6,
+      "parent": "Settings",
+      "permission": {
+        "or": [
+          {
+            "route": "/route_definition",
+            "methods": [
+              "GET"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Methods",
+      "icon": "lucide:badge",
+      "path": "/settings/methods",
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "HTTP method management",
       "order": 5,
       "parent": "Settings",
       "permission": {
-        "and": [
+        "or": [
           {
-            "route": "/route_definition",
-            "actions": [
-              "read"
-            ]
-          },
-          {
-            "or": [
-              {
-                "route": "/route_definition",
-                "actions": [
-                  "create"
-                ]
-              },
-              {
-                "route": "/route_definition",
-                "actions": [
-                  "update"
-                ]
-              },
-              {
-                "route": "/route_definition",
-                "actions": [
-                  "delete"
-                ]
-              }
+            "route": "/method_definition",
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1071,36 +1039,14 @@
       "isEnabled": true,
       "isSystem": true,
       "description": "Guard management (rate limiting, IP filtering)",
-      "order": 5,
+      "order": 7,
       "parent": "Settings",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/guard_definition",
-            "actions": [
-              "read"
-            ]
-          },
-          {
-            "or": [
-              {
-                "route": "/guard_definition",
-                "actions": [
-                  "create"
-                ]
-              },
-              {
-                "route": "/guard_definition",
-                "actions": [
-                  "update"
-                ]
-              },
-              {
-                "route": "/guard_definition",
-                "actions": [
-                  "delete"
-                ]
-              }
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1114,30 +1060,14 @@
       "isEnabled": true,
       "isSystem": true,
       "description": "Test API endpoints",
-      "order": 6,
+      "order": 8,
       "parent": "Settings",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/route_definition",
-            "actions": [
-              "read"
-            ]
-          },
-          {
-            "or": [
-              {
-                "route": "/route_definition",
-                "actions": [
-                  "create"
-                ]
-              },
-              {
-                "route": "/route_definition",
-                "actions": [
-                  "update"
-                ]
-              }
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1151,36 +1081,14 @@
       "isEnabled": true,
       "isSystem": true,
       "description": "WebSocket gateway and event management",
-      "order": 6,
+      "order": 9,
       "parent": "Settings",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/websocket_definition",
-            "actions": [
-              "read"
-            ]
-          },
-          {
-            "or": [
-              {
-                "route": "/websocket_definition",
-                "actions": [
-                  "create"
-                ]
-              },
-              {
-                "route": "/websocket_definition",
-                "actions": [
-                  "update"
-                ]
-              },
-              {
-                "route": "/websocket_definition",
-                "actions": [
-                  "delete"
-                ]
-              }
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1194,36 +1102,14 @@
       "isEnabled": true,
       "isSystem": true,
       "description": "Flow management",
-      "order": 7,
+      "order": 10,
       "parent": "Settings",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/flow_definition",
-            "actions": [
-              "read"
-            ]
-          },
-          {
-            "or": [
-              {
-                "route": "/flow_definition",
-                "actions": [
-                  "create"
-                ]
-              },
-              {
-                "route": "/flow_definition",
-                "actions": [
-                  "update"
-                ]
-              },
-              {
-                "route": "/flow_definition",
-                "actions": [
-                  "delete"
-                ]
-              }
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1237,14 +1123,14 @@
       "isEnabled": true,
       "isSystem": true,
       "description": "Bootstrap script management",
-      "order": 8,
+      "order": 11,
       "parent": "Settings",
       "permission": {
         "or": [
           {
             "route": "/bootstrap_script_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1264,8 +1150,8 @@
         "or": [
           {
             "route": "/logs",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1298,8 +1184,8 @@
         "or": [
           {
             "route": "/package_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1316,11 +1202,11 @@
       "order": 9,
       "parent": "Settings",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/user_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1337,11 +1223,11 @@
       "order": 10,
       "parent": "Settings",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/role_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1361,14 +1247,14 @@
         "or": [
           {
             "route": "/oauth_config_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           },
           {
             "route": "/oauth_account_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1385,11 +1271,11 @@
       "order": 1,
       "parent": "OAuth",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/oauth_config_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1406,11 +1292,11 @@
       "order": 2,
       "parent": "OAuth",
       "permission": {
-        "and": [
+        "or": [
           {
             "route": "/oauth_account_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1429,14 +1315,14 @@
         "or": [
           {
             "route": "/file_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           },
           {
             "route": "/storage/config",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1456,8 +1342,8 @@
         "or": [
           {
             "route": "/storage/config",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]
@@ -1477,8 +1363,8 @@
         "or": [
           {
             "route": "/file_definition",
-            "actions": [
-              "read"
+            "methods": [
+              "GET"
             ]
           }
         ]

@@ -79,7 +79,7 @@ export class GuardCacheService extends BaseCacheService<GuardCache> {
       this.queryBuilderService.find({
         table: 'guard_definition',
         filter: { isEnabled: { _eq: true } },
-        fields: ['*', 'parent', 'route.id', 'route.path', 'methods.method'],
+        fields: ['*', 'parent', 'route.id', 'route.path', 'methods.name'],
         sort: ['priority'],
       }),
       this.queryBuilderService.find({
@@ -132,7 +132,7 @@ export class GuardCacheService extends BaseCacheService<GuardCache> {
     for (const guard of guards) {
       const id = getId(guard) as number;
       const methods = Array.isArray(guard.methods)
-        ? guard.methods.map((m: any) => m?.method ?? m).filter(Boolean)
+        ? guard.methods.map((m: any) => m?.name ?? m).filter(Boolean)
         : [];
       const methodIds = Array.isArray(guard.methods)
         ? (guard.methods.map((m: any) => getId(m)).filter(Boolean) as number[])

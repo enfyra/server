@@ -8,6 +8,11 @@ import { RelationTransformer } from '../utils/relation-transformer';
 import { stringifyRecordJsonFields } from '../utils/json-parser';
 import { ReplicationManager } from './replication-manager.service';
 import { getForeignKeyColumnName } from '@enfyra/kernel';
+import {
+  decryptResultFields,
+  encryptRecordFields,
+} from '../../../shared/utils/encrypted-field.util';
+import type { KnexQueryOptions } from '../types/knex-extended.types';
 
 type HookRegistry = {
   beforeInsert: Array<(tableName: string, data: any) => any>;
@@ -236,6 +241,19 @@ export class KnexHookManagerService {
     });
 
     this.addHook('beforeInsert', async (tableName, data) => {
+      const tableMetadata =
+        await this.metadataCacheService.getTableMetadata(tableName);
+      if (!tableMetadata?.columns) return data;
+
+      if (Array.isArray(data)) {
+        return data.map((record) =>
+          encryptRecordFields(record, tableMetadata.columns),
+        );
+      }
+      return encryptRecordFields(data, tableMetadata.columns);
+    });
+
+    this.addHook('beforeInsert', async (tableName, data) => {
       if (await this.isJunctionTable(tableName)) return data;
 
       const tableMetadata =
@@ -393,6 +411,13 @@ export class KnexHookManagerService {
       return stringifyRecordJsonFields(data, tableMetadata);
     });
 
+    this.addHook('beforeUpdate', async (tableName, data) => {
+      const tableMetadata =
+        await this.metadataCacheService.getTableMetadata(tableName);
+      if (!tableMetadata?.columns) return data;
+      return encryptRecordFields(data, tableMetadata.columns);
+    });
+
     this.addHook('beforeUpdate', (tableName, data) => {
       const {
         createdAt: _createdAt,
@@ -454,6 +479,13 @@ export class KnexHookManagerService {
       await this.handleCascadeRelations(tableName, recordId);
       return result;
     });
+
+    this.addHook('afterSelect', async (tableName, result) => {
+      const tableMetadata =
+        await this.metadataCacheService.getTableMetadata(tableName);
+      if (!tableMetadata?.columns) return result;
+      return decryptResultFields(result, tableMetadata.columns);
+    });
   }
 
   addHook<E extends HookEvent>(event: E, handler: HookHandler<E>): void {
@@ -482,6 +514,7 @@ export class KnexHookManagerService {
     getKnexForWrite: () => Knex,
     knexContext: AsyncLocalStorage<Knex | Knex.Transaction>,
     cascadeContext: AsyncLocalStorage<Map<string, any>>,
+    options: KnexQueryOptions = {},
   ): any {
     const runHooks = (event: HookEvent, ...args: any[]) =>
       this.runHooks(event, ...args);
@@ -511,8 +544,7 @@ export class KnexHookManagerService {
         return run();
       }
       return activeKnex.transaction(async (trx) => {
-        const { getIoAbortSignal } =
-          await import('@enfyra/kernel');
+        const { getIoAbortSignal } = await import('@enfyra/kernel');
         const signal = getIoAbortSignal();
         if (signal) {
           const onAbort = () => {
@@ -568,11 +600,16 @@ export class KnexHookManagerService {
     };
 
     qb.then = function (onFulfilled: any, onRejected: any) {
-      runHooks('beforeSelect', this, tableName);
+      if (!options.skipMetadataHooks) {
+        runHooks('beforeSelect', this, tableName);
+      }
 
       return originalThen.call(
         this,
         async (result: any) => {
+          if (options.skipMetadataHooks) {
+            return onFulfilled ? onFulfilled(result) : result;
+          }
           const processedResult = await runHooks(
             'afterSelect',
             tableName,

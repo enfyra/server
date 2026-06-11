@@ -110,6 +110,12 @@ export class FirstRunInitializer {
 
       this.logProgress(mode, 5, 'acquired init lock');
 
+      const t0 = Date.now();
+      this.logProgress(mode, 8, 'preparing system schema');
+      await this.metadataMigrationService.runPhysicalMigrationsBeforeMetadataSync();
+      await this.schemaHealingService.repairSystemPhysicalColumnsBeforeMetadataProvision();
+      this.logVerbose(`System schema preflight: ${Date.now() - t0}ms`);
+
       const t1 = Date.now();
       this.logProgress(mode, 10, 'provisioning metadata');
       await this.metadataProvisionService.createInitMetadata();
@@ -123,6 +129,12 @@ export class FirstRunInitializer {
         await this.metadataCacheService.clearMetadataCache();
         this.logVerbose(`Metadata migrations: ${Date.now() - t2}ms`);
       }
+
+      const t2b = Date.now();
+      this.logProgress(mode, 45, 'healing system metadata');
+      await this.schemaHealingService.repairSystemMetadataFromSnapshot();
+      await this.metadataCacheService.clearMetadataCache();
+      this.logVerbose(`System metadata healing: ${Date.now() - t2b}ms`);
 
       const t3 = Date.now();
       this.logProgress(mode, 50, 'warming metadata cache');
@@ -161,6 +173,10 @@ export class FirstRunInitializer {
       await this.markInitialized();
 
       this.logProgress(mode, 100, `completed in ${Date.now() - start}ms`);
+    } catch (error) {
+      this.logProgress(mode, 100, `failed after ${Date.now() - start}ms`);
+      this.logger.error(`${mode} failed after ${Date.now() - start}ms`, error);
+      throw error;
     } finally {
       await this.cacheService.release(PROVISION_LOCK_KEY, lockValue);
     }

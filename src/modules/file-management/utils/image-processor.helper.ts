@@ -75,31 +75,28 @@ export class ImageProcessorHelper {
     format: string,
     quality = 80,
   ): sharp.Sharp {
-    const formatMap = {
-      jpeg: () =>
-        processor.jpeg({
+    switch (format) {
+      case 'jpeg':
+      case 'jpg':
+        return processor.jpeg({
           quality,
           progressive: false,
           mozjpeg: true,
-        }),
-      jpg: () =>
-        processor.jpeg({
-          quality,
-          progressive: false,
-          mozjpeg: true,
-        }),
-      png: () =>
-        processor.png({ quality, compressionLevel: 6, progressive: false }),
-      webp: () => processor.webp({ quality, effort: 1 }),
-      avif: () => {
+        });
+      case 'png':
+        return processor.png({ quality, compressionLevel: 6, progressive: false });
+      case 'webp':
+        return processor.webp({ quality, effort: 1 });
+      case 'avif':
         if (quality === undefined) {
           return processor.avif({ effort: 1 });
         }
         return processor.avif({ quality, effort: 1 });
-      },
-      gif: () => processor.gif(),
-    };
-    return (formatMap as Record<string, () => sharp.Sharp>)[format]?.() || processor;
+      case 'gif':
+        return processor.gif();
+      default:
+        return processor;
+    }
   }
   static validateImageParams(
     width?: number,

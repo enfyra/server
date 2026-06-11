@@ -25,6 +25,7 @@ import {
 import { parseQueryMiddleware } from './http/middlewares/parse-query.middleware';
 import { bodyParserMiddleware } from './http/middlewares/body-parser.middleware';
 import { fileUploadMiddleware } from './http/middlewares/file-upload.middleware';
+import { captureRawBody } from './http/utils/raw-body-capture.util';
 
 import { registerAuthRoutes } from './http/routes/auth.routes';
 import { registerOAuthRoutes } from './http/routes/oauth.routes';
@@ -67,7 +68,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   });
 
   app.use(cors({ origin: true, credentials: true }));
-  app.use(express.json({ limit: '10mb' }));
+  app.use(express.json({ limit: '10mb', verify: captureRawBody }));
   app.use(express.urlencoded({ extended: true }));
   app.use(express.text({ type: 'text/plain' }));
 
@@ -110,7 +111,6 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
 
   app.use(bodyParserMiddleware(c.settingCacheService));
   app.use(parseQueryMiddleware);
-  app.use(fileUploadMiddleware(c.settingCacheService));
   app.use((req: any, _res: any, next: any) => {
     req._perfRouteDetect = performance.now();
     next();
@@ -137,6 +137,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
       c.queryBuilderService,
       c.cacheService,
       c.envService.get('SECRET_KEY'),
+      c.apiTokenService,
     ),
   );
   app.use((req: any, _res: any, next: any) => {
@@ -145,6 +146,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   });
   app.use(roleGuardMiddleware(c.policyService));
   app.use(postAuthMetadataGuard(c.guardCacheService, c.guardEvaluatorService));
+  app.use(fileUploadMiddleware(c.settingCacheService));
   app.use(requestLoggingBegin);
   app.use(bodyValidationMiddleware(container));
   app.use(dynamicInterceptorBegin(c.executorEngineService));
@@ -162,6 +164,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   registerPackageRoutes(app, container);
   registerMeRoutes(app, container);
 
+  c.graphqlService.getYogaApp();
   app.use('/graphql', (req: any, res: any, next: any) => {
     const yogaApp = c.graphqlService.getYogaApp();
     return yogaApp(req, res, next);

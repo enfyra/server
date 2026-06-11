@@ -1,7 +1,7 @@
 import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
-import { compileScriptSource } from '@enfyra/kernel';
+import { compileScriptSource } from '../../shared/utils/script-code.util';
 
 function resolveOrchestrator(req: any, container: AwilixContainer<Cradle>) {
   return (
@@ -11,11 +11,16 @@ function resolveOrchestrator(req: any, container: AwilixContainer<Cradle>) {
 }
 
 function resolveRedisAdmin(req: any, container: AwilixContainer<Cradle>) {
-  return req.scope?.cradle?.redisAdminService ?? container.cradle.redisAdminService;
+  return (
+    req.scope?.cradle?.redisAdminService ?? container.cradle.redisAdminService
+  );
 }
 
 function resolveRuntimeMonitor(req: any, container: AwilixContainer<Cradle>) {
-  return req.scope?.cradle?.runtimeMonitorService ?? container.cradle.runtimeMonitorService;
+  return (
+    req.scope?.cradle?.runtimeMonitorService ??
+    container.cradle.runtimeMonitorService
+  );
 }
 
 function startReload(
@@ -40,6 +45,37 @@ export function registerAdminRoutes(
   app: Express,
   container: AwilixContainer<Cradle>,
 ) {
+  app.post('/admin/script/validate', async (req: any, res: Response) => {
+    const body = req.routeData?.context?.$body ?? req.body ?? {};
+    const sourceCode = String(body.sourceCode ?? body.code ?? '');
+    const scriptLanguage = body.scriptLanguage ?? 'typescript';
+    try {
+      const compiledCode = compileScriptSource(sourceCode, scriptLanguage);
+      const AsyncFunction = Object.getPrototypeOf(
+        async function () {},
+      ).constructor;
+      new AsyncFunction('$ctx', compiledCode || '');
+      res.json({
+        success: true,
+        valid: true,
+        data: {
+          compiledCode,
+          scriptLanguage,
+        },
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        valid: false,
+        error: {
+          code: error?.errorCode || error?.code || 'SCRIPT_VALIDATION_FAILED',
+          message: error?.message || 'Script validation failed',
+          details: error?.details,
+        },
+      });
+    }
+  });
+
   app.get('/admin/redis/overview', async (req: any, res: Response) => {
     const redisAdminService = resolveRedisAdmin(req, container);
     res.json({
@@ -397,9 +433,12 @@ async function runTest(body: any, cradle: any, currentUser: any = null) {
 
 async function resolveScriptTest(body: any, cradle: any) {
   const tableName = String(body?.tableName || body?.table || '').trim();
-  const recordId = body?.id ?? body?.recordId ?? body?.handlerId ?? body?.hookId;
+  const recordId =
+    body?.id ?? body?.recordId ?? body?.handlerId ?? body?.hookId;
   const routeId = body?.routeId ?? body?.route?.id;
-  const method = String(body?.method || '').trim().toUpperCase();
+  const method = String(body?.method || '')
+    .trim()
+    .toUpperCase();
 
   let record: any = null;
   let route: any = null;
@@ -508,7 +547,8 @@ function findRouteScriptRecord(options: {
   method?: string;
 }) {
   const { body, route, tableName, method } = options;
-  const recordId = body?.id ?? body?.recordId ?? body?.handlerId ?? body?.hookId;
+  const recordId =
+    body?.id ?? body?.recordId ?? body?.handlerId ?? body?.hookId;
   const source = String(tableName || body?.source || body?.target || '').trim();
 
   const pools =
@@ -525,7 +565,7 @@ function findRouteScriptRecord(options: {
       if (recordId !== undefined && String(record.id) === String(recordId)) {
         return true;
       }
-      if (method && record.method?.method === method) return true;
+      if (method && record.method?.name === method) return true;
       return false;
     });
     if (found) return found;
@@ -560,7 +600,9 @@ function createHttpLikeTestContext(options: {
   const { body, cradle, currentUser, route } = options;
   const dynamicContextFactory = cradle.dynamicContextFactory;
   const method = String(body?.method || 'POST').toUpperCase();
-  const path = String(body?.path || body?.routePath || route?.path || '/__test__');
+  const path = String(
+    body?.path || body?.routePath || route?.path || '/__test__',
+  );
   const requestBody = body?.body ?? body?.payload ?? {};
   const query = body?.query ?? {};
   const params = body?.params ?? {};
@@ -586,15 +628,6 @@ function createHttpLikeTestContext(options: {
   ctx.$statusCode = body?.statusCode;
   ctx.$trigger = (flowIdOrName: string | number, payload?: any) =>
     cradle.flowService.trigger(flowIdOrName, payload, req.user);
-
-  if (cradle.uploadFileHelper) {
-    ctx.$helpers.$uploadFile =
-      cradle.uploadFileHelper.createUploadFileHelper(ctx);
-    ctx.$helpers.$updateFile =
-      cradle.uploadFileHelper.createUpdateFileHelper(ctx);
-    ctx.$helpers.$deleteFile =
-      cradle.uploadFileHelper.createDeleteFileHelper(ctx);
-  }
 
   return ctx;
 }

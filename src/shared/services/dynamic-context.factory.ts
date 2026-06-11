@@ -1,8 +1,10 @@
 import * as jwt from 'jsonwebtoken';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { TDynamicContext } from '../types';
 import { BcryptService } from '../../domain/auth';
 import { UserCacheService } from '../../engines/cache';
-import { createFetchHelper } from '../helpers';
+import { createCryptoHelper, createFetchHelper } from '../helpers';
+import { UploadFileHelper } from '../helpers/upload-file.helper';
 import { autoSlug } from '../utils/auto-slug.helper';
 import { ScriptErrorFactory } from '../utils/script-error-factory';
 import { EnvService } from './env.service';
@@ -24,47 +26,67 @@ type DynamicContextOptions = {
   req?: TDynamicContext['$req'];
   share?: TDynamicContext['$share'];
   socket?: TDynamicContext['$socket'];
+  storage?: TDynamicContext['$storage'];
   apiRequest?: NonNullable<TDynamicContext['$api']>['request'];
   uploadedFile?: TDynamicContext['$uploadedFile'];
 };
+
+const ENV_EXPOSE_DENY_KEYS = new Set([
+  'DB_URI',
+  'DB_REPLICA_URIS',
+  'REDIS_URI',
+  'SECRET_KEY',
+  'ADMIN_PASSWORD',
+]);
 
 export class DynamicContextFactory {
   private readonly bcryptService: BcryptService;
   private readonly userCacheService: UserCacheService;
   private readonly envService: EnvService;
   private readonly websocketContextFactory: WebsocketContextFactory;
+  private readonly uploadFileHelper?: UploadFileHelper;
 
   constructor(deps: {
     bcryptService: BcryptService;
     userCacheService: UserCacheService;
     envService: EnvService;
     websocketContextFactory: WebsocketContextFactory;
+    uploadFileHelper?: UploadFileHelper;
   }) {
     this.bcryptService = deps.bcryptService;
     this.userCacheService = deps.userCacheService;
     this.envService = deps.envService;
     this.websocketContextFactory = deps.websocketContextFactory;
+    this.uploadFileHelper = deps.uploadFileHelper;
   }
 
   createBase(options: DynamicContextOptions = {}): TDynamicContext {
-    const cache = this.createCacheFacade(options.cache ?? this.userCacheService);
+    const cache = this.createCacheFacade(
+      options.cache ?? this.userCacheService,
+    );
     const ctx: TDynamicContext = {
       $body: options.body ?? {},
       $data: options.data,
       $debug: options.debug,
       $throw: ScriptErrorFactory.createThrowHandlers(),
-      $helpers: options.helpers ?? {},
+      $helpers: this.createHelpers(options.helpers),
       $cache: cache,
       $params: options.params ?? {},
       $query: options.query ?? {},
+      $env: this.createEnvSnapshot(),
       $user: options.user ?? null,
       $repos: options.repos ?? {},
       $req: options.req,
       $share: options.share ?? { $logs: [] },
       $socket: options.socket,
+      $storage: options.storage,
       $api: options.apiRequest ? { request: options.apiRequest } : undefined,
       $uploadedFile: options.uploadedFile,
     };
+
+    if (!ctx.$storage && this.uploadFileHelper) {
+      ctx.$storage = this.uploadFileHelper.createStorageHelper(ctx);
+    }
 
     ctx.$logs = (...args: any[]) => {
       if (!ctx.$share) ctx.$share = { $logs: [] };
@@ -73,6 +95,34 @@ export class DynamicContextFactory {
     };
 
     return ctx;
+  }
+
+  private createEnvSnapshot(): TDynamicContext['$env'] {
+    const out: TDynamicContext['$env'] = {};
+    for (const [key, value] of Object.entries(process.env)) {
+      if (ENV_EXPOSE_DENY_KEYS.has(key)) continue;
+      out[key] = value;
+    }
+    return out;
+  }
+
+  private createHelpers(
+    helpers?: TDynamicContext['$helpers'],
+  ): TDynamicContext['$helpers'] {
+    const crypto = createCryptoHelper();
+    return {
+      $bcrypt: {
+        hash: async (plain: string) => await this.bcryptService.hash(plain),
+        compare: async (p: string, h: string) =>
+          await this.bcryptService.compare(p, h),
+      },
+      autoSlug,
+      $fetch: createFetchHelper(),
+      $sleep: (ms: number) =>
+        sleep(Math.max(0, Math.min(Number(ms) || 0, 30000))),
+      $crypto: crypto,
+      ...(helpers ?? {}),
+    };
   }
 
   private createCacheFacade(
@@ -92,9 +142,7 @@ export class DynamicContextFactory {
       exists: cache.exists
         ? (key, value) => cache.exists!(key, value)
         : undefined,
-      deleteKey: cache.deleteKey
-        ? (key) => cache.deleteKey!(key)
-        : undefined,
+      deleteKey: cache.deleteKey ? (key) => cache.deleteKey!(key) : undefined,
       setNoExpire: cache.setNoExpire
         ? (key, value) => cache.setNoExpire!(key, value)
         : undefined,
@@ -132,6 +180,7 @@ export class DynamicContextFactory {
         protocol: req.protocol,
         path: req.path,
         originalUrl: req.originalUrl,
+        rawBody: req.rawBody,
       } as any,
       socket: this.websocketContextFactory.createGlobalProxy(),
       apiRequest: {
@@ -185,7 +234,8 @@ export class DynamicContextFactory {
       body: options.payload || {},
       user: options.user ?? null,
       share: options.share,
-      socket: options.socket ?? this.websocketContextFactory.createGlobalProxy(),
+      socket:
+        options.socket ?? this.websocketContextFactory.createGlobalProxy(),
     });
   }
 

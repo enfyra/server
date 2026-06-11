@@ -10,16 +10,15 @@ import { BadRequestException } from '../../../shared/errors';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { IOAuthConfigCache } from '../../shared/interfaces/oauth-config-cache.interface';
 import { ICache } from '../../shared/interfaces/cache.interface';
-import {
-  ExecutorEngineService,
-  resolveExecutableScript,
-} from '@enfyra/kernel';
+import { ExecutorEngineService } from '@enfyra/kernel';
+import { resolveExecutableScript } from '../../../shared/utils/script-code.util';
 import { RepoRegistryService } from '../../../engines/cache';
 import {
   loadUserWithRole,
   userCacheKey,
   USER_CACHE_TTL_MS,
 } from '../../../shared/utils/load-user-with-role.util';
+import type { OAuthExchangeTokenPayload } from '../types/oauth-exchange-code.types';
 
 type OAuthProvider = 'google' | 'facebook' | 'github';
 
@@ -124,12 +123,7 @@ export class OAuthService {
   async handleCallback(
     provider: OAuthProvider,
     code: string,
-  ): Promise<{
-    accessToken: string;
-    refreshToken: string;
-    expTime: number;
-    loginProvider: string | null;
-  }> {
+  ): Promise<OAuthExchangeTokenPayload> {
     const config =
       await this.oauthConfigCacheService.getDirectConfigByProvider(provider);
     if (!config || !config.isEnabled) {
@@ -404,12 +398,7 @@ export class OAuthService {
   private async generateTokens(
     user: any,
     session: any,
-  ): Promise<{
-    accessToken: string;
-    refreshToken: string;
-    expTime: number;
-    loginProvider: string | null;
-  }> {
+  ): Promise<OAuthExchangeTokenPayload> {
     const userId = DatabaseConfigService.getRecordId(user);
     const sessionId = DatabaseConfigService.getRecordId(session);
     const loginProvider = session.loginProvider ?? null;
@@ -460,6 +449,7 @@ export class OAuthService {
       refreshToken,
       expTime: decoded.exp * 1000,
       loginProvider,
+      sessionId: sessionId?.toString() ?? null,
     };
   }
 }

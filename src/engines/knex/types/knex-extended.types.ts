@@ -1,5 +1,9 @@
 import { Knex } from 'knex';
 
+export interface KnexQueryOptions {
+  skipMetadataHooks?: boolean;
+}
+
 /**
  * Extended Knex QueryBuilder with custom methods
  */

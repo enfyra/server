@@ -6,6 +6,7 @@ import {
   PackageCdnLoaderService,
 } from '../../src/engines/cache';
 import { CACHE_EVENTS } from '../../src/shared/utils/cache-events.constants';
+import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../src/shared/utils/constant';
 
 function response(body: string, ok = true, status = 200) {
   return {
@@ -186,11 +187,17 @@ describe('PackageCacheService CDN preload', () => {
       isLoaded: vi.fn(() => false),
       loadPackage: vi.fn(async () => ({})),
     };
+    const emitToNamespace = vi.fn();
     const packageCache = new PackageCacheService({
       queryBuilderService: queryBuilderService as any,
       eventEmitter: new EventEmitter2(),
       packageCdnLoaderService: packageCdnLoaderService as any,
-      lazyRef: { dynamicWebSocketGateway: {} } as any,
+      lazyRef: {
+        dynamicWebSocketGateway: {
+          server: true,
+          emitToNamespace,
+        },
+      } as any,
     });
 
     await (packageCache as any).preloadPackagesFromCdn();
@@ -201,8 +208,30 @@ describe('PackageCacheService CDN preload', () => {
     );
     expect(queryBuilderService.update).toHaveBeenCalledWith(
       'package_definition',
-      { where: [{ field: 'id', operator: '=', value: 7 }] },
+      7,
       { status: 'installed', lastError: null },
+    );
+    expect(emitToNamespace).toHaveBeenCalledWith(
+      ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+      '$system:package:installing',
+      {
+        packages: [
+          {
+            id: 7,
+            name: 'node-ssh',
+            version: '13.2.1',
+          },
+        ],
+      },
+    );
+    expect(emitToNamespace).toHaveBeenCalledWith(
+      ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+      '$system:package:installed',
+      {
+        id: 7,
+        name: 'node-ssh',
+        version: '13.2.1',
+      },
     );
   });
 });

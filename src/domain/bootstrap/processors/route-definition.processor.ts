@@ -6,7 +6,7 @@ import {
   isCanonicalTableRoutePath,
 } from '../utils/canonical-table-route.util';
 import { DatabaseConfigService } from '../../../shared/services';
-import { compileScriptSource } from '@enfyra/kernel';
+import { compileScriptSource } from '../../../shared/utils/script-code.util';
 import { getSqlJunctionMetadata } from '../utils/sql-junction-metadata.util';
 import { replaceSqlJunctionRows } from '../utils/sql-junction-writer.util';
 import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';
@@ -119,16 +119,16 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       const methods = await this.queryBuilderService
         .getMongoDb()
         .collection('method_definition')
-        .find({ method: { $in: methodNames } })
-        .project({ [pkField]: 1, method: 1 })
+        .find({ name: { $in: methodNames } })
+        .project({ [pkField]: 1, name: 1 })
         .toArray();
       return methods.map((method: any) => method[pkField]).filter(Boolean);
     }
 
     const methods = await this.queryBuilderService
       .getKnex()('method_definition')
-      .select(pkField, 'method')
-      .whereIn('method', methodNames);
+      .select(pkField, 'name')
+      .whereIn('name', methodNames);
     return methods.map((method: any) => method[pkField]).filter(Boolean);
   }
   async afterUpsert(
@@ -471,10 +471,10 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     const methodResult = await this.queryBuilderService.find({
       table: 'method_definition',
       filter: { id: { _in: idStrings } },
-      fields: ['method'],
+      fields: ['name'],
     });
     const available: string[] = (methodResult.data || [])
-      .map((m: any) => m.method)
+      .map((m: any) => m.name)
       .filter(Boolean);
 
     if (available.length === 0) return;
@@ -485,7 +485,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
 
       const methodRow = await this.queryBuilderService.findOne({
         table: 'method_definition',
-        where: { method: methodName },
+        where: { name: methodName },
       });
       if (!methodRow) {
         this.logger.warn(`[${path}] Method row not found: ${methodName}`);
@@ -579,6 +579,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       'icon',
       'description',
       'isSystem',
+      'maxUploadFileSize',
       'mainTable',
       'publishedMethods',
       'skipRoleGuardMethods',

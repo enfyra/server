@@ -70,4 +70,27 @@ describe('SQL migration column generator', () => {
       ),
     ).toBe("TEXT NOT NULL DEFAULT ''");
   });
+
+  it('maps float columns to numeric SQL types', () => {
+    expect(
+      generateColumnDefinition(
+        {
+          name: 'amount_usd',
+          type: 'float',
+          isNullable: false,
+        },
+        'postgres',
+      ),
+    ).toBe('DOUBLE PRECISION NOT NULL');
+
+    expect(
+      generateColumnDefinition(
+        {
+          name: 'amount_usd',
+          type: 'float',
+        },
+        'mysql',
+      ),
+    ).toBe('FLOAT');
+  });
 });

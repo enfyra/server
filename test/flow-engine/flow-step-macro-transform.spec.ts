@@ -1,5 +1,5 @@
 import { executeSingle } from '../helpers/spawn-worker';
-import { transformCode } from '@enfyra/kernel';
+import { transformTemplateSyntax as transformCode } from '../../src/shared/utils/template-syntax.util';
 
 function createSnapshot(ctx: Record<string, any>): Record<string, unknown> {
   const snapshot: Record<string, unknown> = {

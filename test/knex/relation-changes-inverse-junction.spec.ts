@@ -23,7 +23,7 @@ function createKnexMock(relationRows: any[] = []) {
 
 function createDiff() {
   return {
-    columns: { create: [], delete: [], rename: [] },
+    columns: { create: [], delete: [], rename: [], update: [] },
     constraints: { uniques: { create: [], delete: [] } },
     indexes: { create: [], delete: [] },
     crossTableOperations: [],
@@ -213,5 +213,63 @@ describe('analyzeRelationChanges inverse relation handling', () => {
     expect(diff.junctionTables.rename).toEqual([]);
     expect(diff.junctionTables.drop).toEqual([]);
     expect(diff.junctionTables.create).toEqual([]);
+  });
+
+  it('updates the physical foreign key column when an owning relation nullable flag changes', async () => {
+    const diff = createDiff();
+
+    await analyzeRelationChanges(
+      createKnexMock(),
+      [
+        {
+          id: 40,
+          type: 'many-to-one',
+          propertyName: 'project',
+          targetTable: { id: 2 },
+          targetTableName: 'projects',
+          isNullable: false,
+          foreignKeyColumn: 'projectId',
+        },
+      ],
+      [
+        {
+          id: 40,
+          type: 'many-to-one',
+          propertyName: 'project',
+          targetTable: { id: 2 },
+          targetTableName: 'projects',
+          isNullable: true,
+          foreignKeyColumn: 'projectId',
+        },
+      ],
+      diff,
+      'tickets',
+      [
+        {
+          name: 'projectId',
+          type: 'int',
+          isNullable: false,
+          isForeignKey: true,
+        },
+      ],
+      [],
+    );
+
+    expect(diff.columns.update).toEqual([
+      {
+        oldColumn: {
+          name: 'projectId',
+          type: 'int',
+          isNullable: false,
+          isForeignKey: true,
+        },
+        newColumn: {
+          name: 'projectId',
+          type: 'int',
+          isNullable: true,
+          isForeignKey: true,
+        },
+      },
+    ]);
   });
 });

@@ -16,7 +16,10 @@ const AUTH_PATHS = new Set([
   '/auth/:provider/callback',
 ]);
 
-const PUBLIC_NON_AUTH_PATHS = new Set(['/cors_origin_definition']);
+const PUBLIC_NON_AUTH_PATHS = new Set([
+  '/assets/:id',
+  '/cors_origin_definition',
+]);
 
 describe('default-data.json — publishedMethods', () => {
   const data = loadJson('default-data.json');
@@ -47,7 +50,6 @@ describe('data-migration.json — publishedMethods cleanup', () => {
 
   const SHOULD_BE_EMPTY = [
     '/me',
-    '/assets/:id',
     '/metadata',
     '/metadata/:name',
     '/folder_definition/tree',
@@ -67,6 +69,12 @@ describe('data-migration.json — publishedMethods cleanup', () => {
     const entry = routes.find((r) => r._unique?.path?._eq === routePath);
     expect(entry).toBeDefined();
     expect(entry.publishedMethods).toEqual([]);
+  });
+
+  it('/assets/:id publishes GET because file visibility is checked per asset', () => {
+    const entry = routes.find((r) => r._unique?.path?._eq === '/assets/:id');
+    expect(entry).toBeDefined();
+    expect(entry.publishedMethods).toEqual(['GET']);
   });
 
   it('auth routes in migration retain their publishedMethods', () => {

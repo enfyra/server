@@ -102,11 +102,19 @@ async function generateTailwindCss(
   return parts.join('\n');
 }
 
+export function sanitizeExtensionBuildName(extensionId: string): string {
+  const normalized =
+    typeof extensionId === 'string' ? extensionId.trim() : 'extension';
+  const safeName = normalized.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80);
+  return safeName || 'extension';
+}
+
 async function buildExtensionWithVite(
   vueContent: string,
   extensionId: string,
 ): Promise<string> {
-  const buildId = `${extensionId}-${Date.now()}-${randomUUID()}`;
+  const safeExtensionId = sanitizeExtensionBuildName(extensionId);
+  const buildId = `${safeExtensionId}-${Date.now()}-${randomUUID()}`;
   const projectRoot = process.cwd();
   const tempDir = join(projectRoot, '.temp-extension-builds', buildId);
   const tempExtensionFile = join(tempDir, 'extension.vue');
@@ -190,7 +198,7 @@ export default ExtensionComponent
       build: {
         lib: {
           entry: tempEntryFile,
-          name: extensionId,
+          name: safeExtensionId,
           fileName: () => 'extension.js',
           formats: ['umd'],
         },
@@ -230,7 +238,8 @@ export default ExtensionComponent
 
     if (cssParts.length > 0) {
       const allCss = cssParts.join('\n');
-      compiledCode += `\nif(typeof window!=="undefined"&&window["${extensionId}"]){window["${extensionId}"].__extensionCss=${JSON.stringify(allCss)};}`;
+      const extensionKey = JSON.stringify(safeExtensionId);
+      compiledCode += `\nif(typeof window!=="undefined"&&window[${extensionKey}]){window[${extensionKey}].__extensionCss=${JSON.stringify(allCss)};}`;
     }
 
     return compiledCode;

@@ -2,7 +2,10 @@ import { Logger } from '../../shared/logger';
 import { Knex, knex } from 'knex';
 import { AsyncLocalStorage } from 'async_hooks';
 import type { Cradle } from '../../container';
-import { ExtendedKnex } from './types/knex-extended.types';
+import {
+  ExtendedKnex,
+  type KnexQueryOptions,
+} from './types/knex-extended.types';
 import { KnexEntityManager } from './entity-manager';
 import { FieldStripper } from './utils/field-stripper';
 import { parseDatabaseUri } from './utils/uri-parser';
@@ -262,13 +265,18 @@ export class KnexService implements LifecycleAware {
     return this.hookManager.runHooks(event, ...args);
   }
 
-  private wrapQueryBuilder(qb: any, currentKnex?: Knex): any {
+  private wrapQueryBuilder(
+    qb: any,
+    currentKnex?: Knex,
+    options?: KnexQueryOptions,
+  ): any {
     return this.hookManager.wrapQueryBuilder(
       qb,
       currentKnex ?? this.knexInstance,
       () => this.getKnexForWrite(),
       this.knexContext,
       this.cascadeContext,
+      options,
     );
   }
 
@@ -351,7 +359,7 @@ export class KnexService implements LifecycleAware {
     };
   }
 
-  getKnex(): ExtendedKnex {
+  getKnex(options: KnexQueryOptions = {}): ExtendedKnex {
     if (!this.knexInstance) {
       throw new Error('Knex instance not initialized. Call init first.');
     }
@@ -360,7 +368,7 @@ export class KnexService implements LifecycleAware {
     const getKnexForRead = () => this.getKnexForRead();
     const getKnexForWrite = () => this.getKnexForWrite();
     const wrapQueryBuilder = (qb: any, knexInstance: any) =>
-      this.wrapQueryBuilder(qb, knexInstance);
+      this.wrapQueryBuilder(qb, knexInstance, options);
 
     return new Proxy(baseKnex, {
       get(target, prop) {

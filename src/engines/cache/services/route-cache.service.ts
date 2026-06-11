@@ -9,7 +9,7 @@ import {
   compileScriptSource,
   normalizeScriptRecord,
   resolveExecutableScript,
-} from '@enfyra/kernel';
+} from '../../../shared/utils/script-code.util';
 import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
@@ -45,6 +45,7 @@ const ROUTE_CACHE_ROUTE_FIELDS = [
   'isEnabled',
   'isSystem',
   'icon',
+  'maxUploadFileSize',
   'description',
   'createdAt',
   'updatedAt',
@@ -384,7 +385,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   protected async loadFromDb(): Promise<any> {
     const methodsResult = await this.queryBuilderService.find({
       table: 'method_definition',
-      fields: ['id', 'method'],
+      fields: ['id', 'name'],
     });
     this.setMethodCache(methodsResult.data);
 
@@ -486,10 +487,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     this.allMethods = [];
     for (const method of methods || []) {
       const id = DatabaseConfigService.getRecordId(method);
-      if (id == null || !method?.method) continue;
-      const normalized = { id, method: method.method };
+      if (id == null || !method?.name) continue;
+      const normalized = { id, name: method.name };
       this.methodById.set(String(id), normalized);
-      this.allMethods.push(method.method);
+      this.allMethods.push(method.name);
     }
   }
 
@@ -667,7 +668,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     const raw = route.availableMethods;
     const methods =
       Array.isArray(raw) && raw.length > 0
-        ? raw.map((m: any) => m?.method ?? m).filter(Boolean)
+        ? raw.map((m: any) => m?.name ?? m).filter(Boolean)
         : [];
 
     if (methods.length === 0) return;
@@ -811,7 +812,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   private getRouteMethods(route: any): string[] {
     const methods = route?.availableMethods;
     if (!Array.isArray(methods) || methods.length === 0) return [];
-    return methods.map((m: any) => m?.method ?? m).filter(Boolean);
+    return methods.map((m: any) => m?.name ?? m).filter(Boolean);
   }
 
   private getCandidatePaths(route: any, method: string): string[] {

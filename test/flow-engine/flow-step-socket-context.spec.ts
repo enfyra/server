@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FlowExecutionQueueService, FlowService } from '../../src/modules/flow';
-import { transformCode } from '@enfyra/kernel';
+import { transformTemplateSyntax as transformCode } from '../../src/shared/utils/template-syntax.util';
 import { WebsocketContextFactory } from '../../src/modules/websocket';
 import { DynamicContextFactory } from '../../src/shared/services';
 

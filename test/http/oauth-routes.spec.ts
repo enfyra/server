@@ -15,7 +15,11 @@ function createHarness() {
       refreshToken: 'refresh-token',
       expTime: 123456,
       loginProvider: 'google',
+      sessionId: 'session-id',
     })),
+  };
+  const oauthExchangeCodeService = {
+    createCodeForTokens: vi.fn(async () => 'exchange-code'),
   };
   const oauthConfigCacheService = {
     getAllProviders: vi.fn(async () => ['google']),
@@ -30,7 +34,12 @@ function createHarness() {
   const configService = {
     get: vi.fn(() => 'test-secret'),
   };
-  const cradle = { oauthService, oauthConfigCacheService, configService };
+  const cradle = {
+    oauthService,
+    oauthExchangeCodeService,
+    oauthConfigCacheService,
+    configService,
+  };
 
   registerOAuthRoutes(app as any, { cradle } as any);
 
@@ -46,7 +55,7 @@ function createHarness() {
     return response;
   }
 
-  return { get };
+  return { get, oauthExchangeCodeService };
 }
 
 function getStateFromLocation(location: string) {
@@ -74,6 +83,10 @@ describe('OAuth routes', () => {
     expect(location.searchParams.get('redirect')).toBe(
       'https://demo.enfyra.io/chat',
     );
+    expect(location.searchParams.get('code')).toBe('exchange-code');
+    expect(location.searchParams.has('accessToken')).toBe(false);
+    expect(location.searchParams.has('refreshToken')).toBe(false);
+    expect(location.searchParams.has('expTime')).toBe(false);
   });
 
   it.each(['enfyra', '/enfyra', '/enfyra/'])(

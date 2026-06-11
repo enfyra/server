@@ -3,7 +3,7 @@
  * of properties derived from the raw Express request object.
  *
  * The middleware constructs $req as an explicit object literal:
- *   { method, url, headers, query, params, ip, hostname, protocol, path, originalUrl }
+ *   { method, url, headers, query, params, ip, hostname, protocol, path, originalUrl, rawBody }
  *
  * This test verifies that pattern by simulating what the middleware does
  * and confirming that sensitive / internal properties are excluded.
@@ -20,6 +20,7 @@ const WHITELISTED_KEYS = [
   'protocol',
   'path',
   'originalUrl',
+  'rawBody',
 ] as const;
 
 function buildReqContext(
@@ -37,6 +38,7 @@ function buildReqContext(
     protocol: req.protocol,
     path: req.path,
     originalUrl: req.originalUrl,
+    rawBody: req.rawBody,
   };
 }
 
@@ -86,14 +88,21 @@ describe('$req context sanitization', () => {
     expect('connection' in $req).toBe(false);
   });
 
-  it('does not expose _internalSecret or rawBody', () => {
+  it('does not expose _internalSecret', () => {
     const req = makeMockReq({
       _internalSecret: 'boom',
       rawBody: Buffer.from('secret'),
     });
     const $req = buildReqContext(req, '10.0.0.1');
     expect('_internalSecret' in $req).toBe(false);
-    expect('rawBody' in $req).toBe(false);
+  });
+
+  it('passes through rawBody for webhook signature checks', () => {
+    const req = makeMockReq({
+      rawBody: '{ "event_type": "transaction.completed" }',
+    });
+    const $req = buildReqContext(req, '10.0.0.1');
+    expect($req.rawBody).toBe('{ "event_type": "transaction.completed" }');
   });
 
   it('uses resolvedIp (not req.ip directly)', () => {
@@ -133,9 +142,9 @@ describe('$req context sanitization', () => {
     expect($req.method).toBe('POST');
   });
 
-  it('has exactly 10 whitelisted keys — no more, no less', () => {
+  it('has exactly 11 whitelisted keys — no more, no less', () => {
     const req = makeMockReq();
     const $req = buildReqContext(req, '1.2.3.4');
-    expect(Object.keys($req).length).toBe(10);
+    expect(Object.keys($req).length).toBe(11);
   });
 });

@@ -1,8 +1,5 @@
 import { Logger } from '../../../shared/logger';
-import {
-  QueryBuilderService,
-  getForeignKeyColumnName,
-} from '@enfyra/kernel';
+import { QueryBuilderService, getForeignKeyColumnName } from '@enfyra/kernel';
 import { MetadataCacheService } from '../../../engines/cache';
 import { TCreateTableBody } from '../types/table-handler.types';
 import {
@@ -122,23 +119,35 @@ export class SqlTableMetadataBuilderService {
 
     metadata.columns = (body.columns ?? oldMetadata?.columns ?? [])
       .filter((col: any) => !ignoredFkColumns.has(col.name))
-      .map((col: any) => ({
-        id: col.id,
-        name: col.name,
-        type: col.type,
-        isPrimary: col.isPrimary || false,
-        isGenerated: col.isGenerated || false,
-        isNullable: col.isNullable ?? true,
-        isSystem: col.isSystem || false,
-        isUpdatable: col.isUpdatable ?? true,
-        isPublished: col.isPublished ?? true,
-        defaultValue: col.defaultValue ?? null,
-        tableId: exists.id,
-      }));
+      .map((col: any) => {
+        const oldCol = oldMetadata?.columns?.find(
+          (existing: any) =>
+            String(existing.id ?? existing._id) === String(col.id ?? col._id),
+        );
+        return {
+          id: col.id,
+          name: col.name,
+          type: col.type,
+          isPrimary: col.isPrimary || false,
+          isGenerated: col.isGenerated || false,
+          isNullable: col.isNullable ?? true,
+          isSystem: col.isSystem || false,
+          isUpdatable: col.isUpdatable ?? true,
+          isPublished: col.isPublished ?? true,
+          isEncrypted:
+            col.id || col._id
+              ? (oldCol?.isEncrypted ?? false)
+              : (col.isEncrypted ?? false),
+          defaultValue: col.defaultValue ?? null,
+          tableId: exists.id,
+        };
+      });
 
     metadata.relations = (body.relations ?? oldMetadata?.relations ?? []).map(
       (rel: any) => {
-        const oldRel = oldMetadata?.relations?.find((r: any) => r.id === rel.id);
+        const oldRel = oldMetadata?.relations?.find(
+          (r: any) => r.id === rel.id,
+        );
         const targetTableId = getRelationTargetTableId(rel);
         const targetTableName =
           targetTablesMap.get(relationTargetTableMapKey(targetTableId)) ??
@@ -221,7 +230,8 @@ export class SqlTableMetadataBuilderService {
       );
       if (!isInverse) continue;
       if (rel.foreignKeyColumn) columns.add(rel.foreignKeyColumn);
-      if (rel.propertyName) columns.add(getForeignKeyColumnName(rel.propertyName));
+      if (rel.propertyName)
+        columns.add(getForeignKeyColumnName(rel.propertyName));
       if (oldRel?.foreignKeyColumn) columns.add(oldRel.foreignKeyColumn);
       if (oldRel?.propertyName) {
         columns.add(getForeignKeyColumnName(oldRel.propertyName));

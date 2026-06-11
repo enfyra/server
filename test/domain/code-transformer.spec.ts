@@ -1,4 +1,5 @@
-import { transformCode } from '@enfyra/kernel';
+import * as kernel from '@enfyra/kernel';
+import { transformTemplateSyntax as transformCode } from '../../src/shared/utils/template-syntax.util';
 
 describe('transformCode', () => {
   it('expands @BODY in normal code', () => {
@@ -46,6 +47,18 @@ describe('transformCode', () => {
     expect(result).toContain('$ctx.$data');
   });
 
+  it('expands @ENV to sanitized environment context', () => {
+    expect(transformCode('const nodeName = @ENV.NODE_NAME;')).toBe(
+      'const nodeName = $ctx.$env.NODE_NAME;',
+    );
+  });
+
+  it('expands @STORAGE to dynamic storage helpers', () => {
+    expect(
+      transformCode('return @STORAGE.$upload({ file: @UPLOADED_FILE });'),
+    ).toBe('return $ctx.$storage.$upload({ file: $ctx.$uploadedFile });');
+  });
+
   it('does not expand inside line comment', () => {
     expect(transformCode('// @BODY')).toBe('// @BODY');
   });
@@ -73,8 +86,13 @@ describe('transformCode', () => {
   it('expands secure repository shorthand through property access', () => {
     expect(
       transformCode('return await #secure.projects.find({ limit: 1 });'),
-    ).toBe(
-      'return await $ctx.$repos.secure.projects.find({ limit: 1 });',
-    );
+    ).toBe('return await $ctx.$repos.secure.projects.find({ limit: 1 });');
+  });
+
+  it('keeps template syntax behavior outside the kernel package', () => {
+    expect((kernel as any).transformCode).toBeUndefined();
+    expect(() =>
+      kernel.compileScriptSource('return @BODY.name;', 'javascript'),
+    ).toThrow();
   });
 });
