@@ -1006,7 +1006,7 @@ export class DynamicRepository {
       throw new BadRequestException(createDecision.message);
     }
     if (this.tableName === 'route_definition') {
-      this.filterMethodsSubsetOfAvailable(body, null, 'publishedMethods');
+      this.filterMethodsSubsetOfAvailable(body, null, 'publicMethods');
       this.filterMethodsSubsetOfAvailable(body, null, 'skipRoleGuardMethods');
     }
     if (this.tableName === 'extension_definition' && body.code) {
@@ -1092,8 +1092,8 @@ export class DynamicRepository {
       if (isPolicyDeny(updateDecision)) {
         throw new BadRequestException(updateDecision.message);
       }
-      if (this.tableName === 'route_definition' && body.publishedMethods) {
-        this.filterMethodsSubsetOfAvailable(body, exists, 'publishedMethods');
+      if (this.tableName === 'route_definition' && body.publicMethods) {
+        this.filterMethodsSubsetOfAvailable(body, exists, 'publicMethods');
       }
       if (this.tableName === 'route_definition' && body.skipRoleGuardMethods) {
         this.filterMethodsSubsetOfAvailable(
@@ -1378,7 +1378,7 @@ export class DynamicRepository {
   private filterMethodsSubsetOfAvailable(
     body: any,
     existing: any,
-    field: 'publishedMethods' | 'skipRoleGuardMethods',
+    field: 'publicMethods' | 'skipRoleGuardMethods',
   ): void {
     const availableIds = new Set<string>(
       body.availableMethods

@@ -36,7 +36,7 @@ function getRouteTableName(route: any): string | null {
 function getRouteMethods(route: any): string[] {
   const candidates =
     route?.availableMethods ??
-    route?.publishedMethods ??
+    route?.publicMethods ??
     route?.methods ??
     [];
   if (!Array.isArray(candidates)) return [];

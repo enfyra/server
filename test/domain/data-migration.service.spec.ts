@@ -40,7 +40,7 @@ function makeKnex(methodRows: any[] = []) {
       };
     }
     if (table === 'relation_definition as r') {
-      let propertyName = 'publishedMethods';
+      let propertyName = 'publicMethods';
       const chain: any = {
         leftJoin: jest.fn(() => chain),
         select: jest.fn(() => chain),
@@ -134,29 +134,29 @@ function makeService(qb: any): DataMigrationService {
 }
 
 describe('DataMigrationService.transformRecord', () => {
-  it('captures non-empty publishedMethods as relation update', () => {
+  it('captures non-empty publicMethods as relation update', () => {
     const svc = makeService(makeQueryBuilder());
     const { newRecord, relationUpdates } = (svc as any).transformRecord(
       'route_definition',
       {
         _unique: { path: { _eq: '/me' } },
-        publishedMethods: ['GET', 'POST'],
+        publicMethods: ['GET', 'POST'],
         isEnabled: true,
       },
     );
-    expect(relationUpdates.publishedMethods).toEqual(['GET', 'POST']);
-    expect(newRecord.publishedMethods).toBeUndefined();
+    expect(relationUpdates.publicMethods).toEqual(['GET', 'POST']);
+    expect(newRecord.publicMethods).toBeUndefined();
     expect(newRecord.isEnabled).toBe(true);
   });
 
-  it('captures empty array publishedMethods as relation update (the bug fix)', () => {
+  it('captures empty array publicMethods as relation update (the bug fix)', () => {
     const svc = makeService(makeQueryBuilder());
     const { newRecord, relationUpdates } = (svc as any).transformRecord(
       'route_definition',
-      { _unique: { path: { _eq: '/metadata' } }, publishedMethods: [] },
+      { _unique: { path: { _eq: '/metadata' } }, publicMethods: [] },
     );
-    expect(relationUpdates.publishedMethods).toEqual([]);
-    expect(newRecord.publishedMethods).toBeUndefined();
+    expect(relationUpdates.publicMethods).toEqual([]);
+    expect(newRecord.publicMethods).toBeUndefined();
   });
 
   it('captures empty array availableMethods as relation update', () => {
@@ -175,7 +175,7 @@ describe('DataMigrationService.transformRecord', () => {
       'route_definition',
       { _unique: { path: { _eq: '/test' } }, name: 'hello' },
     );
-    expect(relationUpdates.publishedMethods).toBeUndefined();
+    expect(relationUpdates.publicMethods).toBeUndefined();
     expect(relationUpdates.availableMethods).toBeUndefined();
   });
 
@@ -183,9 +183,9 @@ describe('DataMigrationService.transformRecord', () => {
     const svc = makeService(makeQueryBuilder());
     const { relationUpdates } = (svc as any).transformRecord(
       'route_definition',
-      { _unique: { path: { _eq: '/test' } }, publishedMethods: null },
+      { _unique: { path: { _eq: '/test' } }, publicMethods: null },
     );
-    expect(relationUpdates.publishedMethods).toBeUndefined();
+    expect(relationUpdates.publicMethods).toBeUndefined();
   });
 });
 
@@ -198,19 +198,19 @@ describe('DataMigrationService.updateRelations', () => {
     DatabaseConfigService.resetForTesting();
   });
 
-  it('calls update with empty array to clear publishedMethods (the bug fix)', async () => {
+  it('calls update with empty array to clear publicMethods (the bug fix)', async () => {
     const qb = makeQueryBuilder({
       find: jest.fn().mockResolvedValue({ data: [] }),
     });
     const svc = makeService(qb);
 
     await (svc as any).updateRelations('route_definition', 99, {
-      publishedMethods: [],
+      publicMethods: [],
     });
 
     expect(qb.__knexMock.rawCalls).toContainEqual({
       sql: 'delete from ?? where ?? = ?',
-      bindings: ['j_publishedMethods', 'sourceId', 99],
+      bindings: ['j_publicMethods', 'sourceId', 99],
     });
   });
 
@@ -225,12 +225,12 @@ describe('DataMigrationService.updateRelations', () => {
     const svc = makeService(qb);
 
     await (svc as any).updateRelations('route_definition', 10, {
-      publishedMethods: ['GET', 'POST'],
+      publicMethods: ['GET', 'POST'],
     });
 
     expect(knexMock.rawCalls).toContainEqual({
       sql: 'insert into ?? (??, ??) values (?, ?), (?, ?)',
-      bindings: ['j_publishedMethods', 'sourceId', 'targetId', 10, 1, 10, 2],
+      bindings: ['j_publicMethods', 'sourceId', 'targetId', 10, 1, 10, 2],
     });
   });
 
@@ -255,13 +255,13 @@ describe('DataMigrationService.updateRelations', () => {
     const svc = makeService(qb);
 
     await (svc as any).updateRelations('user_definition', 1, {
-      publishedMethods: [],
+      publicMethods: [],
     });
 
     expect(qb.update).not.toHaveBeenCalled();
   });
 
-  it('handles both publishedMethods and availableMethods in one call', async () => {
+  it('handles both publicMethods and availableMethods in one call', async () => {
     const knexMock = makeKnex([{ id: 3, name: 'POST' }]);
     const qb = makeQueryBuilder({
       getKnex: jest.fn(() => knexMock.knex),
@@ -269,13 +269,13 @@ describe('DataMigrationService.updateRelations', () => {
     const svc = makeService(qb);
 
     await (svc as any).updateRelations('route_definition', 7, {
-      publishedMethods: [],
+      publicMethods: [],
       availableMethods: ['POST'],
     });
 
     expect(knexMock.rawCalls).toContainEqual({
       sql: 'delete from ?? where ?? = ?',
-      bindings: ['j_publishedMethods', 'sourceId', 7],
+      bindings: ['j_publicMethods', 'sourceId', 7],
     });
     expect(knexMock.rawCalls).toContainEqual({
       sql: 'insert into ?? (??, ??) values (?, ?)',
@@ -322,7 +322,7 @@ describe('DataMigrationService.updateRelations', () => {
   });
 });
 
-describe('DataMigrationService.migrateTable — end-to-end for publishedMethods clear', () => {
+describe('DataMigrationService.migrateTable — end-to-end for publicMethods clear', () => {
   beforeEach(() => {
     DatabaseConfigService.overrideForTesting('mysql');
   });
@@ -331,7 +331,7 @@ describe('DataMigrationService.migrateTable — end-to-end for publishedMethods 
     DatabaseConfigService.resetForTesting();
   });
 
-  it('clears publishedMethods on existing route when empty array specified', async () => {
+  it('clears publicMethods on existing route when empty array specified', async () => {
     const qb = makeQueryBuilder({
       find: jest
         .fn()
@@ -341,13 +341,13 @@ describe('DataMigrationService.migrateTable — end-to-end for publishedMethods 
     const svc = makeService(qb);
 
     await (svc as any).migrateTable('route_definition', [
-      { _unique: { path: { _eq: '/metadata' } }, publishedMethods: [] },
+      { _unique: { path: { _eq: '/metadata' } }, publicMethods: [] },
     ]);
 
     expect(qb.update).not.toHaveBeenCalled();
     expect(qb.__knexMock.rawCalls).toContainEqual({
       sql: 'delete from ?? where ?? = ?',
-      bindings: ['j_publishedMethods', 'sourceId', 42],
+      bindings: ['j_publicMethods', 'sourceId', 42],
     });
   });
 
@@ -358,7 +358,7 @@ describe('DataMigrationService.migrateTable — end-to-end for publishedMethods 
     const svc = makeService(qb);
 
     await (svc as any).migrateTable('route_definition', [
-      { _unique: { path: { _eq: '/nonexistent' } }, publishedMethods: [] },
+      { _unique: { path: { _eq: '/nonexistent' } }, publicMethods: [] },
     ]);
 
     expect(qb.update).not.toHaveBeenCalled();

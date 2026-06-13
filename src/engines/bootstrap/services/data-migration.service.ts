@@ -18,7 +18,7 @@ interface InitOld {
 }
 
 const RELATION_FIELD_PREFIXES = [
-  'publishedMethods',
+  'publicMethods',
   'skipRoleGuardMethods',
   'availableMethods',
 ];
@@ -273,7 +273,7 @@ export class DataMigrationService {
     if (tableName === 'route_definition') {
       for (const [field, methodNames] of Object.entries(relationUpdates)) {
         if (
-          field === 'publishedMethods' ||
+          field === 'publicMethods' ||
           field === 'skipRoleGuardMethods' ||
           field === 'availableMethods'
         ) {

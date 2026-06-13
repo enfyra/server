@@ -4,7 +4,7 @@ import type {
 } from '../types/bootstrap-data-validator.types';
 
 const ROUTE_METHOD_FIELDS = [
-  'publishedMethods',
+  'publicMethods',
   'skipRoleGuardMethods',
   'availableMethods',
 ];
