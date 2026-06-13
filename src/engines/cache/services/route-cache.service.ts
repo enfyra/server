@@ -85,7 +85,7 @@ const ROUTE_CACHE_ROUTE_FIELDS = [
   'postHooks.scriptLanguage',
   'postHooks.compiledCode',
   'postHooks.methods',
-  'publishedMethods',
+  'publicMethods',
   'skipRoleGuardMethods',
   'availableMethods',
 ];
@@ -509,7 +509,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
   private hydrateRouteMethods(route: any): void {
     this.hydrateMethodList(route.availableMethods);
-    this.hydrateMethodList(route.publishedMethods);
+    this.hydrateMethodList(route.publicMethods);
     this.hydrateMethodList(route.skipRoleGuardMethods);
 
     for (const handler of route.handlers || []) {

@@ -49,6 +49,14 @@
       "relationsToModify": [
         {
           "from": {
+            "propertyName": "publishedMethods"
+          },
+          "to": {
+            "propertyName": "publicMethods"
+          }
+        },
+        {
+          "from": {
             "propertyName": "preHook"
           },
           "to": {

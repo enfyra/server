@@ -35,31 +35,31 @@ function makeRepo(overrides: Partial<ConstructorParameters<typeof DynamicReposit
 }
 
 describe('DynamicRepository route method relations', () => {
-  it('keeps Mongo string/ObjectId-like publishedMethods when they are available', () => {
+  it('keeps Mongo string/ObjectId-like publicMethods when they are available', () => {
     const repo = makeRepo();
     const getId = '507f1f77bcf86cd799439011';
     const postId = '507f1f77bcf86cd799439012';
     const deleteId = '507f1f77bcf86cd799439013';
     const body = {
       availableMethods: [{ _id: getId }, { _id: postId }],
-      publishedMethods: [{ _id: getId }, postId, deleteId],
+      publicMethods: [{ _id: getId }, postId, deleteId],
     };
 
     (repo as any).filterMethodsSubsetOfAvailable(
       body,
       null,
-      'publishedMethods',
+      'publicMethods',
     );
 
-    expect(body.publishedMethods).toEqual([{ _id: getId }, postId]);
+    expect(body.publicMethods).toEqual([{ _id: getId }, postId]);
   });
 
-  it('uses existing availableMethods on update when only publishedMethods changes', () => {
+  it('uses existing availableMethods on update when only publicMethods changes', () => {
     const repo = makeRepo();
     const patchId = '507f1f77bcf86cd799439014';
     const deleteId = '507f1f77bcf86cd799439015';
     const body = {
-      publishedMethods: [{ id: patchId }, { id: deleteId }],
+      publicMethods: [{ id: patchId }, { id: deleteId }],
     };
     const existing = {
       availableMethods: [{ id: patchId }],
@@ -68,10 +68,10 @@ describe('DynamicRepository route method relations', () => {
     (repo as any).filterMethodsSubsetOfAvailable(
       body,
       existing,
-      'publishedMethods',
+      'publicMethods',
     );
 
-    expect(body.publishedMethods).toEqual([{ id: patchId }]);
+    expect(body.publicMethods).toEqual([{ id: patchId }]);
   });
 
   it('checks existence with a direct find-style filter', async () => {

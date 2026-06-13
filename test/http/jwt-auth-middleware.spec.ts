@@ -7,7 +7,7 @@ function makeMiddleware() {
 }
 
 describe('jwtAuthMiddleware', () => {
-  it('treats invalid Bearer tokens as anonymous on published methods', async () => {
+  it('treats invalid Bearer tokens as anonymous on public methods', async () => {
     const req: any = {
       method: 'GET',
       headers: { authorization: 'Bearer malformed.jwt.token' },
@@ -25,7 +25,7 @@ describe('jwtAuthMiddleware', () => {
     expect(next).toHaveBeenCalledWith();
   });
 
-  it('rejects invalid Bearer tokens on non-published methods', async () => {
+  it('rejects invalid Bearer tokens on non-public methods', async () => {
     const req: any = {
       method: 'GET',
       headers: { authorization: 'Bearer malformed.jwt.token' },

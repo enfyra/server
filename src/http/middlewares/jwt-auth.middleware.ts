@@ -16,7 +16,7 @@ import type { ApiTokenService } from '../../domain/auth';
 function isPublishedRequest(req: any): boolean {
   if (req.routeData?.isPublished === true) return true;
   return (
-    req.routeData?.publishedMethods?.some(
+    req.routeData?.publicMethods?.some(
       (method: any) => method?.name === req.method || method === req.method,
     ) === true
   );

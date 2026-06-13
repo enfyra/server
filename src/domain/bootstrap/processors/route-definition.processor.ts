@@ -12,7 +12,7 @@ import { replaceSqlJunctionRows } from '../utils/sql-junction-writer.util';
 import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';
 
 const ROUTE_METHOD_RELATION_FIELDS = [
-  'publishedMethods',
+  'publicMethods',
   'skipRoleGuardMethods',
   'availableMethods',
 ] as const;
@@ -78,9 +78,9 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
             delete transformedRecord.mainTable;
           }
         }
-        if (record.publishedMethods && Array.isArray(record.publishedMethods)) {
-          transformedRecord.publishedMethods = await this.resolveMethodIds(
-            record.publishedMethods,
+        if (record.publicMethods && Array.isArray(record.publicMethods)) {
+          transformedRecord.publicMethods = await this.resolveMethodIds(
+            record.publicMethods,
             isMongoDB,
             pkField,
           );
@@ -581,7 +581,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       'isSystem',
       'maxUploadFileSize',
       'mainTable',
-      'publishedMethods',
+      'publicMethods',
       'skipRoleGuardMethods',
       'availableMethods',
     ];

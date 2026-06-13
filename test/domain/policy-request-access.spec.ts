@@ -3,10 +3,10 @@ import { PolicyService } from '../../src/domain/policy';
 describe('PolicyService.checkRequestAccess', () => {
   const policy = new PolicyService({} as any, {} as any);
 
-  it('allows published methods without user', () => {
+  it('allows public methods without user', () => {
     const d = policy.checkRequestAccess({
       method: 'GET',
-      routeData: { publishedMethods: [{ name: 'GET' }] },
+      routeData: { publicMethods: [{ name: 'GET' }] },
     });
     expect(d.allow).toBe(true);
   });
