@@ -80,7 +80,7 @@ describe('flow step socket context', () => {
             config: {
               code: `
                 $ctx.$socket.emitToUser(7, 'order:paid', { id: 42 });
-                $ctx.$socket.emitToRoom('admins', 'order:paid', { id: 42 });
+                $ctx.$socket.emitToRoom('/admin', 'admins', 'order:paid', { id: 42 });
                 return { roomSize: await $ctx.$socket.roomSize('admins') };
               `,
             },
@@ -101,7 +101,7 @@ describe('flow step socket context', () => {
     expect(result.context.notify).toEqual({ roomSize: 3 });
     expect(emitted).toEqual([
       { method: 'emitToUser', args: [7, 'order:paid', { id: 42 }] },
-      { method: 'emitToRoom', args: ['admins', 'order:paid', { id: 42 }] },
+      { method: 'emitToRoom', args: ['/admin', 'admins', 'order:paid', { id: 42 }] },
     ]);
   });
 
