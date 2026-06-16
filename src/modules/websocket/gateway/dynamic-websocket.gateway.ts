@@ -674,10 +674,8 @@ export class DynamicWebSocketGateway {
     }
   }
 
-  emitToRoom(room: string, event: string, data: any) {
-    for (const path of this.registeredGateways) {
-      void this.emitToNamespaceRoom(path, room, event, data);
-    }
+  emitToRoom(path: string, room: string, event: string, data: any) {
+    void this.emitToNamespaceRoom(path, room, event, data);
   }
 
   broadcastToRoom(

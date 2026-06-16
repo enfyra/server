@@ -20,7 +20,7 @@
       { "name": "defaultValue", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Default value for the column when inserting new records" },
       { "name": "options", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Additional options like enum values, array items, or validation rules" },
       { "name": "isUpdatable", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether the column can be updated after creation" },
-      { "name": "isPublished", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this column is publicly readable (published routes/anonymous included)" },
+      { "name": "isPublished", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this column is publicly readable (public routes/anonymous included)" },
       { "name": "isEncrypted", "type": "boolean", "isNullable": false, "isSystem": true, "isUpdatable": false, "defaultValue": false, "description": "Whether this column is encrypted at rest by the Enfyra engine" },
       { "name": "description", "type": "richtext", "isSystem": true, "description": "Rich text description of the column's purpose" },
       { "name": "placeholder", "type": "text", "isSystem": true, "description": "Placeholder text for form inputs" },
@@ -66,7 +66,7 @@
       { "name": "isNullable", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether the relation can be null" },
       { "name": "onDelete", "type": "enum", "isNullable": false, "isSystem": true, "options": ["CASCADE", "RESTRICT", "SET NULL"], "defaultValue": "SET NULL", "description": "Action to perform when referenced record is deleted" },
       { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined relation" },
-      { "name": "isPublished", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this relation is publicly readable (published routes/anonymous included)" },
+      { "name": "isPublished", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this relation is publicly readable (public routes/anonymous included)" },
       { "name": "description", "type": "text", "isSystem": true, "description": "Description of the relationship purpose" },
       { "name": "foreignKeyColumn", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Physical foreign key column used by SQL owning relations" },
       { "name": "referencedColumn", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Physical target column referenced by SQL foreign keys" },
@@ -440,7 +440,7 @@
     ],
     "relations": [
       { "propertyName": "routePermissions", "type": "many-to-many", "targetTable": "route_permission_definition", "isSystem": true, "inversePropertyName": "methods", "description": "Permissions associated with this method", "isNullable": true },
-      { "propertyName": "routes", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "publishedMethods", "description": "Routes that support this method" },
+      { "propertyName": "routes", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "publicMethods", "description": "Routes that allow this method without authentication" },
       { "propertyName": "routesWithAvailable", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "availableMethods", "description": "Routes that have this method available" },
       { "propertyName": "routesSkipRoleGuard", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "skipRoleGuardMethods", "description": "Routes where this method skips RoleGuard (still requires authentication)" }
     ]

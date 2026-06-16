@@ -112,7 +112,7 @@
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:globe",
-      "publishedMethods": [
+      "publicMethods": [
         "GET"
       ],
       "availableMethods": [
@@ -140,7 +140,7 @@
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
-      "publishedMethods": [
+      "publicMethods": [
         "POST"
       ],
       "availableMethods": [
@@ -152,7 +152,7 @@
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
-      "publishedMethods": [
+      "publicMethods": [
         "POST"
       ],
       "availableMethods": [
@@ -164,7 +164,7 @@
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
-      "publishedMethods": [
+      "publicMethods": [
         "POST"
       ],
       "availableMethods": [
@@ -176,7 +176,7 @@
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
-      "publishedMethods": [
+      "publicMethods": [
         "GET"
       ],
       "availableMethods": [
@@ -188,7 +188,7 @@
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
-      "publishedMethods": [
+      "publicMethods": [
         "GET"
       ],
       "availableMethods": [
@@ -200,7 +200,7 @@
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
-      "publishedMethods": [
+      "publicMethods": [
         "GET"
       ],
       "availableMethods": [
@@ -417,7 +417,7 @@
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:download",
-      "publishedMethods": [
+      "publicMethods": [
         "GET"
       ],
       "availableMethods": [
