@@ -427,7 +427,7 @@ function chatEventSource() {
       throw new Error('Invalid chat payload');
     }
     if (kind === 'group') {
-      $ctx.$socket.emitToRoom(data.room, 'chat:message', data);
+      $ctx.$socket.emitToCurrentRoom(data.room, 'chat:message', data);
     } else {
       $ctx.$socket.emitToUser(data.senderId, 'chat:message', data);
       $ctx.$socket.emitToUser(data.targetId, 'chat:message', data);
