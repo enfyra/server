@@ -15,11 +15,8 @@ export class WebsocketContextFactory {
       emitToUser: (userId: any, event: string, data: any) => {
         this.dynamicWebSocketGateway.emitToUser(userId, event, data);
       },
-      emitToRoom: (room: string, event: string, data: any) => {
-        this.dynamicWebSocketGateway.emitToRoom(room, event, data);
-      },
-      broadcastToRoom: (room: string, event: string, data: any) => {
-        this.dynamicWebSocketGateway.emitToRoom(room, event, data);
+      emitToRoom: (path: string, room: string, event: string, data: any) => {
+        this.dynamicWebSocketGateway.emitToRoom(path, room, event, data);
       },
       emitToGateway: (path: string, event: string, data: any) => {
         this.dynamicWebSocketGateway.emitToNamespace(path, event, data);
@@ -51,6 +48,14 @@ export class WebsocketContextFactory {
           data,
         );
       },
+      emitToCurrentRoom: (room: string, event: string, data: any) => {
+        void this.dynamicWebSocketGateway.emitToNamespaceRoom(
+          gatewayPath,
+          room,
+          event,
+          data,
+        );
+      },
       broadcastToRoom: (room: string, event: string, data: any) => {
         this.dynamicWebSocketGateway.broadcastToRoom(
           gatewayPath,
@@ -78,6 +83,7 @@ export class WebsocketContextFactory {
       reply: capture('reply'),
       emitToUser: capture('emitToUser'),
       emitToRoom: capture('emitToRoom'),
+      emitToCurrentRoom: capture('emitToCurrentRoom'),
       broadcastToRoom: capture('broadcastToRoom'),
       emitToGateway: capture('emitToGateway'),
       broadcast: capture('broadcast'),

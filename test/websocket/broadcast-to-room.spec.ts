@@ -14,6 +14,22 @@ function createGateway(socket: any) {
 }
 
 describe('DynamicWebSocketGateway.broadcastToRoom', () => {
+  it('emits to a room within the requested gateway namespace', () => {
+    const gateway = Object.create(DynamicWebSocketGateway.prototype);
+    gateway.emitToNamespaceRoom = vi.fn();
+
+    gateway.emitToRoom('/chat', 'conversation:1', 'chat:message', {
+      text: 'hello',
+    });
+
+    expect(gateway.emitToNamespaceRoom).toHaveBeenCalledWith(
+      '/chat',
+      'conversation:1',
+      'chat:message',
+      { text: 'hello' },
+    );
+  });
+
   it('broadcasts to a room through the sender socket so the sender is excluded', () => {
     const emit = vi.fn();
     const to = vi.fn(() => ({ emit }));
@@ -57,4 +73,20 @@ describe('DynamicWebSocketGateway.broadcastToRoom', () => {
     );
   });
 
+  it('exposes emitToCurrentRoom on bound script socket context', () => {
+    const emitToNamespaceRoom = vi.fn();
+    const factory = new WebsocketContextFactory({
+      dynamicWebSocketGateway: { emitToNamespaceRoom } as any,
+    });
+
+    const socket = factory.createBoundProxy('/chat', 'socket-1');
+    socket.emitToCurrentRoom?.('conversation:1', 'chat:message', { text: 'hello' });
+
+    expect(emitToNamespaceRoom).toHaveBeenCalledWith(
+      '/chat',
+      'conversation:1',
+      'chat:message',
+      { text: 'hello' },
+    );
+  });
 });

@@ -26,7 +26,7 @@ function metadata(tablesList: any[]) {
 function policyService() {
   return {
     checkRequestAccess(ctx: any) {
-      const published = ctx.routeData?.publishedMethods?.some(
+      const published = ctx.routeData?.publicMethods?.some(
         (m: any) => m.name === ctx.method,
       );
       if (published) return { allow: true };
@@ -111,7 +111,7 @@ describe('metadata access projection', () => {
     expect(data).toEqual(meta.tablesList);
   });
 
-  it('allows anonymous users to see only metadata for published routes', async () => {
+  it('allows anonymous users to see only metadata for public routes', async () => {
     const meta = metadata([
       table('public_post_definition', [col('title')]),
       table('private_post_definition', [col('title')]),
@@ -127,7 +127,7 @@ describe('metadata access projection', () => {
           path: '/public_post_definition',
           mainTable: { name: 'public_post_definition' },
           availableMethods: [{ name: 'GET' }],
-          publishedMethods: [{ name: 'GET' }],
+          publicMethods: [{ name: 'GET' }],
         },
         {
           path: '/private_post_definition',

@@ -65,7 +65,7 @@ export class SystemSafetyAuditorService {
     if (tableName === 'route_definition' && fullExisting?.isSystem) {
       const allowed = this.schemaMigrationValidatorService.getAllowedFields([
         'description',
-        'publishedMethods',
+        'publicMethods',
         'skipRoleGuardMethods',
         'availableMethods',
         'icon',

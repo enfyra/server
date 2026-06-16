@@ -20,7 +20,7 @@ export class PolicyService {
   }
 
   checkRequestAccess(ctx: TPolicyRequestContext): TPolicyDecision {
-    const isPublished = ctx.routeData?.publishedMethods?.some(
+    const isPublished = ctx.routeData?.publicMethods?.some(
       (m: any) => m.name === ctx.method,
     );
 

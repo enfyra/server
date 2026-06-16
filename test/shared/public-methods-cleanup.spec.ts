@@ -21,30 +21,30 @@ const PUBLIC_NON_AUTH_PATHS = new Set([
   '/cors_origin_definition',
 ]);
 
-describe('default-data.json — publishedMethods', () => {
+describe('default-data.json — publicMethods', () => {
   const data = loadJson('default-data.json');
   const routes: any[] = data.route_definition ?? [];
 
-  it('only auth routes and explicit public routes have publishedMethods set', () => {
+  it('only auth routes and explicit public routes have publicMethods set', () => {
     const nonAuthPublished = routes.filter(
       (r) =>
         !AUTH_PATHS.has(r.path) &&
         !PUBLIC_NON_AUTH_PATHS.has(r.path) &&
-        r.publishedMethods?.length > 0,
+        r.publicMethods?.length > 0,
     );
     expect(nonAuthPublished).toEqual([]);
   });
 
-  it('all auth routes retain their publishedMethods', () => {
+  it('all auth routes retain their publicMethods', () => {
     for (const authPath of AUTH_PATHS) {
       const route = routes.find((r) => r.path === authPath);
       expect(route).toBeDefined();
-      expect(route.publishedMethods?.length).toBeGreaterThan(0);
+      expect(route.publicMethods?.length).toBeGreaterThan(0);
     }
   });
 });
 
-describe('data-migration.json — publishedMethods cleanup', () => {
+describe('data-migration.json — publicMethods cleanup', () => {
   const migration = loadJson('data-migration.json');
   const routes: any[] = migration.route_definition ?? [];
 
@@ -65,23 +65,23 @@ describe('data-migration.json — publishedMethods cleanup', () => {
     '/storage_config_definition',
   ];
 
-  it.each(SHOULD_BE_EMPTY)('%s has publishedMethods: []', (routePath) => {
+  it.each(SHOULD_BE_EMPTY)('%s has publicMethods: []', (routePath) => {
     const entry = routes.find((r) => r._unique?.path?._eq === routePath);
     expect(entry).toBeDefined();
-    expect(entry.publishedMethods).toEqual([]);
+    expect(entry.publicMethods).toEqual([]);
   });
 
   it('/assets/:id publishes GET because file visibility is checked per asset', () => {
     const entry = routes.find((r) => r._unique?.path?._eq === '/assets/:id');
     expect(entry).toBeDefined();
-    expect(entry.publishedMethods).toEqual(['GET']);
+    expect(entry.publicMethods).toEqual(['GET']);
   });
 
-  it('auth routes in migration retain their publishedMethods', () => {
+  it('auth routes in migration retain their publicMethods', () => {
     const authEntries = routes.filter(
       (r) =>
         AUTH_PATHS.has(r._unique?.path?._eq ?? '') &&
-        r.publishedMethods?.length > 0,
+        r.publicMethods?.length > 0,
     );
     expect(authEntries.length).toBeGreaterThan(0);
   });

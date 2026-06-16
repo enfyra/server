@@ -281,7 +281,7 @@
           "_eq": "/package_definition"
         }
       },
-      "publishedMethods": [],
+      "publicMethods": [],
       "skipRoleGuardMethods": [
         "GET"
       ],
@@ -298,7 +298,7 @@
           "_eq": "/auth/login"
         }
       },
-      "publishedMethods": [
+      "publicMethods": [
         "POST"
       ]
     },
@@ -308,7 +308,7 @@
           "_eq": "/auth/logout"
         }
       },
-      "publishedMethods": [
+      "publicMethods": [
         "POST"
       ]
     },
@@ -318,7 +318,7 @@
           "_eq": "/auth/refresh-token"
         }
       },
-      "publishedMethods": [
+      "publicMethods": [
         "POST"
       ]
     },
@@ -331,7 +331,7 @@
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
-      "publishedMethods": [
+      "publicMethods": [
         "GET"
       ],
       "availableMethods": [
@@ -344,7 +344,7 @@
           "_eq": "/me"
         }
       },
-      "publishedMethods": [],
+      "publicMethods": [],
       "skipRoleGuardMethods": [
         "GET",
         "PATCH"
@@ -356,7 +356,7 @@
           "_eq": "/assets/:id"
         }
       },
-      "publishedMethods": [
+      "publicMethods": [
         "GET"
       ]
     },
@@ -366,7 +366,7 @@
           "_eq": "/metadata"
         }
       },
-      "publishedMethods": [],
+      "publicMethods": [],
       "skipRoleGuardMethods": [
         "GET"
       ]
@@ -377,7 +377,7 @@
           "_eq": "/metadata/:name"
         }
       },
-      "publishedMethods": [],
+      "publicMethods": [],
       "skipRoleGuardMethods": [
         "GET"
       ]
@@ -388,7 +388,7 @@
           "_eq": "/folder_definition/tree"
         }
       },
-      "publishedMethods": [],
+      "publicMethods": [],
       "skipRoleGuardMethods": [
         "GET"
       ]
@@ -407,7 +407,7 @@
           "_eq": "/route_definition"
         }
       },
-      "publishedMethods": [],
+      "publicMethods": [],
       "skipRoleGuardMethods": [
         "GET"
       ],
@@ -424,7 +424,7 @@
           "_eq": "/table_definition"
         }
       },
-      "publishedMethods": []
+      "publicMethods": []
     },
     {
       "_unique": {
@@ -432,7 +432,7 @@
           "_eq": "/setting_definition"
         }
       },
-      "publishedMethods": [],
+      "publicMethods": [],
       "skipRoleGuardMethods": [
         "GET"
       ]
@@ -443,7 +443,7 @@
           "_eq": "/me/oauth-accounts"
         }
       },
-      "publishedMethods": [],
+      "publicMethods": [],
       "skipRoleGuardMethods": [
         "GET"
       ]
@@ -454,7 +454,7 @@
           "_eq": "/graphql-schema"
         }
       },
-      "publishedMethods": [],
+      "publicMethods": [],
       "skipRoleGuardMethods": [
         "GET"
       ]
@@ -530,7 +530,7 @@
           "_eq": "/menu_definition"
         }
       },
-      "publishedMethods": [],
+      "publicMethods": [],
       "skipRoleGuardMethods": [
         "GET"
       ],
@@ -547,7 +547,7 @@
           "_eq": "/extension_definition"
         }
       },
-      "publishedMethods": [],
+      "publicMethods": [],
       "availableMethods": [
         "GET",
         "POST",
@@ -561,7 +561,7 @@
           "_eq": "/extension_definition/preview"
         }
       },
-      "publishedMethods": []
+      "publicMethods": []
     },
     {
       "_unique": {
@@ -582,7 +582,7 @@
           "_eq": "/storage_config_definition"
         }
       },
-      "publishedMethods": [],
+      "publicMethods": [],
       "skipRoleGuardMethods": [
         "GET"
       ],
