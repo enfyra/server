@@ -114,7 +114,14 @@ export class EventQueueService {
       );
 
     try {
-      await this.executorEngineService.run(script, ctx, timeout);
+      const result = await this.executorEngineService.run(script, ctx, timeout);
+      ctx.$socket?.reply?.('ws:result', {
+        requestId,
+        eventName,
+        success: true,
+        result,
+        logs: ctx.$share?.$logs || [],
+      });
       const executorEndedAt = Date.now();
       this.writeTrace({
         type: 'ws_event',

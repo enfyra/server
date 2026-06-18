@@ -145,7 +145,10 @@ export class MetadataProvisionSqlService {
           });
         }
       } else if (tableName === coreNames.relation) {
-        await this.ensureRelationDefinitionPhysicalColumns(qb, coreNames.relation);
+        await this.ensureRelationDefinitionPhysicalColumns(
+          qb,
+          coreNames.relation,
+        );
       }
     }
   }
@@ -221,19 +224,15 @@ export class MetadataProvisionSqlService {
             );
             continue;
           }
-          const insertedId = await this.insertAndGetId(
-            trx,
-            coreNames.table,
-            {
-              name: rest.name,
-              isSystem: rest.isSystem || false,
-              isSingleRecord: rest.isSingleRecord || false,
-              alias: rest.alias,
-              description: rest.description,
-              uniques: JSON.stringify(rest.uniques || []),
-              indexes: JSON.stringify(rest.indexes || []),
-            },
-          );
+          const insertedId = await this.insertAndGetId(trx, coreNames.table, {
+            name: rest.name,
+            isSystem: rest.isSystem || false,
+            isSingleRecord: rest.isSingleRecord || false,
+            alias: rest.alias,
+            description: rest.description,
+            uniques: JSON.stringify(rest.uniques || []),
+            indexes: JSON.stringify(rest.indexes || []),
+          });
           tableNameToId[name] = insertedId;
         }
       }

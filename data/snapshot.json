@@ -594,7 +594,7 @@
     "relations": [
       { "propertyName": "file", "type": "many-to-one", "targetTable": "enfyra_file", "isNullable": true, "inversePropertyName": "permissions", "onDelete": "CASCADE", "description": "File this permission applies to" },
       { "propertyName": "role", "type": "many-to-one", "targetTable": "enfyra_role", "isNullable": true, "onDelete": "CASCADE", "description": "Role that has this permission" },
-      { "propertyName": "allowedUsers", "type": "many-to-many", "targetTable": "enfyra_user", "isSystem": true, "isNullable": true, "junctionTableName": "j_efaab69d5b9c", "junctionSourceColumn": "sourceId", "junctionTargetColumn": "targetId", "description": "Specific users who have this permission" }
+      { "propertyName": "allowedUsers", "type": "many-to-many", "targetTable": "enfyra_user", "isSystem": true, "isNullable": true, "junctionTableName": "j_8110450610b3", "junctionSourceColumn": "enfyra_file_permissionId", "junctionTargetColumn": "enfyra_userId", "description": "Specific users who have this permission" }
     ]
   },
   "enfyra_package": {

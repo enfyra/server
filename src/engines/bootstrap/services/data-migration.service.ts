@@ -129,22 +129,29 @@ export class DataMigrationService {
   private async deleteRecords(
     records: { table: string; filter: Record<string, any> }[],
   ): Promise<void> {
-    const idField = DatabaseConfigService.getPkField();
-
     for (const { table, filter } of records) {
       try {
-        const existing = await this.queryBuilderService.find({
-          table: table,
-          filter,
-          limit: -1,
-          fields: [idField],
-        });
-
-        for (const row of existing.data || []) {
-          await this.queryBuilderService.delete(table, row[idField]);
+        const exactWhere = this.toExactDeleteWhere(filter);
+        if (!exactWhere || Object.keys(exactWhere).length === 0) {
+          this.logger.warn(
+            `Skipping deleted-record migration for ${table}: only exact _eq filters are supported`,
+          );
+          continue;
         }
 
-        const count = existing.data?.length || 0;
+        let count = 0;
+        if (DatabaseConfigService.instanceIsMongoDb()) {
+          const result = await this.queryBuilderService
+            .getMongoDb()
+            .collection(table)
+            .deleteMany(exactWhere);
+          count = result.deletedCount || 0;
+        } else {
+          count = await this.queryBuilderService
+            .getKnex()(table)
+            .where(exactWhere)
+            .delete();
+        }
         if (count > 0) {
           this.verbose(`Deleted ${count} record(s) from ${table}`);
         }
@@ -154,6 +161,39 @@ export class DataMigrationService {
         );
       }
     }
+  }
+
+  private toExactDeleteWhere(
+    filter: Record<string, any>,
+  ): Record<string, any> | null {
+    if (!filter || typeof filter !== 'object' || Array.isArray(filter)) {
+      return null;
+    }
+
+    const where: Record<string, any> = {};
+    for (const [field, value] of Object.entries(filter)) {
+      if (!field || field.startsWith('_')) return null;
+      if (
+        value &&
+        typeof value === 'object' &&
+        !Array.isArray(value) &&
+        Object.keys(value).length === 1 &&
+        Object.prototype.hasOwnProperty.call(value, '_eq')
+      ) {
+        where[field] = value._eq;
+        continue;
+      }
+      if (
+        value === null ||
+        ['string', 'number', 'boolean'].includes(typeof value)
+      ) {
+        where[field] = value;
+        continue;
+      }
+      return null;
+    }
+
+    return where;
   }
 
   private async migrateTable(
@@ -256,8 +296,7 @@ export class DataMigrationService {
         delete data.mainTable;
       } else if (DatabaseConfigService.instanceIsMongoDb()) {
         const mainTableId = mainTable._id ?? mainTable.id;
-        data.mainTable =
-          typeof mainTableId === 'string' ? new ObjectId(mainTableId) : mainTableId;
+        data.mainTable = this.normalizeMongoId(mainTableId);
       } else {
         data.mainTableId = mainTable.id;
         delete data.mainTable;
@@ -277,7 +316,9 @@ export class DataMigrationService {
           field === 'skipRoleGuardMethods' ||
           field === 'availableMethods'
         ) {
-          const methodIds = await this.resolveMethodIds(methodNames as string[]);
+          const methodIds = await this.resolveMethodIds(
+            methodNames as string[],
+          );
           if (DatabaseConfigService.instanceIsMongoDb()) {
             await this.updateMongoRouteMethodRelation(
               recordId,
@@ -328,9 +369,7 @@ export class DataMigrationService {
       }
 
       if (cleared > 0) {
-        this.verbose(
-          `Cleared mainTable from ${cleared} custom route(s)`,
-        );
+        this.verbose(`Cleared mainTable from ${cleared} custom route(s)`);
       }
       return cleared;
     } catch (error) {
@@ -452,9 +491,16 @@ export class DataMigrationService {
     };
   }
 
-  private toObjectId(value: any): ObjectId {
+  private toObjectId(value: any): any {
+    return this.normalizeMongoId(value);
+  }
+
+  private normalizeMongoId(value: any): any {
     if (value instanceof ObjectId) return value;
-    return new ObjectId(String(value));
+    if (typeof value === 'string' && ObjectId.isValid(value)) {
+      return new ObjectId(value);
+    }
+    return value;
   }
 
   private getUniqueFilter(_tableName: string, record: any): any | null {

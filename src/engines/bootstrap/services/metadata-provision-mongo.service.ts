@@ -112,11 +112,53 @@ export class MetadataProvisionMongoService {
         relations: def.relations || [],
       });
       const collection = db.collection(tableName);
+      const existingIndexes = await this.listMongoIndexes(collection);
       for (const spec of specs) {
+        const sameKeyIndex = existingIndexes.find((index) =>
+          this.isEquivalentMongoIndex(index, spec),
+        );
+        if (
+          sameKeyIndex &&
+          sameKeyIndex.name !== '_id_' &&
+          sameKeyIndex.name !== spec.options?.name
+        ) {
+          await collection.dropIndex(sameKeyIndex.name);
+          const index = existingIndexes.findIndex(
+            (item) => item.name === sameKeyIndex.name,
+          );
+          if (index >= 0) existingIndexes.splice(index, 1);
+        }
         await collection.createIndex(spec.keys, spec.options);
       }
     }
   }
+
+  private async listMongoIndexes(collection: any): Promise<any[]> {
+    try {
+      return await collection.listIndexes().toArray();
+    } catch (error: any) {
+      if (error?.codeName === 'NamespaceNotFound' || error?.code === 26) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private isEquivalentMongoIndex(existing: any, spec: any): boolean {
+    if (
+      JSON.stringify(existing.key || {}) !== JSON.stringify(spec.keys || {})
+    ) {
+      return false;
+    }
+    const options = spec.options || {};
+    return (
+      Boolean(existing.unique) === Boolean(options.unique) &&
+      Boolean(existing.sparse) === Boolean(options.sparse) &&
+      (existing.expireAfterSeconds ?? null) ===
+        (options.expireAfterSeconds ?? null)
+    );
+  }
+
   private buildRecordFromColumns(data: any, columns: any[]): any {
     const record: any = {};
     for (const col of columns) {

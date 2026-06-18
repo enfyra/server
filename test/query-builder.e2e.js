@@ -41,8 +41,15 @@ const db = knex({
   pool: { min: 1, max: 10 },
 });
 
-const distPath = path.join(__dirname, '..', 'dist', 'src');
-const SqlQueryExecutor = require(path.join(distPath, 'infrastructure', 'query-builder', 'executors', 'sql-query-executor')).SqlQueryExecutor;
+const distPath = path.join(__dirname, '..', 'dist');
+const SqlQueryExecutor = require(path.join(
+  distPath,
+  'kernel',
+  'query',
+  'query-builder',
+  'executors',
+  'sql-query-executor',
+)).SqlQueryExecutor;
 
 let testsPassed = 0;
 let testsFailed = 0;

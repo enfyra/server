@@ -101,7 +101,9 @@ export class DynamicWebSocketGateway {
 
   private setupEventListeners() {
     this.eventEmitter.on(`${CACHE_IDENTIFIERS.WEBSOCKET}_LOADED`, () => {
-      const reload = this.server ? this.reloadGateways() : this.registerGateways();
+      const reload = this.server
+        ? this.reloadGateways()
+        : this.registerGateways();
       reload.catch((error) =>
         this.logger.error('Failed to reload websocket gateways:', error),
       );
@@ -275,48 +277,20 @@ export class DynamicWebSocketGateway {
         socket.disconnect(true);
         return;
       }
-      if (gatewayData.requireAuth) {
-        const user = await this.loadSocketUser(socket);
-        if (!user) {
-          this.logger.warn(
-            `Connection rejected: authenticated user not found for ${gatewayData.path}`,
-          );
-          socket.emit('auth_error', {
-            code: 'AUTH_USER_NOT_FOUND',
-            message: 'Authenticated user not found',
-          });
-          socket.disconnect(true);
-          return;
-        }
-      }
-      if (path === ENFYRA_ADMIN_WEBSOCKET_NAMESPACE) {
-        try {
-          await this.setupAdminSocket(socket);
-        } catch (error) {
-          this.logger.warn(
-            `Admin socket setup failed: ${getErrorMessage(error)}`,
-          );
-        }
-      }
-      const connectionScript =
-        this.builtInRegistry.getConnectionScript(path) ??
-        gatewayData.connectionHandlerScript;
-      if (connectionScript) {
-        try {
-          await this.runConnectionScript(socket, gatewayData, connectionScript);
-        } catch (error) {
-          this.logger.error(
-            `Connection handler failed for ${socket.id}:`,
-            error,
-          );
-          socket.disconnect();
-          return;
-        }
-      }
+      let releaseConnectionReady!: () => void;
+      let connectionReadyError: any = null;
+      const connectionReady = new Promise<void>((resolve) => {
+        releaseConnectionReady = resolve;
+      });
       const roomName = socket.data.userId
         ? `user_${socket.data.userId}`
         : `user_${socket.id}`;
       socket.join(roomName);
+      this.writeEventTrace({
+        type: 'ws_register_socket_events',
+        path: gatewayData.path,
+        events: (gatewayData.events ?? []).map((event: any) => event.eventName),
+      });
       for (const event of gatewayData.events) {
         const eventName = event.eventName;
         socket.on(eventName, async (payload: any, ack: any) => {
@@ -324,6 +298,8 @@ export class DynamicWebSocketGateway {
           const socketReceivedAt = Date.now();
           let ackSentAt: number | null = null;
           try {
+            await connectionReady;
+            if (connectionReadyError) throw connectionReadyError;
             const builtInScript = this.builtInRegistry.getEventScript(
               path,
               eventName,
@@ -332,6 +308,10 @@ export class DynamicWebSocketGateway {
             const script = builtInScript ?? event.handlerScript;
 
             if (script) {
+              if (typeof ack === 'function') {
+                ack({ accepted: true, queued: true, requestId, eventName });
+                ackSentAt = Date.now();
+              }
               await this.runEventScript({
                 requestId,
                 socket,
@@ -343,10 +323,6 @@ export class DynamicWebSocketGateway {
                 socketReceivedAt,
                 ackSentAt,
               });
-              if (typeof ack === 'function') {
-                ack({ accepted: true, queued: false, requestId, eventName });
-                ackSentAt = Date.now();
-              }
               return;
             }
 
@@ -368,7 +344,7 @@ export class DynamicWebSocketGateway {
             return;
           } catch (error) {
             this.logger.error(`Event handler failed for ${eventName}:`, error);
-            if (typeof ack === 'function') {
+            if (typeof ack === 'function' && ackSentAt === null) {
               ack({
                 accepted: false,
                 queued: false,
@@ -388,6 +364,60 @@ export class DynamicWebSocketGateway {
             });
           }
         });
+      }
+      const failConnectionReady = (error: any) => {
+        connectionReadyError = error;
+        releaseConnectionReady();
+      };
+      try {
+        if (gatewayData.requireAuth) {
+          const user = await this.loadSocketUser(socket);
+          if (!user) {
+            this.logger.warn(
+              `Connection rejected: authenticated user not found for ${gatewayData.path}`,
+            );
+            socket.emit('auth_error', {
+              code: 'AUTH_USER_NOT_FOUND',
+              message: 'Authenticated user not found',
+            });
+            failConnectionReady(new Error('Authenticated user not found'));
+            socket.disconnect(true);
+            return;
+          }
+        }
+        if (path === ENFYRA_ADMIN_WEBSOCKET_NAMESPACE) {
+          try {
+            await this.setupAdminSocket(socket);
+          } catch (error) {
+            this.logger.warn(
+              `Admin socket setup failed: ${getErrorMessage(error)}`,
+            );
+          }
+        }
+        const connectionScript =
+          this.builtInRegistry.getConnectionScript(path) ??
+          gatewayData.connectionHandlerScript;
+        if (connectionScript) {
+          try {
+            await this.runConnectionScript(
+              socket,
+              gatewayData,
+              connectionScript,
+            );
+          } catch (error) {
+            this.logger.error(
+              `Connection handler failed for ${socket.id}:`,
+              error,
+            );
+            failConnectionReady(error);
+            socket.disconnect();
+            return;
+          }
+        }
+        releaseConnectionReady();
+      } catch (error) {
+        failConnectionReady(error);
+        socket.disconnect();
       }
     });
   }
@@ -412,11 +442,7 @@ export class DynamicWebSocketGateway {
     });
     ctx.$repos = this.lazyRef.repoRegistryService.createReposProxy(ctx);
     ctx.$trigger = (flowIdOrName: string | number, payload?: any) =>
-      this.lazyRef.flowService.trigger(
-        flowIdOrName,
-        payload,
-        user,
-      );
+      this.lazyRef.flowService.trigger(flowIdOrName, payload, user);
 
     await this.lazyRef.executorEngineService.run(
       script,
@@ -459,18 +485,21 @@ export class DynamicWebSocketGateway {
     });
     ctx.$repos = this.lazyRef.repoRegistryService.createReposProxy(ctx);
     ctx.$trigger = (flowIdOrName: string | number, payload?: any) =>
-      this.lazyRef.flowService.trigger(
-        flowIdOrName,
-        payload,
-        user,
-      );
+      this.lazyRef.flowService.trigger(flowIdOrName, payload, user);
 
     try {
-      await this.lazyRef.executorEngineService.run(
+      const result = await this.lazyRef.executorEngineService.run(
         script,
         ctx,
         timeout,
       );
+      ctx.$socket?.reply?.('ws:result', {
+        requestId,
+        eventName,
+        success: true,
+        result,
+        logs: ctx.$share?.$logs || [],
+      });
       const endedAt = Date.now();
       this.writeEventTrace({
         type: 'ws_event',
@@ -692,13 +721,23 @@ export class DynamicWebSocketGateway {
     this.server.of(path).emit(event, data);
   }
 
-  async emitToNamespaceRoom(path: string, room: string, event: string, data: any) {
+  async emitToNamespaceRoom(
+    path: string,
+    room: string,
+    event: string,
+    data: any,
+  ) {
     const localSize = this.localNamespaceRoomSize(path, room);
     if (localSize < this.roomFanoutChunkThreshold) {
       this.server.of(path).to(room).emit(event, data);
       return;
     }
-    const backpressure = this.enqueueChunkedLocalRoomEmit(path, room, event, data);
+    const backpressure = this.enqueueChunkedLocalRoomEmit(
+      path,
+      room,
+      event,
+      data,
+    );
     this.emitRoomFanoutCommand(path, room, event, data);
     await backpressure;
   }
@@ -710,7 +749,13 @@ export class DynamicWebSocketGateway {
     data: any,
   ) {
     try {
-      this.server.serverSideEmit(this.roomFanoutCommand, path, room, event, data);
+      this.server.serverSideEmit(
+        this.roomFanoutCommand,
+        path,
+        room,
+        event,
+        data,
+      );
     } catch (error) {
       this.logger.error(
         `Failed to publish chunked room fanout for ${path}:${room}:`,

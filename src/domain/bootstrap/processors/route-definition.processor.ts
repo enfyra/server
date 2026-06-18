@@ -57,10 +57,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
               );
               return null;
             }
-            transformedRecord.mainTable =
-              typeof mainTable._id === 'string'
-                ? new ObjectId(mainTable._id)
-                : mainTable._id;
+            transformedRecord.mainTable = this.normalizeMongoId(mainTable._id);
           } else {
             const mainTable = await this.queryBuilderService.findOne({
               table: 'enfyra_table',
@@ -243,9 +240,9 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
   ): Promise<void> {
     const { junctionTable, sourceColumn, targetColumn } =
       await this.getMongoRouteMethodJunctionMetadata(field);
-    const sourceId = this.toObjectId(routeId);
+    const sourceId = this.normalizeMongoId(routeId);
     const targetIds = uniqueMethodIds.map((methodId) =>
-      this.toObjectId(methodId),
+      this.normalizeMongoId(methodId),
     );
     try {
       const collection = this.queryBuilderService
@@ -302,9 +299,12 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     };
   }
 
-  private toObjectId(value: any): ObjectId {
+  private normalizeMongoId(value: any): any {
     if (value instanceof ObjectId) return value;
-    return new ObjectId(String(value));
+    if (typeof value === 'string' && ObjectId.isValid(value)) {
+      return new ObjectId(value);
+    }
+    return value;
   }
 
   async ensureMissingHandlers(): Promise<void> {
@@ -361,8 +361,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
   ): Promise<number> {
     if (isMongoDB) {
       const db = this.queryBuilderService.getMongoDb();
-      const routeIdObj =
-        typeof routeId === 'string' ? new ObjectId(routeId) : routeId;
+      const routeIdObj = this.normalizeMongoId(routeId);
       const result = await db
         .collection('enfyra_route_handler')
         .deleteMany({ route: routeIdObj, method: null });
@@ -406,9 +405,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         ? mainTableValue
         : (record.mainTableId ?? mainTableValue?.id ?? mainTableValue?._id);
       if (!mainTableFk) return;
-      if (isMongoDB && typeof mainTableFk === 'string') {
-        mainTableFk = new ObjectId(mainTableFk);
-      }
+      if (isMongoDB) mainTableFk = this.normalizeMongoId(mainTableFk);
       const tableRow = isMongoDB
         ? await this.queryBuilderService
             .getMongoDb()
@@ -443,8 +440,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
           targetTable: 'enfyra_method',
         });
         const mongoService = this.queryBuilderService.getMongoDb();
-        const routeIdObj =
-          typeof routeId === 'string' ? new ObjectId(routeId) : routeId;
+        const routeIdObj = this.normalizeMongoId(routeId);
         const rows = await mongoService
           .collection(junction.junctionTableName)
           .find({ [junction.junctionSourceColumn]: routeIdObj })
@@ -474,9 +470,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
             .collection('enfyra_method')
             .find({
               _id: {
-                $in: methodIds.map((id: any) =>
-                  id instanceof ObjectId ? id : new ObjectId(String(id)),
-                ),
+                $in: methodIds.map((id: any) => this.normalizeMongoId(id)),
               },
             })
             .project({ name: 1 })
@@ -521,12 +515,8 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       let existing;
       if (isMongoDB) {
         const mongoService = this.queryBuilderService.getMongoDb();
-        const routeIdObj =
-          typeof routeId === 'string' ? new ObjectId(routeId) : routeId;
-        const methodIdObj =
-          typeof methodKeyId === 'string'
-            ? new ObjectId(methodKeyId)
-            : methodKeyId;
+        const routeIdObj = this.normalizeMongoId(routeId);
+        const methodIdObj = this.normalizeMongoId(methodKeyId);
         existing = await mongoService
           .collection('enfyra_route_handler')
           .findOne({
@@ -550,11 +540,8 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       let data: Record<string, any>;
       if (isMongoDB) {
         data = {
-          route: typeof routeId === 'string' ? new ObjectId(routeId) : routeId,
-          method:
-            typeof methodKeyId === 'string'
-              ? new ObjectId(methodKeyId)
-              : methodKeyId,
+          route: this.normalizeMongoId(routeId),
+          method: this.normalizeMongoId(methodKeyId),
           sourceCode: logic,
           scriptLanguage: 'typescript',
           compiledCode: compileScriptSource(logic, 'typescript'),
@@ -573,9 +560,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
 
       if (isMongoDB) {
         const mongoService = this.queryBuilderService.getMongoDb();
-        await mongoService
-          .collection('enfyra_route_handler')
-          .insertOne(data);
+        await mongoService.collection('enfyra_route_handler').insertOne(data);
       } else {
         await this.queryBuilderService.insertWithOptions({
           table: 'enfyra_route_handler',
