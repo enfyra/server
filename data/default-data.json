@@ -172,6 +172,68 @@
       ]
     },
     {
+      "path": "/auth/api-tokens",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:key",
+      "skipRoleGuardMethods": [
+        "GET",
+        "POST"
+      ],
+      "availableMethods": [
+        "GET",
+        "POST"
+      ]
+    },
+    {
+      "path": "/auth/api-tokens/:id",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:key-round",
+      "skipRoleGuardMethods": [
+        "DELETE"
+      ],
+      "availableMethods": [
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/auth/token/exchange",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:key-round",
+      "publicMethods": [
+        "POST"
+      ],
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/auth/oauth/exchange",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:key-round",
+      "publicMethods": [
+        "POST"
+      ],
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/auth/set-cookies",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:cookie",
+      "publicMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
       "path": "/auth/providers",
       "isEnabled": true,
       "isSystem": true,
@@ -515,6 +577,16 @@
       "isSystem": true,
       "icon": "lucide:refresh-cw",
       "description": "Reload all caches and schemas",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/admin/script/validate",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:code-2",
+      "description": "Validate dynamic script source without saving it",
       "availableMethods": [
         "POST"
       ]
