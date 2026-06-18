@@ -23,6 +23,7 @@ import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
 import { logMemory } from '../../../shared/utils/memory-log.util';
+import { SYSTEM_TABLES } from '../../../shared/utils/system-tables.constants';
 import { DynamicWebSocketGateway } from '../../../modules/websocket';
 import { GraphqlService } from '../../../modules/graphql';
 import { BootstrapScriptService } from '../../../domain/bootstrap';
@@ -68,7 +69,7 @@ type CacheReloadStepMetric = {
 };
 
 export const RELOAD_CHAINS: Record<string, string[]> = {
-  table_definition: [
+  [SYSTEM_TABLES.table]: [
     'metadata',
     'repoRegistry',
     'route',
@@ -76,7 +77,7 @@ export const RELOAD_CHAINS: Record<string, string[]> = {
     'fieldPermission',
     'column-rule',
   ],
-  column_definition: [
+  [SYSTEM_TABLES.column]: [
     'metadata',
     'repoRegistry',
     'route',
@@ -84,7 +85,7 @@ export const RELOAD_CHAINS: Record<string, string[]> = {
     'fieldPermission',
     'column-rule',
   ],
-  relation_definition: [
+  [SYSTEM_TABLES.relation]: [
     'metadata',
     'repoRegistry',
     'route',
@@ -93,34 +94,34 @@ export const RELOAD_CHAINS: Record<string, string[]> = {
     'column-rule',
   ],
 
-  route_definition: ['route', 'graphql', 'guard'],
-  pre_hook_definition: ['route'],
-  post_hook_definition: ['route'],
-  route_handler_definition: ['route'],
-  route_permission_definition: ['route'],
-  role_definition: ['route'],
-  method_definition: ['route', 'graphql'],
+  [SYSTEM_TABLES.route]: ['route', 'graphql', 'guard'],
+  [SYSTEM_TABLES.preHook]: ['route'],
+  [SYSTEM_TABLES.postHook]: ['route'],
+  [SYSTEM_TABLES.routeHandler]: ['route'],
+  [SYSTEM_TABLES.routePermission]: ['route'],
+  [SYSTEM_TABLES.role]: ['route'],
+  [SYSTEM_TABLES.method]: ['route', 'graphql'],
 
-  guard_definition: ['guard'],
-  guard_rule_definition: ['guard'],
+  [SYSTEM_TABLES.guard]: ['guard'],
+  [SYSTEM_TABLES.guardRule]: ['guard'],
 
-  field_permission_definition: ['fieldPermission', 'graphql'],
+  [SYSTEM_TABLES.fieldPermission]: ['fieldPermission', 'graphql'],
 
-  column_rule_definition: ['column-rule'],
+  [SYSTEM_TABLES.columnRule]: ['column-rule'],
 
-  setting_definition: ['setting', 'settingGraphql'],
-  storage_config_definition: ['storage'],
-  oauth_config_definition: ['oauth'],
-  websocket_definition: ['websocket'],
-  websocket_event_definition: ['websocket'],
-  package_definition: ['package'],
-  flow_definition: ['flow'],
-  flow_step_definition: ['flow'],
-  folder_definition: ['folder'],
-  bootstrap_script_definition: ['bootstrap'],
-  menu_definition: ['menu', 'extension'],
-  extension_definition: ['extension'],
-  gql_definition: ['graphql'],
+  [SYSTEM_TABLES.setting]: ['setting', 'settingGraphql'],
+  [SYSTEM_TABLES.storageConfig]: ['storage'],
+  [SYSTEM_TABLES.oauthConfig]: ['oauth'],
+  [SYSTEM_TABLES.websocket]: ['websocket'],
+  [SYSTEM_TABLES.websocketEvent]: ['websocket'],
+  [SYSTEM_TABLES.package]: ['package'],
+  [SYSTEM_TABLES.flow]: ['flow'],
+  [SYSTEM_TABLES.flowStep]: ['flow'],
+  [SYSTEM_TABLES.folder]: ['folder'],
+  [SYSTEM_TABLES.bootstrapScript]: ['bootstrap'],
+  [SYSTEM_TABLES.menu]: ['menu', 'extension'],
+  [SYSTEM_TABLES.extension]: ['extension'],
+  [SYSTEM_TABLES.graphql]: ['graphql'],
 };
 
 export class CacheOrchestratorService implements LifecycleAware {
@@ -246,7 +247,11 @@ export class CacheOrchestratorService implements LifecycleAware {
           options?.sharedReplay,
         ),
       'column-rule': (p, options) =>
-        this.reloadSimple(this.columnRuleCacheService, p, options?.sharedReplay),
+        this.reloadSimple(
+          this.columnRuleCacheService,
+          p,
+          options?.sharedReplay,
+        ),
       settingGraphql: () => this.reloadSettingGraphql(),
       bootstrap: () => this.reloadBootstrapScripts(),
     };
@@ -562,7 +567,9 @@ export class CacheOrchestratorService implements LifecycleAware {
   }
 
   private async reloadRepoRegistry(): Promise<void> {
-    await this.repoRegistryService.rebuildFromMetadata(this.metadataCacheService);
+    await this.repoRegistryService.rebuildFromMetadata(
+      this.metadataCacheService,
+    );
   }
 
   private async reloadRoute(
@@ -731,7 +738,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     const steps = ['metadata', 'repoRegistry', 'route', 'graphql'];
     await this.runTrackedAdminReload({
       flow: 'metadata',
-      table: 'table_definition',
+      table: 'enfyra_table',
       steps,
       logLabel: 'Admin reload metadata+deps',
       run: async (runStep) => {
@@ -744,7 +751,7 @@ export class CacheOrchestratorService implements LifecycleAware {
       },
     });
     await this.publishSignal({
-      table: 'table_definition',
+      table: 'enfyra_table',
       action: 'reload',
       scope: 'full',
       timestamp: Date.now(),
@@ -755,7 +762,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     const steps = ['route'];
     await this.runTrackedAdminReload({
       flow: 'route',
-      table: 'route_definition',
+      table: 'enfyra_route',
       steps,
       logLabel: 'Admin reload routes',
       run: async (runStep) => {
@@ -763,7 +770,7 @@ export class CacheOrchestratorService implements LifecycleAware {
       },
     });
     await this.publishSignal({
-      table: 'route_definition',
+      table: 'enfyra_route',
       action: 'reload',
       scope: 'full',
       timestamp: Date.now(),
@@ -774,7 +781,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     const steps = ['graphql'];
     await this.runTrackedAdminReload({
       flow: 'graphql',
-      table: 'gql_definition',
+      table: 'enfyra_graphql',
       steps,
       logLabel: 'Admin reload graphql',
       run: async (runStep) => {
@@ -784,7 +791,7 @@ export class CacheOrchestratorService implements LifecycleAware {
       },
     });
     await this.publishSignal({
-      table: 'gql_definition',
+      table: 'enfyra_graphql',
       action: 'reload',
       scope: 'full',
       timestamp: Date.now(),
@@ -795,7 +802,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     const steps = ['guard'];
     await this.runTrackedAdminReload({
       flow: 'guard',
-      table: 'guard_definition',
+      table: 'enfyra_guard',
       steps,
       logLabel: 'Admin reload guards',
       run: async (runStep) => {
@@ -803,7 +810,7 @@ export class CacheOrchestratorService implements LifecycleAware {
       },
     });
     await this.publishSignal({
-      table: 'guard_definition',
+      table: 'enfyra_guard',
       action: 'reload',
       scope: 'full',
       timestamp: Date.now(),

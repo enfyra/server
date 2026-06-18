@@ -44,7 +44,7 @@ export async function loadUserWithRole(
   if (!idValue) return null;
 
   const user = await queryBuilder.findOne({
-    table: 'user_definition',
+    table: 'enfyra_user',
     where: { [idField]: idValue },
   });
 
@@ -56,7 +56,7 @@ export async function loadUserWithRole(
     : toSqlId(user[roleField]);
   if (roleId) {
     user.role = await queryBuilder.findOne({
-      table: 'role_definition',
+      table: 'enfyra_role',
       where: { [idField]: roleId },
     });
   }

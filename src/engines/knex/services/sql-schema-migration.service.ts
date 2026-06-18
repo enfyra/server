@@ -254,10 +254,10 @@ export class SqlSchemaMigrationService {
               );
             }
             const systemTables = [
-              'table_definition',
-              'column_definition',
-              'relation_definition',
-              'route_definition',
+              'enfyra_table',
+              'enfyra_column',
+              'enfyra_relation',
+              'enfyra_route',
             ];
             if (systemTables.includes(targetTableName)) {
               throw new Error(
@@ -703,7 +703,7 @@ export class SqlSchemaMigrationService {
 
     if (Object.keys(updateData).length > 0) {
       try {
-        await query('table_definition')
+        await query('enfyra_table')
           .where('name', tableName)
           .update(updateData);
       } catch (error) {
@@ -798,7 +798,7 @@ export class SqlSchemaMigrationService {
   ): Promise<void> {
     const knex = this.knexService.getKnex();
     try {
-      const row = await knex('table_definition')
+      const row = await knex('enfyra_table')
         .where('name', tableName)
         .first();
       const updateData: Record<string, string> = {};
@@ -817,7 +817,7 @@ export class SqlSchemaMigrationService {
         }
       }
       if (Object.keys(updateData).length === 0) return;
-      await knex('table_definition')
+      await knex('enfyra_table')
         .where('name', tableName)
         .update(updateData);
     } catch (error) {

@@ -91,7 +91,7 @@ export class DynamicService {
       throw new BusinessLogicException('Route data is required');
     }
     const isTableDefinitionOperation =
-      routeData.mainTable?.name === 'table_definition';
+      routeData.mainTable?.name === 'enfyra_table';
     try {
       const handler = routeData.handler?.trim();
       if (!handler) {

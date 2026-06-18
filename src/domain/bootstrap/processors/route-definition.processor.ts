@@ -26,7 +26,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
   }
   async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
-    const pkField = DatabaseConfigService.getPkField();
+    const pkField = isMongoDB ? '_id' : 'id';
     const transformedRecords = await Promise.all(
       records.map(async (record) => {
         const transformedRecord = { ...record };
@@ -46,7 +46,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         if (record.mainTable) {
           if (isMongoDB) {
             const mainTable = await this.queryBuilderService.findOne({
-              table: 'table_definition',
+              table: 'enfyra_table',
               where: {
                 name: record.mainTable,
               },
@@ -63,7 +63,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
                 : mainTable._id;
           } else {
             const mainTable = await this.queryBuilderService.findOne({
-              table: 'table_definition',
+              table: 'enfyra_table',
               where: {
                 name: record.mainTable,
               },
@@ -118,7 +118,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     if (isMongoDB) {
       const methods = await this.queryBuilderService
         .getMongoDb()
-        .collection('method_definition')
+        .collection('enfyra_method')
         .find({ name: { $in: methodNames } })
         .project({ [pkField]: 1, name: 1 })
         .toArray();
@@ -126,7 +126,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     }
 
     const methods = await this.queryBuilderService
-      .getKnex()('method_definition')
+      .getKnex()('enfyra_method')
       .select(pkField, 'name')
       .whereIn('name', methodNames);
     return methods.map((method: any) => method[pkField]).filter(Boolean);
@@ -143,7 +143,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
   }
 
   protected prepareRecordForWrite(record: any, tableName: string): any {
-    if (tableName !== 'route_definition') {
+    if (tableName !== 'enfyra_route') {
       return record;
     }
 
@@ -191,13 +191,13 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     if (isMongoDB) {
       const route = await this.queryBuilderService
         .getMongoDb()
-        .collection('route_definition')
+        .collection('enfyra_route')
         .findOne({ path: record.path }, { projection: { _id: 1 } });
       return route?._id;
     }
 
     const route = await this.queryBuilderService
-      .getKnex()('route_definition')
+      .getKnex()('enfyra_route')
       .select('id')
       .where({ path: record.path })
       .first();
@@ -212,9 +212,9 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
   ): Promise<void> {
     const { junctionTable, sourceColumn, targetColumn } =
       await getSqlJunctionMetadata(this.queryBuilderService, {
-        sourceTable: 'route_definition',
+        sourceTable: 'enfyra_route',
         propertyName: field,
-        targetTable: 'method_definition',
+        targetTable: 'enfyra_method',
       });
     try {
       await replaceSqlJunctionRows(this.queryBuilderService, {
@@ -230,7 +230,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         [targetColumn]: methodId,
       }));
       throw new Error(
-        `Failed to sync route_definition.${field} for ${record.path}: routeId=${String(routeId)}, methodIds=${JSON.stringify(uniqueMethodIds)}, rows=${JSON.stringify(rows)}, junction=${junctionTable}(${sourceColumn},${targetColumn}): ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to sync enfyra_route.${field} for ${record.path}: routeId=${String(routeId)}, methodIds=${JSON.stringify(uniqueMethodIds)}, rows=${JSON.stringify(rows)}, junction=${junctionTable}(${sourceColumn},${targetColumn}): ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -266,7 +266,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         [targetColumn]: methodId,
       }));
       throw new Error(
-        `Failed to sync route_definition.${field} for ${record.path}: routeId=${String(routeId)}, methodIds=${JSON.stringify(uniqueMethodIds.map(String))}, rows=${JSON.stringify(rows)}, junction=${junctionTable}(${sourceColumn},${targetColumn}): ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to sync enfyra_route.${field} for ${record.path}: routeId=${String(routeId)}, methodIds=${JSON.stringify(uniqueMethodIds.map(String))}, rows=${JSON.stringify(rows)}, junction=${junctionTable}(${sourceColumn},${targetColumn}): ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -280,18 +280,18 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
   }> {
     const db = this.queryBuilderService.getMongoDb();
     const [routeTable, methodTable] = await Promise.all([
-      db.collection('table_definition').findOne({ name: 'route_definition' }),
-      db.collection('table_definition').findOne({ name: 'method_definition' }),
+      db.collection('enfyra_table').findOne({ name: 'enfyra_route' }),
+      db.collection('enfyra_table').findOne({ name: 'enfyra_method' }),
     ]);
-    const relation = await db.collection('relation_definition').findOne({
+    const relation = await db.collection('enfyra_relation').findOne({
       sourceTable: routeTable?._id,
       targetTable: methodTable?._id,
       propertyName: field,
     });
     const fallback = getSqlJunctionPhysicalNames({
-      sourceTable: 'route_definition',
+      sourceTable: 'enfyra_route',
       propertyName: field,
-      targetTable: 'method_definition',
+      targetTable: 'enfyra_method',
     });
     return {
       junctionTable: relation?.junctionTableName || fallback.junctionTableName,
@@ -313,7 +313,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     this.logger.log('[ensureMissingHandlers] Starting handler check...');
 
     const { data: routes } = await this.queryBuilderService.find({
-      table: 'route_definition',
+      table: 'enfyra_route',
       filter: { isEnabled: { _eq: true } },
     });
 
@@ -364,12 +364,12 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       const routeIdObj =
         typeof routeId === 'string' ? new ObjectId(routeId) : routeId;
       const result = await db
-        .collection('route_handler_definition')
+        .collection('enfyra_route_handler')
         .deleteMany({ route: routeIdObj, method: null });
       return result.deletedCount || 0;
     }
     const knex = this.queryBuilderService.getKnex();
-    return await knex('route_handler_definition')
+    return await knex('enfyra_route_handler')
       .where({ routeId })
       .whereNull('methodId')
       .delete();
@@ -379,12 +379,12 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     if (isMongoDB) {
       const db = this.queryBuilderService.getMongoDb();
       const result = await db
-        .collection('route_handler_definition')
+        .collection('enfyra_route_handler')
         .deleteMany({ route: null });
       return result.deletedCount || 0;
     }
     const knex = this.queryBuilderService.getKnex();
-    return await knex('route_handler_definition').whereNull('routeId').delete();
+    return await knex('enfyra_route_handler').whereNull('routeId').delete();
   }
 
   private async ensureDefaultCrudHandlers(
@@ -412,10 +412,10 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       const tableRow = isMongoDB
         ? await this.queryBuilderService
             .getMongoDb()
-            .collection('table_definition')
+            .collection('enfyra_table')
             .findOne({ _id: mainTableFk })
         : await this.queryBuilderService
-            .getKnex()('table_definition')
+            .getKnex()('enfyra_table')
             .where({ id: mainTableFk })
             .first();
       tableName = tableRow?.name;
@@ -438,9 +438,9 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     } else {
       if (isMongoDB) {
         const junction = getSqlJunctionPhysicalNames({
-          sourceTable: 'route_definition',
+          sourceTable: 'enfyra_route',
           propertyName: 'availableMethods',
-          targetTable: 'method_definition',
+          targetTable: 'enfyra_method',
         });
         const mongoService = this.queryBuilderService.getMongoDb();
         const routeIdObj =
@@ -453,9 +453,9 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       } else {
         const { junctionTable, sourceColumn, targetColumn } =
           await getSqlJunctionMetadata(this.queryBuilderService, {
-            sourceTable: 'route_definition',
+            sourceTable: 'enfyra_route',
             propertyName: 'availableMethods',
-            targetTable: 'method_definition',
+            targetTable: 'enfyra_method',
           });
         const knex = this.queryBuilderService.getKnex();
         const rows = await knex(junctionTable)
@@ -467,15 +467,31 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
 
     if (methodIds.length === 0) return;
 
-    const idStrings = methodIds.map((id: any) => id.toString());
-    const methodResult = await this.queryBuilderService.find({
-      table: 'method_definition',
-      filter: { id: { _in: idStrings } },
-      fields: ['name'],
-    });
-    const available: string[] = (methodResult.data || [])
-      .map((m: any) => m.name)
-      .filter(Boolean);
+    const available: string[] = isMongoDB
+      ? (
+          await this.queryBuilderService
+            .getMongoDb()
+            .collection('enfyra_method')
+            .find({
+              _id: {
+                $in: methodIds.map((id: any) =>
+                  id instanceof ObjectId ? id : new ObjectId(String(id)),
+                ),
+              },
+            })
+            .project({ name: 1 })
+            .toArray()
+        )
+          .map((m: any) => m.name)
+          .filter(Boolean)
+      : (
+          await this.queryBuilderService
+            .getKnex()('enfyra_method')
+            .select('name')
+            .whereIn('id', methodIds)
+        )
+          .map((m: any) => m.name)
+          .filter(Boolean);
 
     if (available.length === 0) return;
 
@@ -484,7 +500,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       if (!logic) continue;
 
       const methodRow = await this.queryBuilderService.findOne({
-        table: 'method_definition',
+        table: 'enfyra_method',
         where: { name: methodName },
       });
       if (!methodRow) {
@@ -512,14 +528,14 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
             ? new ObjectId(methodKeyId)
             : methodKeyId;
         existing = await mongoService
-          .collection('route_handler_definition')
+          .collection('enfyra_route_handler')
           .findOne({
             route: routeIdObj,
             method: methodIdObj,
           });
       } else {
         existing = await this.queryBuilderService.findOne({
-          table: 'route_handler_definition',
+          table: 'enfyra_route_handler',
           where: {
             routeId,
             methodId: methodKeyId,
@@ -558,11 +574,11 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       if (isMongoDB) {
         const mongoService = this.queryBuilderService.getMongoDb();
         await mongoService
-          .collection('route_handler_definition')
+          .collection('enfyra_route_handler')
           .insertOne(data);
       } else {
         await this.queryBuilderService.insertWithOptions({
-          table: 'route_handler_definition',
+          table: 'enfyra_route_handler',
           data,
         });
       }

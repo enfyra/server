@@ -23,18 +23,18 @@ describe('MongoService.stripUnknownColumns', () => {
         {
           propertyName: 'parent',
           type: 'many-to-one',
-          targetTable: 'menu_definition',
+          targetTable: 'enfyra_menu',
         },
         {
           propertyName: 'children',
           type: 'one-to-many',
-          targetTable: 'menu_definition',
+          targetTable: 'enfyra_menu',
         },
       ],
     });
 
     await expect(
-      service.stripUnknownColumns('menu_definition', {
+      service.stripUnknownColumns('enfyra_menu', {
         label: 'Config',
         parent: parentId,
         children: [new ObjectId()],
@@ -54,14 +54,14 @@ describe('MongoService.stripUnknownColumns', () => {
         {
           propertyName: 'user',
           type: 'many-to-one',
-          targetTable: 'user_definition',
+          targetTable: 'enfyra_user',
           foreignKeyColumn: 'userId',
         },
       ],
     });
 
     await expect(
-      service.stripUnknownColumns('file_definition', {
+      service.stripUnknownColumns('enfyra_file', {
         name: 'avatar.png',
         userId,
         unknown: 'drop',

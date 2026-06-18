@@ -207,7 +207,7 @@ describe('PackageCacheService CDN preload', () => {
       '13.2.1',
     );
     expect(queryBuilderService.update).toHaveBeenCalledWith(
-      'package_definition',
+      'enfyra_package',
       7,
       { status: 'installed', lastError: null },
     );

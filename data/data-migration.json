@@ -1,7 +1,7 @@
 {
   "_deletedRecords": [
     {
-      "table": "route_definition",
+      "table": "enfyra_route",
       "filter": {
         "path": {
           "_eq": "/api-docs"
@@ -9,7 +9,7 @@
       }
     },
     {
-      "table": "route_definition",
+      "table": "enfyra_route",
       "filter": {
         "path": {
           "_eq": "/admin/metadata-sync/:id"
@@ -17,7 +17,7 @@
       }
     },
     {
-      "table": "route_definition",
+      "table": "enfyra_route",
       "filter": {
         "path": {
           "_eq": "/admin/flow/test-step"
@@ -25,7 +25,7 @@
       }
     },
     {
-      "table": "route_definition",
+      "table": "enfyra_route",
       "filter": {
         "path": {
           "_eq": "/ai_config_definition"
@@ -33,7 +33,7 @@
       }
     },
     {
-      "table": "route_definition",
+      "table": "enfyra_route",
       "filter": {
         "path": {
           "_eq": "/ai_conversation_definition"
@@ -41,7 +41,7 @@
       }
     },
     {
-      "table": "route_definition",
+      "table": "enfyra_route",
       "filter": {
         "path": {
           "_eq": "/ai_message_definition"
@@ -49,7 +49,7 @@
       }
     },
     {
-      "table": "route_definition",
+      "table": "enfyra_route",
       "filter": {
         "path": {
           "_eq": "/ai-agent/chat"
@@ -57,7 +57,7 @@
       }
     },
     {
-      "table": "route_definition",
+      "table": "enfyra_route",
       "filter": {
         "path": {
           "_eq": "/ai-agent/chat/stream"
@@ -65,7 +65,7 @@
       }
     },
     {
-      "table": "route_definition",
+      "table": "enfyra_route",
       "filter": {
         "path": {
           "_eq": "/ai-agent/cancel"
@@ -73,7 +73,7 @@
       }
     },
     {
-      "table": "menu_definition",
+      "table": "enfyra_menu",
       "filter": {
         "path": {
           "_eq": "/ai"
@@ -81,7 +81,7 @@
       }
     },
     {
-      "table": "menu_definition",
+      "table": "enfyra_menu",
       "filter": {
         "path": {
           "_eq": "/ai-agent/chat"
@@ -89,7 +89,7 @@
       }
     },
     {
-      "table": "menu_definition",
+      "table": "enfyra_menu",
       "filter": {
         "path": {
           "_eq": "/ai-agent/config"
@@ -97,7 +97,7 @@
       }
     },
     {
-      "table": "menu_definition",
+      "table": "enfyra_menu",
       "filter": {
         "path": {
           "_eq": "/settings/field-permissions"
@@ -105,7 +105,7 @@
       }
     },
     {
-      "table": "menu_definition",
+      "table": "enfyra_menu",
       "filter": {
         "path": {
           "_eq": "/settings/admin/cache"
@@ -113,7 +113,7 @@
       }
     },
     {
-      "table": "menu_definition",
+      "table": "enfyra_menu",
       "filter": {
         "path": {
           "_eq": "/settings/routings"
@@ -121,7 +121,7 @@
       }
     },
     {
-      "table": "websocket_event_definition",
+      "table": "enfyra_websocket_event",
       "filter": {
         "eventName": {
           "_eq": "ping"
@@ -129,7 +129,7 @@
       }
     },
     {
-      "table": "route_definition",
+      "table": "enfyra_route",
       "filter": {
         "path": {
           "_eq": "/admin/reload/swagger"
@@ -137,7 +137,7 @@
       }
     },
     {
-      "table": "method_definition",
+      "table": "enfyra_method",
       "filter": {
         "name": {
           "_eq": "GQL_QUERY"
@@ -145,7 +145,7 @@
       }
     },
     {
-      "table": "method_definition",
+      "table": "enfyra_method",
       "filter": {
         "name": {
           "_eq": "GQL_MUTATION"
@@ -153,7 +153,7 @@
       }
     }
   ],
-  "method_definition": [
+  "enfyra_method": [
     {
       "_unique": {
         "name": {
@@ -191,7 +191,7 @@
       "textColor": "#b91c1c"
     }
   ],
-  "field_permission_definition": [
+  "enfyra_field_permission": [
     {
       "_unique": {
         "_and": [
@@ -212,7 +212,7 @@
               },
               "table": {
                 "name": {
-                  "_eq": "user_definition"
+                  "_eq": "enfyra_user"
                 }
               }
             }
@@ -227,7 +227,7 @@
       "isSystem": true
     }
   ],
-  "menu_definition": [
+  "enfyra_menu": [
     {
       "_unique": {
         "path": {
@@ -246,7 +246,7 @@
       "permission": {
         "or": [
           {
-            "route": "/route_definition",
+            "route": "/enfyra_route",
             "methods": [
               "GET"
             ]
@@ -263,7 +263,7 @@
       "path": "/settings/runtime"
     }
   ],
-  "post_hook_definition": [
+  "enfyra_post_hook": [
     {
       "_unique": {
         "name": {
@@ -274,11 +274,11 @@
       "scriptLanguage": "typescript"
     }
   ],
-  "route_definition": [
+  "enfyra_route": [
     {
       "_unique": {
         "path": {
-          "_eq": "/package_definition"
+          "_eq": "/enfyra_package"
         }
       },
       "publicMethods": [],
@@ -385,7 +385,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/folder_definition/tree"
+          "_eq": "/enfyra_folder/tree"
         }
       },
       "publicMethods": [],
@@ -404,7 +404,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/route_definition"
+          "_eq": "/enfyra_route"
         }
       },
       "publicMethods": [],
@@ -421,7 +421,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/table_definition"
+          "_eq": "/enfyra_table"
         }
       },
       "publicMethods": []
@@ -429,7 +429,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/setting_definition"
+          "_eq": "/enfyra_setting"
         }
       },
       "publicMethods": [],
@@ -462,7 +462,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/method_definition"
+          "_eq": "/enfyra_method"
         }
       },
       "availableMethods": [
@@ -475,7 +475,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/pre_hook_definition"
+          "_eq": "/enfyra_pre_hook"
         }
       },
       "availableMethods": [
@@ -488,7 +488,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/post_hook_definition"
+          "_eq": "/enfyra_post_hook"
         }
       },
       "availableMethods": [
@@ -501,7 +501,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/route_handler_definition"
+          "_eq": "/enfyra_route_handler"
         }
       },
       "availableMethods": [
@@ -514,7 +514,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/route_permission_definition"
+          "_eq": "/enfyra_route_permission"
         }
       },
       "availableMethods": [
@@ -527,7 +527,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/menu_definition"
+          "_eq": "/enfyra_menu"
         }
       },
       "publicMethods": [],
@@ -544,7 +544,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/extension_definition"
+          "_eq": "/enfyra_extension"
         }
       },
       "publicMethods": [],
@@ -558,7 +558,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/extension_definition/preview"
+          "_eq": "/enfyra_extension/preview"
         }
       },
       "publicMethods": []
@@ -566,7 +566,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/bootstrap_script_definition"
+          "_eq": "/enfyra_bootstrap_script"
         }
       },
       "availableMethods": [
@@ -579,7 +579,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/storage_config_definition"
+          "_eq": "/enfyra_storage_config"
         }
       },
       "publicMethods": [],
@@ -596,7 +596,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/oauth_config_definition"
+          "_eq": "/enfyra_oauth_config"
         }
       },
       "availableMethods": [
@@ -609,7 +609,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/oauth_account_definition"
+          "_eq": "/enfyra_oauth_account"
         }
       },
       "availableMethods": [
@@ -622,7 +622,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/websocket_definition"
+          "_eq": "/enfyra_websocket"
         }
       },
       "availableMethods": [
@@ -635,7 +635,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/websocket_event_definition"
+          "_eq": "/enfyra_websocket_event"
         }
       },
       "availableMethods": [
@@ -648,7 +648,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/flow_definition"
+          "_eq": "/enfyra_flow"
         }
       },
       "availableMethods": [
@@ -661,7 +661,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/flow_step_definition"
+          "_eq": "/enfyra_flow_step"
         }
       },
       "availableMethods": [
@@ -674,7 +674,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/flow_execution_definition"
+          "_eq": "/enfyra_flow_execution"
         }
       },
       "availableMethods": [
@@ -687,7 +687,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/file_permission_definition"
+          "_eq": "/enfyra_file_permission"
         }
       },
       "availableMethods": [
@@ -700,7 +700,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/guard_rule_definition"
+          "_eq": "/enfyra_guard_rule"
         }
       },
       "availableMethods": [
@@ -713,7 +713,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/user_definition"
+          "_eq": "/enfyra_user"
         }
       },
       "availableMethods": [
@@ -726,7 +726,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/role_definition"
+          "_eq": "/enfyra_role"
         }
       },
       "availableMethods": [
@@ -739,7 +739,7 @@
     {
       "_unique": {
         "path": {
-          "_eq": "/folder_definition"
+          "_eq": "/enfyra_folder"
         }
       },
       "availableMethods": [
@@ -750,12 +750,12 @@
       ]
     }
   ],
-  "gql_definition": [
+  "enfyra_graphql": [
     {
       "_unique": {
         "table": {
           "name": {
-            "_eq": "table_definition"
+            "_eq": "enfyra_table"
           }
         }
       },
@@ -766,7 +766,7 @@
       "_unique": {
         "table": {
           "name": {
-            "_eq": "user_definition"
+            "_eq": "enfyra_user"
           }
         }
       },
@@ -777,7 +777,7 @@
       "_unique": {
         "table": {
           "name": {
-            "_eq": "role_definition"
+            "_eq": "enfyra_role"
           }
         }
       },
@@ -788,7 +788,7 @@
       "_unique": {
         "table": {
           "name": {
-            "_eq": "setting_definition"
+            "_eq": "enfyra_setting"
           }
         }
       },
@@ -799,7 +799,7 @@
       "_unique": {
         "table": {
           "name": {
-            "_eq": "folder_definition"
+            "_eq": "enfyra_folder"
           }
         }
       },
@@ -807,24 +807,24 @@
       "isSystem": true
     }
   ],
-  "table_definition": [
+  "enfyra_table": [
     {
       "_unique": {
         "name": {
-          "_eq": "file_definition"
+          "_eq": "enfyra_file"
         }
       },
       "validateBody": false
     }
   ],
-  "column_definition": [
+  "enfyra_column": [
     {
       "_unique": {
         "_and": [
           {
             "table": {
               "name": {
-                "_eq": "column_definition"
+                "_eq": "enfyra_column"
               }
             }
           },
@@ -860,7 +860,7 @@
           {
             "table": {
               "name": {
-                "_eq": "route_definition"
+                "_eq": "enfyra_route"
               }
             }
           },
@@ -879,7 +879,7 @@
           {
             "table": {
               "name": {
-                "_eq": "menu_definition"
+                "_eq": "enfyra_menu"
               }
             }
           },
@@ -898,7 +898,7 @@
           {
             "table": {
               "name": {
-                "_eq": "extension_definition"
+                "_eq": "enfyra_extension"
               }
             }
           },
@@ -922,7 +922,7 @@
           {
             "table": {
               "name": {
-                "_eq": "folder_definition"
+                "_eq": "enfyra_folder"
               }
             }
           },
@@ -941,7 +941,7 @@
           {
             "table": {
               "name": {
-                "_eq": "flow_definition"
+                "_eq": "enfyra_flow"
               }
             }
           },

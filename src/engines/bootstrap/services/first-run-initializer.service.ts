@@ -99,6 +99,11 @@ export class FirstRunInitializer {
     }
 
     try {
+      const coreT0 = Date.now();
+      this.logProgress(mode, 3, 'migrating core metadata tables');
+      await this.metadataMigrationService.runCoreTableRenamesBeforeMetadataSync();
+      this.logVerbose(`Core system table migration: ${Date.now() - coreT0}ms`);
+
       if (!(await this.isNeeded())) {
         this.logProgress(
           mode,
@@ -112,6 +117,7 @@ export class FirstRunInitializer {
 
       const t0 = Date.now();
       this.logProgress(mode, 8, 'preparing system schema');
+      await this.metadataMigrationService.runTableRenamesBeforeMetadataSync();
       await this.metadataMigrationService.runPhysicalMigrationsBeforeMetadataSync();
       await this.schemaHealingService.repairSystemPhysicalColumnsBeforeMetadataProvision();
       this.logVerbose(`System schema preflight: ${Date.now() - t0}ms`);
@@ -160,6 +166,7 @@ export class FirstRunInitializer {
         this.logger.error(
           `Error ensuring route handlers: ${(error as Error).message}`,
         );
+        throw error;
       }
 
       if (this.dataMigrationService.hasMigrations()) {
@@ -258,15 +265,23 @@ export class FirstRunInitializer {
 
     const settingId = setting._id || setting.id;
     if (DatabaseConfigService.instanceIsMongoDb()) {
+      const collectionName = await this.findMongoSettingCollectionName();
+      if (!collectionName) {
+        throw new Error('Setting collection not found.');
+      }
       await this.queryBuilderService
         .getMongoDb()
-        .collection('setting_definition')
+        .collection(collectionName)
         .updateOne({ _id: settingId }, { $set: { isInit: true } });
       return;
     }
 
+    const tableName = await this.findSqlSettingTableName();
+    if (!tableName) {
+      throw new Error('Setting table not found.');
+    }
     await this.queryBuilderService
-      .getKnex()('setting_definition')
+      .getKnex()(tableName)
       .where({ id: settingId })
       .update({ isInit: true });
   }
@@ -287,15 +302,34 @@ export class FirstRunInitializer {
 
   private async findFirstSetting(): Promise<any | null> {
     if (DatabaseConfigService.instanceIsMongoDb()) {
+      const collectionName = await this.findMongoSettingCollectionName();
+      if (!collectionName) return null;
       return this.queryBuilderService
         .getMongoDb()
-        .collection('setting_definition')
+        .collection(collectionName)
         .findOne({});
     }
 
+    const tableName = await this.findSqlSettingTableName();
+    if (!tableName) return null;
     return this.queryBuilderService
-      .getKnex()('setting_definition')
+      .getKnex()(tableName)
       .orderBy('id', 'asc')
       .first();
+  }
+
+  private async findMongoSettingCollectionName(): Promise<string | null> {
+    const db = this.queryBuilderService.getMongoDb();
+    const matches = await db
+      .listCollections({ name: 'enfyra_setting' })
+      .toArray();
+    return matches.length > 0 ? 'enfyra_setting' : null;
+  }
+
+  private async findSqlSettingTableName(): Promise<string | null> {
+    const knex = this.queryBuilderService.getKnex();
+    return (await knex.schema.hasTable('enfyra_setting'))
+      ? 'enfyra_setting'
+      : null;
   }
 }

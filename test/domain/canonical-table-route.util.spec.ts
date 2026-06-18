@@ -6,22 +6,22 @@ import {
 describe('isCanonicalTableRoutePath', () => {
   it('accepts only single-segment path equal to table name', () => {
     expect(
-      isCanonicalTableRoutePath('/menu_definition', 'menu_definition'),
+      isCanonicalTableRoutePath('/enfyra_menu', 'enfyra_menu'),
     ).toBe(true);
     expect(
-      isCanonicalTableRoutePath('menu_definition', 'menu_definition'),
+      isCanonicalTableRoutePath('enfyra_menu', 'enfyra_menu'),
     ).toBe(true);
   });
 
   it('rejects auth and profile-style paths even when mainTable differs', () => {
-    expect(isCanonicalTableRoutePath('/auth/login', 'user_definition')).toBe(
+    expect(isCanonicalTableRoutePath('/auth/login', 'enfyra_user')).toBe(
       false,
     );
-    expect(isCanonicalTableRoutePath('/me', 'user_definition')).toBe(false);
+    expect(isCanonicalTableRoutePath('/me', 'enfyra_user')).toBe(false);
     expect(
       isCanonicalTableRoutePath(
         '/me/oauth-accounts',
-        'oauth_account_definition',
+        'enfyra_oauth_account',
       ),
     ).toBe(false);
   });
@@ -29,12 +29,12 @@ describe('isCanonicalTableRoutePath', () => {
   it('rejects nested resource paths', () => {
     expect(
       isCanonicalTableRoutePath(
-        '/extension_definition/preview',
-        'extension_definition',
+        '/enfyra_extension/preview',
+        'enfyra_extension',
       ),
     ).toBe(false);
     expect(
-      isCanonicalTableRoutePath('/folder_definition/tree', 'folder_definition'),
+      isCanonicalTableRoutePath('/enfyra_folder/tree', 'enfyra_folder'),
     ).toBe(false);
   });
 

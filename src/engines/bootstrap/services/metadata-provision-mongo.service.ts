@@ -9,6 +9,7 @@ import { buildMongoFullIndexSpecs } from '../../mongo';
 import { normalizeMongoPrimaryKeyColumn } from '../../../modules/table-management/utils/mongo-primary-key.util';
 import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
 import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';
+import { SystemCoreTableResolver } from './system-core-table-resolver.service';
 class TableDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[]): Promise<any[]> {
     const now = new Date();
@@ -89,8 +90,13 @@ class RelationDefinitionProcessor extends BaseTableProcessor {
 export class MetadataProvisionMongoService {
   private readonly logger = new Logger(MetadataProvisionMongoService.name);
   private readonly queryBuilderService: QueryBuilderService;
-  constructor(deps: { queryBuilderService: QueryBuilderService }) {
+  private readonly systemCoreTableResolver: SystemCoreTableResolver;
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    systemCoreTableResolver: SystemCoreTableResolver;
+  }) {
     this.queryBuilderService = deps.queryBuilderService;
+    this.systemCoreTableResolver = deps.systemCoreTableResolver;
   }
   private async syncPhysicalIndexesFromSnapshot(
     snapshot: any,
@@ -141,13 +147,14 @@ export class MetadataProvisionMongoService {
   async createInitMetadata(snapshot: any): Promise<void> {
     this.verbose('MongoDB: Creating metadata from snapshot...');
     const db = this.queryBuilderService.getMongoDb();
+    const coreNames = await this.systemCoreTableResolver.getNames();
     const tableNameToId: Record<string, ObjectId> = {};
-    const columnDef = snapshot['column_definition'];
+    const columnDef = snapshot[coreNames.column];
     const tableRelation = columnDef?.relations?.find(
-      (r: any) => r.targetTable === 'table_definition',
+      (r: any) => r.targetTable === coreNames.table,
     );
     const tableFieldName = tableRelation?.propertyName || 'table';
-    const relationDef = snapshot['relation_definition'];
+    const relationDef = snapshot[coreNames.relation];
     const sourceTableRelation = relationDef?.relations?.find(
       (r: any) => r.propertyName === 'sourceTable',
     );
@@ -167,9 +174,9 @@ export class MetadataProvisionMongoService {
       sourceTableFieldName,
     );
     this.verbose('Step 1: Upserting tables...');
-    const tableDef = snapshot['table_definition'];
+    const tableDef = snapshot[coreNames.table];
     if (!tableDef || !tableDef.columns) {
-      throw new Error('table_definition not found in snapshot');
+      throw new Error(`${coreNames.table} not found in snapshot`);
     }
     const tableRecords = Object.entries(snapshot).map(
       ([_tableName, defRaw]) => {
@@ -183,7 +190,7 @@ export class MetadataProvisionMongoService {
     const tableResult = await tableProcessor.processMongo(
       tableRecords,
       db,
-      'table_definition',
+      coreNames.table,
     );
     this.verbose(
       `Tables: ${tableResult.created} created, ${tableResult.skipped} skipped`,
@@ -191,7 +198,7 @@ export class MetadataProvisionMongoService {
     for (const [tableName, defRaw] of Object.entries(snapshot)) {
       const def = defRaw as any;
       const table = await db
-        .collection('table_definition')
+        .collection(coreNames.table)
         .findOne({ name: def.name });
       if (table) {
         tableNameToId[tableName] = table._id;
@@ -199,7 +206,7 @@ export class MetadataProvisionMongoService {
     }
     this.verbose('Step 2: Upserting columns...');
     if (!columnDef || !columnDef.columns) {
-      throw new Error('column_definition not found in snapshot');
+      throw new Error(`${coreNames.column} not found in snapshot`);
     }
     for (const [tableName, defRaw] of Object.entries(snapshot)) {
       const def = defRaw as any;
@@ -212,7 +219,7 @@ export class MetadataProvisionMongoService {
           columnDef.columns,
         );
         record[tableFieldName] = tableId;
-        if (tableName === 'table_definition' && col.name === 'name') {
+        if (tableName === coreNames.table && col.name === 'name') {
           this.logger.debug(
             `Sample column record: ${JSON.stringify(record, null, 2)}`,
           );
@@ -223,7 +230,7 @@ export class MetadataProvisionMongoService {
         const columnResult = await columnProcessor.processMongo(
           columnRecords,
           db,
-          'column_definition',
+          coreNames.column,
         );
         this.logger.debug(
           `${tableName} columns: ${columnResult.created} created, ${columnResult.skipped} skipped`,
@@ -232,9 +239,9 @@ export class MetadataProvisionMongoService {
     }
     this.verbose('Step 3: Upserting owning relations...');
     const relationRenameMap = loadRelationRenameMap();
-    const relationColl = db.collection('relation_definition');
+    const relationColl = db.collection(coreNames.relation);
     if (!relationDef || !relationDef.columns) {
-      throw new Error('relation_definition not found in snapshot');
+      throw new Error(`${coreNames.relation} not found in snapshot`);
     }
     const owningIdMap = new Map<string, ObjectId>();
     const pendingInverses: Array<{
@@ -344,7 +351,7 @@ export class MetadataProvisionMongoService {
         await relationProcessor.processMongo(
           [directRelationRecord],
           db,
-          'relation_definition',
+          coreNames.relation,
         );
         const insertedDoc = await relationColl.findOne({
           [sourceTableFieldName]: tableId,
@@ -419,7 +426,7 @@ export class MetadataProvisionMongoService {
       await relationProcessor.processMongo(
         [reverseRelationRecord],
         db,
-        'relation_definition',
+        coreNames.relation,
       );
       this.logger.debug(
         `Added generated reverse relation ${sourceTableName}.${propertyName} for ${targetTableName}`,
@@ -545,7 +552,7 @@ export class MetadataProvisionMongoService {
         await relationProcessor.processMongo(
           [inverseRelationRecord],
           db,
-          'relation_definition',
+          coreNames.relation,
         );
         if (isGeneratedManyToOne && snapshotRelId) {
           const insertedDoc = await relationColl.findOne({

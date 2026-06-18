@@ -56,7 +56,7 @@ describe('ColumnRuleCacheService — partial reload', () => {
     qb.find.mockClear();
     await svc.partialReload(
       {
-        table: 'column_rule_definition',
+        table: 'enfyra_column_rule',
         action: 'reload',
         timestamp: 0,
         scope: 'partial',
@@ -98,7 +98,7 @@ describe('ColumnRuleCacheService — partial reload', () => {
 
     await svc.partialReload(
       {
-        table: 'column_rule_definition',
+        table: 'enfyra_column_rule',
         action: 'reload',
         timestamp: 0,
         scope: 'partial',
@@ -129,7 +129,7 @@ describe('ColumnRuleCacheService — partial reload', () => {
     data.length = 0;
     await svc.partialReload(
       {
-        table: 'column_rule_definition',
+        table: 'enfyra_column_rule',
         action: 'reload',
         timestamp: 0,
         scope: 'partial',
@@ -162,7 +162,7 @@ describe('ColumnRuleCacheService — partial reload', () => {
 
     await svc.partialReload(
       {
-        table: 'column_rule_definition',
+        table: 'enfyra_column_rule',
         action: 'reload',
         timestamp: 0,
         scope: 'partial',
@@ -193,7 +193,7 @@ describe('ColumnRuleCacheService — partial reload', () => {
 
     await svc.partialReload(
       {
-        table: 'column_rule_definition',
+        table: 'enfyra_column_rule',
         action: 'reload',
         timestamp: 0,
         scope: 'partial',
@@ -224,7 +224,7 @@ describe('ColumnRuleCacheService — partial reload', () => {
 
     await svc.partialReload(
       {
-        table: 'column_rule_definition',
+        table: 'enfyra_column_rule',
         action: 'reload',
         timestamp: 0,
         scope: 'partial',
@@ -252,7 +252,7 @@ describe('ColumnRuleCacheService — partial reload', () => {
 
     await svc.partialReload(
       {
-        table: 'column_rule_definition',
+        table: 'enfyra_column_rule',
         action: 'reload',
         timestamp: 0,
         scope: 'partial',

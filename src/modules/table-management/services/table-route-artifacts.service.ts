@@ -16,7 +16,7 @@ export async function ensureSqlTableRouteArtifacts(input: {
   logger: { warn(message: string): void };
 }): Promise<void> {
   const { trx, metadataCacheService, tableName, tableId, logger } = input;
-  const existingRoute = await trx('route_definition')
+  const existingRoute = await trx('enfyra_route')
     .where({ path: `/${tableName}` })
     .first();
   if (existingRoute) {
@@ -24,21 +24,21 @@ export async function ensureSqlTableRouteArtifacts(input: {
     return;
   }
 
-  await trx('route_definition').insert({
+  await trx('enfyra_route').insert({
     path: `/${tableName}`,
     mainTableId: tableId,
     isEnabled: true,
     isSystem: false,
     icon: 'lucide:table',
   });
-  const newRoute = await trx('route_definition')
+  const newRoute = await trx('enfyra_route')
     .where({ path: `/${tableName}` })
     .first();
   if (!newRoute?.id) return;
 
-  const methods = await trx('method_definition').select('id', 'name');
+  const methods = await trx('enfyra_method').select('id', 'name');
   const routeTableMeta =
-    await metadataCacheService.getTableMetadata('route_definition');
+    await metadataCacheService.getTableMetadata('enfyra_route');
   const availableMethodsRel = routeTableMeta?.relations?.find(
     (relation: any) => relation.propertyName === ROUTE_METHOD_PROPERTY,
   );
@@ -60,7 +60,7 @@ export async function ensureSqlTableRouteArtifacts(input: {
     (method: any) => DEFAULT_REST_HANDLER_LOGIC[method.name],
   );
   if (httpMethods.length === 0) return;
-  await trx('route_handler_definition').insert(
+  await trx('enfyra_route_handler').insert(
     httpMethods.map((method: any) => ({
       routeId: newRoute.id,
       methodId: method.id,
@@ -83,7 +83,7 @@ export async function renameSqlAutoTableRoute(input: {
 }): Promise<void> {
   const { trx, tableId, oldTableName, newTableName } = input;
   if (!newTableName || oldTableName === newTableName) return;
-  await trx('route_definition')
+  await trx('enfyra_route')
     .where({ mainTableId: tableId, path: `/${oldTableName}` })
     .update({
       path: `/${newTableName}`,
@@ -99,18 +99,18 @@ export async function ensureMongoTableRouteArtifacts(input: {
 }): Promise<void> {
   const { mongoService, queryBuilderService, tableName, tableId } = input;
   const existingRoute = await queryBuilderService.findOne({
-    table: 'route_definition',
+    table: 'enfyra_route',
     where: { path: `/${tableName}` },
   });
   if (existingRoute) return;
 
   const db = mongoService.getDb();
   const methods = await db
-    .collection('method_definition')
+    .collection('enfyra_method')
     .find({}, { projection: { _id: 1, name: 1 } })
     .toArray();
   const allMethodIds = methods.map((method: any) => method._id);
-  const routeResult = await db.collection('route_definition').insertOne({
+  const routeResult = await db.collection('enfyra_route').insertOne({
     path: `/${tableName}`,
     mainTable: tableId,
     isEnabled: true,
@@ -141,13 +141,13 @@ export async function ensureMongoTableRouteArtifacts(input: {
       updatedAt: new Date(),
     }));
   if (handlers.length > 0) {
-    await db.collection('route_handler_definition').insertMany(handlers);
+    await db.collection('enfyra_route_handler').insertMany(handlers);
   }
 
   const junction = getSqlJunctionPhysicalNames({
-    sourceTable: 'route_definition',
+    sourceTable: 'enfyra_route',
     propertyName: ROUTE_METHOD_PROPERTY,
-    targetTable: 'method_definition',
+    targetTable: 'enfyra_method',
   });
   const junctionRows = allMethodIds.map((methodId: any) => ({
     [junction.junctionSourceColumn]: routeId,
@@ -171,7 +171,7 @@ export async function renameMongoAutoTableRoute(input: {
 }): Promise<void> {
   const { mongoService, tableId, oldTableName, newTableName } = input;
   if (!newTableName || oldTableName === newTableName) return;
-  await mongoService.getDb().collection('route_definition').updateOne(
+  await mongoService.getDb().collection('enfyra_route').updateOne(
     {
       mainTable: tableId,
       path: `/${oldTableName}`,

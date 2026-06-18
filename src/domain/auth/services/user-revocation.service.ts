@@ -57,11 +57,11 @@ export class UserRevocationService {
         typeof userId === 'string' && ObjectId.isValid(userId)
           ? new ObjectId(userId)
           : userId;
-      await this.queryBuilderService.delete('session_definition', {
+      await this.queryBuilderService.delete('enfyra_session', {
         where: { user: idValue },
       });
     } else {
-      await this.queryBuilderService.delete('session_definition', {
+      await this.queryBuilderService.delete('enfyra_session', {
         where: { userId: String(userId) },
       });
     }

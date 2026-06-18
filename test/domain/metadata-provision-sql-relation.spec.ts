@@ -61,8 +61,8 @@ describe('MetadataProvisionSqlService — relation upsert logic', () => {
     expect(methodRoutesId).toBe(2);
     expect(insertedRows).toHaveLength(2);
 
-    // Phase B: try to insert inverse of route_definition.availableMethods
-    // → should find method_definition.routesWithAvailable already exists
+    // Phase B: try to insert inverse of enfyra_route.availableMethods
+    // → should find enfyra_method.routesWithAvailable already exists
     const inverseId = await upsertRelation(
       20,
       'routesWithAvailable',
@@ -108,15 +108,15 @@ describe('MetadataProvisionSqlService — relation upsert logic', () => {
     // Simulate inverse entries from both sides of M2M
     const inverses = [
       {
-        tableName: 'method_definition',
+        tableName: 'enfyra_method',
         propertyName: 'routesWithAvailable',
-        owningTableName: 'route_definition',
+        owningTableName: 'enfyra_route',
         owningPropertyName: 'availableMethods',
       },
       {
-        tableName: 'route_definition',
+        tableName: 'enfyra_route',
         propertyName: 'availableMethods',
-        owningTableName: 'method_definition',
+        owningTableName: 'enfyra_method',
         owningPropertyName: 'routesWithAvailable',
       },
     ];
@@ -131,7 +131,7 @@ describe('MetadataProvisionSqlService — relation upsert logic', () => {
     }
 
     // First entry processed, second skipped (reverseKey matches first's inverseKey)
-    expect(processed).toEqual(['method_definition.routesWithAvailable']);
+    expect(processed).toEqual(['enfyra_method.routesWithAvailable']);
     expect(processed).toHaveLength(1);
   });
 });

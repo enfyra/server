@@ -12,9 +12,9 @@ describe('MeService', () => {
     };
     const repoRegistryService = {
       createReposProxy: vi.fn(() => ({
-        user_definition: userRepo,
+        enfyra_user: userRepo,
         secure: {
-          user_definition: {
+          enfyra_user: {
             find: vi.fn(async () => {
               throw new Error('secure repo should not be used for /me');
             }),

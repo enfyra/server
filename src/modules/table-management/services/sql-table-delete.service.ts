@@ -63,9 +63,9 @@ export class SqlTableDeleteService extends SqlTableHandlerService {
         abortSignal.addEventListener('abort', onAbort, { once: true });
       }
       try {
-        const exists = await trx('table_definition').where({ id }).first();
+        const exists = await trx('enfyra_table').where({ id }).first();
         if (!exists) {
-          throw new ResourceNotFoundException('table_definition', String(id));
+          throw new ResourceNotFoundException('enfyra_table', String(id));
         }
         if (exists.isSystem) {
           throw new ValidationException('Cannot delete system table', {
@@ -83,16 +83,16 @@ export class SqlTableDeleteService extends SqlTableHandlerService {
         if (isPolicyDeny(decision)) {
           throw new ValidationException(decision.message, decision.details);
         }
-        const allRelations = await trx('relation_definition')
+        const allRelations = await trx('enfyra_relation')
           .where({ sourceTableId: id })
           .orWhere({ targetTableId: id })
           .select('*');
-        const targetRelations = await trx('relation_definition')
+        const targetRelations = await trx('enfyra_relation')
           .where({ targetTableId: id })
           .select('*');
         for (const rel of targetRelations) {
           if (['one-to-many', 'many-to-one', 'one-to-one'].includes(rel.type)) {
-            const sourceTable = await trx('table_definition')
+            const sourceTable = await trx('enfyra_table')
               .where({ id: rel.sourceTableId })
               .first();
             if (sourceTable) {
@@ -222,14 +222,14 @@ export class SqlTableDeleteService extends SqlTableHandlerService {
           }
         } catch (error: any) {}
         for (const rel of targetRelations) {
-          const sourceTable = await trx('table_definition')
+          const sourceTable = await trx('enfyra_table')
             .where({ id: rel.sourceTableId })
             .select('name')
             .first();
           if (sourceTable?.name) affectedTableNames.add(sourceTable.name);
         }
-        await trx('relation_definition').where({ targetTableId: id }).delete();
-        await trx('table_definition').where({ id }).delete();
+        await trx('enfyra_relation').where({ targetTableId: id }).delete();
+        await trx('enfyra_table').where({ id }).delete();
         await this.schemaMigrationService.dropTable(
           tableName,
           allRelations,

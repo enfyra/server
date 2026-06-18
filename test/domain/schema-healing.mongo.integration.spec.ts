@@ -69,11 +69,11 @@ describe('SchemaHealingService Mongo integration', () => {
     const settingId = new ObjectId();
     const columnId = new ObjectId();
 
-    await db.collection('setting_definition').insertOne({
+    await db.collection('enfyra_setting').insertOne({
       _id: settingId,
       uniquesIndexesRepaired: true,
     });
-    await db.collection('column_definition').insertOne({
+    await db.collection('enfyra_column').insertOne({
       _id: columnId,
       tableId: new ObjectId(),
       name: '_id',
@@ -83,11 +83,11 @@ describe('SchemaHealingService Mongo integration', () => {
       isNullable: false,
     });
 
-    const settingTable = makeTableMetadata('setting_definition');
-    const columnTable = makeTableMetadata('column_definition');
+    const settingTable = makeTableMetadata('enfyra_setting');
+    const columnTable = makeTableMetadata('enfyra_column');
     const tables = new Map<string, any>([
-      ['setting_definition', settingTable],
-      ['column_definition', columnTable],
+      ['enfyra_setting', settingTable],
+      ['enfyra_column', columnTable],
     ]);
     const queryBuilderService = new QueryBuilderService({
       mongoService: {
@@ -124,7 +124,7 @@ describe('SchemaHealingService Mongo integration', () => {
     await service.runIfNeeded();
 
     const repairedColumn = await db
-      .collection('column_definition')
+      .collection('enfyra_column')
       .findOne({ _id: columnId });
 
     expect(repairedColumn).toMatchObject({
@@ -141,20 +141,20 @@ describe('SchemaHealingService Mongo integration', () => {
       return;
     }
 
-    await db.collection('setting_definition').deleteMany({});
-    await db.collection('table_definition').deleteMany({});
-    await db.collection('relation_definition').deleteMany({});
+    await db.collection('enfyra_setting').deleteMany({});
+    await db.collection('enfyra_table').deleteMany({});
+    await db.collection('enfyra_relation').deleteMany({});
 
     const oldCollectionName =
-      'route_definition_availableMethods_method_definition';
+      'enfyra_route_availableMethods_enfyra_method';
     try {
       await db.collection(oldCollectionName).drop();
     } catch {}
 
     const junction = getSqlJunctionPhysicalNames({
-      sourceTable: 'route_definition',
+      sourceTable: 'enfyra_route',
       propertyName: 'availableMethods',
-      targetTable: 'method_definition',
+      targetTable: 'enfyra_method',
     });
     try {
       await db.collection(junction.junctionTableName).drop();
@@ -169,15 +169,15 @@ describe('SchemaHealingService Mongo integration', () => {
     const methodIdA = new ObjectId();
     const methodIdB = new ObjectId();
 
-    await db.collection('setting_definition').insertOne({
+    await db.collection('enfyra_setting').insertOne({
       _id: new ObjectId(),
       uniquesIndexesRepaired: true,
     });
-    await db.collection('table_definition').insertMany([
-      { _id: routeTableId, name: 'route_definition', isSystem: true },
-      { _id: methodTableId, name: 'method_definition', isSystem: true },
+    await db.collection('enfyra_table').insertMany([
+      { _id: routeTableId, name: 'enfyra_route', isSystem: true },
+      { _id: methodTableId, name: 'enfyra_method', isSystem: true },
     ]);
-    await db.collection('relation_definition').insertMany([
+    await db.collection('enfyra_relation').insertMany([
       {
         _id: owningRelationId,
         sourceTable: routeTableId,
@@ -185,8 +185,8 @@ describe('SchemaHealingService Mongo integration', () => {
         propertyName: 'availableMethods',
         type: 'many-to-many',
         junctionTableName: oldCollectionName,
-        junctionSourceColumn: 'route_definitionId',
-        junctionTargetColumn: 'method_definitionId',
+        junctionSourceColumn: 'enfyra_routeId',
+        junctionTargetColumn: 'enfyra_methodId',
       },
       {
         _id: inverseRelationId,
@@ -196,13 +196,13 @@ describe('SchemaHealingService Mongo integration', () => {
         type: 'many-to-many',
         mappedBy: owningRelationId,
         junctionTableName: oldCollectionName,
-        junctionSourceColumn: 'method_definitionId',
-        junctionTargetColumn: 'route_definitionId',
+        junctionSourceColumn: 'enfyra_methodId',
+        junctionTargetColumn: 'enfyra_routeId',
       },
     ]);
     await db.collection(oldCollectionName).insertOne({
-      route_definitionId: routeIdA,
-      method_definitionId: methodIdA,
+      enfyra_routeId: routeIdA,
+      enfyra_methodId: methodIdA,
     });
     await db.collection(junction.junctionTableName).insertOne({
       [junction.junctionSourceColumn]: routeIdB,
@@ -210,9 +210,9 @@ describe('SchemaHealingService Mongo integration', () => {
     });
 
     const tables = new Map<string, any>([
-      ['setting_definition', makeTableMetadata('setting_definition')],
-      ['table_definition', makeTableMetadata('table_definition')],
-      ['relation_definition', makeTableMetadata('relation_definition')],
+      ['enfyra_setting', makeTableMetadata('enfyra_setting')],
+      ['enfyra_table', makeTableMetadata('enfyra_table')],
+      ['enfyra_relation', makeTableMetadata('enfyra_relation')],
     ]);
     const queryBuilderService = new QueryBuilderService({
       mongoService: {
@@ -238,10 +238,10 @@ describe('SchemaHealingService Mongo integration', () => {
     await service.runIfNeeded();
 
     const owningRelation = await db
-      .collection('relation_definition')
+      .collection('enfyra_relation')
       .findOne({ _id: owningRelationId });
     const inverseRelation = await db
-      .collection('relation_definition')
+      .collection('enfyra_relation')
       .findOne({ _id: inverseRelationId });
     const oldCollectionExists = await db
       .listCollections({ name: oldCollectionName })
@@ -282,20 +282,20 @@ describe('SchemaHealingService Mongo integration', () => {
       return;
     }
 
-    await db.collection('setting_definition').deleteMany({});
-    await db.collection('table_definition').deleteMany({});
-    await db.collection('relation_definition').deleteMany({});
+    await db.collection('enfyra_setting').deleteMany({});
+    await db.collection('enfyra_table').deleteMany({});
+    await db.collection('enfyra_relation').deleteMany({});
 
     const oldCollectionName =
-      'route_definition_availableMethods_method_definition';
+      'enfyra_route_availableMethods_enfyra_method';
     try {
       await db.collection(oldCollectionName).drop();
     } catch {}
 
     const junction = getSqlJunctionPhysicalNames({
-      sourceTable: 'route_definition',
+      sourceTable: 'enfyra_route',
       propertyName: 'availableMethods',
-      targetTable: 'method_definition',
+      targetTable: 'enfyra_method',
     });
     try {
       await db.collection(junction.junctionTableName).drop();
@@ -308,15 +308,15 @@ describe('SchemaHealingService Mongo integration', () => {
     const routeId = new ObjectId();
     const methodId = new ObjectId();
 
-    await db.collection('setting_definition').insertOne({
+    await db.collection('enfyra_setting').insertOne({
       _id: new ObjectId(),
       uniquesIndexesRepaired: true,
     });
-    await db.collection('table_definition').insertMany([
-      { _id: routeTableId, name: 'route_definition', isSystem: true },
-      { _id: methodTableId, name: 'method_definition', isSystem: true },
+    await db.collection('enfyra_table').insertMany([
+      { _id: routeTableId, name: 'enfyra_route', isSystem: true },
+      { _id: methodTableId, name: 'enfyra_method', isSystem: true },
     ]);
-    await db.collection('relation_definition').insertMany([
+    await db.collection('enfyra_relation').insertMany([
       {
         _id: owningRelationId,
         sourceTable: routeTableId,
@@ -340,8 +340,8 @@ describe('SchemaHealingService Mongo integration', () => {
       },
     ]);
     await db.collection(oldCollectionName).insertOne({
-      route_definitionId: routeId,
-      method_definitionId: methodId,
+      enfyra_routeId: routeId,
+      enfyra_methodId: methodId,
     });
     await db.collection(junction.junctionTableName).insertOne({
       [junction.junctionSourceColumn]: routeId,
@@ -349,9 +349,9 @@ describe('SchemaHealingService Mongo integration', () => {
     });
 
     const tables = new Map<string, any>([
-      ['setting_definition', makeTableMetadata('setting_definition')],
-      ['table_definition', makeTableMetadata('table_definition')],
-      ['relation_definition', makeTableMetadata('relation_definition')],
+      ['enfyra_setting', makeTableMetadata('enfyra_setting')],
+      ['enfyra_table', makeTableMetadata('enfyra_table')],
+      ['enfyra_relation', makeTableMetadata('enfyra_relation')],
     ]);
     const queryBuilderService = new QueryBuilderService({
       mongoService: {

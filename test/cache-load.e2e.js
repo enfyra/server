@@ -41,13 +41,13 @@ class MockQueryBuilder {
     if (params.filter?.isEnabled) {
       filtered = filtered.filter(r => r.isEnabled === true);
     }
-    if (tableName === 'flow_step_definition' && params.filter?.flow) {
+    if (tableName === 'enfyra_flow_step' && params.filter?.flow) {
       const expected = params.filter.flow.id?._eq ?? params.filter.flow._id?._eq;
       filtered = filtered.filter(s => s.flowId === expected);
     }
 
     if (params.fields?.includes('events.*')) {
-      const allEvents = this.data['websocket_event_definition'] || [];
+      const allEvents = this.data['enfyra_websocket_event'] || [];
       filtered = filtered.map(gw => ({
         ...gw,
         events: allEvents.filter(e => e.gatewayId === (gw._id || gw.id)),
@@ -85,7 +85,7 @@ async function simulateFlowCacheLoad(queryBuilder) {
   const idField = isMongoDB ? '_id' : 'id';
 
   const flowsResult = await queryBuilder.select({
-    table: 'flow_definition',
+    table: 'enfyra_flow',
     filter: { isEnabled: { _eq: true } },
     fields: ['*'],
   });
@@ -93,7 +93,7 @@ async function simulateFlowCacheLoad(queryBuilder) {
   const flows = [];
   for (const flow of flowsResult.data) {
     const stepsResult = await queryBuilder.select({
-      table: 'flow_step_definition',
+      table: 'enfyra_flow_step',
       filter: { flow: { [idField]: { _eq: flow[idField] } } },
       fields: ['*', 'parent.*'],
       limit: 1000,
@@ -141,7 +141,7 @@ async function simulateFlowCacheLoad(queryBuilder) {
 
 async function simulateWebsocketCacheLoad(queryBuilder) {
   const result = await queryBuilder.select({
-    tableName: 'websocket_definition',
+    tableName: 'enfyra_websocket',
     filter: { isEnabled: { _eq: true } },
     fields: ['*', 'events.*'],
   });
@@ -167,14 +167,14 @@ async function simulateWebsocketCacheLoad(queryBuilder) {
 async function testFlowCacheSingleQuery() {
   const qb = new MockQueryBuilder();
 
-  qb.setTableData('flow_definition', [
+  qb.setTableData('enfyra_flow', [
     { id: 1, name: 'daily-report', triggerType: 'schedule', triggerConfig: { cron: '0 2 * * *' }, timeout: 30000, isEnabled: true },
     { id: 2, name: 'disabled-flow', triggerType: 'manual', isEnabled: false },
     { id: 3, name: 'manual-cleanup', triggerType: 'manual', timeout: 60000, isEnabled: true },
   ]);
 
-  qb.setTableData('flow_step_definition', [
-    { id: 10, flowId: 1, key: 'fetch-data', stepOrder: 1, type: 'query', config: { table: 'user_definition' }, isEnabled: true, onError: 'stop', retryAttempts: 0 },
+  qb.setTableData('enfyra_flow_step', [
+    { id: 10, flowId: 1, key: 'fetch-data', stepOrder: 1, type: 'query', config: { table: 'enfyra_user' }, isEnabled: true, onError: 'stop', retryAttempts: 0 },
     { id: 11, flowId: 1, key: 'send-email', stepOrder: 2, type: 'http', config: { url: 'https://api.email.com' }, isEnabled: true, onError: 'retry', retryAttempts: 3 },
     { id: 12, flowId: 1, key: 'disabled-step', stepOrder: 3, type: 'log', config: {}, isEnabled: false, onError: 'stop', retryAttempts: 0 },
     { id: 20, flowId: 2, key: 'should-not-appear', stepOrder: 1, type: 'script', config: {}, isEnabled: true, onError: 'stop', retryAttempts: 0 },
@@ -201,11 +201,11 @@ async function testFlowCacheSingleQuery() {
 async function testFlowCacheStepOrdering() {
   const qb = new MockQueryBuilder();
 
-  qb.setTableData('flow_definition', [
+  qb.setTableData('enfyra_flow', [
     { id: 1, name: 'order-test', triggerType: 'manual', isEnabled: true },
   ]);
 
-  qb.setTableData('flow_step_definition', [
+  qb.setTableData('enfyra_flow_step', [
     { id: 13, flowId: 1, key: 'third', stepOrder: 30, type: 'log', config: {}, isEnabled: true, onError: 'stop', retryAttempts: 0 },
     { id: 11, flowId: 1, key: 'first', stepOrder: 10, type: 'log', config: {}, isEnabled: true, onError: 'stop', retryAttempts: 0 },
     { id: 12, flowId: 1, key: 'second', stepOrder: 20, type: 'log', config: {}, isEnabled: true, onError: 'stop', retryAttempts: 0 },
@@ -220,11 +220,11 @@ async function testFlowCacheStepOrdering() {
 async function testFlowCacheBranching() {
   const qb = new MockQueryBuilder();
 
-  qb.setTableData('flow_definition', [
+  qb.setTableData('enfyra_flow', [
     { id: 1, name: 'branching-test', triggerType: 'manual', isEnabled: true },
   ]);
 
-  qb.setTableData('flow_step_definition', [
+  qb.setTableData('enfyra_flow_step', [
     { id: 10, flowId: 1, key: 'check', stepOrder: 1, type: 'condition', config: { code: 'return true' }, isEnabled: true, onError: 'stop', retryAttempts: 0 },
     { id: 11, flowId: 1, key: 'on-true', stepOrder: 2, type: 'log', config: {}, isEnabled: true, onError: 'stop', retryAttempts: 0, parentId: 10, branch: 'true' },
     { id: 12, flowId: 1, key: 'on-false', stepOrder: 3, type: 'log', config: {}, isEnabled: true, onError: 'stop', retryAttempts: 0, parentId: 10, branch: 'false' },
@@ -244,11 +244,11 @@ async function testFlowCacheBranching() {
 async function testFlowCacheEmptySteps() {
   const qb = new MockQueryBuilder();
 
-  qb.setTableData('flow_definition', [
+  qb.setTableData('enfyra_flow', [
     { id: 1, name: 'empty-flow', triggerType: 'manual', isEnabled: true },
   ]);
 
-  qb.setTableData('flow_step_definition', []);
+  qb.setTableData('enfyra_flow_step', []);
 
   const flows = await simulateFlowCacheLoad(qb);
 
@@ -258,11 +258,11 @@ async function testFlowCacheEmptySteps() {
 async function testFlowCacheCodeTransform() {
   const qb = new MockQueryBuilder();
 
-  qb.setTableData('flow_definition', [
+  qb.setTableData('enfyra_flow', [
     { id: 1, name: 'code-test', triggerType: 'manual', isEnabled: true },
   ]);
 
-  qb.setTableData('flow_step_definition', [
+  qb.setTableData('enfyra_flow_step', [
     { id: 10, flowId: 1, key: 'script-step', stepOrder: 1, type: 'script', config: { code: 'return 1' }, isEnabled: true, onError: 'stop', retryAttempts: 0 },
     { id: 11, flowId: 1, key: 'condition-step', stepOrder: 2, type: 'condition', config: { code: 'return true' }, isEnabled: true, onError: 'stop', retryAttempts: 0 },
     { id: 12, flowId: 1, key: 'query-step', stepOrder: 3, type: 'query', config: { table: 'users', code: 'should-not-transform' }, isEnabled: true, onError: 'stop', retryAttempts: 0 },
@@ -281,13 +281,13 @@ async function testFlowCacheCodeTransform() {
 async function testWebsocketCacheSingleQuery() {
   const qb = new MockQueryBuilder();
 
-  qb.setTableData('websocket_definition', [
+  qb.setTableData('enfyra_websocket', [
     { id: 1, path: '/chat', isEnabled: true, requireAuth: true, connectionHandlerScript: 'console.log("connected")', connectionHandlerTimeout: 5000 },
     { id: 2, path: '/notifications', isEnabled: true, requireAuth: false, connectionHandlerScript: null, connectionHandlerTimeout: 3000 },
     { id: 3, path: '/disabled', isEnabled: false, requireAuth: false, connectionHandlerScript: null, connectionHandlerTimeout: 3000 },
   ]);
 
-  qb.setTableData('websocket_event_definition', [
+  qb.setTableData('enfyra_websocket_event', [
     { id: 100, gatewayId: 1, eventName: 'message', isEnabled: true, handlerScript: 'return data', timeout: 5000 },
     { id: 101, gatewayId: 1, eventName: 'typing', isEnabled: true, handlerScript: null, timeout: 3000 },
     { id: 102, gatewayId: 1, eventName: 'disabled-event', isEnabled: false, handlerScript: 'nope', timeout: 3000 },
@@ -314,11 +314,11 @@ async function testWebsocketCacheSingleQuery() {
 async function testWebsocketCacheEmptyEvents() {
   const qb = new MockQueryBuilder();
 
-  qb.setTableData('websocket_definition', [
+  qb.setTableData('enfyra_websocket', [
     { id: 1, path: '/empty', isEnabled: true, requireAuth: false, connectionHandlerScript: null, connectionHandlerTimeout: 3000 },
   ]);
 
-  qb.setTableData('websocket_event_definition', []);
+  qb.setTableData('enfyra_websocket_event', []);
 
   const gateways = await simulateWebsocketCacheLoad(qb);
 
@@ -328,11 +328,11 @@ async function testWebsocketCacheEmptyEvents() {
 async function testWebsocketCacheAllEventsDisabled() {
   const qb = new MockQueryBuilder();
 
-  qb.setTableData('websocket_definition', [
+  qb.setTableData('enfyra_websocket', [
     { id: 1, path: '/all-disabled', isEnabled: true, requireAuth: false, connectionHandlerScript: null, connectionHandlerTimeout: 3000 },
   ]);
 
-  qb.setTableData('websocket_event_definition', [
+  qb.setTableData('enfyra_websocket_event', [
     { id: 100, gatewayId: 1, eventName: 'e1', isEnabled: false, handlerScript: null, timeout: 3000 },
     { id: 101, gatewayId: 1, eventName: 'e2', isEnabled: false, handlerScript: null, timeout: 3000 },
   ]);
@@ -348,11 +348,11 @@ async function testFlowCacheMongoMode() {
   const qb = new MockQueryBuilder();
   qb.setMongoMode(true);
 
-  qb.setTableData('flow_definition', [
+  qb.setTableData('enfyra_flow', [
     { _id: 'abc123', name: 'mongo-flow', triggerType: 'manual', isEnabled: true },
   ]);
 
-  qb.setTableData('flow_step_definition', [
+  qb.setTableData('enfyra_flow_step', [
     { _id: 'step1', flowId: 'abc123', key: 'first', stepOrder: 1, type: 'script', config: { code: 'return 1' }, isEnabled: true, onError: 'stop', retryAttempts: 0 },
   ]);
 

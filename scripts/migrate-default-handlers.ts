@@ -23,8 +23,8 @@ const BUILTIN_PATHS = [
   '/me',
   '/me/oauth-accounts',
   '/assets/:id',
-  '/folder_definition/tree',
-  '/extension_definition/preview',
+  '/enfyra_folder/tree',
+  '/enfyra_extension/preview',
   '/admin/test/run',
   '/admin/flow/run',
 ];
@@ -40,14 +40,14 @@ async function migrate(
   try {
     console.log(`\n=== ${label} ===`);
 
-    const routes = await db('route_definition')
+    const routes = await db('enfyra_route')
       .select('id', 'path')
       .whereNotNull('mainTableId')
       .whereNotIn('path', BUILTIN_PATHS);
 
     console.log(`Found ${routes.length} dynamic routes (excluding built-in)`);
 
-    const methods = await db('method_definition').select('id', 'name');
+    const methods = await db('enfyra_method').select('id', 'name');
     const httpMethods = methods.filter((m: any) => DEFAULT_HANDLERS[m.name]);
 
     let created = 0;
@@ -55,7 +55,7 @@ async function migrate(
 
     for (const route of routes) {
       for (const method of httpMethods) {
-        const existing = await db('route_handler_definition')
+        const existing = await db('enfyra_route_handler')
           .where({ routeId: route.id, methodId: method.id })
           .first();
 
@@ -67,7 +67,7 @@ async function migrate(
         const logic = DEFAULT_HANDLERS[method.name];
         if (!logic) continue;
 
-        await db('route_handler_definition').insert({
+        await db('enfyra_route_handler').insert({
           routeId: route.id,
           methodId: method.id,
           logic,
@@ -78,12 +78,12 @@ async function migrate(
       }
     }
 
-    const existingWithoutTimeout = await db('route_handler_definition')
+    const existingWithoutTimeout = await db('enfyra_route_handler')
       .whereNull('timeout')
       .orWhere('timeout', 0);
 
     if (existingWithoutTimeout.length > 0) {
-      await db('route_handler_definition')
+      await db('enfyra_route_handler')
         .whereNull('timeout')
         .orWhere('timeout', 0)
         .update({ timeout: DEFAULT_TIMEOUT });

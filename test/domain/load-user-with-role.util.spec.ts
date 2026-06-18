@@ -27,8 +27,8 @@ describe('loadUserWithRole', () => {
     const role = { _id: roleId, name: 'Admin' };
     const user = { _id: userId, email: 'root@example.com', role: roleId };
     const findOne = vi.fn(async ({ table }) => {
-      if (table === 'user_definition') return user;
-      if (table === 'role_definition') return role;
+      if (table === 'enfyra_user') return user;
+      if (table === 'enfyra_role') return role;
       return null;
     });
     const queryBuilder = {
@@ -39,11 +39,11 @@ describe('loadUserWithRole', () => {
     const result = await loadUserWithRole(queryBuilder, userId.toHexString());
 
     expect(findOne).toHaveBeenNthCalledWith(1, {
-      table: 'user_definition',
+      table: 'enfyra_user',
       where: { _id: userId },
     });
     expect(findOne).toHaveBeenNthCalledWith(2, {
-      table: 'role_definition',
+      table: 'enfyra_role',
       where: { _id: roleId },
     });
     expect(result?.role).toEqual(role);
@@ -83,8 +83,8 @@ describe('loadUserWithRole', () => {
     const role = { id: 1, name: 'Admin' };
     const user = { id: userId, email: 'root@example.com', roleId: 1 };
     const findOne = vi.fn(async ({ table }) => {
-      if (table === 'user_definition') return user;
-      if (table === 'role_definition') return role;
+      if (table === 'enfyra_user') return user;
+      if (table === 'enfyra_role') return role;
       return null;
     });
     const queryBuilder = {
@@ -95,11 +95,11 @@ describe('loadUserWithRole', () => {
     const result = await loadUserWithRole(queryBuilder, userId);
 
     expect(findOne).toHaveBeenNthCalledWith(1, {
-      table: 'user_definition',
+      table: 'enfyra_user',
       where: { id: userId },
     });
     expect(findOne).toHaveBeenNthCalledWith(2, {
-      table: 'role_definition',
+      table: 'enfyra_role',
       where: { id: 1 },
     });
     expect(result?.role).toEqual(role);

@@ -110,7 +110,7 @@ export class MongoSchemaDiffService {
 
     try {
       await this.queryBuilderService.update(
-        'table_definition',
+        'enfyra_table',
         { where: [{ field: 'name', operator: '=', value: collectionName }] },
         { indexes: mergedIndexes },
       );

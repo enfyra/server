@@ -61,7 +61,7 @@ export class FlowQueueMaintenanceService {
     this.cleanupRunning = true;
     try {
       const flowsResult = await this.queryBuilderService.find({
-        table: 'flow_definition',
+        table: 'enfyra_flow',
         fields: ['id', 'name'],
       });
       const ids = new Set<string>(

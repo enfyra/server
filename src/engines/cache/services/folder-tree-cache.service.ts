@@ -40,7 +40,7 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
 
   protected async loadFromDb(): Promise<FolderNode[]> {
     const result = await this.queryBuilderService.find({
-      table: 'folder_definition',
+      table: 'enfyra_folder',
       fields: ['id', 'name', 'slug', 'order', 'icon', 'description', 'parent'],
       sort: ['order'],
     });

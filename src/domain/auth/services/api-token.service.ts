@@ -18,7 +18,7 @@ import {
   exchangeApiTokenSchema,
 } from '../schemas/auth.schemas';
 
-const API_TOKEN_TABLE = 'api_token_definition';
+const API_TOKEN_TABLE = 'enfyra_api_token';
 const API_TOKEN_CACHE_PREFIX = 'auth:api-token';
 const API_TOKEN_REVOKED_CHANNEL = 'api-token:revoked';
 const API_TOKEN_STATE_TTL_MS = 60_000;

@@ -765,24 +765,24 @@ async function syncRelationOnDeleteChanges(
 ): Promise<void> {
   const dbType = knex.client.config.client;
   const hasOnDeleteColumn = await knex.schema.hasColumn(
-    'relation_definition',
+    'enfyra_relation',
     'onDelete',
   );
   if (!hasOnDeleteColumn) {
-    await knex.schema.alterTable('relation_definition', (table) => {
+    await knex.schema.alterTable('enfyra_relation', (table) => {
       table
         .enum('onDelete', ['CASCADE', 'RESTRICT', 'SET NULL'])
         .notNullable()
         .defaultTo('SET NULL');
     });
   }
-  const tableDefRow = await knex('table_definition')
+  const tableDefRow = await knex('enfyra_table')
     .where('name', tableName)
     .first();
   if (!tableDefRow) {
     return;
   }
-  const dbRelations = await knex('relation_definition')
+  const dbRelations = await knex('enfyra_relation')
     .where('sourceTableId', tableDefRow.id)
     .select('id', 'propertyName', 'type', 'onDelete');
   const snapshotRelations = schema.definition.relations || [];
@@ -857,14 +857,14 @@ async function syncRelationOnDeleteChanges(
           `    Recreated FK constraint with onDelete: ${snapshotOnDelete}`,
         );
         await knex.raw(`UPDATE ?? SET ?? = ? WHERE ?? = ?`, [
-          'relation_definition',
+          'enfyra_relation',
           'onDelete',
           snapshotOnDelete,
           'id',
           dbRel.id,
         ]);
         console.log(
-          `    Updated relation_definition.onDelete to: ${snapshotOnDelete}`,
+          `    Updated enfyra_relation.onDelete to: ${snapshotOnDelete}`,
         );
       }
     }

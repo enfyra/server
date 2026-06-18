@@ -7,8 +7,8 @@ async function loadGuardCache(
   rules: any[],
 ): Promise<GuardCacheService> {
   const find = jest.fn(async (params: any) => {
-    if (params.table === 'guard_definition') return { data: guards };
-    if (params.table === 'guard_rule_definition') return { data: rules };
+    if (params.table === 'enfyra_guard') return { data: guards };
+    if (params.table === 'enfyra_guard_rule') return { data: rules };
     return { data: [] };
   });
   const qb = { find, isMongoDb: () => false };

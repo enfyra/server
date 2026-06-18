@@ -19,9 +19,9 @@ export interface ExtendedQueryBuilder<
    * @returns QueryBuilder with relations joined
    *
    * @example
-   * const routes = await knex('route_definition')
+   * const routes = await knex('enfyra_route')
    *   .relations(['mainTable'])
-   *   .select('route_definition.*', 'mainTable.id', 'mainTable.name');
+   *   .select('enfyra_route.*', 'mainTable.id', 'mainTable.name');
    *
    * // Returns: [{ id: 1, path: '/test', mainTable: { id: 2, name: 'test' } }]
    */

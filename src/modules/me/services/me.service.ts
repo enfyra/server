@@ -44,7 +44,7 @@ export class MeService {
 
   async find(req: Request & { user: any; routeData?: any }) {
     if (!req.user) throw new UnauthorizedException();
-    const repo = this.getTrustedRepo(req, 'user_definition');
+    const repo = this.getTrustedRepo(req, 'enfyra_user');
     if (!repo) {
       throw new Error('Repository not found in route context');
     }
@@ -62,7 +62,7 @@ export class MeService {
 
   async update(body: any, req: Request & { user: any; routeData?: any }) {
     if (!req.user) throw new UnauthorizedException();
-    const repo = this.getSecureRepo(req, 'user_definition');
+    const repo = this.getSecureRepo(req, 'enfyra_user');
     if (!repo) {
       throw new Error('Repository not found in route context');
     }
@@ -72,7 +72,7 @@ export class MeService {
 
   async findOAuthAccounts(req: Request & { user: any; routeData?: any }) {
     if (!req.user) throw new UnauthorizedException();
-    const repo = this.getTrustedRepo(req, 'oauth_account_definition');
+    const repo = this.getTrustedRepo(req, 'enfyra_oauth_account');
     if (!repo) {
       throw new Error('Repository not found in route context');
     }

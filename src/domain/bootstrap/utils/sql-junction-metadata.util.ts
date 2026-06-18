@@ -17,14 +17,14 @@ export async function getSqlJunctionMetadata(
   targetColumn: string;
 }> {
   const knex = queryBuilderService.getKnex();
-  const relation = await knex('relation_definition as r')
+  const relation = await knex('enfyra_relation as r')
     .leftJoin(
-      'table_definition as sourceTable',
+      'enfyra_table as sourceTable',
       'r.sourceTableId',
       'sourceTable.id',
     )
     .leftJoin(
-      'table_definition as targetTable',
+      'enfyra_table as targetTable',
       'r.targetTableId',
       'targetTable.id',
     )

@@ -189,7 +189,7 @@ async function testBasicFlow() {
     id: 1, name: 'test-basic',
     steps: [
       { key: 'step1', stepOrder: 1, type: 'log', config: { message: 'Hello' }, timeout: 5000, onError: 'stop', isEnabled: true },
-      { key: 'step2', stepOrder: 2, type: 'query', config: { table: 'user_definition', filter: { status: 'active' } }, timeout: 5000, onError: 'stop', isEnabled: true },
+      { key: 'step2', stepOrder: 2, type: 'query', config: { table: 'enfyra_user', filter: { status: 'active' } }, timeout: 5000, onError: 'stop', isEnabled: true },
       { key: 'step3', stepOrder: 3, type: 'log', config: { message: 'Done' }, timeout: 5000, onError: 'stop', isEnabled: true },
     ],
   };
@@ -205,7 +205,7 @@ async function testDataChain() {
   const flow = {
     id: 2, name: 'test-chain',
     steps: [
-      { key: 'fetch_user', stepOrder: 1, type: 'query', config: { table: 'user_definition' }, timeout: 5000, onError: 'stop', isEnabled: true },
+      { key: 'fetch_user', stepOrder: 1, type: 'query', config: { table: 'enfyra_user' }, timeout: 5000, onError: 'stop', isEnabled: true },
       { key: 'check_result', stepOrder: 2, type: 'script', config: { code: 'return { hasUser: $ctx.$flow.fetch_user?.data?.length > 0, lastId: $ctx.$flow.$last?.data?.[0]?.id }' }, timeout: 5000, onError: 'stop', isEnabled: true },
     ],
   };
@@ -470,7 +470,7 @@ async function testScriptAccessesRepos() {
   const flow = {
     id: 18, name: 'test-script-repos',
     steps: [
-      { key: 'query', stepOrder: 1, type: 'script', config: { code: 'return await $ctx.$repos.user_definition.find({ filter: { role: "admin" }, limit: 5 })' }, timeout: 5000, onError: 'stop', isEnabled: true },
+      { key: 'query', stepOrder: 1, type: 'script', config: { code: 'return await $ctx.$repos.enfyra_user.find({ filter: { role: "admin" }, limit: 5 })' }, timeout: 5000, onError: 'stop', isEnabled: true },
       { key: 'create', stepOrder: 2, type: 'script', config: { code: 'return await $ctx.$repos.order.create({ data: { total: $ctx.$flow.query.data[0].id * 100 } })' }, timeout: 5000, onError: 'stop', isEnabled: true },
     ],
   };
@@ -515,7 +515,7 @@ async function testMultiStepDataPipeline() {
   const flow = {
     id: 21, name: 'test-pipeline',
     steps: [
-      { key: 'users', stepOrder: 1, type: 'query', config: { table: 'user_definition', limit: 10 }, timeout: 5000, onError: 'stop', isEnabled: true },
+      { key: 'users', stepOrder: 1, type: 'query', config: { table: 'enfyra_user', limit: 10 }, timeout: 5000, onError: 'stop', isEnabled: true },
       { key: 'has_users', stepOrder: 2, type: 'condition', config: { code: 'return $ctx.$flow.users?.data?.length > 0' }, timeout: 5000, onError: 'stop', isEnabled: true },
       { key: 'order', stepOrder: 3, type: 'create', config: { table: 'order', data: { userId: 1, status: 'new' } }, timeout: 5000, onError: 'stop', isEnabled: true },
       { key: 'done', stepOrder: 4, type: 'log', config: { message: 'pipeline complete' }, timeout: 5000, onError: 'stop', isEnabled: true },

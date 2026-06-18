@@ -18,7 +18,7 @@ function makeContext(): TDynamicContext {
     $helpers: {},
     $cache: {},
     $repos: {
-      file_definition: {
+      enfyra_file: {
         create: vi.fn(),
       },
     },

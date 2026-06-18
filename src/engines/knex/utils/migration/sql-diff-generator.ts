@@ -48,7 +48,7 @@ function isIdempotentDDLError(err: any, dbType: string): boolean {
       '42701', // duplicate_column
       '42P07', // duplicate_table
       '42710', // duplicate_object (constraint/index)
-      '42P16', // invalid_table_definition (PK already)
+      '42P16', // invalid_enfyra_table (PK already)
     ]);
     if (pgCodes.has(String(code))) return true;
   }

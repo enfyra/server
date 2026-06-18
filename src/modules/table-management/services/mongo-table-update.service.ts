@@ -84,12 +84,12 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
       try {
         const queryId = typeof id === 'string' ? new ObjectId(id) : id;
         const exists = await this.queryBuilderService.findOne({
-          table: 'table_definition',
+          table: 'enfyra_table',
           where: { _id: queryId },
         });
-        stepLog(`STEP 3 fetched table_definition (+${lap()}ms)`);
+        stepLog(`STEP 3 fetched enfyra_table (+${lap()}ms)`);
         if (!exists) {
-          throw new ResourceNotFoundException('table_definition', String(id));
+          throw new ResourceNotFoundException('enfyra_table', String(id));
         }
         if (exists.isSystem) {
           throw new ValidationException('Cannot modify system table', {
@@ -101,7 +101,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
         if (tableRenamed) {
           const incomingRelations = await this.mongoService
             .getDb()
-            .collection('relation_definition')
+            .collection('enfyra_relation')
             .find({
               targetTable: queryId,
               sourceTable: { $ne: queryId },
@@ -119,7 +119,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
           if (incomingSourceIds.length > 0) {
             const incomingSourceTables = await this.mongoService
               .getDb()
-              .collection('table_definition')
+              .collection('enfyra_table')
               .find({
                 _id: {
                   $in: incomingSourceIds.map(
@@ -144,7 +144,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
         if (body.relations) {
           const { data: existingRelations } =
             await this.queryBuilderService.find({
-              table: 'relation_definition',
+              table: 'enfyra_relation',
               where: {
                 sourceTable: queryId,
               },
@@ -182,7 +182,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
                 );
               }
               const targetExists = await this.queryBuilderService.findOne({
-                table: 'table_definition',
+                table: 'enfyra_table',
                 where: { _id: targetTableObjectId },
               });
               if (!targetExists) {
@@ -193,7 +193,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
               }
             } else if (typeof rel.targetTable === 'string') {
               const targetTableRecord = await this.queryBuilderService.findOne({
-                table: 'table_definition',
+                table: 'enfyra_table',
                 where: { name: rel.targetTable },
               });
               if (!targetTableRecord) {
@@ -211,7 +211,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
             const mappedByProperty = getRelationMappedByProperty(rel);
             if (mappedByProperty && targetTableObjectId) {
               const { data: owningRels } = await this.queryBuilderService.find({
-                table: 'relation_definition',
+                table: 'enfyra_relation',
                 where: {
                   sourceTable: targetTableObjectId,
                   propertyName: mappedByProperty,
@@ -295,7 +295,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
         if ('validateBody' in body) updateData.validateBody = body.validateBody;
         if (Object.keys(updateData).length > 0) {
           await this.queryBuilderService.update(
-            'table_definition',
+            'enfyra_table',
             id,
             updateData,
           );
@@ -309,25 +309,25 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
         if (tableRenamed) {
           await this.mongoService
             .getDb()
-            .collection('relation_definition')
+            .collection('enfyra_relation')
             .updateMany(
               { sourceTable: queryId },
               { $set: { sourceTableName: body.name, updatedAt: new Date() } },
             );
           await this.mongoService
             .getDb()
-            .collection('relation_definition')
+            .collection('enfyra_relation')
             .updateMany(
               { targetTable: queryId },
               { $set: { targetTableName: body.name, updatedAt: new Date() } },
             );
         }
-        stepLog(`STEP 7 updated table_definition row (+${lap()}ms)`);
+        stepLog(`STEP 7 updated enfyra_table row (+${lap()}ms)`);
         const renamedColumns: Array<{ oldName: string; newName: string }> = [];
         if (body.columns) {
           const { data: existingColumns } = await this.queryBuilderService.find(
             {
-              table: 'column_definition',
+              table: 'enfyra_column',
               where: {
                 table: queryId,
               },
@@ -339,13 +339,13 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
               typeof colId === 'string' ? new ObjectId(colId) : colId;
             await this.mongoService
               .getDb()
-              .collection('column_rule_definition')
+              .collection('enfyra_column_rule')
               .deleteMany({ column: colObjectId });
             await this.mongoService
               .getDb()
-              .collection('field_permission_definition')
+              .collection('enfyra_field_permission')
               .deleteMany({ column: colObjectId });
-            await this.queryBuilderService.delete('column_definition', colId);
+            await this.queryBuilderService.delete('enfyra_column', colId);
           }
           for (const col of body.columns) {
             if (col._id || col.id) {
@@ -386,7 +386,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
             if (col._id || col.id) {
               const colId = col._id || col.id;
               await this.queryBuilderService.update(
-                'column_definition',
+                'enfyra_column',
                 colId,
                 columnData,
               );
@@ -394,7 +394,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
                 typeof colId === 'string' ? new ObjectId(colId) : colId;
             } else {
               const inserted = await this.queryBuilderService.insert(
-                'column_definition',
+                'enfyra_column',
                 columnData,
               );
               colObjectId =
@@ -423,7 +423,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
             preloadedRelations ??
             (
               await this.queryBuilderService.find({
-                table: 'relation_definition',
+                table: 'enfyra_relation',
                 where: {
                   sourceTable: queryId,
                 },
@@ -438,7 +438,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
               typeof relId === 'string' ? new ObjectId(relId) : relId;
             await this.mongoService
               .getDb()
-              .collection('field_permission_definition')
+              .collection('enfyra_field_permission')
               .deleteMany({ relation: relObjectId });
             const deletedRelation = existingRelations.find(
               (r: any) => r._id?.toString() === relId.toString(),
@@ -446,7 +446,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
             if (deletedRelation) {
               const { data: inverseRels } = await this.queryBuilderService.find(
                 {
-                  table: 'relation_definition',
+                  table: 'enfyra_relation',
                   where: { mappedBy: deletedRelation._id },
                 },
               );
@@ -455,15 +455,15 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
                   affectedTableNames.add(inv.sourceTableName);
                 await this.mongoService
                   .getDb()
-                  .collection('field_permission_definition')
+                  .collection('enfyra_field_permission')
                   .deleteMany({ relation: inv._id });
                 await this.queryBuilderService.delete(
-                  'relation_definition',
+                  'enfyra_relation',
                   inv._id,
                 );
               }
             }
-            await this.queryBuilderService.delete('relation_definition', relId);
+            await this.queryBuilderService.delete('enfyra_relation', relId);
           }
           const relationIds = [];
           for (const rel of body.relations) {
@@ -491,7 +491,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
                   : targetTableIdFromObj;
             } else if (typeof rel.targetTable === 'string') {
               const targetTableRecord = await this.queryBuilderService.findOne({
-                table: 'table_definition',
+                table: 'enfyra_table',
                 where: { name: rel.targetTable },
               });
               if (targetTableRecord) {
@@ -514,7 +514,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
               resolvedTargetTableName = rel.targetTable?.name;
               if (!resolvedTargetTableName) {
                 const targetRec = await this.queryBuilderService.findOne({
-                  table: 'table_definition',
+                  table: 'enfyra_table',
                   where: { _id: targetTableObjectId },
                 });
                 resolvedTargetTableName = targetRec?.name;
@@ -527,7 +527,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
             const mappedByProperty = getRelationMappedByProperty(rel);
             if (mappedByProperty) {
               const { data: owningRels } = await this.queryBuilderService.find({
-                table: 'relation_definition',
+                table: 'enfyra_relation',
                 where: {
                   sourceTable: targetTableObjectId,
                   propertyName: mappedByProperty,
@@ -561,7 +561,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
                 rel.propertyName;
             } else if (updateResolvedMappedBy) {
               const owningRel = await this.queryBuilderService.findOne({
-                table: 'relation_definition',
+                table: 'enfyra_relation',
                 where: { _id: updateResolvedMappedBy },
               });
               relationData.foreignKeyColumn =
@@ -573,7 +573,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
             if (rel.type === 'many-to-many' && targetRelName) {
               if (updateResolvedMappedBy) {
                 const owningRel = await this.queryBuilderService.findOne({
-                  table: 'relation_definition',
+                  table: 'enfyra_relation',
                   where: { _id: updateResolvedMappedBy },
                 });
                 if (owningRel?.junctionTableName) {
@@ -605,7 +605,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
             let relObjectId;
             if (relId) {
               await this.queryBuilderService.update(
-                'relation_definition',
+                'enfyra_relation',
                 relId,
                 relationData,
               );
@@ -613,7 +613,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
                 typeof relId === 'string' ? new ObjectId(relId) : relId;
             } else {
               const inserted = await this.queryBuilderService.insert(
-                'relation_definition',
+                'enfyra_relation',
                 relationData,
               );
               relObjectId =
@@ -636,7 +636,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
               }
               const { data: existingOnTarget } =
                 await this.queryBuilderService.find({
-                  table: 'relation_definition',
+                  table: 'enfyra_relation',
                   where: {
                     sourceTable: targetTableObjectId,
                     propertyName: rel.inversePropertyName,
@@ -650,7 +650,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
               }
               const { data: existingInverse } =
                 await this.queryBuilderService.find({
-                  table: 'relation_definition',
+                  table: 'enfyra_relation',
                   where: { mappedBy: relObjectId },
                 });
               if (existingInverse.length > 0) {
@@ -693,7 +693,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
                   junction.junctionSourceColumn;
               }
               await this.queryBuilderService.insert(
-                'relation_definition',
+                'enfyra_relation',
                 inverseData,
               );
               const invTargetName =
@@ -845,7 +845,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
             isEnabled: body.graphqlEnabled === true,
             isSystem: exists.isSystem || false,
           });
-          stepLog(`STEP 14 gql_definition sync done (+${lap()}ms)`);
+          stepLog(`STEP 14 enfyra_graphql sync done (+${lap()}ms)`);
         }
 
         finalMetadata.affectedTables = [...affectedTableNames];

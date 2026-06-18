@@ -61,7 +61,7 @@ export class SessionCleanupService {
     while (hasMore && iterations < MAX_ITERATIONS) {
       iterations++;
       const result = await this.queryBuilderService.find({
-        table: 'session_definition',
+        table: 'enfyra_session',
         filter: { expiredAt: { _lt: now } },
         fields: [idField],
         limit: BATCH_SIZE,
@@ -74,7 +74,7 @@ export class SessionCleanupService {
       for (const session of expired) {
         try {
           await this.queryBuilderService.delete(
-            'session_definition',
+            'enfyra_session',
             session[idField],
           );
           totalDeleted++;
