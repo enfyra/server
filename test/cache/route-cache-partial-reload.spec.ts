@@ -1,4 +1,4 @@
-describe('RouteCacheService — partial reload for table_definition', () => {
+describe('RouteCacheService — partial reload for enfyra_table', () => {
   let cache: { routes: any[] };
   let dbRoutes: any[];
   let reloadSpecificRoutesCalled: { ids: any[] } | null;
@@ -8,7 +8,7 @@ describe('RouteCacheService — partial reload for table_definition', () => {
   const queryBuilder = {
     isMongoDb: () => false,
     select: jest.fn(async ({ tableName, filter }: any) => {
-      if (tableName === 'route_definition' && filter?.mainTableId) {
+      if (tableName === 'enfyra_route' && filter?.mainTableId) {
         const ids = filter.mainTableId._in || [];
         const matched = dbRoutes.filter((r) =>
           ids.some((id: any) => String(id) === String(r.mainTableId)),
@@ -22,9 +22,9 @@ describe('RouteCacheService — partial reload for table_definition', () => {
   async function applyPartialUpdate(payload: any) {
     const affectedTableNames = new Set<string>(payload.affectedTables || []);
 
-    if (payload.tableName === 'table_definition' && payload.ids?.length) {
+    if (payload.tableName === 'enfyra_table' && payload.ids?.length) {
       const result = await queryBuilder.select({
-        tableName: 'route_definition',
+        tableName: 'enfyra_route',
         filter: { mainTableId: { _in: payload.ids } },
         fields: ['id'],
       });
@@ -68,7 +68,7 @@ describe('RouteCacheService — partial reload for table_definition', () => {
     dbRoutes = [{ id: 99, mainTableId: 50 }];
 
     await applyPartialUpdate({
-      tableName: 'table_definition',
+      tableName: 'enfyra_table',
       scope: 'partial',
       ids: [50],
     });
@@ -93,7 +93,7 @@ describe('RouteCacheService — partial reload for table_definition', () => {
     dbRoutes = [];
 
     await applyPartialUpdate({
-      tableName: 'table_definition',
+      tableName: 'enfyra_table',
       scope: 'partial',
       ids: [50],
     });
@@ -112,7 +112,7 @@ describe('RouteCacheService — partial reload for table_definition', () => {
     dbRoutes = [{ id: 10, mainTableId: 50 }];
 
     await applyPartialUpdate({
-      tableName: 'table_definition',
+      tableName: 'enfyra_table',
       scope: 'partial',
       ids: [50],
     });
@@ -126,7 +126,7 @@ describe('RouteCacheService — partial reload for table_definition', () => {
     dbRoutes = [];
 
     await applyPartialUpdate({
-      tableName: 'table_definition',
+      tableName: 'enfyra_table',
       scope: 'partial',
       ids: [999],
     });
@@ -136,9 +136,9 @@ describe('RouteCacheService — partial reload for table_definition', () => {
     expect(engineRebuilt).toBe(false);
   });
 
-  it('non-table_definition payload: falls through to other handlers', async () => {
+  it('non-enfyra_table payload: falls through to other handlers', async () => {
     await applyPartialUpdate({
-      tableName: 'setting_definition',
+      tableName: 'enfyra_setting',
       scope: 'partial',
       ids: [1],
     });

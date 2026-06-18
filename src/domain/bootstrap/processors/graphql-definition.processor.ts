@@ -33,7 +33,7 @@ export class GraphQLDefinitionProcessor extends BaseTableProcessor {
         if (record.table) {
           if (isMongoDB) {
             const table = await this.queryBuilderService.findOne({
-              table: 'table_definition',
+              table: 'enfyra_table',
               where: { name: record.table },
             });
             if (!table) {
@@ -48,7 +48,7 @@ export class GraphQLDefinitionProcessor extends BaseTableProcessor {
                 : table._id;
           } else {
             const table = await this.queryBuilderService.findOne({
-              table: 'table_definition',
+              table: 'enfyra_table',
               where: { name: record.table },
             });
             if (!table) {
@@ -70,7 +70,7 @@ export class GraphQLDefinitionProcessor extends BaseTableProcessor {
   }
 
   getUniqueIdentifier(record: any): object {
-    return this.autoGetUniqueIdentifier(record, 'gql_definition');
+    return this.autoGetUniqueIdentifier(record, 'enfyra_graphql');
   }
 
   protected getCompareFields(): string[] {

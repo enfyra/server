@@ -22,12 +22,12 @@ describe('validateBootstrapDataFiles', () => {
   it('reports unknown route mainTable and method names', () => {
     const issues = validateBootstrapDataFiles({
       snapshot: {
-        method_definition: {},
-        route_definition: {},
+        enfyra_method: {},
+        enfyra_route: {},
       },
       defaultData: {
-        method_definition: [{ name: 'GET' }],
-        route_definition: [
+        enfyra_method: [{ name: 'GET' }],
+        enfyra_route: [
           {
             path: '/bad',
             mainTable: 'missing_definition',
@@ -47,42 +47,42 @@ describe('validateBootstrapDataFiles', () => {
   it('reports broken bootstrap references outside route records', () => {
     const issues = validateBootstrapDataFiles({
       snapshot: {
-        route_definition: {},
-        method_definition: {},
-        menu_definition: {},
-        gql_definition: {},
-        websocket_definition: {},
-        websocket_event_definition: {},
-        flow_definition: {},
-        flow_step_definition: {},
+        enfyra_route: {},
+        enfyra_method: {},
+        enfyra_menu: {},
+        enfyra_graphql: {},
+        enfyra_websocket: {},
+        enfyra_websocket_event: {},
+        enfyra_flow: {},
+        enfyra_flow_step: {},
         known_table: {},
       },
       defaultData: {
-        method_definition: [{ name: 'GET' }],
-        route_definition: [{ path: '/ok', availableMethods: ['GET'] }],
-        menu_definition: [
+        enfyra_method: [{ name: 'GET' }],
+        enfyra_route: [{ path: '/ok', availableMethods: ['GET'] }],
+        enfyra_menu: [
           {
             path: '/menu',
             permission: { route: '/missing', methods: ['NOPE'] },
           },
         ],
-        pre_hook_definition: [{ route: '/missing-hook', methods: ['GET'] }],
-        gql_definition: [{ table: { name: 'missing_table' } }],
-        websocket_definition: [{ name: 'admin' }],
-        websocket_event_definition: [{ gateway: { name: 'missing_ws' } }],
-        flow_definition: [{ name: 'main_flow' }],
-        flow_step_definition: [{ flow: { name: 'missing_flow' } }],
+        enfyra_pre_hook: [{ route: '/missing-hook', methods: ['GET'] }],
+        enfyra_graphql: [{ table: { name: 'missing_table' } }],
+        enfyra_websocket: [{ name: 'admin' }],
+        enfyra_websocket_event: [{ gateway: { name: 'missing_ws' } }],
+        enfyra_flow: [{ name: 'main_flow' }],
+        enfyra_flow_step: [{ flow: { name: 'missing_flow' } }],
       },
       dataMigration: {},
     });
 
     expect(issues.map((issue) => [issue.table, issue.field])).toEqual([
-      ['pre_hook_definition', 'route'],
-      ['menu_definition', 'permission'],
-      ['menu_definition', 'methods'],
-      ['gql_definition', 'table'],
-      ['websocket_event_definition', 'gateway'],
-      ['flow_step_definition', 'flow'],
+      ['enfyra_pre_hook', 'route'],
+      ['enfyra_menu', 'permission'],
+      ['enfyra_menu', 'methods'],
+      ['enfyra_graphql', 'table'],
+      ['enfyra_websocket_event', 'gateway'],
+      ['enfyra_flow_step', 'flow'],
     ]);
   });
 });

@@ -59,7 +59,7 @@ describe('CascadeHandler – getPolicyContext callback', () => {
           {
             propertyName: 'author',
             type: 'many-to-one',
-            targetTableName: 'user_definition',
+            targetTableName: 'enfyra_user',
             foreignKeyColumn: 'authorId',
           },
         ],
@@ -88,7 +88,7 @@ describe('CascadeHandler – getPolicyContext callback', () => {
     );
 
     expect(policyCheck).toHaveBeenCalledWith(
-      'user_definition',
+      'enfyra_user',
       'create',
       expect.objectContaining({ name: 'Alice' }),
     );
@@ -106,7 +106,7 @@ describe('CascadeHandler – getPolicyContext callback', () => {
           {
             propertyName: 'author',
             type: 'many-to-one',
-            targetTableName: 'user_definition',
+            targetTableName: 'enfyra_user',
             foreignKeyColumn: 'authorId',
           },
         ],
@@ -149,7 +149,7 @@ describe('CascadeHandler – getPolicyContext callback', () => {
           {
             propertyName: 'author',
             type: 'many-to-one',
-            targetTableName: 'user_definition',
+            targetTableName: 'enfyra_user',
             foreignKeyColumn: 'authorId',
           },
         ],
@@ -194,7 +194,7 @@ describe('CascadeHandler – getPolicyContext callback', () => {
           {
             propertyName: 'author',
             type: 'many-to-one',
-            targetTableName: 'user_definition',
+            targetTableName: 'enfyra_user',
             foreignKeyColumn: 'authorId',
           },
         ],
@@ -308,7 +308,7 @@ describe('CascadeHandler – getPolicyContext callback', () => {
           {
             propertyName: 'author',
             type: 'many-to-one',
-            targetTableName: 'user_definition',
+            targetTableName: 'enfyra_user',
             foreignKeyColumn: 'authorId',
           },
         ],

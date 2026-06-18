@@ -5,7 +5,7 @@
  */
 describe('MenuDefinitionProcessor — lazy batch transform', () => {
   it('should transform and insert each batch sequentially so parents exist for children', async () => {
-    const db: Record<string, any[]> = { menu_definition: [] };
+    const db: Record<string, any[]> = { enfyra_menu: [] };
     let insertId = 0;
 
     const queryBuilder = {
@@ -58,7 +58,7 @@ describe('MenuDefinitionProcessor — lazy batch transform', () => {
       for (const record of recs) {
         const transformed = { ...record };
         if (transformed.parent && typeof transformed.parent === 'string') {
-          const parent = await queryBuilder.findOneWhere('menu_definition', {
+          const parent = await queryBuilder.findOneWhere('enfyra_menu', {
             type: 'Dropdown Menu',
             label: transformed.parent,
           });
@@ -80,21 +80,21 @@ describe('MenuDefinitionProcessor — lazy batch transform', () => {
     for (const rawBatch of rawBatches) {
       const batch = await transformRecords(rawBatch);
       for (const record of batch) {
-        await queryBuilder.insertAndGet('menu_definition', record);
+        await queryBuilder.insertAndGet('enfyra_menu', record);
       }
     }
 
     // All 3 records inserted
-    expect(db.menu_definition).toHaveLength(3);
+    expect(db.enfyra_menu).toHaveLength(3);
 
     // "Settings" dropdown was created first (id=1)
-    const settings = db.menu_definition.find((r) => r.label === 'Settings');
+    const settings = db.enfyra_menu.find((r) => r.label === 'Settings');
     expect(settings).toBeDefined();
     expect(settings!.id).toBe(1);
 
     // Menu items should have parentId resolved correctly
-    const users = db.menu_definition.find((r) => r.label === 'Users');
-    const roles = db.menu_definition.find((r) => r.label === 'Roles');
+    const users = db.enfyra_menu.find((r) => r.label === 'Users');
+    const roles = db.enfyra_menu.find((r) => r.label === 'Roles');
     expect(users!.parentId).toBe(settings!.id);
     expect(roles!.parentId).toBe(settings!.id);
     expect(users!._parentNotFound).toBeUndefined();
@@ -102,7 +102,7 @@ describe('MenuDefinitionProcessor — lazy batch transform', () => {
   });
 
   it('should fail to resolve parent with eager transform (demonstrates the bug)', async () => {
-    const db: Record<string, any[]> = { menu_definition: [] };
+    const db: Record<string, any[]> = { enfyra_menu: [] };
     let insertId = 0;
 
     const queryBuilder = {
@@ -139,7 +139,7 @@ describe('MenuDefinitionProcessor — lazy batch transform', () => {
       for (const record of recs) {
         const transformed = { ...record };
         if (transformed.parent && typeof transformed.parent === 'string') {
-          const parent = await queryBuilder.findOneWhere('menu_definition', {
+          const parent = await queryBuilder.findOneWhere('enfyra_menu', {
             type: 'Dropdown Menu',
             label: transformed.parent,
           });
@@ -161,11 +161,11 @@ describe('MenuDefinitionProcessor — lazy batch transform', () => {
     const batch2 = await transformRecords(menuItems); // parent lookup fails here!
 
     for (const record of [...batch1, ...batch2]) {
-      await queryBuilder.insertAndGet('menu_definition', record);
+      await queryBuilder.insertAndGet('enfyra_menu', record);
     }
 
     // "Users" menu item has _parentNotFound because "Settings" wasn't in DB yet during transform
-    const users = db.menu_definition.find((r) => r.label === 'Users');
+    const users = db.enfyra_menu.find((r) => r.label === 'Users');
     expect(users!._parentNotFound).toBe(true);
     expect(users!.parentId).toBeUndefined();
   });

@@ -42,7 +42,7 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
     const idField = DatabaseConfigService.getPkField();
 
     const flowsResult = await this.queryBuilderService.find({
-      table: 'flow_definition',
+      table: 'enfyra_flow',
       filter: { isEnabled: { _eq: true } },
       fields: ['*'],
     });
@@ -50,7 +50,7 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
     const flows = [];
     for (const flow of flowsResult.data) {
       const stepsResult = await this.queryBuilderService.find({
-        table: 'flow_step_definition',
+        table: 'enfyra_flow_step',
         filter: { flow: { [idField]: { _eq: flow[idField] } } },
         fields: ['*', 'parent.*'],
         limit: 1000,
@@ -142,7 +142,7 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
     delete config.scriptLanguage;
     delete config.compiledCode;
     delete config.code;
-    await this.queryBuilderService.update('flow_step_definition', id, {
+    await this.queryBuilderService.update('enfyra_flow_step', id, {
       sourceCode: step.sourceCode ?? null,
       scriptLanguage: step.scriptLanguage ?? 'typescript',
       compiledCode: step.compiledCode ?? null,

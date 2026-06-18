@@ -89,7 +89,7 @@ export class FieldPermissionCacheService extends BaseCacheService<
   protected async loadFromDb(): Promise<any> {
     const [result, metadata] = await Promise.all([
       this.queryBuilderService.find({
-        table: 'field_permission_definition',
+        table: 'enfyra_field_permission',
         fields: FIELD_PERMISSION_CACHE_FIELDS,
         filter: { isEnabled: { _eq: true } },
         limit: 100000,
@@ -119,7 +119,7 @@ export class FieldPermissionCacheService extends BaseCacheService<
     payload: TCacheInvalidationPayload,
     publish = true,
   ): Promise<void> {
-    if (payload.table !== 'field_permission_definition') {
+    if (payload.table !== 'enfyra_field_permission') {
       await this.reload(publish);
       return;
     }
@@ -136,7 +136,7 @@ export class FieldPermissionCacheService extends BaseCacheService<
     if (ids.length === 0) return;
 
     const result = await this.queryBuilderService.find({
-      table: 'field_permission_definition',
+      table: 'enfyra_field_permission',
       fields: FIELD_PERMISSION_CACHE_FIELDS,
       filter: { id: { _in: ids } },
       limit: ids.length,

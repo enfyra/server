@@ -27,7 +27,7 @@ export class StorageConfigCacheService extends BaseCacheService<
 
   protected async loadFromDb(): Promise<any[]> {
     const result = await this.queryBuilderService.find({
-      table: 'storage_config_definition',
+      table: 'enfyra_storage_config',
       filter: { isEnabled: { _eq: true } },
       fields: ['*'],
     });

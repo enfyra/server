@@ -47,11 +47,11 @@ describe('MetadataCacheService', () => {
 
   it('builds SQL metadata from stored metadata without physical schema introspection', async () => {
     const service = makeService({
-      table_definition: [
+      enfyra_table: [
         { id: 1, name: 'authors', indexes: '[]', uniques: '[]' },
         { id: 2, name: 'posts', indexes: '[]', uniques: '[]' },
       ],
-      column_definition: [
+      enfyra_column: [
         {
           id: 10,
           tableId: 1,
@@ -89,7 +89,7 @@ describe('MetadataCacheService', () => {
           isPublished: true,
         },
       ],
-      relation_definition: [
+      enfyra_relation: [
         {
           id: 30,
           sourceTableId: 2,
@@ -150,11 +150,11 @@ describe('MetadataCacheService', () => {
 
   it('marks explicit FK and timestamp metadata instead of duplicating it', async () => {
     const service = makeService({
-      table_definition: [
+      enfyra_table: [
         { id: 1, name: 'authors', indexes: '[]', uniques: '[]' },
         { id: 2, name: 'posts', indexes: '[]', uniques: '[]' },
       ],
-      column_definition: [
+      enfyra_column: [
         {
           id: 10,
           tableId: 1,
@@ -192,7 +192,7 @@ describe('MetadataCacheService', () => {
           isSystem: false,
         },
       ],
-      relation_definition: [
+      enfyra_relation: [
         {
           id: 30,
           sourceTableId: 2,
@@ -232,9 +232,9 @@ describe('MetadataCacheService', () => {
 
   it('resolves inverse FK metadata from existing cache during partial reload', async () => {
     const service = makeService({
-      table_definition: [{ id: 2, name: 'teachers', indexes: '[]', uniques: '[]' }],
-      column_definition: [{ id: 20, tableId: 2, name: 'id', type: 'int', isPrimary: true }],
-      relation_definition: [
+      enfyra_table: [{ id: 2, name: 'teachers', indexes: '[]', uniques: '[]' }],
+      enfyra_column: [{ id: 20, tableId: 2, name: 'id', type: 'int', isPrimary: true }],
+      enfyra_relation: [
         {
           id: 41,
           sourceTableId: 2,
@@ -306,7 +306,7 @@ describe('MetadataCacheService', () => {
     };
 
     await (service as any).applyPartialUpdate({
-      table: 'table_definition',
+      table: 'enfyra_table',
       action: 'reload',
       scope: 'partial',
       ids: [2],

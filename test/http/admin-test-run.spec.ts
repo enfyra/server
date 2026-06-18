@@ -90,7 +90,7 @@ describe('admin test run', () => {
 
     const result = await postTest({
       kind: 'script',
-      tableName: 'route_handler_definition',
+      tableName: 'enfyra_route_handler',
       routeId: 1,
       method: 'POST',
       body: { value: 42 },

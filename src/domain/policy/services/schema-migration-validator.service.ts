@@ -432,7 +432,7 @@ export class SchemaMigrationValidatorService {
         }
       }
       const baseRelations = [...new Set([...relations, ...inverseRelations])];
-      if (tableName === 'table_definition') {
+      if (tableName === 'enfyra_table') {
         baseRelations.push(
           'columns.table',
           'relations.sourceTable',

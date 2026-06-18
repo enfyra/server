@@ -52,7 +52,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
 
   protected async loadFromDb(): Promise<string[]> {
     const result = await this.queryBuilderService.find({
-      table: 'package_definition',
+      table: 'enfyra_package',
       fields: ['name'],
       filter: {
         isEnabled: true,
@@ -127,7 +127,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     extra?: Record<string, any>,
   ) {
     try {
-      await this.queryBuilderService.update('package_definition', id, {
+      await this.queryBuilderService.update('enfyra_package', id, {
         status,
         ...extra,
       });
@@ -209,7 +209,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     }>
   > {
     const result = await this.queryBuilderService.find({
-      table: 'package_definition',
+      table: 'enfyra_package',
       fields: ['id', 'name', 'version', 'status'],
       filter: {
         isEnabled: true,

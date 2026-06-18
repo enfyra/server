@@ -18,12 +18,12 @@ const AUTH_PATHS = new Set([
 
 const PUBLIC_NON_AUTH_PATHS = new Set([
   '/assets/:id',
-  '/cors_origin_definition',
+  '/enfyra_cors_origin',
 ]);
 
 describe('default-data.json — publicMethods', () => {
   const data = loadJson('default-data.json');
-  const routes: any[] = data.route_definition ?? [];
+  const routes: any[] = data.enfyra_route ?? [];
 
   it('only auth routes and explicit public routes have publicMethods set', () => {
     const nonAuthPublished = routes.filter(
@@ -46,23 +46,23 @@ describe('default-data.json — publicMethods', () => {
 
 describe('data-migration.json — publicMethods cleanup', () => {
   const migration = loadJson('data-migration.json');
-  const routes: any[] = migration.route_definition ?? [];
+  const routes: any[] = migration.enfyra_route ?? [];
 
   const SHOULD_BE_EMPTY = [
     '/me',
     '/metadata',
     '/metadata/:name',
-    '/folder_definition/tree',
-    '/package_definition',
-    '/route_definition',
-    '/table_definition',
-    '/setting_definition',
+    '/enfyra_folder/tree',
+    '/enfyra_package',
+    '/enfyra_route',
+    '/enfyra_table',
+    '/enfyra_setting',
     '/me/oauth-accounts',
     '/graphql-schema',
-    '/menu_definition',
-    '/extension_definition',
-    '/extension_definition/preview',
-    '/storage_config_definition',
+    '/enfyra_menu',
+    '/enfyra_extension',
+    '/enfyra_extension/preview',
+    '/enfyra_storage_config',
   ];
 
   it.each(SHOULD_BE_EMPTY)('%s has publicMethods: []', (routePath) => {
@@ -92,7 +92,7 @@ describe('settings menu seed cleanup', () => {
   const migration = loadJson('data-migration.json');
 
   it('does not seed a dedicated field permissions menu', () => {
-    const menus: any[] = defaultData.menu_definition ?? [];
+    const menus: any[] = defaultData.enfyra_menu ?? [];
     expect(
       menus.find((menu) => menu.path === '/settings/field-permissions'),
     ).toBeUndefined();
@@ -103,14 +103,14 @@ describe('settings menu seed cleanup', () => {
     expect(
       deletedRecords.some(
         (record) =>
-          record.table === 'menu_definition' &&
+          record.table === 'enfyra_menu' &&
           record.filter?.path?._eq === '/settings/field-permissions',
       ),
     ).toBe(true);
   });
 
   it('does not seed a dedicated cache reload menu', () => {
-    const menus: any[] = defaultData.menu_definition ?? [];
+    const menus: any[] = defaultData.enfyra_menu ?? [];
     expect(
       menus.find((menu) => menu.path === '/settings/admin/cache'),
     ).toBeUndefined();
@@ -121,14 +121,14 @@ describe('settings menu seed cleanup', () => {
     expect(
       deletedRecords.some(
         (record) =>
-          record.table === 'menu_definition' &&
+          record.table === 'enfyra_menu' &&
           record.filter?.path?._eq === '/settings/admin/cache',
       ),
     ).toBe(true);
   });
 
   it('seeds runtime monitor at settings/runtime', () => {
-    const menus: any[] = defaultData.menu_definition ?? [];
+    const menus: any[] = defaultData.enfyra_menu ?? [];
     expect(
       menus.find((menu) => menu.path === '/settings/admin/runtime'),
     ).toBeUndefined();
@@ -140,7 +140,7 @@ describe('settings menu seed cleanup', () => {
   });
 
   it('updates the existing runtime monitor menu path through data migration', () => {
-    const menus: any[] = migration.menu_definition ?? [];
+    const menus: any[] = migration.enfyra_menu ?? [];
     expect(
       menus.find(
         (menu) => menu._unique?.path?._eq === '/settings/admin/runtime',
@@ -153,7 +153,7 @@ describe('settings menu seed cleanup', () => {
   });
 
   it('deletes the legacy routings menu instead of migrating it into the routes menu', () => {
-    const menus: any[] = migration.menu_definition ?? [];
+    const menus: any[] = migration.enfyra_menu ?? [];
     const deletedRecords: any[] = migration._deletedRecords ?? [];
 
     expect(
@@ -164,7 +164,7 @@ describe('settings menu seed cleanup', () => {
     expect(
       deletedRecords.some(
         (record) =>
-          record.table === 'menu_definition' &&
+          record.table === 'enfyra_menu' &&
           record.filter?.path?._eq === '/settings/routings',
       ),
     ).toBe(true);

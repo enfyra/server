@@ -8,11 +8,11 @@ function createQueryRunner(existingRelations: Record<number, any> = {}) {
   const runner: any = (table: string) => {
     const state: any = { table, whereValue: null, whereInValue: null };
     const resolveRows = () => {
-      if (table === 'relation_definition') {
+      if (table === 'enfyra_relation') {
         if (state.whereValue?.sourceTableId === 1) return [];
         if (state.whereValue?.sourceTableId === 2) return [];
       }
-      if (table === 'table_definition' && state.whereInValue?.column === 'id') {
+      if (table === 'enfyra_table' && state.whereInValue?.column === 'id') {
         return [
           { id: 1, name: 'courses' },
           { id: 2, name: 'users' },
@@ -34,7 +34,7 @@ function createQueryRunner(existingRelations: Record<number, any> = {}) {
       },
       first() {
         if (
-          table === 'relation_definition' &&
+          table === 'enfyra_relation' &&
           state.whereValue?.sourceTableId !== undefined &&
           state.whereValue?.propertyName !== undefined
         ) {
@@ -46,20 +46,20 @@ function createQueryRunner(existingRelations: Record<number, any> = {}) {
           return Promise.resolve(relation ?? null);
         }
         if (
-          table === 'relation_definition' &&
+          table === 'enfyra_relation' &&
           state.whereValue?.sourceTableId === 2 &&
           state.whereValue?.propertyName === 'posts'
         ) {
           return Promise.resolve(null);
         }
         if (
-          table === 'relation_definition' &&
+          table === 'enfyra_relation' &&
           state.whereValue?.id === 701
         ) {
-          return Promise.resolve(inserts.relation_definition?.[0] ?? null);
+          return Promise.resolve(inserts.enfyra_relation?.[0] ?? null);
         }
         if (
-          table === 'relation_definition' &&
+          table === 'enfyra_relation' &&
           existingRelations[state.whereValue?.id]
         ) {
           return Promise.resolve(existingRelations[state.whereValue.id]);
@@ -80,7 +80,7 @@ function createQueryRunner(existingRelations: Record<number, any> = {}) {
         for (const row of rows) {
           inserts[table].push({ ...row });
         }
-        if (table === 'relation_definition') {
+        if (table === 'enfyra_relation') {
           return Promise.resolve([nextRelationId++]);
         }
         return Promise.resolve([1]);
@@ -121,7 +121,7 @@ describe('SqlTableMetadataWriterService relation onDelete metadata', () => {
       new Set<string>(),
     );
 
-    const relationRows = inserts.relation_definition || [];
+    const relationRows = inserts.enfyra_relation || [];
     const owning = relationRows.find((row) => row.propertyName === 'author');
     const inverse = relationRows.find((row) => row.propertyName === 'posts');
 
@@ -151,7 +151,7 @@ describe('SqlTableMetadataWriterService relation onDelete metadata', () => {
       new Set<string>(),
     );
 
-    const relationRows = inserts.relation_definition || [];
+    const relationRows = inserts.enfyra_relation || [];
     const relation = relationRows.find((row) => row.propertyName === 'likedBy');
 
     expect(relation?.targetTableId).toBe(2);
@@ -192,7 +192,7 @@ describe('SqlTableMetadataWriterService relation onDelete metadata', () => {
       new Set<string>(),
     );
 
-    const relationRows = inserts.relation_definition || [];
+    const relationRows = inserts.enfyra_relation || [];
     const update = relationRows.find((row) => row.__update);
 
     expect(update?.mappedById).toBe(700);
@@ -235,7 +235,7 @@ describe('SqlTableMetadataWriterService relation onDelete metadata', () => {
       new Set<string>(),
     );
 
-    const relationRows = inserts.relation_definition || [];
+    const relationRows = inserts.enfyra_relation || [];
     const inverse = relationRows.find((row) => row.propertyName === 'mentoredCourses');
 
     expect(inverse?.mappedById).toBe(701);

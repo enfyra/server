@@ -32,7 +32,7 @@ export class SqlTableMetadataWriterService {
         ? this.filterConstraintGroups(body.indexes, allowedConstraintFields)
         : body.indexes;
 
-    await queryRunner('table_definition')
+    await queryRunner('enfyra_table')
       .where({ id })
       .update({
         name: body.name,
@@ -64,12 +64,12 @@ export class SqlTableMetadataWriterService {
       const bodyColumns = body.columns.filter(
         (col: any) => !ignoredFkColumns.has(col.name),
       );
-      const existingColumns = await queryRunner('column_definition')
+      const existingColumns = await queryRunner('enfyra_column')
         .where({ tableId: id })
         .select('id');
       const deletedColumnIds = getDeletedIds(existingColumns, bodyColumns);
       if (deletedColumnIds.length > 0) {
-        await queryRunner('column_definition')
+        await queryRunner('enfyra_column')
           .whereIn('id', deletedColumnIds)
           .delete();
       }
@@ -105,14 +105,14 @@ export class SqlTableMetadataWriterService {
         };
         let columnId: number | string;
         if (col.id) {
-          await queryRunner('column_definition')
+          await queryRunner('enfyra_column')
             .where({ id: col.id })
             .update(columnData);
           columnId = col.id;
         } else {
           columnId = await this.insertAndGetId(
             queryRunner,
-            'column_definition',
+            'enfyra_column',
             columnData,
           );
         }
@@ -130,7 +130,7 @@ export class SqlTableMetadataWriterService {
     }
 
     if (body.relations) {
-      const existingRelations = await queryRunner('relation_definition')
+      const existingRelations = await queryRunner('enfyra_relation')
         .where({ sourceTableId: id })
         .select('id');
       const deletedRelationIds = getDeletedIds(
@@ -138,20 +138,20 @@ export class SqlTableMetadataWriterService {
         body.relations,
       );
       if (deletedRelationIds.length > 0) {
-        const inverseRelations = await queryRunner('relation_definition')
+        const inverseRelations = await queryRunner('enfyra_relation')
           .whereIn('mappedById', deletedRelationIds)
           .select('sourceTableId');
         for (const inv of inverseRelations) {
-          const invTable = await queryRunner('table_definition')
+          const invTable = await queryRunner('enfyra_table')
             .where({ id: inv.sourceTableId })
             .select('name')
             .first();
           if (invTable?.name) affectedTableNames.add(invTable.name);
         }
-        await queryRunner('relation_definition')
+        await queryRunner('enfyra_relation')
           .whereIn('mappedById', deletedRelationIds)
           .delete();
-        await queryRunner('relation_definition')
+        await queryRunner('enfyra_relation')
           .whereIn('id', deletedRelationIds)
           .delete();
       }
@@ -160,7 +160,7 @@ export class SqlTableMetadataWriterService {
         .filter((tid: any) => tid != null);
       const targetTablesMap = new Map<string, string>();
       if (targetTableIds.length > 0) {
-        const targetTables = await queryRunner('table_definition')
+        const targetTables = await queryRunner('enfyra_table')
           .select('id', 'name')
           .whereIn('id', targetTableIds);
         for (const table of targetTables) {
@@ -175,7 +175,7 @@ export class SqlTableMetadataWriterService {
         );
         if (targetTableName) affectedTableNames.add(targetTableName);
         const existingRel = rel.id
-          ? await queryRunner('relation_definition')
+          ? await queryRunner('enfyra_relation')
               .where({ id: rel.id })
               .first()
           : null;
@@ -190,7 +190,7 @@ export class SqlTableMetadataWriterService {
         let updateMappedById: number | null = null;
         let mappedByRelation: any = null;
         if (mappedByProperty) {
-          mappedByRelation = await queryRunner('relation_definition')
+          mappedByRelation = await queryRunner('enfyra_relation')
             .where({
               sourceTableId: targetTableId,
               propertyName: mappedByProperty,
@@ -207,7 +207,7 @@ export class SqlTableMetadataWriterService {
         } else if (rel.id && existingRel) {
           updateMappedById = existingRel.mappedById || null;
           if (updateMappedById) {
-            mappedByRelation = await queryRunner('relation_definition')
+            mappedByRelation = await queryRunner('enfyra_relation')
               .where({ id: updateMappedById })
               .select(
                 'id',
@@ -279,7 +279,7 @@ export class SqlTableMetadataWriterService {
               relationData.junctionTargetColumn = junction.junctionTargetColumn;
             }
           } else if (updateMappedById) {
-            const owningRel = await queryRunner('relation_definition')
+            const owningRel = await queryRunner('enfyra_relation')
               .where({ id: updateMappedById })
               .first();
             if (owningRel?.junctionTableName) {
@@ -304,14 +304,14 @@ export class SqlTableMetadataWriterService {
         }
         let relationId: number | string;
         if (rel.id) {
-          await queryRunner('relation_definition')
+          await queryRunner('enfyra_relation')
             .where({ id: rel.id })
             .update(relationData);
           relationId = rel.id;
         } else {
           relationId = await this.insertAndGetId(
             queryRunner,
-            'relation_definition',
+            'enfyra_relation',
             relationData,
           );
         }
@@ -328,7 +328,7 @@ export class SqlTableMetadataWriterService {
               { relationName: rel.propertyName },
             );
           }
-          const existingOnTarget = await queryRunner('relation_definition')
+          const existingOnTarget = await queryRunner('enfyra_relation')
             .where({
               sourceTableId: targetTableId,
               propertyName: rel.inversePropertyName,
@@ -345,7 +345,7 @@ export class SqlTableMetadataWriterService {
               },
             );
           }
-          const existingInverse = await queryRunner('relation_definition')
+          const existingInverse = await queryRunner('enfyra_relation')
             .where({ mappedById: relationId })
             .first();
           if (existingInverse) {
@@ -370,7 +370,7 @@ export class SqlTableMetadataWriterService {
             onDelete: rel.onDelete || 'SET NULL',
           };
           if (rel.type === 'many-to-many') {
-            const owningRel = await queryRunner('relation_definition')
+            const owningRel = await queryRunner('enfyra_relation')
               .where({ id: relationId })
               .first();
             if (owningRel?.junctionTableName) {
@@ -379,7 +379,7 @@ export class SqlTableMetadataWriterService {
               inverseData.junctionTargetColumn = owningRel.junctionSourceColumn;
             }
           }
-          await queryRunner('relation_definition').insert(inverseData);
+          await queryRunner('enfyra_relation').insert(inverseData);
           const targetName = targetTablesMap.get(
             relationTargetTableMapKey(targetTableId),
           );
@@ -413,7 +413,7 @@ export class SqlTableMetadataWriterService {
     tableId: string | number,
     relations: any[],
   ): Promise<Set<string>> {
-    const existingRelations = await queryRunner('relation_definition')
+    const existingRelations = await queryRunner('enfyra_relation')
       .where({ sourceTableId: tableId })
       .select('id', 'propertyName', 'foreignKeyColumn', 'mappedById');
     const existingById = new Map(
@@ -474,12 +474,12 @@ export class SqlTableMetadataWriterService {
     },
   ): Promise<void> {
     if (!Array.isArray(opts.rules)) return;
-    const existing = await queryRunner('column_rule_definition')
+    const existing = await queryRunner('enfyra_column_rule')
       .where({ [opts.fkField]: opts.fkValue })
       .select('id');
     const deletedIds = getDeletedIds(existing, opts.rules);
     if (deletedIds.length > 0) {
-      await queryRunner('column_rule_definition')
+      await queryRunner('enfyra_column_rule')
         .whereIn('id', deletedIds)
         .delete();
     }
@@ -492,11 +492,11 @@ export class SqlTableMetadataWriterService {
         [opts.fkField]: opts.fkValue,
       };
       if (rule.id) {
-        await queryRunner('column_rule_definition')
+        await queryRunner('enfyra_column_rule')
           .where({ id: rule.id })
           .update(ruleData);
       } else {
-        await queryRunner('column_rule_definition').insert(ruleData);
+        await queryRunner('enfyra_column_rule').insert(ruleData);
       }
     }
   }
@@ -510,26 +510,26 @@ export class SqlTableMetadataWriterService {
     },
   ): Promise<void> {
     if (!Array.isArray(opts.permissions)) return;
-    const existing = await queryRunner('field_permission_definition')
+    const existing = await queryRunner('enfyra_field_permission')
       .where({ [opts.subjectFk]: opts.subjectFkValue })
       .select('id');
     const deletedIds = getDeletedIds(existing, opts.permissions);
     if (deletedIds.length > 0) {
       const junctionRows = await queryRunner(
-        'field_permission_definition_allowedUsers_user_definition',
+        'enfyra_field_permission_allowedUsers_enfyra_user',
       )
-        .whereIn('field_permission_definitionId', deletedIds)
+        .whereIn('enfyra_field_permissionId', deletedIds)
         .select('*')
         .catch(() => [] as any[]);
       if (Array.isArray(junctionRows) && junctionRows.length > 0) {
         await queryRunner(
-          'field_permission_definition_allowedUsers_user_definition',
+          'enfyra_field_permission_allowedUsers_enfyra_user',
         )
-          .whereIn('field_permission_definitionId', deletedIds)
+          .whereIn('enfyra_field_permissionId', deletedIds)
           .delete()
           .catch((): undefined => undefined);
       }
-      await queryRunner('field_permission_definition')
+      await queryRunner('enfyra_field_permission')
         .whereIn('id', deletedIds)
         .delete();
     }
@@ -552,14 +552,14 @@ export class SqlTableMetadataWriterService {
       };
       let permId: number | string;
       if (perm.id) {
-        await queryRunner('field_permission_definition')
+        await queryRunner('enfyra_field_permission')
           .where({ id: perm.id })
           .update(permData);
         permId = perm.id;
       } else {
         permId = await this.insertAndGetId(
           queryRunner,
-          'field_permission_definition',
+          'enfyra_field_permission',
           permData,
         );
       }
@@ -578,16 +578,16 @@ export class SqlTableMetadataWriterService {
       .map((u: any) => (typeof u === 'object' ? (u.id ?? u._id) : u))
       .filter((v: any) => v != null);
     const junctionTable =
-      'field_permission_definition_allowedUsers_user_definition';
+      'enfyra_field_permission_allowedUsers_enfyra_user';
     try {
       await queryRunner(junctionTable)
-        .where({ field_permission_definitionId: permId })
+        .where({ enfyra_field_permissionId: permId })
         .delete();
       if (userIds.length > 0) {
         await queryRunner(junctionTable).insert(
           userIds.map((uid: any) => ({
-            field_permission_definitionId: permId,
-            user_definitionId: uid,
+            enfyra_field_permissionId: permId,
+            enfyra_userId: uid,
           })),
         );
       }

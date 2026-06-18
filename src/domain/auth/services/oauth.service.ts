@@ -249,7 +249,7 @@ export class OAuthService {
     const isMongoDB = this.queryBuilderService.isMongoDb();
 
     const existingAccount = await this.queryBuilderService.findOne({
-      table: 'oauth_account_definition',
+      table: 'enfyra_oauth_account',
       where: {
         provider,
         providerUserId: userInfo.id,
@@ -262,7 +262,7 @@ export class OAuthService {
         : existingAccount.userId;
 
       const user = await this.queryBuilderService.findOne({
-        table: 'user_definition',
+        table: 'enfyra_user',
         where: { [DatabaseConfigService.getPkField()]: userId },
       });
 
@@ -274,7 +274,7 @@ export class OAuthService {
     }
 
     let user = await this.queryBuilderService.findOne({
-      table: 'user_definition',
+      table: 'enfyra_user',
       where: { email: userInfo.email },
     });
 
@@ -301,7 +301,7 @@ export class OAuthService {
 
       try {
         user = await this.queryBuilderService.insert(
-          'user_definition',
+          'enfyra_user',
           userData,
         );
         console.log(
@@ -309,7 +309,7 @@ export class OAuthService {
         );
       } catch {
         user = await this.queryBuilderService.findOne({
-          table: 'user_definition',
+          table: 'enfyra_user',
           where: { email: userInfo.email },
         });
         if (!user)
@@ -324,7 +324,7 @@ export class OAuthService {
 
     try {
       await this.queryBuilderService.insert(
-        'oauth_account_definition',
+        'enfyra_oauth_account',
         accountData,
       );
       console.log(`Linked ${provider} account to user: ${userInfo.email}`);
@@ -352,7 +352,7 @@ export class OAuthService {
     const ctx = this.dynamicContextFactory.createBase({ helpers: {}, user: null });
     ctx.$repos = this.repoRegistryService.createReposProxy(
       ctx,
-      'user_definition',
+      'enfyra_user',
     );
 
     const result = await this.executorEngineService.run(executable, ctx);
@@ -392,7 +392,7 @@ export class OAuthService {
           loginProvider: provider,
         };
 
-    return this.queryBuilderService.insert('session_definition', sessionData);
+    return this.queryBuilderService.insert('enfyra_session', sessionData);
   }
 
   private async generateTokens(
@@ -425,7 +425,7 @@ export class OAuthService {
       .update(refreshToken)
       .digest('hex');
     await this.queryBuilderService.update(
-      'session_definition',
+      'enfyra_session',
       sessionId?.toString(),
       { refreshTokenHash },
     );

@@ -48,7 +48,7 @@ export class MigrationJournalService {
     const uuid = `mj-${randomUUID()}`;
     const knex = this.getKnex();
 
-    await knex('schema_migration_definition').insert({
+    await knex('enfyra_schema_migration').insert({
       uuid,
       tableName: params.tableName,
       operation: params.operation,
@@ -69,14 +69,14 @@ export class MigrationJournalService {
 
   async markRunning(uuid: string): Promise<void> {
     const knex = this.getKnex();
-    await knex('schema_migration_definition')
+    await knex('enfyra_schema_migration')
       .where({ uuid })
       .update({ status: 'running', startedAt: new Date() });
   }
 
   async markCompleted(uuid: string): Promise<void> {
     const knex = this.getKnex();
-    await knex('schema_migration_definition')
+    await knex('enfyra_schema_migration')
       .where({ uuid })
       .update({ status: 'completed', completedAt: new Date() });
     this.logger.log(`Journal completed: ${uuid}`);
@@ -84,7 +84,7 @@ export class MigrationJournalService {
 
   async markFailed(uuid: string, error: string): Promise<void> {
     const knex = this.getKnex();
-    await knex('schema_migration_definition')
+    await knex('enfyra_schema_migration')
       .where({ uuid })
       .update({
         status: 'failed',
@@ -96,7 +96,7 @@ export class MigrationJournalService {
 
   async markRolledBack(uuid: string): Promise<void> {
     const knex = this.getKnex();
-    await knex('schema_migration_definition')
+    await knex('enfyra_schema_migration')
       .where({ uuid })
       .update({ status: 'rolled_back', completedAt: new Date() });
     this.logger.warn(`Journal rolled back: ${uuid}`);
@@ -104,7 +104,7 @@ export class MigrationJournalService {
 
   async executeRollback(uuid: string): Promise<void> {
     const knex = this.getKnex();
-    const entry = await knex('schema_migration_definition')
+    const entry = await knex('enfyra_schema_migration')
       .where({ uuid })
       .first();
 
@@ -144,12 +144,12 @@ export class MigrationJournalService {
     let pending: any[];
 
     try {
-      pending = await knex('schema_migration_definition')
+      pending = await knex('enfyra_schema_migration')
         .whereIn('status', ['pending', 'running'])
         .select('*');
     } catch {
       this.logger.warn(
-        'schema_migration_definition table not found, skipping recovery',
+        'enfyra_schema_migration table not found, skipping recovery',
       );
       return;
     }
@@ -185,7 +185,7 @@ export class MigrationJournalService {
     const staleCutoff = new Date(Date.now() - staleThresholdMs);
 
     try {
-      const stale = await knex('schema_migration_definition')
+      const stale = await knex('enfyra_schema_migration')
         .whereIn('status', ['pending', 'running'])
         .where('startedAt', '<', staleCutoff)
         .select('uuid', 'tableName', 'createdAt', 'startedAt');
@@ -201,7 +201,7 @@ export class MigrationJournalService {
         this.logger.warn(
           `Marking stale journal ${entry.uuid} as failed (age: ${Math.round(ageMs / 1000)}s)`,
         );
-        await knex('schema_migration_definition')
+        await knex('enfyra_schema_migration')
           .where({ uuid: entry.uuid })
           .update({
             status: 'failed',
@@ -221,7 +221,7 @@ export class MigrationJournalService {
     const knex = this.getKnex();
     const cutoff = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);
     try {
-      const deleted = await knex('schema_migration_definition')
+      const deleted = await knex('enfyra_schema_migration')
         .whereIn('status', ['completed', 'rolled_back'])
         .where('completedAt', '<', cutoff)
         .delete();

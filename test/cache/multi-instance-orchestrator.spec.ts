@@ -1,23 +1,23 @@
 describe('CacheOrchestrator — multi-instance Redis sync', () => {
   const RELOAD_CHAINS: Record<string, string[]> = {
-    table_definition: [
+    enfyra_table: [
       'metadata',
       'repoRegistry',
       'route',
       'graphql',
       'fieldPermission',
     ],
-    column_definition: [
+    enfyra_column: [
       'metadata',
       'repoRegistry',
       'route',
       'graphql',
       'fieldPermission',
     ],
-    route_definition: ['route', 'graphql', 'guard'],
-    guard_definition: ['guard'],
-    package_definition: ['package'],
-    setting_definition: ['setting', 'settingGraphql'],
+    enfyra_route: ['route', 'graphql', 'guard'],
+    enfyra_guard: ['guard'],
+    enfyra_package: ['package'],
+    enfyra_setting: ['setting', 'settingGraphql'],
   };
 
   type Signal = { instanceId: string; payload: any };
@@ -126,19 +126,19 @@ describe('CacheOrchestrator — multi-instance Redis sync', () => {
         notifyClients('pending');
         reloaded.push('metadata', 'repoRegistry', 'route', 'graphql');
         notifyClients('done');
-        await publishSignal({ tableName: 'table_definition', scope: 'full' });
+        await publishSignal({ tableName: 'enfyra_table', scope: 'full' });
       },
 
       async reloadRoutesOnly() {
         notifyClients('pending');
         reloaded.push('route');
         notifyClients('done');
-        await publishSignal({ tableName: 'route_definition', scope: 'full' });
+        await publishSignal({ tableName: 'enfyra_route', scope: 'full' });
       },
 
       async reloadGuardsOnly() {
         reloaded.push('guard');
-        await publishSignal({ tableName: 'guard_definition', scope: 'full' });
+        await publishSignal({ tableName: 'enfyra_guard', scope: 'full' });
       },
     };
   }
@@ -161,7 +161,7 @@ describe('CacheOrchestrator — multi-instance Redis sync', () => {
       const B = createInstance('B', redis);
 
       await A.handleInvalidation({
-        tableName: 'table_definition',
+        tableName: 'enfyra_table',
         scope: 'partial',
         ids: [99],
       });
@@ -208,7 +208,7 @@ describe('CacheOrchestrator — multi-instance Redis sync', () => {
       const B = createInstance('B', redis);
 
       await A.handleInvalidation({
-        tableName: 'column_definition',
+        tableName: 'enfyra_column',
         scope: 'partial',
         ids: [5],
       });
@@ -231,7 +231,7 @@ describe('CacheOrchestrator — multi-instance Redis sync', () => {
       const A = createInstance('A', redis);
 
       await A.handleInvalidation({
-        tableName: 'guard_definition',
+        tableName: 'enfyra_guard',
         scope: 'full',
       });
       await deliverSignals(redis, [A]);
@@ -248,7 +248,7 @@ describe('CacheOrchestrator — multi-instance Redis sync', () => {
       const C = createInstance('C', redis);
 
       await A.handleInvalidation({
-        tableName: 'table_definition',
+        tableName: 'enfyra_table',
         scope: 'partial',
         ids: [50],
       });
@@ -271,7 +271,7 @@ describe('CacheOrchestrator — multi-instance Redis sync', () => {
       const B = createInstance('B', redis);
 
       await A.handleInvalidation({
-        tableName: 'package_definition',
+        tableName: 'enfyra_package',
         scope: 'full',
       });
       await deliverSignals(redis, [A, B]);
@@ -290,7 +290,7 @@ describe('CacheOrchestrator — multi-instance Redis sync', () => {
       const B = createInstance('B', redis);
 
       await A.handleInvalidation({
-        tableName: 'setting_definition',
+        tableName: 'enfyra_setting',
         scope: 'full',
       });
       await deliverSignals(redis, [A, B]);

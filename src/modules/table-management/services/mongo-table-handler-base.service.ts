@@ -82,12 +82,12 @@ export class MongoTableHandlerService {
   }): Promise<void> {
     if (!Array.isArray(opts.rules)) return;
     const { data: existing } = await this.queryBuilderService.find({
-      table: 'column_rule_definition',
+      table: 'enfyra_column_rule',
       where: { [opts.subjectFk]: opts.subjectFkValue },
     });
     const deletedIds = getDeletedIds(existing, opts.rules);
     for (const rid of deletedIds) {
-      await this.queryBuilderService.delete('column_rule_definition', rid);
+      await this.queryBuilderService.delete('enfyra_column_rule', rid);
     }
     for (const rule of opts.rules) {
       const ruleData: any = {
@@ -100,13 +100,13 @@ export class MongoTableHandlerService {
       const ruleId = rule._id || rule.id;
       if (ruleId) {
         await this.queryBuilderService.update(
-          'column_rule_definition',
+          'enfyra_column_rule',
           ruleId,
           ruleData,
         );
       } else {
         await this.queryBuilderService.insert(
-          'column_rule_definition',
+          'enfyra_column_rule',
           ruleData,
         );
       }
@@ -120,12 +120,12 @@ export class MongoTableHandlerService {
   }): Promise<void> {
     if (!Array.isArray(opts.permissions)) return;
     const { data: existing } = await this.queryBuilderService.find({
-      table: 'field_permission_definition',
+      table: 'enfyra_field_permission',
       where: { [opts.subjectFk]: opts.subjectFkValue },
     });
     const deletedIds = getDeletedIds(existing, opts.permissions);
     for (const pid of deletedIds) {
-      await this.queryBuilderService.delete('field_permission_definition', pid);
+      await this.queryBuilderService.delete('enfyra_field_permission', pid);
     }
     for (const perm of opts.permissions) {
       const roleRef =
@@ -151,13 +151,13 @@ export class MongoTableHandlerService {
       const permId = perm._id || perm.id;
       if (permId) {
         await this.queryBuilderService.update(
-          'field_permission_definition',
+          'enfyra_field_permission',
           permId,
           permData,
         );
       } else {
         await this.queryBuilderService.insert(
-          'field_permission_definition',
+          'enfyra_field_permission',
           permData,
         );
       }
@@ -187,7 +187,7 @@ export class MongoTableHandlerService {
     };
 
     const rawTable = await db
-      .collection('table_definition')
+      .collection('enfyra_table')
       .findOne({ _id: queryId });
     if (!rawTable) return null;
     const table = normalize(rawTable);
@@ -207,7 +207,7 @@ export class MongoTableHandlerService {
       }
     }
     const rawColumns = await db
-      .collection('column_definition')
+      .collection('enfyra_column')
       .find({ table: queryId })
       .toArray();
     const columns = rawColumns.map(normalize);
@@ -225,7 +225,7 @@ export class MongoTableHandlerService {
       }
     }
     const rawRelations = await db
-      .collection('relation_definition')
+      .collection('enfyra_relation')
       .find({ sourceTable: queryId })
       .toArray();
     const relations = rawRelations.map(normalize);

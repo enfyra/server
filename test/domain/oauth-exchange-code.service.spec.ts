@@ -90,7 +90,7 @@ describe('OAuthExchangeCodeService', () => {
 
     expect(result).toEqual({ deleted: 1 });
     expect(queryBuilderService.delete).toHaveBeenCalledWith(
-      'session_definition',
+      'enfyra_session',
       'session-1',
     );
     expect(store.has('auth:oauth-exchange:pending:expired-code')).toBe(false);

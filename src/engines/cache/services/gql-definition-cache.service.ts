@@ -41,7 +41,7 @@ export class GqlDefinitionCacheService extends BaseCacheService<
   protected async loadFromDb(): Promise<any> {
     try {
       const result = await this.queryBuilderService.find({
-        table: 'gql_definition',
+        table: 'enfyra_graphql',
         fields: ['*', 'table.id', 'table.name'],
         limit: 10000,
       });

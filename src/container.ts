@@ -48,7 +48,6 @@ import {
   FolderDefinitionProcessor,
   GenericTableProcessor,
   GraphQLDefinitionProcessor,
-  HookDefinitionProcessor,
   MenuDefinitionProcessor,
   MethodDefinitionProcessor,
   PostHookDefinitionProcessor,
@@ -74,6 +73,7 @@ import {
   MetadataProvisionService,
   ProvisionService,
   SchemaHealingService,
+  SystemCoreTableResolver,
 } from './engines/bootstrap';
 
 import { LoggingService } from './domain/exceptions';
@@ -346,6 +346,7 @@ export interface Cradle {
   provisionService: ProvisionService;
   firstRunInitializer: FirstRunInitializer;
   schemaHealingService: SchemaHealingService;
+  systemCoreTableResolver: SystemCoreTableResolver;
   metadataProvisionService: MetadataProvisionService;
   metadataProvisionSqlService: MetadataProvisionSqlService;
   metadataProvisionMongoService: MetadataProvisionMongoService;
@@ -362,7 +363,6 @@ export interface Cradle {
   preHookDefinitionProcessor: PreHookDefinitionProcessor;
   postHookDefinitionProcessor: PostHookDefinitionProcessor;
   fieldPermissionDefinitionProcessor: FieldPermissionDefinitionProcessor;
-  hookDefinitionProcessor: HookDefinitionProcessor;
   settingDefinitionProcessor: SettingDefinitionProcessor;
   extensionDefinitionProcessor: ExtensionDefinitionProcessor;
   folderDefinitionProcessor: FolderDefinitionProcessor;
@@ -659,6 +659,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     provisionService: asClass(ProvisionService).singleton(),
     firstRunInitializer: asClass(FirstRunInitializer).singleton(),
     schemaHealingService: asClass(SchemaHealingService).singleton(),
+    systemCoreTableResolver: asClass(SystemCoreTableResolver).singleton(),
     metadataProvisionService: asClass(MetadataProvisionService).singleton(),
     metadataProvisionSqlService: asClass(
       MetadataProvisionSqlService,
@@ -685,7 +686,6 @@ export function buildContainer(): AwilixContainer<Cradle> {
     fieldPermissionDefinitionProcessor: asClass(
       FieldPermissionDefinitionProcessor,
     ).singleton(),
-    hookDefinitionProcessor: asClass(HookDefinitionProcessor).singleton(),
     settingDefinitionProcessor: asClass(SettingDefinitionProcessor).singleton(),
     extensionDefinitionProcessor: asClass(
       ExtensionDefinitionProcessor,

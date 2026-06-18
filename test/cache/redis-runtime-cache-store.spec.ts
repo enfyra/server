@@ -174,7 +174,7 @@ describe('Redis runtime cache mode', () => {
     await cache.reload(false);
     await cache.partialReload(
       {
-        table: 'setting_definition',
+        table: 'enfyra_setting',
         action: 'reload',
         scope: 'partial',
         timestamp: Date.now(),

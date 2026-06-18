@@ -37,6 +37,11 @@ export interface RelationModifyDef {
   };
 }
 
+export interface TableRenameDef {
+  from: string;
+  to: string;
+}
+
 /**
  * Table migration definition
  */
@@ -75,6 +80,26 @@ export interface TableMigrationDef {
  * Schema migration file structure
  */
 export interface SchemaMigrationDef {
+  /**
+   * Core metadata tables must be renamed before any normal metadata query.
+   */
+  coreTablesToRename?: TableRenameDef[];
+
+  /**
+   * Table renames applied after core metadata tables are available.
+   */
+  tablesToRename?: TableRenameDef[];
+
+  /**
+   * Physical tables/collections that no longer have metadata but may exist in old installs.
+   */
+  physicalTablesToDrop?: string[];
+
+  /**
+   * Physical tables/collections without metadata that need a direct rename.
+   */
+  physicalTablesToRename?: TableRenameDef[];
+
   /**
    * Table migrations
    */

@@ -401,7 +401,7 @@ export class SqlSchemaDiffService {
     const mergedIndexes = [...userDefinedIndexes, ...newIndexes];
 
     try {
-      await knex('table_definition')
+      await knex('enfyra_table')
         .where('name', tableName)
         .update({ indexes: JSON.stringify(mergedIndexes) });
     } catch (error) {

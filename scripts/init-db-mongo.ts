@@ -150,9 +150,9 @@ async function createCollection(
     return;
   }
   const METADATA_TABLES = [
-    'table_definition',
-    'column_definition',
-    'relation_definition',
+    'enfyra_table',
+    'enfyra_column',
+    'enfyra_relation',
   ];
   if (METADATA_TABLES.includes(collectionName)) {
     await db.createCollection(collectionName);
@@ -180,7 +180,7 @@ export async function initializeDatabaseMongo(): Promise<void> {
     console.log('✅ Connected to MongoDB');
     const dbName = DB_URI.match(/\/([^/?]+)(\?|$)/)?.[1] || 'enfyra';
     const db = client.db(dbName);
-    const settingCollection = db.collection('setting_definition');
+    const settingCollection = db.collection('enfyra_setting');
     const existingSettings = await settingCollection.findOne({ isInit: true });
     if (existingSettings) {
       console.log('⚠️ Database already initialized, skipping init.');

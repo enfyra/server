@@ -39,7 +39,7 @@ export class WebsocketDefinitionProcessor extends BaseTableProcessor {
           if (!transformedRecord.updatedAt) transformedRecord.updatedAt = now;
         }
 
-        return normalizeScriptRecord('websocket_definition', transformedRecord);
+        return normalizeScriptRecord('enfyra_websocket', transformedRecord);
       }),
     );
 

@@ -17,7 +17,7 @@ export class BootstrapScriptDefinitionProcessor extends BaseTableProcessor {
         if (!transformed.createdAt) transformed.createdAt = now;
         if (!transformed.updatedAt) transformed.updatedAt = now;
       }
-      return normalizeScriptRecord('bootstrap_script_definition', transformed);
+      return normalizeScriptRecord('enfyra_bootstrap_script', transformed);
     });
   }
   getUniqueIdentifier(record: any): object {

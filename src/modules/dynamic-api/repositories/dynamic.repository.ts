@@ -785,7 +785,7 @@ export class DynamicRepository {
       sortValue,
       cleanDeep || {},
     );
-    if (this.tableName === 'table_definition') {
+    if (this.tableName === 'enfyra_table') {
     }
     const result = await this.queryBuilderService.find({
       table: this.tableName,
@@ -870,7 +870,7 @@ export class DynamicRepository {
         ...writeMeta,
         bodyKeys: Object.keys(body).length,
       });
-      if (this.tableName === 'table_definition') {
+      if (this.tableName === 'enfyra_table') {
         body.isSystem = false;
         const table: any = await this.tableHandlerService.createTable(
           body as any,
@@ -955,7 +955,7 @@ export class DynamicRepository {
   }
 
   private async createBatch(data: any): Promise<DynamicBatchCreateResult> {
-    if (this.tableName === 'table_definition') {
+    if (this.tableName === 'enfyra_table') {
       throw new BadRequestException('Batch create is not supported for tables');
     }
 
@@ -1005,21 +1005,21 @@ export class DynamicRepository {
     if (isPolicyDeny(createDecision)) {
       throw new BadRequestException(createDecision.message);
     }
-    if (this.tableName === 'route_definition') {
+    if (this.tableName === 'enfyra_route') {
       this.filterMethodsSubsetOfAvailable(body, null, 'publicMethods');
       this.filterMethodsSubsetOfAvailable(body, null, 'skipRoleGuardMethods');
     }
-    if (this.tableName === 'extension_definition' && body.code) {
+    if (this.tableName === 'enfyra_extension' && body.code) {
       const { processExtensionDefinition } =
         await import('../../extension-definition/utils/processor.util');
       const { processedBody } = await processExtensionDefinition(body, 'POST');
       Object.assign(body, processedBody);
     }
     Object.assign(body, this.normalizeScriptRecordOrThrow(body));
-    if (this.tableName === 'flow_step_definition') {
+    if (this.tableName === 'enfyra_flow_step') {
       Object.assign(body, this.normalizeFlowStepScriptConfigOrThrow(body));
     }
-    if (this.tableName === 'column_rule_definition') {
+    if (this.tableName === 'enfyra_column_rule') {
       await this.assertColumnRuleUnique(body, null);
     }
     if (body.id !== undefined) {
@@ -1092,17 +1092,17 @@ export class DynamicRepository {
       if (isPolicyDeny(updateDecision)) {
         throw new BadRequestException(updateDecision.message);
       }
-      if (this.tableName === 'route_definition' && body.publicMethods) {
+      if (this.tableName === 'enfyra_route' && body.publicMethods) {
         this.filterMethodsSubsetOfAvailable(body, exists, 'publicMethods');
       }
-      if (this.tableName === 'route_definition' && body.skipRoleGuardMethods) {
+      if (this.tableName === 'enfyra_route' && body.skipRoleGuardMethods) {
         this.filterMethodsSubsetOfAvailable(
           body,
           exists,
           'skipRoleGuardMethods',
         );
       }
-      if (this.tableName === 'extension_definition' && body.code) {
+      if (this.tableName === 'enfyra_extension' && body.code) {
         const { processExtensionDefinition } =
           await import('../../extension-definition/utils/processor.util');
         const { processedBody } = await processExtensionDefinition(
@@ -1112,7 +1112,7 @@ export class DynamicRepository {
         Object.assign(body, processedBody);
       }
       Object.assign(body, this.normalizeScriptPatchOrThrow(body, exists));
-      if (this.tableName === 'flow_step_definition') {
+      if (this.tableName === 'enfyra_flow_step') {
         const normalizedFlowStep = this.normalizeFlowStepScriptConfigOrThrow({
           ...exists,
           ...body,
@@ -1130,10 +1130,10 @@ export class DynamicRepository {
           body.config = normalizedFlowStep.config;
         }
       }
-      if (this.tableName === 'column_rule_definition') {
+      if (this.tableName === 'enfyra_column_rule') {
         await this.assertColumnRuleUnique(body, id);
       }
-      if (this.tableName === 'table_definition') {
+      if (this.tableName === 'enfyra_table') {
         const table: any = await this.tableHandlerService.updateTable(
           id,
           body,
@@ -1186,7 +1186,7 @@ export class DynamicRepository {
         durationMs: Date.now() - startedAt,
       });
       if (
-        this.tableName === 'user_definition' &&
+        this.tableName === 'enfyra_user' &&
         body &&
         Object.prototype.hasOwnProperty.call(body, 'password') &&
         this.userRevocationService
@@ -1241,7 +1241,7 @@ export class DynamicRepository {
       if (isPolicyDeny(deleteDecision)) {
         throw new BadRequestException(deleteDecision.message);
       }
-      if (this.tableName === 'table_definition') {
+      if (this.tableName === 'enfyra_table') {
         const deleted: any = await this.tableHandlerService.delete(
           id,
           this.context,
@@ -1256,20 +1256,20 @@ export class DynamicRepository {
         });
         return { message: 'Success', statusCode: 200 };
       }
-      if (this.tableName === 'relation_definition') {
+      if (this.tableName === 'enfyra_relation') {
         const relRow: any = await this.queryBuilderService.findOne({
-          table: 'relation_definition',
+          table: 'enfyra_relation',
           where: { id },
           fields: ['*', 'sourceTable.id', 'sourceTable.name'],
         });
         const sourceTableId = relRow?.sourceTable?.id;
         if (!sourceTableId) {
           throw new BadRequestException(
-            `relation_definition ${id}: sourceTable not found`,
+            `enfyra_relation ${id}: sourceTable not found`,
           );
         }
         const tableRow: any = await this.queryBuilderService.findOne({
-          table: 'table_definition',
+          table: 'enfyra_table',
           where: { id: sourceTableId },
           fields: [
             '*',
@@ -1283,7 +1283,7 @@ export class DynamicRepository {
         });
         if (!tableRow) {
           throw new BadRequestException(
-            `relation_definition ${id}: source table_definition ${sourceTableId} not found`,
+            `enfyra_relation ${id}: source enfyra_table ${sourceTableId} not found`,
           );
         }
         const remainingRelations = (tableRow.relations || []).filter(
@@ -1347,7 +1347,7 @@ export class DynamicRepository {
         (tbl, op, d) => this.cascadePolicyCheck(tbl, op, d),
         () => this.queryBuilderService.delete(this.tableName, id),
       );
-      if (this.tableName === 'flow_definition') {
+      if (this.tableName === 'enfyra_flow') {
         await this.flowQueueMaintenanceService?.removeFlowJobs({
           id,
           name: exists.name,
@@ -1358,7 +1358,7 @@ export class DynamicRepository {
         ...writeMeta,
         durationMs: Date.now() - startedAt,
       });
-      if (this.tableName === 'user_definition' && this.userRevocationService) {
+      if (this.tableName === 'enfyra_user' && this.userRevocationService) {
         await this.userRevocationService.publish(id);
       }
       return { message: 'Delete successfully!', statusCode: 200 };
@@ -1577,7 +1577,7 @@ export class DynamicRepository {
     if (columnId == null) return;
 
     const existing = await this.queryBuilderService.find({
-      table: 'column_rule_definition',
+      table: 'enfyra_column_rule',
       filter: {
         ruleType: { _eq: ruleType },
         column: { id: { _eq: columnId } },

@@ -7,3 +7,4 @@ export * from './metadata-provision-sql.service';
 export * from './metadata-provision.service';
 export * from './schema-healing.service';
 export * from './provision.service';
+export * from './system-core-table-resolver.service';

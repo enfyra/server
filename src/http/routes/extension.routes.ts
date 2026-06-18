@@ -7,7 +7,7 @@ export function registerExtensionRoutes(
   app: Express,
   container: AwilixContainer<Cradle>,
 ) {
-  app.post('/extension_definition/preview', async (req: any, res: Response) => {
+  app.post('/enfyra_extension/preview', async (req: any, res: Response) => {
     const body = req.body;
     if (!body?.code || typeof body.code !== 'string') {
       throw new BadRequestException('Code is required');
@@ -31,7 +31,7 @@ export function registerExtensionRoutes(
     return res.json({ success: true, compiledCode: code, extensionId });
   });
 
-  app.post('/extension_definition', async (req: any, res: Response) => {
+  app.post('/enfyra_extension', async (req: any, res: Response) => {
     const { processExtensionDefinition } =
       await import('../../modules/extension-definition/utils/processor.util');
     const { processedBody } = await processExtensionDefinition(
@@ -51,7 +51,7 @@ export function registerExtensionRoutes(
     return res.json(result);
   });
 
-  app.patch('/extension_definition/:id', async (req: any, res: Response) => {
+  app.patch('/enfyra_extension/:id', async (req: any, res: Response) => {
     const { processExtensionDefinition } =
       await import('../../modules/extension-definition/utils/processor.util');
     const { processedBody } = await processExtensionDefinition(

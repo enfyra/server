@@ -25,7 +25,7 @@ export class SqlTableMetadataBuilderService {
     trx: any,
     tableId: string | number,
   ): Promise<any> {
-    const table = await trx('table_definition').where({ id: tableId }).first();
+    const table = await trx('enfyra_table').where({ id: tableId }).first();
     if (!table) return null;
     if (table.uniques && typeof table.uniques === 'string') {
       try {
@@ -41,7 +41,7 @@ export class SqlTableMetadataBuilderService {
         table.indexes = [];
       }
     }
-    table.columns = await trx('column_definition')
+    table.columns = await trx('enfyra_column')
       .where({ tableId })
       .select('*');
     for (const col of table.columns) {
@@ -56,21 +56,21 @@ export class SqlTableMetadataBuilderService {
         } catch (e: any) {}
       }
     }
-    const relations = await trx('relation_definition')
-      .where({ 'relation_definition.sourceTableId': tableId })
+    const relations = await trx('enfyra_relation')
+      .where({ 'enfyra_relation.sourceTableId': tableId })
       .leftJoin(
-        'table_definition',
-        'relation_definition.targetTableId',
-        'table_definition.id',
+        'enfyra_table',
+        'enfyra_relation.targetTableId',
+        'enfyra_table.id',
       )
       .select(
-        'relation_definition.*',
-        'table_definition.name as targetTableName',
+        'enfyra_relation.*',
+        'enfyra_table.name as targetTableName',
       );
     for (const rel of relations) {
       rel.sourceTableName = table.name;
       if (!rel.targetTableName && rel.targetTableId) {
-        const targetTable = await trx('table_definition')
+        const targetTable = await trx('enfyra_table')
           .where({ id: rel.targetTableId })
           .first();
         if (targetTable) {

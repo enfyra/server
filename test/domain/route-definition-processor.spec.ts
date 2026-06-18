@@ -6,7 +6,7 @@ function makeKnex(methodRows: any[] = []) {
   const inserts: any[] = [];
   const rawCalls: any[] = [];
   const knex = jest.fn((table: string) => {
-    if (table === 'method_definition') {
+    if (table === 'enfyra_method') {
       return {
         select: jest.fn().mockReturnThis(),
         whereIn: jest.fn((_field: string, values: string[]) =>
@@ -16,7 +16,7 @@ function makeKnex(methodRows: any[] = []) {
         ),
       };
     }
-    if (table === 'relation_definition as r') {
+    if (table === 'enfyra_relation as r') {
       let propertyName = 'availableMethods';
       const chain: any = {
         leftJoin: jest.fn(() => chain),
@@ -89,11 +89,11 @@ describe('RouteDefinitionProcessor SQL relation writes', () => {
         },
       ],
       queryBuilder,
-      'route_definition',
+      'enfyra_route',
     );
 
     expect(queryBuilder.insert).toHaveBeenCalledWith(
-      'route_definition',
+      'enfyra_route',
       expect.not.objectContaining({
         availableMethods: expect.anything(),
         skipRoleGuardMethods: expect.anything(),
@@ -128,7 +128,7 @@ describe('RouteDefinitionProcessor SQL relation writes', () => {
     await processor.processWithQueryBuilder(
       [{ path: '/assets/:id', availableMethods: ['GET'] }],
       queryBuilder,
-      'route_definition',
+      'enfyra_route',
     );
 
     expect(knex.rawCalls).toContainEqual({

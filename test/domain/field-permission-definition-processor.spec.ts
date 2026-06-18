@@ -39,13 +39,13 @@ describe('FieldPermissionDefinitionProcessor.processWithQueryBuilder', () => {
       first: vi.fn().mockResolvedValue(existingPermission),
     };
     const knex = vi.fn((table: string) => {
-      expect(table).toBe('field_permission_definition');
+      expect(table).toBe('enfyra_field_permission');
       return builder;
     });
     const queryBuilder: any = {
       findOne: vi
         .fn()
-        .mockResolvedValueOnce({ id: 10, name: 'user_definition' })
+        .mockResolvedValueOnce({ id: 10, name: 'enfyra_user' })
         .mockResolvedValueOnce({ id: 20, name: 'password' }),
       getKnex: vi.fn(() => knex),
       insert: vi.fn(),
@@ -64,13 +64,13 @@ describe('FieldPermissionDefinitionProcessor.processWithQueryBuilder', () => {
           effect: 'allow',
           description:
             'Allow authenticated user to update own password via /me',
-          _column: { table: 'user_definition', name: 'password' },
+          _column: { table: 'enfyra_user', name: 'password' },
           _role: null,
           condition,
         },
       ],
       queryBuilder,
-      'field_permission_definition',
+      'enfyra_field_permission',
     );
 
     expect(result).toEqual({ created: 0, skipped: 1 });
@@ -105,13 +105,13 @@ describe('FieldPermissionDefinitionProcessor.processWithQueryBuilder', () => {
       relation: null,
     });
     const collection = vi.fn((table: string) => {
-      expect(table).toBe('field_permission_definition');
+      expect(table).toBe('enfyra_field_permission');
       return { findOne };
     });
     const queryBuilder: any = {
       findOne: vi
         .fn()
-        .mockResolvedValueOnce({ _id: tableId, name: 'user_definition' })
+        .mockResolvedValueOnce({ _id: tableId, name: 'enfyra_user' })
         .mockResolvedValueOnce({ _id: columnId, name: 'password' }),
       getMongoDb: vi.fn(() => ({ collection })),
       insert: vi.fn(),
@@ -130,13 +130,13 @@ describe('FieldPermissionDefinitionProcessor.processWithQueryBuilder', () => {
           effect: 'allow',
           description:
             'Allow authenticated user to update own password via /me',
-          _column: { table: 'user_definition', name: 'password' },
+          _column: { table: 'enfyra_user', name: 'password' },
           _role: null,
           condition,
         },
       ],
       queryBuilder,
-      'field_permission_definition',
+      'enfyra_field_permission',
     );
 
     expect(result).toEqual({ created: 0, skipped: 1 });

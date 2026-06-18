@@ -1,4 +1,5 @@
 export type { TCacheInvalidationPayload } from '../types/cache.types';
+import { SYSTEM_TABLES } from './system-tables.constants';
 
 export const CACHE_EVENTS = {
   INVALIDATE: 'cache:invalidate',
@@ -49,39 +50,39 @@ const METADATA_GROUP: CacheIdentifier[] = [
 ];
 
 export const CACHE_INVALIDATION_MAP: Record<string, CacheIdentifier[]> = {
-  table_definition: METADATA_GROUP,
-  column_definition: METADATA_GROUP,
-  relation_definition: METADATA_GROUP,
-  column_rule_definition: [CACHE_IDENTIFIERS.COLUMN_RULE],
+  [SYSTEM_TABLES.table]: METADATA_GROUP,
+  [SYSTEM_TABLES.column]: METADATA_GROUP,
+  [SYSTEM_TABLES.relation]: METADATA_GROUP,
+  [SYSTEM_TABLES.columnRule]: [CACHE_IDENTIFIERS.COLUMN_RULE],
 
-  route_definition: ROUTE_GROUP,
-  pre_hook_definition: ROUTE_GROUP,
-  post_hook_definition: ROUTE_GROUP,
-  route_handler_definition: ROUTE_GROUP,
-  route_permission_definition: ROUTE_GROUP,
-  role_definition: ROUTE_GROUP,
-  method_definition: ROUTE_GROUP,
+  [SYSTEM_TABLES.route]: ROUTE_GROUP,
+  [SYSTEM_TABLES.preHook]: ROUTE_GROUP,
+  [SYSTEM_TABLES.postHook]: ROUTE_GROUP,
+  [SYSTEM_TABLES.routeHandler]: ROUTE_GROUP,
+  [SYSTEM_TABLES.routePermission]: ROUTE_GROUP,
+  [SYSTEM_TABLES.role]: ROUTE_GROUP,
+  [SYSTEM_TABLES.method]: ROUTE_GROUP,
 
-  field_permission_definition: [
+  [SYSTEM_TABLES.fieldPermission]: [
     CACHE_IDENTIFIERS.FIELD_PERMISSION,
     CACHE_IDENTIFIERS.GRAPHQL,
   ],
 
-  storage_config_definition: [CACHE_IDENTIFIERS.STORAGE],
-  oauth_config_definition: [CACHE_IDENTIFIERS.OAUTH_CONFIG],
-  websocket_definition: [CACHE_IDENTIFIERS.WEBSOCKET],
-  websocket_event_definition: [CACHE_IDENTIFIERS.WEBSOCKET],
-  package_definition: [CACHE_IDENTIFIERS.PACKAGE],
-  bootstrap_script_definition: [CACHE_IDENTIFIERS.BOOTSTRAP],
-  folder_definition: [CACHE_IDENTIFIERS.FOLDER_TREE],
-  flow_definition: [CACHE_IDENTIFIERS.FLOW],
-  flow_step_definition: [CACHE_IDENTIFIERS.FLOW],
-  guard_definition: [CACHE_IDENTIFIERS.GUARD],
-  guard_rule_definition: [CACHE_IDENTIFIERS.GUARD],
-  setting_definition: [CACHE_IDENTIFIERS.SETTING],
-  menu_definition: [CACHE_IDENTIFIERS.MENU, CACHE_IDENTIFIERS.EXTENSION],
-  extension_definition: [CACHE_IDENTIFIERS.EXTENSION],
-  gql_definition: [CACHE_IDENTIFIERS.GRAPHQL],
+  [SYSTEM_TABLES.storageConfig]: [CACHE_IDENTIFIERS.STORAGE],
+  [SYSTEM_TABLES.oauthConfig]: [CACHE_IDENTIFIERS.OAUTH_CONFIG],
+  [SYSTEM_TABLES.websocket]: [CACHE_IDENTIFIERS.WEBSOCKET],
+  [SYSTEM_TABLES.websocketEvent]: [CACHE_IDENTIFIERS.WEBSOCKET],
+  [SYSTEM_TABLES.package]: [CACHE_IDENTIFIERS.PACKAGE],
+  [SYSTEM_TABLES.bootstrapScript]: [CACHE_IDENTIFIERS.BOOTSTRAP],
+  [SYSTEM_TABLES.folder]: [CACHE_IDENTIFIERS.FOLDER_TREE],
+  [SYSTEM_TABLES.flow]: [CACHE_IDENTIFIERS.FLOW],
+  [SYSTEM_TABLES.flowStep]: [CACHE_IDENTIFIERS.FLOW],
+  [SYSTEM_TABLES.guard]: [CACHE_IDENTIFIERS.GUARD],
+  [SYSTEM_TABLES.guardRule]: [CACHE_IDENTIFIERS.GUARD],
+  [SYSTEM_TABLES.setting]: [CACHE_IDENTIFIERS.SETTING],
+  [SYSTEM_TABLES.menu]: [CACHE_IDENTIFIERS.MENU, CACHE_IDENTIFIERS.EXTENSION],
+  [SYSTEM_TABLES.extension]: [CACHE_IDENTIFIERS.EXTENSION],
+  [SYSTEM_TABLES.graphql]: [CACHE_IDENTIFIERS.GRAPHQL],
 };
 
 export function shouldReloadCache(
@@ -92,10 +93,10 @@ export function shouldReloadCache(
   return cachesToReload?.includes(cacheIdentifier) ?? false;
 }
 
-const METADATA_TABLES = new Set([
-  'table_definition',
-  'column_definition',
-  'relation_definition',
+const METADATA_TABLES = new Set<string>([
+  SYSTEM_TABLES.table,
+  SYSTEM_TABLES.column,
+  SYSTEM_TABLES.relation,
 ]);
 
 export function isMetadataTable(tableName: string): boolean {

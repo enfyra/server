@@ -1,5 +1,6 @@
 import ts from 'typescript';
 import { transformTemplateSyntax } from './template-syntax.util';
+import { SCRIPT_TABLE_LEGACY_FIELDS } from './script-table-contract.constants';
 
 type ScriptLanguage = 'javascript' | 'typescript';
 
@@ -20,16 +21,6 @@ interface ScriptContractRepairResult extends ExecutableScriptResult {
   sourceCode: string | null;
   scriptLanguage: ScriptLanguage;
 }
-
-const SCRIPT_TABLE_LEGACY_FIELDS: Record<string, string> = {
-  oauth_config_definition: '',
-  route_handler_definition: 'logic',
-  pre_hook_definition: 'code',
-  post_hook_definition: 'code',
-  bootstrap_script_definition: 'logic',
-  websocket_definition: 'connectionHandlerScript',
-  websocket_event_definition: 'handlerScript',
-};
 
 export function getScriptLegacyField(tableName: string): string | undefined {
   return scriptContractService.getLegacyField(tableName);
@@ -84,7 +75,11 @@ class ScriptContractService {
   }
 
   normalizeRecord(tableName: string, record: ScriptFields): ScriptFields {
-    if (!this.isScriptTable(tableName) || !record || typeof record !== 'object') {
+    if (
+      !this.isScriptTable(tableName) ||
+      !record ||
+      typeof record !== 'object'
+    ) {
       return record;
     }
 
@@ -138,9 +133,9 @@ class ScriptContractService {
     if (!touchesSource && !touchesLanguage) return patch;
 
     const sourceCode = touchesSource
-      ? patch.sourceCode ?? (legacyField ? patch[legacyField] : undefined)
-      : existing?.sourceCode ??
-        (legacyField && existing ? existing[legacyField] : undefined);
+      ? (patch.sourceCode ?? (legacyField ? patch[legacyField] : undefined))
+      : (existing?.sourceCode ??
+        (legacyField && existing ? existing[legacyField] : undefined));
     const scriptLanguage = touchesLanguage
       ? patch.scriptLanguage
       : existing?.scriptLanguage;
@@ -168,7 +163,11 @@ class ScriptContractService {
 
   resolveExecutableScript(record: ScriptFields): ExecutableScriptResult {
     if (!record || typeof record !== 'object') {
-      return { code: null, compiledCode: null, shouldPersistCompiledCode: false };
+      return {
+        code: null,
+        compiledCode: null,
+        shouldPersistCompiledCode: false,
+      };
     }
 
     if (typeof record.sourceCode === 'string' && record.sourceCode !== '') {
@@ -311,7 +310,9 @@ export function compileScriptSource(
   return scriptContractService.compileSource(sourceCode, scriptLanguage);
 }
 
-export function isExecutableJavaScript(code: string | null | undefined): boolean {
+export function isExecutableJavaScript(
+  code: string | null | undefined,
+): boolean {
   return scriptContractService.isExecutableJavaScript(code);
 }
 

@@ -77,13 +77,13 @@ export class GuardCacheService extends BaseCacheService<GuardCache> {
   protected async loadFromDb(): Promise<any> {
     const [guardsResult, rulesResult] = await Promise.all([
       this.queryBuilderService.find({
-        table: 'guard_definition',
+        table: 'enfyra_guard',
         filter: { isEnabled: { _eq: true } },
         fields: ['*', 'parent', 'route.id', 'route.path', 'methods.name'],
         sort: ['priority'],
       }),
       this.queryBuilderService.find({
-        table: 'guard_rule_definition',
+        table: 'enfyra_guard_rule',
         filter: { isEnabled: { _eq: true } },
         fields: ['*', 'guard', 'users.id'],
         sort: ['priority'],
