@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '../../../shared/errors';
+import { BadRequestException, UnauthorizedException } from '../../../shared/errors';
 import { Request } from 'express';
 import { RepoRegistryService } from '../../../engines/cache';
 import { DynamicContextFactory } from '../../../shared/services';
@@ -60,8 +60,73 @@ export class MeService {
     return result;
   }
 
+  private async assertMeUpdateAllowed(body: any, req: Request & { routeData?: any }) {
+    if (!body || typeof body !== 'object') return;
+    const context = this.getRepoContext(req);
+    const tableRepo = context.$repos?.enfyra_table;
+    if (!tableRepo) {
+      throw new Error('Repository not found in route context');
+    }
+    const tableResult = await tableRepo.find({
+      filter: { name: { _eq: 'enfyra_user' } },
+      fields: [
+        'id',
+        'name',
+        'columns.name',
+        'columns.isSystem',
+        'columns.isPublished',
+        'columns.isUpdatable',
+        'columns.isPrimary',
+        'relations.propertyName',
+        'relations.isSystem',
+      ],
+      limit: 1,
+    });
+    const table = tableResult?.data?.[0];
+    const columns = Array.isArray(table?.columns) ? table.columns : [];
+    const relations = Array.isArray(table?.relations) ? table.relations : [];
+    const allowedProtectedSelfFields = new Set(['password']);
+    const alwaysBlocked = new Set([
+      'id',
+      '_id',
+      'createdAt',
+      'updatedAt',
+      'roleId',
+    ]);
+    const blocked: string[] = [];
+    for (const key of Object.keys(body)) {
+      if (allowedProtectedSelfFields.has(key)) continue;
+      if (alwaysBlocked.has(key)) {
+        blocked.push(key);
+        continue;
+      }
+      const column = columns.find((item: any) => item?.name === key);
+      if (column) {
+        if (
+          column.isPrimary ||
+          column.isSystem ||
+          column.isPublished === false ||
+          column.isUpdatable === false
+        ) {
+          blocked.push(key);
+        }
+        continue;
+      }
+      const relation = relations.find((item: any) => item?.propertyName === key);
+      if (relation?.isSystem) blocked.push(key);
+    }
+    if (blocked.length > 0) {
+      throw new BadRequestException(
+        `Protected user fields cannot be updated through /me: ${[
+          ...new Set(blocked),
+        ].join(', ')}`,
+      );
+    }
+  }
+
   async update(body: any, req: Request & { user: any; routeData?: any }) {
     if (!req.user) throw new UnauthorizedException();
+    await this.assertMeUpdateAllowed(body, req);
     const repo = this.getSecureRepo(req, 'enfyra_user');
     if (!repo) {
       throw new Error('Repository not found in route context');

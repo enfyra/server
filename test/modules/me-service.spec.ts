@@ -52,4 +52,82 @@ describe('MeService', () => {
       loginProvider: 'google',
     });
   });
+
+
+  it('rejects protected user fields on /me updates while allowing profile fields', async () => {
+    const userRepo = {
+      update: vi.fn(async ({ data }) => ({ data: [{ id: 'user-1', ...data }] })),
+    };
+    const tableRepo = {
+      find: vi.fn(async () => ({
+        data: [
+          {
+            id: 1,
+            name: 'enfyra_user',
+            columns: [
+              { name: 'id', isPrimary: true, isSystem: true },
+              { name: 'email', isSystem: true, isPublished: true, isUpdatable: true },
+              { name: 'password', isSystem: true, isPublished: false, isUpdatable: true },
+              { name: 'isRootAdmin', isSystem: true, isPublished: true, isUpdatable: false },
+              { name: 'isSystem', isSystem: true, isPublished: true, isUpdatable: true },
+              { name: 'emailVerificationStatus', isSystem: true, isPublished: true, isUpdatable: true },
+              { name: 'fullName', isSystem: false, isPublished: true, isUpdatable: true },
+              { name: 'secretNote', isSystem: false, isPublished: false, isUpdatable: true },
+            ],
+            relations: [{ propertyName: 'role', isSystem: true }],
+          },
+        ],
+      })),
+    };
+    const context: any = {};
+    const service = new MeService({
+      dynamicContextFactory: {
+        createHttp: vi.fn(() => context),
+      } as any,
+      repoRegistryService: {
+        createReposProxy: vi.fn(() => ({
+          enfyra_table: tableRepo,
+          secure: { enfyra_user: userRepo },
+        })),
+      } as any,
+    });
+    const req = {
+      user: { id: 'user-1' },
+      method: 'PATCH',
+      url: '/me',
+      originalUrl: '/me',
+      path: '/me',
+      query: {},
+      params: {},
+      headers: {},
+      hostname: 'example.test',
+      protocol: 'https',
+      ip: '127.0.0.1',
+    } as any;
+
+    await expect(service.update({ role: { id: 1 } }, req)).rejects.toThrow(
+      'Protected user fields cannot be updated through /me: role',
+    );
+    await expect(service.update({ isSystem: true }, req)).rejects.toThrow(
+      'Protected user fields cannot be updated through /me: isSystem',
+    );
+    await expect(service.update({ email: 'new@test.dev' }, req)).rejects.toThrow(
+      'Protected user fields cannot be updated through /me: email',
+    );
+    await expect(service.update({ secretNote: 'x' }, req)).rejects.toThrow(
+      'Protected user fields cannot be updated through /me: secretNote',
+    );
+
+    await expect(
+      service.update({ fullName: 'Safe Profile', password: 'hashed' }, req),
+    ).resolves.toEqual({
+      data: [{ id: 'user-1', fullName: 'Safe Profile', password: 'hashed' }],
+    });
+    expect(userRepo.update).toHaveBeenCalledTimes(1);
+    expect(userRepo.update).toHaveBeenCalledWith({
+      id: 'user-1',
+      data: { fullName: 'Safe Profile', password: 'hashed' },
+    });
+  });
+
 });
