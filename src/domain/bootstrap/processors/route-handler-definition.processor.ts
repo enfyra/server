@@ -15,7 +15,7 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
       records.map(async (handler) => {
         if (handler.route && typeof handler.route === 'string') {
           const route = await this.queryBuilderService.findOne({
-            table: 'route_definition',
+            table: 'enfyra_route',
             where: {
               path: handler.route,
             },
@@ -35,7 +35,7 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
         }
         if (handler.method && typeof handler.method === 'string') {
           const method = await this.queryBuilderService.findOne({
-            table: 'method_definition',
+            table: 'enfyra_method',
             where: {
               name: handler.method,
             },
@@ -59,7 +59,7 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
           if (!handler.createdAt) handler.createdAt = now;
           if (!handler.updatedAt) handler.updatedAt = now;
         }
-        return normalizeScriptRecord('route_handler_definition', handler);
+        return normalizeScriptRecord('enfyra_route_handler', handler);
       }),
     );
     return transformedRecords.filter(Boolean);

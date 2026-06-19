@@ -26,7 +26,7 @@ describe('script persistence contract', () => {
   it('marks compiledCode as an internal generated field only on script tables', () => {
     expect(
       isGeneratedScriptPersistenceField(
-        'route_handler_definition',
+        'enfyra_route_handler',
         'compiledCode',
       ),
     ).toBe(true);
@@ -34,17 +34,17 @@ describe('script persistence contract', () => {
       isGeneratedScriptPersistenceField('article_definition', 'compiledCode'),
     ).toBe(false);
     expect(
-      isGeneratedScriptPersistenceField('route_handler_definition', 'createdAt'),
+      isGeneratedScriptPersistenceField('enfyra_route_handler', 'createdAt'),
     ).toBe(false);
   });
 
   it('keeps generated compiledCode while stripping other non-updatable fields', async () => {
     const stripper = new FieldStripper({
-      getMetadata: async () => metadataFor('route_handler_definition'),
+      getMetadata: async () => metadataFor('enfyra_route_handler'),
     } as any);
 
     const stripped = await stripper.stripNonUpdatableFields(
-      'route_handler_definition',
+      'enfyra_route_handler',
       {
         id: 10,
         sourceCode: 'return @BODY.name;',

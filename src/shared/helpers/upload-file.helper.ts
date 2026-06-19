@@ -26,11 +26,11 @@ export class UploadFileHelper {
   }
 
   private getFileRepo(context: TDynamicContext) {
-    const fileRepo = context.$repos?.file_definition || context.$repos?.main;
+    const fileRepo = context.$repos?.enfyra_file || context.$repos?.main;
     if (!fileRepo) {
       throw new Error(
         `File repository not found in context. ` +
-          `Ensure table "file_definition" exists in metadata.`,
+          `Ensure table "enfyra_file" exists in metadata.`,
       );
     }
     return fileRepo;

@@ -20,7 +20,7 @@ describe('script-code util', () => {
   });
 
   it('defaults script records to TypeScript and removes legacy fields', () => {
-    const record = normalizeScriptRecord('route_handler_definition', {
+    const record = normalizeScriptRecord('enfyra_route_handler', {
       logic: 'return await @REPOS.main.find();',
     });
 
@@ -83,7 +83,7 @@ describe('script-code util', () => {
     const patch = {
       code: 'const value: string = @BODY.name; return value;',
     };
-    const normalized = normalizeScriptPatch('pre_hook_definition', patch);
+    const normalized = normalizeScriptPatch('enfyra_pre_hook', patch);
 
     expect(patch).toEqual({
       code: 'const value: string = @BODY.name; return value;',
@@ -100,7 +100,7 @@ describe('script-code util', () => {
 
   it('recompiles from existing source when only scriptLanguage is patched', () => {
     const normalized = normalizeScriptPatch(
-      'route_handler_definition',
+      'enfyra_route_handler',
       { scriptLanguage: 'javascript' },
       {
         sourceCode: 'return @BODY.name;',
@@ -116,7 +116,7 @@ describe('script-code util', () => {
 
   it('clears compiled code when source is explicitly cleared', () => {
     const normalized = normalizeScriptPatch(
-      'post_hook_definition',
+      'enfyra_post_hook',
       { sourceCode: null },
       {
         sourceCode: 'return @BODY.name;',

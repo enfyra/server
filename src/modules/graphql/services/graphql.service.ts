@@ -164,9 +164,9 @@ export class GraphqlService {
     if (queryableChanged) return null;
 
     const isMetadata = [
-      'table_definition',
-      'column_definition',
-      'relation_definition',
+      'enfyra_table',
+      'enfyra_column',
+      'enfyra_relation',
     ].includes(payload.table);
 
     if (!isMetadata) {

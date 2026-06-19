@@ -16,15 +16,15 @@ export function getTableDef(tableName: string): any | null {
 }
 
 const LOOKUP_KEY_MAP: Record<string, string> = {
-  table_definition: 'name',
-  route_definition: 'path',
-  role_definition: 'name',
-  method_definition: 'name',
-  user_definition: 'email',
-  menu_definition: 'label',
-  websocket_definition: 'path',
-  flow_definition: 'name',
-  flow_step_definition: 'key',
+  enfyra_table: 'name',
+  enfyra_route: 'path',
+  enfyra_role: 'name',
+  enfyra_method: 'name',
+  enfyra_user: 'email',
+  enfyra_menu: 'label',
+  enfyra_websocket: 'path',
+  enfyra_flow: 'name',
+  enfyra_flow_step: 'key',
 };
 
 export function getLookupKey(targetTable: string): string {

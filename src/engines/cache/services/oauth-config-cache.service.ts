@@ -44,14 +44,14 @@ export class OAuthConfigCacheService
 
   protected async loadFromDb(): Promise<OAuthConfig[]> {
     const result = await this.queryBuilderService.find({
-      table: 'oauth_config_definition',
+      table: 'enfyra_oauth_config',
       filter: { isEnabled: { _eq: true } },
     });
     if (!result.data || result.data.length === 0) {
       return [];
     }
     return result.data.map((config: any) => {
-      const normalized = normalizeScriptRecord('oauth_config_definition', config);
+      const normalized = normalizeScriptRecord('enfyra_oauth_config', config);
       return {
         id: normalized.id,
         provider: normalized.provider,

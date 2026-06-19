@@ -217,7 +217,7 @@ import {
 
 describe('A. TCacheInvalidationPayload & mergePayload', () => {
   const base = (): TCacheInvalidationPayload => ({
-    tableName: 'table_definition',
+    tableName: 'enfyra_table',
     action: 'reload',
     timestamp: 1000,
     scope: 'partial',
@@ -359,7 +359,7 @@ describe('B. BaseCacheService partial reload', () => {
     svc._supportsPartial = false;
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'route_definition',
+      tableName: 'enfyra_route',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -378,7 +378,7 @@ describe('B. BaseCacheService partial reload', () => {
     svc._supportsPartial = true;
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'route_definition',
+      tableName: 'enfyra_route',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -398,7 +398,7 @@ describe('B. BaseCacheService partial reload', () => {
     svc.applyError = new Error('apply failed');
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'route_definition',
+      tableName: 'enfyra_route',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -419,7 +419,7 @@ describe('B. BaseCacheService partial reload', () => {
     svc._supportsPartial = true;
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'route_definition',
+      tableName: 'enfyra_route',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -441,7 +441,7 @@ describe('B. BaseCacheService partial reload', () => {
     svc._supportsPartial = true;
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'route_definition',
+      tableName: 'enfyra_route',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -470,7 +470,7 @@ describe('B. BaseCacheService partial reload', () => {
     svc._supportsPartial = true;
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'route_definition',
+      tableName: 'enfyra_route',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -490,7 +490,7 @@ describe('B. BaseCacheService partial reload', () => {
     svc.applyError = new Error('broken');
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'route_definition',
+      tableName: 'enfyra_route',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -608,7 +608,7 @@ describe('C. MetadataCache partial reload logic', () => {
       columns: [{ name: 'title', type: 'text' }],
     });
     const payload: TCacheInvalidationPayload = {
-      tableName: 'table_definition',
+      tableName: 'enfyra_table',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -635,7 +635,7 @@ describe('C. MetadataCache partial reload logic', () => {
     });
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'table_definition',
+      tableName: 'enfyra_table',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -655,7 +655,7 @@ describe('C. MetadataCache partial reload logic', () => {
     const cache = makeInitialCache([tableA, tableB]);
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'table_definition',
+      tableName: 'enfyra_table',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -672,7 +672,7 @@ describe('C. MetadataCache partial reload logic', () => {
   it('partial reload when cache not initialized → throws', () => {
     const cache: MetaCache = null as any;
     const payload: TCacheInvalidationPayload = {
-      tableName: 'table_definition',
+      tableName: 'enfyra_table',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -691,7 +691,7 @@ describe('C. MetadataCache partial reload logic', () => {
     const oldTs = cache.timestamp;
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'table_definition',
+      tableName: 'enfyra_table',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -712,7 +712,7 @@ describe('C. MetadataCache partial reload logic', () => {
       columns: [{ name: 'foo', type: 'varchar' }],
     });
     const payload: TCacheInvalidationPayload = {
-      tableName: 'table_definition',
+      tableName: 'enfyra_table',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -735,7 +735,7 @@ describe('C. MetadataCache partial reload logic', () => {
       }
 
       const makeP = (id: number): TCacheInvalidationPayload => ({
-        tableName: 'table_definition',
+        tableName: 'enfyra_table',
         action: 'reload',
         timestamp: Date.now(),
         scope: 'partial',
@@ -771,14 +771,14 @@ describe('C. MetadataCache partial reload logic', () => {
       }
 
       receivePayload({
-        tableName: 'table_definition',
+        tableName: 'enfyra_table',
         action: 'reload',
         timestamp: Date.now(),
         scope: 'partial',
         ids: [1],
       });
       receivePayload({
-        tableName: 'table_definition',
+        tableName: 'enfyra_table',
         action: 'reload',
         timestamp: Date.now(),
         scope: 'full',
@@ -855,7 +855,7 @@ describe('D. RouteCache partial reload logic', () => {
     ): Promise<void> {
       const affectedTableNames = new Set<string>(payload.affectedTables || []);
 
-      if (payload.tableName === 'table_definition' && payload.ids?.length) {
+      if (payload.tableName === 'enfyra_table' && payload.ids?.length) {
         for (const route of this.cache.routes) {
           const mainTableId = route.mainTable?.id;
           if (payload.ids.some((id) => String(id) === String(mainTableId))) {
@@ -864,13 +864,13 @@ describe('D. RouteCache partial reload logic', () => {
         }
       }
 
-      if (payload.tableName === 'route_definition' && payload.ids?.length) {
+      if (payload.tableName === 'enfyra_route' && payload.ids?.length) {
         await this._reloadSpecificRoutes(payload.ids);
         return;
       }
 
       if (
-        ['route_handler_definition', 'route_permission_definition'].includes(
+        ['enfyra_route_handler', 'enfyra_route_permission'].includes(
           payload.tableName,
         ) &&
         payload.ids?.length
@@ -889,7 +889,7 @@ describe('D. RouteCache partial reload logic', () => {
       }
 
       if (
-        ['pre_hook_definition', 'post_hook_definition'].includes(
+        ['enfyra_pre_hook', 'enfyra_post_hook'].includes(
           payload.tableName,
         )
       ) {
@@ -898,7 +898,7 @@ describe('D. RouteCache partial reload logic', () => {
       }
 
       if (
-        ['role_definition', 'method_definition'].includes(payload.tableName)
+        ['enfyra_role', 'enfyra_method'].includes(payload.tableName)
       ) {
         await this._fullReload();
         return;
@@ -947,7 +947,7 @@ describe('D. RouteCache partial reload logic', () => {
     }
   }
 
-  it('table_definition change → finds routes by mainTable.id', async () => {
+  it('enfyra_table change → finds routes by mainTable.id', async () => {
     const svc = new TestRouteCachePartial();
     svc.cache.routes = [
       makeRoute(1, '/tasks', 10, 'tasks'),
@@ -956,7 +956,7 @@ describe('D. RouteCache partial reload logic', () => {
     svc.setDbRoutes([makeRoute(1, '/tasks', 10, 'tasks')]);
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'table_definition',
+      tableName: 'enfyra_table',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -969,7 +969,7 @@ describe('D. RouteCache partial reload logic', () => {
     expect(svc.reloadedRouteIds).not.toContain(2);
   });
 
-  it('route_definition change → reloads specific routes only', async () => {
+  it('enfyra_route change → reloads specific routes only', async () => {
     const svc = new TestRouteCachePartial();
     svc.cache.routes = [
       makeRoute(1, '/tasks', 10, 'tasks'),
@@ -978,7 +978,7 @@ describe('D. RouteCache partial reload logic', () => {
     svc.setDbRoutes([makeRoute(1, '/tasks', 10, 'tasks')]);
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'route_definition',
+      tableName: 'enfyra_route',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -992,14 +992,14 @@ describe('D. RouteCache partial reload logic', () => {
     expect(svc.fullReloadCount).toBe(0);
   });
 
-  it('route_handler_definition change → finds parent route and reloads it', async () => {
+  it('enfyra_route_handler change → finds parent route and reloads it', async () => {
     const svc = new TestRouteCachePartial();
     svc.cache.routes = [makeRoute(1, '/tasks', 10, 'tasks')];
     svc.setDbRoutes([makeRoute(1, '/tasks', 10, 'tasks')]);
-    svc.setDbChildren('route_handler_definition', [makeChildRecord(50, 1)]);
+    svc.setDbChildren('enfyra_route_handler', [makeChildRecord(50, 1)]);
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'route_handler_definition',
+      tableName: 'enfyra_route_handler',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -1012,12 +1012,12 @@ describe('D. RouteCache partial reload logic', () => {
     expect(svc.fullReloadCount).toBe(0);
   });
 
-  it('pre_hook_definition change → reloads global hooks and re-merges', async () => {
+  it('enfyra_pre_hook change → reloads global hooks and re-merges', async () => {
     const svc = new TestRouteCachePartial();
     svc.cache.routes = [makeRoute(1, '/tasks', 10, 'tasks')];
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'pre_hook_definition',
+      tableName: 'enfyra_pre_hook',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -1034,12 +1034,12 @@ describe('D. RouteCache partial reload logic', () => {
     });
   });
 
-  it('post_hook_definition change → reloads global hooks and re-merges', async () => {
+  it('enfyra_post_hook change → reloads global hooks and re-merges', async () => {
     const svc = new TestRouteCachePartial();
     svc.cache.routes = [makeRoute(1, '/tasks', 10, 'tasks')];
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'post_hook_definition',
+      tableName: 'enfyra_post_hook',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -1051,12 +1051,12 @@ describe('D. RouteCache partial reload logic', () => {
     expect(svc.reloadedGlobalHooks).toBe(true);
   });
 
-  it('role_definition change → falls back to full reload', async () => {
+  it('enfyra_role change → falls back to full reload', async () => {
     const svc = new TestRouteCachePartial();
     svc.cache.routes = [makeRoute(1, '/tasks', 10, 'tasks')];
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'role_definition',
+      tableName: 'enfyra_role',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -1069,10 +1069,10 @@ describe('D. RouteCache partial reload logic', () => {
     expect(svc.reloadedRouteIds).toHaveLength(0);
   });
 
-  it('method_definition change → falls back to full reload', async () => {
+  it('enfyra_method change → falls back to full reload', async () => {
     const svc = new TestRouteCachePartial();
     const payload: TCacheInvalidationPayload = {
-      tableName: 'method_definition',
+      tableName: 'enfyra_method',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -1093,7 +1093,7 @@ describe('D. RouteCache partial reload logic', () => {
     svc.setDbRoutes([]);
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'route_definition',
+      tableName: 'enfyra_route',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -1114,7 +1114,7 @@ describe('D. RouteCache partial reload logic', () => {
     svc.setDbRoutes([updatedRoute]);
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'route_definition',
+      tableName: 'enfyra_route',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -1137,7 +1137,7 @@ describe('D. RouteCache partial reload logic', () => {
     svc.setDbRoutes([makeRoute(2, '/users', 20, 'users')]);
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'column_definition',
+      tableName: 'enfyra_column',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -1718,7 +1718,7 @@ describe('F. Cross-table cascade / affectedTables scenarios', () => {
     affectedTables.push(deletedRelation.sourceTableName);
     affectedTables.push(deletedRelation.targetTableName);
 
-    const payload = buildPayload('relation_definition', [5], affectedTables);
+    const payload = buildPayload('enfyra_relation', [5], affectedTables);
     expect(payload.affectedTables).toContain('tasks');
     expect(payload.affectedTables).toContain('users');
     expect(payload.scope).toBe('partial');
@@ -1727,7 +1727,7 @@ describe('F. Cross-table cascade / affectedTables scenarios', () => {
   it('create table with relations → target tables in affectedTables', () => {
     const newTable = { name: 'comments', relations: ['tasks', 'users'] };
     const affectedTables = [...newTable.relations];
-    const payload = buildPayload('table_definition', [10], affectedTables);
+    const payload = buildPayload('enfyra_table', [10], affectedTables);
     expect(payload.affectedTables).toContain('tasks');
     expect(payload.affectedTables).toContain('users');
   });
@@ -1736,7 +1736,7 @@ describe('F. Cross-table cascade / affectedTables scenarios', () => {
     const deletedTable = 'tasks';
     const inboundRelations = ['comments', 'attachments'];
     const payload = buildPayload(
-      'table_definition',
+      'enfyra_table',
       [10],
       [deletedTable, ...inboundRelations],
     );
@@ -1745,8 +1745,8 @@ describe('F. Cross-table cascade / affectedTables scenarios', () => {
   });
 
   it('cascade payload merging deduplicates repeated affectedTables', () => {
-    const p1 = buildPayload('table_definition', [1], ['tasks', 'users']);
-    const p2 = buildPayload('table_definition', [2], ['tasks', 'comments']);
+    const p1 = buildPayload('enfyra_table', [1], ['tasks', 'users']);
+    const p2 = buildPayload('enfyra_table', [2], ['tasks', 'comments']);
     const merged = mergePayload(p1, p2);
     const tableSet = new Set(merged.affectedTables);
     expect(tableSet.size).toBe(3);
@@ -1776,7 +1776,7 @@ describe('F. Cross-table cascade / affectedTables scenarios', () => {
       mockEmitter.emit('cache:invalidate', payload);
     }
 
-    reloadFn('table_definition', {
+    reloadFn('enfyra_table', {
       ids: [1, 2],
       affectedTables: ['relatedTable'],
     });
@@ -1784,7 +1784,7 @@ describe('F. Cross-table cascade / affectedTables scenarios', () => {
     expect(emitted[0].ids).toEqual([1, 2]);
     expect(emitted[0].affectedTables).toEqual(['relatedTable']);
 
-    reloadFn('table_definition');
+    reloadFn('enfyra_table');
     expect(emitted[1].scope).toBe('full');
     expect(emitted[1].ids).toBeUndefined();
   });
@@ -1820,18 +1820,18 @@ describe('G. End-to-end flow simulation', () => {
       this.ee.on('cache:invalidate', (payload: TCacheInvalidationPayload) => {
         if (
           [
-            'table_definition',
-            'column_definition',
-            'relation_definition',
+            'enfyra_table',
+            'enfyra_column',
+            'enfyra_relation',
           ].includes(payload.tableName)
         ) {
           this._handleMetadataInvalidation(payload);
         }
         if (
           [
-            'route_definition',
-            'pre_hook_definition',
-            'post_hook_definition',
+            'enfyra_route',
+            'enfyra_pre_hook',
+            'enfyra_post_hook',
           ].includes(payload.tableName)
         ) {
           this._handleRouteInvalidation(payload);
@@ -1919,7 +1919,7 @@ describe('G. End-to-end flow simulation', () => {
     sys.setupInitialState();
 
     sys.emit('cache:invalidate', {
-      tableName: 'column_definition',
+      tableName: 'enfyra_column',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -1951,12 +1951,12 @@ describe('G. End-to-end flow simulation', () => {
     expect(sys.gqlReloads).toBe(1);
   });
 
-  it('route_definition partial update → only routes reloaded, not metadata', () => {
+  it('enfyra_route partial update → only routes reloaded, not metadata', () => {
     const sys = new SimulatedSystem();
     sys.setupInitialState();
 
     sys.emit('cache:invalidate', {
-      tableName: 'route_definition',
+      tableName: 'enfyra_route',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -1968,12 +1968,12 @@ describe('G. End-to-end flow simulation', () => {
     expect(sys.gqlReloads).toBe(1);
   });
 
-  it('table_definition full reload → all caches reloaded in cascade', () => {
+  it('enfyra_table full reload → all caches reloaded in cascade', () => {
     const sys = new SimulatedSystem();
     sys.setupInitialState();
 
     sys.emit('cache:invalidate', {
-      tableName: 'table_definition',
+      tableName: 'enfyra_table',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'full',
@@ -1994,7 +1994,7 @@ describe('G. End-to-end flow simulation', () => {
     svcB._supportsPartial = true;
 
     const payload: TCacheInvalidationPayload = {
-      tableName: 'table_definition',
+      tableName: 'enfyra_table',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -2024,7 +2024,7 @@ describe('G. End-to-end flow simulation', () => {
 
     for (const { ids, expectedScope } of cases) {
       const payload: TCacheInvalidationPayload = {
-        tableName: 'table_definition',
+        tableName: 'enfyra_table',
         action: 'reload',
         timestamp: Date.now(),
         scope: ids?.length ? 'partial' : 'full',
@@ -2038,20 +2038,20 @@ describe('G. End-to-end flow simulation', () => {
     let pending: TCacheInvalidationPayload | null = null;
 
     const p1: TCacheInvalidationPayload = {
-      tableName: 'table_definition',
+      tableName: 'enfyra_table',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
       ids: [1],
     };
     const p2: TCacheInvalidationPayload = {
-      tableName: 'table_definition',
+      tableName: 'enfyra_table',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'full',
     };
     const p3: TCacheInvalidationPayload = {
-      tableName: 'table_definition',
+      tableName: 'enfyra_table',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -2068,26 +2068,26 @@ describe('G. End-to-end flow simulation', () => {
 
   it('CACHE_INVALIDATION_MAP: correct caches reloaded per table', () => {
     const CACHE_INVALIDATION_MAP: Record<string, string[]> = {
-      table_definition: ['metadata', 'route', 'graphql'],
-      column_definition: ['metadata', 'route', 'graphql'],
-      relation_definition: ['metadata', 'route', 'graphql'],
-      route_definition: ['route', 'graphql'],
-      pre_hook_definition: ['route', 'graphql'],
-      post_hook_definition: ['route', 'graphql'],
-      role_definition: ['route', 'graphql'],
-      field_permission_definition: ['field-permission'],
-      setting_definition: ['setting'],
+      enfyra_table: ['metadata', 'route', 'graphql'],
+      enfyra_column: ['metadata', 'route', 'graphql'],
+      enfyra_relation: ['metadata', 'route', 'graphql'],
+      enfyra_route: ['route', 'graphql'],
+      enfyra_pre_hook: ['route', 'graphql'],
+      enfyra_post_hook: ['route', 'graphql'],
+      enfyra_role: ['route', 'graphql'],
+      enfyra_field_permission: ['field-permission'],
+      enfyra_setting: ['setting'],
     };
 
     const expectedMetadataTables = [
-      'table_definition',
-      'column_definition',
-      'relation_definition',
+      'enfyra_table',
+      'enfyra_column',
+      'enfyra_relation',
     ];
     const expectedRouteOnlyTables = [
-      'route_definition',
-      'pre_hook_definition',
-      'post_hook_definition',
+      'enfyra_route',
+      'enfyra_pre_hook',
+      'enfyra_post_hook',
     ];
     for (const t of expectedMetadataTables) {
       expect(CACHE_INVALIDATION_MAP[t]).toContain('metadata');
@@ -2100,9 +2100,9 @@ describe('G. End-to-end flow simulation', () => {
       expect(CACHE_INVALIDATION_MAP[t]).toContain('route');
     }
 
-    expect(CACHE_INVALIDATION_MAP['field_permission_definition']).toEqual([
+    expect(CACHE_INVALIDATION_MAP['enfyra_field_permission']).toEqual([
       'field-permission',
     ]);
-    expect(CACHE_INVALIDATION_MAP['setting_definition']).toEqual(['setting']);
+    expect(CACHE_INVALIDATION_MAP['enfyra_setting']).toEqual(['setting']);
   });
 });

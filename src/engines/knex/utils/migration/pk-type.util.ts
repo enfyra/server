@@ -23,16 +23,16 @@ export async function getPrimaryKeyTypeForTable(
       }
     }
 
-    const pkInfo = await knex('column_definition')
+    const pkInfo = await knex('enfyra_column')
       .join(
-        'table_definition',
-        'column_definition.table',
+        'enfyra_table',
+        'enfyra_column.table',
         '=',
-        'table_definition.id',
+        'enfyra_table.id',
       )
-      .where('table_definition.name', tableName)
-      .where('column_definition.isPrimary', true)
-      .select('column_definition.type')
+      .where('enfyra_table.name', tableName)
+      .where('enfyra_column.isPrimary', true)
+      .select('enfyra_column.type')
       .first();
 
     if (pkInfo) {

@@ -8,7 +8,7 @@ function makeRepo(overrides: Partial<ConstructorParameters<typeof DynamicReposit
   };
   const metadataCacheService = {
     lookupTableByName: vi.fn().mockResolvedValue({
-      name: 'route_definition',
+      name: 'enfyra_route',
       columns: [{ name: '_id', isPrimary: true }],
       relations: [],
     }),
@@ -22,7 +22,7 @@ function makeRepo(overrides: Partial<ConstructorParameters<typeof DynamicReposit
   };
   return new DynamicRepository({
     context: { $query: {} } as any,
-    tableName: 'route_definition',
+    tableName: 'enfyra_route',
     queryBuilderService: queryBuilderService as any,
     tableHandlerService: {} as any,
     policyService: {} as any,
@@ -89,7 +89,7 @@ describe('DynamicRepository route method relations', () => {
 
     expect(queryBuilderService.find).toHaveBeenCalledWith(
       expect.objectContaining({
-        table: 'route_definition',
+        table: 'enfyra_route',
         filter,
         fields: ['_id'],
         limit: 1,

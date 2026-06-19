@@ -65,7 +65,7 @@ export class AuthService {
     const { email, password } = body;
 
     const user = await this.queryBuilder.findOne({
-      table: 'user_definition',
+      table: 'enfyra_user',
       where: { email },
     });
 
@@ -103,7 +103,7 @@ export class AuthService {
         };
 
     const insertedSession = await this.queryBuilder.insert(
-      'session_definition',
+      'enfyra_session',
       sessionData,
     );
 
@@ -138,7 +138,7 @@ export class AuthService {
       },
     );
 
-    await this.queryBuilder.update('session_definition', sessionId, {
+    await this.queryBuilder.update('enfyra_session', sessionId, {
       refreshTokenHash: this.hashToken(refreshToken),
     });
 
@@ -167,7 +167,7 @@ export class AuthService {
 
     const sessionIdField = this.queryBuilder.getPkField();
     const session = await this.queryBuilder.findOne({
-      table: 'session_definition',
+      table: 'enfyra_session',
       where: { [sessionIdField]: sessionId },
     });
 
@@ -187,7 +187,7 @@ export class AuthService {
     }
 
     await this.queryBuilder.delete(
-      'session_definition',
+      'enfyra_session',
       session._id || session.id,
     );
     return 'Logout successfully!';
@@ -207,7 +207,7 @@ export class AuthService {
 
     const sessionIdField = this.queryBuilder.getPkField();
     const session = await this.queryBuilder.findOne({
-      table: 'session_definition',
+      table: 'enfyra_session',
       where: { [sessionIdField]: decoded.sessionId },
     });
 
@@ -276,7 +276,7 @@ export class AuthService {
       };
       const result = await this.queryBuilder
         .getMongoDb()
-        .collection('session_definition')
+        .collection('enfyra_session')
         .findOneAndUpdate(filter, {
           $set: {
             expiredAt: newExpiredAt,
@@ -291,7 +291,7 @@ export class AuthService {
       }
     } else {
       const knex = this.queryBuilder.getKnex();
-      const affected = await knex('session_definition')
+      const affected = await knex('enfyra_session')
         .where('id', sessionId)
         .andWhere(function (this: any) {
           this.where('refreshTokenHash', incomingHash).orWhereNull(

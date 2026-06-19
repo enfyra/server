@@ -10,7 +10,7 @@ function makeQb(gateways: any[], events: any[]) {
       const ids =
         args?.filter?.id?._in ??
         args?.filter?._and?.find((item: any) => item?.id?._in)?.id?._in;
-      if (table === 'websocket_definition') {
+      if (table === 'enfyra_websocket') {
         let rows = gateways.filter((gateway) => gateway.isEnabled !== false);
         if (ids) {
           const idSet = new Set(ids.map(String));
@@ -18,7 +18,7 @@ function makeQb(gateways: any[], events: any[]) {
         }
         return { data: rows.map((row) => ({ ...row })) };
       }
-      if (table === 'websocket_event_definition') {
+      if (table === 'enfyra_websocket_event') {
         let rows = events;
         if (ids) {
           const idSet = new Set(ids.map(String));
@@ -76,7 +76,7 @@ describe('WebsocketCacheService partial reload', () => {
 
     await svc.partialReload(
       {
-        table: 'websocket_event_definition',
+        table: 'enfyra_websocket_event',
         action: 'reload',
         timestamp: 0,
         scope: 'partial',
@@ -95,13 +95,13 @@ describe('WebsocketCacheService partial reload', () => {
     );
     expect(qb.find).toHaveBeenCalledWith(
       expect.objectContaining({
-        table: 'websocket_event_definition',
+        table: 'enfyra_websocket_event',
         filter: { id: { _in: [10] } },
       }),
     );
     expect(qb.find).toHaveBeenCalledWith(
       expect.objectContaining({
-        table: 'websocket_definition',
+        table: 'enfyra_websocket',
         filter: {
           _and: [{ isEnabled: { _eq: true } }, { id: { _in: [1] } }],
         },
@@ -121,7 +121,7 @@ describe('WebsocketCacheService partial reload', () => {
 
     await svc.partialReload(
       {
-        table: 'websocket_definition',
+        table: 'enfyra_websocket',
         action: 'reload',
         timestamp: 0,
         scope: 'partial',

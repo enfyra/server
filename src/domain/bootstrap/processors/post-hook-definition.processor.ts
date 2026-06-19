@@ -55,7 +55,7 @@ export class PostHookDefinitionProcessor extends BaseTableProcessor {
           let route = null;
           for (const path of pathsToTry) {
             route = await this.queryBuilderService.findOne({
-              table: 'route_definition',
+              table: 'enfyra_route',
               where: {
                 path,
               },
@@ -92,7 +92,7 @@ export class PostHookDefinitionProcessor extends BaseTableProcessor {
         ) {
           if (isMongoDB) {
             const result = await this.queryBuilderService.find({
-              table: 'method_definition',
+              table: 'enfyra_method',
               filter: { name: { _in: hook.methods } },
               fields: ['_id', 'name'],
             });
@@ -112,7 +112,7 @@ export class PostHookDefinitionProcessor extends BaseTableProcessor {
             delete transformedHook.methods;
           }
         }
-        return normalizeScriptRecord('post_hook_definition', transformedHook);
+        return normalizeScriptRecord('enfyra_post_hook', transformedHook);
       }),
     );
     return transformedRecords.filter(Boolean);
@@ -128,7 +128,7 @@ export class PostHookDefinitionProcessor extends BaseTableProcessor {
       let hookId = record.id;
       if (!hookId && record.name) {
         const hook = await this.queryBuilderService
-          .getKnex()('post_hook_definition')
+          .getKnex()('enfyra_post_hook')
           .select('id')
           .where({ name: record.name })
           .first();
@@ -136,7 +136,7 @@ export class PostHookDefinitionProcessor extends BaseTableProcessor {
       }
       if (hookId === undefined || hookId === null) return;
       const methods = await this.queryBuilderService
-        .getKnex()('method_definition')
+        .getKnex()('enfyra_method')
         .select('id', 'name')
         .whereIn('name', methodNames);
       const methodIds = methods
@@ -145,9 +145,9 @@ export class PostHookDefinitionProcessor extends BaseTableProcessor {
       if (methodIds.length > 0) {
         const { junctionTable, sourceColumn, targetColumn } =
           await getSqlJunctionMetadata(this.queryBuilderService, {
-            sourceTable: 'post_hook_definition',
+            sourceTable: 'enfyra_post_hook',
             propertyName: 'methods',
-            targetTable: 'method_definition',
+            targetTable: 'enfyra_method',
           });
         if (!junctionTable || !sourceColumn || !targetColumn) return;
         const knex = this.queryBuilderService.getKnex();

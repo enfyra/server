@@ -774,7 +774,7 @@ export class CascadeHandler {
         return relationMeta.targetTableName || relationMeta.targetTable;
       }
 
-      const parentTable = await this.knexInstance('table_definition')
+      const parentTable = await this.knexInstance('enfyra_table')
         .where('name', parentTableName)
         .first('id');
 
@@ -782,7 +782,7 @@ export class CascadeHandler {
         return null;
       }
 
-      const relationDef = await this.knexInstance('relation_definition')
+      const relationDef = await this.knexInstance('enfyra_relation')
         .where('sourceTableId', parentTable.id)
         .where('propertyName', relationName)
         .first('targetTableId');
@@ -791,7 +791,7 @@ export class CascadeHandler {
         return null;
       }
 
-      const targetTable = await this.knexInstance('table_definition')
+      const targetTable = await this.knexInstance('enfyra_table')
         .where('id', relationDef.targetTableId)
         .first('name');
 

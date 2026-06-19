@@ -13,16 +13,16 @@ function createHarness() {
     isMongoDb: () => false,
     getPkField: () => 'id',
     find: vi.fn(async ({ table, filter }: any) => {
-      if (table !== 'api_token_definition') return { data: [] };
+      if (table !== 'enfyra_api_token') return { data: [] };
       const userId = filter?.user?._eq;
       return {
         data: [...tokens.values()].filter((token) => token.userId === userId),
       };
     }),
     findOne: vi.fn(async ({ table, where }: any) => {
-      if (table === 'user_definition') return users.get(where.id) || null;
-      if (table === 'role_definition') return null;
-      if (table !== 'api_token_definition') return null;
+      if (table === 'enfyra_user') return users.get(where.id) || null;
+      if (table === 'enfyra_role') return null;
+      if (table !== 'enfyra_api_token') return null;
       if (where.id) return tokens.get(where.id) || null;
       if (where.tokenHash) {
         return (

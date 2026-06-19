@@ -40,7 +40,7 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
   describe('queryableTableNames allowlist', () => {
     it('emits only tables present in queryableTableNames', () => {
       const tables = [
-        makeTable('user_definition', [
+        makeTable('enfyra_user', [
           makeColumn('id', 'uuid', { isPrimary: true }),
           makeColumn('email'),
         ]),
@@ -51,15 +51,15 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
       ];
       const schema = generateGraphQLTypeDefsFromTables(
         tables,
-        new Set(['user_definition']),
+        new Set(['enfyra_user']),
       );
-      expect(schema).toContain('type user_definition');
+      expect(schema).toContain('type enfyra_user');
       expect(schema).not.toContain('type secret_config');
     });
 
     it('emits all tables when queryableTableNames is undefined', () => {
       const tables = [
-        makeTable('user_definition', [
+        makeTable('enfyra_user', [
           makeColumn('id', 'uuid', { isPrimary: true }),
           makeColumn('email'),
         ]),
@@ -69,20 +69,20 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
         ]),
       ];
       const schema = generateGraphQLTypeDefsFromTables(tables, undefined);
-      expect(schema).toContain('type user_definition');
+      expect(schema).toContain('type enfyra_user');
       expect(schema).toContain('type post');
     });
 
     it('produces empty query/mutation blocks when set is empty', () => {
       const tables = [
-        makeTable('user_definition', [
+        makeTable('enfyra_user', [
           makeColumn('id', 'uuid', { isPrimary: true }),
           makeColumn('email'),
         ]),
       ];
       const schema = generateGraphQLTypeDefsFromTables(tables, new Set([]));
-      expect(schema).not.toContain('type user_definition');
-      expect(schema).not.toContain('user_definition(');
+      expect(schema).not.toContain('type enfyra_user');
+      expect(schema).not.toContain('enfyra_user(');
     });
   });
 
@@ -94,8 +94,8 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
         makeColumn('password', 'varchar', { isPublished: false }),
       ];
       const schema = generateGraphQLTypeDefsFromTables(
-        [makeTable('user_definition', columns)],
-        new Set(['user_definition']),
+        [makeTable('enfyra_user', columns)],
+        new Set(['enfyra_user']),
       );
       expect(schema).toContain('email');
       expect(schema).not.toContain('password');
@@ -108,10 +108,10 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
         makeColumn('passwordHash', 'varchar', { isPublished: false }),
       ];
       const schema = generateGraphQLTypeDefsFromTables(
-        [makeTable('user_definition', columns)],
-        new Set(['user_definition']),
+        [makeTable('enfyra_user', columns)],
+        new Set(['enfyra_user']),
       );
-      expect(schema).toContain('input user_definitionInput');
+      expect(schema).toContain('input enfyra_userInput');
       expect(schema).not.toContain('passwordHash');
     });
 
@@ -122,10 +122,10 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
         makeColumn('secret', 'varchar', { isPublished: false }),
       ];
       const schema = generateGraphQLTypeDefsFromTables(
-        [makeTable('user_definition', columns)],
-        new Set(['user_definition']),
+        [makeTable('enfyra_user', columns)],
+        new Set(['enfyra_user']),
       );
-      expect(schema).toContain('input user_definitionUpdateInput');
+      expect(schema).toContain('input enfyra_userUpdateInput');
       expect(schema).not.toContain('secret');
     });
 
@@ -137,8 +137,8 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
         makeColumn('token', 'varchar', { isPublished: false }),
       ];
       const schema = generateGraphQLTypeDefsFromTables(
-        [makeTable('user_definition', columns)],
-        new Set(['user_definition']),
+        [makeTable('enfyra_user', columns)],
+        new Set(['enfyra_user']),
       );
       expect(schema).toContain('username');
       expect(schema).toContain('bio');
@@ -167,7 +167,7 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
       const relations = [
         {
           propertyName: 'author',
-          targetTableName: 'user_definition',
+          targetTableName: 'enfyra_user',
           type: 'many-to-one',
           isPublished: false,
         },
@@ -175,15 +175,15 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
       const schema = generateGraphQLTypeDefsFromTables(
         [
           makeTable('post', columns, relations),
-          makeTable('user_definition', [
+          makeTable('enfyra_user', [
             makeColumn('id', 'uuid', { isPrimary: true }),
             makeColumn('email'),
           ]),
         ],
-        new Set(['post', 'user_definition']),
+        new Set(['post', 'enfyra_user']),
       );
       expect(schema).toContain('type post');
-      expect(schema).not.toContain('author: user_definition');
+      expect(schema).not.toContain('author: enfyra_user');
     });
   });
 
@@ -246,18 +246,18 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
       const relations = [
         {
           propertyName: 'author',
-          targetTableName: 'user_definition',
+          targetTableName: 'enfyra_user',
           type: 'many-to-one',
         },
       ];
       const schema = generateGraphQLTypeDefsFromTables(
         [
           makeTable('post', postColumns, relations),
-          makeTable('user_definition', userColumns),
+          makeTable('enfyra_user', userColumns),
         ],
-        new Set(['post', 'user_definition']),
+        new Set(['post', 'enfyra_user']),
       );
-      const typeMatches = (schema.match(/^type user_definition\s*\{/gm) || [])
+      const typeMatches = (schema.match(/^type enfyra_user\s*\{/gm) || [])
         .length;
       expect(typeMatches).toBe(1);
     });

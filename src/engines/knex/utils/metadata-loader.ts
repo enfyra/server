@@ -10,7 +10,7 @@ import { getJunctionTableName, getForeignKeyColumnName } from '@enfyra/kernel';
 export async function loadAllTableMetadata(
   knex: Knex,
 ): Promise<Map<string, TableMetadata>> {
-  const tables = await knex('table_definition').select('*');
+  const tables = await knex('enfyra_table').select('*');
   const metadataMap = new Map<string, TableMetadata>();
   for (const table of tables) {
     const metadata = await loadTableMetadata(knex, table.name);
@@ -24,17 +24,17 @@ export async function loadTableMetadata(
   knex: Knex,
   tableName: string,
 ): Promise<TableMetadata | null> {
-  const tableDef = await knex('table_definition')
+  const tableDef = await knex('enfyra_table')
     .where('name', tableName)
     .first();
   if (!tableDef) {
     return null;
   }
-  const columns = await knex('column_definition')
+  const columns = await knex('enfyra_column')
     .where('tableId', tableDef.id)
     .select('*')
     .orderBy('id', 'asc');
-  const relations = await knex('relation_definition as r')
+  const relations = await knex('enfyra_relation as r')
     .select(
       'r.*',
       'sourceTable.name as sourceTableName',
@@ -42,17 +42,17 @@ export async function loadTableMetadata(
       'owningRel.propertyName as mappedByPropertyName',
     )
     .leftJoin(
-      'table_definition as sourceTable',
+      'enfyra_table as sourceTable',
       'r.sourceTableId',
       'sourceTable.id',
     )
     .leftJoin(
-      'table_definition as targetTable',
+      'enfyra_table as targetTable',
       'r.targetTableId',
       'targetTable.id',
     )
     .leftJoin(
-      'relation_definition as owningRel',
+      'enfyra_relation as owningRel',
       'r.mappedById',
       'owningRel.id',
     )

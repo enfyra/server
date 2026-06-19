@@ -24,7 +24,7 @@ export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
 
         const result = await this.autoTransformFkFields(
           transformed,
-          'route_permission_definition',
+          'enfyra_route_permission',
           this.queryBuilderService,
         );
         if (!result.route && !result.routeId) return null;
@@ -36,7 +36,7 @@ export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
   }
 
   getUniqueIdentifier(record: any): object {
-    return this.autoGetUniqueIdentifier(record, 'route_permission_definition');
+    return this.autoGetUniqueIdentifier(record, 'enfyra_route_permission');
   }
 
   protected getCompareFields(): string[] {

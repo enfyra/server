@@ -36,7 +36,7 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
 
         const result = await this.autoTransformFkFields(
           transformed,
-          'user_definition',
+          'enfyra_user',
           this.queryBuilderService,
         );
         return result;

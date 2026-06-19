@@ -32,16 +32,16 @@ export async function syncSqlGqlDefinition(input: {
   isSystem: boolean;
 }): Promise<void> {
   const { knex, tableId, isEnabled, isSystem } = input;
-  const existingGql = await knex('gql_definition')
+  const existingGql = await knex('enfyra_graphql')
     .where({ tableId })
     .first();
   if (existingGql) {
-    await knex('gql_definition')
+    await knex('enfyra_graphql')
       .where({ id: existingGql.id })
       .update({ isEnabled });
     return;
   }
-  await knex('gql_definition').insert({
+  await knex('enfyra_graphql').insert({
     tableId,
     isEnabled,
     isSystem,
@@ -154,11 +154,11 @@ export async function syncMongoGqlDefinition(input: {
     input;
   const db = mongoService.getDb();
   const existingGql = await queryBuilderService.findOne({
-    table: 'gql_definition',
+    table: 'enfyra_graphql',
     where: { table: tableId },
   });
   if (existingGql) {
-    await db.collection('gql_definition').updateOne(
+    await db.collection('enfyra_graphql').updateOne(
       { _id: existingGql._id },
       {
         $set: {
@@ -169,7 +169,7 @@ export async function syncMongoGqlDefinition(input: {
     );
     return;
   }
-  await db.collection('gql_definition').insertOne({
+  await db.collection('enfyra_graphql').insertOne({
     table: tableId,
     isEnabled,
     isSystem,

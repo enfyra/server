@@ -5,9 +5,9 @@ import { normalizeDynamicReadProjection } from '../../src/modules/dynamic-api/ut
 const metadata = {
   tables: new Map<string, any>([
     [
-      'flow_step_definition',
+      'enfyra_flow_step',
       {
-        name: 'flow_step_definition',
+        name: 'enfyra_flow_step',
         columns: [
           { name: 'id', isPrimary: true },
           { name: 'key' },
@@ -19,20 +19,20 @@ const metadata = {
           {
             propertyName: 'owner',
             type: 'many-to-one',
-            targetTableName: 'user_definition',
+            targetTableName: 'enfyra_user',
           },
           {
             propertyName: 'flow',
             type: 'many-to-one',
-            targetTableName: 'flow_definition',
+            targetTableName: 'enfyra_flow',
           },
         ],
       },
     ],
     [
-      'user_definition',
+      'enfyra_user',
       {
-        name: 'user_definition',
+        name: 'enfyra_user',
         columns: [
           { name: 'id', isPrimary: true },
           { name: 'email' },
@@ -43,15 +43,15 @@ const metadata = {
           {
             propertyName: 'role',
             type: 'many-to-one',
-            targetTableName: 'role_definition',
+            targetTableName: 'enfyra_role',
           },
         ],
       },
     ],
     [
-      'role_definition',
+      'enfyra_role',
       {
-        name: 'role_definition',
+        name: 'enfyra_role',
         columns: [
           { name: 'id', isPrimary: true },
           { name: 'name' },
@@ -61,9 +61,9 @@ const metadata = {
       },
     ],
     [
-      'flow_definition',
+      'enfyra_flow',
       {
-        name: 'flow_definition',
+        name: 'enfyra_flow',
         columns: [
           { name: 'id', isPrimary: true },
           { name: 'name' },
@@ -90,7 +90,7 @@ const metadata = {
 function makeRepo({
   fields,
   deep,
-  tableName = 'flow_step_definition',
+  tableName = 'enfyra_flow_step',
 }: {
   fields?: string | string[];
   deep?: Record<string, any>;
@@ -125,7 +125,7 @@ describe('dynamic read field selection', () => {
   it('keeps normal include mode unchanged', () => {
     expect(
       normalizeDynamicReadProjection({
-        tableName: 'flow_step_definition',
+        tableName: 'enfyra_flow_step',
         fields: 'id,sourceCode,owner.email',
         deep: undefined,
         metadata,
@@ -139,7 +139,7 @@ describe('dynamic read field selection', () => {
   it('treats any negative token as exclude mode and ignores positive tokens', () => {
     expect(
       normalizeDynamicReadProjection({
-        tableName: 'flow_step_definition',
+        tableName: 'enfyra_flow_step',
         fields: 'id,-compiledCode',
         metadata,
       }).fields,
@@ -149,7 +149,7 @@ describe('dynamic read field selection', () => {
   it('supports root excludes without dropping the primary key unless requested', () => {
     expect(
       normalizeDynamicReadProjection({
-        tableName: 'flow_step_definition',
+        tableName: 'enfyra_flow_step',
         fields: '-compiledCode,-key',
         metadata,
       }).fields,
@@ -159,7 +159,7 @@ describe('dynamic read field selection', () => {
   it('allows excluding the primary key explicitly', () => {
     expect(
       normalizeDynamicReadProjection({
-        tableName: 'flow_step_definition',
+        tableName: 'enfyra_flow_step',
         fields: '-id,-compiledCode',
         metadata,
       }).fields,
@@ -169,7 +169,7 @@ describe('dynamic read field selection', () => {
   it('turns dotted relation excludes into deep all-minus projections', () => {
     expect(
       normalizeDynamicReadProjection({
-        tableName: 'flow_step_definition',
+        tableName: 'enfyra_flow_step',
         fields: '-owner.avatar',
         metadata,
       }),
@@ -194,7 +194,7 @@ describe('dynamic read field selection', () => {
   it('lets top-level dotted excludes win over nested include fields', () => {
     expect(
       normalizeDynamicReadProjection({
-        tableName: 'flow_step_definition',
+        tableName: 'enfyra_flow_step',
         fields: '-owner.avatar',
         deep: { owner: { fields: 'avatar' } },
         metadata,
@@ -209,7 +209,7 @@ describe('dynamic read field selection', () => {
   it('supports nested deep exclude mode independently', () => {
     expect(
       normalizeDynamicReadProjection({
-        tableName: 'flow_step_definition',
+        tableName: 'enfyra_flow_step',
         fields: 'id,owner',
         deep: {
           owner: {
@@ -239,7 +239,7 @@ describe('dynamic read field selection', () => {
   it('removes deep entries when the owning relation is excluded', () => {
     expect(
       normalizeDynamicReadProjection({
-        tableName: 'flow_step_definition',
+        tableName: 'enfyra_flow_step',
         fields: '-owner',
         deep: { owner: { fields: '-avatar' } },
         metadata,
@@ -263,7 +263,7 @@ describe('dynamic read field selection', () => {
   it('rejects unknown root fields in exclude mode', () => {
     expect(() =>
       normalizeDynamicReadProjection({
-        tableName: 'flow_step_definition',
+        tableName: 'enfyra_flow_step',
         fields: '-compildCode',
         metadata,
       }),
@@ -273,7 +273,7 @@ describe('dynamic read field selection', () => {
   it('rejects unknown dotted relations in exclude mode', () => {
     expect(() =>
       normalizeDynamicReadProjection({
-        tableName: 'flow_step_definition',
+        tableName: 'enfyra_flow_step',
         fields: '-missing.avatar',
         metadata,
       }),
@@ -283,7 +283,7 @@ describe('dynamic read field selection', () => {
   it('rejects invalid wildcard exclusion', () => {
     expect(() =>
       normalizeDynamicReadProjection({
-        tableName: 'flow_step_definition',
+        tableName: 'enfyra_flow_step',
         fields: '-*',
         metadata,
       }),
@@ -299,7 +299,7 @@ describe('dynamic read field selection', () => {
 
     expect(queryBuilderService.find).toHaveBeenCalledWith(
       expect.objectContaining({
-        table: 'flow_step_definition',
+        table: 'enfyra_flow_step',
         fields: ['id', 'key', 'sourceCode', 'scriptLanguage', 'owner', 'flow'],
       }),
     );

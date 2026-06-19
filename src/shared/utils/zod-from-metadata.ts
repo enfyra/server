@@ -10,8 +10,8 @@ const AUTO_MANAGED_COLUMNS = new Set(['id', '_id', 'createdAt', 'updatedAt']);
  * for everything else.
  */
 const TABLE_VIRTUAL_FIELDS: Record<string, string[]> = {
-  table_definition: ['graphqlEnabled'],
-  field_permission_definition: ['config'],
+  enfyra_table: ['graphqlEnabled'],
+  enfyra_field_permission: ['config'],
 };
 
 export interface BuildZodOpts {
@@ -197,7 +197,7 @@ function buildRelationZod(
 ): z.ZodType | null {
   // NOTE: `isUpdatable=false` on a relation semantically means the LINK can't
   // be swapped out, but nested CRUD through the relation may still be allowed
-  // (e.g. table_definition.columns is not-updatable as a link but server PATCH
+  // (e.g. enfyra_table.columns is not-updatable as a link but server PATCH
   // handles nested column changes). Don't filter here; server enforces.
 
   const targetName = rel.targetTableName || rel.targetTable;

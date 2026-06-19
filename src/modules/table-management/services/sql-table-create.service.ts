@@ -42,7 +42,7 @@ export class SqlTableCreateService extends SqlTableHandlerService {
   async createTable(body: TCreateTableBody, context?: TDynamicContext) {
     const decision = await this.policyService.checkSchemaMigration({
       operation: 'create',
-      tableName: 'table_definition',
+      tableName: 'enfyra_table',
       data: body,
       currentUser: context?.$user,
     });
@@ -103,13 +103,13 @@ export class SqlTableCreateService extends SqlTableHandlerService {
         abortSignal.addEventListener('abort', onAbort, { once: true });
       }
       const hasTable = await knex.schema.hasTable(body.name);
-      const existing = await trx('table_definition')
+      const existing = await trx('enfyra_table')
         .where({ name: body.name })
         .first();
       if (existing) {
         await trx.rollback();
         throw new DuplicateResourceException(
-          'table_definition',
+          'enfyra_table',
           'name',
           body.name,
         );
@@ -172,7 +172,7 @@ export class SqlTableCreateService extends SqlTableHandlerService {
           ?.filter((id: any) => id != null) || [];
       const targetTablesMap = new Map<string, string>();
       if (targetTableIds.length > 0) {
-        const targetTables = await trx('table_definition')
+        const targetTables = await trx('enfyra_table')
           .select('id', 'name')
           .whereIn('id', targetTableIds);
         for (const table of targetTables) {
@@ -192,7 +192,7 @@ export class SqlTableCreateService extends SqlTableHandlerService {
       }
       body.isSystem = false;
       const dbType = this.queryBuilderService.getDatabaseType();
-      const insertResult = await trx('table_definition').insert(
+      const insertResult = await trx('enfyra_table').insert(
         {
           name: body.name,
           isSystem: body.isSystem,
@@ -229,7 +229,7 @@ export class SqlTableCreateService extends SqlTableHandlerService {
             col.metadata !== undefined ? JSON.stringify(col.metadata) : null,
           tableId: tableId,
         }));
-        await trx('column_definition').insert(columnsToInsert);
+        await trx('enfyra_column').insert(columnsToInsert);
       }
       if (bodyRelations.length > 0) {
         const targetTableIds = bodyRelations
@@ -237,7 +237,7 @@ export class SqlTableCreateService extends SqlTableHandlerService {
           .filter((id: any) => id != null);
         const targetTablesMap = new Map<string, string>();
         if (targetTableIds.length > 0) {
-          const targetTables = await trx('table_definition')
+          const targetTables = await trx('enfyra_table')
             .select('id', 'name')
             .whereIn('id', targetTableIds);
           for (const table of targetTables) {
@@ -252,7 +252,7 @@ export class SqlTableCreateService extends SqlTableHandlerService {
           const targetTableId = getRelationTargetTableId(rel);
           let mappedById: number | null = null;
           if (rel.mappedBy) {
-            const owningRel = await trx('relation_definition')
+            const owningRel = await trx('enfyra_relation')
               .where({
                 sourceTableId: targetTableId,
                 propertyName: rel.mappedBy,
@@ -298,7 +298,7 @@ export class SqlTableCreateService extends SqlTableHandlerService {
           }
           relationsToInsert.push({ insertData, rel });
         }
-        await trx('relation_definition').insert(
+        await trx('enfyra_relation').insert(
           relationsToInsert.map((r: any) => r.insertData),
         );
         for (const { insertData: inserted, rel } of relationsToInsert) {
@@ -313,7 +313,7 @@ export class SqlTableCreateService extends SqlTableHandlerService {
           const targetTableName = targetTablesMap.get(
             relationTargetTableMapKey(targetTableId),
           );
-          const existingOnTarget = await trx('relation_definition')
+          const existingOnTarget = await trx('enfyra_relation')
             .where({
               sourceTableId: targetTableId,
               propertyName: rel.inversePropertyName,
@@ -328,14 +328,14 @@ export class SqlTableCreateService extends SqlTableHandlerService {
               },
             );
           }
-          const owningRel = await trx('relation_definition')
+          const owningRel = await trx('enfyra_relation')
             .where({
               sourceTableId: tableId,
               propertyName: rel.propertyName,
             })
             .first();
           if (!owningRel) continue;
-          const existingInverse = await trx('relation_definition')
+          const existingInverse = await trx('enfyra_relation')
             .where({ mappedById: owningRel.id })
             .first();
           if (existingInverse) {
@@ -364,7 +364,7 @@ export class SqlTableCreateService extends SqlTableHandlerService {
             inverseData.junctionSourceColumn = inserted.junctionTargetColumn;
             inverseData.junctionTargetColumn = inserted.junctionSourceColumn;
           }
-          await trx('relation_definition').insert(inverseData);
+          await trx('enfyra_relation').insert(inverseData);
           this.logger.log(
             `Auto-created inverse relation '${rel.inversePropertyName}' on '${targetTableName}'`,
           );
@@ -457,7 +457,7 @@ export class SqlTableCreateService extends SqlTableHandlerService {
       if (metadataCommitted && !schemaCreated) {
         try {
           await this.queryBuilderService
-            .getKnex()('table_definition')
+            .getKnex()('enfyra_table')
             .where({ name: body.name })
             .delete();
         } catch (metadataCleanupError: any) {

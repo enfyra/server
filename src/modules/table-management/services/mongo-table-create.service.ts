@@ -45,7 +45,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
   async createTable(body: TCreateTableBody, context?: TDynamicContext) {
     const decision = await this.policyService.checkSchemaMigration({
       operation: 'create',
-      tableName: 'table_definition',
+      tableName: 'enfyra_table',
       data: body,
       currentUser: context?.$user,
     });
@@ -81,14 +81,14 @@ export class MongoTableCreateService extends MongoTableHandlerService {
             .toArray();
           const hasCollection = collections.length > 0;
           const existing = await this.queryBuilderService.findOne({
-            table: 'table_definition',
+            table: 'enfyra_table',
             where: {
               name: body.name,
             },
           });
           if (existing) {
             throw new DuplicateResourceException(
-              'table_definition',
+              'enfyra_table',
               'name',
               body.name,
             );
@@ -142,7 +142,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
           validateUniquePropertyNames(body.columns || [], body.relations || []);
           body.isSystem = false;
           const tableRecord = await this.queryBuilderService.insert(
-            'table_definition',
+            'enfyra_table',
             {
               name: body.name,
               isSystem: body.isSystem,
@@ -162,7 +162,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
             if (body.columns?.length > 0) {
               for (const col of body.columns) {
                 const columnRecord = await this.queryBuilderService.insert(
-                  'column_definition',
+                  'enfyra_column',
                   {
                     name: col.name,
                     type: col.type,
@@ -192,7 +192,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
             this.logger.error(
               `   Failed to insert columns, rolling back table creation`,
             );
-            await this.queryBuilderService.delete('table_definition', tableId);
+            await this.queryBuilderService.delete('enfyra_table', tableId);
             throw new ValidationException(
               `Failed to create table: ${error.message}`,
               { tableName: body.name, error: error.message },
@@ -215,7 +215,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                 } else if (typeof rel.targetTable === 'string') {
                   const targetTableRecord =
                     await this.queryBuilderService.findOne({
-                      table: 'table_definition',
+                      table: 'enfyra_table',
                       where: { name: rel.targetTable },
                     });
                   if (targetTableRecord) {
@@ -236,7 +236,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                 if (mappedByProperty) {
                   const { data: owningRels } =
                     await this.queryBuilderService.find({
-                      table: 'relation_definition',
+                      table: 'enfyra_relation',
                       where: {
                         sourceTable: targetTableObjectId,
                         propertyName: mappedByProperty,
@@ -272,7 +272,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                     rel.foreignKeyColumn || rel.propertyName;
                 } else if (resolvedMappedBy) {
                   const owningRel = await this.queryBuilderService.findOne({
-                    table: 'relation_definition',
+                    table: 'enfyra_relation',
                     where: { _id: resolvedMappedBy },
                   });
                   relationData.foreignKeyColumn =
@@ -297,7 +297,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                     junction.junctionTargetColumn;
                 }
                 const relationRecord = await this.queryBuilderService.insert(
-                  'relation_definition',
+                  'enfyra_relation',
                   relationData,
                 );
                 const relId =
@@ -314,7 +314,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                   }
                   const { data: existingOnTarget } =
                     await this.queryBuilderService.find({
-                      table: 'relation_definition',
+                      table: 'enfyra_relation',
                       where: {
                         sourceTable: targetTableObjectId,
                         propertyName: rel.inversePropertyName,
@@ -328,7 +328,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                   }
                   const { data: existingInverse } =
                     await this.queryBuilderService.find({
-                      table: 'relation_definition',
+                      table: 'enfyra_relation',
                       where: { mappedBy: relId },
                     });
                   if (existingInverse.length > 0) {
@@ -379,7 +379,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                     }
                   }
                   const inverseRecord = await this.queryBuilderService.insert(
-                    'relation_definition',
+                    'enfyra_relation',
                     inverseData,
                   );
                   const inverseId =
@@ -403,9 +403,9 @@ export class MongoTableCreateService extends MongoTableHandlerService {
               `   Failed to insert relations, rolling back table creation`,
             );
             for (const colId of insertedColumnIds) {
-              await this.queryBuilderService.delete('column_definition', colId);
+              await this.queryBuilderService.delete('enfyra_column', colId);
             }
-            await this.queryBuilderService.delete('table_definition', tableId);
+            await this.queryBuilderService.delete('enfyra_table', tableId);
             throw new ValidationException(
               `Failed to create table: ${error.message}`,
               { tableName: body.name, error: error.message },

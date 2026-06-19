@@ -6,23 +6,23 @@ import {
   CACHE_IDENTIFIERS,
 } from '../../src/shared/utils/cache-events.constants';
 
-describe('column_rule_definition — cache invalidation chain', () => {
-  it('CACHE_INVALIDATION_MAP includes COLUMN_RULE for column_rule_definition', () => {
-    expect(CACHE_INVALIDATION_MAP['column_rule_definition']).toContain(
+describe('enfyra_column_rule — cache invalidation chain', () => {
+  it('CACHE_INVALIDATION_MAP includes COLUMN_RULE for enfyra_column_rule', () => {
+    expect(CACHE_INVALIDATION_MAP['enfyra_column_rule']).toContain(
       CACHE_IDENTIFIERS.COLUMN_RULE,
     );
   });
 
-  it('RELOAD_CHAINS has an entry for column_rule_definition', () => {
-    expect(RELOAD_CHAINS['column_rule_definition']).toBeDefined();
+  it('RELOAD_CHAINS has an entry for enfyra_column_rule', () => {
+    expect(RELOAD_CHAINS['enfyra_column_rule']).toBeDefined();
   });
 
-  it('RELOAD_CHAINS for column_rule_definition includes the column-rule step', () => {
-    expect(RELOAD_CHAINS['column_rule_definition']).toContain('column-rule');
+  it('RELOAD_CHAINS for enfyra_column_rule includes the column-rule step', () => {
+    expect(RELOAD_CHAINS['enfyra_column_rule']).toContain('column-rule');
   });
 
-  it('column_rule_definition chain does NOT trigger metadata/route/graphql rebuild (rules are isolated)', () => {
-    const chain = RELOAD_CHAINS['column_rule_definition'];
+  it('enfyra_column_rule chain does NOT trigger metadata/route/graphql rebuild (rules are isolated)', () => {
+    const chain = RELOAD_CHAINS['enfyra_column_rule'];
     expect(chain).not.toContain('metadata');
     expect(chain).not.toContain('route');
     expect(chain).not.toContain('graphql');

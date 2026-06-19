@@ -9,7 +9,7 @@ describe('MongoDB Migration Compensation', () => {
 
       const mockDb = {
         collection: jest.fn((name: string) => {
-          if (name === 'table_definition') {
+          if (name === 'enfyra_table') {
             return {
               findOne: jest.fn().mockResolvedValue({
                 _id: tableId,
@@ -18,7 +18,7 @@ describe('MongoDB Migration Compensation', () => {
               }),
             };
           }
-          if (name === 'column_definition') {
+          if (name === 'enfyra_column') {
             return {
               find: jest.fn().mockReturnValue({
                 toArray: jest.fn().mockResolvedValue([
@@ -38,7 +38,7 @@ describe('MongoDB Migration Compensation', () => {
               }),
             };
           }
-          if (name === 'relation_definition') {
+          if (name === 'enfyra_relation') {
             const findMock = jest.fn();
             findMock.mockReturnValue({
               toArray: jest.fn().mockResolvedValue([
@@ -69,7 +69,7 @@ describe('MongoDB Migration Compensation', () => {
       // Simulate the capture logic
       const db = mockDb;
       const sourceRelations = await db
-        .collection('relation_definition')
+        .collection('enfyra_relation')
         .find({ sourceTable: tableId })
         .toArray();
       const owningRelIds = sourceRelations
@@ -155,22 +155,22 @@ describe('MongoDB Migration Compensation', () => {
 
       // Step 1: Restore table
       await db
-        .collection('table_definition')
+        .collection('enfyra_table')
         .replaceOne({ _id: oid }, snapshot.table, { upsert: true });
       // Step 2: Restore columns
-      await db.collection('column_definition').deleteMany({ table: oid });
-      await db.collection('column_definition').insertMany(snapshot.columns);
+      await db.collection('enfyra_column').deleteMany({ table: oid });
+      await db.collection('enfyra_column').insertMany(snapshot.columns);
       // Step 3: Restore relations
       await db
-        .collection('relation_definition')
+        .collection('enfyra_relation')
         .deleteMany({ sourceTable: oid });
-      await db.collection('relation_definition').insertMany(snapshot.relations);
+      await db.collection('enfyra_relation').insertMany(snapshot.relations);
 
-      expect(operations).toContain('table_definition:replaceOne');
-      expect(operations).toContain('column_definition:deleteMany');
-      expect(operations).toContain('column_definition:insertMany');
-      expect(operations).toContain('relation_definition:deleteMany');
-      expect(operations).toContain('relation_definition:insertMany');
+      expect(operations).toContain('enfyra_table:replaceOne');
+      expect(operations).toContain('enfyra_column:deleteMany');
+      expect(operations).toContain('enfyra_column:insertMany');
+      expect(operations).toContain('enfyra_relation:deleteMany');
+      expect(operations).toContain('enfyra_relation:insertMany');
     });
   });
 

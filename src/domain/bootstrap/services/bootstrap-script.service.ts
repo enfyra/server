@@ -101,20 +101,20 @@ export class BootstrapScriptService {
         if (this.queryBuilderService.isMongoDb()) {
           const db = this.queryBuilderService.getMongoDb();
           const collections = await db
-            .listCollections({ name: 'bootstrap_script_definition' })
+            .listCollections({ name: 'enfyra_bootstrap_script' })
             .toArray();
           if (collections.length > 0) return;
         } else {
           const knex = this.queryBuilderService.getKnex();
           const exists = await knex.schema.hasTable(
-            'bootstrap_script_definition',
+            'enfyra_bootstrap_script',
           );
           if (exists) return;
         }
       } catch (error) {
         if (attempt === maxRetries) {
           throw new Error(
-            `bootstrap_script_definition not found after ${maxRetries} attempts`,
+            `enfyra_bootstrap_script not found after ${maxRetries} attempts`,
           );
         }
         await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -132,14 +132,14 @@ export class BootstrapScriptService {
 
   private async executeBootstrapScriptsWithoutLock(): Promise<number> {
     const result = await this.queryBuilderService.find({
-      table: 'bootstrap_script_definition',
+      table: 'enfyra_bootstrap_script',
       filter: { isEnabled: { _eq: true } },
       sort: ['priority'],
     });
     const scripts = result.data;
     for (let i = 0; i < scripts.length; i++) {
       const script = normalizeScriptRecord(
-        'bootstrap_script_definition',
+        'enfyra_bootstrap_script',
         scripts[i],
       );
       const resolved = resolveExecutableScript(script);
@@ -149,7 +149,7 @@ export class BootstrapScriptService {
         const id = DatabaseConfigService.getRecordId(script);
         if (id != null) {
           await this.queryBuilderService.update(
-            'bootstrap_script_definition',
+            'enfyra_bootstrap_script',
             id,
             {
               compiledCode: resolved.compiledCode,

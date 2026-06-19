@@ -74,7 +74,7 @@ function addRelationToTestTable() {
     snapshot[TEST_TABLE].relations.push({
       propertyName: 'user',
       type: 'many-to-one',
-      targetTable: 'user_definition',
+      targetTable: 'enfyra_user',
       isSystem: false,
     });
     fs.writeFileSync(SNAPSHOT_PATH, JSON.stringify(snapshot, null, 4));
@@ -141,7 +141,7 @@ async function testSqlMigrations(): Promise<{
 
     console.log('\n1️⃣  Test: Create new table');
     addTestTableToSnapshot();
-    await knexInstance('setting_definition').update({ isInit: false });
+    await knexInstance('enfyra_setting').update({ isInit: false });
     await runInitScript();
 
     const tableExists = await knexInstance.schema.hasTable(TEST_TABLE);
@@ -163,7 +163,7 @@ async function testSqlMigrations(): Promise<{
 
     console.log('\n2️⃣  Test: Add new column');
     addColumnToTestTable();
-    await knexInstance('setting_definition').update({ isInit: false });
+    await knexInstance('enfyra_setting').update({ isInit: false });
     await runInitScript();
 
     const columnsAfterAdd = await knexInstance(TEST_TABLE).columnInfo();
@@ -177,7 +177,7 @@ async function testSqlMigrations(): Promise<{
 
     console.log('\n3️⃣  Test: Add relation (FK)');
     addRelationToTestTable();
-    await knexInstance('setting_definition').update({ isInit: false });
+    await knexInstance('enfyra_setting').update({ isInit: false });
     await runInitScript();
 
     const columnsAfterRelation = await knexInstance(TEST_TABLE).columnInfo();
@@ -208,7 +208,7 @@ async function testSqlMigrations(): Promise<{
     console.log('\n4️⃣  Test: Delete table via deletedTables');
     removeTestTableFromSnapshot();
     addTableToDeletedTables();
-    await knexInstance('setting_definition').update({ isInit: false });
+    await knexInstance('enfyra_setting').update({ isInit: false });
     await runInitScript();
 
     const tableExistsAfterDelete =
@@ -259,7 +259,7 @@ async function testMongoMigrations(): Promise<{
     console.log('\n1️⃣  Test: Create new collection');
     addTestTableToSnapshot();
     await db
-      .collection('setting_definition')
+      .collection('enfyra_setting')
       .updateOne({}, { $set: { isInit: false } });
     await runInitScript();
 
@@ -286,7 +286,7 @@ async function testMongoMigrations(): Promise<{
     console.log('\n2️⃣  Test: Add new column');
     addColumnToTestTable();
     await db
-      .collection('setting_definition')
+      .collection('enfyra_setting')
       .updateOne({}, { $set: { isInit: false } });
     await runInitScript();
 
@@ -297,7 +297,7 @@ async function testMongoMigrations(): Promise<{
     removeTestTableFromSnapshot();
     addTableToDeletedTables();
     await db
-      .collection('setting_definition')
+      .collection('enfyra_setting')
       .updateOne({}, { $set: { isInit: false } });
     await runInitScript();
 

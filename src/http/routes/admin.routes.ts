@@ -552,11 +552,11 @@ function findRouteScriptRecord(options: {
   const source = String(tableName || body?.source || body?.target || '').trim();
 
   const pools =
-    source === 'pre_hook_definition'
+    source === 'enfyra_pre_hook'
       ? [route.preHooks || []]
-      : source === 'post_hook_definition'
+      : source === 'enfyra_post_hook'
         ? [route.postHooks || []]
-        : source === 'route_handler_definition'
+        : source === 'enfyra_route_handler'
           ? [route.handlers || []]
           : [route.handlers || [], route.preHooks || [], route.postHooks || []];
 

@@ -122,7 +122,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
 
     expect(update).toHaveBeenCalledTimes(1);
     const call = update.mock.calls[0];
-    expect(call[0]).toBe('setting_definition');
+    expect(call[0]).toBe('enfyra_setting');
     expect(call[2]).toEqual({ uniquesIndexesRepaired: true });
   });
 
@@ -150,7 +150,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
 
     expect(update).toHaveBeenCalledTimes(2);
     const tableUpdate = update.mock.calls.find(
-      (c: any) => c[0] === 'table_definition',
+      (c: any) => c[0] === 'enfyra_table',
     );
     expect(tableUpdate).toBeDefined();
     expect(tableUpdate![2]).toEqual({
@@ -159,7 +159,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
     });
 
     const settingUpdate = update.mock.calls.find(
-      (c: any) => c[0] === 'setting_definition',
+      (c: any) => c[0] === 'enfyra_setting',
     );
     expect(settingUpdate![2]).toEqual({ uniquesIndexesRepaired: true });
   });
@@ -170,7 +170,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
     const columnId = '65f000000000000000000001';
     const qb = makeQb(
       (args: any) =>
-        args.table === 'column_definition'
+        args.table === 'enfyra_column'
           ? {
               data: [
                 {
@@ -202,7 +202,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
 
     expect(update).toHaveBeenCalledTimes(1);
     expect(update).toHaveBeenCalledWith(
-      'column_definition',
+      'enfyra_column',
       { where: [{ field: '_id', operator: '=', value: columnId }] },
       { name: '_id', type: 'ObjectId' },
     );
@@ -214,7 +214,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
     const cache = makeCache([
       makeTable({
         id: 1,
-        name: 'user_definition',
+        name: 'enfyra_user',
         isSystem: true,
         indexes: [['userId']],
         relations: [{ propertyName: 'user', foreignKeyColumn: 'userId' }],
@@ -228,7 +228,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
     await svc.runIfNeeded();
 
     const tableCalls = update.mock.calls.filter(
-      (c: any) => c[0] === 'table_definition',
+      (c: any) => c[0] === 'enfyra_table',
     );
     expect(tableCalls).toHaveLength(0);
   });
@@ -251,7 +251,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
     await svc.runIfNeeded();
 
     const tableCalls = update.mock.calls.filter(
-      (c: any) => c[0] === 'table_definition',
+      (c: any) => c[0] === 'enfyra_table',
     );
     expect(tableCalls).toHaveLength(0);
   });
@@ -275,7 +275,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
     await svc.runIfNeeded();
 
     const tableUpdate = update.mock.calls.find(
-      (c: any) => c[0] === 'table_definition',
+      (c: any) => c[0] === 'enfyra_table',
     );
     expect(tableUpdate![2].uniques).toEqual([['author']]);
   });
@@ -309,13 +309,13 @@ describe('SchemaHealingService.runIfNeeded', () => {
       },
     ];
     const knex: any = vi.fn((tableName: string) => {
-      if (tableName === 'relation_definition as r') {
+      if (tableName === 'enfyra_relation as r') {
         return {
           leftJoin: vi.fn().mockReturnThis(),
           select: vi.fn().mockResolvedValue(rows),
         };
       }
-      if (tableName === 'relation_definition') {
+      if (tableName === 'enfyra_relation') {
         return { where: vi.fn().mockReturnValue(relationTable()) };
       }
       throw new Error(`Unexpected table ${tableName}`);
@@ -410,11 +410,11 @@ describe('SchemaHealingService.runIfNeeded', () => {
       },
     ];
     const collections: Record<string, any> = {
-      relation_definition: {
+      enfyra_relation: {
         find: vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue(relations) }),
         updateOne,
       },
-      table_definition: {
+      enfyra_table: {
         find: vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue(tables) }),
       },
       bad_junction: {
@@ -439,7 +439,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
     };
     const qb = {
       find: vi.fn((args: any) =>
-        args.table === 'column_definition'
+        args.table === 'enfyra_column'
           ? { data: [] }
           : { data: [{ _id: 'setting-id', isInit: true, uniquesIndexesRepaired: true }] },
       ),

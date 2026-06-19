@@ -108,7 +108,7 @@ export async function getAccessibleMetadataTableActions({
   }
 
   if (user && !user.isAnonymous) {
-    add('user_definition', ['read', 'update']);
+    add('enfyra_user', ['read', 'update']);
   }
 
   return tableActions;

@@ -54,12 +54,13 @@ export class WebsocketCacheService extends BaseCacheService<
 
   protected async loadFromDb(): Promise<WebSocketGateway[]> {
     const result = await this.queryBuilderService.find({
-      table: 'websocket_definition',
-      fields: ['*', 'events.*'],
+      table: 'enfyra_websocket',
+      fields: ['*'],
       filter: { isEnabled: { _eq: true } },
     });
 
     const gateways = result.data || [];
+    await this.attachEvents(gateways);
 
     await this.prepareGateways(gateways);
 
@@ -113,8 +114,8 @@ export class WebsocketCacheService extends BaseCacheService<
     publish = true,
   ): Promise<void> {
     if (
-      payload.table !== 'websocket_definition' &&
-      payload.table !== 'websocket_event_definition'
+      payload.table !== 'enfyra_websocket' &&
+      payload.table !== 'enfyra_websocket_event'
     ) {
       await this.reload(publish);
       return;
@@ -128,7 +129,7 @@ export class WebsocketCacheService extends BaseCacheService<
     const ids = payload.ids ?? [];
     if (ids.length === 0) return;
 
-    if (payload.table === 'websocket_definition') {
+    if (payload.table === 'enfyra_websocket') {
       await this.reloadSpecificGateways(ids);
       return;
     }
@@ -143,8 +144,8 @@ export class WebsocketCacheService extends BaseCacheService<
   ): Promise<void> {
     const idField = this.queryBuilderService.isMongoDb() ? '_id' : 'id';
     const result = await this.queryBuilderService.find({
-      table: 'websocket_definition',
-      fields: ['*', 'events.*'],
+      table: 'enfyra_websocket',
+      fields: ['*'],
       filter: {
         _and: [
           { isEnabled: { _eq: true } },
@@ -155,6 +156,7 @@ export class WebsocketCacheService extends BaseCacheService<
     });
 
     const updatedGateways = result?.data ?? [];
+    await this.attachEvents(updatedGateways);
     await this.prepareGateways(updatedGateways);
 
     const idSet = new Set(gatewayIds.map(String));
@@ -170,7 +172,7 @@ export class WebsocketCacheService extends BaseCacheService<
   ): Promise<(string | number)[]> {
     const idField = this.queryBuilderService.isMongoDb() ? '_id' : 'id';
     const result = await this.queryBuilderService.find({
-      table: 'websocket_event_definition',
+      table: 'enfyra_websocket_event',
       fields: ['gateway.id', 'gateway._id'],
       filter: { [idField]: { _in: eventIds } },
       limit: eventIds.length,
@@ -178,8 +180,7 @@ export class WebsocketCacheService extends BaseCacheService<
 
     const gatewayIds = new Map<string, string | number>();
     for (const row of result?.data ?? []) {
-      const gatewayId =
-        row?.gateway?._id ?? row?.gateway?.id ?? row?.gatewayId;
+      const gatewayId = row?.gateway?._id ?? row?.gateway?.id ?? row?.gatewayId;
       if (gatewayId != null) gatewayIds.set(String(gatewayId), gatewayId);
     }
 
@@ -199,15 +200,54 @@ export class WebsocketCacheService extends BaseCacheService<
     return [...gatewayIds.values()];
   }
 
+  private async attachEvents(gateways: any[]): Promise<void> {
+    if (!gateways.length) return;
+
+    const gatewayIds = gateways
+      .map((gateway) => DatabaseConfigService.getRecordId(gateway))
+      .filter((id) => id !== undefined && id !== null);
+    if (!gatewayIds.length) return;
+
+    const gatewayById = new Map<string, any>();
+    for (const gateway of gateways) {
+      gateway.events = [];
+      const id = DatabaseConfigService.getRecordId(gateway);
+      if (id !== undefined && id !== null) gatewayById.set(String(id), gateway);
+    }
+
+    const eventResult = await this.queryBuilderService.find({
+      table: 'enfyra_websocket_event',
+      fields: ['*', 'gateway.id', 'gateway._id'],
+      filter: {
+        _and: [
+          { isEnabled: { _eq: true } },
+          {
+            gateway: {
+              [DatabaseConfigService.getPkField()]: { _in: gatewayIds },
+            },
+          },
+        ],
+      },
+      limit: Math.max(gatewayIds.length * 100, 100),
+    });
+
+    for (const event of eventResult?.data ?? []) {
+      const gatewayId =
+        event?.gateway?._id ?? event?.gateway?.id ?? event?.gatewayId;
+      const gateway = gatewayById.get(String(gatewayId));
+      if (gateway) gateway.events.push(event);
+    }
+  }
+
   private async prepareGateways(gateways: any[]): Promise<void> {
     for (const gateway of gateways) {
       const normalizedGateway = normalizeScriptRecord(
-        'websocket_definition',
+        'enfyra_websocket',
         gateway,
       );
       Object.assign(gateway, normalizedGateway);
       const connectionCode = await this.resolveAndRepairScript(
-        'websocket_definition',
+        'enfyra_websocket',
         gateway,
       );
       if (connectionCode) {
@@ -216,12 +256,12 @@ export class WebsocketCacheService extends BaseCacheService<
       if (gateway.events) {
         for (const event of gateway.events) {
           const normalizedEvent = normalizeScriptRecord(
-            'websocket_event_definition',
+            'enfyra_websocket_event',
             event,
           );
           Object.assign(event, normalizedEvent);
           const code = await this.resolveAndRepairScript(
-            'websocket_event_definition',
+            'enfyra_websocket_event',
             event,
           );
           if (code) {

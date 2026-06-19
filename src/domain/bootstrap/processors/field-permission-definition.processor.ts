@@ -25,7 +25,7 @@ export class FieldPermissionDefinitionProcessor extends BaseTableProcessor {
       if (t._column) {
         const { table, name } = t._column;
         const tableDef = await this.queryBuilderService.findOne({
-          table: 'table_definition',
+          table: 'enfyra_table',
           where: { name: table },
         });
         if (!tableDef) {
@@ -36,7 +36,7 @@ export class FieldPermissionDefinitionProcessor extends BaseTableProcessor {
         }
         const tableFkVal = isMongoDB ? tableDef._id : tableDef.id;
         const column = await this.queryBuilderService.findOne({
-          table: 'column_definition',
+          table: 'enfyra_column',
           where: isMongoDB
             ? { table: tableFkVal, name }
             : { tableId: tableFkVal, name },
@@ -69,7 +69,7 @@ export class FieldPermissionDefinitionProcessor extends BaseTableProcessor {
           }
         } else {
           const role = await this.queryBuilderService.findOne({
-            table: 'role_definition',
+            table: 'enfyra_role',
             where: { name: t._role },
           });
           if (!role) {

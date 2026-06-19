@@ -135,7 +135,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   ): Promise<void> {
     const affectedTableNames = new Set<string>(payload.affectedTables || []);
 
-    if (payload.table === 'table_definition' && payload.ids?.length) {
+    if (payload.table === 'enfyra_table' && payload.ids?.length) {
       const isMongoDB = this.queryBuilderService.isMongoDb();
       const idField = DatabaseConfigService.getPkField();
       const filter = isMongoDB
@@ -143,7 +143,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
         : { mainTableId: { _in: payload.ids } };
 
       const result = await this.queryBuilderService.find({
-        table: 'route_definition',
+        table: 'enfyra_route',
         filter,
         fields: [idField],
       });
@@ -176,13 +176,13 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       return;
     }
 
-    if (payload.table === 'route_definition' && payload.ids?.length) {
+    if (payload.table === 'enfyra_route' && payload.ids?.length) {
       await this.reloadSpecificRoutes(payload.ids);
       return;
     }
 
     if (
-      ['route_handler_definition', 'route_permission_definition'].includes(
+      ['enfyra_route_handler', 'enfyra_route_permission'].includes(
         payload.table,
       ) &&
       payload.ids?.length
@@ -198,7 +198,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     }
 
     if (
-      ['pre_hook_definition', 'post_hook_definition'].includes(payload.table)
+      ['enfyra_pre_hook', 'enfyra_post_hook'].includes(payload.table)
     ) {
       await this.reloadGlobalHooksAndMerge();
       if (payload.ids?.length) {
@@ -213,7 +213,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       return;
     }
 
-    if (['role_definition', 'method_definition'].includes(payload.table)) {
+    if (['enfyra_role', 'enfyra_method'].includes(payload.table)) {
       await this.reload();
       return;
     }
@@ -244,7 +244,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     const idField = DatabaseConfigService.getPkField();
 
     const result = await this.queryBuilderService.find({
-      table: 'route_definition',
+      table: 'enfyra_route',
       filter: {
         _and: [{ isEnabled: { _eq: true } }, { [idField]: { _in: routeIds } }],
       },
@@ -305,13 +305,13 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
   private getChildArrayKeyForTable(tableName: string): string | null {
     switch (tableName) {
-      case 'pre_hook_definition':
+      case 'enfyra_pre_hook':
         return 'preHooks';
-      case 'post_hook_definition':
+      case 'enfyra_post_hook':
         return 'postHooks';
-      case 'route_handler_definition':
+      case 'enfyra_route_handler':
         return 'handlers';
-      case 'route_permission_definition':
+      case 'enfyra_route_permission':
         return 'routePermissions';
       default:
         return null;
@@ -361,8 +361,8 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     const isMongoDB = this.queryBuilderService.isMongoDb();
 
     const [newGlobalPreHooks, newGlobalPostHooks] = await Promise.all([
-      this.loadGlobalHooks('pre_hook_definition'),
-      this.loadGlobalHooks('post_hook_definition'),
+      this.loadGlobalHooks('enfyra_pre_hook'),
+      this.loadGlobalHooks('enfyra_post_hook'),
     ]);
 
     this.globalPreHooks = newGlobalPreHooks;
@@ -384,13 +384,13 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
   protected async loadFromDb(): Promise<any> {
     const methodsResult = await this.queryBuilderService.find({
-      table: 'method_definition',
+      table: 'enfyra_method',
       fields: ['id', 'name'],
     });
     this.setMethodCache(methodsResult.data);
 
     const result = await this.queryBuilderService.find({
-      table: 'route_definition',
+      table: 'enfyra_route',
       filter: { isEnabled: { _eq: true } },
       fields: ROUTE_CACHE_ROUTE_FIELDS,
     });
@@ -399,8 +399,8 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     const isMongoDB = this.queryBuilderService.isMongoDb();
 
     const [globalPreHooks, globalPostHooks] = await Promise.all([
-      this.loadGlobalHooks('pre_hook_definition'),
-      this.loadGlobalHooks('post_hook_definition'),
+      this.loadGlobalHooks('enfyra_pre_hook'),
+      this.loadGlobalHooks('enfyra_post_hook'),
     ]);
 
     this.globalPreHooks = globalPreHooks;
@@ -546,12 +546,12 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     if (route.handlers && Array.isArray(route.handlers)) {
       for (const handler of route.handlers) {
         const normalized = normalizeScriptRecord(
-          'route_handler_definition',
+          'enfyra_route_handler',
           handler,
         );
         Object.assign(handler, normalized);
         const code = await this.resolveAndRepairScript(
-          'route_handler_definition',
+          'enfyra_route_handler',
           handler,
         );
         if (code) {
@@ -562,10 +562,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     if (route.preHooks && Array.isArray(route.preHooks)) {
       for (const hook of route.preHooks) {
-        const normalized = normalizeScriptRecord('pre_hook_definition', hook);
+        const normalized = normalizeScriptRecord('enfyra_pre_hook', hook);
         Object.assign(hook, normalized);
         const code = await this.resolveAndRepairScript(
-          'pre_hook_definition',
+          'enfyra_pre_hook',
           hook,
         );
         if (code) {
@@ -576,10 +576,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     if (route.postHooks && Array.isArray(route.postHooks)) {
       for (const hook of route.postHooks) {
-        const normalized = normalizeScriptRecord('post_hook_definition', hook);
+        const normalized = normalizeScriptRecord('enfyra_post_hook', hook);
         Object.assign(hook, normalized);
         const code = await this.resolveAndRepairScript(
-          'post_hook_definition',
+          'enfyra_post_hook',
           hook,
         );
         if (code) {

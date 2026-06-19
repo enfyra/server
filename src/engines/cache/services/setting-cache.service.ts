@@ -41,7 +41,7 @@ export class SettingCacheService extends BaseCacheService<SettingData> {
   protected async loadFromDb(): Promise<any> {
     try {
       const result = await this.queryBuilderService.find({
-        table: 'setting_definition',
+        table: 'enfyra_setting',
         limit: 1,
       });
       return result?.data?.[0] || {};

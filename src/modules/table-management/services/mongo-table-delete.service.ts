@@ -48,11 +48,11 @@ export class MongoTableDeleteService extends MongoTableHandlerService {
       try {
         const tableId = typeof id === 'string' ? new ObjectId(id) : id;
         const exists = await this.queryBuilderService.findOne({
-          table: 'table_definition',
+          table: 'enfyra_table',
           where: { _id: tableId },
         });
         if (!exists) {
-          throw new ResourceNotFoundException('table_definition', String(id));
+          throw new ResourceNotFoundException('enfyra_table', String(id));
         }
         if (exists.isSystem) {
           throw new ValidationException('Cannot delete system table', {
@@ -71,22 +71,22 @@ export class MongoTableDeleteService extends MongoTableHandlerService {
           throw new ValidationException(decision.message, decision.details);
         }
         const { data: routes } = await this.queryBuilderService.find({
-          table: 'route_definition',
+          table: 'enfyra_route',
           where: {
             mainTable: tableId,
           },
         });
         for (const route of routes) {
-          await this.queryBuilderService.delete('route_definition', route._id);
+          await this.queryBuilderService.delete('enfyra_route', route._id);
         }
         const { data: relations } = await this.queryBuilderService.find({
-          table: 'relation_definition',
+          table: 'enfyra_relation',
           where: {
             sourceTable: tableId,
           },
         });
         const { data: targetRelations } = await this.queryBuilderService.find({
-          table: 'relation_definition',
+          table: 'enfyra_relation',
           where: {
             targetTable: tableId,
           },
@@ -106,18 +106,18 @@ export class MongoTableDeleteService extends MongoTableHandlerService {
             );
             droppedJunctions.add(rel.junctionTableName);
           }
-          await this.queryBuilderService.delete('relation_definition', rel._id);
+          await this.queryBuilderService.delete('enfyra_relation', rel._id);
         }
         const { data: columns } = await this.queryBuilderService.find({
-          table: 'column_definition',
+          table: 'enfyra_column',
           where: {
             table: tableId,
           },
         });
         for (const col of columns) {
-          await this.queryBuilderService.delete('column_definition', col._id);
+          await this.queryBuilderService.delete('enfyra_column', col._id);
         }
-        await this.queryBuilderService.delete('table_definition', tableId);
+        await this.queryBuilderService.delete('enfyra_table', tableId);
         await this.mongoSchemaMigrationService.dropCollection(collectionName);
         exists.affectedTables = [...affectedTableNames];
         return exists;

@@ -8,7 +8,6 @@ export * from './flow-step-definition.processor';
 export * from './folder-definition.processor';
 export * from './generic-table.processor';
 export * from './graphql-definition.processor';
-export * from './hook-definition.processor';
 export * from './menu-definition.processor';
 export * from './method-definition.processor';
 export * from './post-hook-definition.processor';

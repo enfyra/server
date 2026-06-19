@@ -9,3 +9,4 @@ export * from './flow.types';
 export * from './cache.types';
 export * from './runtime-metrics.types';
 export * from './package-runtime.types';
+export * from './system-tables.types';

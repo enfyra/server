@@ -3,14 +3,14 @@ import { analyzeRelationChanges } from '../../src/engines/knex/utils/migration/r
 
 function createKnexMock(relationRows: any[] = []) {
   return vi.fn((table: string) => {
-    if (table === 'table_definition') {
+    if (table === 'enfyra_table') {
       return {
         select: vi.fn().mockReturnThis(),
         whereIn: vi.fn().mockResolvedValue([{ id: 2, name: 'students' }]),
       };
     }
 
-    if (table === 'relation_definition') {
+    if (table === 'enfyra_relation') {
       return {
         where: vi.fn().mockReturnThis(),
         select: vi.fn().mockResolvedValue(relationRows),

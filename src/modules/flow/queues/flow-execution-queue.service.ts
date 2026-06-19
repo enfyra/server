@@ -532,7 +532,7 @@ export class FlowExecutionQueueService {
     const maxExecutions = flow.maxExecutions || 100;
     try {
       const countResult = await this.queryBuilderService.find({
-        table: 'flow_execution_definition',
+        table: 'enfyra_flow_execution',
         filter: { flow: { _eq: flow.id } },
         fields: ['id'],
         limit: 1,
@@ -544,7 +544,7 @@ export class FlowExecutionQueueService {
 
       const deleteCount = Math.min(total - maxExecutions, 200);
       const oldResult = await this.queryBuilderService.find({
-        table: 'flow_execution_definition',
+        table: 'enfyra_flow_execution',
         filter: { flow: { _eq: flow.id } },
         sort: ['startedAt'],
         fields: ['id'],
@@ -553,7 +553,7 @@ export class FlowExecutionQueueService {
 
       for (const record of oldResult.data || []) {
         await this.queryBuilderService.delete(
-          'flow_execution_definition',
+          'enfyra_flow_execution',
           record.id,
         );
       }
@@ -572,7 +572,7 @@ export class FlowExecutionQueueService {
   ): Promise<FlowExecutionHistoryId> {
     try {
       const result = await (this.queryBuilderService as any).insert(
-        'flow_execution_definition',
+        'enfyra_flow_execution',
         {
           flow: flow.id,
           status: 'running',
@@ -605,7 +605,7 @@ export class FlowExecutionQueueService {
     try {
       if (executionHistoryId != null) {
         await (this.queryBuilderService as any).update(
-          'flow_execution_definition',
+          'enfyra_flow_execution',
           executionHistoryId,
           finalState,
         );
@@ -613,7 +613,7 @@ export class FlowExecutionQueueService {
       }
 
       await (this.queryBuilderService as any).insert(
-        'flow_execution_definition',
+        'enfyra_flow_execution',
         {
           flow: flow.id,
           status: finalState.status,
@@ -637,7 +637,7 @@ export class FlowExecutionQueueService {
     if (executionHistoryId == null) return;
     try {
       await (this.queryBuilderService as any).update(
-        'flow_execution_definition',
+        'enfyra_flow_execution',
         executionHistoryId,
         {
           status: 'running',

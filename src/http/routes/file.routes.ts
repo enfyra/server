@@ -37,7 +37,8 @@ export function registerFileRoutes(
   app: Express,
   container: AwilixContainer<Cradle>,
 ) {
-  app.post('/file_definition', async (req: any, res: Response) => {
+  // codeql[js/missing-rate-limiting] Built-in routes use metadata guards for admin-configured rate limit policies.
+  app.post('/enfyra_file', async (req: any, res: Response) => {
     const fileManagementService =
       req.scope?.cradle?.fileManagementService ??
       container.cradle.fileManagementService;
@@ -49,7 +50,7 @@ export function registerFileRoutes(
 
     const fileRepo =
       req.routeData?.context?.$repos?.main ||
-      req.routeData?.context?.$repos?.file_definition;
+      req.routeData?.context?.$repos?.enfyra_file;
 
     if (!fileRepo) {
       const { ValidationException } = await import('../../domain/exceptions');
@@ -80,10 +81,10 @@ export function registerFileRoutes(
     }
   });
 
-  app.get('/file_definition', async (req: any, res: Response) => {
+  app.get('/enfyra_file', async (req: any, res: Response) => {
     const fileRepo =
       req.routeData?.context?.$repos?.main ||
-      req.routeData?.context?.$repos?.file_definition;
+      req.routeData?.context?.$repos?.enfyra_file;
 
     if (!fileRepo) {
       const { ValidationException } = await import('../../domain/exceptions');
@@ -94,7 +95,8 @@ export function registerFileRoutes(
     return res.json(result);
   });
 
-  app.patch('/file_definition/:id', async (req: any, res: Response) => {
+  // codeql[js/missing-rate-limiting] Built-in routes use metadata guards for admin-configured rate limit policies.
+  app.patch('/enfyra_file/:id', async (req: any, res: Response) => {
     const fileManagementService =
       req.scope?.cradle?.fileManagementService ??
       container.cradle.fileManagementService;
@@ -104,7 +106,7 @@ export function registerFileRoutes(
 
     const fileRepo =
       req.routeData?.context?.$repos?.main ||
-      req.routeData?.context?.$repos?.file_definition;
+      req.routeData?.context?.$repos?.enfyra_file;
 
     if (!fileRepo) {
       const { ValidationException } = await import('../../domain/exceptions');
@@ -161,7 +163,7 @@ export function registerFileRoutes(
     return res.json(result);
   });
 
-  app.delete('/file_definition/:id', async (req: any, res: Response) => {
+  app.delete('/enfyra_file/:id', async (req: any, res: Response) => {
     const fileManagementService =
       req.scope?.cradle?.fileManagementService ??
       container.cradle.fileManagementService;
@@ -169,7 +171,7 @@ export function registerFileRoutes(
 
     const fileRepo =
       req.routeData?.context?.$repos?.main ||
-      req.routeData?.context?.$repos?.file_definition;
+      req.routeData?.context?.$repos?.enfyra_file;
 
     if (!fileRepo) {
       const { ValidationException } = await import('../../domain/exceptions');

@@ -159,7 +159,7 @@ function fatSnapshot() {
     $user: { id: 1, email: 'bench@enfyra.local', role: { name: 'admin' } },
     $share: { $logs: [] },
     $data: {},
-    $api: { request: { method: 'GET', url: '/api/table_definition' } },
+    $api: { request: { method: 'GET', url: '/api/enfyra_table' } },
     $repos: { main: { preview: rows } },
   };
 }

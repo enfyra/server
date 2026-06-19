@@ -123,7 +123,7 @@ describe('MongoPhysicalMigrationService', () => {
     );
 
     const migration = await db
-      .collection('schema_physical_migration_definition')
+      .collection('enfyra_schema_physical_migration')
       .findOne({ tableName: 'posts', oldName: 'old_title', newName: 'title' });
     expect(migration?.status).toBe('pending');
 
@@ -137,19 +137,19 @@ describe('MongoPhysicalMigrationService', () => {
     expect(rows.some((row) => row.old_title !== undefined)).toBe(false);
 
     const completed = await db
-      .collection('schema_physical_migration_definition')
+      .collection('enfyra_schema_physical_migration')
       .findOne({ migrationId: migration?.migrationId });
     expect(completed?.status).toBe('completed');
   });
 
   runOrSkip('query executor reads renamed field through pending migration fallback', async () => {
     await db.collection('posts').deleteMany({});
-    await db.collection('schema_physical_migration_definition').deleteMany({});
+    await db.collection('enfyra_schema_physical_migration').deleteMany({});
     await db.collection('posts').insertOne({
       _id: new ObjectId(),
       old_title: 'visible through title',
     });
-    await db.collection('schema_physical_migration_definition').insertOne({
+    await db.collection('enfyra_schema_physical_migration').insertOne({
       migrationId: 'pending-read-fallback',
       kind: 'field_rename',
       tableName: 'posts',
@@ -188,7 +188,7 @@ describe('MongoPhysicalMigrationService', () => {
   runOrSkip('batch relation fetch reads renamed child fields through fallback', async () => {
     await db.collection('posts').deleteMany({});
     await db.collection('authors').deleteMany({});
-    await db.collection('schema_physical_migration_definition').deleteMany({});
+    await db.collection('enfyra_schema_physical_migration').deleteMany({});
     const authorId = new ObjectId();
     await db.collection('authors').insertOne({
       _id: authorId,
@@ -198,7 +198,7 @@ describe('MongoPhysicalMigrationService', () => {
       _id: new ObjectId(),
       author: authorId,
     });
-    await db.collection('schema_physical_migration_definition').insertOne({
+    await db.collection('enfyra_schema_physical_migration').insertOne({
       migrationId: 'pending-child-read-fallback',
       kind: 'field_rename',
       tableName: 'authors',

@@ -212,14 +212,14 @@ async function ensureMessageTable(
   const c = container.cradle;
   const isMongo = c.databaseConfigService.isMongoDb();
   let existing = await c.queryBuilderService.findOne({
-    table: 'table_definition',
+    table: 'enfyra_table',
     where: { name: TABLE_NAME },
   });
   if (!isMongo) {
     const knex = c.queryBuilderService.getKnex();
     const hasPhysicalTable = await knex.schema.hasTable(TABLE_NAME);
     if (existing && !hasPhysicalTable) {
-      await knex('table_definition').where({ name: TABLE_NAME }).delete();
+      await knex('enfyra_table').where({ name: TABLE_NAME }).delete();
       existing = null;
       await reloadRuntime(container);
     }
@@ -234,7 +234,7 @@ async function ensureMessageTable(
   }
   if (!existing) {
     const ctx = createRootContext(container);
-    await ctx.$repos.table_definition.create({
+    await ctx.$repos.enfyra_table.create({
       data: {
         name: TABLE_NAME,
         description: 'E2E realtime chat load messages',
@@ -281,10 +281,10 @@ async function ensureFlowStepScriptColumns(
 ) {
   const c = container.cradle;
   const table = await c.queryBuilderService.findOne({
-    table: 'table_definition',
-    where: { name: 'flow_step_definition' },
+    table: 'enfyra_table',
+    where: { name: 'enfyra_flow_step' },
   });
-  assert(table, 'flow_step_definition metadata not found');
+  assert(table, 'enfyra_flow_step metadata not found');
   const tableId = table.id ?? table._id;
   const isMongo = c.databaseConfigService.isMongoDb();
   const columns = [
@@ -312,7 +312,7 @@ async function ensureFlowStepScriptColumns(
 
   for (const column of columns) {
     if (isMongo) {
-      const collection = c.mongoService.getDb().collection('column_definition');
+      const collection = c.mongoService.getDb().collection('enfyra_column');
       const existing = await collection.findOne({
         table: tableId,
         name: column.name,
@@ -338,11 +338,11 @@ async function ensureFlowStepScriptColumns(
 
     const knex = c.queryBuilderService.getKnex();
     const hasPhysicalColumn = await knex.schema.hasColumn(
-      'flow_step_definition',
+      'enfyra_flow_step',
       column.name,
     );
     if (!hasPhysicalColumn) {
-      await knex.schema.alterTable('flow_step_definition', (t) => {
+      await knex.schema.alterTable('enfyra_flow_step', (t) => {
         if (column.name === 'scriptLanguage') {
           t.string(column.name).notNullable().defaultTo('typescript');
         } else {
@@ -350,11 +350,11 @@ async function ensureFlowStepScriptColumns(
         }
       });
     }
-    const existing = await knex('column_definition')
+    const existing = await knex('enfyra_column')
       .where({ tableId, name: column.name })
       .first();
     if (!existing) {
-      await knex('column_definition').insert({
+      await knex('enfyra_column').insert({
         tableId,
         name: column.name,
         type: column.type,
@@ -440,10 +440,10 @@ function chatEventSource() {
 async function upsertPersistFlow(container: ReturnType<typeof buildContainer>) {
   const c = container.cradle;
   const ctx = createRootContext(container);
-  const flowRepo = ctx.$repos.flow_definition;
-  const stepRepo = ctx.$repos.flow_step_definition;
+  const flowRepo = ctx.$repos.enfyra_flow;
+  const stepRepo = ctx.$repos.enfyra_flow_step;
   let flow = await c.queryBuilderService.findOne({
-    table: 'flow_definition',
+    table: 'enfyra_flow',
     where: { name: FLOW_NAME },
   });
   if (flow) {
@@ -472,7 +472,7 @@ async function upsertPersistFlow(container: ReturnType<typeof buildContainer>) {
   const flowId = flow?.id ?? flow?._id;
   assert(flowId, 'persist flow id was not created');
   const existingStep = await c.queryBuilderService.findOne({
-    table: 'flow_step_definition',
+    table: 'enfyra_flow_step',
     where: { flow: flowId, key: 'persist_message' },
   });
   const stepData = {
@@ -502,10 +502,10 @@ async function upsertPersistFlow(container: ReturnType<typeof buildContainer>) {
 async function upsertGateway(container: ReturnType<typeof buildContainer>) {
   const c = container.cradle;
   const ctx = createRootContext(container);
-  const gatewayRepo = ctx.$repos.websocket_definition;
-  const eventRepo = ctx.$repos.websocket_event_definition;
+  const gatewayRepo = ctx.$repos.enfyra_websocket;
+  const eventRepo = ctx.$repos.enfyra_websocket_event;
   let gateway = await c.queryBuilderService.findOne({
-    table: 'websocket_definition',
+    table: 'enfyra_websocket',
     where: { path: NAMESPACE },
   });
   if (gateway) {
@@ -538,7 +538,7 @@ async function upsertGateway(container: ReturnType<typeof buildContainer>) {
   assert(gatewayId, 'gateway id was not created');
 
   const existingEvent = await c.queryBuilderService.findOne({
-    table: 'websocket_event_definition',
+    table: 'enfyra_websocket_event',
     where: { gatewayId, eventName: 'chat:send' },
   });
   const eventConfig = {
@@ -604,7 +604,7 @@ async function prepareAppMetadata() {
 
 async function purgeE2eFlowJobs(container: ReturnType<typeof buildContainer>) {
   const flow = await container.cradle.queryBuilderService.findOne({
-    table: 'flow_definition',
+    table: 'enfyra_flow',
     where: { name: FLOW_NAME },
   });
   if (!flow) return;

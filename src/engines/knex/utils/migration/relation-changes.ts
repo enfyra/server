@@ -48,7 +48,7 @@ async function hasOtherOwningJunctionRelation(
   relation: any,
   junctionTableName: string,
 ): Promise<boolean> {
-  const rows = await knex('relation_definition')
+  const rows = await knex('enfyra_relation')
     .where({ junctionTableName })
     .select('id', 'mappedById');
 
@@ -151,7 +151,7 @@ export async function analyzeRelationChanges(
 
   const targetTablesMap = new Map<number, string>();
   if (targetTableIds.length > 0) {
-    const targetTables = await knex('table_definition')
+    const targetTables = await knex('enfyra_table')
       .select('id', 'name')
       .whereIn('id', targetTableIds);
 
@@ -274,14 +274,14 @@ async function handleDeletedRelations(
       });
     }
 
-    const inverseRels = await knex('relation_definition')
+    const inverseRels = await knex('enfyra_relation')
       .where({ mappedById: relId })
       .select('id', 'propertyName', 'sourceTableId');
     for (const inv of inverseRels) {
       if (!diff.cascadeDeletedInverses) {
         diff.cascadeDeletedInverses = [];
       }
-      const sourceTable = await knex('table_definition')
+      const sourceTable = await knex('enfyra_table')
         .where({ id: inv.sourceTableId })
         .select('name')
         .first();
