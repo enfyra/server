@@ -11,7 +11,9 @@ import {
   RepoRegistryService,
   GuardCacheService,
   GuardEvaluatorService,
+  RouteCacheService,
 } from '../../../engines/cache';
+import { PolicyService, isPolicyDeny } from '../../../domain/policy';
 import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
 import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
 import { loadUserWithRole } from '../../../shared/utils/load-user-with-role.util';
@@ -23,6 +25,8 @@ export class DynamicResolver {
   private readonly repoRegistryService: RepoRegistryService;
   private readonly guardCacheService: GuardCacheService;
   private readonly guardEvaluatorService: GuardEvaluatorService;
+  private readonly routeCacheService: RouteCacheService;
+  private readonly policyService: PolicyService;
   private readonly envService: EnvService;
   private readonly dynamicContextFactory: DynamicContextFactory;
 
@@ -33,6 +37,8 @@ export class DynamicResolver {
     repoRegistryService: RepoRegistryService;
     guardCacheService: GuardCacheService;
     guardEvaluatorService: GuardEvaluatorService;
+    routeCacheService: RouteCacheService;
+    policyService: PolicyService;
     envService: EnvService;
     dynamicContextFactory: DynamicContextFactory;
   }) {
@@ -42,6 +48,8 @@ export class DynamicResolver {
     this.repoRegistryService = deps.repoRegistryService;
     this.guardCacheService = deps.guardCacheService;
     this.guardEvaluatorService = deps.guardEvaluatorService;
+    this.routeCacheService = deps.routeCacheService;
+    this.policyService = deps.policyService;
     this.envService = deps.envService;
     this.dynamicContextFactory = deps.dynamicContextFactory;
   }
@@ -63,6 +71,7 @@ export class DynamicResolver {
       tableName,
       'GQL_QUERY',
       context,
+      'GET',
     );
     const selections = info.fieldNodes?.[0]?.selectionSet?.selections || [];
     const fullFieldPicker = convertFieldNodesToFieldPicker(selections);
@@ -126,10 +135,12 @@ export class DynamicResolver {
       }
       const operation = match[1];
       const tableName = match[2];
+      const routeAccessMethod = this.graphqlOperationToHttp(operation);
       const { user } = await this.middleware(
         tableName,
         'GQL_MUTATION',
         context,
+        routeAccessMethod,
       );
       const handlerCtx: any = this.dynamicContextFactory.createGraphql({
         request: context.request,
@@ -173,6 +184,7 @@ export class DynamicResolver {
     mainTableName: string,
     method: string,
     context: any,
+    routeAccessMethod: string,
   ) {
     if (!mainTableName) {
       throwGqlError('400', 'Missing table name');
@@ -206,11 +218,34 @@ export class DynamicResolver {
     const userId =
       user && !user.isAnonymous ? user._id || user.id || null : null;
     await this.runGuards('post_auth', routePath, method, clientIp, userId);
+    await this.assertRouteAccess(routePath, routeAccessMethod, user);
 
     return {
       user,
       mainTable: { name: mainTableName },
     };
+  }
+
+  private graphqlOperationToHttp(operation: string): string {
+    if (operation === 'create') return 'POST';
+    if (operation === 'update') return 'PATCH';
+    if (operation === 'delete') return 'DELETE';
+    return 'GET';
+  }
+
+  private async assertRouteAccess(routePath: string, method: string, user: any) {
+    const match = await this.routeCacheService.matchRoute(method, routePath);
+    if (!match?.route) {
+      throwGqlError('403', 'Forbidden');
+    }
+    const decision = this.policyService.checkRequestAccess({
+      method,
+      routeData: match.route,
+      user,
+    });
+    if (isPolicyDeny(decision)) {
+      throwGqlError(String(decision.statusCode || 403), decision.message);
+    }
   }
 
   private async checkAccess(
