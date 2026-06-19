@@ -37,6 +37,7 @@ export function registerFileRoutes(
   app: Express,
   container: AwilixContainer<Cradle>,
 ) {
+  // codeql[js/missing-rate-limiting] Built-in routes use metadata guards for admin-configured rate limit policies.
   app.post('/enfyra_file', async (req: any, res: Response) => {
     const fileManagementService =
       req.scope?.cradle?.fileManagementService ??
@@ -94,6 +95,7 @@ export function registerFileRoutes(
     return res.json(result);
   });
 
+  // codeql[js/missing-rate-limiting] Built-in routes use metadata guards for admin-configured rate limit policies.
   app.patch('/enfyra_file/:id', async (req: any, res: Response) => {
     const fileManagementService =
       req.scope?.cradle?.fileManagementService ??
