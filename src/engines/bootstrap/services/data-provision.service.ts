@@ -31,6 +31,7 @@ import {
   GraphQLDefinitionProcessor,
 } from '../../../domain/bootstrap';
 import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
+import { SYSTEM_TABLES } from '../../../shared/utils/system-tables.constants';
 const initJson = JSON.parse(
   fs.readFileSync(path.join(process.cwd(), 'data/default-data.json'), 'utf8'),
 );
@@ -118,55 +119,55 @@ export class DataProvisionService {
   }
 
   private initializeProcessors(): void {
-    this.processors.set('user_definition', this.userDefinitionProcessor);
-    this.processors.set('menu_definition', this.menuDefinitionProcessor);
-    this.processors.set('route_definition', this.routeDefinitionProcessor);
+    this.processors.set(SYSTEM_TABLES.user, this.userDefinitionProcessor);
+    this.processors.set(SYSTEM_TABLES.menu, this.menuDefinitionProcessor);
+    this.processors.set(SYSTEM_TABLES.route, this.routeDefinitionProcessor);
     this.processors.set(
-      'route_handler_definition',
+      SYSTEM_TABLES.routeHandler,
       this.routeHandlerDefinitionProcessor,
     );
-    this.processors.set('method_definition', this.methodDefinitionProcessor);
-    this.processors.set('pre_hook_definition', this.preHookDefinitionProcessor);
+    this.processors.set(SYSTEM_TABLES.method, this.methodDefinitionProcessor);
+    this.processors.set(SYSTEM_TABLES.preHook, this.preHookDefinitionProcessor);
     this.processors.set(
-      'post_hook_definition',
+      SYSTEM_TABLES.postHook,
       this.postHookDefinitionProcessor,
     );
     this.processors.set(
-      'field_permission_definition',
+      SYSTEM_TABLES.fieldPermission,
       this.fieldPermissionDefinitionProcessor,
     );
-    this.processors.set('setting_definition', this.settingDefinitionProcessor);
+    this.processors.set(SYSTEM_TABLES.setting, this.settingDefinitionProcessor);
     this.processors.set(
-      'extension_definition',
+      SYSTEM_TABLES.extension,
       this.extensionDefinitionProcessor,
     );
-    this.processors.set('folder_definition', this.folderDefinitionProcessor);
+    this.processors.set(SYSTEM_TABLES.folder, this.folderDefinitionProcessor);
     this.processors.set(
-      'bootstrap_script_definition',
+      SYSTEM_TABLES.bootstrapScript,
       this.bootstrapScriptDefinitionProcessor,
     );
     this.processors.set(
-      'route_permission_definition',
+      SYSTEM_TABLES.routePermission,
       this.routePermissionDefinitionProcessor,
     );
     this.processors.set(
-      'websocket_definition',
+      SYSTEM_TABLES.websocket,
       this.websocketDefinitionProcessor,
     );
     this.processors.set(
-      'websocket_event_definition',
+      SYSTEM_TABLES.websocketEvent,
       this.websocketEventDefinitionProcessor,
     );
-    this.processors.set('flow_definition', this.flowDefinitionProcessor);
+    this.processors.set(SYSTEM_TABLES.flow, this.flowDefinitionProcessor);
     this.processors.set(
-      'flow_step_definition',
+      SYSTEM_TABLES.flowStep,
       this.flowStepDefinitionProcessor,
     );
     this.processors.set(
-      'flow_execution_definition',
+      SYSTEM_TABLES.flowExecution,
       this.flowExecutionDefinitionProcessor,
     );
-    this.processors.set('gql_definition', this.graphqlDefinitionProcessor);
+    this.processors.set(SYSTEM_TABLES.graphql, this.graphqlDefinitionProcessor);
 
     const allTables = Object.keys(initJson);
     const registeredTables = Array.from(this.processors.keys());
@@ -187,24 +188,25 @@ export class DataProvisionService {
     let totalCreated = 0;
     let totalSkipped = 0;
 
-    const userProcessor = this.processors.get('user_definition');
+    const userProcessor = this.processors.get(SYSTEM_TABLES.user);
     if (userProcessor) {
       try {
         this.verbose(
-          `Processing 'user_definition' (ensure rootAdmin from env)...`,
+          `Processing '${SYSTEM_TABLES.user}' (ensure rootAdmin from env)...`,
         );
         const result = await userProcessor.processWithQueryBuilder(
           [],
           this.queryBuilderService,
-          'user_definition',
+          SYSTEM_TABLES.user,
           {},
         );
         totalCreated += result.created;
         totalSkipped += result.skipped;
       } catch (error) {
         this.logger.error(
-          `Error processing 'user_definition': ${getErrorMessage(error)}`,
+          `Error processing '${SYSTEM_TABLES.user}': ${getErrorMessage(error)}`,
         );
+        throw error;
       }
     }
 
@@ -246,6 +248,7 @@ export class DataProvisionService {
           `Error processing '${tableName}': ${getErrorMessage(error)}`,
         );
         this.logger.debug(`Error: ${getErrorMessage(error)}`);
+        throw error;
       }
     }
 
@@ -262,6 +265,7 @@ export class DataProvisionService {
           `Error ensuring route handlers: ${getErrorMessage(error)}`,
         );
         this.logger.debug(getErrorMessage(error));
+        throw error;
       }
     }
   }

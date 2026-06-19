@@ -57,7 +57,7 @@ describe('CacheOrchestratorService reload notifications', () => {
     await expect(
       (orchestrator as any).executeChain(
         {
-          table: 'package_definition',
+          table: 'enfyra_package',
           action: 'reload',
           scope: 'full',
           timestamp: Date.now(),
@@ -95,7 +95,7 @@ describe('CacheOrchestratorService reload notifications', () => {
 
     await (orchestrator as any).executeChain(
       {
-        table: 'extension_definition',
+        table: 'enfyra_extension',
         action: 'reload',
         scope: 'partial',
         ids: [8],
@@ -133,7 +133,7 @@ describe('CacheOrchestratorService reload notifications', () => {
 
     await (orchestrator as any).executeChain(
       {
-        table: 'menu_definition',
+        table: 'enfyra_menu',
         action: 'reload',
         scope: 'partial',
         ids: [12],
@@ -171,25 +171,25 @@ describe('CacheOrchestratorService reload notifications', () => {
       {
         method: 'reloadMetadataAndDeps',
         flow: 'metadata',
-        table: 'table_definition',
+        table: 'enfyra_table',
         steps: ['metadata', 'repoRegistry', 'route', 'graphql'],
       },
       {
         method: 'reloadRoutesOnly',
         flow: 'route',
-        table: 'route_definition',
+        table: 'enfyra_route',
         steps: ['route'],
       },
       {
         method: 'reloadGraphqlOnly',
         flow: 'graphql',
-        table: 'gql_definition',
+        table: 'enfyra_graphql',
         steps: ['graphql'],
       },
       {
         method: 'reloadGuardsOnly',
         flow: 'guard',
-        table: 'guard_definition',
+        table: 'enfyra_guard',
         steps: ['guard'],
       },
     ] as const;
@@ -255,7 +255,7 @@ describe('CacheOrchestratorService reload notifications', () => {
     expect(metric).toEqual(
       expect.objectContaining({
         flow: 'route',
-        table: 'route_definition',
+        table: 'enfyra_route',
         status: 'failed',
         error: 'route reload failed',
       }),

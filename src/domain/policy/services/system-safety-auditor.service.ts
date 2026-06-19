@@ -22,7 +22,7 @@ export class SystemSafetyAuditorService {
     const { operation, tableName, data, existing, currentUser } = ctx;
     let fullExisting = existing;
 
-    if (existing?.isSystem && tableName === 'table_definition') {
+    if (existing?.isSystem && tableName === 'enfyra_table') {
       fullExisting =
         await this.schemaMigrationValidatorService.enrichTableDefinitionData(
           existing,
@@ -62,7 +62,7 @@ export class SystemSafetyAuditorService {
       );
     }
 
-    if (tableName === 'route_definition' && fullExisting?.isSystem) {
+    if (tableName === 'enfyra_route' && fullExisting?.isSystem) {
       const allowed = this.schemaMigrationValidatorService.getAllowedFields([
         'description',
         'publicMethods',
@@ -94,8 +94,8 @@ export class SystemSafetyAuditorService {
     }
 
     if (
-      tableName === 'pre_hook_definition' ||
-      tableName === 'post_hook_definition'
+      tableName === 'enfyra_pre_hook' ||
+      tableName === 'enfyra_post_hook'
     ) {
       if (operation === 'create' && data?.isSystem) {
         throw new Error('Cannot create system hook');
@@ -127,7 +127,7 @@ export class SystemSafetyAuditorService {
       }
     }
 
-    if (tableName === 'user_definition') {
+    if (tableName === 'enfyra_user') {
       const isRoot = fullExisting?.isRootAdmin;
       if (operation === 'delete' && isRoot)
         throw new Error('Cannot delete Root Admin user');
@@ -145,7 +145,7 @@ export class SystemSafetyAuditorService {
       }
     }
 
-    if (tableName === 'field_permission_definition') {
+    if (tableName === 'enfyra_field_permission') {
       if (operation === 'create' || operation === 'update') {
         const hasColumnInData =
           data && 'column' in data ? data.column != null : undefined;
@@ -163,7 +163,7 @@ export class SystemSafetyAuditorService {
             : data?.relation != null;
         if ((hasColumn && hasRelation) || (!hasColumn && !hasRelation)) {
           throw new Error(
-            'field_permission_definition requires exactly one of: column or relation',
+            'enfyra_field_permission requires exactly one of: column or relation',
           );
         }
 
@@ -180,7 +180,7 @@ export class SystemSafetyAuditorService {
             Array.isArray(data?.allowedUsers) && data.allowedUsers.length > 0;
           if (!hasRole && !hasUsers) {
             throw new Error(
-              'field_permission_definition requires scope: role or allowedUsers',
+              'enfyra_field_permission requires scope: role or allowedUsers',
             );
           }
         }
@@ -200,7 +200,7 @@ export class SystemSafetyAuditorService {
 
             if (!hasRoleFinal && !hasUsersFinal) {
               throw new Error(
-                'field_permission_definition requires scope: role or allowedUsers',
+                'enfyra_field_permission requires scope: role or allowedUsers',
               );
             }
           }
@@ -208,7 +208,7 @@ export class SystemSafetyAuditorService {
       }
     }
 
-    if (tableName === 'table_definition') {
+    if (tableName === 'enfyra_table') {
       const isSystem = fullExisting?.isSystem;
       if (operation === 'create' && data?.isSystem)
         throw new Error('Cannot create new system table!');
@@ -313,7 +313,7 @@ export class SystemSafetyAuditorService {
       }
     }
 
-    if (tableName === 'websocket_definition' && fullExisting?.isSystem) {
+    if (tableName === 'enfyra_websocket' && fullExisting?.isSystem) {
       const allowed = this.schemaMigrationValidatorService.getAllowedFields([
         'description',
         'sourceCode',
@@ -340,7 +340,7 @@ export class SystemSafetyAuditorService {
       }
     }
 
-    if (tableName === 'menu_definition') {
+    if (tableName === 'enfyra_menu') {
       const isSystem = fullExisting?.isSystem;
       if (operation === 'create' && data?.isSystem) {
         throw new Error('Cannot create new system menu!');
@@ -377,7 +377,7 @@ export class SystemSafetyAuditorService {
       }
     }
 
-    if (tableName === 'extension_definition') {
+    if (tableName === 'enfyra_extension') {
       const isSystem = fullExisting?.isSystem;
       if (operation === 'create' && data?.isSystem) {
         throw new Error('Cannot create new system extension!');
@@ -426,7 +426,7 @@ export class SystemSafetyAuditorService {
       }
     }
 
-    if (tableName === 'storage_config_definition') {
+    if (tableName === 'enfyra_storage_config') {
       const isSystem = fullExisting?.isSystem;
       if (operation === 'update' && isSystem) {
         const allowed = this.schemaMigrationValidatorService.getAllowedFields([

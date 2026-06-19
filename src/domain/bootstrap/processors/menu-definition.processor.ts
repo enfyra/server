@@ -47,6 +47,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         this.logger.error(
           `   Record: ${JSON.stringify(record).substring(0, 200)}`,
         );
+        throw error;
       }
     }
 
@@ -69,6 +70,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         this.logger.error(
           `   Record: ${JSON.stringify(record).substring(0, 200)}`,
         );
+        throw error;
       }
     }
 
@@ -91,6 +93,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         this.logger.error(
           `   Record: ${JSON.stringify(record).substring(0, 200)}`,
         );
+        throw error;
       }
     }
 
@@ -189,6 +192,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         this.logger.error(
           `   Record: ${JSON.stringify(record).substring(0, 200)}`,
         );
+        throw error;
       }
     }
 
@@ -211,6 +215,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         this.logger.error(
           `   Record: ${JSON.stringify(record).substring(0, 200)}`,
         );
+        throw error;
       }
     }
 
@@ -372,6 +377,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
           this.logger.error(
             `   Record: ${JSON.stringify(record).substring(0, 200)}`,
           );
+          throw error;
         }
       }
     }
@@ -397,7 +403,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
       if (transformed.parent && typeof transformed.parent === 'string') {
         const parentLabel = transformed.parent;
         const parent = await this.queryBuilderService.findOne({
-          table: 'menu_definition',
+          table: 'enfyra_menu',
           where: { type: 'Dropdown Menu', label: parentLabel },
         });
         if (parent) {

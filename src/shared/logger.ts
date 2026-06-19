@@ -64,6 +64,60 @@ const LOG_LEVEL_PRIORITY: Record<string, number> = {
   trace: 4,
 };
 
+const REDACTED = '[REDACTED]';
+const SENSITIVE_KEY_PATTERN =
+  /(?:password|passwd|pwd|secret|token|api[_-]?key|authorization|cookie|credential|private[_-]?key|client[_-]?secret|oauthconfig)/i;
+const SENSITIVE_TEXT_PATTERNS: Array<[RegExp, string]> = [
+  [/\b(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, `$1${REDACTED}`],
+  [/\b(efy_pat_)[A-Za-z0-9._~+/=-]+/gi, `$1${REDACTED}`],
+  [
+    /\b([A-Za-z0-9_-]{20,})\.([A-Za-z0-9_-]{20,})\.([A-Za-z0-9_-]{20,})\b/g,
+    REDACTED,
+  ],
+  [
+    /((?:client[_-]?secret|access[_-]?token|refresh[_-]?token|api[_-]?key|secret|token|password)\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,}]+)/gi,
+    `$1${REDACTED}`,
+  ],
+];
+
+function redactSensitiveText(value: string): string {
+  return SENSITIVE_TEXT_PATTERNS.reduce(
+    (current, [pattern, replacement]) => current.replace(pattern, replacement),
+    value,
+  );
+}
+
+function sanitizeLogValue(value: any, seen = new WeakSet<object>()): any {
+  if (typeof value === 'string') {
+    return redactSensitiveText(value);
+  }
+  if (value === null || typeof value !== 'object') {
+    return value;
+  }
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: redactSensitiveText(value.message),
+      stack: value.stack ? redactSensitiveText(value.stack) : undefined,
+    };
+  }
+  if (seen.has(value)) {
+    return '[Circular]';
+  }
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeLogValue(item, seen));
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [
+      key,
+      SENSITIVE_KEY_PATTERN.test(key)
+        ? REDACTED
+        : sanitizeLogValue(child, seen),
+    ]),
+  );
+}
+
 const BOOTSTRAP_QUIET_CONTEXTS = new Set([
   'TableDefinitionProcessor',
   'ColumnDefinitionProcessor',
@@ -206,12 +260,13 @@ function printPretty(
   const ctxColor = emphasize ? iconColor : SERVICE;
   const ctxStr = context ? `${ctxColor}${context}${RESET} ` : '';
   const corrStr = correlationId ? `${CORR}[${correlationId}]${RESET} ` : '';
-  const msgColored = emphasize ? `${iconColor}${msg}${RESET}` : msg;
+  const safeMsg = redactSensitiveText(msg);
+  const msgColored = emphasize ? `${iconColor}${safeMsg}${RESET}` : safeMsg;
   const line = `${BRACKET}[${time}]${RESET} ${iconColor}${icon}${RESET} ${ctxStr}${corrStr}${ARROW} ${msgColored}`;
   const target = level === 'error' ? console.error : console.log;
   target(line);
   if (trace) {
-    console.error(`${DIM}  ${trace}${RESET}`);
+    console.error(`${DIM}  ${redactSensitiveText(trace)}${RESET}`);
   }
 }
 
@@ -323,10 +378,12 @@ export class Logger {
     }
 
     const pinoLevel = PINO_LEVEL[level];
-    pinoInstance[pinoLevel](meta, msg);
+    const safeMeta = sanitizeLogValue(meta);
+    const safeMsg = redactSensitiveText(msg);
+    pinoInstance[pinoLevel](safeMeta, safeMsg);
 
     const correlationId = logStore.getStore()?.correlationId;
-    const consoleTrace = level === 'error' ? meta.stack : undefined;
-    printPretty(level, msg, ctx, correlationId, consoleTrace);
+    const consoleTrace = level === 'error' ? safeMeta.stack : undefined;
+    printPretty(level, safeMsg, ctx, correlationId, consoleTrace);
   }
 }

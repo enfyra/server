@@ -37,14 +37,14 @@ function makeQueryBuilder(state: { files: any[]; permissions: any[] }) {
   return {
     getPkField: vi.fn(() => 'id'),
     find: vi.fn(async (args: any) => {
-      if (args.table === 'file_definition') {
+      if (args.table === 'enfyra_file') {
         const id = args.filter?.id?._eq;
         return {
           data: state.files.filter((file) => String(file.id) === String(id)),
         };
       }
 
-      if (args.table === 'file_permission_definition') {
+      if (args.table === 'enfyra_file_permission') {
         const ids = args.filter?.id?._in;
         if (ids) {
           const set = new Set(ids.map(String));
@@ -69,7 +69,7 @@ function makeQueryBuilder(state: { files: any[]; permissions: any[] }) {
         };
       }
 
-      if (args.table === 'role_definition') {
+      if (args.table === 'enfyra_role') {
         return { data: [] };
       }
 
@@ -183,7 +183,7 @@ describe('assets route cache e2e', () => {
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
     expect(await second.text()).toBe('asset-body');
-    expect(countFinds(queryBuilderService, 'file_definition')).toBe(1);
+    expect(countFinds(queryBuilderService, 'enfyra_file')).toBe(1);
   });
 
   it('streams byte ranges for video playback', async () => {
@@ -251,10 +251,10 @@ describe('assets route cache e2e', () => {
 
     await service.streamFile(req, makeResponse());
     await service.streamFile(req, makeResponse());
-    expect(countFinds(queryBuilderService, 'file_definition')).toBe(1);
+    expect(countFinds(queryBuilderService, 'enfyra_file')).toBe(1);
 
     await eventEmitter.emitAsync(CACHE_EVENTS.INVALIDATE, {
-      table: 'file_definition',
+      table: 'enfyra_file',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -262,7 +262,7 @@ describe('assets route cache e2e', () => {
     });
 
     await service.streamFile(req, makeResponse());
-    expect(countFinds(queryBuilderService, 'file_definition')).toBe(2);
+    expect(countFinds(queryBuilderService, 'enfyra_file')).toBe(2);
   });
 
   it('caches private file permissions by file and invalidates by changed permission id', async () => {
@@ -279,13 +279,13 @@ describe('assets route cache e2e', () => {
 
     await service.streamFile(req, makeResponse());
     await service.streamFile(req, makeResponse());
-    expect(countFinds(queryBuilderService, 'file_definition')).toBe(1);
-    expect(countFinds(queryBuilderService, 'file_permission_definition')).toBe(
+    expect(countFinds(queryBuilderService, 'enfyra_file')).toBe(1);
+    expect(countFinds(queryBuilderService, 'enfyra_file_permission')).toBe(
       1,
     );
 
     await eventEmitter.emitAsync(CACHE_EVENTS.INVALIDATE, {
-      table: 'file_permission_definition',
+      table: 'enfyra_file_permission',
       action: 'reload',
       timestamp: Date.now(),
       scope: 'partial',
@@ -293,8 +293,8 @@ describe('assets route cache e2e', () => {
     });
 
     await service.streamFile(req, makeResponse());
-    expect(countFinds(queryBuilderService, 'file_definition')).toBe(1);
-    expect(countFinds(queryBuilderService, 'file_permission_definition')).toBe(
+    expect(countFinds(queryBuilderService, 'enfyra_file')).toBe(1);
+    expect(countFinds(queryBuilderService, 'enfyra_file_permission')).toBe(
       3,
     );
   });
@@ -313,8 +313,8 @@ describe('assets route cache e2e', () => {
 
     await service.streamFile(req, makeResponse());
 
-    expect(countFinds(queryBuilderService, 'file_definition')).toBe(1);
-    expect(countFinds(queryBuilderService, 'file_permission_definition')).toBe(
+    expect(countFinds(queryBuilderService, 'enfyra_file')).toBe(1);
+    expect(countFinds(queryBuilderService, 'enfyra_file_permission')).toBe(
       0,
     );
   });

@@ -29,7 +29,7 @@ class MockQueryBuilder {
 
   async select({ tableName }) {
     this.queryCount++;
-    if (tableName === 'table_definition') {
+    if (tableName === 'enfyra_table') {
       await sleep(this.loadDelay);
       return {
         data: [
@@ -38,10 +38,10 @@ class MockQueryBuilder {
         ],
       };
     }
-    if (tableName === 'column_definition') {
+    if (tableName === 'enfyra_column') {
       return { data: [] };
     }
-    if (tableName === 'relation_definition') {
+    if (tableName === 'enfyra_relation') {
       return { data: [] };
     }
     return { data: [] };

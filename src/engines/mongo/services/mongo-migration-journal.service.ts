@@ -21,7 +21,7 @@ export class MongoMigrationJournalService {
   private readonly mongoService: MongoService;
   private readonly cacheService?: CacheService;
   private readonly instanceService?: InstanceService;
-  private readonly collectionName = 'schema_migration_definition';
+  private readonly collectionName = 'enfyra_schema_migration';
 
   constructor(deps: {
     mongoService: MongoService;

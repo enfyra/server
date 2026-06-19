@@ -145,7 +145,7 @@ export class FileAssetsService {
     if (cached) return this.cloneRow(cached);
 
     const fileResult = await this.queryBuilderService.find({
-      table: 'file_definition',
+      table: 'enfyra_file',
       filter: { [this.queryBuilderService.getPkField()]: { _eq: fileId } },
       fields: ['*', 'storageConfig.*'],
     });
@@ -172,7 +172,7 @@ export class FileAssetsService {
 
     const idField = this.queryBuilderService.getPkField();
     const permissionsResult = await this.queryBuilderService.find({
-      table: 'file_permission_definition',
+      table: 'enfyra_file_permission',
       filter: {
         _and: [
           { isEnabled: { _eq: true } },
@@ -282,7 +282,7 @@ export class FileAssetsService {
 
     try {
       const result = await this.queryBuilderService.find({
-        table: 'file_permission_definition',
+        table: 'enfyra_file_permission',
         filter: {
           [this.queryBuilderService.getPkField()]: { _in: permissionIds },
         },
@@ -306,7 +306,7 @@ export class FileAssetsService {
   private async handleCacheInvalidation(
     payload: TCacheInvalidationPayload,
   ): Promise<void> {
-    if (payload.table === 'file_definition') {
+    if (payload.table === 'enfyra_file') {
       if (payload.scope === 'partial' && payload.ids?.length) {
         for (const id of payload.ids) this.invalidateFile(id);
       } else {
@@ -317,7 +317,7 @@ export class FileAssetsService {
       return;
     }
 
-    if (payload.table === 'file_permission_definition') {
+    if (payload.table === 'enfyra_file_permission') {
       if (payload.scope === 'partial' && payload.ids?.length) {
         const fileIds = await this.getPermissionFileIds(payload.ids);
         for (const fileId of fileIds) this.invalidatePermissionsForFile(fileId);
@@ -328,12 +328,12 @@ export class FileAssetsService {
       return;
     }
 
-    if (payload.table === 'storage_config_definition') {
+    if (payload.table === 'enfyra_storage_config') {
       this.fileCache.clear();
       return;
     }
 
-    if (payload.table === 'role_definition') {
+    if (payload.table === 'enfyra_role') {
       this.permissionsByFileCache.clear();
       this.permissionToFileIndex.clear();
     }
@@ -496,7 +496,7 @@ export class FileAssetsService {
         for (const perm of permissions) {
           if (perm.roleId && !perm.role) {
             perm.role = await this.queryBuilderService.findOne({
-              table: 'role_definition',
+              table: 'enfyra_role',
               where: { id: perm.roleId },
             });
           }

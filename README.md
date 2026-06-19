@@ -219,7 +219,7 @@ Both physical DB and metadata are updated from the same source, ensuring consist
 
 ### Destructive schema changes via API (confirm-hash)
 
-When changing schema through the API (e.g. updating or deleting a row in `table_definition`), destructive changes are protected by a confirm-hash challenge.
+When changing schema through the API (e.g. updating or deleting a row in `enfyra_table`), destructive changes are protected by a confirm-hash challenge.
 
 - The server returns **422** with `code = "SCHEMA_CONFIRM_REQUIRED"` and `details` including:
   - `requiredConfirmHash`
@@ -234,13 +234,13 @@ Example flow:
 
 ```bash
 # 1) Attempt destructive update
-curl -X PATCH "http://localhost:1105/api/table_definition/<id>" \
+curl -X PATCH "http://localhost:1105/api/enfyra_table/<id>" \
   -H "Content-Type: application/json" \
   -d '{"columns":[{"name":"id","type":"int"}]}' 
 
 # 2) Server responds 422 with details.requiredConfirmHash + details.confirmToken
 # 3) Retry with headers
-curl -X PATCH "http://localhost:1105/api/table_definition/<id>" \
+curl -X PATCH "http://localhost:1105/api/enfyra_table/<id>" \
   -H "Content-Type: application/json" \
   -H "x-schema-confirm-hash: <requiredConfirmHash>" \
   -H "x-schema-confirm-token: <confirmToken>" \
@@ -256,7 +256,7 @@ Migrate existing data when the system is already initialized:
 ```json
 {
   "_deletedTables": ["deprecated_table"],
-  "role_definition": [
+  "enfyra_role": [
     {
       "name": "Admin",
       "description": "Updated admin description",
@@ -272,13 +272,13 @@ Migrate existing data when the system is already initialized:
 
 #### Delete specific records (`_deletedRecords`)
 
-Use `_deletedRecords` when you need to remove a small set of rows (e.g. remove an old seeded `route_definition`) without wiping the entire table.
+Use `_deletedRecords` when you need to remove a small set of rows (e.g. remove an old seeded `enfyra_route`) without wiping the entire table.
 
 ```json
 {
   "_deletedRecords": [
-    { "table": "route_definition", "filter": { "path": { "_eq": "/old-route" } } },
-    { "table": "menu_definition", "filter": { "path": { "_eq": "/old-menu" } } }
+    { "table": "enfyra_route", "filter": { "path": { "_eq": "/old-route" } } },
+    { "table": "enfyra_menu", "filter": { "path": { "_eq": "/old-menu" } } }
   ]
 }
 ```

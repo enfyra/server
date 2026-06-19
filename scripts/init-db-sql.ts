@@ -51,10 +51,10 @@ export async function initializeDatabaseSql(): Promise<void> {
 
   try {
     const hasSettingTable =
-      await knexInstance.schema.hasTable('setting_definition');
+      await knexInstance.schema.hasTable('enfyra_setting');
 
     if (hasSettingTable) {
-      const result = await knexInstance('setting_definition')
+      const result = await knexInstance('enfyra_setting')
         .select('isInit')
         .first();
 

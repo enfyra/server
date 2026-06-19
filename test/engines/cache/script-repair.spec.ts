@@ -11,7 +11,7 @@ describe('script cache repair', () => {
     });
 
     const code = await (service as any).resolveAndRepairScript(
-      'route_handler_definition',
+      'enfyra_route_handler',
       {
         id: 10,
         scriptLanguage: 'typescript',
@@ -22,7 +22,7 @@ describe('script cache repair', () => {
 
     expect(code).toContain('const value = $ctx.$body.name;');
     expect(update).toHaveBeenCalledTimes(1);
-    expect(update).toHaveBeenCalledWith('route_handler_definition', 10, {
+    expect(update).toHaveBeenCalledWith('enfyra_route_handler', 10, {
       compiledCode: code,
     });
   });
@@ -36,7 +36,7 @@ describe('script cache repair', () => {
     });
 
     const code = await (service as any).resolveAndRepairScript(
-      'route_handler_definition',
+      'enfyra_route_handler',
       {
         id: 10,
         scriptLanguage: 'typescript',

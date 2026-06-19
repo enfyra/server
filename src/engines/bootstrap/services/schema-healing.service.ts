@@ -16,18 +16,22 @@ import {
 import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';
 import { buildSqlJunctionTableContract } from '../../knex/utils/sql-physical-schema-contract';
 import { addColumnToTable } from '../../knex/utils/migration/column-operations';
+import { SystemCoreTableResolver } from './system-core-table-resolver.service';
 
 export class SchemaHealingService {
   private readonly logger = new Logger(SchemaHealingService.name);
   private readonly queryBuilderService: QueryBuilderService;
   private readonly metadataCacheService: MetadataCacheService;
+  private readonly systemCoreTableResolver: SystemCoreTableResolver;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     metadataCacheService: MetadataCacheService;
+    systemCoreTableResolver: SystemCoreTableResolver;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.metadataCacheService = deps.metadataCacheService;
+    this.systemCoreTableResolver = deps.systemCoreTableResolver;
   }
 
   async runIfNeeded(): Promise<void> {
@@ -96,7 +100,8 @@ export class SchemaHealingService {
   async repairSystemPhysicalColumnsBeforeMetadataProvision(): Promise<void> {
     if (DatabaseConfigService.instanceIsMongoDb()) return;
 
-    const repairedCount = await this.repairSqlSystemPhysicalColumnsFromSnapshot();
+    const repairedCount =
+      await this.repairSqlSystemPhysicalColumnsFromSnapshot();
     if (repairedCount > 0) {
       this.logger.log(
         `Repaired SQL system physical columns before metadata provision on ${repairedCount} column(s)`,
@@ -135,9 +140,10 @@ export class SchemaHealingService {
     }
   }
 
-  private loadSnapshot():
-    | Record<string, { name?: string; isSystem?: boolean; columns?: any[] }>
-    | null {
+  private loadSnapshot(): Record<
+    string,
+    { name?: string; isSystem?: boolean; columns?: any[] }
+  > | null {
     const snapshotPath = path.resolve(process.cwd(), 'data/snapshot.json');
     if (!fs.existsSync(snapshotPath)) return null;
     return JSON.parse(fs.readFileSync(snapshotPath, 'utf8')) as Record<
@@ -157,9 +163,10 @@ export class SchemaHealingService {
 
   private async repairSqlRelationPhysicalMappings(): Promise<number> {
     const knex = this.queryBuilderService.getKnex();
-    const rows = await knex('relation_definition as r')
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    const rows = await knex(`${coreNames.relation} as r`)
       .leftJoin(
-        'table_definition as sourceTable',
+        `${coreNames.table} as sourceTable`,
         'r.sourceTableId',
         'sourceTable.id',
       )
@@ -187,7 +194,7 @@ export class SchemaHealingService {
       if (!rel.constraintName) updateData.constraintName = constraintName;
       if (Object.keys(updateData).length === 0) continue;
 
-      await knex('relation_definition').where({ id: rel.id }).update(updateData);
+      await knex(coreNames.relation).where({ id: rel.id }).update(updateData);
       repaired++;
     }
 
@@ -197,10 +204,11 @@ export class SchemaHealingService {
   private async repairSqlSystemPhysicalColumns(): Promise<number> {
     const knex = this.queryBuilderService.getKnex();
     if (!knex?.schema?.hasTable) return 0;
-    if (!(await knex.schema.hasTable('table_definition'))) return 0;
-    if (!(await knex.schema.hasTable('column_definition'))) return 0;
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    if (!(await knex.schema.hasTable(coreNames.table))) return 0;
+    if (!(await knex.schema.hasTable(coreNames.column))) return 0;
 
-    const systemTables = await knex('table_definition')
+    const systemTables = await knex(coreNames.table)
       .where({ isSystem: true })
       .select('id', 'name');
     let repaired = 0;
@@ -209,15 +217,22 @@ export class SchemaHealingService {
       if (!tableDef?.id || !tableDef?.name) continue;
       if (!(await knex.schema.hasTable(tableDef.name))) continue;
 
-      const columns = await knex('column_definition')
+      const columns = await knex(coreNames.column)
         .where({ tableId: tableDef.id })
         .select('*');
       for (const column of columns) {
         if (!column?.name || column.isPrimary) continue;
         if (await knex.schema.hasColumn(tableDef.name, column.name)) continue;
-        await knex.schema.alterTable(tableDef.name, (table: Knex.TableBuilder) => {
-          addColumnToTable(table as any, column, this.queryBuilderService.getDatabaseType());
-        });
+        await knex.schema.alterTable(
+          tableDef.name,
+          (table: Knex.TableBuilder) => {
+            addColumnToTable(
+              table as any,
+              column,
+              this.queryBuilderService.getDatabaseType(),
+            );
+          },
+        );
         repaired++;
       }
     }
@@ -263,12 +278,16 @@ export class SchemaHealingService {
   }
 
   private async repairSqlSystemColumnMetadataFromSnapshot(
-    snapshot: Record<string, { name?: string; isSystem?: boolean; columns?: any[] }>,
+    snapshot: Record<
+      string,
+      { name?: string; isSystem?: boolean; columns?: any[] }
+    >,
   ): Promise<number> {
     const knex = this.queryBuilderService.getKnex();
     if (!knex?.schema?.hasTable) return 0;
-    if (!(await knex.schema.hasTable('table_definition'))) return 0;
-    if (!(await knex.schema.hasTable('column_definition'))) return 0;
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    if (!(await knex.schema.hasTable(coreNames.table))) return 0;
+    if (!(await knex.schema.hasTable(coreNames.column))) return 0;
 
     let repaired = 0;
     for (const tableDef of Object.values(snapshot)) {
@@ -277,19 +296,21 @@ export class SchemaHealingService {
         continue;
       }
 
-      const tableRecord = await knex('table_definition')
+      const tableRecord = await knex(coreNames.table)
         .where({ name: tableName })
         .first();
       if (!tableRecord?.id) continue;
 
-      const existingColumns = await knex('column_definition')
+      const existingColumns = await knex(coreNames.column)
         .where({ tableId: tableRecord.id })
         .select('name');
-      const existingNames = new Set(existingColumns.map((column: any) => column.name));
+      const existingNames = new Set(
+        existingColumns.map((column: any) => column.name),
+      );
 
       for (const column of tableDef.columns) {
         if (!column?.name || existingNames.has(column.name)) continue;
-        await knex('column_definition').insert({
+        await knex(coreNames.column).insert({
           name: column.name,
           type: column.type,
           isPrimary: column.isPrimary || false,
@@ -313,13 +334,17 @@ export class SchemaHealingService {
   }
 
   private async repairMongoSystemColumnMetadataFromSnapshot(
-    snapshot: Record<string, { name?: string; isSystem?: boolean; columns?: any[] }>,
+    snapshot: Record<
+      string,
+      { name?: string; isSystem?: boolean; columns?: any[] }
+    >,
   ): Promise<number> {
     const db = this.queryBuilderService.getMongoDb?.();
     if (!db) return 0;
+    const coreNames = await this.systemCoreTableResolver.getNames();
 
-    const tableCollection = db.collection('table_definition');
-    const columnCollection = db.collection('column_definition');
+    const tableCollection = db.collection(coreNames.table);
+    const columnCollection = db.collection(coreNames.column);
     let repaired = 0;
 
     for (const tableDef of Object.values(snapshot)) {
@@ -334,7 +359,9 @@ export class SchemaHealingService {
       const existingColumns = await columnCollection
         .find({ table: tableRecord._id }, { projection: { name: 1 } })
         .toArray();
-      const existingNames = new Set(existingColumns.map((column: any) => column.name));
+      const existingNames = new Set(
+        existingColumns.map((column: any) => column.name),
+      );
 
       for (const column of tableDef.columns) {
         if (!column?.name || existingNames.has(column.name)) continue;
@@ -365,14 +392,15 @@ export class SchemaHealingService {
 
   private async healSqlJunctionContracts(): Promise<number> {
     const knex = this.queryBuilderService.getKnex();
-    const rows = await knex('relation_definition as r')
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    const rows = await knex(`${coreNames.relation} as r`)
       .leftJoin(
-        'table_definition as sourceTable',
+        `${coreNames.table} as sourceTable`,
         'r.sourceTableId',
         'sourceTable.id',
       )
       .leftJoin(
-        'table_definition as targetTable',
+        `${coreNames.table} as targetTable`,
         'r.targetTableId',
         'targetTable.id',
       )
@@ -417,7 +445,9 @@ export class SchemaHealingService {
 
       const owningUpdate = this.diffJunctionMetadata(rel, standard);
       if (Object.keys(owningUpdate).length > 0) {
-        await knex('relation_definition').where({ id: rel.id }).update(owningUpdate);
+        await knex(coreNames.relation)
+          .where({ id: rel.id })
+          .update(owningUpdate);
         repaired++;
       }
 
@@ -432,7 +462,7 @@ export class SchemaHealingService {
           inverseStandard,
         );
         if (Object.keys(inverseUpdate).length === 0) continue;
-        await knex('relation_definition')
+        await knex(coreNames.relation)
           .where({ id: inverseRel.id })
           .update(inverseUpdate);
         repaired++;
@@ -495,11 +525,22 @@ export class SchemaHealingService {
     const dbType = this.queryBuilderService.getDatabaseType?.() || 'postgres';
 
     await knex.schema.createTable(junction.tableName, (table) => {
-      this.addSqlJunctionColumn(table, junction.sourceColumn, sourcePkType, dbType)
-        .notNullable();
-      this.addSqlJunctionColumn(table, junction.targetColumn, targetPkType, dbType)
-        .notNullable();
-      table.primary([junction.sourceColumn, junction.targetColumn], junction.primaryKeyName);
+      this.addSqlJunctionColumn(
+        table,
+        junction.sourceColumn,
+        sourcePkType,
+        dbType,
+      ).notNullable();
+      this.addSqlJunctionColumn(
+        table,
+        junction.targetColumn,
+        targetPkType,
+        dbType,
+      ).notNullable();
+      table.primary(
+        [junction.sourceColumn, junction.targetColumn],
+        junction.primaryKeyName,
+      );
       table
         .foreign(junction.sourceColumn)
         .references('id')
@@ -588,8 +629,11 @@ export class SchemaHealingService {
   private async getSqlPrimaryKeyType(
     tableName: string,
   ): Promise<'uuid' | 'varchar' | 'integer'> {
-    const table = await this.metadataCacheService.lookupTableByName?.(tableName);
-    const primaryColumn = table?.columns?.find((column: any) => column.isPrimary);
+    const table =
+      await this.metadataCacheService.lookupTableByName?.(tableName);
+    const primaryColumn = table?.columns?.find(
+      (column: any) => column.isPrimary,
+    );
     const type = String(primaryColumn?.type || '').toLowerCase();
     if (type === 'uuid' || type === 'uuidv4' || type.includes('uuid')) {
       return 'uuid';
@@ -602,8 +646,12 @@ export class SchemaHealingService {
 
   private async healMongoJunctionContracts(): Promise<number> {
     const db = this.queryBuilderService.getMongoDb();
-    const relations = await db.collection('relation_definition').find({}).toArray();
-    const tables = await db.collection('table_definition').find({}).toArray();
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    const relations = await db
+      .collection(coreNames.relation)
+      .find({})
+      .toArray();
+    const tables = await db.collection(coreNames.table).find({}).toArray();
     const tableById = new Map<string, any>(
       tables.map((table: any) => [String(table._id), table]),
     );
@@ -657,7 +705,7 @@ export class SchemaHealingService {
       const owningUpdate = this.diffJunctionMetadata(rel, standard);
       if (Object.keys(owningUpdate).length > 0) {
         await db
-          .collection('relation_definition')
+          .collection(coreNames.relation)
           .updateOne({ _id: rel._id }, { $set: owningUpdate });
         repaired++;
       }
@@ -670,7 +718,7 @@ export class SchemaHealingService {
         });
         if (Object.keys(inverseUpdate).length === 0) continue;
         await db
-          .collection('relation_definition')
+          .collection(coreNames.relation)
           .updateOne({ _id: inverseRel._id }, { $set: inverseUpdate });
         repaired++;
       }
@@ -683,8 +731,12 @@ export class SchemaHealingService {
 
   private async cleanupMongoLegacyJunctionCollections(): Promise<number> {
     const db = this.queryBuilderService.getMongoDb();
-    const relations = await db.collection('relation_definition').find({}).toArray();
-    const tables = await db.collection('table_definition').find({}).toArray();
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    const relations = await db
+      .collection(coreNames.relation)
+      .find({})
+      .toArray();
+    const tables = await db.collection(coreNames.table).find({}).toArray();
     const tableById = new Map<string, any>(
       tables.map((table: any) => [String(table._id), table]),
     );
@@ -759,9 +811,11 @@ export class SchemaHealingService {
       input.junctionTableName,
     );
     const legacyCandidates = this.getMongoJunctionLegacyCandidates(input);
-    let renamedFrom:
-      | { tableName: string; sourceColumn: string | null; targetColumn: string | null }
-      | null = null;
+    let renamedFrom: {
+      tableName: string;
+      sourceColumn: string | null;
+      targetColumn: string | null;
+    } | null = null;
 
     if (!standardExists) {
       const existingLegacy = await this.findExistingMongoJunctionCandidate(
@@ -932,7 +986,9 @@ export class SchemaHealingService {
     }
     for (const legacy of input.legacyJunctions || []) {
       if (legacy.tableName === input.junctionTableName) continue;
-      if (candidates.some((candidate) => candidate.tableName === legacy.tableName)) {
+      if (
+        candidates.some((candidate) => candidate.tableName === legacy.tableName)
+      ) {
         continue;
       }
       candidates.push({
@@ -1003,9 +1059,10 @@ export class SchemaHealingService {
   }
 
   private async repairMongoRelationPhysicalMappings(): Promise<number> {
+    const coreNames = await this.systemCoreTableResolver.getNames();
     const collection = this.queryBuilderService
       .getMongoDb()
-      .collection('relation_definition');
+      .collection(coreNames.relation);
     const relations = await collection.find({}).toArray();
     const relationsById = new Map(
       relations.map((rel: any) => [String(rel._id), rel]),
@@ -1056,8 +1113,9 @@ export class SchemaHealingService {
 
   private async repairMongoSystemRecordShapes(): Promise<number> {
     const db = this.queryBuilderService.getMongoDb();
+    const coreNames = await this.systemCoreTableResolver.getNames();
     const tables = await db
-      .collection('table_definition')
+      .collection(coreNames.table)
       .find({ isSystem: true })
       .toArray();
     let repairedCollections = 0;
@@ -1065,7 +1123,7 @@ export class SchemaHealingService {
     for (const table of tables) {
       const tableId = table._id;
       const columns = await db
-        .collection('column_definition')
+        .collection(coreNames.column)
         .find({ table: tableId })
         .toArray();
       const missingFieldSet: Record<string, any> = {};
@@ -1080,7 +1138,10 @@ export class SchemaHealingService {
       for (const [field, value] of Object.entries(missingFieldSet)) {
         const result = await db
           .collection(table.name)
-          .updateMany({ [field]: { $exists: false } }, { $set: { [field]: value } });
+          .updateMany(
+            { [field]: { $exists: false } },
+            { $set: { [field]: value } },
+          );
         modified += result.modifiedCount;
       }
 
@@ -1101,12 +1162,14 @@ export class SchemaHealingService {
 
   private isMongoOwningRelation(rel: any): boolean {
     return (
-      rel.type === 'many-to-one' ||
-      (rel.type === 'one-to-one' && !rel.mappedBy)
+      rel.type === 'many-to-one' || (rel.type === 'one-to-one' && !rel.mappedBy)
     );
   }
 
-  private getMongoRelationForeignKeyColumn(rel: any, owningRel: any): string | null {
+  private getMongoRelationForeignKeyColumn(
+    rel: any,
+    owningRel: any,
+  ): string | null {
     if (this.isMongoOwningRelation(rel)) {
       return rel.propertyName || null;
     }
@@ -1121,7 +1184,10 @@ export class SchemaHealingService {
   }
 
   private getMongoColumnDefaultValue(column: any): any {
-    if (this.hasOwn(column, 'defaultValue') && column.defaultValue !== undefined) {
+    if (
+      this.hasOwn(column, 'defaultValue') &&
+      column.defaultValue !== undefined
+    ) {
       return column.defaultValue;
     }
     return null;
@@ -1174,13 +1240,13 @@ export class SchemaHealingService {
   }
 
   private async repairMongoPrimaryKeyColumns(): Promise<number> {
-    const result = await this.queryBuilderService.find({
-      table: 'column_definition',
-      limit: 10000,
-    });
-    const columns = result?.data || [];
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    const db = this.queryBuilderService.getMongoDb();
+    const columnCollection = db.collection(coreNames.column);
+    const columns = await columnCollection
+      .find({ isPrimary: true, name: { $in: ['id', MONGO_PRIMARY_KEY_NAME] } })
+      .toArray();
     let repaired = 0;
-    const idField = DatabaseConfigService.getPkField();
 
     for (const primaryColumn of columns) {
       if (primaryColumn.isPrimary !== true) continue;
@@ -1200,10 +1266,26 @@ export class SchemaHealingService {
       const columnId = primaryColumn._id ?? primaryColumn.id;
       if (!columnId) continue;
 
-      await this.queryBuilderService.update(
-        'column_definition',
-        { where: [{ field: idField, operator: '=', value: columnId }] },
-        { name: MONGO_PRIMARY_KEY_NAME, type: MONGO_PRIMARY_KEY_TYPE },
+      if (primaryColumn.name === 'id') {
+        const duplicate = await columnCollection.findOne({
+          table: primaryColumn.table,
+          name: MONGO_PRIMARY_KEY_NAME,
+        });
+        if (duplicate?._id) {
+          await columnCollection.deleteOne({ _id: columnId });
+          repaired++;
+          this.logger.log(
+            `Removed duplicate Mongo primary key column metadata '${primaryColumn.name}' for table '${primaryColumn.table}'`,
+          );
+          continue;
+        }
+      }
+
+      await columnCollection.updateOne(
+        { _id: columnId },
+        {
+          $set: { name: MONGO_PRIMARY_KEY_NAME, type: MONGO_PRIMARY_KEY_TYPE },
+        },
       );
       repaired++;
       this.logger.log(
@@ -1239,7 +1321,7 @@ export class SchemaHealingService {
 
       const idField = DatabaseConfigService.getPkField();
       await this.queryBuilderService.update(
-        'table_definition',
+        await this.systemCoreTableResolver.getTableName('table'),
         { where: [{ field: idField, operator: '=', value: table.id }] },
         { uniques: newUniques, indexes: newIndexes },
       );
@@ -1289,18 +1371,18 @@ export class SchemaHealingService {
       if (DatabaseConfigService.instanceIsMongoDb()) {
         return await this.queryBuilderService
           .getMongoDb()
-          .collection('setting_definition')
+          .collection('enfyra_setting')
           .findOne({});
       }
 
       return await this.queryBuilderService
-        .getKnex()('setting_definition')
+        .getKnex()('enfyra_setting')
         .orderBy('id', 'asc')
         .first();
     } catch {
       try {
         const result = await this.queryBuilderService.find({
-          table: 'setting_definition',
+          table: 'enfyra_setting',
           sort: [DatabaseConfigService.getPkField()],
           limit: 1,
         });
@@ -1316,7 +1398,7 @@ export class SchemaHealingService {
       if (DatabaseConfigService.instanceIsMongoDb()) {
         await this.queryBuilderService
           .getMongoDb()
-          .collection('setting_definition')
+          .collection('enfyra_setting')
           .updateOne(
             { _id: setting._id },
             { $set: { uniquesIndexesRepaired: true } },
@@ -1325,7 +1407,7 @@ export class SchemaHealingService {
       }
 
       await this.queryBuilderService
-        .getKnex()('setting_definition')
+        .getKnex()('enfyra_setting')
         .where({ id: setting.id })
         .update({ uniquesIndexesRepaired: true });
       return;
@@ -1334,7 +1416,7 @@ export class SchemaHealingService {
     const idField = DatabaseConfigService.getPkField();
     const settingId = setting._id || setting.id;
     await this.queryBuilderService.update(
-      'setting_definition',
+      'enfyra_setting',
       { where: [{ field: idField, operator: '=', value: settingId }] },
       { uniquesIndexesRepaired: true },
     );

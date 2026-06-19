@@ -15,21 +15,25 @@ import {
 } from '../../knex';
 import { loadRelationRenameMap } from '../../../domain/bootstrap';
 import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
+import { SystemCoreTableResolver } from './system-core-table-resolver.service';
 
 export class MetadataProvisionSqlService {
   private readonly logger = new Logger(MetadataProvisionSqlService.name);
   private readonly queryBuilderService: QueryBuilderService;
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly schemaMigrationService: SqlSchemaMigrationService;
+  private readonly systemCoreTableResolver: SystemCoreTableResolver;
   private readonly dbType: string;
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     databaseConfigService: DatabaseConfigService;
     sqlSchemaMigrationService: SqlSchemaMigrationService;
+    systemCoreTableResolver: SystemCoreTableResolver;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.databaseConfigService = deps.databaseConfigService;
     this.schemaMigrationService = deps.sqlSchemaMigrationService;
+    this.systemCoreTableResolver = deps.systemCoreTableResolver;
     this.dbType = this.databaseConfigService.getDbType();
   }
   private async insertAndGetId(
@@ -47,17 +51,14 @@ export class MetadataProvisionSqlService {
   }
   private async ensureCoreTables(): Promise<void> {
     const qb = this.queryBuilderService.getConnection();
-    const coreTables = [
-      'table_definition',
-      'column_definition',
-      'relation_definition',
-    ];
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    const coreTables = [coreNames.table, coreNames.column, coreNames.relation];
 
     for (const tableName of coreTables) {
       const exists = await qb.schema.hasTable(tableName);
       if (!exists) {
         this.verbose(`Creating core table: ${tableName}`);
-        if (tableName === 'table_definition') {
+        if (tableName === coreNames.table) {
           await qb.schema.createTable(tableName, (table: any) => {
             table.increments('id').primary();
             table.string('name').notNullable().unique();
@@ -71,7 +72,7 @@ export class MetadataProvisionSqlService {
             table.timestamp('createdAt').defaultTo(qb.fn.now());
             table.timestamp('updatedAt').defaultTo(qb.fn.now());
           });
-        } else if (tableName === 'column_definition') {
+        } else if (tableName === coreNames.column) {
           await qb.schema.createTable(tableName, (table: any) => {
             table.increments('id').primary();
             table
@@ -79,7 +80,7 @@ export class MetadataProvisionSqlService {
               .notNullable()
               .unsigned()
               .references('id')
-              .inTable('table_definition')
+              .inTable(coreNames.table)
               .onDelete('CASCADE');
             table.string('name').notNullable();
             table.string('type').notNullable();
@@ -98,7 +99,7 @@ export class MetadataProvisionSqlService {
             table.timestamp('createdAt').defaultTo(qb.fn.now());
             table.timestamp('updatedAt').defaultTo(qb.fn.now());
           });
-        } else if (tableName === 'relation_definition') {
+        } else if (tableName === coreNames.relation) {
           await qb.schema.createTable(tableName, (table: any) => {
             table.increments('id').primary();
             table
@@ -106,21 +107,21 @@ export class MetadataProvisionSqlService {
               .notNullable()
               .unsigned()
               .references('id')
-              .inTable('table_definition')
+              .inTable(coreNames.table)
               .onDelete('CASCADE');
             table
               .integer('targetTableId')
               .nullable()
               .unsigned()
               .references('id')
-              .inTable('table_definition')
+              .inTable(coreNames.table)
               .onDelete('SET NULL');
             table
               .integer('mappedById')
               .nullable()
               .unsigned()
               .references('id')
-              .inTable('relation_definition')
+              .inTable(coreNames.relation)
               .onDelete('CASCADE');
             table.string('type').notNullable();
             table.string('propertyName').notNullable();
@@ -143,24 +144,28 @@ export class MetadataProvisionSqlService {
             table.timestamp('updatedAt').defaultTo(qb.fn.now());
           });
         }
-      } else if (tableName === 'relation_definition') {
-        await this.ensureRelationDefinitionPhysicalColumns(qb);
+      } else if (tableName === coreNames.relation) {
+        await this.ensureRelationDefinitionPhysicalColumns(
+          qb,
+          coreNames.relation,
+        );
       }
     }
   }
 
   private async ensureRelationDefinitionPhysicalColumns(
     qb: any,
+    relationTableName: string,
   ): Promise<void> {
     const columns = ['foreignKeyColumn', 'referencedColumn', 'constraintName'];
     for (const columnName of columns) {
       const hasColumn = await qb.schema.hasColumn(
-        'relation_definition',
+        relationTableName,
         columnName,
       );
       if (hasColumn) continue;
 
-      await qb.schema.alterTable('relation_definition', (table: any) => {
+      await qb.schema.alterTable(relationTableName, (table: any) => {
         table.string(columnName).nullable();
       });
     }
@@ -169,6 +174,7 @@ export class MetadataProvisionSqlService {
   async createInitMetadata(snapshot: any): Promise<void> {
     const qb = this.queryBuilderService.getConnection();
     await this.ensureCoreTables();
+    const coreNames = await this.systemCoreTableResolver.getNames();
     let hasExistingMetadata = false;
     await qb.transaction(async (trx: any) => {
       const tableNameToId: Record<string, number> = {};
@@ -176,7 +182,7 @@ export class MetadataProvisionSqlService {
       const tableEntries = Object.entries(snapshot);
       let existingTables: any[] = [];
       try {
-        existingTables = await trx('table_definition').select('*');
+        existingTables = await trx(coreNames.table).select('*');
       } catch (error: any) {
         if (error.code !== 'ER_NO_SUCH_TABLE') {
           throw error;
@@ -199,7 +205,7 @@ export class MetadataProvisionSqlService {
           tableNameToId[name] = exist.id;
           const { columns: _c, relations: _r, ...rest } = def;
           if (this.detectTableChanges(rest, exist)) {
-            await trx('table_definition')
+            await trx(coreNames.table)
               .where('id', exist.id)
               .update({
                 isSystem: rest.isSystem,
@@ -218,19 +224,15 @@ export class MetadataProvisionSqlService {
             );
             continue;
           }
-          const insertedId = await this.insertAndGetId(
-            trx,
-            'table_definition',
-            {
-              name: rest.name,
-              isSystem: rest.isSystem || false,
-              isSingleRecord: rest.isSingleRecord || false,
-              alias: rest.alias,
-              description: rest.description,
-              uniques: JSON.stringify(rest.uniques || []),
-              indexes: JSON.stringify(rest.indexes || []),
-            },
-          );
+          const insertedId = await this.insertAndGetId(trx, coreNames.table, {
+            name: rest.name,
+            isSystem: rest.isSystem || false,
+            isSingleRecord: rest.isSingleRecord || false,
+            alias: rest.alias,
+            description: rest.description,
+            uniques: JSON.stringify(rest.uniques || []),
+            indexes: JSON.stringify(rest.indexes || []),
+          });
           tableNameToId[name] = insertedId;
         }
       }
@@ -239,7 +241,7 @@ export class MetadataProvisionSqlService {
       this.verbose('Phase 2: Processing column definitions...');
       let allColumns: any[] = [];
       try {
-        allColumns = await trx('column_definition').select('*');
+        allColumns = await trx(coreNames.column).select('*');
       } catch (error: any) {
         if (error.code !== 'ER_NO_SUCH_TABLE') {
           throw error;
@@ -259,7 +261,7 @@ export class MetadataProvisionSqlService {
         for (const snapshotCol of def.columns || []) {
           const existingCol = existingColumnsMap.get(snapshotCol.name);
           if (!existingCol) {
-            await trx('column_definition').insert({
+            await trx(coreNames.column).insert({
               name: snapshotCol.name,
               type: snapshotCol.type,
               isPrimary: snapshotCol.isPrimary || false,
@@ -276,7 +278,7 @@ export class MetadataProvisionSqlService {
               tableId,
             });
           } else if (this.detectColumnChanges(snapshotCol, existingCol)) {
-            await trx('column_definition')
+            await trx(coreNames.column)
               .where('id', existingCol.id)
               .update({
                 type: snapshotCol.type,
@@ -297,7 +299,7 @@ export class MetadataProvisionSqlService {
       this.verbose('Phase 3: Processing relation definitions...');
       let allRelations: any[] = [];
       try {
-        allRelations = await trx('relation_definition').select('*');
+        allRelations = await trx(coreNames.relation).select('*');
       } catch (error: any) {
         if (error.code !== 'ER_NO_SUCH_TABLE') {
           throw error;
@@ -464,7 +466,7 @@ export class MetadataProvisionSqlService {
                 existingRel.junctionTargetColumn ||
                 getForeignKeyColumnName(rel.targetTable);
             }
-            await trx('relation_definition')
+            await trx(coreNames.relation)
               .where('id', existingRel.id)
               .update(updateData);
           }
@@ -503,7 +505,7 @@ export class MetadataProvisionSqlService {
           }
           const id = await this.insertAndGetId(
             trx,
-            'relation_definition',
+            coreNames.relation,
             insertData,
           );
           const newRel = { ...insertData, id };
@@ -544,7 +546,7 @@ export class MetadataProvisionSqlService {
           if (generatedId)
             relationIdMap.set(`${tableName}.${rel.propertyName}`, generatedId);
           if (snapshotRelId && generatedId) {
-            await trx('relation_definition')
+            await trx(coreNames.relation)
               .where('id', snapshotRelId)
               .update({ mappedById: generatedId });
           } else if (!snapshotRelId && generatedId) {
@@ -573,7 +575,7 @@ export class MetadataProvisionSqlService {
           if (rel.type === 'many-to-many' && snapshotRelId) {
             const owningRel =
               allRelations.find((r: any) => r.id === snapshotRelId) ||
-              (await trx('relation_definition')
+              (await trx(coreNames.relation)
                 .where('id', snapshotRelId)
                 .first());
             if (owningRel) {

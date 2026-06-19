@@ -6,7 +6,7 @@ export function registerFolderRoutes(
   app: Express,
   container: AwilixContainer<Cradle>,
 ) {
-  app.get('/folder_definition/tree', async (req: any, res: Response) => {
+  app.get('/enfyra_folder/tree', async (req: any, res: Response) => {
     const folderTreeCache =
       req.scope?.cradle?.folderTreeCacheService ??
       container.cradle.folderTreeCacheService;

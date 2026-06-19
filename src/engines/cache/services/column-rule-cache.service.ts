@@ -56,7 +56,7 @@ export class ColumnRuleCacheService extends BaseCacheService<
 
   protected async loadFromDb(): Promise<any> {
     const result = await this.queryBuilderService.find({
-      table: 'column_rule_definition',
+      table: 'enfyra_column_rule',
       fields: ['*', 'column.id', 'column._id'],
       filter: { isEnabled: { _eq: true } },
       limit: 100000,
@@ -87,7 +87,7 @@ export class ColumnRuleCacheService extends BaseCacheService<
     payload: TCacheInvalidationPayload,
     publish = true,
   ): Promise<void> {
-    if (payload.table !== 'column_rule_definition') {
+    if (payload.table !== 'enfyra_column_rule') {
       await this.reload(publish);
       return;
     }
@@ -105,7 +105,7 @@ export class ColumnRuleCacheService extends BaseCacheService<
     const idField = this.queryBuilderService.isMongoDb() ? '_id' : 'id';
 
     const result = await this.queryBuilderService.find({
-      table: 'column_rule_definition',
+      table: 'enfyra_column_rule',
       fields: ['*', 'column.id', 'column._id'],
       filter: { [idField]: { _in: ids } },
       limit: ids.length,

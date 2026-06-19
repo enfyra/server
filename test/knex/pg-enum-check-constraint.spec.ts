@@ -77,7 +77,7 @@ describe('Postgres ENUM conversion — CHECK constraint handling', () => {
 
   it('should DROP CHECK constraint before ALTER TYPE when column is text+CHECK (Knex default)', async () => {
     await simulateEnumConversion(
-      'column_definition',
+      'enfyra_column',
       'type',
       ['int', 'varchar', 'text'],
       'text',
@@ -86,7 +86,7 @@ describe('Postgres ENUM conversion — CHECK constraint handling', () => {
 
     const dropCheck = executedSql.find((s) => s.includes('DROP CONSTRAINT'));
     const alterType = executedSql.find((s) =>
-      s.includes('TYPE "column_definition_type_enum"'),
+      s.includes('TYPE "enfyra_column_type_enum"'),
     );
 
     expect(dropCheck).toBeDefined();
@@ -100,10 +100,10 @@ describe('Postgres ENUM conversion — CHECK constraint handling', () => {
 
   it('should skip conversion when column is already native ENUM', async () => {
     const result = await simulateEnumConversion(
-      'column_definition',
+      'enfyra_column',
       'type',
       ['int', 'varchar'],
-      'column_definition_type_enum',
+      'enfyra_column_type_enum',
       false,
     );
 

@@ -29,10 +29,10 @@ export class GenericTableProcessor extends BaseTableProcessor {
     const identifiers: object[] = [];
 
     const criticalUniqueKeys: Record<string, string | string[]> = {
-      column_definition: ['table', 'name'],
-      relation_definition: ['table', 'propertyName'],
-      route_permission_definition: ['route', 'role'],
-      route_handler_definition: ['route', 'method'],
+      enfyra_column: ['table', 'name'],
+      enfyra_relation: ['table', 'propertyName'],
+      enfyra_route_permission: ['route', 'role'],
+      enfyra_route_handler: ['route', 'method'],
     };
 
     const knownKey = criticalUniqueKeys[this.tableName];
@@ -98,16 +98,16 @@ export class GenericTableProcessor extends BaseTableProcessor {
 
   protected getCompareFields(): string[] {
     const fieldMap: Record<string, string[]> = {
-      role_definition: ['name', 'description'],
-      setting_definition: ['projectName', 'projectDescription', 'projectUrl'],
-      route_permission_definition: ['isEnabled'],
-      route_handler_definition: [
+      enfyra_role: ['name', 'description'],
+      enfyra_setting: ['projectName', 'projectDescription', 'projectUrl'],
+      enfyra_route_permission: ['isEnabled'],
+      enfyra_route_handler: [
         'description',
         'sourceCode',
         'scriptLanguage',
         'compiledCode',
       ],
-      extension_definition: [
+      enfyra_extension: [
         'name',
         'type',
         'version',
@@ -115,7 +115,7 @@ export class GenericTableProcessor extends BaseTableProcessor {
         'description',
         'code',
       ],
-      folder_definition: ['name', 'order', 'icon', 'description'],
+      enfyra_folder: ['name', 'order', 'icon', 'description'],
     };
 
     return fieldMap[this.tableName] || ['name', 'description'];

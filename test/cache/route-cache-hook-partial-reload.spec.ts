@@ -1,9 +1,9 @@
 describe('RouteCacheService — partial reload for hooks/handlers/permissions', () => {
   const CHILD_ARRAY_KEY: Record<string, string> = {
-    pre_hook_definition: 'preHooks',
-    post_hook_definition: 'postHooks',
-    route_handler_definition: 'handlers',
-    route_permission_definition: 'routePermissions',
+    enfyra_pre_hook: 'preHooks',
+    enfyra_post_hook: 'postHooks',
+    enfyra_route_handler: 'handlers',
+    enfyra_route_permission: 'routePermissions',
   };
 
   let cacheRoutes: any[];
@@ -79,7 +79,7 @@ describe('RouteCacheService — partial reload for hooks/handlers/permissions', 
 
   async function applyPartialUpdate(payload: any) {
     if (
-      ['route_handler_definition', 'route_permission_definition'].includes(
+      ['enfyra_route_handler', 'enfyra_route_permission'].includes(
         payload.table,
       ) &&
       payload.ids?.length
@@ -95,7 +95,7 @@ describe('RouteCacheService — partial reload for hooks/handlers/permissions', 
     }
 
     if (
-      ['pre_hook_definition', 'post_hook_definition'].includes(payload.table)
+      ['enfyra_pre_hook', 'enfyra_post_hook'].includes(payload.table)
     ) {
       reloadGlobalHooksAndMergeCalls++;
       if (payload.ids?.length) {
@@ -121,10 +121,10 @@ describe('RouteCacheService — partial reload for hooks/handlers/permissions', 
 
   describe('hooks', () => {
     it('add global hook (no route): only reloads global hooks, no specific route reload', async () => {
-      dbRecords.pre_hook_definition = [{ id: 1, isGlobal: true, route: null }];
+      dbRecords.enfyra_pre_hook = [{ id: 1, isGlobal: true, route: null }];
 
       await applyPartialUpdate({
-        table: 'pre_hook_definition',
+        table: 'enfyra_pre_hook',
         scope: 'partial',
         ids: [1],
       });
@@ -134,12 +134,12 @@ describe('RouteCacheService — partial reload for hooks/handlers/permissions', 
     });
 
     it('add route-specific pre-hook: reloads global hooks AND the affected route', async () => {
-      dbRecords.pre_hook_definition = [
+      dbRecords.enfyra_pre_hook = [
         { id: 42, isGlobal: false, route: { id: 7 } },
       ];
 
       await applyPartialUpdate({
-        table: 'pre_hook_definition',
+        table: 'enfyra_pre_hook',
         scope: 'partial',
         ids: [42],
       });
@@ -153,10 +153,10 @@ describe('RouteCacheService — partial reload for hooks/handlers/permissions', 
         { id: 5, preHooks: [{ id: 42 }] },
         { id: 6, preHooks: [] },
       ];
-      dbRecords.pre_hook_definition = [];
+      dbRecords.enfyra_pre_hook = [];
 
       await applyPartialUpdate({
-        table: 'pre_hook_definition',
+        table: 'enfyra_pre_hook',
         scope: 'partial',
         ids: [42],
       });
@@ -170,12 +170,12 @@ describe('RouteCacheService — partial reload for hooks/handlers/permissions', 
         { id: 10, preHooks: [{ id: 99 }] },
         { id: 20, preHooks: [] },
       ];
-      dbRecords.pre_hook_definition = [
+      dbRecords.enfyra_pre_hook = [
         { id: 99, isGlobal: false, route: { id: 20 } },
       ];
 
       await applyPartialUpdate({
-        table: 'pre_hook_definition',
+        table: 'enfyra_pre_hook',
         scope: 'partial',
         ids: [99],
       });
@@ -189,12 +189,12 @@ describe('RouteCacheService — partial reload for hooks/handlers/permissions', 
 
     it('update in place (same route): dedupes to single route ID', async () => {
       cacheRoutes = [{ id: 7, preHooks: [{ id: 42 }] }];
-      dbRecords.pre_hook_definition = [
+      dbRecords.enfyra_pre_hook = [
         { id: 42, isGlobal: false, route: { id: 7 } },
       ];
 
       await applyPartialUpdate({
-        table: 'pre_hook_definition',
+        table: 'enfyra_pre_hook',
         scope: 'partial',
         ids: [42],
       });
@@ -204,10 +204,10 @@ describe('RouteCacheService — partial reload for hooks/handlers/permissions', 
 
     it('post-hook flow mirrors pre-hook', async () => {
       cacheRoutes = [{ id: 3, postHooks: [{ id: 11 }] }];
-      dbRecords.post_hook_definition = [];
+      dbRecords.enfyra_post_hook = [];
 
       await applyPartialUpdate({
-        table: 'post_hook_definition',
+        table: 'enfyra_post_hook',
         scope: 'partial',
         ids: [11],
       });
@@ -217,7 +217,7 @@ describe('RouteCacheService — partial reload for hooks/handlers/permissions', 
     });
 
     it('full-scope (no ids): only global hooks refreshed, no route lookup', async () => {
-      await applyPartialUpdate({ table: 'pre_hook_definition', scope: 'full' });
+      await applyPartialUpdate({ table: 'enfyra_pre_hook', scope: 'full' });
 
       expect(reloadGlobalHooksAndMergeCalls).toBe(1);
       expect(reloadSpecificRoutesCalls).toEqual([]);
@@ -225,13 +225,13 @@ describe('RouteCacheService — partial reload for hooks/handlers/permissions', 
     });
   });
 
-  describe('route_handler_definition', () => {
+  describe('enfyra_route_handler', () => {
     it('delete handler: reloads old route from cache scan', async () => {
       cacheRoutes = [{ id: 1, handlers: [{ id: 77 }] }];
-      dbRecords.route_handler_definition = [];
+      dbRecords.enfyra_route_handler = [];
 
       await applyPartialUpdate({
-        table: 'route_handler_definition',
+        table: 'enfyra_route_handler',
         scope: 'partial',
         ids: [77],
       });
@@ -244,10 +244,10 @@ describe('RouteCacheService — partial reload for hooks/handlers/permissions', 
         { id: 1, handlers: [{ id: 77 }] },
         { id: 2, handlers: [] },
       ];
-      dbRecords.route_handler_definition = [{ id: 77, route: { id: 2 } }];
+      dbRecords.enfyra_route_handler = [{ id: 77, route: { id: 2 } }];
 
       await applyPartialUpdate({
-        table: 'route_handler_definition',
+        table: 'enfyra_route_handler',
         scope: 'partial',
         ids: [77],
       });
@@ -259,13 +259,13 @@ describe('RouteCacheService — partial reload for hooks/handlers/permissions', 
     });
   });
 
-  describe('route_permission_definition', () => {
+  describe('enfyra_route_permission', () => {
     it('delete permission: reloads old route from cache scan', async () => {
       cacheRoutes = [{ id: 9, routePermissions: [{ id: 500 }] }];
-      dbRecords.route_permission_definition = [];
+      dbRecords.enfyra_route_permission = [];
 
       await applyPartialUpdate({
-        table: 'route_permission_definition',
+        table: 'enfyra_route_permission',
         scope: 'partial',
         ids: [500],
       });
@@ -278,10 +278,10 @@ describe('RouteCacheService — partial reload for hooks/handlers/permissions', 
         { id: 9, routePermissions: [{ id: 500 }] },
         { id: 10, routePermissions: [] },
       ];
-      dbRecords.route_permission_definition = [{ id: 500, route: { id: 10 } }];
+      dbRecords.enfyra_route_permission = [{ id: 500, route: { id: 10 } }];
 
       await applyPartialUpdate({
-        table: 'route_permission_definition',
+        table: 'enfyra_route_permission',
         scope: 'partial',
         ids: [500],
       });

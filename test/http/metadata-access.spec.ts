@@ -115,7 +115,7 @@ describe('metadata access projection', () => {
     const meta = metadata([
       table('public_post_definition', [col('title')]),
       table('private_post_definition', [col('title')]),
-      table('user_definition', [col('email')]),
+      table('enfyra_user', [col('email')]),
     ]);
 
     const data = await projectMetadataForUser({
@@ -150,7 +150,7 @@ describe('metadata access projection', () => {
     const meta = metadata([
       table('post_definition'),
       table('secret_definition'),
-      table('user_definition'),
+      table('enfyra_user'),
     ]);
     const user = { id: 10, role: { id: 2 } };
 
@@ -180,7 +180,7 @@ describe('metadata access projection', () => {
 
     expect([...names].sort()).toEqual([
       'post_definition',
-      'user_definition',
+      'enfyra_user',
     ]);
   });
 

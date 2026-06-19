@@ -35,7 +35,7 @@ interface FieldRenameJobData {
   migrationId: string;
 }
 
-const COLLECTION_NAME = 'schema_physical_migration_definition';
+const COLLECTION_NAME = 'enfyra_schema_physical_migration';
 const ACTIVE_STATUSES: MongoPhysicalMigrationStatus[] = [
   'pending',
   'running',

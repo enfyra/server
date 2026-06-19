@@ -1,14 +1,14 @@
 {
-  "role_definition": {
+  "enfyra_role": {
     "name": "Admin"
   },
-  "setting_definition": {
+  "enfyra_setting": {
     "isInit": false,
     "isSystem": true,
     "projectName": "Enfyra CMS",
     "projectDescription": "Description for Enfyra CMS"
   },
-  "method_definition": [
+  "enfyra_method": [
     {
       "buttonColor": "#dbeafe",
       "textColor": "#1d4ed8",
@@ -34,10 +34,10 @@
       "name": "DELETE"
     }
   ],
-  "route_definition": [
+  "enfyra_route": [
     {
-      "path": "/route_definition",
-      "mainTable": "route_definition",
+      "path": "/enfyra_route",
+      "mainTable": "enfyra_route",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:git-branch",
@@ -52,8 +52,8 @@
       ]
     },
     {
-      "path": "/table_definition",
-      "mainTable": "table_definition",
+      "path": "/enfyra_table",
+      "mainTable": "enfyra_table",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:table",
@@ -65,8 +65,8 @@
       ]
     },
     {
-      "path": "/relation_definition",
-      "mainTable": "relation_definition",
+      "path": "/enfyra_relation",
+      "mainTable": "enfyra_relation",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:git-branch",
@@ -78,8 +78,8 @@
       ]
     },
     {
-      "path": "/user_definition",
-      "mainTable": "user_definition",
+      "path": "/enfyra_user",
+      "mainTable": "enfyra_user",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:user",
@@ -91,8 +91,8 @@
       ]
     },
     {
-      "path": "/setting_definition",
-      "mainTable": "setting_definition",
+      "path": "/enfyra_setting",
+      "mainTable": "enfyra_setting",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:settings",
@@ -107,8 +107,8 @@
       ]
     },
     {
-      "path": "/cors_origin_definition",
-      "mainTable": "cors_origin_definition",
+      "path": "/enfyra_cors_origin",
+      "mainTable": "enfyra_cors_origin",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:globe",
@@ -123,8 +123,8 @@
       ]
     },
     {
-      "path": "/role_definition",
-      "mainTable": "role_definition",
+      "path": "/enfyra_role",
+      "mainTable": "enfyra_role",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:shield-check",
@@ -169,6 +169,68 @@
       ],
       "availableMethods": [
         "POST"
+      ]
+    },
+    {
+      "path": "/auth/api-tokens",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:key",
+      "skipRoleGuardMethods": [
+        "GET",
+        "POST"
+      ],
+      "availableMethods": [
+        "GET",
+        "POST"
+      ]
+    },
+    {
+      "path": "/auth/api-tokens/:id",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:key-round",
+      "skipRoleGuardMethods": [
+        "DELETE"
+      ],
+      "availableMethods": [
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/auth/token/exchange",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:key-round",
+      "publicMethods": [
+        "POST"
+      ],
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/auth/oauth/exchange",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:key-round",
+      "publicMethods": [
+        "POST"
+      ],
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/auth/set-cookies",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:cookie",
+      "publicMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET"
       ]
     },
     {
@@ -234,8 +296,8 @@
       ]
     },
     {
-      "path": "/method_definition",
-      "mainTable": "method_definition",
+      "path": "/enfyra_method",
+      "mainTable": "enfyra_method",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -247,8 +309,8 @@
       ]
     },
     {
-      "path": "/pre_hook_definition",
-      "mainTable": "pre_hook_definition",
+      "path": "/enfyra_pre_hook",
+      "mainTable": "enfyra_pre_hook",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -260,8 +322,8 @@
       ]
     },
     {
-      "path": "/post_hook_definition",
-      "mainTable": "post_hook_definition",
+      "path": "/enfyra_post_hook",
+      "mainTable": "enfyra_post_hook",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -273,8 +335,8 @@
       ]
     },
     {
-      "path": "/route_handler_definition",
-      "mainTable": "route_handler_definition",
+      "path": "/enfyra_route_handler",
+      "mainTable": "enfyra_route_handler",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -286,8 +348,8 @@
       ]
     },
     {
-      "path": "/route_permission_definition",
-      "mainTable": "route_permission_definition",
+      "path": "/enfyra_route_permission",
+      "mainTable": "enfyra_route_permission",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:route",
@@ -299,8 +361,8 @@
       ]
     },
     {
-      "path": "/field_permission_definition",
-      "mainTable": "field_permission_definition",
+      "path": "/enfyra_field_permission",
+      "mainTable": "enfyra_field_permission",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:shield",
@@ -312,8 +374,8 @@
       ]
     },
     {
-      "path": "/column_rule_definition",
-      "mainTable": "column_rule_definition",
+      "path": "/enfyra_column_rule",
+      "mainTable": "enfyra_column_rule",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:ruler",
@@ -325,8 +387,8 @@
       ]
     },
     {
-      "path": "/menu_definition",
-      "mainTable": "menu_definition",
+      "path": "/enfyra_menu",
+      "mainTable": "enfyra_menu",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:menu",
@@ -341,8 +403,8 @@
       ]
     },
     {
-      "path": "/extension_definition",
-      "mainTable": "extension_definition",
+      "path": "/enfyra_extension",
+      "mainTable": "enfyra_extension",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:puzzle",
@@ -354,7 +416,7 @@
       ]
     },
     {
-      "path": "/extension_definition/preview",
+      "path": "/enfyra_extension/preview",
       "isEnabled": true,
       "isSystem": true,
       "availableMethods": [
@@ -362,8 +424,8 @@
       ]
     },
     {
-      "path": "/folder_definition",
-      "mainTable": "folder_definition",
+      "path": "/enfyra_folder",
+      "mainTable": "enfyra_folder",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:folder",
@@ -375,7 +437,7 @@
       ]
     },
     {
-      "path": "/folder_definition/tree",
+      "path": "/enfyra_folder/tree",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:folder-tree",
@@ -387,8 +449,8 @@
       ]
     },
     {
-      "path": "/file_definition",
-      "mainTable": "file_definition",
+      "path": "/enfyra_file",
+      "mainTable": "enfyra_file",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:file",
@@ -400,8 +462,8 @@
       ]
     },
     {
-      "path": "/file_permission_definition",
-      "mainTable": "file_permission_definition",
+      "path": "/enfyra_file_permission",
+      "mainTable": "enfyra_file_permission",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:file",
@@ -425,8 +487,8 @@
       ]
     },
     {
-      "path": "/package_definition",
-      "mainTable": "package_definition",
+      "path": "/enfyra_package",
+      "mainTable": "enfyra_package",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:package",
@@ -481,8 +543,8 @@
       ]
     },
     {
-      "path": "/bootstrap_script_definition",
-      "mainTable": "bootstrap_script_definition",
+      "path": "/enfyra_bootstrap_script",
+      "mainTable": "enfyra_bootstrap_script",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:play",
@@ -494,8 +556,8 @@
       ]
     },
     {
-      "path": "/storage_config_definition",
-      "mainTable": "storage_config_definition",
+      "path": "/enfyra_storage_config",
+      "mainTable": "enfyra_storage_config",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:hard-drive",
@@ -515,6 +577,16 @@
       "isSystem": true,
       "icon": "lucide:refresh-cw",
       "description": "Reload all caches and schemas",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/admin/script/validate",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:code-2",
+      "description": "Validate dynamic script source without saving it",
       "availableMethods": [
         "POST"
       ]
@@ -651,8 +723,8 @@
       ]
     },
     {
-      "path": "/websocket_definition",
-      "mainTable": "websocket_definition",
+      "path": "/enfyra_websocket",
+      "mainTable": "enfyra_websocket",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:radio-tower",
@@ -664,8 +736,8 @@
       ]
     },
     {
-      "path": "/websocket_event_definition",
-      "mainTable": "websocket_event_definition",
+      "path": "/enfyra_websocket_event",
+      "mainTable": "enfyra_websocket_event",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:zap",
@@ -677,8 +749,8 @@
       ]
     },
     {
-      "path": "/oauth_config_definition",
-      "mainTable": "oauth_config_definition",
+      "path": "/enfyra_oauth_config",
+      "mainTable": "enfyra_oauth_config",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:key",
@@ -690,8 +762,8 @@
       ]
     },
     {
-      "path": "/oauth_account_definition",
-      "mainTable": "oauth_account_definition",
+      "path": "/enfyra_oauth_account",
+      "mainTable": "enfyra_oauth_account",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:link",
@@ -703,8 +775,8 @@
       ]
     },
     {
-      "path": "/flow_definition",
-      "mainTable": "flow_definition",
+      "path": "/enfyra_flow",
+      "mainTable": "enfyra_flow",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:workflow",
@@ -716,8 +788,8 @@
       ]
     },
     {
-      "path": "/flow_step_definition",
-      "mainTable": "flow_step_definition",
+      "path": "/enfyra_flow_step",
+      "mainTable": "enfyra_flow_step",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:git-branch",
@@ -729,8 +801,8 @@
       ]
     },
     {
-      "path": "/flow_execution_definition",
-      "mainTable": "flow_execution_definition",
+      "path": "/enfyra_flow_execution",
+      "mainTable": "enfyra_flow_execution",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:play-circle",
@@ -742,8 +814,8 @@
       ]
     },
     {
-      "path": "/gql_definition",
-      "mainTable": "gql_definition",
+      "path": "/enfyra_graphql",
+      "mainTable": "enfyra_graphql",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:file-code",
@@ -755,8 +827,8 @@
       ]
     },
     {
-      "path": "/guard_definition",
-      "mainTable": "guard_definition",
+      "path": "/enfyra_guard",
+      "mainTable": "enfyra_guard",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:shield",
@@ -768,8 +840,8 @@
       ]
     },
     {
-      "path": "/guard_rule_definition",
-      "mainTable": "guard_rule_definition",
+      "path": "/enfyra_guard_rule",
+      "mainTable": "enfyra_guard_rule",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:shield-check",
@@ -791,8 +863,8 @@
       ]
     },
     {
-      "path": "/schema_migration_definition",
-      "mainTable": "schema_migration_definition",
+      "path": "/enfyra_schema_migration",
+      "mainTable": "enfyra_schema_migration",
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:scroll-text",
@@ -801,18 +873,31 @@
       ]
     }
   ],
-  "pre_hook_definition": [
+  "enfyra_pre_hook": [
     {
       "isEnabled": true,
       "isGlobal": false,
       "name": "User definition hash password",
       "isSystem": true,
-      "route": "/user_definition",
+      "route": "/enfyra_user",
       "methods": [
         "POST",
         "PATCH"
       ],
       "sourceCode": "if (@BODY.password) { @BODY.password = await @HELPERS.$bcrypt.hash(@BODY.password); }",
+      "scriptLanguage": "typescript"
+    },
+    {
+      "isEnabled": true,
+      "isGlobal": false,
+      "name": "Me route protected field guard",
+      "isSystem": true,
+      "route": "/me",
+      "methods": [
+        "PATCH"
+      ],
+      "priority": 100,
+      "sourceCode": "const body = @BODY || {};\nconst allowedProtectedSelfFields = new Set(['password']);\nconst alwaysBlocked = new Set(['id', '_id', 'createdAt', 'updatedAt', 'roleId']);\nconst tableResult = await @REPOS.enfyra_table.find({ filter: { name: { _eq: 'enfyra_user' } }, fields: ['id', 'name', 'columns.name', 'columns.isSystem', 'columns.isPublished', 'columns.isUpdatable', 'columns.isPrimary', 'relations.propertyName', 'relations.isSystem'], limit: 1 });\nconst userTable = tableResult.data?.[0];\nconst columns = Array.isArray(userTable?.columns) ? userTable.columns : [];\nconst relations = Array.isArray(userTable?.relations) ? userTable.relations : [];\nconst blocked = [];\nfor (const key of Object.keys(body)) {\n  if (allowedProtectedSelfFields.has(key)) continue;\n  if (alwaysBlocked.has(key)) { blocked.push(key); continue; }\n  const column = columns.find((item) => item?.name === key);\n  if (column) {\n    if (column.isPrimary || column.isSystem || column.isPublished === false || column.isUpdatable === false) blocked.push(key);\n    continue;\n  }\n  const relation = relations.find((item) => item?.propertyName === key);\n  if (relation?.isSystem) blocked.push(key);\n}\nif (blocked.length) @THROW400('Protected user fields cannot be updated through /me: ' + [...new Set(blocked)].join(', '));",
       "scriptLanguage": "typescript"
     },
     {
@@ -832,7 +917,7 @@
       "isGlobal": false,
       "name": "Folder definition auto slug",
       "isSystem": true,
-      "route": "/folder_definition",
+      "route": "/enfyra_folder",
       "methods": [
         "POST",
         "PATCH"
@@ -841,7 +926,7 @@
       "scriptLanguage": "typescript"
     }
   ],
-  "post_hook_definition": [
+  "enfyra_post_hook": [
     {
       "isEnabled": true,
       "isGlobal": true,
@@ -857,7 +942,7 @@
       "scriptLanguage": "typescript"
     }
   ],
-  "storage_config_definition": [
+  "enfyra_storage_config": [
     {
       "name": "Local",
       "type": "Local Storage",
@@ -866,7 +951,7 @@
       "description": "Default local file storage"
     }
   ],
-  "menu_definition": [
+  "enfyra_menu": [
     {
       "type": "Menu",
       "label": "Dashboard",
@@ -905,7 +990,7 @@
       "permission": {
         "or": [
           {
-            "route": "/table_definition",
+            "route": "/enfyra_table",
             "methods": [
               "GET"
             ]
@@ -939,7 +1024,7 @@
       "permission": {
         "or": [
           {
-            "route": "/setting_definition",
+            "route": "/enfyra_setting",
             "methods": [
               "GET"
             ]
@@ -960,7 +1045,7 @@
       "permission": {
         "or": [
           {
-            "route": "/menu_definition",
+            "route": "/enfyra_menu",
             "methods": [
               "GET"
             ]
@@ -981,7 +1066,7 @@
       "permission": {
         "or": [
           {
-            "route": "/extension_definition",
+            "route": "/enfyra_extension",
             "methods": [
               "GET"
             ]
@@ -1002,7 +1087,7 @@
       "permission": {
         "or": [
           {
-            "route": "/route_definition",
+            "route": "/enfyra_route",
             "methods": [
               "GET"
             ]
@@ -1023,7 +1108,7 @@
       "permission": {
         "or": [
           {
-            "route": "/method_definition",
+            "route": "/enfyra_method",
             "methods": [
               "GET"
             ]
@@ -1044,7 +1129,7 @@
       "permission": {
         "or": [
           {
-            "route": "/guard_definition",
+            "route": "/enfyra_guard",
             "methods": [
               "GET"
             ]
@@ -1065,7 +1150,7 @@
       "permission": {
         "or": [
           {
-            "route": "/route_definition",
+            "route": "/enfyra_route",
             "methods": [
               "GET"
             ]
@@ -1086,7 +1171,7 @@
       "permission": {
         "or": [
           {
-            "route": "/websocket_definition",
+            "route": "/enfyra_websocket",
             "methods": [
               "GET"
             ]
@@ -1107,7 +1192,7 @@
       "permission": {
         "or": [
           {
-            "route": "/flow_definition",
+            "route": "/enfyra_flow",
             "methods": [
               "GET"
             ]
@@ -1128,7 +1213,7 @@
       "permission": {
         "or": [
           {
-            "route": "/bootstrap_script_definition",
+            "route": "/enfyra_bootstrap_script",
             "methods": [
               "GET"
             ]
@@ -1183,7 +1268,7 @@
       "permission": {
         "or": [
           {
-            "route": "/package_definition",
+            "route": "/enfyra_package",
             "methods": [
               "GET"
             ]
@@ -1204,7 +1289,7 @@
       "permission": {
         "or": [
           {
-            "route": "/user_definition",
+            "route": "/enfyra_user",
             "methods": [
               "GET"
             ]
@@ -1225,7 +1310,7 @@
       "permission": {
         "or": [
           {
-            "route": "/role_definition",
+            "route": "/enfyra_role",
             "methods": [
               "GET"
             ]
@@ -1246,13 +1331,13 @@
       "permission": {
         "or": [
           {
-            "route": "/oauth_config_definition",
+            "route": "/enfyra_oauth_config",
             "methods": [
               "GET"
             ]
           },
           {
-            "route": "/oauth_account_definition",
+            "route": "/enfyra_oauth_account",
             "methods": [
               "GET"
             ]
@@ -1273,7 +1358,7 @@
       "permission": {
         "or": [
           {
-            "route": "/oauth_config_definition",
+            "route": "/enfyra_oauth_config",
             "methods": [
               "GET"
             ]
@@ -1294,7 +1379,7 @@
       "permission": {
         "or": [
           {
-            "route": "/oauth_account_definition",
+            "route": "/enfyra_oauth_account",
             "methods": [
               "GET"
             ]
@@ -1314,7 +1399,7 @@
       "permission": {
         "or": [
           {
-            "route": "/file_definition",
+            "route": "/enfyra_file",
             "methods": [
               "GET"
             ]
@@ -1362,7 +1447,7 @@
       "permission": {
         "or": [
           {
-            "route": "/file_definition",
+            "route": "/enfyra_file",
             "methods": [
               "GET"
             ]
@@ -1404,7 +1489,7 @@
       "parent": "Packages"
     }
   ],
-  "websocket_definition": [
+  "enfyra_websocket": [
     {
       "path": "/enfyra-admin",
       "isEnabled": true,
@@ -1415,8 +1500,8 @@
       "scriptLanguage": "typescript"
     }
   ],
-  "websocket_event_definition": [],
-  "field_permission_definition": [
+  "enfyra_websocket_event": [],
+  "enfyra_field_permission": [
     {
       "isEnabled": true,
       "isSystem": true,
@@ -1424,7 +1509,7 @@
       "effect": "allow",
       "description": "Allow authenticated user to update own password via /me",
       "_column": {
-        "table": "user_definition",
+        "table": "enfyra_user",
         "name": "password"
       },
       "_role": null,

@@ -35,11 +35,11 @@ export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
 
         const result = await this.autoTransformFkFields(
           transformed,
-          'websocket_event_definition',
+          'enfyra_websocket_event',
           this.queryBuilderService,
         );
         if (!result.gateway && !result.gatewayId) return null;
-        return normalizeScriptRecord('websocket_event_definition', result);
+        return normalizeScriptRecord('enfyra_websocket_event', result);
       }),
     );
 
@@ -47,11 +47,11 @@ export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
   }
 
   getUniqueIdentifier(record: any): object {
-    return this.autoGetUniqueIdentifier(record, 'websocket_event_definition');
+    return this.autoGetUniqueIdentifier(record, 'enfyra_websocket_event');
   }
 
   protected getCompareFields(): string[] {
-    return this.autoGetCompareFields('websocket_event_definition');
+    return this.autoGetCompareFields('enfyra_websocket_event');
   }
 
   protected getRecordIdentifier(record: any): string {

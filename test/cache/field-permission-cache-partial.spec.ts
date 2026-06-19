@@ -114,7 +114,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
     );
     await svc.partialReload(
       {
-        table: 'field_permission_definition',
+        table: 'enfyra_field_permission',
         action: 'reload',
         timestamp: 0,
         scope: 'partial',
@@ -159,7 +159,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
 
     expect(qb.find).toHaveBeenCalledWith(
       expect.objectContaining({
-        table: 'field_permission_definition',
+        table: 'enfyra_field_permission',
         fields: [
           'id',
           'isEnabled',
@@ -235,7 +235,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
     data.splice(1, 1);
     await svc.partialReload(
       {
-        table: 'field_permission_definition',
+        table: 'enfyra_field_permission',
         action: 'reload',
         timestamp: 0,
         scope: 'partial',
@@ -268,7 +268,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
     data.length = 0;
     await svc.partialReload(
       {
-        table: 'field_permission_definition',
+        table: 'enfyra_field_permission',
         action: 'reload',
         timestamp: 0,
         scope: 'partial',
@@ -306,7 +306,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
 
     await svc.partialReload(
       {
-        table: 'field_permission_definition',
+        table: 'enfyra_field_permission',
         action: 'reload',
         timestamp: 0,
         scope: 'partial',
@@ -382,7 +382,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
 
     await svc.partialReload(
       {
-        table: 'field_permission_definition',
+        table: 'enfyra_field_permission',
         action: 'reload',
         timestamp: 0,
         scope: 'partial',
@@ -407,7 +407,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
         column: {
           id: 1,
           name: 'secret',
-          table: { id: 1, name: 'user_definition' },
+          table: { id: 1, name: 'enfyra_user' },
         },
       }),
     ];
@@ -416,7 +416,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
 
     let policies = await svc.getPoliciesFor(
       { id: 99, role: { id: 10 } },
-      'user_definition',
+      'enfyra_user',
       'read',
     );
     expect(policies[0].unconditionalDeniedColumns.has('secret')).toBe(true);
@@ -424,7 +424,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
     data.length = 0;
     await svc.partialReload(
       {
-        table: 'field_permission_definition',
+        table: 'enfyra_field_permission',
         action: 'reload',
         timestamp: 0,
         scope: 'partial',
@@ -435,7 +435,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
 
     policies = await svc.getPoliciesFor(
       { id: 99, role: { id: 10 } },
-      'user_definition',
+      'enfyra_user',
       'read',
     );
     expect(policies).toHaveLength(0);
@@ -460,7 +460,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
     );
     await svc.partialReload(
       {
-        table: 'field_permission_definition',
+        table: 'enfyra_field_permission',
         action: 'reload',
         timestamp: 0,
         scope: 'partial',
@@ -492,7 +492,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
 
     await svc.partialReload(
       {
-        table: 'field_permission_definition',
+        table: 'enfyra_field_permission',
         action: 'reload',
         timestamp: 0,
         scope: 'partial',

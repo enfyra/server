@@ -29,7 +29,7 @@ function makeKnex(methodRows: any[] = []) {
   const inserts: any[] = [];
   const rawCalls: any[] = [];
   const knex = jest.fn((table: string) => {
-    if (table === 'method_definition') {
+    if (table === 'enfyra_method') {
       return {
         select: jest.fn().mockReturnThis(),
         whereIn: jest.fn((_field: string, values: string[]) =>
@@ -39,7 +39,7 @@ function makeKnex(methodRows: any[] = []) {
         ),
       };
     }
-    if (table === 'relation_definition as r') {
+    if (table === 'enfyra_relation as r') {
       let propertyName = 'publicMethods';
       const chain: any = {
         leftJoin: jest.fn(() => chain),
@@ -87,20 +87,20 @@ function makeMongoDb() {
     deletes,
     inserts,
     collection: jest.fn((name: string) => {
-      if (name === 'table_definition') {
+      if (name === 'enfyra_table') {
         return {
           findOne: jest.fn(async (filter: any) => {
-            if (filter.name === 'route_definition') {
-              return { _id: routeTableId, name: 'route_definition' };
+            if (filter.name === 'enfyra_route') {
+              return { _id: routeTableId, name: 'enfyra_route' };
             }
-            if (filter.name === 'method_definition') {
-              return { _id: methodTableId, name: 'method_definition' };
+            if (filter.name === 'enfyra_method') {
+              return { _id: methodTableId, name: 'enfyra_method' };
             }
             return null;
           }),
         };
       }
-      if (name === 'relation_definition') {
+      if (name === 'enfyra_relation') {
         return {
           findOne: jest.fn(async (filter: any) =>
             filter.propertyName
@@ -137,7 +137,7 @@ describe('DataMigrationService.transformRecord', () => {
   it('captures non-empty publicMethods as relation update', () => {
     const svc = makeService(makeQueryBuilder());
     const { newRecord, relationUpdates } = (svc as any).transformRecord(
-      'route_definition',
+      'enfyra_route',
       {
         _unique: { path: { _eq: '/me' } },
         publicMethods: ['GET', 'POST'],
@@ -152,7 +152,7 @@ describe('DataMigrationService.transformRecord', () => {
   it('captures empty array publicMethods as relation update (the bug fix)', () => {
     const svc = makeService(makeQueryBuilder());
     const { newRecord, relationUpdates } = (svc as any).transformRecord(
-      'route_definition',
+      'enfyra_route',
       { _unique: { path: { _eq: '/metadata' } }, publicMethods: [] },
     );
     expect(relationUpdates.publicMethods).toEqual([]);
@@ -162,7 +162,7 @@ describe('DataMigrationService.transformRecord', () => {
   it('captures empty array availableMethods as relation update', () => {
     const svc = makeService(makeQueryBuilder());
     const { newRecord, relationUpdates } = (svc as any).transformRecord(
-      'route_definition',
+      'enfyra_route',
       { _unique: { path: { _eq: '/test' } }, availableMethods: [] },
     );
     expect(relationUpdates.availableMethods).toEqual([]);
@@ -172,7 +172,7 @@ describe('DataMigrationService.transformRecord', () => {
   it('does not capture undefined relation field', () => {
     const svc = makeService(makeQueryBuilder());
     const { relationUpdates } = (svc as any).transformRecord(
-      'route_definition',
+      'enfyra_route',
       { _unique: { path: { _eq: '/test' } }, name: 'hello' },
     );
     expect(relationUpdates.publicMethods).toBeUndefined();
@@ -182,7 +182,7 @@ describe('DataMigrationService.transformRecord', () => {
   it('does not capture null relation field', () => {
     const svc = makeService(makeQueryBuilder());
     const { relationUpdates } = (svc as any).transformRecord(
-      'route_definition',
+      'enfyra_route',
       { _unique: { path: { _eq: '/test' } }, publicMethods: null },
     );
     expect(relationUpdates.publicMethods).toBeUndefined();
@@ -204,7 +204,7 @@ describe('DataMigrationService.updateRelations', () => {
     });
     const svc = makeService(qb);
 
-    await (svc as any).updateRelations('route_definition', 99, {
+    await (svc as any).updateRelations('enfyra_route', 99, {
       publicMethods: [],
     });
 
@@ -224,7 +224,7 @@ describe('DataMigrationService.updateRelations', () => {
     });
     const svc = makeService(qb);
 
-    await (svc as any).updateRelations('route_definition', 10, {
+    await (svc as any).updateRelations('enfyra_route', 10, {
       publicMethods: ['GET', 'POST'],
     });
 
@@ -240,7 +240,7 @@ describe('DataMigrationService.updateRelations', () => {
     });
     const svc = makeService(qb);
 
-    await (svc as any).updateRelations('route_definition', 5, {
+    await (svc as any).updateRelations('enfyra_route', 5, {
       availableMethods: [],
     });
 
@@ -250,11 +250,11 @@ describe('DataMigrationService.updateRelations', () => {
     });
   });
 
-  it('does nothing for non-route_definition tables', async () => {
+  it('does nothing for non-enfyra_route tables', async () => {
     const qb = makeQueryBuilder();
     const svc = makeService(qb);
 
-    await (svc as any).updateRelations('user_definition', 1, {
+    await (svc as any).updateRelations('enfyra_user', 1, {
       publicMethods: [],
     });
 
@@ -268,7 +268,7 @@ describe('DataMigrationService.updateRelations', () => {
     });
     const svc = makeService(qb);
 
-    await (svc as any).updateRelations('route_definition', 7, {
+    await (svc as any).updateRelations('enfyra_route', 7, {
       publicMethods: [],
       availableMethods: ['POST'],
     });
@@ -299,7 +299,7 @@ describe('DataMigrationService.updateRelations', () => {
     const svc = makeService(qb);
 
     await (svc as any).updateRelations(
-      'route_definition',
+      'enfyra_route',
       '655555555555555555555555',
       {
         availableMethods: ['GET', 'POST'],
@@ -340,7 +340,7 @@ describe('DataMigrationService.migrateTable — end-to-end for publicMethods cle
     });
     const svc = makeService(qb);
 
-    await (svc as any).migrateTable('route_definition', [
+    await (svc as any).migrateTable('enfyra_route', [
       { _unique: { path: { _eq: '/metadata' } }, publicMethods: [] },
     ]);
 
@@ -357,7 +357,7 @@ describe('DataMigrationService.migrateTable — end-to-end for publicMethods cle
     });
     const svc = makeService(qb);
 
-    await (svc as any).migrateTable('route_definition', [
+    await (svc as any).migrateTable('enfyra_route', [
       { _unique: { path: { _eq: '/nonexistent' } }, publicMethods: [] },
     ]);
 
@@ -370,7 +370,7 @@ describe('DataMigrationService.migrateTable — end-to-end for publicMethods cle
     });
     const svc = makeService(qb);
 
-    await (svc as any).migrateTable('route_definition', [
+    await (svc as any).migrateTable('enfyra_route', [
       { _unique: { path: { _eq: '/me' } }, isEnabled: true },
     ]);
 
@@ -385,7 +385,7 @@ describe('DataMigrationService.migrateTable — end-to-end for publicMethods cle
         {
           column: {
             name: { _eq: 'password' },
-            table: { name: { _eq: 'user_definition' } },
+            table: { name: { _eq: 'enfyra_user' } },
           },
         },
         {
@@ -400,18 +400,18 @@ describe('DataMigrationService.migrateTable — end-to-end for publicMethods cle
     });
     const svc = makeService(qb);
 
-    await (svc as any).migrateTable('field_permission_definition', [
+    await (svc as any).migrateTable('enfyra_field_permission', [
       { _unique: uniqueFilter, isSystem: true },
     ]);
 
     expect(qb.find).toHaveBeenCalledWith({
-      table: 'field_permission_definition',
+      table: 'enfyra_field_permission',
       filter: uniqueFilter,
       limit: 1,
       fields: ['id'],
     });
     expect(qb.update).toHaveBeenCalledWith(
-      'field_permission_definition',
+      'enfyra_field_permission',
       { where: [{ field: 'id', operator: '=', value: 7 }] },
       { isSystem: true },
     );

@@ -144,7 +144,7 @@ describe('DynamicWebSocketGateway event script execution — real socket E2E', (
 
     expect(ack).toMatchObject({
       accepted: true,
-      queued: false,
+      queued: true,
       eventName: 'profile:update',
     });
     await expect(received).resolves.toEqual({

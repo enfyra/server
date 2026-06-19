@@ -9,7 +9,7 @@ export function registerPackageRoutes(
   app: Express,
   container: AwilixContainer<Cradle>,
 ) {
-  app.post('/package_definition', async (req: any, res: Response) => {
+  app.post('/enfyra_package', async (req: any, res: Response) => {
     const cdnLoader =
       req.scope?.cradle?.packageCdnLoaderService ??
       container.cradle.packageCdnLoaderService;
@@ -38,7 +38,7 @@ export function registerPackageRoutes(
 
     const packageRepo =
       req.routeData?.context?.$repos?.main ||
-      req.routeData?.context?.$repos?.package_definition;
+      req.routeData?.context?.$repos?.enfyra_package;
 
     if (!packageRepo) {
       const { ValidationException } =
@@ -64,7 +64,7 @@ export function registerPackageRoutes(
     }
 
     const userId = req.routeData?.context?.$user?.id;
-    const savedPackage = await queryBuilder.insert('package_definition', {
+    const savedPackage = await queryBuilder.insert('enfyra_package', {
       ...body,
       version: body.version || 'latest',
       description: body.description || '',
@@ -109,7 +109,7 @@ export function registerPackageRoutes(
     return res.json(result);
   });
 
-  app.patch('/package_definition/:id', async (req: any, res: Response) => {
+  app.patch('/enfyra_package/:id', async (req: any, res: Response) => {
     const cdnLoader =
       req.scope?.cradle?.packageCdnLoaderService ??
       container.cradle.packageCdnLoaderService;
@@ -127,7 +127,7 @@ export function registerPackageRoutes(
 
     const packageRepo =
       req.routeData?.context?.$repos?.main ||
-      req.routeData?.context?.$repos?.package_definition;
+      req.routeData?.context?.$repos?.enfyra_package;
 
     if (!packageRepo) {
       const { ValidationException } =
@@ -183,7 +183,7 @@ export function registerPackageRoutes(
     return res.json(result);
   });
 
-  app.delete('/package_definition/:id', async (req: any, res: Response) => {
+  app.delete('/enfyra_package/:id', async (req: any, res: Response) => {
     const cdnLoader =
       req.scope?.cradle?.packageCdnLoaderService ??
       container.cradle.packageCdnLoaderService;
@@ -197,7 +197,7 @@ export function registerPackageRoutes(
 
     const packageRepo =
       req.routeData?.context?.$repos?.main ||
-      req.routeData?.context?.$repos?.package_definition;
+      req.routeData?.context?.$repos?.enfyra_package;
 
     if (!packageRepo) {
       const { ValidationException } =
@@ -236,7 +236,7 @@ export function registerPackageRoutes(
 
 function invalidatePackageCache(eventEmitter: any) {
   eventEmitter.emit(CACHE_EVENTS.INVALIDATE, {
-    table: 'package_definition',
+    table: 'enfyra_package',
     action: 'reload',
     scope: 'full',
     timestamp: Date.now(),
@@ -264,7 +264,7 @@ async function updateStatus(
   extra?: Record<string, any>,
 ) {
   try {
-    await queryBuilder.update('package_definition', id, { status, ...extra });
+    await queryBuilder.update('enfyra_package', id, { status, ...extra });
   } catch (error) {
     console.error(
       `Failed to update status to ${status} for package ${id}:`,

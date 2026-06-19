@@ -1,6 +1,6 @@
 {
-  "column_definition": {
-    "name": "column_definition",
+  "enfyra_column": {
+    "name": "enfyra_column",
     "description": "Stores column/field definitions for all tables in the system",
     "isSystem": true,
     "uniques": [
@@ -27,11 +27,11 @@
       { "name": "metadata", "type": "simple-json", "isSystem": true, "description": "Additional metadata for the column" }
     ],
     "relations": [
-      { "propertyName": "table", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "inversePropertyName": "columns", "onDelete": "CASCADE", "description": "The table that this column belongs to" }
+      { "propertyName": "table", "type": "many-to-one", "targetTable": "enfyra_table", "isSystem": true, "isUpdatable": false, "inversePropertyName": "columns", "onDelete": "CASCADE", "description": "The table that this column belongs to" }
     ]
   },
-  "column_rule_definition": {
-    "name": "column_rule_definition",
+  "enfyra_column_rule": {
+    "name": "enfyra_column_rule",
     "description": "Validation rules attached to columns (min/max/pattern/format/etc.)",
     "isSystem": true,
     "columns": [
@@ -43,11 +43,11 @@
       { "name": "description", "type": "text", "isSystem": true, "description": "Admin note about this rule" }
     ],
     "relations": [
-      { "propertyName": "column", "type": "many-to-one", "targetTable": "column_definition", "isSystem": true, "isNullable": false, "inversePropertyName": "rules", "onDelete": "CASCADE", "description": "The column this rule applies to" }
+      { "propertyName": "column", "type": "many-to-one", "targetTable": "enfyra_column", "isSystem": true, "isNullable": false, "inversePropertyName": "rules", "onDelete": "CASCADE", "description": "The column this rule applies to" }
     ]
   },
-  "relation_definition": {
-    "name": "relation_definition",
+  "enfyra_relation": {
+    "name": "enfyra_relation",
     "description": "Defines relationships between tables (one-to-one, one-to-many, many-to-one, many-to-many)",
     "isSystem": true,
     "uniques": [
@@ -78,13 +78,13 @@
       { "name": "isUpdatable", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this relation can be updated. When false, the foreign key column will be protected from updates." }
     ],
     "relations": [
-      { "propertyName": "sourceTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "inversePropertyName": "relations", "onDelete": "CASCADE", "description": "The table where this relation is defined" },
-      { "propertyName": "targetTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "isNullable": true, "description": "The table that this relation points to" },
-      { "propertyName": "mappedBy", "type": "many-to-one", "targetTable": "relation_definition", "isSystem": true, "isNullable": true, "onDelete": "CASCADE", "description": "Owning-side relation that this inverse maps to (self-referencing FK)" }
+      { "propertyName": "sourceTable", "type": "many-to-one", "targetTable": "enfyra_table", "isSystem": true, "isUpdatable": false, "inversePropertyName": "relations", "onDelete": "CASCADE", "description": "The table where this relation is defined" },
+      { "propertyName": "targetTable", "type": "many-to-one", "targetTable": "enfyra_table", "isSystem": true, "isUpdatable": false, "isNullable": true, "description": "The table that this relation points to" },
+      { "propertyName": "mappedBy", "type": "many-to-one", "targetTable": "enfyra_relation", "isSystem": true, "isNullable": true, "onDelete": "CASCADE", "description": "Owning-side relation that this inverse maps to (self-referencing FK)" }
     ]
   },
-  "table_definition": {
-    "name": "table_definition",
+  "enfyra_table": {
+    "name": "enfyra_table",
     "description": "Stores metadata for all tables/collections in the database",
     "isSystem": true,
     "uniques": [
@@ -99,7 +99,7 @@
       { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
       { "name": "name", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Table name in the database" },
       { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system table" },
-      { "name": "isSingleRecord", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this table should only have a single record (e.g., setting_definition)" },
+      { "name": "isSingleRecord", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this table should only have a single record (e.g., enfyra_setting)" },
       { "name": "uniques", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Array of unique constraints (e.g., [['email'], ['name', 'parent']])" },
       { "name": "indexes", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Array of database indexes for performance optimization" },
       { "name": "alias", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Human-readable alias for the table" },
@@ -108,8 +108,8 @@
       { "name": "validateBody", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Auto-validate POST/PATCH bodies against column + relation metadata and column rules. Default true (opt-out per table); set false to skip middleware validation for a table" }
     ]
   },
-  "user_definition": {
-    "name": "user_definition",
+  "enfyra_user": {
+    "name": "enfyra_user",
     "description": "Stores user accounts and authentication information",
     "isSystem": true,
     "uniques": [
@@ -125,11 +125,11 @@
       { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-generated user account" }
     ],
     "relations": [
-      { "propertyName": "role", "type": "many-to-one", "isSystem": true, "targetTable": "role_definition", "description": "User's assigned role for permissions" }
+      { "propertyName": "role", "type": "many-to-one", "isSystem": true, "targetTable": "enfyra_role", "description": "User's assigned role for permissions" }
     ]
   },
-  "oauth_config_definition": {
-    "name": "oauth_config_definition",
+  "enfyra_oauth_config": {
+    "name": "enfyra_oauth_config",
     "description": "Configures OAuth providers for authentication (Google, Facebook, GitHub, etc.)",
     "isSystem": true,
     "uniques": [
@@ -153,8 +153,8 @@
     ],
     "relations": []
   },
-  "oauth_account_definition": {
-    "name": "oauth_account_definition",
+  "enfyra_oauth_account": {
+    "name": "enfyra_oauth_account",
     "description": "Links user accounts to OAuth providers for authentication",
     "isSystem": true,
     "uniques": [
@@ -174,11 +174,11 @@
       { "name": "providerUserId", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Unique user ID from the OAuth provider" }
     ],
     "relations": [
-      { "propertyName": "user", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "The user account linked to this OAuth provider" }
+      { "propertyName": "user", "type": "many-to-one", "targetTable": "enfyra_user", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "The user account linked to this OAuth provider" }
     ]
   },
-  "setting_definition": {
-    "name": "setting_definition",
+  "enfyra_setting": {
+    "name": "enfyra_setting",
     "description": "Stores global system configuration and settings",
     "isSystem": true,
     "isSingleRecord": true,
@@ -196,9 +196,9 @@
     ],
     "relations": []
   },
-  "cors_origin_definition": {
-    "name": "cors_origin_definition",
-    "description": "Allowed CORS origins served by the public /cors_origin_definition endpoint",
+  "enfyra_cors_origin": {
+    "name": "enfyra_cors_origin",
+    "description": "Allowed CORS origins served by the public /enfyra_cors_origin endpoint",
     "isSystem": true,
     "uniques": [
       [
@@ -213,8 +213,8 @@
     ],
     "relations": []
   },
-  "route_definition": {
-    "name": "route_definition",
+  "enfyra_route": {
+    "name": "enfyra_route",
     "description": "Defines API routes/endpoints for the application",
     "isSystem": true,
     "uniques": [
@@ -228,18 +228,18 @@
       { "name": "isEnabled", "type": "boolean", "isNullable": true, "isSystem": true, "defaultValue": true, "description": "Whether the route is active and accessible" },
       { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined route" },
       { "name": "icon", "type": "varchar", "isNullable": true, "isSystem": true, "defaultValue": "lucide:route", "description": "Icon identifier for UI display" },
-      { "name": "maxUploadFileSize", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": null, "description": "Optional route-specific maximum upload file size in MB. Overrides setting_definition.maxUploadFileSize for multipart requests when set." },
+      { "name": "maxUploadFileSize", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": null, "description": "Optional route-specific maximum upload file size in MB. Overrides enfyra_setting.maxUploadFileSize for multipart requests when set." },
       { "name": "description", "type": "text", "isSystem": true, "description": "Description of what the route does" }
     ],
     "relations": [
-      { "propertyName": "mainTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "onDelete": "CASCADE", "description": "Primary table that this route operates on" },
-      { "propertyName": "availableMethods", "type": "many-to-many", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "routesWithAvailable", "description": "HTTP methods this route supports" },
-      { "propertyName": "preHooks", "type": "one-to-many", "targetTable": "pre_hook_definition", "isSystem": true, "inversePropertyName": "route", "description": "Pre-hooks that run before route execution" },
-      { "propertyName": "postHooks", "type": "one-to-many", "targetTable": "post_hook_definition", "isSystem": true, "inversePropertyName": "route", "description": "Post-hooks that run after route execution" }
+      { "propertyName": "mainTable", "type": "many-to-one", "targetTable": "enfyra_table", "isSystem": true, "onDelete": "CASCADE", "description": "Primary table that this route operates on" },
+      { "propertyName": "availableMethods", "type": "many-to-many", "targetTable": "enfyra_method", "isSystem": true, "inversePropertyName": "routesWithAvailable", "description": "HTTP methods this route supports" },
+      { "propertyName": "preHooks", "type": "one-to-many", "targetTable": "enfyra_pre_hook", "isSystem": true, "inversePropertyName": "route", "description": "Pre-hooks that run before route execution" },
+      { "propertyName": "postHooks", "type": "one-to-many", "targetTable": "enfyra_post_hook", "isSystem": true, "inversePropertyName": "route", "description": "Post-hooks that run after route execution" }
     ]
   },
-  "role_definition": {
-    "name": "role_definition",
+  "enfyra_role": {
+    "name": "enfyra_role",
     "description": "Defines user roles for permission management",
     "isSystem": true,
     "uniques": [
@@ -253,8 +253,8 @@
       { "name": "description", "type": "text", "isSystem": true, "description": "Description of the role's purpose and permissions" }
     ]
   },
-  "route_permission_definition": {
-    "name": "route_permission_definition",
+  "enfyra_route_permission": {
+    "name": "enfyra_route_permission",
     "description": "Maps permissions between roles, users, and routes",
     "isSystem": true,
     "columns": [
@@ -263,13 +263,13 @@
       { "name": "description", "type": "text", "isSystem": true, "description": "Description of what this permission allows" }
     ],
     "relations": [
-      { "propertyName": "role", "type": "many-to-one", "isSystem": true, "targetTable": "role_definition", "inversePropertyName": "routePermissions", "onDelete": "CASCADE", "description": "Role that this permission applies to" },
-      { "propertyName": "route", "type": "many-to-one", "isSystem": true, "targetTable": "route_definition", "inversePropertyName": "routePermissions", "onDelete": "CASCADE", "description": "Route that this permission controls access to" },
-      { "propertyName": "allowedUsers", "type": "many-to-many", "isSystem": true, "targetTable": "user_definition", "inversePropertyName": "allowedRoutePermissions", "description": "Specific users who have this permission" }
+      { "propertyName": "role", "type": "many-to-one", "isSystem": true, "targetTable": "enfyra_role", "inversePropertyName": "routePermissions", "onDelete": "CASCADE", "description": "Role that this permission applies to" },
+      { "propertyName": "route", "type": "many-to-one", "isSystem": true, "targetTable": "enfyra_route", "inversePropertyName": "routePermissions", "onDelete": "CASCADE", "description": "Route that this permission controls access to" },
+      { "propertyName": "allowedUsers", "type": "many-to-many", "isSystem": true, "targetTable": "enfyra_user", "inversePropertyName": "allowedRoutePermissions", "description": "Specific users who have this permission" }
     ]
   },
-  "field_permission_definition": {
-    "name": "field_permission_definition",
+  "enfyra_field_permission": {
+    "name": "enfyra_field_permission",
     "description": "Defines per-field permissions (columns and relations) by role and user, with optional conditions",
     "isSystem": true,
     "uniques": [
@@ -294,14 +294,14 @@
       { "name": "condition", "type": "simple-json", "isNullable": true, "isSystem": true, "defaultValue": null, "description": "Optional filter DSL condition that must match for this rule to apply" }
     ],
     "relations": [
-      { "propertyName": "role", "type": "many-to-one", "isSystem": true, "targetTable": "role_definition", "onDelete": "CASCADE", "description": "Role that this rule applies to" },
-      { "propertyName": "column", "type": "many-to-one", "isSystem": true, "targetTable": "column_definition", "isNullable": true, "onDelete": "CASCADE", "inversePropertyName": "fieldPermissions", "description": "Column this rule applies to" },
-      { "propertyName": "relation", "type": "many-to-one", "isSystem": true, "targetTable": "relation_definition", "isNullable": true, "onDelete": "CASCADE", "inversePropertyName": "fieldPermissions", "description": "Relation this rule applies to" },
-      { "propertyName": "allowedUsers", "type": "many-to-many", "isSystem": true, "targetTable": "user_definition", "description": "Specific users this rule applies to" }
+      { "propertyName": "role", "type": "many-to-one", "isSystem": true, "targetTable": "enfyra_role", "onDelete": "CASCADE", "description": "Role that this rule applies to" },
+      { "propertyName": "column", "type": "many-to-one", "isSystem": true, "targetTable": "enfyra_column", "isNullable": true, "onDelete": "CASCADE", "inversePropertyName": "fieldPermissions", "description": "Column this rule applies to" },
+      { "propertyName": "relation", "type": "many-to-one", "isSystem": true, "targetTable": "enfyra_relation", "isNullable": true, "onDelete": "CASCADE", "inversePropertyName": "fieldPermissions", "description": "Relation this rule applies to" },
+      { "propertyName": "allowedUsers", "type": "many-to-many", "isSystem": true, "targetTable": "enfyra_user", "description": "Specific users this rule applies to" }
     ]
   },
-  "route_handler_definition": {
-    "name": "route_handler_definition",
+  "enfyra_route_handler": {
+    "name": "enfyra_route_handler",
     "description": "Stores custom logic handlers for route endpoints",
     "uniques": [
       [
@@ -319,12 +319,12 @@
       { "name": "description", "type": "text", "isSystem": true, "description": "Description of what this handler does" }
     ],
     "relations": [
-      { "propertyName": "route", "type": "many-to-one", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "handlers", "isNullable": false, "onDelete": "CASCADE", "description": "The route this handler is attached to" },
-      { "propertyName": "method", "type": "many-to-one", "targetTable": "method_definition", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "HTTP method (GET, POST, etc.) this handler responds to", "inversePropertyName": "handlers" }
+      { "propertyName": "route", "type": "many-to-one", "targetTable": "enfyra_route", "isSystem": true, "inversePropertyName": "handlers", "isNullable": false, "onDelete": "CASCADE", "description": "The route this handler is attached to" },
+      { "propertyName": "method", "type": "many-to-one", "targetTable": "enfyra_method", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "HTTP method (GET, POST, etc.) this handler responds to", "inversePropertyName": "handlers" }
     ]
   },
-  "pre_hook_definition": {
-    "name": "pre_hook_definition",
+  "enfyra_pre_hook": {
+    "name": "enfyra_pre_hook",
     "description": "Defines lifecycle hooks that run before route execution",
     "isSystem": true,
     "columns": [
@@ -340,12 +340,12 @@
       { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined hook" }
     ],
     "relations": [
-      { "propertyName": "route", "type": "many-to-one", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "preHooks", "onDelete": "CASCADE", "description": "Route this hook is attached to (null when isGlobal is true)" },
-      { "propertyName": "methods", "type": "many-to-many", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "preHooks", "description": "HTTP methods this hook applies to" }
+      { "propertyName": "route", "type": "many-to-one", "targetTable": "enfyra_route", "isSystem": true, "inversePropertyName": "preHooks", "onDelete": "CASCADE", "description": "Route this hook is attached to (null when isGlobal is true)" },
+      { "propertyName": "methods", "type": "many-to-many", "targetTable": "enfyra_method", "isSystem": true, "inversePropertyName": "preHooks", "description": "HTTP methods this hook applies to" }
     ]
   },
-  "post_hook_definition": {
-    "name": "post_hook_definition",
+  "enfyra_post_hook": {
+    "name": "enfyra_post_hook",
     "description": "Defines lifecycle hooks that run after route execution",
     "isSystem": true,
     "columns": [
@@ -361,12 +361,12 @@
       { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined hook" }
     ],
     "relations": [
-      { "propertyName": "route", "type": "many-to-one", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "postHooks", "onDelete": "CASCADE", "description": "Route this hook is attached to (null when isGlobal is true)" },
-      { "propertyName": "methods", "type": "many-to-many", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "postHooks", "description": "HTTP methods this hook applies to" }
+      { "propertyName": "route", "type": "many-to-one", "targetTable": "enfyra_route", "isSystem": true, "inversePropertyName": "postHooks", "onDelete": "CASCADE", "description": "Route this hook is attached to (null when isGlobal is true)" },
+      { "propertyName": "methods", "type": "many-to-many", "targetTable": "enfyra_method", "isSystem": true, "inversePropertyName": "postHooks", "description": "HTTP methods this hook applies to" }
     ]
   },
-  "session_definition": {
-    "name": "session_definition",
+  "enfyra_session": {
+    "name": "enfyra_session",
     "description": "Stores active user sessions and authentication tokens",
     "isSystem": true,
     "columns": [
@@ -377,11 +377,11 @@
       { "name": "refreshTokenHash", "type": "varchar", "isNullable": true, "isSystem": true, "description": "SHA-256 hash of the current valid refresh token" }
     ],
     "relations": [
-      { "propertyName": "user", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "User who owns this session" }
+      { "propertyName": "user", "type": "many-to-one", "targetTable": "enfyra_user", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "User who owns this session" }
     ]
   },
-  "api_token_definition": {
-    "name": "api_token_definition",
+  "enfyra_api_token": {
+    "name": "enfyra_api_token",
     "description": "Stores user-owned API tokens for programmatic access",
     "isSystem": true,
     "columns": [
@@ -400,11 +400,11 @@
       ]
     ],
     "relations": [
-      { "propertyName": "user", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "User who owns this API token" }
+      { "propertyName": "user", "type": "many-to-one", "targetTable": "enfyra_user", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "User who owns this API token" }
     ]
   },
-  "schema_migration_definition": {
-    "name": "schema_migration_definition",
+  "enfyra_schema_migration": {
+    "name": "enfyra_schema_migration",
     "description": "Tracks schema migration operations with up/down scripts for automatic recovery",
     "isSystem": true,
     "columns": [
@@ -426,8 +426,8 @@
       ]
     ]
   },
-  "method_definition": {
-    "name": "method_definition",
+  "enfyra_method": {
+    "name": "enfyra_method",
     "description": "Defines available HTTP methods (GET, POST, etc.) and GraphQL operations",
     "isSystem": true,
     "uniques": [["name"]],
@@ -439,14 +439,14 @@
       { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined method" }
     ],
     "relations": [
-      { "propertyName": "routePermissions", "type": "many-to-many", "targetTable": "route_permission_definition", "isSystem": true, "inversePropertyName": "methods", "description": "Permissions associated with this method", "isNullable": true },
-      { "propertyName": "routes", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "publicMethods", "description": "Routes that allow this method without authentication" },
-      { "propertyName": "routesWithAvailable", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "availableMethods", "description": "Routes that have this method available" },
-      { "propertyName": "routesSkipRoleGuard", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "skipRoleGuardMethods", "description": "Routes where this method skips RoleGuard (still requires authentication)" }
+      { "propertyName": "routePermissions", "type": "many-to-many", "targetTable": "enfyra_route_permission", "isSystem": true, "inversePropertyName": "methods", "description": "Permissions associated with this method", "isNullable": true },
+      { "propertyName": "routes", "type": "many-to-many", "targetTable": "enfyra_route", "isSystem": true, "inversePropertyName": "publicMethods", "description": "Routes that allow this method without authentication" },
+      { "propertyName": "routesWithAvailable", "type": "many-to-many", "targetTable": "enfyra_route", "isSystem": true, "inversePropertyName": "availableMethods", "description": "Routes that have this method available" },
+      { "propertyName": "routesSkipRoleGuard", "type": "many-to-many", "targetTable": "enfyra_route", "isSystem": true, "inversePropertyName": "skipRoleGuardMethods", "description": "Routes where this method skips RoleGuard (still requires authentication)" }
     ]
   },
-  "menu_definition": {
-    "name": "menu_definition",
+  "enfyra_menu": {
+    "name": "enfyra_menu",
     "description": "Defines the navigation menu structure for the application",
     "uniques": [
       [
@@ -476,11 +476,11 @@
       { "name": "permission", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Permission rules controlling who can see this menu item" }
     ],
     "relations": [
-      { "propertyName": "parent", "type": "many-to-one", "targetTable": "menu_definition", "isSystem": true, "inversePropertyName": "children", "isNullable": true, "description": "Parent menu item (null for top-level items)" }
+      { "propertyName": "parent", "type": "many-to-one", "targetTable": "enfyra_menu", "isSystem": true, "inversePropertyName": "children", "isNullable": true, "description": "Parent menu item (null for top-level items)" }
     ]
   },
-  "extension_definition": {
-    "name": "extension_definition",
+  "enfyra_extension": {
+    "name": "enfyra_extension",
     "description": "Stores custom UI extensions (pages, widgets, and global shell extensions) written in Vue",
     "isSystem": true,
     "uniques": [
@@ -501,13 +501,13 @@
       { "name": "code", "type": "code", "isSystem": true, "isNullable": false, "description": "Source code for the extension (React/Vue component)" }
     ],
     "relations": [
-      { "propertyName": "menu", "type": "one-to-one", "targetTable": "menu_definition", "isSystem": true, "inversePropertyName": "extension", "isNullable": true, "description": "Menu item that links to this extension" },
-      { "propertyName": "createdBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "description": "User who created this extension" },
-      { "propertyName": "updatedBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "description": "User who last updated this extension" }
+      { "propertyName": "menu", "type": "one-to-one", "targetTable": "enfyra_menu", "isSystem": true, "inversePropertyName": "extension", "isNullable": true, "description": "Menu item that links to this extension" },
+      { "propertyName": "createdBy", "type": "many-to-one", "targetTable": "enfyra_user", "isSystem": true, "isNullable": true, "description": "User who created this extension" },
+      { "propertyName": "updatedBy", "type": "many-to-one", "targetTable": "enfyra_user", "isSystem": true, "isNullable": true, "description": "User who last updated this extension" }
     ]
   },
-  "folder_definition": {
-    "name": "folder_definition",
+  "enfyra_folder": {
+    "name": "enfyra_folder",
     "description": "Organizes files into a hierarchical folder structure",
     "isSystem": true,
     "uniques": [
@@ -534,12 +534,12 @@
       { "name": "isSystem", "type": "boolean", "isNullable": false, "defaultValue": false, "description": "Whether this is a system-defined folder" }
     ],
     "relations": [
-      { "propertyName": "parent", "type": "many-to-one", "targetTable": "folder_definition", "isNullable": true, "inversePropertyName": "children", "description": "Parent folder (null for root folders)" },
-      { "propertyName": "user", "type": "many-to-one", "targetTable": "user_definition", "isNullable": true, "description": "User who owns this folder" }
+      { "propertyName": "parent", "type": "many-to-one", "targetTable": "enfyra_folder", "isNullable": true, "inversePropertyName": "children", "description": "Parent folder (null for root folders)" },
+      { "propertyName": "user", "type": "many-to-one", "targetTable": "enfyra_user", "isNullable": true, "description": "User who owns this folder" }
     ]
   },
-  "file_definition": {
-    "name": "file_definition",
+  "enfyra_file": {
+    "name": "enfyra_file",
     "description": "Stores uploaded files and their metadata",
     "isSystem": true,
     "uniques": [
@@ -569,13 +569,13 @@
       { "name": "status", "type": "enum", "isNullable": false, "options": ["active", "archived", "quarantine"], "defaultValue": "active", "description": "File status (active, archived, or quarantined)" }
     ],
     "relations": [
-      { "propertyName": "folder", "type": "many-to-one", "targetTable": "folder_definition", "isNullable": true, "inversePropertyName": "files", "description": "Folder containing this file" },
-      { "propertyName": "uploadedBy", "type": "many-to-one", "targetTable": "user_definition", "isNullable": true, "isGenerated": true, "description": "User who uploaded the file" },
-      { "propertyName": "storageConfig", "type": "many-to-one", "targetTable": "storage_config_definition", "isNullable": true, "description": "Storage configuration (account) used for this file" }
+      { "propertyName": "folder", "type": "many-to-one", "targetTable": "enfyra_folder", "isNullable": true, "inversePropertyName": "files", "description": "Folder containing this file" },
+      { "propertyName": "uploadedBy", "type": "many-to-one", "targetTable": "enfyra_user", "isNullable": true, "isGenerated": true, "description": "User who uploaded the file" },
+      { "propertyName": "storageConfig", "type": "many-to-one", "targetTable": "enfyra_storage_config", "isNullable": true, "description": "Storage configuration (account) used for this file" }
     ]
   },
-  "file_permission_definition": {
-    "name": "file_permission_definition",
+  "enfyra_file_permission": {
+    "name": "enfyra_file_permission",
     "description": "Controls access permissions for files",
     "isSystem": true,
     "uniques": [
@@ -592,13 +592,13 @@
       { "name": "description", "type": "text", "isNullable": true, "description": "Description of what this permission allows" }
     ],
     "relations": [
-      { "propertyName": "file", "type": "many-to-one", "targetTable": "file_definition", "isNullable": true, "inversePropertyName": "permissions", "onDelete": "CASCADE", "description": "File this permission applies to" },
-      { "propertyName": "role", "type": "many-to-one", "targetTable": "role_definition", "isNullable": true, "onDelete": "CASCADE", "description": "Role that has this permission" },
-      { "propertyName": "allowedUsers", "type": "many-to-many", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "junctionTableName": "j_efaab69d5b9c", "junctionSourceColumn": "sourceId", "junctionTargetColumn": "targetId", "description": "Specific users who have this permission" }
+      { "propertyName": "file", "type": "many-to-one", "targetTable": "enfyra_file", "isNullable": true, "inversePropertyName": "permissions", "onDelete": "CASCADE", "description": "File this permission applies to" },
+      { "propertyName": "role", "type": "many-to-one", "targetTable": "enfyra_role", "isNullable": true, "onDelete": "CASCADE", "description": "Role that has this permission" },
+      { "propertyName": "allowedUsers", "type": "many-to-many", "targetTable": "enfyra_user", "isSystem": true, "isNullable": true, "junctionTableName": "j_8110450610b3", "junctionSourceColumn": "enfyra_file_permissionId", "junctionTargetColumn": "enfyra_userId", "description": "Specific users who have this permission" }
     ]
   },
-  "package_definition": {
-    "name": "package_definition",
+  "enfyra_package": {
+    "name": "enfyra_package",
     "description": "Manages npm packages installed in the application (app and server)",
     "isSystem": true,
     "columns": [
@@ -615,11 +615,11 @@
       { "name": "lastError", "type": "text", "isNullable": true, "isSystem": true, "description": "Last error message from install/update/uninstall operation" }
     ],
     "relations": [
-      { "propertyName": "installedBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "description": "User who installed this package" }
+      { "propertyName": "installedBy", "type": "many-to-one", "targetTable": "enfyra_user", "isSystem": true, "isNullable": true, "description": "User who installed this package" }
     ]
   },
-  "bootstrap_script_definition": {
-    "name": "bootstrap_script_definition",
+  "enfyra_bootstrap_script": {
+    "name": "enfyra_bootstrap_script",
     "description": "Stores custom scripts that run during application initialization",
     "isSystem": true,
     "uniques": [
@@ -640,12 +640,12 @@
       { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-generated script" }
     ],
     "relations": [
-      { "propertyName": "createdBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "description": "User who created the script" },
-      { "propertyName": "updatedBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "description": "User who last updated the script" }
+      { "propertyName": "createdBy", "type": "many-to-one", "targetTable": "enfyra_user", "isSystem": true, "isNullable": true, "description": "User who created the script" },
+      { "propertyName": "updatedBy", "type": "many-to-one", "targetTable": "enfyra_user", "isSystem": true, "isNullable": true, "description": "User who last updated the script" }
     ]
   },
-  "storage_config_definition": {
-    "name": "storage_config_definition",
+  "enfyra_storage_config": {
+    "name": "enfyra_storage_config",
     "description": "Configures storage backends for file uploads (local, S3, GCS, etc.)",
     "isSystem": true,
     "uniques": [
@@ -668,12 +668,12 @@
       { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined storage configuration" }
     ],
     "relations": [
-      { "propertyName": "createdBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "description": "User who created this configuration" },
-      { "propertyName": "updatedBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "description": "User who last updated this configuration" }
+      { "propertyName": "createdBy", "type": "many-to-one", "targetTable": "enfyra_user", "isSystem": true, "isNullable": true, "description": "User who created this configuration" },
+      { "propertyName": "updatedBy", "type": "many-to-one", "targetTable": "enfyra_user", "isSystem": true, "isNullable": true, "description": "User who last updated this configuration" }
     ]
   },
-  "websocket_definition": {
-    "name": "websocket_definition",
+  "enfyra_websocket": {
+    "name": "enfyra_websocket",
     "description": "Defines WebSocket gateway namespaces for real-time communication",
     "isSystem": true,
     "uniques": [
@@ -695,8 +695,8 @@
     ],
     "relations": []
   },
-  "websocket_event_definition": {
-    "name": "websocket_event_definition",
+  "enfyra_websocket_event": {
+    "name": "enfyra_websocket_event",
     "description": "Defines event handlers for WebSocket gateways",
     "isSystem": true,
     "uniques": [
@@ -717,11 +717,11 @@
       { "name": "timeout", "type": "int", "isSystem": true, "isNullable": true, "description": "Timeout in milliseconds for event handler execution. If not set, uses default system timeout." }
     ],
     "relations": [
-      { "propertyName": "gateway", "type": "many-to-one", "targetTable": "websocket_definition", "isSystem": true, "inversePropertyName": "events", "isNullable": false, "onDelete": "CASCADE", "description": "Gateway this event belongs to" }
+      { "propertyName": "gateway", "type": "many-to-one", "targetTable": "enfyra_websocket", "isSystem": true, "inversePropertyName": "events", "isNullable": false, "onDelete": "CASCADE", "description": "Gateway this event belongs to" }
     ]
   },
-  "flow_definition": {
-    "name": "flow_definition",
+  "enfyra_flow": {
+    "name": "enfyra_flow",
     "description": "Defines automated workflows with triggers, steps, and execution logic",
     "isSystem": true,
     "uniques": [
@@ -743,8 +743,8 @@
     ],
     "relations": []
   },
-  "flow_step_definition": {
-    "name": "flow_step_definition",
+  "enfyra_flow_step": {
+    "name": "enfyra_flow_step",
     "description": "Defines individual steps within a flow",
     "isSystem": true,
     "columns": [
@@ -763,12 +763,12 @@
       { "name": "branch", "type": "enum", "options": ["true", "false"], "isNullable": true, "isSystem": true, "description": "Which branch of the parent condition (true or false)" }
     ],
     "relations": [
-      { "propertyName": "flow", "type": "many-to-one", "targetTable": "flow_definition", "isSystem": true, "inversePropertyName": "steps", "isNullable": false, "onDelete": "CASCADE", "description": "Flow this step belongs to" },
-      { "propertyName": "parent", "type": "many-to-one", "targetTable": "flow_step_definition", "isSystem": true, "inversePropertyName": "children", "isNullable": true, "description": "Parent condition step (null = root level)" }
+      { "propertyName": "flow", "type": "many-to-one", "targetTable": "enfyra_flow", "isSystem": true, "inversePropertyName": "steps", "isNullable": false, "onDelete": "CASCADE", "description": "Flow this step belongs to" },
+      { "propertyName": "parent", "type": "many-to-one", "targetTable": "enfyra_flow_step", "isSystem": true, "inversePropertyName": "children", "isNullable": true, "description": "Parent condition step (null = root level)" }
     ]
   },
-  "flow_execution_definition": {
-    "name": "flow_execution_definition",
+  "enfyra_flow_execution": {
+    "name": "enfyra_flow_execution",
     "description": "Stores execution history and state for flow runs",
     "isSystem": true,
     "columns": [
@@ -783,12 +783,12 @@
       { "name": "duration", "type": "int", "isNullable": true, "isSystem": true, "description": "Execution duration in milliseconds" }
     ],
     "relations": [
-      { "propertyName": "flow", "type": "many-to-one", "targetTable": "flow_definition", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "Flow that was executed" },
-      { "propertyName": "triggeredBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "description": "User who triggered the execution (null for cron/event triggers)" }
+      { "propertyName": "flow", "type": "many-to-one", "targetTable": "enfyra_flow", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "Flow that was executed" },
+      { "propertyName": "triggeredBy", "type": "many-to-one", "targetTable": "enfyra_user", "isSystem": true, "isNullable": true, "description": "User who triggered the execution (null for cron/event triggers)" }
     ]
   },
-  "guard_definition": {
-    "name": "guard_definition",
+  "enfyra_guard": {
+    "name": "enfyra_guard",
     "description": "Defines metadata-driven guards with nestable AND/OR logic tree for rate limiting, IP filtering, etc.",
     "isSystem": true,
     "columns": [
@@ -803,13 +803,13 @@
       { "name": "description", "type": "text", "isSystem": true, "description": "Description of what the guard does" }
     ],
     "relations": [
-      { "propertyName": "parent", "type": "many-to-one", "targetTable": "guard_definition", "isSystem": true, "inversePropertyName": "children", "isNullable": true, "onDelete": "CASCADE", "description": "Parent guard for nested logic (null for root-level guards)" },
-      { "propertyName": "route", "type": "many-to-one", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "guards", "isNullable": true, "onDelete": "CASCADE", "description": "Route this guard is attached to (null when isGlobal is true). Only meaningful for root guards" },
-      { "propertyName": "methods", "type": "many-to-many", "targetTable": "method_definition", "isSystem": true, "description": "HTTP methods this guard applies to. Only meaningful for root guards" }
+      { "propertyName": "parent", "type": "many-to-one", "targetTable": "enfyra_guard", "isSystem": true, "inversePropertyName": "children", "isNullable": true, "onDelete": "CASCADE", "description": "Parent guard for nested logic (null for root-level guards)" },
+      { "propertyName": "route", "type": "many-to-one", "targetTable": "enfyra_route", "isSystem": true, "inversePropertyName": "guards", "isNullable": true, "onDelete": "CASCADE", "description": "Route this guard is attached to (null when isGlobal is true). Only meaningful for root guards" },
+      { "propertyName": "methods", "type": "many-to-many", "targetTable": "enfyra_method", "isSystem": true, "description": "HTTP methods this guard applies to. Only meaningful for root guards" }
     ]
   },
-  "guard_rule_definition": {
-    "name": "guard_rule_definition",
+  "enfyra_guard_rule": {
+    "name": "enfyra_guard_rule",
     "description": "Defines individual rules/conditions within a guard (rate limit, IP whitelist/blacklist)",
     "isSystem": true,
     "columns": [
@@ -822,12 +822,12 @@
       { "name": "description", "type": "text", "isSystem": true, "description": "Description of what this rule checks" }
     ],
     "relations": [
-      { "propertyName": "guard", "type": "many-to-one", "targetTable": "guard_definition", "isSystem": true, "inversePropertyName": "rules", "isNullable": false, "onDelete": "CASCADE", "description": "Guard this rule belongs to" },
-      { "propertyName": "users", "type": "many-to-many", "targetTable": "user_definition", "isSystem": true, "description": "Specific users this rule applies to (empty = all users)" }
+      { "propertyName": "guard", "type": "many-to-one", "targetTable": "enfyra_guard", "isSystem": true, "inversePropertyName": "rules", "isNullable": false, "onDelete": "CASCADE", "description": "Guard this rule belongs to" },
+      { "propertyName": "users", "type": "many-to-many", "targetTable": "enfyra_user", "isSystem": true, "description": "Specific users this rule applies to (empty = all users)" }
     ]
   },
-  "gql_definition": {
-    "name": "gql_definition",
+  "enfyra_graphql": {
+    "name": "enfyra_graphql",
     "description": "GraphQL configuration per table — enables/disables GraphQL API for a specific table",
     "isSystem": true,
     "uniques": [
@@ -843,7 +843,7 @@
       { "name": "metadata", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Extended configuration (custom handler, timeout, etc.)" }
     ],
     "relations": [
-      { "propertyName": "table", "type": "many-to-one", "isSystem": true, "targetTable": "table_definition", "isNullable": false, "onDelete": "CASCADE", "inversePropertyName": "gqlConfig", "description": "The table this GraphQL config belongs to" }
+      { "propertyName": "table", "type": "many-to-one", "isSystem": true, "targetTable": "enfyra_table", "isNullable": false, "onDelete": "CASCADE", "inversePropertyName": "gqlConfig", "description": "The table this GraphQL config belongs to" }
     ]
   }
 }

@@ -585,7 +585,7 @@ export class KnexService implements LifecycleAware {
 
     const promise = (async () => {
       try {
-        const tableDef = await this.knexInstance('table_definition')
+        const tableDef = await this.knexInstance('enfyra_table')
           .where('name', tableName)
           .first();
 
@@ -593,7 +593,7 @@ export class KnexService implements LifecycleAware {
           return;
         }
 
-        const columns = await this.knexInstance('column_definition')
+        const columns = await this.knexInstance('enfyra_column')
           .where('tableId', tableDef.id)
           .select('name', 'type');
 
@@ -734,7 +734,7 @@ export class KnexService implements LifecycleAware {
         }
       }
 
-      const tableDef = await this.knexInstance('table_definition')
+      const tableDef = await this.knexInstance('enfyra_table')
         .where('name', parentTableName)
         .first();
 
@@ -742,7 +742,7 @@ export class KnexService implements LifecycleAware {
         return null;
       }
 
-      const relationDef = await this.knexInstance('relation_definition')
+      const relationDef = await this.knexInstance('enfyra_relation')
         .where('sourceTableId', tableDef.id)
         .where('propertyName', relationName)
         .first();
@@ -751,7 +751,7 @@ export class KnexService implements LifecycleAware {
         return null;
       }
 
-      const targetTableDef = await this.knexInstance('table_definition')
+      const targetTableDef = await this.knexInstance('enfyra_table')
         .where('id', relationDef.targetTableId)
         .first();
 

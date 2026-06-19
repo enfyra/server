@@ -31,7 +31,7 @@ export class MongoMetadataSnapshotService {
     };
 
     const rawTable = await db
-      .collection('table_definition')
+      .collection('enfyra_table')
       .findOne({ _id: queryId });
     if (!rawTable) return null;
     const table = normalize(rawTable);
@@ -51,7 +51,7 @@ export class MongoMetadataSnapshotService {
       }
     }
     const rawColumns = await db
-      .collection('column_definition')
+      .collection('enfyra_column')
       .find({ table: queryId })
       .toArray();
     const columns = rawColumns.map(normalize);
@@ -69,7 +69,7 @@ export class MongoMetadataSnapshotService {
       }
     }
     const rawRelations = await db
-      .collection('relation_definition')
+      .collection('enfyra_relation')
       .find({ sourceTable: queryId })
       .toArray();
     const relations = rawRelations.map(normalize);
@@ -86,7 +86,7 @@ export class MongoMetadataSnapshotService {
     const db = this.mongoService.getDb();
     const oid = typeof tableId === 'string' ? new ObjectId(tableId) : tableId;
     const sourceRelations = await db
-      .collection('relation_definition')
+      .collection('enfyra_relation')
       .find({ sourceTable: oid })
       .toArray();
     const owningRelIds = sourceRelations
@@ -95,14 +95,14 @@ export class MongoMetadataSnapshotService {
     const inverseRelations =
       owningRelIds.length > 0
         ? await db
-            .collection('relation_definition')
+            .collection('enfyra_relation')
             .find({ mappedBy: { $in: owningRelIds } })
             .toArray()
         : [];
     return {
-      table: await db.collection('table_definition').findOne({ _id: oid }),
+      table: await db.collection('enfyra_table').findOne({ _id: oid }),
       columns: await db
-        .collection('column_definition')
+        .collection('enfyra_column')
         .find({ table: oid })
         .toArray(),
       relations: sourceRelations,
@@ -127,22 +127,22 @@ export class MongoMetadataSnapshotService {
 
     if (snapshot.table) {
       await db
-        .collection('table_definition')
+        .collection('enfyra_table')
         .replaceOne({ _id: oid }, snapshot.table, { upsert: true });
     }
 
-    await db.collection('column_definition').deleteMany({ table: oid });
+    await db.collection('enfyra_column').deleteMany({ table: oid });
     if (snapshot.columns && snapshot.columns.length > 0) {
-      await db.collection('column_definition').insertMany(snapshot.columns);
+      await db.collection('enfyra_column').insertMany(snapshot.columns);
     }
 
-    await db.collection('relation_definition').deleteMany({ sourceTable: oid });
+    await db.collection('enfyra_relation').deleteMany({ sourceTable: oid });
     if (snapshot.relations && snapshot.relations.length > 0) {
-      await db.collection('relation_definition').insertMany(snapshot.relations);
+      await db.collection('enfyra_relation').insertMany(snapshot.relations);
     }
 
     const currentSourceRels = await db
-      .collection('relation_definition')
+      .collection('enfyra_relation')
       .find({ sourceTable: oid })
       .toArray();
     const owningRelIds = currentSourceRels
@@ -150,7 +150,7 @@ export class MongoMetadataSnapshotService {
       .map((r: any) => r._id);
     if (owningRelIds.length > 0) {
       const currentInverse = await db
-        .collection('relation_definition')
+        .collection('enfyra_relation')
         .find({ mappedBy: { $in: owningRelIds } })
         .toArray();
       const snapshotInverseIds = new Set<string>(
@@ -159,7 +159,7 @@ export class MongoMetadataSnapshotService {
       for (const inv of currentInverse) {
         if (!snapshotInverseIds.has(String(inv._id))) {
           await db
-            .collection('relation_definition')
+            .collection('enfyra_relation')
             .deleteOne({ _id: inv._id });
           this.logger.warn(
             `Cleaned up auto-created inverse relation ${inv.propertyName} (${inv._id})`,
@@ -170,10 +170,10 @@ export class MongoMetadataSnapshotService {
 
     for (const invRel of snapshot.inverseRelations || []) {
       const exists = await db
-        .collection('relation_definition')
+        .collection('enfyra_relation')
         .findOne({ _id: invRel._id });
       if (!exists) {
-        await db.collection('relation_definition').insertOne(invRel);
+        await db.collection('enfyra_relation').insertOne(invRel);
         this.logger.warn(
           `Restored inverse relation ${invRel.propertyName} (${invRel._id})`,
         );

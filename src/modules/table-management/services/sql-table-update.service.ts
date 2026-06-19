@@ -102,14 +102,14 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
 
     try {
       // === VALIDATION PHASE (read-only, no transaction) ===
-      const exists = await knex('table_definition').where({ id }).first();
-      stepLog(`STEP 3 fetched table_definition row (+${lap()}ms)`);
+      const exists = await knex('enfyra_table').where({ id }).first();
+      stepLog(`STEP 3 fetched enfyra_table row (+${lap()}ms)`);
       if (!exists) {
-        throw new ResourceNotFoundException('table_definition', String(id));
+        throw new ResourceNotFoundException('enfyra_table', String(id));
       }
       const tableRenamed = !!body.name && body.name !== exists.name;
       if (tableRenamed) {
-        const incomingRelations = await knex('relation_definition')
+        const incomingRelations = await knex('enfyra_relation')
           .where({ targetTableId: exists.id })
           .whereNot({ sourceTableId: exists.id })
           .select('sourceTableId');
@@ -117,7 +117,7 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
           ...new Set(incomingRelations.map((rel: any) => rel.sourceTableId)),
         ].filter((sourceId) => sourceId != null);
         if (incomingSourceIds.length > 0) {
-          const incomingSourceTables = await knex('table_definition')
+          const incomingSourceTables = await knex('enfyra_table')
             .whereIn('id', incomingSourceIds)
             .select('name');
           for (const table of incomingSourceTables) {
@@ -134,7 +134,7 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
           ?.filter((tid: any) => tid != null) || [];
       const m2mTargetTablesMap = new Map<string, string>();
       if (m2mTargetTableIds.length > 0) {
-        const targetTables = await knex('table_definition')
+        const targetTables = await knex('enfyra_table')
           .select('id', 'name')
           .whereIn('id', m2mTargetTableIds);
         for (const table of targetTables) {
@@ -166,7 +166,7 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
           ?.filter((tid: any) => tid != null) || [];
       const allTargetTablesMap = new Map<string, string>();
       if (allTargetTableIds.length > 0) {
-        const targetTables = await knex('table_definition')
+        const targetTables = await knex('enfyra_table')
           .select('id', 'name')
           .whereIn('id', allTargetTableIds);
         for (const table of targetTables) {
@@ -448,7 +448,7 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
           isEnabled: body.graphqlEnabled === true,
           isSystem: exists.isSystem || false,
         });
-        stepLog(`gql_definition sync done (+${lap()}ms)`);
+        stepLog(`enfyra_graphql sync done (+${lap()}ms)`);
       }
 
       const latestMetadata =

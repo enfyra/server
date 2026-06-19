@@ -57,10 +57,10 @@ describe('RuntimeMetricsCollectorService', () => {
     const collector = new RuntimeMetricsCollectorService();
 
     await collector.runWithQueryContext('cache', () =>
-      collector.trackQuery({ op: 'find', table: 'route_definition' }, async () => true),
+      collector.trackQuery({ op: 'find', table: 'enfyra_route' }, async () => true),
     );
     await collector.runWithQueryContext('flow', () =>
-      collector.trackQuery({ op: 'find', table: 'route_definition' }, async () => true),
+      collector.trackQuery({ op: 'find', table: 'enfyra_route' }, async () => true),
     );
 
     expect(collector.snapshot().database.queries).toEqual(
@@ -68,13 +68,13 @@ describe('RuntimeMetricsCollectorService', () => {
         expect.objectContaining({
           context: 'cache',
           op: 'find',
-          table: 'route_definition',
+          table: 'enfyra_route',
           count: 1,
         }),
         expect.objectContaining({
           context: 'flow',
           op: 'find',
-          table: 'route_definition',
+          table: 'enfyra_route',
           count: 1,
         }),
       ]),
@@ -86,7 +86,7 @@ describe('RuntimeMetricsCollectorService', () => {
 
     collector.recordCacheReload({
       flow: 'route',
-      table: 'route_definition',
+      table: 'enfyra_route',
       scope: 'full',
       status: 'failed',
       durationMs: 12,
@@ -101,7 +101,7 @@ describe('RuntimeMetricsCollectorService', () => {
     expect(collector.snapshot().cache.recent[0]).toEqual(
       expect.objectContaining({
         flow: 'route',
-        table: 'route_definition',
+        table: 'enfyra_route',
         status: 'failed',
         steps: [
           { name: 'route', durationMs: 12, status: 'failed', error: 'boom' },
@@ -120,7 +120,7 @@ describe('RuntimeMetricsCollectorService', () => {
 
     collector.recordCacheReload({
       flow: 'metadata',
-      table: 'table_definition',
+      table: 'enfyra_table',
       scope: 'full',
       status: 'success',
       durationMs: 5,
@@ -135,7 +135,7 @@ describe('RuntimeMetricsCollectorService', () => {
       expect.objectContaining({
         instanceId: 'inst-a',
         flow: 'metadata',
-        table: 'table_definition',
+        table: 'enfyra_table',
       }),
     );
     expect(ttls).toContainEqual(

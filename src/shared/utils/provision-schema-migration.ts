@@ -143,7 +143,7 @@ async function applySqlTableMigration(
 
   if (migration.relationsToRemove && migration.relationsToRemove.length > 0) {
     if (
-      tableName === 'file_permission_definition' &&
+      tableName === 'enfyra_file_permission' &&
       migration.relationsToRemove.includes('allowedUsers')
     ) {
       await migrateFilePermissionAllowedUsersToJunction(knex, dbType);
@@ -160,7 +160,7 @@ async function migrateFilePermissionAllowedUsersToJunction(
   knex: Knex,
   _dbType: string,
 ): Promise<void> {
-  const tableName = 'file_permission_definition';
+  const tableName = 'enfyra_file_permission';
   const fkColumn = getForeignKeyColumnName('allowedUsers');
   const hasOldColumn = await knex.schema.hasColumn(tableName, fkColumn);
   if (!hasOldColumn) return;
@@ -168,12 +168,12 @@ async function migrateFilePermissionAllowedUsersToJunction(
   const junctionTableName = getJunctionTableName(
     tableName,
     'allowedUsers',
-    'user_definition',
+    'enfyra_user',
   );
   const { sourceColumn, targetColumn } = getJunctionColumnNames(
     tableName,
     'allowedUsers',
-    'user_definition',
+    'enfyra_user',
   );
 
   const exists = await knex.schema.hasTable(junctionTableName);
@@ -185,10 +185,10 @@ async function migrateFilePermissionAllowedUsersToJunction(
   }
 
   console.log(
-    `  📦 Migrating file_permission_definition.allowedUsers to junction ${junctionTableName}`,
+    `  📦 Migrating enfyra_file_permission.allowedUsers to junction ${junctionTableName}`,
   );
   const pkType = await getPrimaryKeyType(knex, tableName);
-  const targetPkType = await getPrimaryKeyType(knex, 'user_definition');
+  const targetPkType = await getPrimaryKeyType(knex, 'enfyra_user');
 
   await knex.schema.createTable(junctionTableName, (table) => {
     if (pkType === 'uuid') {
@@ -203,7 +203,7 @@ async function migrateFilePermissionAllowedUsersToJunction(
     }
     table.primary([sourceColumn, targetColumn]);
     table.foreign(sourceColumn).references('id').inTable(tableName);
-    table.foreign(targetColumn).references('id').inTable('user_definition');
+    table.foreign(targetColumn).references('id').inTable('enfyra_user');
   });
 
   const rows = await knex(tableName)
@@ -805,7 +805,7 @@ async function applyMongoCollectionMigration(
   if (migration.relationsToRemove && migration.relationsToRemove.length > 0) {
     const toRemove = [...migration.relationsToRemove];
     if (
-      collectionName === 'file_permission_definition' &&
+      collectionName === 'enfyra_file_permission' &&
       toRemove.includes('allowedUsers')
     ) {
       try {

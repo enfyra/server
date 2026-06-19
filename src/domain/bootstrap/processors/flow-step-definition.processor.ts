@@ -28,7 +28,7 @@ export class FlowStepDefinitionProcessor extends BaseTableProcessor {
 
         return this.autoTransformFkFields(
           transformed,
-          'flow_step_definition',
+          'enfyra_flow_step',
           this.queryBuilderService,
         );
       }),
@@ -36,11 +36,11 @@ export class FlowStepDefinitionProcessor extends BaseTableProcessor {
   }
 
   getUniqueIdentifier(record: any): object {
-    return this.autoGetUniqueIdentifier(record, 'flow_step_definition');
+    return this.autoGetUniqueIdentifier(record, 'enfyra_flow_step');
   }
 
   protected getCompareFields(): string[] {
-    return this.autoGetCompareFields('flow_step_definition');
+    return this.autoGetCompareFields('enfyra_flow_step');
   }
 
   protected getRecordIdentifier(record: any): string {

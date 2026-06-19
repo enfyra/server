@@ -3,7 +3,7 @@
     {
       "_unique": {
         "name": {
-          "_eq": "column_definition"
+          "_eq": "enfyra_column"
         }
       },
       "columnsToRemove": [
@@ -43,7 +43,7 @@
     {
       "_unique": {
         "name": {
-          "_eq": "route_definition"
+          "_eq": "enfyra_route"
         }
       },
       "relationsToModify": [
@@ -79,7 +79,7 @@
     {
       "_unique": {
         "name": {
-          "_eq": "pre_hook_definition"
+          "_eq": "enfyra_pre_hook"
         }
       },
       "columnsToRemove": [
@@ -102,7 +102,7 @@
     {
       "_unique": {
         "name": {
-          "_eq": "post_hook_definition"
+          "_eq": "enfyra_post_hook"
         }
       },
       "columnsToRemove": [
@@ -125,7 +125,7 @@
     {
       "_unique": {
         "name": {
-          "_eq": "file_definition"
+          "_eq": "enfyra_file"
         }
       },
       "relationsToModify": [
@@ -142,7 +142,7 @@
     {
       "_unique": {
         "name": {
-          "_eq": "method_definition"
+          "_eq": "enfyra_method"
         }
       },
       "relationsToModify": [
@@ -172,7 +172,7 @@
     {
       "_unique": {
         "name": {
-          "_eq": "field_permission_definition"
+          "_eq": "enfyra_field_permission"
         }
       },
       "relationsToRemove": [
@@ -182,7 +182,7 @@
     {
       "_unique": {
         "name": {
-          "_eq": "package_definition"
+          "_eq": "enfyra_package"
         }
       },
       "relationsToModify": [
@@ -201,7 +201,7 @@
     {
       "_unique": {
         "name": {
-          "_eq": "relation_definition"
+          "_eq": "enfyra_relation"
         }
       },
       "columnsToRemove": [
@@ -225,7 +225,7 @@
     {
       "_unique": {
         "name": {
-          "_eq": "websocket_definition"
+          "_eq": "enfyra_websocket"
         }
       },
       "relationsToRemove": [
@@ -238,7 +238,7 @@
     {
       "_unique": {
         "name": {
-          "_eq": "setting_definition"
+          "_eq": "enfyra_setting"
         }
       },
       "columnsToRemove": [
@@ -248,7 +248,7 @@
     {
       "_unique": {
         "name": {
-          "_eq": "route_handler_definition"
+          "_eq": "enfyra_route_handler"
         }
       },
       "columnsToRemove": [
@@ -258,7 +258,7 @@
     {
       "_unique": {
         "name": {
-          "_eq": "bootstrap_script_definition"
+          "_eq": "enfyra_bootstrap_script"
         }
       },
       "columnsToRemove": [
@@ -268,7 +268,7 @@
     {
       "_unique": {
         "name": {
-          "_eq": "websocket_event_definition"
+          "_eq": "enfyra_websocket_event"
         }
       },
       "columnsToRemove": [
@@ -281,5 +281,165 @@
   ],
   "tablesToDrop": [
     "schema_history"
+  ],
+  "coreTablesToRename": [
+    {
+      "from": "table_definition",
+      "to": "enfyra_table"
+    },
+    {
+      "from": "column_definition",
+      "to": "enfyra_column"
+    },
+    {
+      "from": "relation_definition",
+      "to": "enfyra_relation"
+    }
+  ],
+  "tablesToRename": [
+    {
+      "from": "column_rule_definition",
+      "to": "enfyra_column_rule"
+    },
+    {
+      "from": "user_definition",
+      "to": "enfyra_user"
+    },
+    {
+      "from": "oauth_config_definition",
+      "to": "enfyra_oauth_config"
+    },
+    {
+      "from": "oauth_account_definition",
+      "to": "enfyra_oauth_account"
+    },
+    {
+      "from": "setting_definition",
+      "to": "enfyra_setting"
+    },
+    {
+      "from": "cors_origin_definition",
+      "to": "enfyra_cors_origin"
+    },
+    {
+      "from": "route_definition",
+      "to": "enfyra_route"
+    },
+    {
+      "from": "role_definition",
+      "to": "enfyra_role"
+    },
+    {
+      "from": "route_permission_definition",
+      "to": "enfyra_route_permission"
+    },
+    {
+      "from": "field_permission_definition",
+      "to": "enfyra_field_permission"
+    },
+    {
+      "from": "route_handler_definition",
+      "to": "enfyra_route_handler"
+    },
+    {
+      "from": "pre_hook_definition",
+      "to": "enfyra_pre_hook"
+    },
+    {
+      "from": "post_hook_definition",
+      "to": "enfyra_post_hook"
+    },
+    {
+      "from": "session_definition",
+      "to": "enfyra_session"
+    },
+    {
+      "from": "api_token_definition",
+      "to": "enfyra_api_token"
+    },
+    {
+      "from": "schema_migration_definition",
+      "to": "enfyra_schema_migration"
+    },
+    {
+      "from": "method_definition",
+      "to": "enfyra_method"
+    },
+    {
+      "from": "menu_definition",
+      "to": "enfyra_menu"
+    },
+    {
+      "from": "extension_definition",
+      "to": "enfyra_extension"
+    },
+    {
+      "from": "folder_definition",
+      "to": "enfyra_folder"
+    },
+    {
+      "from": "file_definition",
+      "to": "enfyra_file"
+    },
+    {
+      "from": "file_permission_definition",
+      "to": "enfyra_file_permission"
+    },
+    {
+      "from": "package_definition",
+      "to": "enfyra_package"
+    },
+    {
+      "from": "bootstrap_script_definition",
+      "to": "enfyra_bootstrap_script"
+    },
+    {
+      "from": "storage_config_definition",
+      "to": "enfyra_storage_config"
+    },
+    {
+      "from": "websocket_definition",
+      "to": "enfyra_websocket"
+    },
+    {
+      "from": "websocket_event_definition",
+      "to": "enfyra_websocket_event"
+    },
+    {
+      "from": "flow_definition",
+      "to": "enfyra_flow"
+    },
+    {
+      "from": "flow_step_definition",
+      "to": "enfyra_flow_step"
+    },
+    {
+      "from": "flow_execution_definition",
+      "to": "enfyra_flow_execution"
+    },
+    {
+      "from": "guard_definition",
+      "to": "enfyra_guard"
+    },
+    {
+      "from": "guard_rule_definition",
+      "to": "enfyra_guard_rule"
+    },
+    {
+      "from": "gql_definition",
+      "to": "enfyra_graphql"
+    }
+  ],
+  "physicalTablesToDrop": [
+    "file_permission_definition_allowedUsers_user_definition",
+    "method_definition_route_permissions_route_permission_definition",
+    "route_definition_targetTables_table_definition",
+    "websocket_definition_targetTables_table_definition"
+  ],
+  "physicalTablesToRename": [
+    {
+      "from": "schema_physical_migration_definition",
+      "to": "enfyra_schema_physical_migration"
+    }
   ]
 }

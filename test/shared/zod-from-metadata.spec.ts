@@ -474,7 +474,7 @@ describe('buildZodFromMetadata — relations', () => {
   it('does not hide a local column when an inverse relation uses the same foreignKeyColumn name', () => {
     const s = build(
       makeMeta({
-        name: 'method_definition',
+        name: 'enfyra_method',
         columns: [
           col('method', 'varchar', { isNullable: false }),
           col('isSystem', 'boolean', { isNullable: false }),
@@ -483,7 +483,7 @@ describe('buildZodFromMetadata — relations', () => {
           {
             type: 'one-to-many',
             propertyName: 'handlers',
-            targetTable: 'route_handler_definition',
+            targetTable: 'enfyra_route_handler',
             mappedBy: 'method',
             foreignKeyColumn: 'method',
             isInverse: true,

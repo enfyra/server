@@ -9,7 +9,7 @@ import {
 
 describe('SQL physical schema contract', () => {
   const table = {
-    name: 'route_definition',
+    name: 'enfyra_route',
     columns: [
       { name: 'id', type: 'int', isPrimary: true },
       { name: 'mainTableId', type: 'int' },
@@ -19,7 +19,7 @@ describe('SQL physical schema contract', () => {
       {
         propertyName: 'mainTable',
         type: 'many-to-one',
-        targetTable: 'table_definition',
+        targetTable: 'enfyra_table',
         onDelete: 'CASCADE',
         isNullable: false,
       },
@@ -37,13 +37,13 @@ describe('SQL physical schema contract', () => {
   });
 
   it('resolves relation FKs and unique groups to physical columns', () => {
-    expect(buildSqlForeignKeyContracts('route_definition', table.relations)).toEqual([
+    expect(buildSqlForeignKeyContracts('enfyra_route', table.relations)).toEqual([
       {
-        tableName: 'route_definition',
+        tableName: 'enfyra_route',
         propertyName: 'mainTable',
         columnName: 'mainTableId',
-        constraintName: 'route_definition_mainTableId_foreign',
-        targetTable: 'table_definition',
+        constraintName: 'enfyra_route_mainTableId_foreign',
+        targetTable: 'enfyra_table',
         targetColumn: 'id',
         onDelete: 'CASCADE',
         onUpdate: 'CASCADE',
@@ -76,9 +76,9 @@ describe('SQL physical schema contract', () => {
       },
     ]);
 
-    expect(buildSqlUniqueContracts('route_definition', table)).toEqual([
+    expect(buildSqlUniqueContracts('enfyra_route', table)).toEqual([
       {
-        name: 'uq_route_definition_mainTableId',
+        name: 'uq_enfyra_route_mainTableId',
         logicalColumns: ['mainTable'],
         physicalColumns: ['mainTableId'],
       },
@@ -118,27 +118,27 @@ describe('SQL physical schema contract', () => {
   });
 
   it('appends id tie-breakers to non-unique physical indexes once', () => {
-    expect(buildSqlIndexContracts('route_definition', table)).toEqual([
+    expect(buildSqlIndexContracts('enfyra_route', table)).toEqual([
       {
-        name: 'idx_route_definition_mainTableId',
+        name: 'idx_enfyra_route_mainTableId',
         logicalColumns: ['mainTable'],
         physicalColumns: ['mainTableId', 'id'],
         source: 'metadata',
       },
       {
-        name: 'idx_route_definition_scheduledAt',
+        name: 'idx_enfyra_route_scheduledAt',
         logicalColumns: ['scheduledAt'],
         physicalColumns: ['scheduledAt', 'id'],
         source: 'metadata',
       },
       {
-        name: 'idx_route_definition_createdAt',
+        name: 'idx_enfyra_route_createdAt',
         logicalColumns: ['createdAt'],
         physicalColumns: ['createdAt', 'id'],
         source: 'system-timestamp',
       },
       {
-        name: 'idx_route_definition_updatedAt',
+        name: 'idx_enfyra_route_updatedAt',
         logicalColumns: ['updatedAt'],
         physicalColumns: ['updatedAt', 'id'],
         source: 'system-timestamp',
@@ -148,19 +148,19 @@ describe('SQL physical schema contract', () => {
 
   it('centralizes junction table names, indexes, and FK actions', () => {
     const contract = buildSqlJunctionTableContract({
-      tableName: 'route_definition_availableMethods_method_definition',
-      sourceTable: 'route_definition',
-      targetTable: 'method_definition',
+      tableName: 'enfyra_route_availableMethods_enfyra_method',
+      sourceTable: 'enfyra_route',
+      targetTable: 'enfyra_method',
       sourceColumn: 'routeDefinitionId',
       targetColumn: 'methodDefinitionId',
       sourcePropertyName: 'availableMethods',
     });
 
     expect(contract).toMatchObject({
-      primaryKeyName: 'route_definition_availableMethods_method_definition_pk',
-      sourceIndexName: 'idx_route_definition_availableMethods_src',
-      targetIndexName: 'idx_route_definition_availableMethods_tgt',
-      reverseIndexName: 'idx_route_definition_availableMethods_rev',
+      primaryKeyName: 'enfyra_route_availableMethods_enfyra_method_pk',
+      sourceIndexName: 'idx_enfyra_route_availableMethods_src',
+      targetIndexName: 'idx_enfyra_route_availableMethods_tgt',
+      reverseIndexName: 'idx_enfyra_route_availableMethods_rev',
       onDelete: 'CASCADE',
       onUpdate: 'CASCADE',
     });

@@ -884,7 +884,7 @@ export class MetadataCacheService implements IMetadataCache {
     if (isMongoDB && this.lazyRef.mongoService) {
       const collection = this.lazyRef.mongoService
         .getDb()
-        .collection('table_definition');
+        .collection('enfyra_table');
       const docs = await collection
         .find({ _id: { $in: ids.map((id) => new ObjectId(id as string)) } })
         .toArray();
@@ -893,7 +893,7 @@ export class MetadataCacheService implements IMetadataCache {
       const pkField = DatabaseConfigService.getPkField();
       const rows = await this.lazyRef.knexService
         .getKnex({ skipMetadataHooks: true })
-        .table('table_definition')
+        .table('enfyra_table')
         .whereIn(pkField, ids);
       return rows;
     }
@@ -904,13 +904,13 @@ export class MetadataCacheService implements IMetadataCache {
     if (this.dbType === 'mongodb' && this.lazyRef.mongoService) {
       const collection = this.lazyRef.mongoService
         .getDb()
-        .collection('table_definition');
+        .collection('enfyra_table');
       const docs = await collection.find({ name: { $in: names } }).toArray();
       return docs;
     } else if (this.lazyRef.knexService) {
       const rows = await this.lazyRef.knexService
         .getKnex({ skipMetadataHooks: true })
-        .table('table_definition')
+        .table('enfyra_table')
         .whereIn('name', names);
       return rows;
     }
@@ -924,7 +924,7 @@ export class MetadataCacheService implements IMetadataCache {
     if (isMongoDB && this.lazyRef.mongoService) {
       const collection = this.lazyRef.mongoService
         .getDb()
-        .collection('column_definition');
+        .collection('enfyra_column');
       const docs = await collection
         .find({ table: { $in: tableIds.map((id) => new ObjectId(id)) } })
         .toArray();
@@ -932,7 +932,7 @@ export class MetadataCacheService implements IMetadataCache {
     } else if (this.lazyRef.knexService) {
       const rows = await this.lazyRef.knexService
         .getKnex({ skipMetadataHooks: true })
-        .table('column_definition')
+        .table('enfyra_column')
         .whereIn('tableId', tableIds);
       return rows;
     }
@@ -946,7 +946,7 @@ export class MetadataCacheService implements IMetadataCache {
     if (isMongoDB && this.lazyRef.mongoService) {
       const collection = this.lazyRef.mongoService
         .getDb()
-        .collection('relation_definition');
+        .collection('enfyra_relation');
       const docs = await collection
         .find({ sourceTable: { $in: tableIds.map((id) => new ObjectId(id)) } })
         .toArray();
@@ -954,7 +954,7 @@ export class MetadataCacheService implements IMetadataCache {
     } else if (this.lazyRef.knexService) {
       const rows = await this.lazyRef.knexService
         .getKnex({ skipMetadataHooks: true })
-        .table('relation_definition')
+        .table('enfyra_relation')
         .whereIn('sourceTableId', tableIds);
       return rows;
     }
@@ -965,12 +965,12 @@ export class MetadataCacheService implements IMetadataCache {
     if (this.dbType === 'mongodb' && this.lazyRef.mongoService) {
       const collection = this.lazyRef.mongoService
         .getDb()
-        .collection('table_definition');
+        .collection('enfyra_table');
       return await collection.find({}).toArray();
     } else if (this.lazyRef.knexService) {
       return await this.lazyRef.knexService
         .getKnex({ skipMetadataHooks: true })
-        .table('table_definition')
+        .table('enfyra_table')
         .select();
     }
     return [];
@@ -980,12 +980,12 @@ export class MetadataCacheService implements IMetadataCache {
     if (isMongoDB && this.lazyRef.mongoService) {
       const collection = this.lazyRef.mongoService
         .getDb()
-        .collection('column_definition');
+        .collection('enfyra_column');
       return await collection.find({}).toArray();
     } else if (this.lazyRef.knexService) {
       return await this.lazyRef.knexService
         .getKnex({ skipMetadataHooks: true })
-        .table('column_definition')
+        .table('enfyra_column')
         .select();
     }
     return [];
@@ -995,12 +995,12 @@ export class MetadataCacheService implements IMetadataCache {
     if (isMongoDB && this.lazyRef.mongoService) {
       const collection = this.lazyRef.mongoService
         .getDb()
-        .collection('relation_definition');
+        .collection('enfyra_relation');
       return await collection.find({}).toArray();
     } else if (this.lazyRef.knexService) {
       return await this.lazyRef.knexService
         .getKnex({ skipMetadataHooks: true })
-        .table('relation_definition')
+        .table('enfyra_relation')
         .select();
     }
     return [];

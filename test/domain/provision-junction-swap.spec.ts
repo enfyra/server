@@ -29,11 +29,11 @@ describe('Provision M2M inverse junction column swap', () => {
     };
   }
 
-  it('should swap junction columns from owning side for pre_hook_definition.methods', () => {
+  it('should swap junction columns from owning side for enfyra_pre_hook.methods', () => {
     const owning = {
-      tableName: 'pre_hook_definition',
+      tableName: 'enfyra_pre_hook',
       propertyName: 'methods',
-      targetTable: 'method_definition',
+      targetTable: 'enfyra_method',
       junctionSourceColumn: 'preHookDefinitionId',
       junctionTargetColumn: 'methodDefinitionId',
     };
@@ -42,18 +42,18 @@ describe('Provision M2M inverse junction column swap', () => {
     expect(inverse.junctionTargetColumn).toBe('preHookDefinitionId');
     expect(inverse.junctionTableName).toBe(
       getJunctionTableName(
-        'pre_hook_definition',
+        'enfyra_pre_hook',
         'methods',
-        'method_definition',
+        'enfyra_method',
       ),
     );
   });
 
-  it('should swap junction columns from owning side for post_hook_definition.methods', () => {
+  it('should swap junction columns from owning side for enfyra_post_hook.methods', () => {
     const owning = {
-      tableName: 'post_hook_definition',
+      tableName: 'enfyra_post_hook',
       propertyName: 'methods',
-      targetTable: 'method_definition',
+      targetTable: 'enfyra_method',
       junctionSourceColumn: 'postHookDefinitionId',
       junctionTargetColumn: 'methodDefinitionId',
     };
@@ -62,11 +62,11 @@ describe('Provision M2M inverse junction column swap', () => {
     expect(inverse.junctionTargetColumn).toBe('postHookDefinitionId');
   });
 
-  it('should swap junction columns for route_definition.availableMethods', () => {
+  it('should swap junction columns for enfyra_route.availableMethods', () => {
     const owning = {
-      tableName: 'route_definition',
+      tableName: 'enfyra_route',
       propertyName: 'availableMethods',
-      targetTable: 'method_definition',
+      targetTable: 'enfyra_method',
       junctionSourceColumn: 'routeDefinitionId',
       junctionTargetColumn: 'methodDefinitionId',
     };
@@ -75,11 +75,11 @@ describe('Provision M2M inverse junction column swap', () => {
     expect(inverse.junctionTargetColumn).toBe('routeDefinitionId');
   });
 
-  it('should swap junction columns for method_definition.routes', () => {
+  it('should swap junction columns for enfyra_method.routes', () => {
     const owning = {
-      tableName: 'method_definition',
+      tableName: 'enfyra_method',
       propertyName: 'routes',
-      targetTable: 'route_definition',
+      targetTable: 'enfyra_route',
       junctionSourceColumn: 'methodDefinitionId',
       junctionTargetColumn: 'routeDefinitionId',
     };
@@ -88,11 +88,11 @@ describe('Provision M2M inverse junction column swap', () => {
     expect(inverse.junctionTargetColumn).toBe('methodDefinitionId');
   });
 
-  it('should swap junction columns for route_permission_definition.allowedUsers', () => {
+  it('should swap junction columns for enfyra_route_permission.allowedUsers', () => {
     const owning = {
-      tableName: 'route_permission_definition',
+      tableName: 'enfyra_route_permission',
       propertyName: 'allowedUsers',
-      targetTable: 'user_definition',
+      targetTable: 'enfyra_user',
       junctionSourceColumn: 'routePermissionDefinitionId',
       junctionTargetColumn: 'userDefinitionId',
     };
@@ -114,9 +114,9 @@ describe('Provision M2M inverse junction column swap', () => {
 
   it('getJunctionColumnNames should produce consistent columns for owning side', () => {
     const { sourceColumn, targetColumn } = getJunctionColumnNames(
-      'pre_hook_definition',
+      'enfyra_pre_hook',
       'methods',
-      'method_definition',
+      'enfyra_method',
     );
     expect(sourceColumn).toBe('sourceId');
     expect(targetColumn).toBe('targetId');
@@ -125,25 +125,25 @@ describe('Provision M2M inverse junction column swap', () => {
   it('should never produce mixed naming when swapping from owning with explicit columns', () => {
     const snakeCaseTables = [
       {
-        tableName: 'pre_hook_definition',
+        tableName: 'enfyra_pre_hook',
         propertyName: 'methods',
-        targetTable: 'method_definition',
+        targetTable: 'enfyra_method',
         junctionSourceColumn: 'preHookDefinitionId',
         junctionTargetColumn: 'methodDefinitionId',
       },
       {
-        tableName: 'post_hook_definition',
+        tableName: 'enfyra_post_hook',
         propertyName: 'methods',
-        targetTable: 'method_definition',
+        targetTable: 'enfyra_method',
         junctionSourceColumn: 'postHookDefinitionId',
         junctionTargetColumn: 'methodDefinitionId',
       },
       {
-        tableName: 'guard_definition',
+        tableName: 'enfyra_guard',
         propertyName: 'methods',
-        targetTable: 'method_definition',
-        junctionSourceColumn: 'guard_definitionId',
-        junctionTargetColumn: 'method_definitionId',
+        targetTable: 'enfyra_method',
+        junctionSourceColumn: 'enfyra_guardId',
+        junctionTargetColumn: 'enfyra_methodId',
       },
     ];
     for (const owning of snakeCaseTables) {
@@ -155,14 +155,14 @@ describe('Provision M2M inverse junction column swap', () => {
 
   it('self-referencing M2M should swap correctly', () => {
     const owning = {
-      tableName: 'user_definition',
+      tableName: 'enfyra_user',
       propertyName: 'friends',
-      targetTable: 'user_definition',
-      junctionSourceColumn: 'user_definitionId',
+      targetTable: 'enfyra_user',
+      junctionSourceColumn: 'enfyra_userId',
       junctionTargetColumn: 'friendsId',
     };
     const inverse = buildInverseJunctionColumns(owning);
     expect(inverse.junctionSourceColumn).toBe('friendsId');
-    expect(inverse.junctionTargetColumn).toBe('user_definitionId');
+    expect(inverse.junctionTargetColumn).toBe('enfyra_userId');
   });
 });

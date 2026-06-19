@@ -99,7 +99,7 @@ export class OAuthExchangeCodeService {
       if (pending?.sessionId) {
         try {
           await this.queryBuilderService.delete(
-            'session_definition',
+            'enfyra_session',
             pending.sessionId,
           );
           deleted++;

@@ -129,22 +129,29 @@ export class DataMigrationService {
   private async deleteRecords(
     records: { table: string; filter: Record<string, any> }[],
   ): Promise<void> {
-    const idField = DatabaseConfigService.getPkField();
-
     for (const { table, filter } of records) {
       try {
-        const existing = await this.queryBuilderService.find({
-          table: table,
-          filter,
-          limit: -1,
-          fields: [idField],
-        });
-
-        for (const row of existing.data || []) {
-          await this.queryBuilderService.delete(table, row[idField]);
+        const exactWhere = this.toExactDeleteWhere(filter);
+        if (!exactWhere || Object.keys(exactWhere).length === 0) {
+          this.logger.warn(
+            `Skipping deleted-record migration for ${table}: only exact _eq filters are supported`,
+          );
+          continue;
         }
 
-        const count = existing.data?.length || 0;
+        let count = 0;
+        if (DatabaseConfigService.instanceIsMongoDb()) {
+          const result = await this.queryBuilderService
+            .getMongoDb()
+            .collection(table)
+            .deleteMany(exactWhere);
+          count = result.deletedCount || 0;
+        } else {
+          count = await this.queryBuilderService
+            .getKnex()(table)
+            .where(exactWhere)
+            .delete();
+        }
         if (count > 0) {
           this.verbose(`Deleted ${count} record(s) from ${table}`);
         }
@@ -154,6 +161,39 @@ export class DataMigrationService {
         );
       }
     }
+  }
+
+  private toExactDeleteWhere(
+    filter: Record<string, any>,
+  ): Record<string, any> | null {
+    if (!filter || typeof filter !== 'object' || Array.isArray(filter)) {
+      return null;
+    }
+
+    const where: Record<string, any> = {};
+    for (const [field, value] of Object.entries(filter)) {
+      if (!field || field.startsWith('_')) return null;
+      if (
+        value &&
+        typeof value === 'object' &&
+        !Array.isArray(value) &&
+        Object.keys(value).length === 1 &&
+        Object.prototype.hasOwnProperty.call(value, '_eq')
+      ) {
+        where[field] = value._eq;
+        continue;
+      }
+      if (
+        value === null ||
+        ['string', 'number', 'boolean'].includes(typeof value)
+      ) {
+        where[field] = value;
+        continue;
+      }
+      return null;
+    }
+
+    return where;
   }
 
   private async migrateTable(
@@ -244,9 +284,9 @@ export class DataMigrationService {
     tableName: string,
     data: any,
   ): Promise<void> {
-    if (tableName === 'route_definition' && data.mainTable) {
+    if (tableName === 'enfyra_route' && data.mainTable) {
       const mainTable = await this.queryBuilderService.findOne({
-        table: 'table_definition',
+        table: 'enfyra_table',
         where: { name: data.mainTable },
       });
       if (!mainTable) {
@@ -256,8 +296,7 @@ export class DataMigrationService {
         delete data.mainTable;
       } else if (DatabaseConfigService.instanceIsMongoDb()) {
         const mainTableId = mainTable._id ?? mainTable.id;
-        data.mainTable =
-          typeof mainTableId === 'string' ? new ObjectId(mainTableId) : mainTableId;
+        data.mainTable = this.normalizeMongoId(mainTableId);
       } else {
         data.mainTableId = mainTable.id;
         delete data.mainTable;
@@ -270,14 +309,16 @@ export class DataMigrationService {
     recordId: any,
     relationUpdates: any,
   ): Promise<void> {
-    if (tableName === 'route_definition') {
+    if (tableName === 'enfyra_route') {
       for (const [field, methodNames] of Object.entries(relationUpdates)) {
         if (
           field === 'publicMethods' ||
           field === 'skipRoleGuardMethods' ||
           field === 'availableMethods'
         ) {
-          const methodIds = await this.resolveMethodIds(methodNames as string[]);
+          const methodIds = await this.resolveMethodIds(
+            methodNames as string[],
+          );
           if (DatabaseConfigService.instanceIsMongoDb()) {
             await this.updateMongoRouteMethodRelation(
               recordId,
@@ -302,7 +343,7 @@ export class DataMigrationService {
 
     try {
       const routes = await this.queryBuilderService.find({
-        table: 'route_definition',
+        table: 'enfyra_route',
         filter: {},
         limit: -1,
         fields: [idField, 'path', 'mainTable.name'],
@@ -320,7 +361,7 @@ export class DataMigrationService {
           : { mainTableId: null };
 
         await this.queryBuilderService.update(
-          'route_definition',
+          'enfyra_route',
           { where: [{ field: idField, operator: '=', value: route[idField] }] },
           data,
         );
@@ -328,9 +369,7 @@ export class DataMigrationService {
       }
 
       if (cleared > 0) {
-        this.verbose(
-          `Cleared mainTable from ${cleared} custom route(s)`,
-        );
+        this.verbose(`Cleared mainTable from ${cleared} custom route(s)`);
       }
       return cleared;
     } catch (error) {
@@ -347,7 +386,7 @@ export class DataMigrationService {
     if (DatabaseConfigService.instanceIsMongoDb()) {
       const idField = DatabaseConfigService.getPkField();
       const result = await this.queryBuilderService.find({
-        table: 'method_definition',
+        table: 'enfyra_method',
         filter: { name: { _in: methodNames } },
         fields: [idField],
       });
@@ -355,7 +394,7 @@ export class DataMigrationService {
     }
 
     const rows = await this.queryBuilderService
-      .getKnex()('method_definition')
+      .getKnex()('enfyra_method')
       .select('id', 'name')
       .whereIn('name', methodNames);
     return rows.map((m: any) => m.id).filter(Boolean);
@@ -368,9 +407,9 @@ export class DataMigrationService {
   ): Promise<void> {
     const { junctionTable, sourceColumn, targetColumn } =
       await getSqlJunctionMetadata(this.queryBuilderService as any, {
-        sourceTable: 'route_definition',
+        sourceTable: 'enfyra_route',
         propertyName: field,
-        targetTable: 'method_definition',
+        targetTable: 'enfyra_method',
       });
     try {
       await replaceSqlJunctionRows(this.queryBuilderService as any, {
@@ -386,7 +425,7 @@ export class DataMigrationService {
         [targetColumn]: methodId,
       }));
       throw new Error(
-        `Failed to migrate route_definition.${field}: routeId=${String(routeId)}, methodIds=${JSON.stringify(methodIds)}, rows=${JSON.stringify(rows)}, junction=${junctionTable}(${sourceColumn},${targetColumn}): ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to migrate enfyra_route.${field}: routeId=${String(routeId)}, methodIds=${JSON.stringify(methodIds)}, rows=${JSON.stringify(rows)}, junction=${junctionTable}(${sourceColumn},${targetColumn}): ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -418,7 +457,7 @@ export class DataMigrationService {
         [targetColumn]: methodId,
       }));
       throw new Error(
-        `Failed to migrate route_definition.${field}: routeId=${String(routeId)}, methodIds=${JSON.stringify(methodIds.map(String))}, rows=${JSON.stringify(rows)}, junction=${junctionTable}(${sourceColumn},${targetColumn}): ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to migrate enfyra_route.${field}: routeId=${String(routeId)}, methodIds=${JSON.stringify(methodIds.map(String))}, rows=${JSON.stringify(rows)}, junction=${junctionTable}(${sourceColumn},${targetColumn}): ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -430,18 +469,18 @@ export class DataMigrationService {
   }> {
     const db = this.queryBuilderService.getMongoDb();
     const [sourceTable, targetTable] = await Promise.all([
-      db.collection('table_definition').findOne({ name: 'route_definition' }),
-      db.collection('table_definition').findOne({ name: 'method_definition' }),
+      db.collection('enfyra_table').findOne({ name: 'enfyra_route' }),
+      db.collection('enfyra_table').findOne({ name: 'enfyra_method' }),
     ]);
-    const relation = await db.collection('relation_definition').findOne({
+    const relation = await db.collection('enfyra_relation').findOne({
       sourceTable: sourceTable?._id,
       targetTable: targetTable?._id,
       propertyName: field,
     });
     const fallback = getSqlJunctionPhysicalNames({
-      sourceTable: 'route_definition',
+      sourceTable: 'enfyra_route',
       propertyName: field,
-      targetTable: 'method_definition',
+      targetTable: 'enfyra_method',
     });
     return {
       junctionTable: relation?.junctionTableName || fallback.junctionTableName,
@@ -452,9 +491,16 @@ export class DataMigrationService {
     };
   }
 
-  private toObjectId(value: any): ObjectId {
+  private toObjectId(value: any): any {
+    return this.normalizeMongoId(value);
+  }
+
+  private normalizeMongoId(value: any): any {
     if (value instanceof ObjectId) return value;
-    return new ObjectId(String(value));
+    if (typeof value === 'string' && ObjectId.isValid(value)) {
+      return new ObjectId(value);
+    }
+    return value;
   }
 
   private getUniqueFilter(_tableName: string, record: any): any | null {

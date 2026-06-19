@@ -152,6 +152,53 @@ describe('Logger — object trace parameter', () => {
   });
 });
 
+describe('Logger — sensitive data redaction', () => {
+  let cap: ReturnType<typeof captureCalls>;
+  beforeEach(() => {
+    cap = captureCalls();
+  });
+  afterEach(() => cap.restore());
+
+  it('redacts sensitive object keys before pino emit', () => {
+    const logger = new Logger('OAuth');
+    logger.error({
+      message: 'OAuth failed',
+      oauthConfig: {
+        clientId: 'public-client',
+        clientSecret: 'super-secret',
+      },
+      nested: {
+        refreshToken: 'refresh-secret',
+        safe: 'visible',
+      },
+    });
+
+    const log = JSON.stringify(cap.calls[0]);
+    expect(log).toContain('[REDACTED]');
+    expect(log).toContain('visible');
+    expect(log).not.toContain('super-secret');
+    expect(log).not.toContain('refresh-secret');
+  });
+
+  it('redacts sensitive strings from messages and traces', () => {
+    const logger = new Logger('Auth');
+    logger.error(
+      'token=plain-secret Authorization: Bearer bearer-secret',
+      'client_secret=client-secret efy_pat_secret-value',
+    );
+
+    const log = JSON.stringify(cap.calls[0]);
+    expect(log).toContain('token=[REDACTED]');
+    expect(log).toContain('Authorization: Bearer [REDACTED]');
+    expect(log).toContain('client_secret=[REDACTED]');
+    expect(log).toContain('efy_pat_[REDACTED]');
+    expect(log).not.toContain('plain-secret');
+    expect(log).not.toContain('bearer-secret');
+    expect(log).not.toContain('client-secret');
+    expect(log).not.toContain('secret-value');
+  });
+});
+
 describe('Logger — correlationId auto-inject from ALS', () => {
   let cap: ReturnType<typeof captureCalls>;
   beforeEach(() => {

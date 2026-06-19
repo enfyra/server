@@ -203,22 +203,24 @@ export abstract class BaseTableProcessor {
         this.logger.error(
           `   Record: ${JSON.stringify(record).substring(0, 200)}`,
         );
+        throw error;
       }
     }
     return { created: createdCount, skipped: skippedCount };
   }
 
   private resolveRecordIdField(record: any): string {
-    if (record?.id !== undefined) return 'id';
-    if (record?._id !== undefined) return '_id';
+    if (record?.id !== undefined && record.id !== null) return 'id';
+    if (record?._id !== undefined && record._id !== null) return '_id';
     return DatabaseConfigService.getPkField();
   }
 
   private resolveInsertedId(inserted: any, defaultIdField: string): any {
     if (!inserted || typeof inserted !== 'object') return inserted;
-    if (inserted[defaultIdField] !== undefined) return inserted[defaultIdField];
-    if (inserted.id !== undefined) return inserted.id;
-    if (inserted._id !== undefined) return inserted._id;
+    if (inserted[defaultIdField] !== undefined && inserted[defaultIdField] !== null)
+      return inserted[defaultIdField];
+    if (inserted.id !== undefined && inserted.id !== null) return inserted.id;
+    if (inserted._id !== undefined && inserted._id !== null) return inserted._id;
     return inserted;
   }
 
@@ -313,6 +315,7 @@ export abstract class BaseTableProcessor {
         this.logger.error(
           `   Record: ${JSON.stringify(record).substring(0, 200)}`,
         );
+        throw error;
       }
     }
     return { created: createdCount, skipped: skippedCount };
@@ -459,6 +462,7 @@ export abstract class BaseTableProcessor {
         this.logger.error(
           `   Record: ${JSON.stringify(record).substring(0, 200)}`,
         );
+        throw error;
       }
     }
     return { created: createdCount, skipped: skippedCount };

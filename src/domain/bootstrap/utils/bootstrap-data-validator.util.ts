@@ -14,7 +14,7 @@ function routePath(record: any) {
 
 function methodNames(defaultData: Record<string, any[]>) {
   return new Set(
-    (defaultData.method_definition ?? [])
+    (defaultData.enfyra_method ?? [])
       .map((method: any) => method.name)
       .filter(Boolean),
   );
@@ -63,7 +63,7 @@ function validateRouteRefs(input: {
       table: input.table,
       path: route,
       field: input.field ?? 'route',
-      message: `Route "${route}" is not defined in bootstrap route_definition.`,
+      message: `Route "${route}" is not defined in bootstrap enfyra_route.`,
     });
   }
   if (input.record.actions !== undefined) {
@@ -95,7 +95,7 @@ function validateRouteRefs(input: {
           table: input.table,
           path: route,
           field,
-          message: `Method "${method}" is not defined in method_definition.`,
+          message: `Method "${method}" is not defined in enfyra_method.`,
         });
       }
     }
@@ -115,7 +115,7 @@ function validateMenuPermission(input: {
     issues.push(
       ...validateRouteRefs({
         file: input.file,
-        table: 'menu_definition',
+        table: 'enfyra_menu',
         record: rule,
         routes: new Set([...input.routes, ...input.menuPaths]),
         methods: input.methods,
@@ -136,7 +136,7 @@ function validateGqlRecord(input: {
   return [
     {
       file: input.file,
-      table: 'gql_definition',
+      table: 'enfyra_graphql',
       field: 'table',
       message: `GraphQL table "${table}" does not exist in snapshot.json.`,
     },
@@ -154,9 +154,9 @@ function validateWebsocketEvent(input: {
   return [
     {
       file: input.file,
-      table: 'websocket_event_definition',
+      table: 'enfyra_websocket_event',
       field: 'gateway',
-      message: `WebSocket gateway "${name}" is not defined in websocket_definition.`,
+      message: `WebSocket gateway "${name}" is not defined in enfyra_websocket.`,
     },
   ] satisfies BootstrapValidationIssue[];
 }
@@ -172,7 +172,7 @@ function validateFlowStep(input: {
   return [
     {
       file: input.file,
-      table: 'flow_step_definition',
+      table: 'enfyra_flow_step',
       field: 'flow',
       message: `Flow step references unknown flow "${name}".`,
     },
@@ -190,7 +190,7 @@ function validateRouteRecord(input: {
   if (!path) {
     issues.push({
       file: input.file,
-      table: 'route_definition',
+      table: 'enfyra_route',
       field: 'path',
       message: 'Route record must define path or _unique.path._eq.',
     });
@@ -199,7 +199,7 @@ function validateRouteRecord(input: {
   if (input.record.mainTable && !input.tables.has(input.record.mainTable)) {
     issues.push({
       file: input.file,
-      table: 'route_definition',
+      table: 'enfyra_route',
       path,
       field: 'mainTable',
       message: `Route mainTable "${input.record.mainTable}" does not exist in snapshot.json.`,
@@ -211,7 +211,7 @@ function validateRouteRecord(input: {
     if (!Array.isArray(input.record[field])) {
       issues.push({
         file: input.file,
-        table: 'route_definition',
+        table: 'enfyra_route',
         path,
         field,
         message: `${field} must be an array of method names.`,
@@ -223,10 +223,10 @@ function validateRouteRecord(input: {
       if (!input.methods.has(method)) {
         issues.push({
           file: input.file,
-          table: 'route_definition',
+          table: 'enfyra_route',
           path,
           field,
-          message: `Method "${method}" is not defined in default-data.json method_definition.`,
+          message: `Method "${method}" is not defined in default-data.json enfyra_method.`,
         });
       }
     }
@@ -247,7 +247,7 @@ function validateUniqueRoutePaths(
     if (seen.has(path)) {
       issues.push({
         file,
-        table: 'route_definition',
+        table: 'enfyra_route',
         path,
         field: 'path',
         message: `Duplicate route path "${path}".`,
@@ -262,23 +262,23 @@ export function validateBootstrapDataFiles(input: BootstrapDataFiles) {
   const issues: BootstrapValidationIssue[] = [];
   const methods = methodNames(input.defaultData);
   const tables = tableNames(input.snapshot);
-  const defaultRoutes = input.defaultData.route_definition ?? [];
-  const migrationRoutes = input.dataMigration.route_definition ?? [];
+  const defaultRoutes = input.defaultData.enfyra_route ?? [];
+  const migrationRoutes = input.dataMigration.enfyra_route ?? [];
   const routes = new Set([
     ...defaultRoutes.map(routePath).filter(Boolean),
     ...migrationRoutes.map(routePath).filter(Boolean),
   ]);
   const menuPaths = new Set([
-    ...(input.defaultData.menu_definition ?? []).map(routePath).filter(Boolean),
-    ...(input.dataMigration.menu_definition ?? []).map(routePath).filter(Boolean),
+    ...(input.defaultData.enfyra_menu ?? []).map(routePath).filter(Boolean),
+    ...(input.dataMigration.enfyra_menu ?? []).map(routePath).filter(Boolean),
   ]);
   const gateways = new Set(
-    (input.defaultData.websocket_definition ?? [])
+    (input.defaultData.enfyra_websocket ?? [])
       .map(recordName)
       .filter(Boolean),
   );
   const flows = new Set(
-    (input.defaultData.flow_definition ?? [])
+    (input.defaultData.enfyra_flow ?? [])
       .map(recordName)
       .filter(Boolean),
   );
@@ -313,10 +313,10 @@ export function validateBootstrapDataFiles(input: BootstrapDataFiles) {
       file === 'default-data.json' ? input.defaultData : input.dataMigration;
 
     for (const table of [
-      'route_permission_definition',
-      'route_handler_definition',
-      'pre_hook_definition',
-      'post_hook_definition',
+      'enfyra_route_permission',
+      'enfyra_route_handler',
+      'enfyra_pre_hook',
+      'enfyra_post_hook',
     ]) {
       for (const record of source[table] ?? []) {
         issues.push(
@@ -331,7 +331,7 @@ export function validateBootstrapDataFiles(input: BootstrapDataFiles) {
       }
     }
 
-    for (const record of source.menu_definition ?? []) {
+    for (const record of source.enfyra_menu ?? []) {
       issues.push(
         ...validateMenuPermission({
           file,
@@ -343,15 +343,15 @@ export function validateBootstrapDataFiles(input: BootstrapDataFiles) {
       );
     }
 
-    for (const record of source.gql_definition ?? []) {
+    for (const record of source.enfyra_graphql ?? []) {
       issues.push(...validateGqlRecord({ file, record, tables }));
     }
 
-    for (const record of source.websocket_event_definition ?? []) {
+    for (const record of source.enfyra_websocket_event ?? []) {
       issues.push(...validateWebsocketEvent({ file, record, gateways }));
     }
 
-    for (const record of source.flow_step_definition ?? []) {
+    for (const record of source.enfyra_flow_step ?? []) {
       issues.push(...validateFlowStep({ file, record, flows }));
     }
   }

@@ -307,7 +307,7 @@ export class MongoSchemaMigrationService {
       }
       if (Object.keys(updateData).length === 0) return;
       await this.queryBuilderService.update(
-        'table_definition',
+        'enfyra_table',
         { where: [{ field: 'name', operator: '=', value: collectionName }] },
         updateData,
       );
@@ -403,18 +403,18 @@ export class MongoSchemaMigrationService {
       `Restoring metadata from raw snapshot for table ${snapshot.table.name} (${oid})`,
     );
     await db
-      .collection('table_definition')
+      .collection('enfyra_table')
       .replaceOne({ _id: oid }, snapshot.table, { upsert: true });
-    await db.collection('column_definition').deleteMany({ table: oid });
+    await db.collection('enfyra_column').deleteMany({ table: oid });
     if (snapshot.columns && snapshot.columns.length > 0) {
-      await db.collection('column_definition').insertMany(snapshot.columns);
+      await db.collection('enfyra_column').insertMany(snapshot.columns);
     }
-    await db.collection('relation_definition').deleteMany({ sourceTable: oid });
+    await db.collection('enfyra_relation').deleteMany({ sourceTable: oid });
     if (snapshot.relations && snapshot.relations.length > 0) {
-      await db.collection('relation_definition').insertMany(snapshot.relations);
+      await db.collection('enfyra_relation').insertMany(snapshot.relations);
     }
     const currentSourceRels = await db
-      .collection('relation_definition')
+      .collection('enfyra_relation')
       .find({ sourceTable: oid })
       .toArray();
     const owningRelIds = currentSourceRels
@@ -422,7 +422,7 @@ export class MongoSchemaMigrationService {
       .map((r: any) => r._id);
     if (owningRelIds.length > 0) {
       const currentInverse = await db
-        .collection('relation_definition')
+        .collection('enfyra_relation')
         .find({ mappedBy: { $in: owningRelIds } })
         .toArray();
       const snapshotInverseIds = new Set<string>(
@@ -431,17 +431,17 @@ export class MongoSchemaMigrationService {
       for (const inv of currentInverse) {
         if (!snapshotInverseIds.has(String(inv._id))) {
           await db
-            .collection('relation_definition')
+            .collection('enfyra_relation')
             .deleteOne({ _id: inv._id });
         }
       }
     }
     for (const invRel of snapshot.inverseRelations || []) {
       const exists = await db
-        .collection('relation_definition')
+        .collection('enfyra_relation')
         .findOne({ _id: invRel._id });
       if (!exists) {
-        await db.collection('relation_definition').insertOne(invRel);
+        await db.collection('enfyra_relation').insertOne(invRel);
       }
     }
     this.logger.warn(
