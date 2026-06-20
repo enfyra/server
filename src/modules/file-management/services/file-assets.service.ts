@@ -473,7 +473,7 @@ export class FileAssetsService {
     const file = await this.getFileFromCache(fileId);
     if (!file) throw new NotFoundException(`File not found: ${fileId}`);
 
-    if (!file.isPublished) {
+    if (!file.isPublic) {
       const currentUser = req.user || req.routeData?.context?.$user;
       const currentUserId = this.normalizeId(
         currentUser?.id ?? currentUser?._id,

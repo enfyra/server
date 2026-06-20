@@ -13,8 +13,8 @@ import {
 } from '../../shared/utils/load-user-with-role.util';
 import type { ApiTokenService } from '../../domain/auth';
 
-function isPublishedRequest(req: any): boolean {
-  if (req.routeData?.isPublished === true) return true;
+function isPublicRequest(req: any): boolean {
+  if (req.routeData?.isPublic === true) return true;
   return (
     req.routeData?.publicMethods?.some(
       (method: any) => method?.name === req.method || method === req.method,
@@ -52,7 +52,7 @@ export function jwtAuthMiddleware(
         const { payload: decoded } = await jwtVerify(token, key);
         payload = decoded;
       } catch (err: any) {
-        if (isPublishedRequest(req)) {
+        if (isPublicRequest(req)) {
           setAnonymousUser(req);
           return next();
         }

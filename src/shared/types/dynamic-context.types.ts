@@ -184,7 +184,7 @@ export interface RequestWithRouteData extends Request {
     handlers?: any[];
     preHooks: any[];
     postHooks: any[];
-    isPublished: boolean;
+    isPublic: boolean;
     mainTable?: any;
     route?: any;
     res?: Response;

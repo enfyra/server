@@ -139,7 +139,7 @@ export function registerFileRoutes(
             title: file.originalname,
             description: body.description,
             status: body.status,
-            isPublished: body.isPublished,
+            isPublic: body.isPublic,
           },
         );
         return res.json(result);
@@ -157,7 +157,7 @@ export function registerFileRoutes(
         storageConfig: body.storageConfig,
         description: body.description,
         status: body.status,
-        isPublished: body.isPublished,
+        isPublic: body.isPublic,
       },
     );
     return res.json(result);

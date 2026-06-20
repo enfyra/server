@@ -392,7 +392,7 @@ export class FileManagementService {
       title?: string;
       description?: string;
       status?: string;
-      isPublished?: boolean;
+      isPublic?: boolean;
     } = {},
   ): Promise<any> {
     const currentStorageConfigId = this.getFileStorageConfigId(currentFile);
@@ -411,10 +411,8 @@ export class FileManagementService {
         : currentFile.description;
     const nextStatus =
       options.status !== undefined ? options.status : currentFile.status;
-    const nextIsPublished =
-      options.isPublished !== undefined
-        ? options.isPublished
-        : currentFile.isPublished;
+    const nextIsPublic =
+      options.isPublic !== undefined ? options.isPublic : currentFile.isPublic;
 
     const processedFile = await this.processFileUpload(
       {
@@ -441,7 +439,7 @@ export class FileManagementService {
         folder: nextFolder,
         uploadedBy: currentFile.uploadedBy,
         status: nextStatus,
-        isPublished: nextIsPublished,
+        isPublic: nextIsPublic,
         storageConfig: processedFile.storage_config_id
           ? this.createIdReference(processedFile.storage_config_id)
           : null,
@@ -476,7 +474,7 @@ export class FileManagementService {
       title?: string;
       description?: string;
       status?: string;
-      isPublished?: boolean;
+      isPublic?: boolean;
     },
   ): Promise<any> {
     const updateData: any = {};
@@ -499,8 +497,7 @@ export class FileManagementService {
     if (options.description !== undefined)
       updateData.description = options.description;
     if (options.status !== undefined) updateData.status = options.status;
-    if (options.isPublished !== undefined)
-      updateData.isPublished = options.isPublished;
+    if (options.isPublic !== undefined) updateData.isPublic = options.isPublic;
 
     if (Object.keys(updateData).length === 0) return currentFile;
 
