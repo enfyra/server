@@ -43,7 +43,7 @@ export class FileValidationHelper {
     file: any,
     req: RequestWithRouteData,
   ): Promise<void> {
-    if (file.isPublished) return;
+    if (file.isPublic) return;
 
     const user = req.user || req.routeData?.context?.$user;
     if (user?.isRootAdmin) return;

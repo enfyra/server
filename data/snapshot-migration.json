@@ -128,6 +128,20 @@
           "_eq": "enfyra_file"
         }
       },
+      "columnsToModify": [
+        {
+          "from": {
+            "name": "isPublished"
+          },
+          "to": {
+            "name": "isPublic",
+            "type": "boolean",
+            "isNullable": false,
+            "defaultValue": true,
+            "description": "Allow public access without authentication"
+          }
+        }
+      ],
       "relationsToModify": [
         {
           "from": {
