@@ -121,7 +121,7 @@ export class SchemaMigrationLockService {
           );
           const cleared = await trx(this.tableName)
             .where({ id: 1 })
-            .whereRaw('lockToken = ?', [row.lockToken])
+            .where({ lockToken: row.lockToken })
             .update({
               isLocked: false,
               lockedBy: null,
