@@ -37,14 +37,9 @@ export class MeService {
     return context.$repos?.secure?.[tableName];
   }
 
-  private getTrustedRepo(req: Request & { routeData?: any }, tableName: string) {
-    const context = this.getRepoContext(req);
-    return context.$repos?.[tableName];
-  }
-
   async find(req: Request & { user: any; routeData?: any }) {
     if (!req.user) throw new UnauthorizedException();
-    const repo = this.getTrustedRepo(req, 'enfyra_user');
+    const repo = this.getSecureRepo(req, 'enfyra_user');
     if (!repo) {
       throw new Error('Repository not found in route context');
     }
@@ -137,7 +132,7 @@ export class MeService {
 
   async findOAuthAccounts(req: Request & { user: any; routeData?: any }) {
     if (!req.user) throw new UnauthorizedException();
-    const repo = this.getTrustedRepo(req, 'enfyra_oauth_account');
+    const repo = this.getSecureRepo(req, 'enfyra_oauth_account');
     if (!repo) {
       throw new Error('Repository not found in route context');
     }
