@@ -22,6 +22,7 @@ const API_TOKEN_TABLE = 'enfyra_api_token';
 const API_TOKEN_CACHE_PREFIX = 'auth:api-token';
 const API_TOKEN_REVOKED_CHANNEL = 'api-token:revoked';
 const API_TOKEN_STATE_TTL_MS = 60_000;
+const API_TOKEN_ACCESS_TTL_MS = API_TOKEN_STATE_TTL_MS;
 
 type ApiTokenState = {
   id: string;
@@ -173,19 +174,23 @@ export class ApiTokenService {
     });
     await this.cacheService.set(userCacheKey(userId), user, USER_CACHE_TTL_MS);
 
+    const accessExpiresAtMs = Math.min(
+      Date.now() + API_TOKEN_ACCESS_TTL_MS,
+      expiresAt ? expiresAt.getTime() : Number.POSITIVE_INFINITY,
+    );
+    const accessExp = Math.floor(accessExpiresAtMs / 1000);
+
     const payload: any = {
       id: userId,
       loginProvider: 'api_token',
       tokenType: 'api_token',
       tokenId,
+      exp: accessExp,
     };
-    if (expiresAt) {
-      payload.exp = Math.floor(expiresAt.getTime() / 1000);
-    }
 
     return {
       accessToken: jwt.sign(payload, this.envService.get('SECRET_KEY')),
-      expTime: expiresAt ? expiresAt.getTime() : null,
+      expTime: accessExp * 1000,
       loginProvider: 'api_token',
     };
   }
