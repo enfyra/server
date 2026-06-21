@@ -278,6 +278,164 @@
     {
       "_unique": {
         "path": {
+          "_eq": "/admin/reload"
+        }
+      },
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:refresh-cw",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/admin/reload/metadata"
+        }
+      },
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:refresh-cw",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/admin/reload/routes"
+        }
+      },
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:refresh-cw",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/admin/reload/graphql"
+        }
+      },
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:refresh-cw",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/admin/reload/guards"
+        }
+      },
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:refresh-cw",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/admin/script/validate"
+        }
+      },
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:code-2",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/admin/test/run"
+        }
+      },
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:flask-conical",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/admin/flow/trigger/:id"
+        }
+      },
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:play",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/admin/redis/overview"
+        }
+      },
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:database-zap",
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/admin/redis/keys"
+        }
+      },
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:key-round",
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/admin/redis/key"
+        }
+      },
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:key-round",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "DELETE"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/admin/redis/key/ttl"
+        }
+      },
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:timer",
+      "availableMethods": [
+        "PATCH"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
           "_eq": "/enfyra_package"
         }
       },
@@ -392,14 +550,6 @@
       "skipRoleGuardMethods": [
         "GET"
       ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/admin/test/run"
-        }
-      },
-      "isEnabled": true
     },
     {
       "_unique": {
