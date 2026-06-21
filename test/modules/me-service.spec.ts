@@ -2,9 +2,22 @@ import { describe, expect, it, vi } from 'vitest';
 import { MeService } from '../../src/modules/me/services/me.service';
 
 describe('MeService', () => {
-  it('creates a trusted repo context for built-in /me routes without dynamic routeData', async () => {
+  it('creates an enforced repo context for built-in /me reads without dynamic routeData', async () => {
     const userRepo = {
-      find: vi.fn(async () => ({ data: [{ id: 'user-1', email: 'a@test.dev' }] })),
+      find: vi.fn(async () => ({
+        data: [{ id: 'user-1', email: 'a@test.dev' }],
+      })),
+    };
+    const trustedUserRepo = {
+      find: vi.fn(async () => ({
+        data: [
+          {
+            id: 'user-1',
+            email: 'a@test.dev',
+            password: 'hashed-password',
+          },
+        ],
+      })),
     };
     const context: any = {};
     const dynamicContextFactory = {
@@ -12,13 +25,9 @@ describe('MeService', () => {
     };
     const repoRegistryService = {
       createReposProxy: vi.fn(() => ({
-        enfyra_user: userRepo,
+        enfyra_user: trustedUserRepo,
         secure: {
-          enfyra_user: {
-            find: vi.fn(async () => {
-              throw new Error('secure repo should not be used for /me');
-            }),
-          },
+          enfyra_user: userRepo,
         },
       })),
     };
@@ -51,6 +60,8 @@ describe('MeService', () => {
       email: 'a@test.dev',
       loginProvider: 'google',
     });
+    expect(result.data[0]).not.toHaveProperty('password');
+    expect(trustedUserRepo.find).not.toHaveBeenCalled();
   });
 
 
@@ -128,6 +139,57 @@ describe('MeService', () => {
       id: 'user-1',
       data: { fullName: 'Safe Profile', password: 'hashed' },
     });
+  });
+
+  it('uses enforced repository reads for /me/oauth-accounts', async () => {
+    const oauthRepo = {
+      find: vi.fn(async () => ({
+        data: [{ id: 'oauth-1', provider: 'google' }],
+      })),
+    };
+    const trustedOauthRepo = {
+      find: vi.fn(async () => ({
+        data: [
+          {
+            id: 'oauth-1',
+            provider: 'google',
+            accessToken: 'secret-access-token',
+          },
+        ],
+      })),
+    };
+    const context: any = {};
+    const service = new MeService({
+      dynamicContextFactory: {
+        createHttp: vi.fn(() => context),
+      } as any,
+      repoRegistryService: {
+        createReposProxy: vi.fn(() => ({
+          enfyra_oauth_account: trustedOauthRepo,
+          secure: { enfyra_oauth_account: oauthRepo },
+        })),
+      } as any,
+    });
+
+    const result = await service.findOAuthAccounts({
+      user: { id: 'user-1' },
+      method: 'GET',
+      url: '/me/oauth-accounts',
+      originalUrl: '/me/oauth-accounts',
+      path: '/me/oauth-accounts',
+      query: {},
+      params: {},
+      headers: {},
+      hostname: 'example.test',
+      protocol: 'https',
+      ip: '127.0.0.1',
+    } as any);
+
+    expect(oauthRepo.find).toHaveBeenCalledWith({
+      filter: { user: { id: { _eq: 'user-1' } } },
+    });
+    expect(trustedOauthRepo.find).not.toHaveBeenCalled();
+    expect(result.data[0]).not.toHaveProperty('accessToken');
   });
 
 });
