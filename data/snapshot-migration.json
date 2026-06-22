@@ -317,7 +317,8 @@
     },
     {
       "from": "user_definition",
-      "to": "enfyra_user"
+      "to": "enfyra_user",
+      "mergeKeys": ["email"]
     },
     {
       "from": "oauth_config_definition",
