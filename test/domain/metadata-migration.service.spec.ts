@@ -77,6 +77,32 @@ function makeSqlKnex({
 
   knex.schema = {
     hasTable: jest.fn(async (table: string) => table in tables),
+    hasColumn: jest.fn(async (table: string, column: string) =>
+      (schemas[table] ?? Object.keys(tables[table]?.[0] ?? {})).includes(
+        column,
+      ),
+    ),
+    alterTable: jest.fn(async (tableName: string, callback: any) => {
+      const builder = {
+        specificType: jest.fn((column: string) => {
+          schemas[tableName] = [...(schemas[tableName] ?? []), column];
+        }),
+        text: jest.fn((column: string) => {
+          schemas[tableName] = [...(schemas[tableName] ?? []), column];
+        }),
+        dropColumn: jest.fn((column: string) => {
+          schemas[tableName] = (schemas[tableName] ?? []).filter(
+            (name) => name !== column,
+          );
+          tables[tableName] = (tables[tableName] ?? []).map((row) => {
+            const next = { ...row };
+            delete next[column];
+            return next;
+          });
+        }),
+      };
+      callback(builder);
+    }),
   };
 
   return { knex, inserts, updates, deletes, tables };
@@ -312,9 +338,7 @@ describe('MetadataMigrationService core table overlap', () => {
       { from: 'relation_definition', to: 'enfyra_relation' },
     ]);
 
-    const author = sql.tables.enfyra_table.find(
-      (row) => row.name === 'author',
-    );
+    const author = sql.tables.enfyra_table.find((row) => row.name === 'author');
     const post = sql.tables.enfyra_table.find((row) => row.name === 'post');
     expect(author.id).not.toBe(30);
     expect(post.id).not.toBe(31);
@@ -413,7 +437,9 @@ describe('MetadataMigrationService core table overlap', () => {
     expect(sql.tables.enfyra_column).toEqual(afterFirstRun.columns);
     expect(sql.tables.enfyra_relation).toEqual(afterFirstRun.relations);
     expect(sql.inserts).toHaveLength(afterFirstRun.insertCount);
-    expect(sql.tables.enfyra_table.filter((row) => row.name === 'post')).toHaveLength(1);
+    expect(
+      sql.tables.enfyra_table.filter((row) => row.name === 'post'),
+    ).toHaveLength(1);
     expect(
       sql.tables.enfyra_relation.filter(
         (row) => row.propertyName === 'comments',
@@ -481,6 +507,143 @@ describe('MetadataMigrationService core table overlap', () => {
     expect(sql.inserts).toEqual([]);
     expect(sql.tables.enfyra_table).toEqual([{ id: 2, name: 'enfyra_table' }]);
     expect(sql.deletes).toEqual([]);
+  });
+
+  it('copies SQL non-core overlap rows and preserves custom columns added by users', async () => {
+    const sql = makeSqlKnex({
+      tables: {
+        user_definition: [
+          {
+            id: 1,
+            email: 'old@example.com',
+            displayName: 'Old User',
+            favoriteColor: 'green',
+          },
+        ],
+        enfyra_user: [],
+        enfyra_table: [],
+      },
+      schemas: {
+        user_definition: ['id', 'email', 'displayName', 'favoriteColor'],
+        enfyra_user: ['id', 'email', 'displayName'],
+        enfyra_table: ['id', 'name'],
+      },
+    });
+
+    const service = new MetadataMigrationService({
+      queryBuilderService: {
+        isMongoDb: jest.fn(() => false),
+        getKnex: jest.fn(() => sql.knex),
+      } as any,
+      systemCoreTableResolver: {
+        getTableName: jest.fn(async () => 'enfyra_table'),
+      } as any,
+    });
+
+    await (service as any).renameSqlTable({
+      from: 'user_definition',
+      to: 'enfyra_user',
+      mergeKeys: ['email'],
+    });
+
+    expect(sql.tables.enfyra_user).toEqual([
+      {
+        id: 1,
+        email: 'old@example.com',
+        displayName: 'Old User',
+        favoriteColor: 'green',
+      },
+    ]);
+  });
+
+  it('keeps canonical SQL non-core overlap rows when legacy data conflicts', async () => {
+    const sql = makeSqlKnex({
+      tables: {
+        user_definition: [
+          { id: 1, email: 'same@example.com', displayName: 'Legacy' },
+        ],
+        enfyra_user: [
+          { id: 1, email: 'same@example.com', displayName: 'Canonical' },
+        ],
+        enfyra_table: [],
+      },
+      schemas: {
+        user_definition: ['id', 'email', 'displayName'],
+        enfyra_user: ['id', 'email', 'displayName'],
+        enfyra_table: ['id', 'name'],
+      },
+    });
+
+    const service = new MetadataMigrationService({
+      queryBuilderService: {
+        isMongoDb: jest.fn(() => false),
+        getKnex: jest.fn(() => sql.knex),
+      } as any,
+      systemCoreTableResolver: {
+        getTableName: jest.fn(async () => 'enfyra_table'),
+      } as any,
+    });
+
+    await (service as any).renameSqlTable({
+      from: 'user_definition',
+      to: 'enfyra_user',
+      mergeKeys: ['email'],
+    });
+
+    expect(sql.tables.enfyra_user).toEqual([
+      { id: 1, email: 'same@example.com', displayName: 'Canonical' },
+    ]);
+    expect(sql.inserts).toEqual([]);
+  });
+
+  it('backfills missing custom values into existing SQL non-core canonical rows', async () => {
+    const sql = makeSqlKnex({
+      tables: {
+        user_definition: [
+          {
+            id: 1,
+            email: 'same@example.com',
+            displayName: 'Canonical',
+            favoriteColor: 'green',
+          },
+        ],
+        enfyra_user: [
+          { id: 1, email: 'same@example.com', displayName: 'Canonical' },
+        ],
+        enfyra_table: [],
+      },
+      schemas: {
+        user_definition: ['id', 'email', 'displayName', 'favoriteColor'],
+        enfyra_user: ['id', 'email', 'displayName'],
+        enfyra_table: ['id', 'name'],
+      },
+    });
+
+    const service = new MetadataMigrationService({
+      queryBuilderService: {
+        isMongoDb: jest.fn(() => false),
+        getKnex: jest.fn(() => sql.knex),
+      } as any,
+      systemCoreTableResolver: {
+        getTableName: jest.fn(async () => 'enfyra_table'),
+      } as any,
+    });
+
+    await (service as any).renameSqlTable({
+      from: 'user_definition',
+      to: 'enfyra_user',
+      mergeKeys: ['email'],
+    });
+
+    expect(sql.tables.enfyra_user).toEqual([
+      {
+        id: 1,
+        email: 'same@example.com',
+        displayName: 'Canonical',
+        favoriteColor: 'green',
+      },
+    ]);
+    expect(sql.inserts).toEqual([]);
   });
 
   it('normalizes legacy core table names when reconciling Mongo core overlap', async () => {
@@ -558,6 +721,55 @@ describe('MetadataMigrationService core table overlap', () => {
       collection: 'enfyra_column',
       rows: [{ _id: 'legacy-column', table: insertedTable._id, name: 'title' }],
     });
+  });
+
+  it('backfills missing custom values into existing Mongo non-core canonical documents', async () => {
+    const mongo = makeMongoDb({
+      collections: {
+        user_definition: [
+          {
+            _id: 'user-1',
+            email: 'same@example.com',
+            displayName: 'Canonical',
+            favoriteColor: 'green',
+          },
+        ],
+        enfyra_user: [
+          {
+            _id: 'user-1',
+            email: 'same@example.com',
+            displayName: 'Canonical',
+          },
+        ],
+        enfyra_table: [],
+      },
+    });
+
+    const service = new MetadataMigrationService({
+      queryBuilderService: {
+        isMongoDb: jest.fn(() => true),
+        getMongoDb: jest.fn(() => mongo.db),
+      } as any,
+      systemCoreTableResolver: {
+        getTableName: jest.fn(async () => 'enfyra_table'),
+      } as any,
+    });
+
+    await (service as any).renameMongoTable({
+      from: 'user_definition',
+      to: 'enfyra_user',
+      mergeKeys: ['email'],
+    });
+
+    expect(mongo.collections.enfyra_user).toEqual([
+      {
+        _id: 'user-1',
+        email: 'same@example.com',
+        displayName: 'Canonical',
+        favoriteColor: 'green',
+      },
+    ]);
+    expect(mongo.inserts).toEqual([]);
   });
 
   it('remaps Mongo relation metadata through conflicting legacy source and target table ids', async () => {

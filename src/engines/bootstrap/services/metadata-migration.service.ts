@@ -417,6 +417,69 @@ export class MetadataMigrationService {
     return Object.keys(oldInfo).filter((column) => column in newInfo);
   }
 
+  private async getSqlMergedColumns(
+    oldTable: string,
+    newTable: string,
+  ): Promise<string[]> {
+    const knex = this.queryBuilderService.getKnex();
+    const [oldInfo, newInfo] = await Promise.all([
+      knex(oldTable).columnInfo(),
+      knex(newTable).columnInfo(),
+    ]);
+    const missingColumns = Object.keys(oldInfo).filter(
+      (column) => !(column in newInfo),
+    );
+    if (missingColumns.length > 0) {
+      await this.addMissingSqlColumns(newTable, oldInfo, missingColumns);
+    }
+    const refreshedNewInfo = await knex(newTable).columnInfo();
+    return Object.keys(oldInfo).filter((column) => column in refreshedNewInfo);
+  }
+
+  private async addMissingSqlColumns(
+    tableName: string,
+    sourceInfo: Record<string, any>,
+    columns: string[],
+  ): Promise<void> {
+    const knex = this.queryBuilderService.getKnex();
+    await knex.schema.alterTable(tableName, (table: any) => {
+      for (const column of columns) {
+        table.specificType(
+          column,
+          this.getPortableSqlColumnType(sourceInfo[column]),
+        );
+      }
+    });
+    this.verbose(
+      `  Added ${columns.length} legacy column(s) to ${tableName} before overlap merge`,
+    );
+  }
+
+  private getPortableSqlColumnType(columnInfo: any): string {
+    const type = String(columnInfo?.type || '').toLowerCase();
+    const maxLength = Number(
+      columnInfo?.maxLength || columnInfo?.characterMaximumLength || 0,
+    );
+
+    if (!type) return 'text';
+    if (type.includes('bigint')) return 'bigint';
+    if (type.includes('int')) return 'integer';
+    if (type.includes('bool') || type === 'tinyint(1)') return 'boolean';
+    if (type.includes('double')) return 'double precision';
+    if (type.includes('float')) return 'float';
+    if (type.includes('decimal') || type.includes('numeric')) return 'decimal';
+    if (type.includes('jsonb')) return 'jsonb';
+    if (type.includes('json')) return 'json';
+    if (type.includes('timestamp')) return 'timestamp';
+    if (type === 'date') return 'date';
+    if (type.includes('time')) return 'time';
+    if (type.includes('uuid')) return 'uuid';
+    if (type.includes('text')) return 'text';
+    if (type.includes('char'))
+      return `varchar(${maxLength > 0 ? maxLength : 255})`;
+    return 'text';
+  }
+
   private getOverlapRowKey(
     rename: TableRenameDef,
     row: any,
@@ -429,6 +492,19 @@ export class MetadataMigrationService {
       return `id:${row.id}`;
     if ('_id' in row && columns.includes('_id') && row._id != null)
       return `_id:${row._id}`;
+
+    if (rename.mergeKeys?.length) {
+      const values = rename.mergeKeys.map((column) => row?.[column]);
+      if (
+        rename.mergeKeys.every((column) => columns.includes(column)) &&
+        values.every((value) => value !== undefined && value !== null)
+      ) {
+        return `merge:${rename.mergeKeys
+          .map((column, index) => `${column}:${String(values[index])}`)
+          .join('|')}`;
+      }
+    }
+
     return null;
   }
 
@@ -438,6 +514,71 @@ export class MetadataMigrationService {
         .filter((column) => row[column] !== undefined)
         .map((column) => [column, row[column]]),
     );
+  }
+
+  private rowsConflict(left: any, right: any, columns: string[]): boolean {
+    return columns.some((column) => {
+      if (
+        left?.[column] === undefined ||
+        right?.[column] === undefined ||
+        right?.[column] === null ||
+        column === 'createdAt' ||
+        column === 'updatedAt'
+      ) {
+        return false;
+      }
+      return JSON.stringify(left[column]) !== JSON.stringify(right[column]);
+    });
+  }
+
+  private findRowByOverlapKey(
+    rename: TableRenameDef,
+    rows: any[],
+    key: string,
+    columns: string[],
+  ): any | null {
+    return (
+      rows.find((row) => this.getOverlapRowKey(rename, row, columns) === key) ??
+      null
+    );
+  }
+
+  private getMissingRowValues(
+    legacyRow: any,
+    canonicalRow: any,
+    columns: string[],
+  ): Record<string, any> {
+    return Object.fromEntries(
+      columns
+        .filter(
+          (column) =>
+            column !== 'id' &&
+            column !== '_id' &&
+            column !== 'createdAt' &&
+            column !== 'updatedAt' &&
+            legacyRow?.[column] !== undefined &&
+            (canonicalRow?.[column] === undefined ||
+              canonicalRow?.[column] === null),
+        )
+        .map((column) => [column, legacyRow[column]]),
+    );
+  }
+
+  private getRowIdentityFilter(
+    rename: TableRenameDef,
+    row: any,
+  ): Record<string, any> | null {
+    if (row?.id !== undefined && row.id !== null) return { id: row.id };
+    if (row?._id !== undefined && row._id !== null) return { _id: row._id };
+    if (rename.mergeKeys?.length) {
+      const entries = rename.mergeKeys
+        .map((column) => [column, row?.[column]])
+        .filter(([, value]) => value !== undefined && value !== null);
+      if (entries.length === rename.mergeKeys.length) {
+        return Object.fromEntries(entries);
+      }
+    }
+    return null;
   }
 
   private projectCoreRowToColumns(
@@ -598,7 +739,7 @@ export class MetadataMigrationService {
     rename: TableRenameDef,
   ): Promise<void> {
     const knex = this.queryBuilderService.getKnex();
-    const columns = await this.getSqlOverlapColumns(rename.from, rename.to);
+    const columns = await this.getSqlMergedColumns(rename.from, rename.to);
     const [legacyRows, canonicalRows] = await Promise.all([
       knex(rename.from).select(columns),
       knex(rename.to).select(columns),
@@ -659,8 +800,74 @@ export class MetadataMigrationService {
   private async reconcileSqlTableOverlap(
     rename: TableRenameDef,
   ): Promise<void> {
+    const knex = this.queryBuilderService.getKnex();
+    const columns = await this.getSqlMergedColumns(rename.from, rename.to);
+    const [legacyRows, canonicalRows] = await Promise.all([
+      knex(rename.from).select(columns),
+      knex(rename.to).select(columns),
+    ]);
+    const canonicalKeys = new Set<string>();
+    const occupiedIds = new Set<string>();
+    for (const row of canonicalRows) {
+      const key = this.getOverlapRowKey(rename, row, columns);
+      if (key) canonicalKeys.add(key);
+      if (row?.id !== undefined && row.id !== null) {
+        occupiedIds.add(String(row.id));
+      }
+    }
+
+    let insertedCount = 0;
+    let conflictCount = 0;
+    let skippedCount = 0;
+    let updatedCount = 0;
+    for (const row of legacyRows) {
+      const key = this.getOverlapRowKey(rename, row, columns);
+      if (!key) {
+        skippedCount += 1;
+        continue;
+      }
+      if (canonicalKeys.has(key)) {
+        const canonicalRow = this.findRowByOverlapKey(
+          rename,
+          canonicalRows,
+          key,
+          columns,
+        );
+        if (canonicalRow && this.rowsConflict(row, canonicalRow, columns)) {
+          conflictCount += 1;
+        }
+        if (canonicalRow) {
+          const missingValues = this.getMissingRowValues(
+            row,
+            canonicalRow,
+            columns,
+          );
+          const filter = this.getRowIdentityFilter(rename, canonicalRow);
+          if (filter && Object.keys(missingValues).length > 0) {
+            await knex(rename.to).where(filter).update(missingValues);
+            Object.assign(canonicalRow, missingValues);
+            updatedCount += 1;
+          }
+        }
+        continue;
+      }
+      const projected = this.projectRowToColumns(row, columns);
+      if (
+        projected?.id !== undefined &&
+        projected?.id !== null &&
+        occupiedIds.has(String(projected.id))
+      ) {
+        delete projected.id;
+      }
+      await knex(rename.to).insert(projected);
+      insertedCount += 1;
+      canonicalKeys.add(key);
+      if (projected?.id !== undefined && projected.id !== null) {
+        occupiedIds.add(String(projected.id));
+      }
+    }
     this.verbose(
-      `  SQL table overlap detected for ${rename.from} and ${rename.to}; preserving canonical table ${rename.to} during bootstrap rename`,
+      `  SQL table overlap reconciled for ${rename.from} → ${rename.to}: copied ${insertedCount}, updated ${updatedCount}, conflicts ${conflictCount}, skipped ${skippedCount}`,
     );
   }
 
@@ -719,8 +926,83 @@ export class MetadataMigrationService {
   private async reconcileMongoTableOverlap(
     rename: TableRenameDef,
   ): Promise<void> {
+    const db = this.getMongoDb()!;
+    const [legacyRows, canonicalRows] = await Promise.all([
+      db.collection(rename.from).find({}).toArray(),
+      db.collection(rename.to).find({}).toArray(),
+    ]);
+    const columns = [
+      ...new Set([
+        ...legacyRows.flatMap((row) => Object.keys(row)),
+        ...canonicalRows.flatMap((row) => Object.keys(row)),
+      ]),
+    ];
+    const canonicalKeys = new Set<string>();
+    const occupiedIds = new Set<string>();
+    for (const row of canonicalRows) {
+      const key = this.getOverlapRowKey(rename, row, columns);
+      if (key) canonicalKeys.add(key);
+      if (row?._id !== undefined && row._id !== null) {
+        occupiedIds.add(String(row._id));
+      }
+    }
+
+    let conflictCount = 0;
+    let skippedCount = 0;
+    let updatedCount = 0;
+    const rowsToInsert: any[] = [];
+    for (const row of legacyRows) {
+      const key = this.getOverlapRowKey(rename, row, columns);
+      if (!key) {
+        skippedCount += 1;
+        continue;
+      }
+      if (canonicalKeys.has(key)) {
+        const canonicalRow = this.findRowByOverlapKey(
+          rename,
+          canonicalRows,
+          key,
+          columns,
+        );
+        if (canonicalRow && this.rowsConflict(row, canonicalRow, columns)) {
+          conflictCount += 1;
+        }
+        if (canonicalRow) {
+          const missingValues = this.getMissingRowValues(
+            row,
+            canonicalRow,
+            columns,
+          );
+          const filter = this.getRowIdentityFilter(rename, canonicalRow);
+          if (filter && Object.keys(missingValues).length > 0) {
+            await db
+              .collection(rename.to)
+              .updateOne(filter, { $set: missingValues });
+            Object.assign(canonicalRow, missingValues);
+            updatedCount += 1;
+          }
+        }
+        continue;
+      }
+      const projected = this.projectRowToColumns(row, columns);
+      if (
+        projected?._id !== undefined &&
+        projected?._id !== null &&
+        occupiedIds.has(String(projected._id))
+      ) {
+        delete projected._id;
+      }
+      rowsToInsert.push(projected);
+      canonicalKeys.add(key);
+      if (projected?._id !== undefined && projected._id !== null) {
+        occupiedIds.add(String(projected._id));
+      }
+    }
+    if (rowsToInsert.length > 0) {
+      await db.collection(rename.to).insertMany(rowsToInsert);
+    }
     this.verbose(
-      `  Mongo collection overlap detected for ${rename.from} and ${rename.to}; preserving canonical collection ${rename.to} during bootstrap rename`,
+      `  Mongo collection overlap reconciled for ${rename.from} → ${rename.to}: copied ${rowsToInsert.length}, updated ${updatedCount}, conflicts ${conflictCount}, skipped ${skippedCount}`,
     );
   }
 
