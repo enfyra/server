@@ -33,6 +33,10 @@ describe('FirstRunInitializer', () => {
         createInitMetadata: jest.fn(async () => undefined),
       },
       metadataMigrationService: {
+        runCoreTableRenamesBeforeMetadataSync: jest.fn(async () => {
+          calls.push('core-migrate');
+        }),
+        runTableRenamesBeforeMetadataSync: jest.fn(async () => undefined),
         runPhysicalMigrationsBeforeMetadataSync: jest.fn(async () => {
           calls.push('migrate');
         }),
@@ -49,9 +53,11 @@ describe('FirstRunInitializer', () => {
         runMigrations: jest.fn(),
       },
       schemaHealingService: {
-        repairSystemPhysicalColumnsBeforeMetadataProvision: jest.fn(async () => {
-          calls.push('heal-preflight');
-        }),
+        repairSystemPhysicalColumnsBeforeMetadataProvision: jest.fn(
+          async () => {
+            calls.push('heal-preflight');
+          },
+        ),
         repairSystemMetadataFromSnapshot: jest.fn(async () => {
           calls.push('metadata-heal');
         }),
@@ -70,7 +76,8 @@ describe('FirstRunInitializer', () => {
 
     await (initializer as any).runWithProgress();
 
-    expect(calls.slice(0, 4)).toEqual([
+    expect(calls.slice(0, 5)).toEqual([
+      'core-migrate',
       'migrate',
       'heal-preflight',
       'metadata-migrate',

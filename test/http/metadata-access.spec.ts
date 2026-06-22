@@ -179,8 +179,8 @@ describe('metadata access projection', () => {
     } as any);
 
     expect([...names].sort()).toEqual([
-      'post_definition',
       'enfyra_user',
+      'post_definition',
     ]);
   });
 

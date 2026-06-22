@@ -12,7 +12,7 @@ describe('jwtAuthMiddleware', () => {
       method: 'GET',
       headers: { authorization: 'Bearer malformed.jwt.token' },
       routeData: {
-        isPublished: true,
+        publicMethods: [{ name: 'GET' }],
         context: { $user: 'existing' },
       },
     };

@@ -3,9 +3,27 @@
   "version": "2.2.3",
   "description": "Dynamic backend platform that auto-generates REST and GraphQL APIs from database schemas",
   "author": "dothinh115 <dothinh115@gmail.com>",
-  "private": false,
   "license": "SEE LICENSE IN LICENSE",
+  "packageManager": "yarn@1.22.22",
+  "engines": {
+    "node": ">=24 <25",
+    "yarn": ">=1.22 <2"
+  },
+  "volta": {
+    "node": "24.9.0",
+    "yarn": "1.22.22"
+  },
   "scripts": {
+    "check:node": "node scripts/check-node-version.js",
+    "preinstall": "node scripts/check-node-version.js",
+    "prebuild": "node scripts/check-node-version.js",
+    "prestart": "node scripts/check-node-version.js",
+    "predev": "node scripts/check-node-version.js",
+    "predebug": "node scripts/check-node-version.js",
+    "pretest:all": "node scripts/check-node-version.js",
+    "pretest:watch": "node scripts/check-node-version.js",
+    "pretest:ui": "node scripts/check-node-version.js",
+    "pretest:e2e": "node scripts/check-node-version.js",
     "generate:mongo-fold": "tsx scripts/generate-mongo-fold-text-search.ts",
     "build": "tsc && yarn generate:mongo-fold && cp -r data dist/",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",

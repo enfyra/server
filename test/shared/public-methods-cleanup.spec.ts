@@ -14,6 +14,9 @@ const AUTH_PATHS = new Set([
   '/auth/providers',
   '/auth/:provider',
   '/auth/:provider/callback',
+  '/auth/token/exchange',
+  '/auth/oauth/exchange',
+  '/auth/set-cookies',
 ]);
 
 const PUBLIC_NON_AUTH_PATHS = new Set([
