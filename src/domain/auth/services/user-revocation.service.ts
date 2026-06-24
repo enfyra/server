@@ -3,14 +3,13 @@ import { IRedisPubSub } from '../../shared/interfaces/redis-pubsub.interface';
 import { ICache } from '../../shared/interfaces/cache.interface';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { Logger } from '../../../shared/logger';
-import { userCacheKey } from '../../../shared/utils/load-user-with-role.util';
+import { invalidateCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
 
 const USER_REVOKED_CHANNEL = 'user:revoked';
 
 export class UserRevocationService {
   private readonly logger = new Logger(UserRevocationService.name);
   private readonly redisPubSubService: IRedisPubSub;
-  private readonly cacheService: ICache;
   private readonly queryBuilderService: IQueryBuilder;
 
   constructor(deps: {
@@ -19,7 +18,6 @@ export class UserRevocationService {
     queryBuilderService: IQueryBuilder;
   }) {
     this.redisPubSubService = deps.redisPubSubService;
-    this.cacheService = deps.cacheService;
     this.queryBuilderService = deps.queryBuilderService;
   }
 
@@ -49,7 +47,7 @@ export class UserRevocationService {
   }
 
   private async handleRevocation(userId: unknown): Promise<void> {
-    await this.cacheService.deleteKey(userCacheKey(userId));
+    invalidateCachedUserWithRole(userId);
 
     const isMongoDB = this.queryBuilderService.isMongoDb();
     if (isMongoDB) {

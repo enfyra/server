@@ -16,7 +16,7 @@ import {
 import { PolicyService, isPolicyDeny } from '../../../domain/policy';
 import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
 import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
-import { loadUserWithRole } from '../../../shared/utils/load-user-with-role.util';
+import { loadCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
 
 export class DynamicResolver {
   private readonly queryBuilderService: QueryBuilderService;
@@ -265,7 +265,10 @@ export class DynamicResolver {
     } catch {
       throwGqlError('401', 'Unauthorized');
     }
-    const user = await loadUserWithRole(this.queryBuilderService, decoded.id);
+    const user = await loadCachedUserWithRole(
+      this.queryBuilderService,
+      decoded.id,
+    );
     if (!user) {
       throwGqlError('401', 'Invalid user');
     }

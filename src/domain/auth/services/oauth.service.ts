@@ -13,11 +13,7 @@ import { ICache } from '../../shared/interfaces/cache.interface';
 import { ExecutorEngineService } from '@enfyra/kernel';
 import { resolveExecutableScript } from '../../../shared/utils/script-code.util';
 import { RepoRegistryService } from '../../../engines/cache';
-import {
-  loadUserWithRole,
-  userCacheKey,
-  USER_CACHE_TTL_MS,
-} from '../../../shared/utils/load-user-with-role.util';
+import { primeCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
 import type { OAuthExchangeTokenPayload } from '../types/oauth-exchange-code.types';
 
 type OAuthProvider = 'google' | 'facebook' | 'github';
@@ -430,17 +426,7 @@ export class OAuthService {
       { refreshTokenHash },
     );
 
-    const userForCache = await loadUserWithRole(
-      this.queryBuilderService,
-      userId,
-    );
-    if (userForCache) {
-      await this.cacheService.set(
-        userCacheKey(userId),
-        userForCache,
-        USER_CACHE_TTL_MS,
-      );
-    }
+    await primeCachedUserWithRole(this.queryBuilderService, userId);
 
     const decoded: any = jwt.decode(accessToken);
 
