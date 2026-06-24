@@ -11,7 +11,7 @@ import { StreamHelper } from '../utils/stream.helper';
 import { FileValidationHelper } from '../utils/file-validation.helper';
 import { ImageFormatHelper } from '../utils/image-format.helper';
 import { FileSignatureHelper } from '../utils/file-signature.helper';
-import { loadUserWithRole } from '../../../shared/utils/load-user-with-role.util';
+import { loadCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
 import { EventEmitter2 } from 'eventemitter2';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import type { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
@@ -484,7 +484,7 @@ export class FileAssetsService {
         !isRootAdmin &&
         (!req.user || (!req.user.role && !req.user.roleId))
       ) {
-        req.user = await loadUserWithRole(
+        req.user = await loadCachedUserWithRole(
           this.queryBuilderService,
           currentUserId,
         );

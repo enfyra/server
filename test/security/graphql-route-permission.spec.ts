@@ -3,11 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DynamicResolver } from '../../src/modules/graphql/resolvers/dynamic.resolver';
 
 const mocks = vi.hoisted(() => ({
-  loadUserWithRole: vi.fn(),
+  loadCachedUserWithRole: vi.fn(),
 }));
 
 vi.mock('../../src/shared/utils/load-user-with-role.util', () => ({
-  loadUserWithRole: mocks.loadUserWithRole,
+  loadCachedUserWithRole: mocks.loadCachedUserWithRole,
 }));
 
 function makeResolver(overrides: Record<string, any> = {}) {
@@ -49,6 +49,7 @@ function makeResolver(overrides: Record<string, any> = {}) {
         $params: input.params,
       })),
     },
+    cacheService: {},
     ...overrides,
   } as any);
 
@@ -67,7 +68,7 @@ function authContext() {
 describe('DynamicResolver route permissions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.loadUserWithRole.mockResolvedValue({
+    mocks.loadCachedUserWithRole.mockResolvedValue({
       id: 'user-1',
       role: { id: 'role-user' },
       isRootAdmin: false,

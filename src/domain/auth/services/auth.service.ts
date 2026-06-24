@@ -7,11 +7,7 @@ import * as jwt from 'jsonwebtoken';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { ICache } from '../../shared/interfaces/cache.interface';
 import { BcryptService } from './bcrypt.service';
-import {
-  loadUserWithRole,
-  userCacheKey,
-  USER_CACHE_TTL_MS,
-} from '../../../shared/utils/load-user-with-role.util';
+import { primeCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
 import { parseOrBadRequest } from '../../../shared/utils/zod-parse.util';
 import {
   loginSchema,
@@ -23,7 +19,6 @@ export class AuthService {
   private bcryptService: BcryptService;
   private queryBuilder: IQueryBuilder;
   private envService: EnvService;
-  private cacheService: ICache;
 
   constructor(deps: {
     bcryptService: BcryptService;
@@ -34,18 +29,10 @@ export class AuthService {
     this.bcryptService = deps.bcryptService;
     this.queryBuilder = deps.queryBuilderService;
     this.envService = deps.envService;
-    this.cacheService = deps.cacheService;
   }
 
   private async seedUserCache(userIdForJwt: unknown): Promise<void> {
-    const user = await loadUserWithRole(this.queryBuilder, userIdForJwt);
-    if (user) {
-      await this.cacheService.set(
-        userCacheKey(userIdForJwt),
-        user,
-        USER_CACHE_TTL_MS,
-      );
-    }
+    await primeCachedUserWithRole(this.queryBuilder, userIdForJwt);
   }
 
   private hashToken(token: string): string {

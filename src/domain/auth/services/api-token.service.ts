@@ -9,8 +9,8 @@ import { BadRequestException, UnauthorizedException } from '../../exceptions';
 import { Logger } from '../../../shared/logger';
 import {
   loadUserWithRole,
-  userCacheKey,
-  USER_CACHE_TTL_MS,
+  primeCachedUserWithRole,
+  primeCachedUserSnapshot,
 } from '../../../shared/utils/load-user-with-role.util';
 import { parseOrBadRequest } from '../../../shared/utils/zod-parse.util';
 import {
@@ -172,7 +172,7 @@ export class ApiTokenService {
       userId,
       expiresAt: expiresAt ? expiresAt.toISOString() : null,
     });
-    await this.cacheService.set(userCacheKey(userId), user, USER_CACHE_TTL_MS);
+    primeCachedUserSnapshot(userId, user);
 
     const accessExpiresAtMs = Math.min(
       Date.now() + API_TOKEN_ACCESS_TTL_MS,
@@ -246,10 +246,7 @@ export class ApiTokenService {
   }
 
   private async seedUserCache(userId: unknown): Promise<void> {
-    const user = await loadUserWithRole(this.queryBuilder, userId);
-    if (user) {
-      await this.cacheService.set(userCacheKey(userId), user, USER_CACHE_TTL_MS);
-    }
+    await primeCachedUserWithRole(this.queryBuilder, userId);
   }
 
   private hashToken(token: string): string {
