@@ -12,7 +12,7 @@ function makeQueryBuilder() {
           mimetype: 'text/plain',
           type: 'document',
           location: '/uploads/asset.txt',
-          isPublished: true,
+          isPublic: true,
           storageConfig: null,
         },
       ],

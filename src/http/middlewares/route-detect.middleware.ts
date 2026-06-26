@@ -162,7 +162,7 @@ export function routeDetectMiddleware(
         params,
         preHooks: filteredPreHooks,
         postHooks: filteredPostHooks,
-        isPublished:
+        isPublic:
           route.publicMethods?.some(
             (pubMethod: any) => pubMethod.name === req.method,
           ) || false,

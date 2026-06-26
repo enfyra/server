@@ -252,7 +252,7 @@ export class UploadFileHelper {
               title: options.title,
               description: options.description,
               status: options.status,
-              isPublished: options.isPublished,
+              isPublic: options.isPublic,
             },
           );
         }
@@ -267,7 +267,7 @@ export class UploadFileHelper {
             title: options.title,
             description: options.description,
             status: options.status,
-            isPublished: options.isPublished,
+            isPublic: options.isPublic,
           },
         );
       } catch (error: any) {

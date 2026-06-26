@@ -21,7 +21,11 @@ import {
   hasSchemaMigrations,
   loadSnapshotMigrationFile,
 } from '../utils/metadata-migration.util';
-import { SYSTEM_TABLES } from '../../../shared/utils/system-tables.constants';
+import {
+  CORE_SYSTEM_TABLES,
+  LEGACY_CORE_SYSTEM_TABLES,
+  SYSTEM_TABLES,
+} from '../../../shared/utils/system-tables.constants';
 import { MetadataPhysicalMigrationHelper } from '../utils/metadata-physical-migration.util';
 
 export class MetadataMigrationService {
@@ -30,6 +34,8 @@ export class MetadataMigrationService {
   private readonly systemCoreTableResolver: SystemCoreTableResolver;
   private readonly physicalMigration: MetadataPhysicalMigrationHelper;
   private migrations: SchemaMigrationDef | null = null;
+  private readonly sqlCoreTableIdRemap = new Map<string, any>();
+  private readonly mongoCoreTableIdRemap = new Map<string, any>();
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
@@ -188,8 +194,9 @@ export class MetadataMigrationService {
       const oldExists = await knex.schema.hasTable(rename.from);
       const newExists = await knex.schema.hasTable(rename.to);
       if (oldExists && newExists) {
-        throw new Error(
-          `Cannot rename core system table ${rename.from} to ${rename.to}: both physical tables exist`,
+        await this.reconcileSqlCoreTableOverlap(rename);
+        this.verbose(
+          `  Core SQL table overlap detected: ${rename.from} and ${rename.to} both exist; continuing with canonical ${rename.to}`,
         );
       }
     }
@@ -223,8 +230,9 @@ export class MetadataMigrationService {
         rename.to,
       );
       if (oldExists && newExists) {
-        throw new Error(
-          `Cannot rename core system collection ${rename.from} to ${rename.to}: both collections exist`,
+        await this.reconcileMongoCoreTableOverlap(rename);
+        this.verbose(
+          `  Core Mongo collection overlap detected: ${rename.from} and ${rename.to} both exist; continuing with canonical ${rename.to}`,
         );
       }
     }
@@ -245,12 +253,7 @@ export class MetadataMigrationService {
     }
 
     for (const rename of validRenames) {
-      await db
-        .collection(SYSTEM_TABLES.table)
-        .updateOne(
-          { name: rename.from },
-          { $set: { name: rename.to, updatedAt: new Date() } },
-        );
+      await this.renameMongoTableMetadataRow(SYSTEM_TABLES.table, rename);
       await this.updateMongoCanonicalRoutePath(rename);
     }
   }
@@ -261,8 +264,9 @@ export class MetadataMigrationService {
     const newExists = await knex.schema.hasTable(rename.to);
 
     if (oldExists && newExists) {
-      throw new Error(
-        `Cannot rename system table ${rename.from} to ${rename.to}: both physical tables exist`,
+      await this.reconcileSqlTableOverlap(rename);
+      this.verbose(
+        `  SQL table overlap detected: ${rename.from} and ${rename.to} both exist; continuing with canonical ${rename.to}`,
       );
     }
 
@@ -298,8 +302,9 @@ export class MetadataMigrationService {
     );
 
     if (oldExists && newExists) {
-      throw new Error(
-        `Cannot rename system collection ${rename.from} to ${rename.to}: both collections exist`,
+      await this.reconcileMongoTableOverlap(rename);
+      this.verbose(
+        `  Mongo collection overlap detected: ${rename.from} and ${rename.to} both exist; continuing with canonical ${rename.to}`,
       );
     }
 
@@ -317,12 +322,11 @@ export class MetadataMigrationService {
 
     const tableStoreAfter =
       await this.systemCoreTableResolver.getTableName('table');
-    await db
-      .collection(tableStoreAfter)
-      .updateOne(
-        tableRecord?._id ? { _id: tableRecord._id } : { name: rename.from },
-        { $set: { name: rename.to, updatedAt: new Date() } },
-      );
+    await this.renameMongoTableMetadataRow(
+      tableStoreAfter,
+      rename,
+      tableRecord?._id,
+    );
   }
 
   private async findSqlTableRecord(
@@ -334,6 +338,674 @@ export class MetadataMigrationService {
     return knex(tableStore).where({ name: tableName }).first();
   }
 
+  private getCoreMetadataRowKey(
+    rename: TableRenameDef,
+    row: any,
+  ): string | null {
+    const tableName = rename.to || rename.from;
+    if (tableName === SYSTEM_TABLES.table || tableName === 'table_definition') {
+      return row?.name
+        ? `table:${this.normalizeCoreTableName(row.name)}`
+        : null;
+    }
+
+    if (
+      tableName === SYSTEM_TABLES.column ||
+      tableName === 'column_definition'
+    ) {
+      const owner = this.remapCoreTableId(rename, row?.tableId ?? row?.table);
+      const name = row?.name;
+      return owner !== undefined && owner !== null && name
+        ? `column:${String(owner)}:${name}`
+        : null;
+    }
+
+    if (
+      tableName === SYSTEM_TABLES.relation ||
+      tableName === 'relation_definition'
+    ) {
+      const owner = this.remapCoreTableId(
+        rename,
+        row?.sourceTableId ?? row?.sourceTable,
+      );
+      const propertyName = row?.propertyName;
+      return owner !== undefined && owner !== null && propertyName
+        ? `relation:${String(owner)}:${propertyName}`
+        : null;
+    }
+
+    if (row?.name) return `name:${row.name}`;
+    if (row?.propertyName) return `property:${row.propertyName}`;
+    return null;
+  }
+
+  private normalizeCoreTableName(tableName: string): string {
+    const entries = Object.entries(LEGACY_CORE_SYSTEM_TABLES) as Array<
+      [keyof typeof LEGACY_CORE_SYSTEM_TABLES, string]
+    >;
+    const matched = entries.find(([, legacyName]) => legacyName === tableName);
+    return matched ? CORE_SYSTEM_TABLES[matched[0]] : tableName;
+  }
+
+  private remapCoreTableId(rename: TableRenameDef, value: any): any {
+    if (value === undefined || value === null) return value;
+    const tableName = rename.to || rename.from;
+    if (
+      tableName !== SYSTEM_TABLES.column &&
+      tableName !== 'column_definition' &&
+      tableName !== SYSTEM_TABLES.relation &&
+      tableName !== 'relation_definition'
+    ) {
+      return value;
+    }
+
+    const map = this.queryBuilderService.isMongoDb()
+      ? this.mongoCoreTableIdRemap
+      : this.sqlCoreTableIdRemap;
+    return map.get(String(value)) ?? value;
+  }
+
+  private async getSqlOverlapColumns(
+    oldTable: string,
+    newTable: string,
+  ): Promise<string[]> {
+    const knex = this.queryBuilderService.getKnex();
+    const [oldInfo, newInfo] = await Promise.all([
+      knex(oldTable).columnInfo(),
+      knex(newTable).columnInfo(),
+    ]);
+    return Object.keys(oldInfo).filter((column) => column in newInfo);
+  }
+
+  private async getSqlMergedColumns(
+    oldTable: string,
+    newTable: string,
+  ): Promise<string[]> {
+    const knex = this.queryBuilderService.getKnex();
+    const [oldInfo, newInfo] = await Promise.all([
+      knex(oldTable).columnInfo(),
+      knex(newTable).columnInfo(),
+    ]);
+    const missingColumns = Object.keys(oldInfo).filter(
+      (column) => !(column in newInfo),
+    );
+    if (missingColumns.length > 0) {
+      await this.addMissingSqlColumns(newTable, oldInfo, missingColumns);
+    }
+    const refreshedNewInfo = await knex(newTable).columnInfo();
+    return Object.keys(oldInfo).filter((column) => column in refreshedNewInfo);
+  }
+
+  private async addMissingSqlColumns(
+    tableName: string,
+    sourceInfo: Record<string, any>,
+    columns: string[],
+  ): Promise<void> {
+    const knex = this.queryBuilderService.getKnex();
+    await knex.schema.alterTable(tableName, (table: any) => {
+      for (const column of columns) {
+        table.specificType(
+          column,
+          this.getPortableSqlColumnType(sourceInfo[column]),
+        );
+      }
+    });
+    this.verbose(
+      `  Added ${columns.length} legacy column(s) to ${tableName} before overlap merge`,
+    );
+  }
+
+  private getPortableSqlColumnType(columnInfo: any): string {
+    const type = String(columnInfo?.type || '').toLowerCase();
+    const maxLength = Number(
+      columnInfo?.maxLength || columnInfo?.characterMaximumLength || 0,
+    );
+
+    if (!type) return 'text';
+    if (type.includes('bigint')) return 'bigint';
+    if (type.includes('int')) return 'integer';
+    if (type.includes('bool') || type === 'tinyint(1)') return 'boolean';
+    if (type.includes('double')) return 'double precision';
+    if (type.includes('float')) return 'float';
+    if (type.includes('decimal') || type.includes('numeric')) return 'decimal';
+    if (type.includes('jsonb')) return 'jsonb';
+    if (type.includes('json')) return 'json';
+    if (type.includes('timestamp')) return 'timestamp';
+    if (type === 'date') return 'date';
+    if (type.includes('time')) return 'time';
+    if (type.includes('uuid')) return 'uuid';
+    if (type.includes('text')) return 'text';
+    if (type.includes('char'))
+      return `varchar(${maxLength > 0 ? maxLength : 255})`;
+    return 'text';
+  }
+
+  private getOverlapRowKey(
+    rename: TableRenameDef,
+    row: any,
+    columns: string[],
+  ): string | null {
+    const logicalKey = this.getCoreMetadataRowKey(rename, row);
+    if (logicalKey) return logicalKey;
+
+    if ('id' in row && columns.includes('id') && row.id != null)
+      return `id:${row.id}`;
+    if ('_id' in row && columns.includes('_id') && row._id != null)
+      return `_id:${row._id}`;
+
+    if (rename.mergeKeys?.length) {
+      const values = rename.mergeKeys.map((column) => row?.[column]);
+      if (
+        rename.mergeKeys.every((column) => columns.includes(column)) &&
+        values.every((value) => value !== undefined && value !== null)
+      ) {
+        return `merge:${rename.mergeKeys
+          .map((column, index) => `${column}:${String(values[index])}`)
+          .join('|')}`;
+      }
+    }
+
+    return null;
+  }
+
+  private projectRowToColumns(row: any, columns: string[]): any {
+    return Object.fromEntries(
+      columns
+        .filter((column) => row[column] !== undefined)
+        .map((column) => [column, row[column]]),
+    );
+  }
+
+  private rowsConflict(left: any, right: any, columns: string[]): boolean {
+    return columns.some((column) => {
+      if (
+        left?.[column] === undefined ||
+        right?.[column] === undefined ||
+        right?.[column] === null ||
+        column === 'createdAt' ||
+        column === 'updatedAt'
+      ) {
+        return false;
+      }
+      return JSON.stringify(left[column]) !== JSON.stringify(right[column]);
+    });
+  }
+
+  private findRowByOverlapKey(
+    rename: TableRenameDef,
+    rows: any[],
+    key: string,
+    columns: string[],
+  ): any | null {
+    return (
+      rows.find((row) => this.getOverlapRowKey(rename, row, columns) === key) ??
+      null
+    );
+  }
+
+  private getMissingRowValues(
+    legacyRow: any,
+    canonicalRow: any,
+    columns: string[],
+  ): Record<string, any> {
+    return Object.fromEntries(
+      columns
+        .filter(
+          (column) =>
+            column !== 'id' &&
+            column !== '_id' &&
+            column !== 'createdAt' &&
+            column !== 'updatedAt' &&
+            legacyRow?.[column] !== undefined &&
+            (canonicalRow?.[column] === undefined ||
+              canonicalRow?.[column] === null),
+        )
+        .map((column) => [column, legacyRow[column]]),
+    );
+  }
+
+  private getRowIdentityFilter(
+    rename: TableRenameDef,
+    row: any,
+  ): Record<string, any> | null {
+    if (row?.id !== undefined && row.id !== null) return { id: row.id };
+    if (row?._id !== undefined && row._id !== null) return { _id: row._id };
+    if (rename.mergeKeys?.length) {
+      const entries = rename.mergeKeys
+        .map((column) => [column, row?.[column]])
+        .filter(([, value]) => value !== undefined && value !== null);
+      if (entries.length === rename.mergeKeys.length) {
+        return Object.fromEntries(entries);
+      }
+    }
+    return null;
+  }
+
+  private projectCoreRowToColumns(
+    rename: TableRenameDef,
+    row: any,
+    columns: string[],
+  ): any {
+    const projected = this.projectRowToColumns(row, columns);
+    const tableName = rename.to || rename.from;
+    if (
+      (tableName === SYSTEM_TABLES.table || tableName === 'table_definition') &&
+      typeof projected.name === 'string'
+    ) {
+      projected.name = this.normalizeCoreTableName(projected.name);
+    }
+    if (
+      tableName === SYSTEM_TABLES.column ||
+      tableName === 'column_definition'
+    ) {
+      if ('tableId' in projected)
+        projected.tableId = this.remapCoreTableId(rename, projected.tableId);
+      if ('table' in projected)
+        projected.table = this.remapCoreTableId(rename, projected.table);
+    }
+    if (
+      tableName === SYSTEM_TABLES.relation ||
+      tableName === 'relation_definition'
+    ) {
+      if ('sourceTableId' in projected) {
+        projected.sourceTableId = this.remapCoreTableId(
+          rename,
+          projected.sourceTableId,
+        );
+      }
+      if ('targetTableId' in projected) {
+        projected.targetTableId = this.remapCoreTableId(
+          rename,
+          projected.targetTableId,
+        );
+      }
+      if ('sourceTable' in projected) {
+        projected.sourceTable = this.remapCoreTableId(
+          rename,
+          projected.sourceTable,
+        );
+      }
+      if ('targetTable' in projected) {
+        projected.targetTable = this.remapCoreTableId(
+          rename,
+          projected.targetTable,
+        );
+      }
+    }
+    return projected;
+  }
+
+  private isCoreTableMetadataStore(rename: TableRenameDef): boolean {
+    const tableName = rename.to || rename.from;
+    return (
+      tableName === SYSTEM_TABLES.table || tableName === 'table_definition'
+    );
+  }
+
+  private trackCanonicalCoreTableId(rename: TableRenameDef, row: any): void {
+    if (!this.isCoreTableMetadataStore(rename) || !row?.name) return;
+    const id = row.id ?? row._id;
+    if (id === undefined || id === null) return;
+    const map = this.queryBuilderService.isMongoDb()
+      ? this.mongoCoreTableIdRemap
+      : this.sqlCoreTableIdRemap;
+    map.set(String(id), id);
+  }
+
+  private trackExistingCoreRowRemap(
+    rename: TableRenameDef,
+    legacyRow: any,
+    canonicalRows: any[],
+  ): void {
+    if (!this.isCoreTableMetadataStore(rename) || !legacyRow?.name) return;
+    const legacyId = legacyRow.id ?? legacyRow._id;
+    if (legacyId === undefined || legacyId === null) return;
+    const normalizedName = this.normalizeCoreTableName(legacyRow.name);
+    const canonicalRow = canonicalRows.find(
+      (row) => row?.name === normalizedName,
+    );
+    const canonicalId = canonicalRow?.id ?? canonicalRow?._id;
+    if (canonicalId === undefined || canonicalId === null) return;
+    const map = this.queryBuilderService.isMongoDb()
+      ? this.mongoCoreTableIdRemap
+      : this.sqlCoreTableIdRemap;
+    map.set(String(legacyId), canonicalId);
+  }
+
+  private sqlProjectedIdConflicts(
+    projected: any,
+    canonicalRows: any[],
+  ): boolean {
+    if (projected?.id === undefined || projected.id === null) return false;
+    return canonicalRows.some((row) => row?.id === projected.id);
+  }
+
+  private mongoProjectedIdConflicts(
+    projected: any,
+    canonicalRows: any[],
+  ): boolean {
+    if (projected?._id === undefined || projected._id === null) return false;
+    return canonicalRows.some(
+      (row) => String(row?._id) === String(projected._id),
+    );
+  }
+
+  private async trackInsertedSqlCoreRowRemap(
+    rename: TableRenameDef,
+    legacyRow: any,
+    projected: any,
+  ): Promise<void> {
+    if (!this.isCoreTableMetadataStore(rename)) return;
+    const legacyId = legacyRow?.id;
+    if (legacyId === undefined || legacyId === null) return;
+    let canonicalId = projected?.id;
+    if (
+      (canonicalId === undefined || canonicalId === null) &&
+      projected?.name
+    ) {
+      const inserted = await this.queryBuilderService
+        .getKnex()(rename.to)
+        .where({ name: projected.name })
+        .first();
+      canonicalId = inserted?.id;
+    }
+    if (canonicalId === undefined || canonicalId === null) return;
+    this.sqlCoreTableIdRemap.set(String(legacyId), canonicalId);
+  }
+
+  private async trackInsertedMongoCoreRowRemap(
+    rename: TableRenameDef,
+    legacyRow: any,
+    projected: any,
+  ): Promise<void> {
+    if (!this.isCoreTableMetadataStore(rename)) return;
+    const legacyId = legacyRow?._id;
+    if (legacyId === undefined || legacyId === null) return;
+    let canonicalId = projected?._id;
+    if (
+      (canonicalId === undefined || canonicalId === null) &&
+      projected?.name
+    ) {
+      const inserted = await this.getMongoDb()!
+        .collection(rename.to)
+        .findOne({ name: projected.name });
+      canonicalId = inserted?._id;
+    }
+    if (canonicalId === undefined || canonicalId === null) return;
+    this.mongoCoreTableIdRemap.set(String(legacyId), canonicalId);
+  }
+
+  private async reconcileSqlCoreTableOverlap(
+    rename: TableRenameDef,
+  ): Promise<void> {
+    const knex = this.queryBuilderService.getKnex();
+    const columns = await this.getSqlMergedColumns(rename.from, rename.to);
+    const [legacyRows, canonicalRows] = await Promise.all([
+      knex(rename.from).select(columns),
+      knex(rename.to).select(columns),
+    ]);
+
+    const canonicalKeys = new Set<string>();
+    for (const row of canonicalRows) {
+      this.trackCanonicalCoreTableId(rename, row);
+      const key = this.getOverlapRowKey(rename, row, columns);
+      if (key !== null && key !== undefined) canonicalKeys.add(key);
+    }
+    const occupiedIds = new Set(
+      canonicalRows
+        .map((row: any) => row?.id)
+        .filter((id: any) => id !== undefined && id !== null)
+        .map((id: any) => String(id)),
+    );
+    const rowsToInsert = legacyRows.filter((row: any) => {
+      const key = this.getOverlapRowKey(rename, row, columns);
+      if (key === null || key === undefined) return false;
+      if (canonicalKeys.has(key)) {
+        this.trackExistingCoreRowRemap(rename, row, canonicalRows);
+        return false;
+      }
+      return true;
+    });
+
+    let insertedCount = 0;
+    for (const row of rowsToInsert) {
+      const projected = this.projectCoreRowToColumns(rename, row, columns);
+      if (
+        projected?.id !== undefined &&
+        projected?.id !== null &&
+        occupiedIds.has(String(projected.id))
+      ) {
+        delete projected.id;
+      }
+      await knex(rename.to).insert(projected);
+      insertedCount += 1;
+      await this.trackInsertedSqlCoreRowRemap(rename, row, projected);
+      const insertedId =
+        projected?.id ??
+        (projected?.name
+          ? (await knex(rename.to).where({ name: projected.name }).first())?.id
+          : undefined);
+      if (insertedId !== undefined && insertedId !== null) {
+        occupiedIds.add(String(insertedId));
+      }
+    }
+
+    if (insertedCount > 0) {
+      this.verbose(
+        `  Copied ${insertedCount} missing core metadata row(s) from ${rename.from} to ${rename.to}`,
+      );
+    }
+  }
+
+  private async reconcileSqlTableOverlap(
+    rename: TableRenameDef,
+  ): Promise<void> {
+    const knex = this.queryBuilderService.getKnex();
+    const columns = await this.getSqlMergedColumns(rename.from, rename.to);
+    const [legacyRows, canonicalRows] = await Promise.all([
+      knex(rename.from).select(columns),
+      knex(rename.to).select(columns),
+    ]);
+    const canonicalKeys = new Set<string>();
+    const occupiedIds = new Set<string>();
+    for (const row of canonicalRows) {
+      const key = this.getOverlapRowKey(rename, row, columns);
+      if (key) canonicalKeys.add(key);
+      if (row?.id !== undefined && row.id !== null) {
+        occupiedIds.add(String(row.id));
+      }
+    }
+
+    let insertedCount = 0;
+    let conflictCount = 0;
+    let skippedCount = 0;
+    let updatedCount = 0;
+    for (const row of legacyRows) {
+      const key = this.getOverlapRowKey(rename, row, columns);
+      if (!key) {
+        skippedCount += 1;
+        continue;
+      }
+      if (canonicalKeys.has(key)) {
+        const canonicalRow = this.findRowByOverlapKey(
+          rename,
+          canonicalRows,
+          key,
+          columns,
+        );
+        if (canonicalRow && this.rowsConflict(row, canonicalRow, columns)) {
+          conflictCount += 1;
+        }
+        if (canonicalRow) {
+          const missingValues = this.getMissingRowValues(
+            row,
+            canonicalRow,
+            columns,
+          );
+          const filter = this.getRowIdentityFilter(rename, canonicalRow);
+          if (filter && Object.keys(missingValues).length > 0) {
+            await knex(rename.to).where(filter).update(missingValues);
+            Object.assign(canonicalRow, missingValues);
+            updatedCount += 1;
+          }
+        }
+        continue;
+      }
+      const projected = this.projectRowToColumns(row, columns);
+      if (
+        projected?.id !== undefined &&
+        projected?.id !== null &&
+        occupiedIds.has(String(projected.id))
+      ) {
+        delete projected.id;
+      }
+      await knex(rename.to).insert(projected);
+      insertedCount += 1;
+      canonicalKeys.add(key);
+      if (projected?.id !== undefined && projected.id !== null) {
+        occupiedIds.add(String(projected.id));
+      }
+    }
+    this.verbose(
+      `  SQL table overlap reconciled for ${rename.from} → ${rename.to}: copied ${insertedCount}, updated ${updatedCount}, conflicts ${conflictCount}, skipped ${skippedCount}`,
+    );
+  }
+
+  private async reconcileMongoCoreTableOverlap(
+    rename: TableRenameDef,
+  ): Promise<void> {
+    const db = this.getMongoDb()!;
+    const [legacyRows, canonicalRows] = await Promise.all([
+      db.collection(rename.from).find({}).toArray(),
+      db.collection(rename.to).find({}).toArray(),
+    ]);
+
+    const canonicalKeys = new Set<string>();
+    for (const row of canonicalRows) {
+      this.trackCanonicalCoreTableId(rename, row);
+      const key = this.getCoreMetadataRowKey(rename, row);
+      if (key !== null && key !== undefined) canonicalKeys.add(key);
+    }
+    const rowsToInsert = legacyRows.filter((row) => {
+      const key = this.getCoreMetadataRowKey(rename, row);
+      if (key === null || key === undefined) return false;
+      if (canonicalKeys.has(key)) {
+        this.trackExistingCoreRowRemap(rename, row, canonicalRows);
+        return false;
+      }
+      return true;
+    });
+
+    const projectedRows = rowsToInsert.map((row) => {
+      const projected = this.projectCoreRowToColumns(
+        rename,
+        row,
+        Object.keys(row),
+      );
+      if (this.mongoProjectedIdConflicts(projected, canonicalRows)) {
+        delete projected._id;
+      }
+      return projected;
+    });
+
+    if (projectedRows.length > 0) {
+      await db.collection(rename.to).insertMany(projectedRows);
+      for (let index = 0; index < rowsToInsert.length; index += 1) {
+        await this.trackInsertedMongoCoreRowRemap(
+          rename,
+          rowsToInsert[index],
+          projectedRows[index],
+        );
+      }
+      this.verbose(
+        `  Copied ${projectedRows.length} missing core metadata row(s) from ${rename.from} to ${rename.to}`,
+      );
+    }
+  }
+
+  private async reconcileMongoTableOverlap(
+    rename: TableRenameDef,
+  ): Promise<void> {
+    const db = this.getMongoDb()!;
+    const [legacyRows, canonicalRows] = await Promise.all([
+      db.collection(rename.from).find({}).toArray(),
+      db.collection(rename.to).find({}).toArray(),
+    ]);
+    const columns = [
+      ...new Set([
+        ...legacyRows.flatMap((row) => Object.keys(row)),
+        ...canonicalRows.flatMap((row) => Object.keys(row)),
+      ]),
+    ];
+    const canonicalKeys = new Set<string>();
+    const occupiedIds = new Set<string>();
+    for (const row of canonicalRows) {
+      const key = this.getOverlapRowKey(rename, row, columns);
+      if (key) canonicalKeys.add(key);
+      if (row?._id !== undefined && row._id !== null) {
+        occupiedIds.add(String(row._id));
+      }
+    }
+
+    let conflictCount = 0;
+    let skippedCount = 0;
+    let updatedCount = 0;
+    const rowsToInsert: any[] = [];
+    for (const row of legacyRows) {
+      const key = this.getOverlapRowKey(rename, row, columns);
+      if (!key) {
+        skippedCount += 1;
+        continue;
+      }
+      if (canonicalKeys.has(key)) {
+        const canonicalRow = this.findRowByOverlapKey(
+          rename,
+          canonicalRows,
+          key,
+          columns,
+        );
+        if (canonicalRow && this.rowsConflict(row, canonicalRow, columns)) {
+          conflictCount += 1;
+        }
+        if (canonicalRow) {
+          const missingValues = this.getMissingRowValues(
+            row,
+            canonicalRow,
+            columns,
+          );
+          const filter = this.getRowIdentityFilter(rename, canonicalRow);
+          if (filter && Object.keys(missingValues).length > 0) {
+            await db
+              .collection(rename.to)
+              .updateOne(filter, { $set: missingValues });
+            Object.assign(canonicalRow, missingValues);
+            updatedCount += 1;
+          }
+        }
+        continue;
+      }
+      const projected = this.projectRowToColumns(row, columns);
+      if (
+        projected?._id !== undefined &&
+        projected?._id !== null &&
+        occupiedIds.has(String(projected._id))
+      ) {
+        delete projected._id;
+      }
+      rowsToInsert.push(projected);
+      canonicalKeys.add(key);
+      if (projected?._id !== undefined && projected._id !== null) {
+        occupiedIds.add(String(projected._id));
+      }
+    }
+    if (rowsToInsert.length > 0) {
+      await db.collection(rename.to).insertMany(rowsToInsert);
+    }
+    this.verbose(
+      `  Mongo collection overlap reconciled for ${rename.from} → ${rename.to}: copied ${rowsToInsert.length}, updated ${updatedCount}, conflicts ${conflictCount}, skipped ${skippedCount}`,
+    );
+  }
+
   private async renameSqlTableMetadataRow(
     tableStore: string,
     rename: TableRenameDef,
@@ -341,10 +1013,29 @@ export class MetadataMigrationService {
   ): Promise<void> {
     const knex = this.queryBuilderService.getKnex();
     if (!(await knex.schema.hasTable(tableStore))) return;
+    const targetRow = await knex(tableStore).where({ name: rename.to }).first();
+    if (targetRow) return;
     const query = tableId
       ? knex(tableStore).where({ id: tableId })
       : knex(tableStore).where({ name: rename.from });
     await query.update({ name: rename.to });
+  }
+
+  private async renameMongoTableMetadataRow(
+    tableStore: string,
+    rename: TableRenameDef,
+    tableId?: any,
+  ): Promise<void> {
+    const db = this.getMongoDb()!;
+    const targetRow = await db
+      .collection(tableStore)
+      .findOne({ name: rename.to });
+    if (targetRow) return;
+
+    const filter = tableId ? { _id: tableId } : { name: rename.from };
+    await db.collection(tableStore).updateOne(filter, {
+      $set: { name: rename.to, updatedAt: new Date() },
+    });
   }
 
   private async updateSqlCanonicalRoutePath(

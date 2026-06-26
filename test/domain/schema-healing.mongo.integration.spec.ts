@@ -11,7 +11,9 @@ const DB_NAME = `test_schema_healing_mongo_${Date.now()}`;
 
 async function probeMongo(): Promise<boolean> {
   try {
-    const client = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 2000 });
+    const client = new MongoClient(MONGO_URI, {
+      serverSelectionTimeoutMS: 2000,
+    });
     await client.connect();
     await client.close();
     return true;
@@ -35,6 +37,17 @@ function makeTableMetadata(name: string) {
       },
     ],
     relations: [],
+  };
+}
+
+function makeCoreTableResolver() {
+  return {
+    getNames: async () => ({
+      table: 'enfyra_table',
+      column: 'enfyra_column',
+      relation: 'enfyra_relation',
+    }),
+    getTableName: async (key: string) => `enfyra_${key}`,
   };
 }
 
@@ -62,7 +75,9 @@ describe('SchemaHealingService Mongo integration', () => {
 
   test('repairs persisted Mongo primary key metadata through real Mongo query builder', async () => {
     if (!available || !db) {
-      console.warn('MongoDB not available, skipping real DB schema healing test');
+      console.warn(
+        'MongoDB not available, skipping real DB schema healing test',
+      );
       return;
     }
 
@@ -94,10 +109,12 @@ describe('SchemaHealingService Mongo integration', () => {
         getDb: () => db,
         collection: (name: string) => db.collection(name),
         updateOne: async (collectionName: string, id: string, data: any) =>
-          db.collection(collectionName).updateOne(
-            { _id: typeof id === 'string' ? new ObjectId(id) : id },
-            { $set: data },
-          ),
+          db
+            .collection(collectionName)
+            .updateOne(
+              { _id: typeof id === 'string' ? new ObjectId(id) : id },
+              { $set: data },
+            ),
         processNestedRelations: async (_tableName: string, data: any) => data,
         applyUpdateTimestamp: (data: any) => data,
       },
@@ -119,6 +136,7 @@ describe('SchemaHealingService Mongo integration', () => {
     const service = new SchemaHealingService({
       queryBuilderService,
       metadataCacheService: metadataCacheService as any,
+      systemCoreTableResolver: makeCoreTableResolver() as any,
     });
 
     await service.runIfNeeded();
@@ -137,7 +155,9 @@ describe('SchemaHealingService Mongo integration', () => {
 
   test('heals legacy Mongo junction metadata and merges existing legacy collection data', async () => {
     if (!available || !db) {
-      console.warn('MongoDB not available, skipping real DB schema healing test');
+      console.warn(
+        'MongoDB not available, skipping real DB schema healing test',
+      );
       return;
     }
 
@@ -145,8 +165,7 @@ describe('SchemaHealingService Mongo integration', () => {
     await db.collection('enfyra_table').deleteMany({});
     await db.collection('enfyra_relation').deleteMany({});
 
-    const oldCollectionName =
-      'enfyra_route_availableMethods_enfyra_method';
+    const oldCollectionName = 'enfyra_route_availableMethods_enfyra_method';
     try {
       await db.collection(oldCollectionName).drop();
     } catch {}
@@ -233,6 +252,7 @@ describe('SchemaHealingService Mongo integration', () => {
     const service = new SchemaHealingService({
       queryBuilderService,
       metadataCacheService: { getAllTablesMetadata: async () => [] } as any,
+      systemCoreTableResolver: makeCoreTableResolver() as any,
     });
 
     await service.runIfNeeded();
@@ -278,7 +298,9 @@ describe('SchemaHealingService Mongo integration', () => {
 
   test('drops orphan legacy Mongo junction collection when metadata already uses standard contract', async () => {
     if (!available || !db) {
-      console.warn('MongoDB not available, skipping real DB schema healing test');
+      console.warn(
+        'MongoDB not available, skipping real DB schema healing test',
+      );
       return;
     }
 
@@ -286,8 +308,7 @@ describe('SchemaHealingService Mongo integration', () => {
     await db.collection('enfyra_table').deleteMany({});
     await db.collection('enfyra_relation').deleteMany({});
 
-    const oldCollectionName =
-      'enfyra_route_availableMethods_enfyra_method';
+    const oldCollectionName = 'enfyra_route_availableMethods_enfyra_method';
     try {
       await db.collection(oldCollectionName).drop();
     } catch {}
@@ -372,6 +393,7 @@ describe('SchemaHealingService Mongo integration', () => {
     const service = new SchemaHealingService({
       queryBuilderService,
       metadataCacheService: { getAllTablesMetadata: async () => [] } as any,
+      systemCoreTableResolver: makeCoreTableResolver() as any,
     });
 
     await service.runIfNeeded();

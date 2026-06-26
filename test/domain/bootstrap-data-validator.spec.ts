@@ -19,6 +19,31 @@ describe('validateBootstrapDataFiles', () => {
     expect(issues).toEqual([]);
   });
 
+  it('migrates static admin routes into route metadata', () => {
+    const dataMigration = loadJson('data-migration.json');
+    const routes = dataMigration.enfyra_route ?? [];
+    const paths = new Set(
+      routes.map((route: any) => route._unique?.path?._eq ?? route.path),
+    );
+
+    expect([...paths]).toEqual(
+      expect.arrayContaining([
+        '/admin/script/validate',
+        '/admin/test/run',
+        '/admin/flow/trigger/:id',
+        '/admin/reload',
+        '/admin/reload/metadata',
+        '/admin/reload/routes',
+        '/admin/reload/graphql',
+        '/admin/reload/guards',
+        '/admin/redis/overview',
+        '/admin/redis/keys',
+        '/admin/redis/key',
+        '/admin/redis/key/ttl',
+      ]),
+    );
+  });
+
   it('reports unknown route mainTable and method names', () => {
     const issues = validateBootstrapDataFiles({
       snapshot: {

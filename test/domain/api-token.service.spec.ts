@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as jwt from 'jsonwebtoken';
 import { ApiTokenService } from '../../src/domain/auth';
 
@@ -81,6 +81,12 @@ function createHarness() {
 }
 
 describe('ApiTokenService', () => {
+  const now = new Date('2026-01-01T00:00:00.000Z');
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('creates a token with the exact never-expiry contract', async () => {
     const { service, req } = createHarness();
 
@@ -110,6 +116,8 @@ describe('ApiTokenService', () => {
   });
 
   it('exchanges a valid API token into a JWT tied to the token record', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
     const { service, req, userId } = createHarness();
     const created = await service.create(
       {
@@ -125,7 +133,29 @@ describe('ApiTokenService', () => {
     expect(decoded.id).toBe(userId);
     expect(decoded.tokenType).toBe('api_token');
     expect(decoded.tokenId).toBe(created.id);
+    expect(decoded.exp).toBe(Math.floor((now.getTime() + 60_000) / 1000));
+    expect(exchanged.expTime).toBe(decoded.exp! * 1000);
     await expect(service.validateAccessPayload(decoded)).resolves.toBe(true);
+  });
+
+  it('caps exchanged JWT expiry to the API token expiry when sooner than the access TTL', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const { service, req } = createHarness();
+    const expiresAt = new Date(now.getTime() + 30_000);
+    const created = await service.create(
+      {
+        name: 'Short MCP token',
+        expiresAt: expiresAt.toISOString(),
+      },
+      req,
+    );
+
+    const exchanged = await service.exchange({ apiToken: created.token });
+    const decoded = jwt.decode(exchanged.accessToken) as jwt.JwtPayload;
+
+    expect(decoded.exp).toBe(Math.floor(expiresAt.getTime() / 1000));
+    expect(exchanged.expTime).toBe(decoded.exp! * 1000);
   });
 
   it('hard-deletes revoked tokens and invalidates their cached access state', async () => {

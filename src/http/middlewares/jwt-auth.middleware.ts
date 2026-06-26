@@ -7,14 +7,13 @@ import {
 import { QueryBuilderService } from '@enfyra/kernel';
 import { CacheService } from '../../engines/cache';
 import {
-  loadUserWithRole,
-  userCacheKey,
-  USER_CACHE_TTL_MS,
+  loadCachedUserWithRole,
+  withUserRequestContext,
 } from '../../shared/utils/load-user-with-role.util';
 import type { ApiTokenService } from '../../domain/auth';
 
-function isPublishedRequest(req: any): boolean {
-  if (req.routeData?.isPublished === true) return true;
+function isPublicRequest(req: any): boolean {
+  if (req.routeData?.isPublic === true) return true;
   return (
     req.routeData?.publicMethods?.some(
       (method: any) => method?.name === req.method || method === req.method,
@@ -31,7 +30,7 @@ function setAnonymousUser(req: any): void {
 
 export function jwtAuthMiddleware(
   queryBuilderService: QueryBuilderService,
-  cacheService: CacheService,
+  _cacheService: CacheService,
   secretKey: string,
   apiTokenService?: ApiTokenService,
 ) {
@@ -52,7 +51,7 @@ export function jwtAuthMiddleware(
         const { payload: decoded } = await jwtVerify(token, key);
         payload = decoded;
       } catch (err: any) {
-        if (isPublishedRequest(req)) {
+        if (isPublicRequest(req)) {
           setAnonymousUser(req);
           return next();
         }
@@ -75,26 +74,20 @@ export function jwtAuthMiddleware(
       }
 
       const { id, loginProvider, tokenType, tokenId } = payload;
-      const cacheKey = userCacheKey(id);
+      const cachedUser = await loadCachedUserWithRole(
+        queryBuilderService,
+        id,
+      );
 
-      let user = await cacheService.get<any>(cacheKey);
-
-      if (!user) {
-        user = await loadUserWithRole(queryBuilderService, id);
-        if (user) {
-          await cacheService.set(cacheKey, user, USER_CACHE_TTL_MS);
-        }
-      }
-
-      if (!user) {
+      if (!cachedUser) {
         setAnonymousUser(req);
         return next();
       }
 
-      Object.assign(user, {
-        loginProvider: loginProvider ?? null,
-        tokenType: tokenType ?? null,
-        apiTokenId: tokenId ?? null,
+      const user = withUserRequestContext(cachedUser, {
+        loginProvider,
+        tokenType,
+        tokenId,
       });
 
       req.user = user;

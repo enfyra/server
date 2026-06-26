@@ -46,7 +46,9 @@ function makeQb(findImpl: (args: any) => any, updateMock: any) {
     getKnex: vi.fn().mockReturnValue(knex),
     getMongoDb: vi.fn().mockReturnValue({
       collection: vi.fn().mockReturnValue({
-        find: vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) }),
+        find: vi
+          .fn()
+          .mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) }),
         updateMany: vi.fn().mockResolvedValue({ modifiedCount: 0 }),
         createIndex: vi.fn().mockResolvedValue(undefined),
       }),
@@ -68,6 +70,25 @@ function makeCache(tables: any[]) {
   } as any;
 }
 
+function makeCoreTableResolver() {
+  return {
+    getNames: vi.fn().mockResolvedValue({
+      table: 'enfyra_table',
+      column: 'enfyra_column',
+      relation: 'enfyra_relation',
+    }),
+    getTableName: vi.fn(async (key: string) => `enfyra_${key}`),
+  } as any;
+}
+
+function makeService(qb: any, cache: any) {
+  return new SchemaHealingService({
+    queryBuilderService: qb,
+    metadataCacheService: cache,
+    systemCoreTableResolver: makeCoreTableResolver(),
+  });
+}
+
 describe('SchemaHealingService.runIfNeeded', () => {
   beforeEach(() => {
     DatabaseConfigService.overrideForTesting?.('postgres');
@@ -77,10 +98,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
     const update = vi.fn();
     const qb = makeQb(() => ({ data: [makeSetting(true)] }), update);
     const cache = makeCache([]);
-    const svc = new SchemaHealingService({
-      queryBuilderService: qb,
-      metadataCacheService: cache,
-    });
+    const svc = makeService(qb, cache);
 
     await svc.runIfNeeded();
 
@@ -92,10 +110,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
     const update = vi.fn();
     const qb = makeQb(() => ({ data: [] }), update);
     const cache = makeCache([]);
-    const svc = new SchemaHealingService({
-      queryBuilderService: qb,
-      metadataCacheService: cache,
-    });
+    const svc = makeService(qb, cache);
 
     await svc.runIfNeeded();
 
@@ -113,10 +128,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
         relations: [{ propertyName: 'author', foreignKeyColumn: 'authorId' }],
       }),
     ]);
-    const svc = new SchemaHealingService({
-      queryBuilderService: qb,
-      metadataCacheService: cache,
-    });
+    const svc = makeService(qb, cache);
 
     await svc.runIfNeeded();
 
@@ -141,10 +153,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
         ],
       }),
     ]);
-    const svc = new SchemaHealingService({
-      queryBuilderService: qb,
-      metadataCacheService: cache,
-    });
+    const svc = makeService(qb, cache);
 
     await svc.runIfNeeded();
 
@@ -167,7 +176,57 @@ describe('SchemaHealingService.runIfNeeded', () => {
   it('repairs Mongo primary key column metadata even when uniques/indexes flag is already true', async () => {
     DatabaseConfigService.overrideForTesting?.('mongodb');
     const update = vi.fn().mockResolvedValue(undefined);
+    const updateOne = vi.fn().mockResolvedValue({ modifiedCount: 1 });
     const columnId = '65f000000000000000000001';
+    const collections: Record<string, any> = {
+      enfyra_setting: {
+        find: vi
+          .fn()
+          .mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) }),
+        findOne: vi.fn().mockResolvedValue({
+          _id: 'setting-id',
+          isInit: true,
+          uniquesIndexesRepaired: true,
+        }),
+        updateOne: vi.fn().mockResolvedValue({ modifiedCount: 0 }),
+        updateMany: vi.fn().mockResolvedValue({ modifiedCount: 0 }),
+        createIndex: vi.fn().mockResolvedValue(undefined),
+      },
+      enfyra_column: {
+        find: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            {
+              _id: columnId,
+              name: '_id',
+              type: 'uuid',
+              isPrimary: true,
+            },
+          ]),
+        }),
+        findOne: vi.fn().mockResolvedValue(null),
+        updateOne,
+        updateMany: vi.fn().mockResolvedValue({ modifiedCount: 0 }),
+        createIndex: vi.fn().mockResolvedValue(undefined),
+      },
+    };
+    const db = {
+      collection: vi.fn((name: string) => {
+        collections[name] ||= {
+          find: vi
+            .fn()
+            .mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) }),
+          findOne: vi.fn().mockResolvedValue(null),
+          updateOne: vi.fn().mockResolvedValue({ modifiedCount: 0 }),
+          updateMany: vi.fn().mockResolvedValue({ modifiedCount: 0 }),
+          createIndex: vi.fn().mockResolvedValue(undefined),
+        };
+        return collections[name];
+      }),
+      createCollection: vi.fn().mockResolvedValue(undefined),
+      listCollections: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+      }),
+    };
     const qb = makeQb(
       (args: any) =>
         args.table === 'enfyra_column'
@@ -192,19 +251,15 @@ describe('SchemaHealingService.runIfNeeded', () => {
             },
       update,
     );
+    qb.getMongoDb.mockReturnValue(db);
     const cache = makeCache([]);
-    const svc = new SchemaHealingService({
-      queryBuilderService: qb,
-      metadataCacheService: cache,
-    });
+    const svc = makeService(qb, cache);
 
     await svc.runIfNeeded();
 
-    expect(update).toHaveBeenCalledTimes(1);
-    expect(update).toHaveBeenCalledWith(
-      'enfyra_column',
-      { where: [{ field: '_id', operator: '=', value: columnId }] },
-      { name: '_id', type: 'ObjectId' },
+    expect(updateOne).toHaveBeenCalledWith(
+      { _id: columnId },
+      { $set: { name: '_id', type: 'ObjectId' } },
     );
   });
 
@@ -220,10 +275,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
         relations: [{ propertyName: 'user', foreignKeyColumn: 'userId' }],
       }),
     ]);
-    const svc = new SchemaHealingService({
-      queryBuilderService: qb,
-      metadataCacheService: cache,
-    });
+    const svc = makeService(qb, cache);
 
     await svc.runIfNeeded();
 
@@ -243,10 +295,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
         relations: [{ propertyName: 'user', foreignKeyColumn: 'userId' }],
       }),
     ]);
-    const svc = new SchemaHealingService({
-      queryBuilderService: qb,
-      metadataCacheService: cache,
-    });
+    const svc = makeService(qb, cache);
 
     await svc.runIfNeeded();
 
@@ -267,10 +316,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
         relations: [{ propertyName: 'author', foreignKeyColumn: 'authorId' }],
       }),
     ]);
-    const svc = new SchemaHealingService({
-      queryBuilderService: qb,
-      metadataCacheService: cache,
-    });
+    const svc = makeService(qb, cache);
 
     await svc.runIfNeeded();
 
@@ -321,16 +367,20 @@ describe('SchemaHealingService.runIfNeeded', () => {
       throw new Error(`Unexpected table ${tableName}`);
     });
     knex.schema = {
-      hasTable: vi.fn(async (tableName: string) => tableName === 'test_students_students'),
+      hasTable: vi.fn(
+        async (tableName: string) => tableName === 'test_students_students',
+      ),
       hasColumn: vi.fn(async (_tableName: string, columnName: string) =>
         ['testId', 'studentsId'].includes(columnName),
       ),
       renameTable: vi.fn().mockResolvedValue(undefined),
-      alterTable: vi.fn().mockImplementation(
-        async (_tableName: string, callback: (table: any) => void) => {
-          callback({ renameColumn: vi.fn() });
-        },
-      ),
+      alterTable: vi
+        .fn()
+        .mockImplementation(
+          async (_tableName: string, callback: (table: any) => void) => {
+            callback({ renameColumn: vi.fn() });
+          },
+        ),
       createTable: vi.fn().mockResolvedValue(undefined),
     };
     const qb = {
@@ -339,10 +389,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
       getDatabaseType: vi.fn().mockReturnValue('postgres'),
       getKnex: vi.fn().mockReturnValue(knex),
     } as any;
-    const svc = new SchemaHealingService({
-      queryBuilderService: qb,
-      metadataCacheService: makeCache([]),
-    });
+    const svc = makeService(qb, makeCache([]));
 
     await svc.runIfNeeded();
 
@@ -411,11 +458,15 @@ describe('SchemaHealingService.runIfNeeded', () => {
     ];
     const collections: Record<string, any> = {
       enfyra_relation: {
-        find: vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue(relations) }),
+        find: vi
+          .fn()
+          .mockReturnValue({ toArray: vi.fn().mockResolvedValue(relations) }),
         updateOne,
       },
       enfyra_table: {
-        find: vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue(tables) }),
+        find: vi
+          .fn()
+          .mockReturnValue({ toArray: vi.fn().mockResolvedValue(tables) }),
       },
       bad_junction: {
         rename,
@@ -424,7 +475,9 @@ describe('SchemaHealingService.runIfNeeded', () => {
     const db = {
       collection: vi.fn((name: string) => {
         collections[name] ||= {
-          find: vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) }),
+          find: vi
+            .fn()
+            .mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) }),
           updateMany,
           createIndex,
         };
@@ -441,15 +494,20 @@ describe('SchemaHealingService.runIfNeeded', () => {
       find: vi.fn((args: any) =>
         args.table === 'enfyra_column'
           ? { data: [] }
-          : { data: [{ _id: 'setting-id', isInit: true, uniquesIndexesRepaired: true }] },
+          : {
+              data: [
+                {
+                  _id: 'setting-id',
+                  isInit: true,
+                  uniquesIndexesRepaired: true,
+                },
+              ],
+            },
       ),
       update,
       getMongoDb: vi.fn().mockReturnValue(db),
     } as any;
-    const svc = new SchemaHealingService({
-      queryBuilderService: qb,
-      metadataCacheService: makeCache([]),
-    });
+    const svc = makeService(qb, makeCache([]));
 
     await svc.runIfNeeded();
 

@@ -1,5 +1,14 @@
 import { RouteDefinitionProcessor } from '../../src/domain/bootstrap';
+import { getSqlJunctionPhysicalNames } from '../../src/modules/table-management/utils/sql-junction-naming.util';
 import { DatabaseConfigService } from '../../src/shared/services';
+
+function routeMethodJunction(propertyName: string) {
+  return getSqlJunctionPhysicalNames({
+    sourceTable: 'enfyra_route',
+    propertyName,
+    targetTable: 'enfyra_method',
+  }).junctionTableName;
+}
 
 function makeKnex(methodRows: any[] = []) {
   const deletes: any[] = [];
@@ -52,6 +61,10 @@ function makeKnex(methodRows: any[] = []) {
     rawCalls.push({ sql, bindings });
     return { rows: [] };
   });
+  (knex as any).schema = {
+    hasTable: jest.fn(async () => true),
+    hasColumn: jest.fn(async () => true),
+  };
   return { knex, deletes, inserts, rawCalls };
 }
 
@@ -77,7 +90,9 @@ describe('RouteDefinitionProcessor SQL relation writes', () => {
       getKnex: jest.fn(() => knex.knex),
     } as any;
 
-    const processor = new RouteDefinitionProcessor({ queryBuilderService: queryBuilder });
+    const processor = new RouteDefinitionProcessor({
+      queryBuilderService: queryBuilder,
+    });
 
     await processor.processWithQueryBuilder(
       [
@@ -101,15 +116,29 @@ describe('RouteDefinitionProcessor SQL relation writes', () => {
     );
     expect(knex.rawCalls).toContainEqual({
       sql: 'delete from ?? where ?? = ?',
-      bindings: ['j_availableMethods', 'sourceId', 42],
+      bindings: [routeMethodJunction('availableMethods'), 'sourceId', 42],
     });
     expect(knex.rawCalls).toContainEqual({
       sql: 'insert into ?? (??, ??) values (?, ?), (?, ?)',
-      bindings: ['j_availableMethods', 'sourceId', 'targetId', 42, 1, 42, 2],
+      bindings: [
+        routeMethodJunction('availableMethods'),
+        'sourceId',
+        'targetId',
+        42,
+        1,
+        42,
+        2,
+      ],
     });
     expect(knex.rawCalls).toContainEqual({
       sql: 'insert into ?? (??, ??) values (?, ?)',
-      bindings: ['j_skipRoleGuardMethods', 'sourceId', 'targetId', 42, 1],
+      bindings: [
+        routeMethodJunction('skipRoleGuardMethods'),
+        'sourceId',
+        'targetId',
+        42,
+        1,
+      ],
     });
   });
 
@@ -123,7 +152,9 @@ describe('RouteDefinitionProcessor SQL relation writes', () => {
       getKnex: jest.fn(() => knex.knex),
     } as any;
 
-    const processor = new RouteDefinitionProcessor({ queryBuilderService: queryBuilder });
+    const processor = new RouteDefinitionProcessor({
+      queryBuilderService: queryBuilder,
+    });
 
     await processor.processWithQueryBuilder(
       [{ path: '/assets/:id', availableMethods: ['GET'] }],
@@ -133,7 +164,13 @@ describe('RouteDefinitionProcessor SQL relation writes', () => {
 
     expect(knex.rawCalls).toContainEqual({
       sql: 'insert into ?? (??, ??) values (?, ?)',
-      bindings: ['j_availableMethods', 'sourceId', 'targetId', 99, 1],
+      bindings: [
+        routeMethodJunction('availableMethods'),
+        'sourceId',
+        'targetId',
+        99,
+        1,
+      ],
     });
   });
 });

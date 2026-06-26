@@ -8,6 +8,14 @@ function isAdminTestRunRequest(req: any): boolean {
   return req.method === 'POST' && path === '/admin/test/run';
 }
 
+function isErrorResponse(res: Response, data: any): boolean {
+  return (
+    res.statusCode >= 400 ||
+    data?.success === false ||
+    (data?.error && Number(data?.statusCode || res.statusCode) >= 400)
+  );
+}
+
 export function dynamicInterceptorBegin(
   executorEngineService: ExecutorEngineService,
 ) {
@@ -30,6 +38,10 @@ export function dynamicInterceptorBegin(
       res.json = function (data: any) {
         const postHooks = req.routeData?.postHooks;
         const hasDynamicHandler = Boolean(req.routeData?.handler?.trim?.());
+
+        if (isErrorResponse(res, data)) {
+          return originalJson(appendLogs(data));
+        }
 
         if (!hasDynamicHandler && postHooks?.length) {
           Promise.resolve()
