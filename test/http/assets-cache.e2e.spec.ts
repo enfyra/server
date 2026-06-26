@@ -16,7 +16,7 @@ function makeFile(overrides: Record<string, any> = {}) {
     type: 'document',
     location: '/uploads/avatar.txt',
     filesize: Buffer.byteLength('asset-body'),
-    isPublished: true,
+    isPublic: true,
     storageConfig: null,
     ...overrides,
   };
@@ -267,7 +267,7 @@ describe('assets route cache e2e', () => {
 
   it('caches private file permissions by file and invalidates by changed permission id', async () => {
     const state = {
-      files: [makeFile({ isPublished: false })],
+      files: [makeFile({ isPublic: false })],
       permissions: [makePermission()],
     };
     const { service, eventEmitter, queryBuilderService } = makeService(state);
@@ -301,7 +301,7 @@ describe('assets route cache e2e', () => {
 
   it('allows root admin to stream private files without file permissions', async () => {
     const state = {
-      files: [makeFile({ isPublished: false })],
+      files: [makeFile({ isPublic: false })],
       permissions: [],
     };
     const { service, queryBuilderService } = makeService(state);

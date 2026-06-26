@@ -555,13 +555,13 @@
         "status"
       ],
       [
-        "isPublished"
+        "isPublic"
       ]
     ],
     "columns": [
       { "name": "id", "type": "uuid", "isPrimary": true, "isGenerated": true, "isNullable": false, "description": "Unique file identifier" },
       { "name": "filename", "type": "varchar", "isNullable": false, "description": "Original filename including extension" },
-      { "name": "isPublished", "type": "boolean", "isNullable": false, "defaultValue": true, "description": "Allow public access without authentication" },
+      { "name": "isPublic", "type": "boolean", "isNullable": false, "defaultValue": true, "description": "Allow public access without authentication" },
       { "name": "mimetype", "type": "varchar", "isNullable": false, "isGenerated": true, "description": "MIME type of the file (e.g., image/png, application/pdf)" },
       { "name": "filesize", "type": "bigint", "isNullable": false, "isGenerated": true, "description": "File size in bytes" },
       { "name": "location", "type": "varchar", "isNullable": false, "isGenerated": true, "description": "Full path or URL to the file" },

@@ -63,8 +63,8 @@ describe('WebsocketCacheService partial reload', () => {
       },
     ];
     const events = [
-      { id: 10, gateway: { id: 1 } },
-      { id: 20, gateway: { id: 2 } },
+      { id: 10, eventName: 'chat:message', gateway: { id: 1 } },
+      { id: 20, eventName: 'admin:ping', gateway: { id: 2 } },
     ];
     const { svc, qb } = makeService(gateways, events);
     await svc.reload(false);
@@ -72,6 +72,7 @@ describe('WebsocketCacheService partial reload', () => {
     gateways[0].events = [
       { id: 10, eventName: 'chat:new', gateway: { id: 1 } },
     ];
+    events[0].eventName = 'chat:new';
     qb.find.mockClear();
 
     await svc.partialReload(

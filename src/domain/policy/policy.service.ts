@@ -20,11 +20,11 @@ export class PolicyService {
   }
 
   checkRequestAccess(ctx: TPolicyRequestContext): TPolicyDecision {
-    const isPublished = ctx.routeData?.publicMethods?.some(
+    const isPublic = ctx.routeData?.publicMethods?.some(
       (m: any) => m.name === ctx.method,
     );
 
-    if (isPublished) return { allow: true };
+    if (isPublic) return { allow: true };
 
     if (!ctx.user) {
       return {

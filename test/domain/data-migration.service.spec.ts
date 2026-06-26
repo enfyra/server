@@ -1,5 +1,14 @@
 import { DataMigrationService } from '../../src/engines/bootstrap';
 import { DatabaseConfigService } from '../../src/shared/services';
+import { getSqlJunctionPhysicalNames } from '../../src/modules/table-management/utils/sql-junction-naming.util';
+
+function routeMethodJunction(propertyName: string) {
+  return getSqlJunctionPhysicalNames({
+    sourceTable: 'enfyra_route',
+    propertyName,
+    targetTable: 'enfyra_method',
+  }).junctionTableName;
+}
 
 function makeQueryBuilder(
   overrides: Partial<{
@@ -75,6 +84,10 @@ function makeKnex(methodRows: any[] = []) {
     rawCalls.push({ sql, bindings });
     return { rows: [] };
   });
+  (knex as any).schema = {
+    hasTable: jest.fn(async () => true),
+    hasColumn: jest.fn(async () => true),
+  };
   return { knex, deletes, inserts, rawCalls };
 }
 
@@ -171,20 +184,20 @@ describe('DataMigrationService.transformRecord', () => {
 
   it('does not capture undefined relation field', () => {
     const svc = makeService(makeQueryBuilder());
-    const { relationUpdates } = (svc as any).transformRecord(
-      'enfyra_route',
-      { _unique: { path: { _eq: '/test' } }, name: 'hello' },
-    );
+    const { relationUpdates } = (svc as any).transformRecord('enfyra_route', {
+      _unique: { path: { _eq: '/test' } },
+      name: 'hello',
+    });
     expect(relationUpdates.publicMethods).toBeUndefined();
     expect(relationUpdates.availableMethods).toBeUndefined();
   });
 
   it('does not capture null relation field', () => {
     const svc = makeService(makeQueryBuilder());
-    const { relationUpdates } = (svc as any).transformRecord(
-      'enfyra_route',
-      { _unique: { path: { _eq: '/test' } }, publicMethods: null },
-    );
+    const { relationUpdates } = (svc as any).transformRecord('enfyra_route', {
+      _unique: { path: { _eq: '/test' } },
+      publicMethods: null,
+    });
     expect(relationUpdates.publicMethods).toBeUndefined();
   });
 });
@@ -210,7 +223,7 @@ describe('DataMigrationService.updateRelations', () => {
 
     expect(qb.__knexMock.rawCalls).toContainEqual({
       sql: 'delete from ?? where ?? = ?',
-      bindings: ['j_publicMethods', 'sourceId', 99],
+      bindings: [routeMethodJunction('publicMethods'), 'sourceId', 99],
     });
   });
 
@@ -230,7 +243,15 @@ describe('DataMigrationService.updateRelations', () => {
 
     expect(knexMock.rawCalls).toContainEqual({
       sql: 'insert into ?? (??, ??) values (?, ?), (?, ?)',
-      bindings: ['j_publicMethods', 'sourceId', 'targetId', 10, 1, 10, 2],
+      bindings: [
+        routeMethodJunction('publicMethods'),
+        'sourceId',
+        'targetId',
+        10,
+        1,
+        10,
+        2,
+      ],
     });
   });
 
@@ -246,7 +267,7 @@ describe('DataMigrationService.updateRelations', () => {
 
     expect(qb.__knexMock.rawCalls).toContainEqual({
       sql: 'delete from ?? where ?? = ?',
-      bindings: ['j_availableMethods', 'sourceId', 5],
+      bindings: [routeMethodJunction('availableMethods'), 'sourceId', 5],
     });
   });
 
@@ -275,21 +296,24 @@ describe('DataMigrationService.updateRelations', () => {
 
     expect(knexMock.rawCalls).toContainEqual({
       sql: 'delete from ?? where ?? = ?',
-      bindings: ['j_publicMethods', 'sourceId', 7],
+      bindings: [routeMethodJunction('publicMethods'), 'sourceId', 7],
     });
     expect(knexMock.rawCalls).toContainEqual({
       sql: 'insert into ?? (??, ??) values (?, ?)',
-      bindings: ['j_availableMethods', 'sourceId', 'targetId', 7, 3],
+      bindings: [
+        routeMethodJunction('availableMethods'),
+        'sourceId',
+        'targetId',
+        7,
+        3,
+      ],
     });
   });
 
   it('writes Mongo route method relations directly to the metadata junction', async () => {
     DatabaseConfigService.overrideForTesting('mongodb');
     const mongoDb = makeMongoDb();
-    const methodIds = [
-      '653333333333333333333333',
-      '654444444444444444444444',
-    ];
+    const methodIds = ['653333333333333333333333', '654444444444444444444444'];
     const qb = makeQueryBuilder({
       getMongoDb: jest.fn(() => mongoDb),
       find: jest.fn().mockResolvedValue({
@@ -347,7 +371,7 @@ describe('DataMigrationService.migrateTable — end-to-end for publicMethods cle
     expect(qb.update).not.toHaveBeenCalled();
     expect(qb.__knexMock.rawCalls).toContainEqual({
       sql: 'delete from ?? where ?? = ?',
-      bindings: ['j_publicMethods', 'sourceId', 42],
+      bindings: [routeMethodJunction('publicMethods'), 'sourceId', 42],
     });
   });
 

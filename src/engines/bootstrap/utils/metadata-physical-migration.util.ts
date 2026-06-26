@@ -67,6 +67,17 @@ export class MetadataPhysicalMigrationHelper {
         { [oldName]: { $exists: true }, [newName]: { $exists: false } },
         [{ $set: { [newName]: `$${oldName}` } }],
       );
+    const conflictCount = await db.collection(tableName).countDocuments({
+      [oldName]: { $exists: true },
+      [newName]: { $exists: true },
+      $expr: { $ne: [`$${oldName}`, `$${newName}`] },
+    });
+    if (conflictCount > 0) {
+      this.verbose(
+        `  Preserved legacy document field ${tableName}.${oldName}; ${conflictCount} document(s) conflict with ${newName}`,
+      );
+      return;
+    }
     await db
       .collection(tableName)
       .updateMany(
@@ -98,6 +109,17 @@ export class MetadataPhysicalMigrationHelper {
         oldName,
         newName,
       ]);
+      const conflictResult = await knex.raw(
+        'SELECT COUNT(*) AS count FROM ?? WHERE ?? IS NOT NULL AND ?? IS NOT NULL AND ?? <> ??',
+        [tableName, oldName, newName, oldName, newName],
+      );
+      const conflictCount = this.readSqlCount(conflictResult);
+      if (conflictCount > 0) {
+        this.verbose(
+          `  Preserved legacy physical column ${tableName}.${oldName}; ${conflictCount} row(s) conflict with ${newName}`,
+        );
+        return;
+      }
       await knex.schema.alterTable(tableName, (table: any) => {
         table.dropColumn(oldName);
       });
@@ -147,12 +169,29 @@ export class MetadataPhysicalMigrationHelper {
     return matches.length > 0;
   }
 
+  private async reconcileMongoCollectionOverlap(
+    rename: TableRenameDef,
+  ): Promise<void> {
+    this.verbose(
+      `  Physical Mongo overlap detected for ${rename.from} and ${rename.to}; preserving canonical collection ${rename.to}`,
+    );
+  }
+
+  private async reconcileSqlTableOverlap(
+    rename: TableRenameDef,
+  ): Promise<void> {
+    this.verbose(
+      `  Physical SQL overlap detected for ${rename.from} and ${rename.to}; preserving canonical table ${rename.to}`,
+    );
+  }
+
   private async renameMongoCollection(rename: TableRenameDef): Promise<void> {
     const oldExists = await this.mongoCollectionExists(rename.from);
     const newExists = await this.mongoCollectionExists(rename.to);
     if (oldExists && newExists) {
-      throw new Error(
-        `Cannot rename physical collection ${rename.from} to ${rename.to}: both collections exist`,
+      await this.reconcileMongoCollectionOverlap(rename);
+      this.verbose(
+        `  Physical Mongo overlap detected: ${rename.from} and ${rename.to} both exist; continuing with canonical ${rename.to}`,
       );
     }
     if (oldExists && !newExists) {
@@ -168,8 +207,9 @@ export class MetadataPhysicalMigrationHelper {
     const oldExists = await knex.schema.hasTable(rename.from);
     const newExists = await knex.schema.hasTable(rename.to);
     if (oldExists && newExists) {
-      throw new Error(
-        `Cannot rename physical table ${rename.from} to ${rename.to}: both physical tables exist`,
+      await this.reconcileSqlTableOverlap(rename);
+      this.verbose(
+        `  Physical SQL overlap detected: ${rename.from} and ${rename.to} both exist; continuing with canonical ${rename.to}`,
       );
     }
     if (oldExists && !newExists) {
@@ -180,5 +220,16 @@ export class MetadataPhysicalMigrationHelper {
 
   private getMongoDb(): Db {
     return this.queryBuilderService.getMongoDb();
+  }
+
+  private readSqlCount(result: any): number {
+    const rows = Array.isArray(result)
+      ? Array.isArray(result[0])
+        ? result[0]
+        : result
+      : result?.rows;
+    const row = Array.isArray(rows) ? rows[0] : rows;
+    const value = row?.count ?? row?.COUNT ?? row?.['COUNT(*)'] ?? 0;
+    return Number(value) || 0;
   }
 }

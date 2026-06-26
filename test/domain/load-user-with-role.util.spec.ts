@@ -1,11 +1,17 @@
 import { ObjectId } from 'mongodb';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseConfigService } from '../../src/shared/services';
-import { loadUserWithRole } from '../../src/shared/utils/load-user-with-role.util';
+import {
+  clearLocalUserCacheForTesting,
+  loadCachedUserWithRole,
+  loadUserWithRole,
+  primeCachedUserSnapshot,
+} from '../../src/shared/utils/load-user-with-role.util';
 
 describe('loadUserWithRole', () => {
   afterEach(() => {
     DatabaseConfigService.resetForTesting();
+    clearLocalUserCacheForTesting();
   });
 
   it('returns null for invalid Mongo user ids without querying', async () => {
@@ -103,5 +109,43 @@ describe('loadUserWithRole', () => {
       where: { id: 1 },
     });
     expect(result?.role).toEqual(role);
+  });
+
+  it('returns local cached users without querying the database', async () => {
+    DatabaseConfigService.overrideForTesting('postgres');
+    const cachedUser = { id: '1', email: 'cached@example.com' };
+    primeCachedUserSnapshot('1', cachedUser);
+    const queryBuilder = {
+      isMongoDb: () => false,
+      findOne: vi.fn(),
+    } as any;
+
+    await expect(
+      loadCachedUserWithRole(queryBuilder, '1'),
+    ).resolves.toBe(cachedUser);
+
+    expect(queryBuilder.findOne).not.toHaveBeenCalled();
+  });
+
+  it('caches loaded users in the local process for one minute', async () => {
+    DatabaseConfigService.overrideForTesting('postgres');
+    const user = { id: '1', email: 'root@example.com', roleId: 2 };
+    const role = { id: 2, name: 'Admin' };
+    const findOne = vi.fn(async ({ table }) => {
+      if (table === 'enfyra_user') return user;
+      if (table === 'enfyra_role') return role;
+      return null;
+    });
+    const queryBuilder = {
+      isMongoDb: () => false,
+      findOne,
+    } as any;
+
+    const result = await loadCachedUserWithRole(queryBuilder, '1');
+    const cachedResult = await loadCachedUserWithRole(queryBuilder, '1');
+
+    expect(result?.role).toEqual(role);
+    expect(cachedResult).toBe(result);
+    expect(findOne).toHaveBeenCalledTimes(2);
   });
 });

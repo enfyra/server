@@ -40,6 +40,7 @@ export interface RelationModifyDef {
 export interface TableRenameDef {
   from: string;
   to: string;
+  mergeKeys?: string[];
 }
 
 /**

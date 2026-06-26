@@ -8,25 +8,50 @@ import {
 } from 'awilix';
 import { EventEmitter2 } from 'eventemitter2';
 import Redis from 'ioredis';
-import { Queue } from 'bullmq';
+import { Queue, type ConnectionOptions } from 'bullmq';
 import { env } from './env';
 import { SYSTEM_QUEUES } from './shared/utils/constant';
 
-type QueueWithConnection = Queue & { __enfyraConnection?: Redis };
+function buildQueueConnectionOptions(redisUri: string): ConnectionOptions {
+  const parsed = new URL(redisUri);
+  const port =
+    parsed.port.length > 0
+      ? Number(parsed.port)
+      : parsed.protocol === 'rediss:'
+        ? 6380
+        : 6379;
+  const dbPath = parsed.pathname.replace(/^\//, '');
+  const db = dbPath.length > 0 ? Number(dbPath) : undefined;
+  const options: any = {
+    host: parsed.hostname,
+    port,
+  };
 
-function createRuntimeQueue(name: string): QueueWithConnection {
-  const connection = new Redis(env.REDIS_URI);
-  const queue = new Queue(name, {
-    prefix: env.NODE_NAME,
-    connection,
-  }) as QueueWithConnection;
-  queue.__enfyraConnection = connection;
-  return queue;
+  if (parsed.username) {
+    options.username = decodeURIComponent(parsed.username);
+  }
+  if (parsed.password) {
+    options.password = decodeURIComponent(parsed.password);
+  }
+  if (db !== undefined && Number.isFinite(db)) {
+    options.db = db;
+  }
+  if (parsed.protocol === 'rediss:') {
+    options.tls = {};
+  }
+
+  return options as ConnectionOptions;
 }
 
-async function closeRuntimeQueue(queue: QueueWithConnection): Promise<void> {
+function createRuntimeQueue(name: string): Queue {
+  return new Queue(name, {
+    prefix: env.NODE_NAME,
+    connection: buildQueueConnectionOptions(env.REDIS_URI),
+  });
+}
+
+async function closeRuntimeQueue(queue: Queue): Promise<void> {
   await queue.close();
-  queue.__enfyraConnection?.disconnect();
 }
 
 import {
