@@ -62,6 +62,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
     stepLog(`STEP 0 acquiring schema lock`);
     logMemory(this.logger, 'mongo updateTable start', { tableId: id });
     const out = await this.runWithSchemaLock(`mongo:update:${id}`, async () => {
+      this.assertNotAborted();
       stepLog(`STEP 1 lock acquired (+${Date.now() - t0}ms)`);
       logMemory(this.logger, 'mongo updateTable lock acquired', {
         tableId: id,
@@ -294,6 +295,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
           updateData.isSingleRecord = body.isSingleRecord;
         if ('validateBody' in body) updateData.validateBody = body.validateBody;
         if (Object.keys(updateData).length > 0) {
+          this.assertNotAborted();
           await this.queryBuilderService.update(
             'enfyra_table',
             id,
@@ -307,6 +309,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
           newTableName: body.name,
         });
         if (tableRenamed) {
+          this.assertNotAborted();
           await this.mongoService
             .getDb()
             .collection('enfyra_relation')
@@ -335,6 +338,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
           );
           const deletedColumnIds = getDeletedIds(existingColumns, body.columns);
           for (const colId of deletedColumnIds) {
+            this.assertNotAborted();
             const colObjectId =
               typeof colId === 'string' ? new ObjectId(colId) : colId;
             await this.mongoService
@@ -348,6 +352,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
             await this.queryBuilderService.delete('enfyra_column', colId);
           }
           for (const col of body.columns) {
+            this.assertNotAborted();
             if (col._id || col.id) {
               const colId = col._id || col.id;
               const existingCol = existingColumns.find(
@@ -363,6 +368,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
           }
           const columnIds = [];
           for (const col of body.columns) {
+            this.assertNotAborted();
             const columnData = {
               name: col.name,
               type: col.type,
@@ -434,6 +440,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
             body.relations,
           );
           for (const relId of deletedRelationIds) {
+            this.assertNotAborted();
             const relObjectId =
               typeof relId === 'string' ? new ObjectId(relId) : relId;
             await this.mongoService
@@ -451,6 +458,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
                 },
               );
               for (const inv of inverseRels) {
+                this.assertNotAborted();
                 if (inv.sourceTableName)
                   affectedTableNames.add(inv.sourceTableName);
                 await this.mongoService
@@ -467,6 +475,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
           }
           const relationIds = [];
           for (const rel of body.relations) {
+            this.assertNotAborted();
             const relId = rel._id || rel.id;
             const existingRel = relId
               ? existingRelations.find(
@@ -719,6 +728,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
           oldMetadata &&
           finalMetadata
         ) {
+          this.assertNotAborted();
           stepLog(`STEP 11 running schemaMigrationService.updateCollection...`);
           try {
             await this.mongoSchemaMigrationService.updateCollection(
@@ -770,6 +780,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
               r.type === 'many-to-many' && !r.mappedBy && r.junctionTableName,
           );
           for (const j of newM2mJunctions) {
+            this.assertNotAborted();
             if (!oldM2mJunctions.has(j.junctionTableName)) {
               await this.mongoSchemaMigrationService.ensureJunctionCollection(
                 j.junctionTableName,
@@ -779,6 +790,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
             }
           }
           for (const oldJunctionName of [...oldM2mJunctions]) {
+            this.assertNotAborted();
             if (
               !newM2mJunctions.some(
                 (r: any) => r.junctionTableName === oldJunctionName,
@@ -791,6 +803,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
           }
           if (body.name && body.name !== exists.name) {
             for (const rel of oldMetadata.relations || []) {
+              this.assertNotAborted();
               if (
                 rel.type !== 'many-to-many' ||
                 rel.mappedBy ||
@@ -820,6 +833,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
         }
 
         if (renamedColumns.length > 0) {
+          this.assertNotAborted();
           await this.mongoPhysicalMigrationService.enqueueFieldRenames(
             exists.name,
             renamedColumns,
@@ -828,6 +842,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
         }
 
         if (body.isSingleRecord === true && !exists.isSingleRecord) {
+          this.assertNotAborted();
           await ensureMongoSingleRecord({
             mongoService: this.mongoService,
             tableName: exists.name,
@@ -837,6 +852,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
         }
 
         if (body.graphqlEnabled !== undefined) {
+          this.assertNotAborted();
           const pkField = DatabaseConfigService.getPkField();
           await syncMongoGqlDefinition({
             mongoService: this.mongoService,

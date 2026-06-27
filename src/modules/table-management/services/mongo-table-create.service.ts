@@ -56,6 +56,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
     return await this.runWithSchemaLock(
       `mongo:create:${body?.name || 'unknown'}`,
       async () => {
+        this.assertNotAborted();
         if (/[A-Z]/.test(body?.name)) {
           throw new ValidationException(
             'Table name must be lowercase (no uppercase letters).',
@@ -94,6 +95,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
             );
           }
           if (hasCollection && !existing) {
+            this.assertNotAborted();
             this.logger.warn(
               `Mismatch detected: Physical collection "${body.name}" exists but no metadata found. Dropping physical collection...`,
             );
@@ -161,6 +163,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
           try {
             if (body.columns?.length > 0) {
               for (const col of body.columns) {
+                this.assertNotAborted();
                 const columnRecord = await this.queryBuilderService.insert(
                   'enfyra_column',
                   {
@@ -202,6 +205,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
           try {
             if (bodyRelations.length > 0) {
               for (const rel of bodyRelations) {
+                this.assertNotAborted();
                 let targetTableObjectId;
                 const targetTableIdFromObj =
                   typeof rel.targetTable === 'object'
@@ -306,6 +310,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                     : relationRecord._id;
                 insertedRelationIds.push(relId);
                 if (rel.inversePropertyName) {
+                  this.assertNotAborted();
                   if (mappedByProperty) {
                     throw new ValidationException(
                       `Relation '${rel.propertyName}' cannot have both 'mappedBy' and 'inversePropertyName'`,
@@ -430,6 +435,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
             await this.mongoMetadataSnapshotService.getFullTableMetadata(
               tableId,
             );
+          this.assertNotAborted();
           await this.mongoSchemaMigrationService.createCollection(fullMetadata);
 
           const owningM2m = (fullMetadata.relations || []).filter(
@@ -437,6 +443,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
               r.type === 'many-to-many' && !r.mappedBy && r.junctionTableName,
           );
           for (const m2m of owningM2m) {
+            this.assertNotAborted();
             await this.mongoSchemaMigrationService.ensureJunctionCollection(
               m2m.junctionTableName,
               m2m.junctionSourceColumn,

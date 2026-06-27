@@ -1,4 +1,5 @@
 import * as jwt from 'jsonwebtoken';
+import { getIoAbortSignal } from '@enfyra/kernel';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { TDynamicContext } from '../types';
 import { BcryptService } from '../../domain/auth';
@@ -118,8 +119,20 @@ export class DynamicContextFactory {
       },
       autoSlug,
       $fetch: createFetchHelper(),
-      $sleep: (ms: number) =>
-        sleep(Math.max(0, Math.min(Number(ms) || 0, 30000))),
+      $sleep: async (ms: number) => {
+        const signal = getIoAbortSignal();
+        if (signal?.aborted) throw new Error('Operation aborted');
+        try {
+          await sleep(
+            Math.max(0, Math.min(Number(ms) || 0, 30000)),
+            undefined,
+            signal ? { signal } : undefined,
+          );
+        } catch (error: any) {
+          if (error?.name === 'AbortError') throw new Error('Operation aborted');
+          throw error;
+        }
+      },
       $crypto: crypto,
       ...(helpers ?? {}),
     };
