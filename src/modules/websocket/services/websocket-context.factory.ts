@@ -1,4 +1,5 @@
 import { TDynamicContext } from '../../../shared/types';
+import { getIoAbortSignal } from '@enfyra/kernel';
 import { DynamicWebSocketGateway } from '../gateway/dynamic-websocket.gateway';
 
 export type SocketEmitCapture = Array<{ method: string; args: any[] }>;
@@ -10,21 +11,34 @@ export class WebsocketContextFactory {
     this.dynamicWebSocketGateway = deps.dynamicWebSocketGateway;
   }
 
+  private assertNotAborted(): void {
+    if (getIoAbortSignal()?.aborted) {
+      throw new Error('Operation aborted');
+    }
+  }
+
   createGlobalProxy(): TDynamicContext['$socket'] {
     return {
       emitToUser: (userId: any, event: string, data: any) => {
+        this.assertNotAborted();
         this.dynamicWebSocketGateway.emitToUser(userId, event, data);
       },
       emitToRoom: (path: string, room: string, event: string, data: any) => {
+        this.assertNotAborted();
         this.dynamicWebSocketGateway.emitToRoom(path, room, event, data);
       },
       emitToGateway: (path: string, event: string, data: any) => {
+        this.assertNotAborted();
         this.dynamicWebSocketGateway.emitToNamespace(path, event, data);
       },
       broadcast: (event: string, data: any) => {
+        this.assertNotAborted();
         this.dynamicWebSocketGateway.emitToAll(event, data);
       },
-      roomSize: (room: string) => this.dynamicWebSocketGateway.roomSize(room),
+      roomSize: (room: string) => {
+        this.assertNotAborted();
+        return this.dynamicWebSocketGateway.roomSize(room);
+      },
     };
   }
 
@@ -35,12 +49,15 @@ export class WebsocketContextFactory {
     return {
       ...this.createGlobalProxy(),
       join: (room: string) => {
+        this.assertNotAborted();
         this.dynamicWebSocketGateway.joinRoom(gatewayPath, socketId, room);
       },
       leave: (room: string) => {
+        this.assertNotAborted();
         this.dynamicWebSocketGateway.leaveRoom(gatewayPath, socketId, room);
       },
       reply: (event: string, data: any) => {
+        this.assertNotAborted();
         this.dynamicWebSocketGateway.emitToSocket(
           gatewayPath,
           socketId,
@@ -49,6 +66,7 @@ export class WebsocketContextFactory {
         );
       },
       emitToCurrentRoom: (room: string, event: string, data: any) => {
+        this.assertNotAborted();
         void this.dynamicWebSocketGateway.emitToNamespaceRoom(
           gatewayPath,
           room,
@@ -57,6 +75,7 @@ export class WebsocketContextFactory {
         );
       },
       broadcastToRoom: (room: string, event: string, data: any) => {
+        this.assertNotAborted();
         this.dynamicWebSocketGateway.broadcastToRoom(
           gatewayPath,
           socketId,
@@ -66,6 +85,7 @@ export class WebsocketContextFactory {
         );
       },
       disconnect: () => {
+        this.assertNotAborted();
         this.dynamicWebSocketGateway.disconnectSocket(gatewayPath, socketId);
       },
     };

@@ -377,10 +377,10 @@
   dependencies:
     tslib "^2.4.0"
 
-"@enfyra/kernel@1.1.18":
-  version "1.1.18"
-  resolved "https://registry.yarnpkg.com/@enfyra/kernel/-/kernel-1.1.18.tgz#b06b4677af158b546145825c8ad0eb39089d6a5d"
-  integrity sha512-yfCC2EsRYGkXOUJXCZ7S94LnySzflBddvQEYfv9whcjhZOoFss7MMBI2AcTFWhkwThG+rQuvaJA+XQQ2DS9NsA==
+"@enfyra/kernel@1.1.19":
+  version "1.1.19"
+  resolved "https://registry.yarnpkg.com/@enfyra/kernel/-/kernel-1.1.19.tgz#e747fafa7deb8c37048935d6e8143ad26b2a0590"
+  integrity sha512-XBYzrPyzb9HQkY9kEhlW1/hNJYy1sC3cpcIkrP6GDt/nETx/b5bhJBwSeubF1ZOqRMGfsTXfSl/AUEGJOQQjCg==
   dependencies:
     "@types/node" "^24.12.2"
     isolated-vm "^6.1.2"

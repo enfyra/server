@@ -7,7 +7,7 @@ import { FieldStripper } from '../utils/field-stripper';
 import { RelationTransformer } from '../utils/relation-transformer';
 import { stringifyRecordJsonFields } from '../utils/json-parser';
 import { ReplicationManager } from './replication-manager.service';
-import { getForeignKeyColumnName } from '@enfyra/kernel';
+import { getForeignKeyColumnName, getIoAbortSignal } from '@enfyra/kernel';
 import {
   decryptResultFields,
   encryptRecordFields,
@@ -544,7 +544,6 @@ export class KnexHookManagerService {
         return run();
       }
       return activeKnex.transaction(async (trx) => {
-        const { getIoAbortSignal } = await import('@enfyra/kernel');
         const signal = getIoAbortSignal();
         if (signal) {
           const onAbort = () => {
@@ -600,6 +599,13 @@ export class KnexHookManagerService {
     };
 
     qb.then = function (onFulfilled: any, onRejected: any) {
+      const signal = getIoAbortSignal();
+      if (signal?.aborted) {
+        return Promise.reject(new Error('Operation aborted')).then(
+          onFulfilled,
+          onRejected,
+        );
+      }
       if (!options.skipMetadataHooks) {
         runHooks('beforeSelect', this, tableName);
       }
@@ -607,6 +613,9 @@ export class KnexHookManagerService {
       return originalThen.call(
         this,
         async (result: any) => {
+          if (signal?.aborted) {
+            throw new Error('Operation aborted');
+          }
           if (options.skipMetadataHooks) {
             return onFulfilled ? onFulfilled(result) : result;
           }
@@ -615,6 +624,9 @@ export class KnexHookManagerService {
             tableName,
             result,
           );
+          if (signal?.aborted) {
+            throw new Error('Operation aborted');
+          }
           return onFulfilled ? onFulfilled(processedResult) : processedResult;
         },
         onRejected,

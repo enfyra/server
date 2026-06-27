@@ -45,6 +45,7 @@ export class MongoTableDeleteService extends MongoTableHandlerService {
   async delete(id: string | number, context?: TDynamicContext) {
     const affectedTableNames = new Set<string>();
     return await this.runWithSchemaLock(`mongo:delete:${id}`, async () => {
+      this.assertNotAborted();
       try {
         const tableId = typeof id === 'string' ? new ObjectId(id) : id;
         const exists = await this.queryBuilderService.findOne({
@@ -94,6 +95,7 @@ export class MongoTableDeleteService extends MongoTableHandlerService {
         const allRelations = [...relations, ...targetRelations];
         const droppedJunctions = new Set<string>();
         for (const rel of allRelations) {
+          this.assertNotAborted();
           if (rel.targetTableName) affectedTableNames.add(rel.targetTableName);
           if (rel.sourceTableName) affectedTableNames.add(rel.sourceTableName);
           if (
@@ -115,9 +117,12 @@ export class MongoTableDeleteService extends MongoTableHandlerService {
           },
         });
         for (const col of columns) {
+          this.assertNotAborted();
           await this.queryBuilderService.delete('enfyra_column', col._id);
         }
+        this.assertNotAborted();
         await this.queryBuilderService.delete('enfyra_table', tableId);
+        this.assertNotAborted();
         await this.mongoSchemaMigrationService.dropCollection(collectionName);
         exists.affectedTables = [...affectedTableNames];
         return exists;

@@ -1,4 +1,5 @@
 import { lookup } from 'dns/promises';
+import { getIoAbortSignal } from '@enfyra/kernel';
 import { isIP } from 'net';
 
 export type FetchHelper = (
@@ -122,6 +123,12 @@ export function createFetchHelper(defaults?: {
     const responseType = options?.responseType ?? 'json';
 
     const controller = new AbortController();
+    const taskSignal = getIoAbortSignal();
+    if (taskSignal?.aborted) {
+      throw new Error('Operation aborted');
+    }
+    const abortFromTask = () => controller.abort();
+    taskSignal?.addEventListener('abort', abortFromTask, { once: true });
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     let body: any = options?.body;
@@ -199,6 +206,7 @@ export function createFetchHelper(defaults?: {
       if (responseType === 'text') return text;
       return text ? JSON.parse(text) : null;
     } finally {
+      taskSignal?.removeEventListener('abort', abortFromTask);
       clearTimeout(timer);
     }
   };

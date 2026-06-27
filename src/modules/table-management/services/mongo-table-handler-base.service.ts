@@ -1,6 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { ObjectId } from 'mongodb';
-import { QueryBuilderService } from '@enfyra/kernel';
+import { getIoAbortSignal, QueryBuilderService } from '@enfyra/kernel';
 import {
   type MongoPhysicalMigrationService,
   MongoSchemaMigrationService,
@@ -75,21 +75,31 @@ export class MongoTableHandlerService {
     this.tableValidationService = deps.tableManagementValidationService;
     this.mongoMetadataSnapshotService = deps.mongoMetadataSnapshotService;
   }
+
+  protected assertNotAborted(): void {
+    if (getIoAbortSignal()?.aborted) {
+      throw new Error('Operation aborted');
+    }
+  }
+
   protected async writeNestedRulesMongo(opts: {
     rules: any[] | undefined;
     subjectFk: 'column' | 'relation';
     subjectFkValue: any;
   }): Promise<void> {
     if (!Array.isArray(opts.rules)) return;
+    this.assertNotAborted();
     const { data: existing } = await this.queryBuilderService.find({
       table: 'enfyra_column_rule',
       where: { [opts.subjectFk]: opts.subjectFkValue },
     });
     const deletedIds = getDeletedIds(existing, opts.rules);
     for (const rid of deletedIds) {
+      this.assertNotAborted();
       await this.queryBuilderService.delete('enfyra_column_rule', rid);
     }
     for (const rule of opts.rules) {
+      this.assertNotAborted();
       const ruleData: any = {
         ruleType: rule.ruleType,
         value: rule.value ?? null,
@@ -119,15 +129,18 @@ export class MongoTableHandlerService {
     subjectFkValue: any;
   }): Promise<void> {
     if (!Array.isArray(opts.permissions)) return;
+    this.assertNotAborted();
     const { data: existing } = await this.queryBuilderService.find({
       table: 'enfyra_field_permission',
       where: { [opts.subjectFk]: opts.subjectFkValue },
     });
     const deletedIds = getDeletedIds(existing, opts.permissions);
     for (const pid of deletedIds) {
+      this.assertNotAborted();
       await this.queryBuilderService.delete('enfyra_field_permission', pid);
     }
     for (const perm of opts.permissions) {
+      this.assertNotAborted();
       const roleRef =
         perm.role && typeof perm.role === 'object'
           ? perm.role._id || perm.role.id
