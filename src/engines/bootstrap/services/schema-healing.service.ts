@@ -641,7 +641,108 @@ export class SchemaHealingService {
     if (type === 'varchar' || type === 'string' || type === 'char') {
       return 'varchar';
     }
+    const physicalType = await this.getPhysicalSqlPrimaryKeyType(tableName);
+    if (physicalType) {
+      return physicalType;
+    }
     return 'integer';
+  }
+
+  private async getPhysicalSqlPrimaryKeyType(
+    tableName: string,
+  ): Promise<'uuid' | 'varchar' | 'integer' | null> {
+    const knex = this.queryBuilderService.getKnex?.();
+    if (!knex) return null;
+    const dbType = this.queryBuilderService.getDatabaseType?.() || 'postgres';
+    try {
+      if (dbType === 'mysql') {
+        const result = await knex.raw(
+          `
+          SELECT DATA_TYPE, COLUMN_TYPE, CHARACTER_MAXIMUM_LENGTH
+          FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = ?
+            AND COLUMN_NAME = 'id'
+        `,
+          [tableName],
+        );
+        const row = result?.[0]?.[0];
+        return this.normalizePhysicalSqlPrimaryKeyType({
+          dataType: row?.DATA_TYPE,
+          columnType: row?.COLUMN_TYPE,
+          maxLength: row?.CHARACTER_MAXIMUM_LENGTH,
+        });
+      }
+      if (dbType === 'postgres') {
+        const result = await knex.raw(
+          `
+          SELECT data_type, udt_name, character_maximum_length
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = ?
+            AND column_name = 'id'
+        `,
+          [tableName],
+        );
+        const row = result?.rows?.[0];
+        return this.normalizePhysicalSqlPrimaryKeyType({
+          dataType: row?.data_type,
+          udtName: row?.udt_name,
+          maxLength: row?.character_maximum_length,
+        });
+      }
+    } catch (error: any) {
+      this.logger.warn(
+        `Could not inspect primary key type for ${tableName}: ${error?.message || error}`,
+      );
+    }
+    return null;
+  }
+
+  private normalizePhysicalSqlPrimaryKeyType(input: {
+    dataType?: string | null;
+    columnType?: string | null;
+    udtName?: string | null;
+    maxLength?: number | string | null;
+  }): 'uuid' | 'varchar' | 'integer' | null {
+    const dataType = String(input.dataType || '').toLowerCase();
+    const columnType = String(input.columnType || '').toLowerCase();
+    const udtName = String(input.udtName || '').toLowerCase();
+    const maxLength =
+      input.maxLength === undefined || input.maxLength === null
+        ? null
+        : Number(input.maxLength);
+    if (dataType === 'uuid' || udtName === 'uuid') {
+      return 'uuid';
+    }
+    if (
+      (dataType === 'char' ||
+        dataType === 'character' ||
+        dataType === 'varchar' ||
+        dataType === 'character varying') &&
+      (maxLength === 36 || columnType.includes('(36)'))
+    ) {
+      return 'uuid';
+    }
+    if (
+      dataType === 'char' ||
+      dataType === 'character' ||
+      dataType === 'varchar' ||
+      dataType === 'character varying' ||
+      dataType === 'text'
+    ) {
+      return 'varchar';
+    }
+    if (
+      dataType === 'int' ||
+      dataType === 'integer' ||
+      dataType === 'bigint' ||
+      dataType === 'smallint' ||
+      dataType === 'mediumint'
+    ) {
+      return 'integer';
+    }
+    return null;
   }
 
   private async healMongoJunctionContracts(): Promise<number> {
