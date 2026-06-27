@@ -85,6 +85,40 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
     const dbType = this.queryBuilderService.getDatabaseType();
     const isPostgres = dbType === 'postgres';
     const affectedTableNames = new Set<string>();
+    const abortSignal = getIoAbortSignal();
+    const assertNotAborted = () => {
+      if (abortSignal?.aborted) {
+        throw new Error('Operation aborted');
+      }
+    };
+    const attachAbortRollback = async (trx: Knex.Transaction) => {
+      if (!abortSignal) return;
+      const onAbort = () => {
+        if (trx && !trx.isCompleted()) trx.rollback().catch(() => {});
+      };
+      if (abortSignal.aborted) {
+        if (trx && !trx.isCompleted()) {
+          await trx.rollback().catch(() => {});
+        }
+        throw new Error('Operation aborted');
+      }
+      abortSignal.addEventListener('abort', onAbort, { once: true });
+    };
+    const rollbackJournalIfAborted = async (journalUuid?: string) => {
+      if (!abortSignal?.aborted) return;
+      if (journalUuid) {
+        await this.schemaMigrationService
+          .rollbackJournal(journalUuid)
+          .catch((rbErr) => {
+            this.loggingService.error('DDL rollback after abort also failed', {
+              context: 'updateTable',
+              journalUuid,
+              error: rbErr.message,
+            });
+          });
+      }
+      throw new Error('Operation aborted');
+    };
 
     if (body.name && /[A-Z]/.test(body.name)) {
       throw new ValidationException('Table name must be lowercase.', {
@@ -181,17 +215,7 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
         // === PG PATH: metadata writes + DDL in same transaction ===
         stepLog(`STEP 6 PG: opening transaction...`);
         const trx = await knex.transaction();
-        const abortSignal = getIoAbortSignal();
-        if (abortSignal) {
-          const onAbort = () => {
-            if (trx && !trx.isCompleted()) trx.rollback().catch(() => {});
-          };
-          if (abortSignal.aborted) {
-            await trx.rollback();
-            throw new Error('Operation aborted');
-          }
-          abortSignal.addEventListener('abort', onAbort, { once: true });
-        }
+        await attachAbortRollback(trx);
         try {
           stepLog(`STEP 7 PG: writing metadata in trx...`);
           await this.sqlTableMetadataWriterService.writeTableMetadataUpdates(
@@ -309,6 +333,7 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
         const schemaChanged = decision.details?.schemaChanged === true;
 
         if (schemaChanged) {
+          assertNotAborted();
           stepLog(`STEP 9 ${dbType}: running DDL before metadata...`);
           const ddlTimeoutMs = 90 * 1000;
           let pendingUpdate: any;
@@ -335,10 +360,12 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
 
           stepLog(`STEP 10 ${dbType}: writing metadata after DDL...`);
           const journalUuid = pendingUpdate?.journalUuid;
+          await rollbackJournalIfAborted(journalUuid);
           let metadataWritten = false;
           const maxRetries = 3;
           for (let attempt = 1; attempt <= maxRetries; attempt++) {
             const trx = await knex.transaction();
+            await attachAbortRollback(trx);
             try {
               await this.sqlTableMetadataWriterService.writeTableMetadataUpdates(
                 trx,
@@ -358,6 +385,23 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
                 try {
                   await trx.rollback();
                 } catch (_) {}
+              }
+              if (abortSignal?.aborted) {
+                if (journalUuid) {
+                  await this.schemaMigrationService
+                    .rollbackJournal(journalUuid)
+                    .catch((rbErr) => {
+                      this.loggingService.error(
+                        'DDL rollback after abort also failed',
+                        {
+                          context: 'updateTable',
+                          journalUuid,
+                          error: rbErr.message,
+                        },
+                      );
+                    });
+                }
+                throw metadataError;
               }
               stepLog(
                 `STEP 10 ${dbType}: metadata write FAILED (attempt ${attempt}/${maxRetries})`,
@@ -405,6 +449,7 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
             `STEP 9 ${dbType}: no schema change, writing metadata only...`,
           );
           const trx = await knex.transaction();
+          await attachAbortRollback(trx);
           try {
             await this.sqlTableMetadataWriterService.writeTableMetadataUpdates(
               trx,

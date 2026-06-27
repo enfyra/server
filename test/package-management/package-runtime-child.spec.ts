@@ -10,6 +10,11 @@ const require = createRequire(import.meta.url);
 const workerPath = require.resolve(
   '@enfyra/kernel/execution/package-runtime.child.js',
 );
+const bridgePath = path.resolve(
+  process.cwd(),
+  '../kernel/src/execution/executor-engine/workers/package-runtime-bridge.js',
+);
+const { createPackageRuntimeBridge } = require(bridgePath);
 
 let tempDir: string | null = null;
 
@@ -59,6 +64,65 @@ function callRuntime(child: ReturnType<typeof fork>, message: any) {
 }
 
 describe('package runtime child', () => {
+  it('published worker bundle forwards remaining package call timeout', async () => {
+    const workerBundlePath = require.resolve('@enfyra/kernel/execution/worker.js');
+    const workerBundle = await import('fs').then((fs) =>
+      fs.readFileSync(workerBundlePath, 'utf8'),
+    );
+
+    expect(workerBundle).toContain('timeoutMs:n.timeoutMs');
+  });
+
+  it('uses the remaining task timeout for proxied package calls', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-package-runtime-'));
+    const modulePath = path.join(tempDir, 'slow-package.mjs');
+    await writeFile(
+      modulePath,
+      `
+        export default {
+          async slow() {
+            await new Promise((resolve) => setTimeout(resolve, 180));
+            return 'done';
+          }
+        };
+      `,
+      'utf8',
+    );
+
+    const bridge = createPackageRuntimeBridge({
+      workerDir: path.dirname(bridgePath),
+      activeTaskContexts: new Map(),
+    });
+    bridge.setTaskPackages(
+      'task-timeout',
+      new Map([
+        [
+          'slow-package',
+          {
+            name: 'slow-package',
+            fileUrl: modulePath,
+          },
+        ],
+      ]),
+    );
+
+    try {
+      const startedAt = Date.now();
+      await expect(
+        bridge.executePackageRuntimeCall('task-timeout', {
+          packageName: 'slow-package',
+          kind: 'call',
+          path: ['slow'],
+          argsJson: '[]',
+          timeoutMs: 40,
+        }),
+      ).rejects.toThrow(/Package runtime call timed out after 40ms/);
+      expect(Date.now() - startedAt).toBeLessThan(140);
+    } finally {
+      bridge.shutdownPackageRuntime();
+    }
+  });
+
   it('keeps package class instances as handles so prototype methods can be called', async () => {
     tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-package-runtime-'));
     const modulePath = path.join(tempDir, 'instance-package.mjs');
