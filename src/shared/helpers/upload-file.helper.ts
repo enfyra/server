@@ -1,5 +1,6 @@
 import { FileManagementService } from '../../modules/file-management';
 import type { TDynamicContext, UploadedFileInfo } from '../types';
+import { getIoAbortSignal } from '@enfyra/kernel';
 import { Readable } from 'stream';
 import { createReadStream } from 'fs';
 
@@ -23,6 +24,12 @@ export class UploadFileHelper {
   private readonly fileManagementService: FileManagementService;
   constructor(deps: { fileManagementService: FileManagementService }) {
     this.fileManagementService = deps.fileManagementService;
+  }
+
+  private assertNotAborted() {
+    if (getIoAbortSignal()?.aborted) {
+      throw new Error('Operation aborted');
+    }
   }
 
   private getFileRepo(context: TDynamicContext) {
@@ -200,9 +207,11 @@ export class UploadFileHelper {
   private createUpload(context: TDynamicContext) {
     return async (options: any) => {
       try {
+        this.assertNotAborted();
         const uploadInput = this.createUploadInput(options);
         const fileRepo = this.getFileRepo(context);
 
+        this.assertNotAborted();
         return await this.fileManagementService.uploadFileAndCreateRecord(
           uploadInput,
           {
@@ -223,10 +232,12 @@ export class UploadFileHelper {
   private createUpdate(context: TDynamicContext) {
     return async (fileId: string | number, options: any) => {
       try {
+        this.assertNotAborted();
         const fileRepo = this.getFileRepo(context);
 
         const files = await fileRepo.find({ filter: { id: { _eq: fileId } } });
         const currentFile = files.data?.[0];
+        this.assertNotAborted();
 
         if (!currentFile) {
           throw new Error(`File with ID ${fileId} not found`);
@@ -238,6 +249,7 @@ export class UploadFileHelper {
             mimetype: currentFile.mimetype,
             ...options,
           });
+          this.assertNotAborted();
           return await this.fileManagementService.replaceFileAndUpdateRecord(
             fileRepo,
             fileId,
@@ -257,6 +269,7 @@ export class UploadFileHelper {
           );
         }
 
+        this.assertNotAborted();
         return await this.fileManagementService.updateFileMetadataRecord(
           fileRepo,
           fileId,
@@ -279,10 +292,12 @@ export class UploadFileHelper {
   private createDelete(context: TDynamicContext) {
     return async (fileId: string | number) => {
       try {
+        this.assertNotAborted();
         const fileRepo = this.getFileRepo(context);
 
         const files = await fileRepo.find({ filter: { id: { _eq: fileId } } });
         const file = files.data?.[0];
+        this.assertNotAborted();
 
         if (!file) {
           throw new Error(`File with ID ${fileId} not found`);
@@ -302,9 +317,11 @@ export class UploadFileHelper {
   private createRegisterFile(context: TDynamicContext) {
     return async (options: any) => {
       try {
+        this.assertNotAborted();
         const fileInput = this.createRegisterFileInput(options);
         const fileRepo = this.getFileRepo(context);
 
+        this.assertNotAborted();
         return await this.fileManagementService.registerExternalFileRecord(
           fileInput,
           {
