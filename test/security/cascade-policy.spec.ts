@@ -227,6 +227,58 @@ describe('CascadeHandler – getPolicyContext callback', () => {
     expect(insertWithCascade).not.toHaveBeenCalled();
   });
 
+  it('blocks cascade create when a related payload attempts isSystem=true', async () => {
+    const policyCheck = jest.fn(async (_table, _operation, data) => {
+      if (data?.isSystem === true) {
+        throw new Error('Cannot create application record with isSystem = true');
+      }
+    });
+    const insertWithCascade = jest.fn(async () => ({ id: 1 }));
+
+    const cascadeHandler = new CascadeHandler(
+      makeCallableKnex(),
+      makeMetadataCacheService({
+        post: [
+          {
+            propertyName: 'author',
+            type: 'many-to-one',
+            targetTableName: 'enfyra_user',
+            foreignKeyColumn: 'authorId',
+          },
+        ],
+      }),
+      makeLogger(),
+      undefined,
+      undefined,
+      insertWithCascade,
+      undefined,
+      () => ({ check: policyCheck }),
+    );
+
+    const cascadeContextMap = new Map<string, any>();
+    cascadeContextMap.set('post', {
+      relationData: {
+        author: { name: 'Bad Actor', isSystem: true },
+      },
+    });
+
+    await expect(
+      cascadeHandler.handleCascadeRelations(
+        'post',
+        1,
+        cascadeContextMap,
+        makeCallableKnex(),
+      ),
+    ).rejects.toThrow('Cannot create application record with isSystem = true');
+
+    expect(policyCheck).toHaveBeenCalledWith(
+      'enfyra_user',
+      'create',
+      expect.objectContaining({ isSystem: true }),
+    );
+    expect(insertWithCascade).not.toHaveBeenCalled();
+  });
+
   it('calls checkPolicy for each new record in many-to-many relation', async () => {
     const policyCheck = jest.fn().mockResolvedValue(undefined);
     const insertWithCascade = jest.fn(async () => ({
