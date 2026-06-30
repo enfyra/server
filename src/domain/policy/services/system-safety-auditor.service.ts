@@ -21,6 +21,25 @@ export class SystemSafetyAuditorService {
   async assertSystemSafe(ctx: any) {
     const { operation, tableName, data, existing, currentUser } = ctx;
     let fullExisting = existing;
+    const hasSystemFlag = await this.tableHasSystemFlag(tableName);
+
+    if (hasSystemFlag && operation === 'create' && data?.isSystem === true) {
+      throw new Error('Cannot create application record with isSystem = true');
+    }
+
+    if (hasSystemFlag && operation === 'delete' && data?.isSystem === true) {
+      throw new Error('Cannot delete system record!');
+    }
+
+    if (
+      hasSystemFlag &&
+      operation === 'update' &&
+      data &&
+      'isSystem' in data &&
+      data.isSystem !== fullExisting?.isSystem
+    ) {
+      throw new Error('Cannot modify isSystem');
+    }
 
     if (existing?.isSystem && tableName === 'enfyra_table') {
       fullExisting =
@@ -479,5 +498,15 @@ export class SystemSafetyAuditorService {
         }
       }
     }
+  }
+
+  private async tableHasSystemFlag(tableName: string): Promise<boolean> {
+    const metadata: any = await this.metadataCacheService.getMetadata();
+    const table =
+      metadata?.tables?.get?.(tableName) ||
+      metadata?.tablesList?.find?.((item: any) => item?.name === tableName);
+    return Array.isArray(table?.columns)
+      ? table.columns.some((column: any) => column?.name === 'isSystem')
+      : false;
   }
 }
