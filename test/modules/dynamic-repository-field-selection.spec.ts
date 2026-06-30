@@ -36,6 +36,7 @@ const metadata = {
         columns: [
           { name: 'id', isPrimary: true },
           { name: 'email' },
+          { name: 'password', isPublished: false },
           { name: 'avatar' },
           { name: 'displayName' },
         ],
@@ -84,28 +85,178 @@ const metadata = {
         relations: [],
       },
     ],
+    [
+      'secure_storage_config',
+      {
+        name: 'secure_storage_config',
+        columns: [
+          { name: 'id', isPrimary: true },
+          { name: 'name' },
+          { name: 'bucket' },
+          { name: 'accessKeyId', isPublished: false },
+          { name: 'secretAccessKey', isPublished: false },
+          { name: 'accountId', isPublished: false },
+          { name: 'credentials', isPublished: false },
+        ],
+        relations: [
+          {
+            propertyName: 'updatedBy',
+            type: 'many-to-one',
+            targetTableName: 'enfyra_user',
+          },
+        ],
+      },
+    ],
+    [
+      'enfyra_setting',
+      {
+        name: 'enfyra_setting',
+        columns: [{ name: 'id', isPrimary: true }, { name: 'projectName' }],
+        relations: [],
+      },
+    ],
+    [
+      'enfyra_menu',
+      {
+        name: 'enfyra_menu',
+        columns: [
+          { name: 'id', isPrimary: true },
+          { name: 'label' },
+          { name: 'path' },
+        ],
+        relations: [
+          {
+            propertyName: 'parent',
+            type: 'many-to-one',
+            targetTableName: 'enfyra_menu',
+          },
+          {
+            propertyName: 'children',
+            type: 'one-to-many',
+            targetTableName: 'enfyra_menu',
+          },
+          {
+            propertyName: 'extension',
+            type: 'one-to-one',
+            targetTableName: 'enfyra_extension',
+          },
+        ],
+      },
+    ],
+    [
+      'enfyra_extension',
+      {
+        name: 'enfyra_extension',
+        columns: [{ name: 'id', isPrimary: true }, { name: 'name' }],
+        relations: [],
+      },
+    ],
   ]),
 };
+
+const seededRows: Record<string, any[]> = {
+  secure_storage_config: [
+    {
+      id: 2,
+      name: 'Cloud R2',
+      bucket: 'private-bucket',
+      accessKeyId: 'access-key',
+      secretAccessKey: 'secret-key',
+      accountId: 'account-id',
+      credentials: { private_key: 'secret' },
+      updatedBy: {
+        id: 'user-1',
+        email: 'root@example.com',
+        password: 'hashed-password',
+        avatar: 'avatar.png',
+        displayName: 'Root Admin',
+      },
+    },
+  ],
+};
+
+function projectRows(tableName: string, rows: any[], args: any): any[] {
+  const table = metadata.tables.get(tableName);
+  const fieldTokens =
+    args.fields === undefined || args.fields === null || args.fields === ''
+      ? []
+      : Array.isArray(args.fields)
+        ? args.fields
+        : String(args.fields)
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean);
+  const includeAll = fieldTokens.length === 0 || fieldTokens.includes('*');
+
+  return rows.map((row) => {
+    const out: Record<string, any> = {};
+    const rootFields = includeAll
+      ? [
+          ...(table?.columns || []).map((column: any) => column.name),
+          ...(table?.relations || []).map(
+            (relation: any) => relation.propertyName,
+          ),
+        ]
+      : fieldTokens;
+
+    for (const field of rootFields) {
+      if (field && Object.prototype.hasOwnProperty.call(row, field)) {
+        out[field] = row[field];
+      }
+    }
+
+    for (const [relationName, entry] of Object.entries(args.deep || {})) {
+      const relation = table?.relations?.find(
+        (item: any) => item.propertyName === relationName,
+      );
+      const targetTable = relation?.targetTableName;
+      const relationValue = row[relationName];
+      if (!targetTable || relationValue == null) continue;
+      const childRows = Array.isArray(relationValue)
+        ? relationValue
+        : [relationValue];
+      const projected = projectRows(targetTable, childRows, {
+        fields: (entry as any)?.fields,
+        deep: (entry as any)?.deep,
+      });
+      out[relationName] = Array.isArray(relationValue)
+        ? projected
+        : projected[0];
+    }
+
+    return out;
+  });
+}
 
 function makeRepo({
   fields,
   deep,
   tableName = 'enfyra_flow_step',
+  enforceFieldPermission = false,
 }: {
   fields?: string | string[];
   deep?: Record<string, any>;
   tableName?: string;
+  enforceFieldPermission?: boolean;
 } = {}) {
   const queryBuilderService = {
     getPkField: vi.fn(() => (tableName === 'mongo_doc' ? '_id' : 'id')),
-    find: vi.fn().mockResolvedValue({ data: [], count: 0 }),
+    find: vi.fn().mockImplementation(async (args: any) => {
+      const rows = seededRows[args.table] || [];
+      return { data: projectRows(args.table, rows, args), count: rows.length };
+    }),
   };
   const metadataCacheService = {
-    lookupTableByName: vi.fn().mockResolvedValue(metadata.tables.get(tableName)),
+    lookupTableByName: vi.fn((name: string) =>
+      Promise.resolve(metadata.tables.get(name)),
+    ),
     getMetadata: vi.fn().mockResolvedValue(metadata),
   };
   const settingCacheService = {
     getMaxQueryDepth: vi.fn().mockResolvedValue(10),
+  };
+  const fieldPermissionCacheService = {
+    getPoliciesFor: vi.fn().mockResolvedValue([]),
   };
   const repo = new DynamicRepository({
     context: { $query: { fields, deep } } as any,
@@ -116,7 +267,9 @@ function makeRepo({
     tableValidationService: {} as any,
     metadataCacheService: metadataCacheService as any,
     settingCacheService: settingCacheService as any,
+    fieldPermissionCacheService: fieldPermissionCacheService as any,
     eventEmitter: {} as any,
+    enforceFieldPermission,
   });
   return { repo, queryBuilderService };
 }
@@ -131,8 +284,51 @@ describe('dynamic read field selection', () => {
         metadata,
       }),
     ).toEqual({
-      fields: 'id,sourceCode,owner.email',
+      fields: ['id', 'sourceCode', 'owner'],
+      deep: { owner: { fields: ['email'] } },
+    });
+  });
+
+  it('turns mixed wildcard and dotted relation includes into deep projections', () => {
+    expect(
+      normalizeDynamicReadProjection({
+        tableName: 'secure_storage_config',
+        fields: '*,updatedBy.*',
+        metadata,
+      }),
+    ).toEqual({
+      fields: '*',
+      deep: { updatedBy: { fields: ['*'] } },
+    });
+  });
+
+  it('leaves unknown dotted include tokens to the query layer', () => {
+    expect(
+      normalizeDynamicReadProjection({
+        tableName: 'enfyra_setting',
+        fields: '*,methods.*',
+        metadata,
+      }),
+    ).toEqual({
+      fields: '*,methods.*',
       deep: undefined,
+    });
+  });
+
+  it('does not reject mixed relation and non-relation dotted includes', () => {
+    expect(
+      normalizeDynamicReadProjection({
+        tableName: 'enfyra_menu',
+        fields: '*,parent.*,children.*,sidebar.*,extension.*',
+        metadata,
+      }),
+    ).toEqual({
+      fields: '*',
+      deep: {
+        parent: { fields: ['*'] },
+        children: { fields: ['*'] },
+        extension: { fields: ['*'] },
+      },
     });
   });
 
@@ -185,7 +381,7 @@ describe('dynamic read field selection', () => {
       ],
       deep: {
         owner: {
-          fields: ['id', 'email', 'displayName', 'role'],
+          fields: ['id', 'email', 'password', 'displayName', 'role'],
         },
       },
     });
@@ -201,7 +397,7 @@ describe('dynamic read field selection', () => {
       }).deep,
     ).toEqual({
       owner: {
-        fields: ['id', 'email', 'displayName', 'role'],
+        fields: ['id', 'email', 'password', 'displayName', 'role'],
       },
     });
   });
@@ -225,11 +421,10 @@ describe('dynamic read field selection', () => {
       }).deep,
     ).toEqual({
       owner: {
-        fields: ['id', 'email', 'displayName', 'role'],
+        fields: ['id', 'email', 'password', 'displayName', 'role'],
         deep: {
           role: {
             fields: ['id', 'name'],
-            deep: undefined,
           },
         },
       },
@@ -245,7 +440,14 @@ describe('dynamic read field selection', () => {
         metadata,
       }),
     ).toEqual({
-      fields: ['id', 'key', 'sourceCode', 'compiledCode', 'scriptLanguage', 'flow'],
+      fields: [
+        'id',
+        'key',
+        'sourceCode',
+        'compiledCode',
+        'scriptLanguage',
+        'flow',
+      ],
       deep: {},
     });
   });
@@ -308,7 +510,9 @@ describe('dynamic read field selection', () => {
   it('passes rewritten dotted excludes and deep options to QueryBuilderService.find', async () => {
     const { repo, queryBuilderService } = makeRepo({
       fields: '-owner.avatar',
-      deep: { owner: { fields: 'avatar', filter: { email: { _contains: '@' } } } },
+      deep: {
+        owner: { fields: 'avatar', filter: { email: { _contains: '@' } } },
+      },
     });
 
     await repo.find();
@@ -326,11 +530,47 @@ describe('dynamic read field selection', () => {
         ],
         deep: {
           owner: {
-            fields: ['id', 'email', 'displayName', 'role'],
+            fields: ['id', 'email', 'password', 'displayName', 'role'],
             filter: { email: { _contains: '@' } },
           },
         },
       }),
     );
+  });
+
+  it('does not request unpublished root or relation fields from a seeded secure row', async () => {
+    const { repo, queryBuilderService } = makeRepo({
+      tableName: 'secure_storage_config',
+      fields: '*,updatedBy.*',
+      enforceFieldPermission: true,
+    });
+
+    const result = await repo.find();
+
+    expect(queryBuilderService.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        table: 'secure_storage_config',
+        fields: 'id,name,bucket,updatedBy',
+        deep: {
+          updatedBy: {
+            fields: 'id,email,avatar,displayName,role',
+          },
+        },
+      }),
+    );
+    expect(result.data[0]).toEqual({
+      id: 2,
+      name: 'Cloud R2',
+      bucket: 'private-bucket',
+      updatedBy: {
+        id: 'user-1',
+        email: 'root@example.com',
+        avatar: 'avatar.png',
+        displayName: 'Root Admin',
+      },
+    });
+    expect(result.data[0]).not.toHaveProperty('accessKeyId');
+    expect(result.data[0]).not.toHaveProperty('secretAccessKey');
+    expect(result.data[0].updatedBy).not.toHaveProperty('password');
   });
 });
