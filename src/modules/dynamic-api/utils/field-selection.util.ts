@@ -31,7 +31,9 @@ function getTables(metadata: any): Map<string, any> | undefined {
 function getTableOrThrow(metadata: any, tableName: string): any {
   const table = getTables(metadata)?.get(tableName);
   if (!table) {
-    throw new BadRequestException(`Unknown table '${tableName}' in fields projection.`);
+    throw new BadRequestException(
+      `Unknown table '${tableName}' in fields projection.`,
+    );
   }
   return table;
 }
@@ -39,7 +41,9 @@ function getTableOrThrow(metadata: any, tableName: string): any {
 function getPrimaryKey(table: any): string {
   return (
     table?.columns?.find((column: any) => column?.isPrimary)?.name ||
-    (table?.columns?.some((column: any) => column?.name === '_id') ? '_id' : 'id')
+    (table?.columns?.some((column: any) => column?.name === '_id')
+      ? '_id'
+      : 'id')
   );
 }
 
@@ -54,7 +58,9 @@ function fieldExists(table: any, field: string): 'column' | 'relation' | null {
   if (table?.columns?.some((column: any) => column?.name === field)) {
     return 'column';
   }
-  if (table?.relations?.some((relation: any) => relation?.propertyName === field)) {
+  if (
+    table?.relations?.some((relation: any) => relation?.propertyName === field)
+  ) {
     return 'relation';
   }
   return null;
@@ -71,7 +77,31 @@ function mergeDeepFieldExclusions(
     ...(deep || {}),
     [relationName]: {
       ...current,
-      fields: [...currentFields, ...excludedNestedFields.map((field) => `-${field}`)],
+      fields: [
+        ...currentFields,
+        ...excludedNestedFields.map((field) => `-${field}`),
+      ],
+    },
+  };
+}
+
+function mergeDeepFieldIncludes(
+  deep: DeepOptions,
+  relationName: string,
+  includedNestedFields: string[],
+): DeepOptions {
+  const current = deep?.[relationName] || {};
+  const currentFields = parseFieldList(current.fields) || [];
+  const nextFields = currentFields.includes('*')
+    ? currentFields
+    : includedNestedFields.includes('*')
+      ? ['*']
+      : [...currentFields, ...includedNestedFields];
+  return {
+    ...(deep || {}),
+    [relationName]: {
+      ...current,
+      fields: nextFields,
     },
   };
 }
@@ -120,6 +150,71 @@ function normalizeDeepProjection(
   return normalized;
 }
 
+function normalizeIncludeProjection(
+  tableName: string,
+  tokens: string[],
+  deep: DeepOptions,
+  metadata: any,
+): NormalizeProjectionResult | null {
+  const dottedTokens = tokens.filter(
+    (token) => !token.startsWith('-') && token.includes('.'),
+  );
+  if (dottedTokens.length === 0) return null;
+
+  const table = getTableOrThrow(metadata, tableName);
+  let normalizedDeep = deep;
+  const rootFields: string[] = [];
+  const includeAllRoot = tokens.includes('*');
+  let rewroteRelation = false;
+
+  for (const token of tokens) {
+    if (token === '*') continue;
+    if (token.startsWith('-')) continue;
+
+    const dotIndex = token.indexOf('.');
+    if (dotIndex === -1) {
+      if (!includeAllRoot && !rootFields.includes(token)) {
+        rootFields.push(token);
+      }
+      continue;
+    }
+
+    const relationName = token.slice(0, dotIndex);
+    const nestedPath = token.slice(dotIndex + 1);
+    if (!relationName || !nestedPath) {
+      if (!includeAllRoot && !rootFields.includes(token)) {
+        rootFields.push(token);
+      }
+      continue;
+    }
+    const relation = table.relations?.find(
+      (item: any) => item?.propertyName === relationName,
+    );
+    if (!relation) {
+      if (!includeAllRoot && !rootFields.includes(token)) {
+        rootFields.push(token);
+      }
+      continue;
+    }
+    if (!includeAllRoot && !rootFields.includes(relationName)) {
+      rootFields.push(relationName);
+    }
+    normalizedDeep = mergeDeepFieldIncludes(normalizedDeep, relationName, [
+      nestedPath,
+    ]);
+    rewroteRelation = true;
+  }
+
+  if (!rewroteRelation) return null;
+
+  normalizedDeep = normalizeDeepProjection(tableName, normalizedDeep, metadata);
+
+  return {
+    fields: includeAllRoot ? '*' : rootFields,
+    deep: normalizedDeep,
+  };
+}
+
 export function normalizeDynamicReadProjection({
   tableName,
   fields,
@@ -127,7 +222,8 @@ export function normalizeDynamicReadProjection({
   metadata,
 }: NormalizeProjectionInput): NormalizeProjectionResult {
   const tokens = parseFieldList(fields);
-  const hasDeep = !!deep && typeof deep === 'object' && Object.keys(deep).length > 0;
+  const hasDeep =
+    !!deep && typeof deep === 'object' && Object.keys(deep).length > 0;
 
   if (!tokens || tokens.length === 0) {
     return {
@@ -142,6 +238,14 @@ export function normalizeDynamicReadProjection({
     .filter(Boolean);
 
   if (excludedTokens.length === 0) {
+    const includeProjection = normalizeIncludeProjection(
+      tableName,
+      tokens,
+      hasDeep ? normalizeDeepProjection(tableName, deep, metadata) : deep,
+      metadata,
+    );
+    if (includeProjection) return includeProjection;
+
     return {
       fields,
       deep: hasDeep ? normalizeDeepProjection(tableName, deep, metadata) : deep,
