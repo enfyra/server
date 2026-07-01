@@ -11,6 +11,7 @@ import {
 } from '../utils/relation-target-id.util';
 import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
 import { renameSqlAutoTableRoute } from './table-route-artifacts.service';
+import { stringifyJsonFieldValue } from '../../../shared/utils/json-field-normalizer.util';
 
 export class SqlTableMetadataWriterService {
   private readonly logger = new Logger(SqlTableMetadataWriterService.name);
@@ -93,14 +94,12 @@ export class SqlTableMetadataWriterService {
           ...(col.id ? {} : { isEncrypted: col.isEncrypted ?? false }),
           defaultValue:
             col.defaultValue !== undefined
-              ? JSON.stringify(col.defaultValue)
+              ? stringifyJsonFieldValue(col.defaultValue)
               : null,
-          options:
-            col.options !== undefined ? JSON.stringify(col.options) : null,
+          options: stringifyJsonFieldValue(col.options),
           description: col.description,
           placeholder: col.placeholder,
-          metadata:
-            col.metadata !== undefined ? JSON.stringify(col.metadata) : null,
+          metadata: stringifyJsonFieldValue(col.metadata),
           tableId: id,
         };
         let columnId: number | string;

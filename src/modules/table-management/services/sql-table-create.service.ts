@@ -37,6 +37,7 @@ import {
   syncSqlGqlDefinition,
 } from './table-post-migration.service';
 import { SqlTableHandlerService } from './sql-table-handler-base.service';
+import { stringifyJsonFieldValue } from '../../../shared/utils/json-field-normalizer.util';
 
 export class SqlTableCreateService extends SqlTableHandlerService {
   async createTable(body: TCreateTableBody, context?: TDynamicContext) {
@@ -219,14 +220,12 @@ export class SqlTableCreateService extends SqlTableHandlerService {
           isEncrypted: col.isEncrypted ?? false,
           defaultValue:
             col.defaultValue !== undefined
-              ? JSON.stringify(col.defaultValue)
+              ? stringifyJsonFieldValue(col.defaultValue)
               : null,
-          options:
-            col.options !== undefined ? JSON.stringify(col.options) : null,
+          options: stringifyJsonFieldValue(col.options),
           description: col.description,
           placeholder: col.placeholder,
-          metadata:
-            col.metadata !== undefined ? JSON.stringify(col.metadata) : null,
+          metadata: stringifyJsonFieldValue(col.metadata),
           tableId: tableId,
         }));
         await trx('enfyra_column').insert(columnsToInsert);

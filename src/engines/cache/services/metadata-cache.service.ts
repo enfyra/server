@@ -14,6 +14,7 @@ import { EventEmitter2 } from 'eventemitter2';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { normalizeMongoPrimaryKeyColumn } from '../../../modules/table-management/utils/mongo-primary-key.util';
 import { logMemory } from '../../../shared/utils/memory-log.util';
+import { normalizeJsonFieldValue } from '../../../shared/utils/json-field-normalizer.util';
 
 const COLOR = '\x1b[36m';
 const RESET = '\x1b[0m';
@@ -397,14 +398,15 @@ export class MetadataCacheService implements IMetadataCache {
         const column = isMongoDB
           ? normalizeMongoPrimaryKeyColumn({ ...col })
           : { ...col };
+        column.metadata = normalizeJsonFieldValue(column.metadata);
         if (col.options && typeof col.options === 'string') {
           try {
-            column.options = JSON.parse(col.options);
+            column.options = normalizeJsonFieldValue(col.options);
           } catch (e) {}
         }
         if (col.defaultValue && typeof col.defaultValue === 'string') {
           try {
-            column.defaultValue = JSON.parse(col.defaultValue);
+            column.defaultValue = normalizeJsonFieldValue(col.defaultValue);
           } catch (e) {}
         }
         const booleanFields = [
@@ -447,6 +449,7 @@ export class MetadataCacheService implements IMetadataCache {
 
         const relationMetadata: any = {
           ...rel,
+          metadata: normalizeJsonFieldValue(rel.metadata),
           sourceTableName: table.name,
           targetTableName: targetTableName || rel.targetTableName,
         };
@@ -582,6 +585,7 @@ export class MetadataCacheService implements IMetadataCache {
       }
 
       const tableData: any = { ...table };
+      tableData.metadata = normalizeJsonFieldValue(tableData.metadata);
       for (const key in tableData) {
         if (tableData[key] !== undefined && tableData[key] !== null) {
           if (tableData[key] === 1 || tableData[key] === true)
@@ -751,7 +755,7 @@ export class MetadataCacheService implements IMetadataCache {
         );
       if (snapshot) {
         this.sharedCacheLoaded = true;
-        return snapshot.data;
+        return this.normalizeMetadataSnapshot(snapshot.data);
       }
       return await this.loadAndCacheMetadata();
     }
@@ -835,6 +839,7 @@ export class MetadataCacheService implements IMetadataCache {
   }
 
   private async setLoadedMetadata(metadata: EnfyraMetadata): Promise<void> {
+    metadata = this.normalizeMetadataSnapshot(metadata);
     if (this.usesSharedRuntimeCache()) {
       await this.redisRuntimeCacheStore!.setSnapshot('metadata', metadata);
       this.sharedCacheLoaded = true;
@@ -843,6 +848,34 @@ export class MetadataCacheService implements IMetadataCache {
       return;
     }
     this.inMemoryCache = metadata;
+  }
+
+  private normalizeMetadataSnapshot(metadata: EnfyraMetadata): EnfyraMetadata {
+    for (const table of metadata.tablesList ?? []) {
+      table.metadata = normalizeJsonFieldValue(table.metadata);
+      for (const column of table.columns ?? []) {
+        column.metadata = normalizeJsonFieldValue(column.metadata);
+        column.options = normalizeJsonFieldValue(column.options);
+        column.defaultValue = normalizeJsonFieldValue(column.defaultValue);
+      }
+      for (const relation of table.relations ?? []) {
+        relation.metadata = normalizeJsonFieldValue(relation.metadata);
+      }
+    }
+
+    if (!(metadata.tables instanceof Map)) {
+      metadata.tables = new Map(
+        (metadata.tablesList ?? [])
+          .filter((table: any) => table?.name)
+          .map((table: any) => [table.name, table]),
+      );
+    } else {
+      for (const table of metadata.tablesList ?? []) {
+        if (table?.name) metadata.tables.set(table.name, table);
+      }
+    }
+
+    return metadata;
   }
 
   private async loadFreshMetadataForReload(): Promise<EnfyraMetadata> {
@@ -857,7 +890,7 @@ export class MetadataCacheService implements IMetadataCache {
         await this.redisRuntimeCacheStore!.waitForSnapshot<EnfyraMetadata>(
           'metadata',
         );
-      if (snapshot) return snapshot.data;
+      if (snapshot) return this.normalizeMetadataSnapshot(snapshot.data);
     }
 
     try {
