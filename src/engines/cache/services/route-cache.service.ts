@@ -434,7 +434,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
         this.hydrateMethodList(hook.methods);
         const normalized = normalizeScriptRecord(tableName, hook);
         Object.assign(hook, normalized);
-        const code = await this.resolveAndRepairScript(tableName, hook);
+        const code = this.resolveScriptCode(hook);
         if (code) {
           hook.code = code;
         }
@@ -550,10 +550,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
           handler,
         );
         Object.assign(handler, normalized);
-        const code = await this.resolveAndRepairScript(
-          'enfyra_route_handler',
-          handler,
-        );
+        const code = this.resolveScriptCode(handler);
         if (code) {
           handler.logic = code;
         }
@@ -564,10 +561,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       for (const hook of route.preHooks) {
         const normalized = normalizeScriptRecord('enfyra_pre_hook', hook);
         Object.assign(hook, normalized);
-        const code = await this.resolveAndRepairScript(
-          'enfyra_pre_hook',
-          hook,
-        );
+        const code = this.resolveScriptCode(hook);
         if (code) {
           hook.code = code;
         }
@@ -578,10 +572,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       for (const hook of route.postHooks) {
         const normalized = normalizeScriptRecord('enfyra_post_hook', hook);
         Object.assign(hook, normalized);
-        const code = await this.resolveAndRepairScript(
-          'enfyra_post_hook',
-          hook,
-        );
+        const code = this.resolveScriptCode(hook);
         if (code) {
           hook.code = code;
         }
@@ -589,36 +580,19 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     }
   }
 
-  private async resolveAndRepairScript(
-    tableName: string,
-    record: any,
-  ): Promise<string | null> {
+  private resolveScriptCode(record: any): string | null {
     if (record.sourceCode) {
       const compiledCode = compileScriptSource(
         record.sourceCode,
         record.scriptLanguage || 'typescript',
       );
-      if (record.compiledCode !== compiledCode) {
-        record.compiledCode = compiledCode;
-        const id = DatabaseConfigService.getRecordId(record);
-        if (id != null) {
-          await this.queryBuilderService.update(tableName, id, {
-            compiledCode,
-          });
-        }
-      }
+      record.compiledCode = compiledCode;
       return compiledCode;
     }
 
     const result = resolveExecutableScript(record);
     if (result.shouldPersistCompiledCode) {
       record.compiledCode = result.compiledCode;
-      const id = DatabaseConfigService.getRecordId(record);
-      if (id != null) {
-        await this.queryBuilderService.update(tableName, id, {
-          compiledCode: result.compiledCode,
-        });
-      }
     }
     return result.code;
   }
