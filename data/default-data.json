@@ -592,6 +592,16 @@
       ]
     },
     {
+      "path": "/admin/menu/reorder",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:list-ordered",
+      "description": "Reorder menu records in one operation",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
       "path": "/admin/reload/metadata",
       "isEnabled": true,
       "isSystem": true,

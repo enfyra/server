@@ -22,17 +22,36 @@ export class SchemaMigrationValidatorService {
       return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
     };
 
-    if (ctx.operation === 'create') {
-      return {
-        allow: true,
-        details: { schemaChanged: true, isDestructive: false },
-      };
-    }
-
     if (ctx.operation === 'delete') {
       return {
         allow: true,
         details: { schemaChanged: true, isDestructive: true },
+      };
+    }
+
+    const indexesOverUniqueFields = this.findIndexesReferencingUniqueFields(
+      ctx.afterMetadata ?? ctx.data,
+    );
+    if (indexesOverUniqueFields.length > 0) {
+      return {
+        allow: false,
+        statusCode: 422 as const,
+        code: 'SCHEMA_INDEX_OVER_UNIQUE_FIELD',
+        message:
+          'Invalid table schema: indexes must not include fields that are already covered by unique constraints. Unique constraints already create indexed lookups.',
+        details: {
+          tableName,
+          conflicts: indexesOverUniqueFields,
+          guidance:
+            'Remove unique fields from indexes and keep those fields only in uniques.',
+        },
+      };
+    }
+
+    if (ctx.operation === 'create') {
+      return {
+        allow: true,
+        details: { schemaChanged: true, isDestructive: false },
       };
     }
 
@@ -287,6 +306,45 @@ export class SchemaMigrationValidatorService {
       allow: true,
       details: diffDetails,
     };
+  }
+
+  private parseConstraintGroups(value: any): string[][] {
+    if (value == null) return [];
+    let parsed = value;
+    if (typeof parsed === 'string') {
+      try {
+        parsed = JSON.parse(parsed);
+      } catch {
+        return [];
+      }
+    }
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((group: any) => {
+        const fields = Array.isArray(group) ? group : group?.value;
+        if (!Array.isArray(fields)) return null;
+        const normalized = fields
+          .map((field: any) => String(field ?? '').trim())
+          .filter(Boolean);
+        return normalized.length > 0 ? normalized : null;
+      })
+      .filter((group: string[] | null): group is string[] => group !== null);
+  }
+
+  private findIndexesReferencingUniqueFields(
+    metadata: any,
+  ): Array<{ index: string[]; uniqueFields: string[] }> {
+    if (!metadata || typeof metadata !== 'object') return [];
+    const uniqueFields = new Set(
+      this.parseConstraintGroups(metadata.uniques).flat(),
+    );
+    if (uniqueFields.size === 0) return [];
+    return this.parseConstraintGroups(metadata.indexes)
+      .map((group) => ({
+        index: group,
+        uniqueFields: group.filter((field) => uniqueFields.has(field)),
+      }))
+      .filter((conflict) => conflict.uniqueFields.length > 0);
   }
 
   relationDiffKeyFromRaw(r: any): string {

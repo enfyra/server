@@ -356,6 +356,19 @@
     {
       "_unique": {
         "path": {
+          "_eq": "/admin/menu/reorder"
+        }
+      },
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:list-ordered",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
           "_eq": "/admin/test/run"
         }
       },

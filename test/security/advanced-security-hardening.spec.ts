@@ -16,6 +16,26 @@ describe('GitHub Advanced Security hardening', () => {
     expect(() => assertValidVueSFC(sfc)).not.toThrow();
   });
 
+  it('rejects lowercase auto-injected extension component tags', () => {
+    expect(() =>
+      assertValidVueSFC('<template><UButton>Save</UButton></template>'),
+    ).not.toThrow();
+    expect(() =>
+      assertValidVueSFC('<template><ubutton>Save</ubutton></template>'),
+    ).toThrow(/use <UButton> instead of <ubutton>/);
+  });
+
+  it('rejects manual component resolution in extension SFCs', () => {
+    const sfc = [
+      '<template><div /></template>',
+      '<script setup>',
+      "const UButton = resolveComponent('UButton')",
+      '</script>',
+    ].join('\n');
+
+    expect(() => assertValidVueSFC(sfc)).toThrow(/do not call resolveComponent/);
+  });
+
   it('sanitizes extension build names before path or browser key usage', () => {
     expect(sanitizeExtensionBuildName('../bad/name";alert(1)//')).toBe(
       '___bad_name__alert_1___',
