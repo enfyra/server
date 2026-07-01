@@ -119,6 +119,52 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
     expect(decision.code).toBe('SCHEMA_CONFIRM_HASH_MISMATCH');
   });
 
+  it('rejects create schema when an index includes a unique field', async () => {
+    const v = makeValidator();
+    const decision = await v.checkSchemaMigration({
+      operation: 'create',
+      tableName: 'enfyra_table',
+      data: {
+        name: 'runtime_versions',
+        uniques: [{ value: ['version'] }],
+        indexes: [{ value: ['is_active', 'sort_order'] }, { value: ['version'] }],
+      },
+      requestContext: { $query: {} },
+    });
+
+    expect(decision.allow).toBe(false);
+    expect(decision.statusCode).toBe(422);
+    expect(decision.code).toBe('SCHEMA_INDEX_OVER_UNIQUE_FIELD');
+    expect(decision.details.conflicts).toEqual([
+      { index: ['version'], uniqueFields: ['version'] },
+    ]);
+  });
+
+  it('rejects update schema when any index group includes a unique field', async () => {
+    const v = makeValidator();
+    const after = {
+      ...baseBefore,
+      uniques: [['version'], ['docker_image']],
+      indexes: [['is_active', 'sort_order'], ['version', 'is_active']],
+    };
+
+    const decision = await v.checkSchemaMigration({
+      operation: 'update',
+      tableName: 'runtime_versions',
+      beforeMetadata: baseBefore,
+      afterMetadata: after,
+      requestContext: { $query: {} },
+    });
+
+    expect(decision.allow).toBe(false);
+    expect(decision.statusCode).toBe(422);
+    expect(decision.code).toBe('SCHEMA_INDEX_OVER_UNIQUE_FIELD');
+    expect(decision.details.conflicts).toEqual([
+      { index: ['version', 'is_active'], uniqueFields: ['version'] },
+    ]);
+    expect(decision.details.guidance).toMatch(/Remove unique fields/);
+  });
+
   it('hash differs when adding different column (not just id)', async () => {
     const v = makeValidator();
     const afterSlug = {
