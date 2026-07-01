@@ -1,7 +1,16 @@
 import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
+import { BadRequestException } from '../../domain/exceptions';
+import { CACHE_EVENTS } from '../../shared/utils/cache-events.constants';
 import { compileScriptSource } from '../../shared/utils/script-code.util';
+import type { TCacheInvalidationPayload } from '../../shared/types/cache.types';
+
+type MenuReorderUpdate = {
+  id: string | number;
+  order: number;
+  parent?: string | number | null;
+};
 
 function resolveOrchestrator(req: any, container: AwilixContainer<Cradle>) {
   return (
@@ -21,6 +30,91 @@ function resolveRuntimeMonitor(req: any, container: AwilixContainer<Cradle>) {
     req.scope?.cradle?.runtimeMonitorService ??
     container.cradle.runtimeMonitorService
   );
+}
+
+function getRecordId(record: any, pkField: string) {
+  if (!record) return null;
+  let id = pkField === '_id' ? (record._id ?? record.id) : (record.id ?? record._id);
+  while (id && typeof id === 'object') {
+    id = pkField === '_id' ? (id._id ?? id.id) : (id.id ?? id._id);
+  }
+  return id ?? null;
+}
+
+function normalizeMenuReorderUpdates(body: any): MenuReorderUpdate[] {
+  const input = Array.isArray(body?.updates)
+    ? body.updates
+    : Array.isArray(body)
+      ? body
+      : null;
+
+  if (!input) {
+    throw new BadRequestException('updates must be an array');
+  }
+
+  const seen = new Set<string>();
+  return input.map((item: any, index: number) => {
+    const id = item?.id;
+    if (id == null || String(id).trim() === '') {
+      throw new BadRequestException(`updates[${index}].id is required`);
+    }
+    const idKey = String(id);
+    if (seen.has(idKey)) {
+      throw new BadRequestException(`Duplicate menu id in reorder payload: ${idKey}`);
+    }
+    seen.add(idKey);
+
+    const order = Number(item?.order);
+    if (!Number.isInteger(order) || order < 0) {
+      throw new BadRequestException(`updates[${index}].order must be a non-negative integer`);
+    }
+
+    const parent = item?.parent ?? null;
+    return {
+      id,
+      order,
+      parent: parent == null || String(parent).trim() === '' ? null : parent,
+    };
+  });
+}
+
+function isSameId(a: unknown, b: unknown) {
+  return String(a ?? '') === String(b ?? '');
+}
+
+function assertNoMenuCycle(
+  menuId: string | number,
+  nextParentId: string | number | null,
+  parentById: Map<string, string | number | null>,
+) {
+  const visited = new Set<string>([String(menuId)]);
+  let currentParentId = nextParentId;
+
+  while (currentParentId != null) {
+    const key = String(currentParentId);
+    if (visited.has(key)) {
+      throw new BadRequestException('Menu parent cycle is not allowed');
+    }
+    visited.add(key);
+    currentParentId = parentById.get(key) ?? null;
+  }
+}
+
+async function emitMenuReload(req: any, container: AwilixContainer<Cradle>, ids: (string | number)[]) {
+  const eventEmitter = req.scope?.cradle?.eventEmitter ?? container.cradle.eventEmitter;
+  const payload: TCacheInvalidationPayload = {
+    table: 'enfyra_menu',
+    action: 'reload',
+    timestamp: Date.now(),
+    scope: ids.length ? 'partial' : 'full',
+    ids,
+  };
+
+  if (typeof eventEmitter.emitAsync === 'function') {
+    await eventEmitter.emitAsync(CACHE_EVENTS.INVALIDATE, payload);
+    return;
+  }
+  eventEmitter.emit(CACHE_EVENTS.INVALIDATE, payload);
 }
 
 function startReload(
@@ -74,6 +168,96 @@ export function registerAdminRoutes(
         },
       });
     }
+  });
+
+  app.post('/admin/menu/reorder', async (req: any, res: Response) => {
+    const updates = normalizeMenuReorderUpdates(req.routeData?.context?.$body ?? req.body ?? {});
+    if (updates.length === 0) {
+      res.json({ success: true, data: { updated: 0 } });
+      return;
+    }
+
+    const queryBuilderService =
+      req.scope?.cradle?.queryBuilderService ?? container.cradle.queryBuilderService;
+    const pkField = queryBuilderService.getPkField();
+    const ids = updates.map((update) => update.id);
+    const existingResult = await queryBuilderService.find({
+      table: 'enfyra_menu',
+      fields: [pkField, 'type', 'path', 'isSystem', 'parent.*'],
+      limit: 0,
+    });
+
+    const existingById = new Map<string, any>();
+    const parentById = new Map<string, string | number | null>();
+    for (const record of existingResult?.data ?? []) {
+      const recordId = getRecordId(record, pkField);
+      if (recordId == null) continue;
+      existingById.set(String(recordId), record);
+      parentById.set(String(recordId), getRecordId(record.parent, pkField));
+    }
+
+    for (const update of updates) {
+      parentById.set(String(update.id), update.parent ?? null);
+    }
+
+    for (const update of updates) {
+      const existing = existingById.get(String(update.id));
+      if (!existing) {
+        throw new BadRequestException(`Menu not found: ${String(update.id)}`);
+      }
+
+      if (update.parent != null) {
+        if (isSameId(update.id, update.parent)) {
+          throw new BadRequestException('Menu cannot be its own parent');
+        }
+
+        const parent = existingById.get(String(update.parent));
+        if (!parent) {
+          throw new BadRequestException(`Menu parent not found: ${String(update.parent)}`);
+        }
+        if (parent.type !== 'Dropdown Menu') {
+          throw new BadRequestException('Menu parent must be a dropdown menu');
+        }
+        if (parent.path === '/data') {
+          throw new BadRequestException('The Data menu cannot accept child menus');
+        }
+      }
+
+      assertNoMenuCycle(update.id, update.parent ?? null, parentById);
+
+      if (existing.isSystem) {
+        const existingParentId = getRecordId(existing.parent, pkField);
+        if (String(existingParentId ?? '') !== String(update.parent ?? '')) {
+          throw new BadRequestException('Cannot change menu parent reference');
+        }
+      }
+    }
+
+    const persistedIds: (string | number)[] = [];
+    try {
+      for (const update of updates) {
+        await queryBuilderService.update('enfyra_menu', update.id, {
+          order: update.order,
+          parent: update.parent,
+        });
+        persistedIds.push(update.id);
+      }
+    } catch (error) {
+      if (persistedIds.length > 0) {
+        await emitMenuReload(req, container, persistedIds);
+      }
+      throw error;
+    }
+
+    await emitMenuReload(req, container, ids);
+
+    res.json({
+      success: true,
+      data: {
+        updated: updates.length,
+        ids,
+      },
+    });
   });
 
   app.get('/admin/redis/overview', async (req: any, res: Response) => {
