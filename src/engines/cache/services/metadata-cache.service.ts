@@ -147,9 +147,6 @@ export class MetadataCacheService implements IMetadataCache {
       await this.reload();
     } finally {
       await this.releaseActiveSharedLock();
-      if (this.usesSharedRuntimeCache()) {
-        this.inMemoryCache = null;
-      }
     }
   }
 
@@ -755,7 +752,8 @@ export class MetadataCacheService implements IMetadataCache {
         );
       if (snapshot) {
         this.sharedCacheLoaded = true;
-        return this.normalizeMetadataSnapshot(snapshot.data);
+        this.inMemoryCache = this.normalizeMetadataSnapshot(snapshot.data);
+        return this.inMemoryCache;
       }
       return await this.loadAndCacheMetadata();
     }
@@ -835,7 +833,7 @@ export class MetadataCacheService implements IMetadataCache {
       throw new Error('Metadata shared cache is unavailable');
     }
     this.sharedCacheLoaded = true;
-    this.inMemoryCache = null;
+    this.inMemoryCache = this.normalizeMetadataSnapshot(snapshot.data);
   }
 
   private async setLoadedMetadata(metadata: EnfyraMetadata): Promise<void> {
@@ -843,7 +841,7 @@ export class MetadataCacheService implements IMetadataCache {
     if (this.usesSharedRuntimeCache()) {
       await this.redisRuntimeCacheStore!.setSnapshot('metadata', metadata);
       this.sharedCacheLoaded = true;
-      this.inMemoryCache = this.systemReady ? null : metadata;
+      this.inMemoryCache = metadata;
       await this.releaseActiveSharedLock();
       return;
     }
