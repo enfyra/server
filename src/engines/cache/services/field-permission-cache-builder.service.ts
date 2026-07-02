@@ -61,7 +61,7 @@ function isFalseValue(v: any): boolean {
   return v === false || v === 0 || v === '0';
 }
 
-export class FieldPermissionCacheService extends BaseCacheService<
+export class FieldPermissionCacheBuilder extends BaseCacheService<
   Map<string, TCompiledFieldPolicy>
 > {
   private readonly queryBuilderService: QueryBuilderService;

@@ -110,4 +110,27 @@ describe('validateBootstrapDataFiles', () => {
       ['enfyra_flow_step', 'flow'],
     ]);
   });
+
+  it('reports snapshot tables that declare generated timestamp columns', () => {
+    const issues = validateBootstrapDataFiles({
+      snapshot: {
+        demo: {
+          columns: [
+            { name: 'id', type: 'int' },
+            { name: 'createdAt', type: 'date' },
+            { name: 'updatedAt', type: 'date' },
+          ],
+        },
+      },
+      defaultData: {},
+      dataMigration: {},
+    });
+
+    expect(
+      issues.map((issue) => [issue.file, issue.table, issue.field]),
+    ).toEqual([
+      ['snapshot.json', 'demo', 'columns'],
+      ['snapshot.json', 'demo', 'columns'],
+    ]);
+  });
 });

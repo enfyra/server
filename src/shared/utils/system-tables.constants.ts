@@ -35,6 +35,7 @@ export const SYSTEM_TABLES = {
   guard: 'enfyra_guard',
   guardRule: 'enfyra_guard_rule',
   graphql: 'enfyra_graphql',
+  runtimeReloadLog: 'enfyra_runtime_reload_log',
 } as const;
 
 export const LEGACY_CORE_SYSTEM_TABLES = {

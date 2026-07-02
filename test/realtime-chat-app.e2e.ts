@@ -578,9 +578,9 @@ async function reloadRuntime(container: ReturnType<typeof buildContainer>) {
   c.eventEmitter.emit(CACHE_EVENTS.METADATA_LOADED);
   await c.repoRegistryService.rebuildFromMetadata(c.metadataCacheService);
   await Promise.all([
-    c.websocketCacheService.reload(),
+    c.websocketCacheBuilder.reload(),
     c.routeCacheService.reload(),
-    c.fieldPermissionCacheService.reload(),
+    c.fieldPermissionCacheBuilder.reload(),
   ]);
   if (c.dynamicWebSocketGateway.server) {
     await c.dynamicWebSocketGateway.reloadGateways();

@@ -837,6 +837,16 @@
       ]
     },
     {
+      "path": "/enfyra_runtime_reload_log",
+      "mainTable": "enfyra_runtime_reload_log",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:activity",
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
       "path": "/enfyra_guard",
       "mainTable": "enfyra_guard",
       "isEnabled": true,

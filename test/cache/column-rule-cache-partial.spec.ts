@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter2 } from 'eventemitter2';
-import { ColumnRuleCacheService } from '../../src/engines/cache';
+import { ColumnRuleCacheBuilder } from '../../src/engines/cache';
 
 function makeQb(rows: any[]) {
   return {
@@ -18,14 +18,14 @@ function makeQb(rows: any[]) {
 
 function makeService(rows: any[]) {
   const qb = makeQb(rows);
-  const svc = new ColumnRuleCacheService({
+  const svc = new ColumnRuleCacheBuilder({
     queryBuilderService: qb,
     eventEmitter: new EventEmitter2(),
   });
   return { svc, qb };
 }
 
-describe('ColumnRuleCacheService — partial reload', () => {
+describe('ColumnRuleCacheBuilder — partial reload', () => {
   it('supportsPartialReload returns true', () => {
     const { svc } = makeService([]);
     expect(svc.supportsPartialReload()).toBe(true);

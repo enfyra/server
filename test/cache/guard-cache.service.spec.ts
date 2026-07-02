@@ -1,13 +1,13 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { Logger } from '../../src/shared/logger';
-import { GuardCacheService } from '../../src/engines/cache';
+import { GuardCacheBuilder } from '../../src/engines/cache';
 import { RuntimeRegistryService } from '../../src/engines/cache/services/runtime-registry.service';
 import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants';
 
 async function loadGuardCache(
   guards: any[],
   rules: any[],
-): Promise<{ svc: GuardCacheService; registry: RuntimeRegistryService }> {
+): Promise<{ svc: GuardCacheBuilder; registry: RuntimeRegistryService }> {
   const find = jest.fn(async (params: any) => {
     if (params.table === 'enfyra_guard') return { data: guards };
     if (params.table === 'enfyra_guard_rule') return { data: rules };
@@ -16,7 +16,7 @@ async function loadGuardCache(
   const qb = { find, isMongoDb: () => false };
   const ee = new EventEmitter2();
   const registry = new RuntimeRegistryService();
-  const svc = new GuardCacheService({
+  const svc = new GuardCacheBuilder({
     queryBuilderService: qb as any,
     eventEmitter: ee,
   });
@@ -25,7 +25,7 @@ async function loadGuardCache(
   return { svc, registry };
 }
 
-describe('GuardCacheService — tree building', () => {
+describe('GuardCacheBuilder — tree building', () => {
   it('should build flat guard with rules', async () => {
     const { svc } = await loadGuardCache(
       [
@@ -328,7 +328,7 @@ describe('GuardCacheService — tree building', () => {
   });
 });
 
-describe('GuardCacheService — validation', () => {
+describe('GuardCacheBuilder — validation', () => {
   let warnSpy: jest.SpyInstance;
 
   beforeEach(() => {

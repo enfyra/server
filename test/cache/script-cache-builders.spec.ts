@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EventEmitter2 } from 'eventemitter2';
 import {
-  FlowCacheService,
-  WebsocketCacheService,
+  FlowCacheBuilder,
+  WebsocketCacheBuilder,
 } from '../../src/engines/cache';
 
 describe('script cache builders', () => {
@@ -44,7 +44,7 @@ describe('script cache builders', () => {
       }),
       update,
     };
-    const service = new FlowCacheService({
+    const service = new FlowCacheBuilder({
       queryBuilderService: queryBuilderService as any,
       eventEmitter: new EventEmitter2(),
     });
@@ -84,7 +84,7 @@ describe('script cache builders', () => {
       }),
       update,
     };
-    const service = new WebsocketCacheService({
+    const service = new WebsocketCacheBuilder({
       queryBuilderService: queryBuilderService as any,
       eventEmitter: new EventEmitter2(),
     });

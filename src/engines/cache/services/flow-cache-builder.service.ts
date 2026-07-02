@@ -25,7 +25,7 @@ const FLOW_CONFIG: CacheConfig = {
   cacheName: 'FlowCache',
 };
 
-export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
+export class FlowCacheBuilder extends BaseCacheService<FlowDefinition[]> {
   private readonly queryBuilderService: QueryBuilderService;
 
   constructor(deps: {

@@ -7,16 +7,16 @@ import {
 } from '../../../shared/services';
 import { MetadataCacheService } from './metadata-cache.service';
 import { RouteCacheService } from './route-cache.service';
-import { GuardCacheService } from './guard-cache.service';
-import { FlowCacheService } from './flow-cache.service';
-import { WebsocketCacheService } from './websocket-cache.service';
+import { GuardCacheBuilder } from './guard-cache-builder.service';
+import { FlowCacheBuilder } from './flow-cache-builder.service';
+import { WebsocketCacheBuilder } from './websocket-cache-builder.service';
 import { PackageCacheService } from './package-cache.service';
 import { SettingCacheService } from './setting-cache.service';
-import { StorageConfigCacheService } from './storage-config-cache.service';
-import { OAuthConfigCacheService } from './oauth-config-cache.service';
+import { StorageConfigCacheBuilder } from './storage-config-cache-builder.service';
+import { OAuthConfigCacheBuilder } from './oauth-config-cache-builder.service';
 import { FolderTreeCacheService } from './folder-tree-cache.service';
-import { FieldPermissionCacheService } from './field-permission-cache.service';
-import { ColumnRuleCacheService } from './column-rule-cache.service';
+import { FieldPermissionCacheBuilder } from './field-permission-cache-builder.service';
+import { ColumnRuleCacheBuilder } from './column-rule-cache-builder.service';
 import { GqlDefinitionCacheService } from './gql-definition-cache.service';
 import { RepoRegistryService } from './repo-registry.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
@@ -24,6 +24,7 @@ import {
   RuntimeRegistryService,
   type RuntimeCacheViewSource,
 } from './runtime-registry.service';
+import { RuntimeReloadAuditService } from './runtime-reload-audit.service';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import {
   CACHE_EVENTS,
@@ -143,19 +144,20 @@ export class CacheOrchestratorService implements LifecycleAware {
   private readonly eventEmitter: EventEmitter2;
   private readonly metadataCacheService: MetadataCacheService;
   private readonly routeCacheService: RouteCacheService;
-  private readonly guardCacheService: GuardCacheService;
-  private readonly flowCacheService: FlowCacheService;
-  private readonly websocketCacheService: WebsocketCacheService;
+  private readonly guardCacheBuilder: GuardCacheBuilder;
+  private readonly flowCacheBuilder: FlowCacheBuilder;
+  private readonly websocketCacheBuilder: WebsocketCacheBuilder;
   private readonly packageCacheService: PackageCacheService;
   private readonly settingCacheService: SettingCacheService;
-  private readonly storageConfigCacheService: StorageConfigCacheService;
-  private readonly oauthConfigCacheService: OAuthConfigCacheService;
+  private readonly storageConfigCacheBuilder: StorageConfigCacheBuilder;
+  private readonly oauthConfigCacheBuilder: OAuthConfigCacheBuilder;
   private readonly folderTreeCacheService: FolderTreeCacheService;
-  private readonly fieldPermissionCacheService: FieldPermissionCacheService;
-  private readonly columnRuleCacheService: ColumnRuleCacheService;
+  private readonly fieldPermissionCacheBuilder: FieldPermissionCacheBuilder;
+  private readonly columnRuleCacheBuilder: ColumnRuleCacheBuilder;
   private readonly gqlDefinitionCacheService: GqlDefinitionCacheService;
   private readonly repoRegistryService: RepoRegistryService;
   private readonly runtimeRegistryService?: RuntimeRegistryService;
+  private readonly runtimeReloadAuditService?: RuntimeReloadAuditService;
   private readonly graphqlService: GraphqlService;
   private readonly bootstrapScriptService: BootstrapScriptService;
   private readonly dynamicWebSocketGateway: DynamicWebSocketGateway;
@@ -180,19 +182,20 @@ export class CacheOrchestratorService implements LifecycleAware {
     eventEmitter: EventEmitter2;
     metadataCacheService: MetadataCacheService;
     routeCacheService: RouteCacheService;
-    guardCacheService: GuardCacheService;
-    flowCacheService: FlowCacheService;
-    websocketCacheService: WebsocketCacheService;
+    guardCacheBuilder: GuardCacheBuilder;
+    flowCacheBuilder: FlowCacheBuilder;
+    websocketCacheBuilder: WebsocketCacheBuilder;
     packageCacheService: PackageCacheService;
     settingCacheService: SettingCacheService;
-    storageConfigCacheService: StorageConfigCacheService;
-    oauthConfigCacheService: OAuthConfigCacheService;
+    storageConfigCacheBuilder: StorageConfigCacheBuilder;
+    oauthConfigCacheBuilder: OAuthConfigCacheBuilder;
     folderTreeCacheService: FolderTreeCacheService;
-    fieldPermissionCacheService: FieldPermissionCacheService;
-    columnRuleCacheService: ColumnRuleCacheService;
+    fieldPermissionCacheBuilder: FieldPermissionCacheBuilder;
+    columnRuleCacheBuilder: ColumnRuleCacheBuilder;
     gqlDefinitionCacheService: GqlDefinitionCacheService;
     repoRegistryService: RepoRegistryService;
     runtimeRegistryService?: RuntimeRegistryService;
+    runtimeReloadAuditService?: RuntimeReloadAuditService;
     graphqlService: GraphqlService;
     bootstrapScriptService: BootstrapScriptService;
     dynamicWebSocketGateway: DynamicWebSocketGateway;
@@ -204,19 +207,20 @@ export class CacheOrchestratorService implements LifecycleAware {
     this.eventEmitter = deps.eventEmitter;
     this.metadataCacheService = deps.metadataCacheService;
     this.routeCacheService = deps.routeCacheService;
-    this.guardCacheService = deps.guardCacheService;
-    this.flowCacheService = deps.flowCacheService;
-    this.websocketCacheService = deps.websocketCacheService;
+    this.guardCacheBuilder = deps.guardCacheBuilder;
+    this.flowCacheBuilder = deps.flowCacheBuilder;
+    this.websocketCacheBuilder = deps.websocketCacheBuilder;
     this.packageCacheService = deps.packageCacheService;
     this.settingCacheService = deps.settingCacheService;
-    this.storageConfigCacheService = deps.storageConfigCacheService;
-    this.oauthConfigCacheService = deps.oauthConfigCacheService;
+    this.storageConfigCacheBuilder = deps.storageConfigCacheBuilder;
+    this.oauthConfigCacheBuilder = deps.oauthConfigCacheBuilder;
     this.folderTreeCacheService = deps.folderTreeCacheService;
-    this.fieldPermissionCacheService = deps.fieldPermissionCacheService;
-    this.columnRuleCacheService = deps.columnRuleCacheService;
+    this.fieldPermissionCacheBuilder = deps.fieldPermissionCacheBuilder;
+    this.columnRuleCacheBuilder = deps.columnRuleCacheBuilder;
     this.gqlDefinitionCacheService = deps.gqlDefinitionCacheService;
     this.repoRegistryService = deps.repoRegistryService;
     this.runtimeRegistryService = deps.runtimeRegistryService;
+    this.runtimeReloadAuditService = deps.runtimeReloadAuditService;
     this.graphqlService = deps.graphqlService;
     this.bootstrapScriptService = deps.bootstrapScriptService;
     this.dynamicWebSocketGateway = deps.dynamicWebSocketGateway;
@@ -229,24 +233,24 @@ export class CacheOrchestratorService implements LifecycleAware {
       route: (p, options) => this.reloadRoute(p, options?.sharedReplay),
       graphql: (p, options) => this.reloadGraphql(p, options?.sharedReplay),
       guard: (p, options) =>
-        this.reloadSimple(this.guardCacheService, p, options?.sharedReplay),
+        this.reloadSimple(this.guardCacheBuilder, p, options?.sharedReplay),
       flow: (p, options) =>
-        this.reloadSimple(this.flowCacheService, p, options?.sharedReplay),
+        this.reloadSimple(this.flowCacheBuilder, p, options?.sharedReplay),
       websocket: (p, options) =>
-        this.reloadSimple(this.websocketCacheService, p, options?.sharedReplay),
+        this.reloadSimple(this.websocketCacheBuilder, p, options?.sharedReplay),
       package: (p, options) =>
         this.reloadSimple(this.packageCacheService, p, options?.sharedReplay),
       setting: (p, options) =>
         this.reloadSimple(this.settingCacheService, p, options?.sharedReplay),
       storage: (p, options) =>
         this.reloadSimple(
-          this.storageConfigCacheService,
+          this.storageConfigCacheBuilder,
           p,
           options?.sharedReplay,
         ),
       oauth: (p, options) =>
         this.reloadSimple(
-          this.oauthConfigCacheService,
+          this.oauthConfigCacheBuilder,
           p,
           options?.sharedReplay,
         ),
@@ -260,13 +264,13 @@ export class CacheOrchestratorService implements LifecycleAware {
       extension: async () => undefined,
       fieldPermission: (p, options) =>
         this.reloadSimple(
-          this.fieldPermissionCacheService,
+          this.fieldPermissionCacheBuilder,
           p,
           options?.sharedReplay,
         ),
       'column-rule': (p, options) =>
         this.reloadSimple(
-          this.columnRuleCacheService,
+          this.columnRuleCacheBuilder,
           p,
           options?.sharedReplay,
         ),
@@ -383,14 +387,8 @@ export class CacheOrchestratorService implements LifecycleAware {
     const flow = this.resolveFlowName(chain);
 
     const reloadId = this.createReloadEventId(flow);
-    this.notifyClients('pending', flow, chain, reloadId);
-
-    if (this.reloadLock) {
-      try {
-        await this.reloadLock;
-      } catch {}
-    }
-
+    const auditStartedAt = Date.now();
+    let auditSteps: CacheReloadStepMetric[] = [];
     let elapsed = 0;
     const runReload = async () => {
       const start = Date.now();
@@ -483,6 +481,7 @@ export class CacheOrchestratorService implements LifecycleAware {
         reloadError = error;
         throw error;
       } finally {
+        auditSteps = steps;
         const completedAt = new Date().toISOString();
         const durationMs = Date.now() - start;
         this.runtimeMetricsCollectorService?.recordCacheReload({
@@ -512,25 +511,66 @@ export class CacheOrchestratorService implements LifecycleAware {
         durationMs: elapsed,
       });
     };
-    this.reloadLock = this.runtimeMetricsCollectorService
-      ? this.runtimeMetricsCollectorService.runWithQueryContext(
-          'cache',
-          runReload,
-        )
-      : runReload();
+    await this.runWithReloadLock(async () => {
+      await this.runtimeReloadAuditService?.markBuilding({
+        reloadId,
+        flow,
+        table: payload.table,
+        scope: payload.scope,
+        action: payload.action,
+        chain,
+        payload,
+        instanceId: this.instanceService.getInstanceId(),
+      });
+      this.notifyClients('pending', flow, chain, reloadId);
 
+      try {
+        if (this.runtimeMetricsCollectorService) {
+          await this.runtimeMetricsCollectorService.runWithQueryContext(
+            'cache',
+            runReload,
+          );
+        } else {
+          await runReload();
+        }
+        await this.commitRuntimeReloadTransaction(chain, payload);
+        if (publish && sharedRuntimeCache) {
+          await this.publishSignal(payload);
+        }
+        await this.runtimeReloadAuditService?.markActivated({
+          reloadId,
+          durationMs: Date.now() - auditStartedAt,
+          steps: auditSteps,
+        });
+      } catch (error) {
+        await this.runtimeReloadAuditService?.markFailed({
+          reloadId,
+          durationMs: Date.now() - auditStartedAt,
+          steps: auditSteps,
+          error: this.formatReloadError(error),
+        });
+        throw error;
+      } finally {
+        if (elapsed < 500) {
+          await new Promise((r) => setTimeout(r, 500 - elapsed));
+        }
+        this.notifyClients('done', flow, chain, reloadId);
+      }
+    });
+  }
+
+  private async runWithReloadLock(run: () => Promise<void>): Promise<void> {
+    const previous = this.reloadLock;
+    const current = (previous ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(run);
+    this.reloadLock = current;
     try {
-      await this.reloadLock;
-      await this.commitRuntimeReloadTransaction(chain, payload);
-      if (publish && sharedRuntimeCache) {
-        await this.publishSignal(payload);
-      }
+      await current;
     } finally {
-      this.reloadLock = null;
-      if (elapsed < 500) {
-        await new Promise((r) => setTimeout(r, 500 - elapsed));
+      if (this.reloadLock === current) {
+        this.reloadLock = null;
       }
-      this.notifyClients('done', flow, chain, reloadId);
     }
   }
 
@@ -680,18 +720,18 @@ export class CacheOrchestratorService implements LifecycleAware {
       case 'guard':
         return {
           identifier: CACHE_IDENTIFIERS.GUARD,
-          service: this.guardCacheService as unknown as RuntimeCacheViewSource,
+          service: this.guardCacheBuilder as unknown as RuntimeCacheViewSource,
         };
       case 'flow':
         return {
           identifier: CACHE_IDENTIFIERS.FLOW,
-          service: this.flowCacheService as unknown as RuntimeCacheViewSource,
+          service: this.flowCacheBuilder as unknown as RuntimeCacheViewSource,
         };
       case 'websocket':
         return {
           identifier: CACHE_IDENTIFIERS.WEBSOCKET,
           service: this
-            .websocketCacheService as unknown as RuntimeCacheViewSource,
+            .websocketCacheBuilder as unknown as RuntimeCacheViewSource,
         };
       case 'package':
         return {
@@ -709,13 +749,13 @@ export class CacheOrchestratorService implements LifecycleAware {
         return {
           identifier: CACHE_IDENTIFIERS.STORAGE,
           service: this
-            .storageConfigCacheService as unknown as RuntimeCacheViewSource,
+            .storageConfigCacheBuilder as unknown as RuntimeCacheViewSource,
         };
       case 'oauth':
         return {
           identifier: CACHE_IDENTIFIERS.OAUTH_CONFIG,
           service: this
-            .oauthConfigCacheService as unknown as RuntimeCacheViewSource,
+            .oauthConfigCacheBuilder as unknown as RuntimeCacheViewSource,
         };
       case 'folder':
         return {
@@ -733,14 +773,14 @@ export class CacheOrchestratorService implements LifecycleAware {
         return {
           identifier: CACHE_IDENTIFIERS.FIELD_PERMISSION,
           service: this
-            .fieldPermissionCacheService as unknown as RuntimeCacheViewSource,
+            .fieldPermissionCacheBuilder as unknown as RuntimeCacheViewSource,
         };
       case 'column-rule':
       case 'columnRule':
         return {
           identifier: CACHE_IDENTIFIERS.COLUMN_RULE,
           service: this
-            .columnRuleCacheService as unknown as RuntimeCacheViewSource,
+            .columnRuleCacheBuilder as unknown as RuntimeCacheViewSource,
         };
       default:
         return null;
@@ -862,6 +902,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     return {
       runStep,
       finish,
+      steps,
       elapsed: () => Date.now() - start,
     };
   }
@@ -882,12 +923,32 @@ export class CacheOrchestratorService implements LifecycleAware {
     );
     const runReload = async () => {
       let reloadError: unknown = null;
+      await this.runtimeReloadAuditService?.markBuilding({
+        reloadId,
+        flow: input.flow,
+        table: input.table,
+        scope: 'full',
+        action: 'reload',
+        chain: input.steps,
+        instanceId: this.instanceService.getInstanceId(),
+      });
       this.notifyClients('pending', input.flow, input.steps, reloadId);
       try {
         await input.run(tracker.runStep);
         await this.commitRuntimeReloadTransaction(input.steps);
+        await this.runtimeReloadAuditService?.markActivated({
+          reloadId,
+          durationMs: tracker.elapsed(),
+          steps: tracker.steps,
+        });
       } catch (error) {
         reloadError = error;
+        await this.runtimeReloadAuditService?.markFailed({
+          reloadId,
+          durationMs: tracker.elapsed(),
+          steps: tracker.steps,
+          error: this.formatReloadError(error),
+        });
         throw error;
       } finally {
         tracker.finish(reloadError);
@@ -896,14 +957,16 @@ export class CacheOrchestratorService implements LifecycleAware {
       this.logger.log(`${input.logLabel}: ${tracker.elapsed()}ms`);
     };
 
-    if (this.runtimeMetricsCollectorService) {
-      await this.runtimeMetricsCollectorService.runWithQueryContext(
-        'cache',
-        runReload,
-      );
-      return;
-    }
-    await runReload();
+    await this.runWithReloadLock(async () => {
+      if (this.runtimeMetricsCollectorService) {
+        await this.runtimeMetricsCollectorService.runWithQueryContext(
+          'cache',
+          runReload,
+        );
+        return;
+      }
+      await runReload();
+    });
   }
 
   async reloadMetadataAndDeps(): Promise<void> {
@@ -978,7 +1041,7 @@ export class CacheOrchestratorService implements LifecycleAware {
       steps,
       logLabel: 'Admin reload guards',
       run: async (runStep) => {
-        await runStep('guard', () => this.guardCacheService.reload(false));
+        await runStep('guard', () => this.guardCacheBuilder.reload(false));
       },
     });
     await this.publishSignal({
@@ -1056,6 +1119,15 @@ export class CacheOrchestratorService implements LifecycleAware {
         }
       };
       try {
+        await this.runtimeReloadAuditService?.markBuilding({
+          reloadId,
+          flow: 'all',
+          table: '__admin_reload_all',
+          scope: 'full',
+          action: 'reload',
+          chain: steps,
+          instanceId: this.instanceService.getInstanceId(),
+        });
         if (notify) this.notifyClients('pending', 'all', steps, reloadId);
         await runStep('metadata', () =>
           sharedReplay
@@ -1071,18 +1143,18 @@ export class CacheOrchestratorService implements LifecycleAware {
           ),
           runStep('guard', () =>
             sharedReplay
-              ? this.guardCacheService.syncFromSharedCache()
-              : this.guardCacheService.reload(false),
+              ? this.guardCacheBuilder.syncFromSharedCache()
+              : this.guardCacheBuilder.reload(false),
           ),
           runStep('flow', () =>
             sharedReplay
-              ? this.flowCacheService.syncFromSharedCache()
-              : this.flowCacheService.reload(false),
+              ? this.flowCacheBuilder.syncFromSharedCache()
+              : this.flowCacheBuilder.reload(false),
           ),
           runStep('websocket', () =>
             sharedReplay
-              ? this.websocketCacheService.syncFromSharedCache()
-              : this.websocketCacheService.reload(false),
+              ? this.websocketCacheBuilder.syncFromSharedCache()
+              : this.websocketCacheBuilder.reload(false),
           ),
           runStep('package', () =>
             sharedReplay
@@ -1096,13 +1168,13 @@ export class CacheOrchestratorService implements LifecycleAware {
           ),
           runStep('storage', () =>
             sharedReplay
-              ? this.storageConfigCacheService.syncFromSharedCache()
-              : this.storageConfigCacheService.reload(false),
+              ? this.storageConfigCacheBuilder.syncFromSharedCache()
+              : this.storageConfigCacheBuilder.reload(false),
           ),
           runStep('oauth', () =>
             sharedReplay
-              ? this.oauthConfigCacheService.syncFromSharedCache()
-              : this.oauthConfigCacheService.reload(false),
+              ? this.oauthConfigCacheBuilder.syncFromSharedCache()
+              : this.oauthConfigCacheBuilder.reload(false),
           ),
           runStep('folder', () =>
             sharedReplay
@@ -1111,13 +1183,13 @@ export class CacheOrchestratorService implements LifecycleAware {
           ),
           runStep('fieldPermission', () =>
             sharedReplay
-              ? this.fieldPermissionCacheService.syncFromSharedCache()
-              : this.fieldPermissionCacheService.reload(false),
+              ? this.fieldPermissionCacheBuilder.syncFromSharedCache()
+              : this.fieldPermissionCacheBuilder.reload(false),
           ),
           runStep('columnRule', () =>
             sharedReplay
-              ? this.columnRuleCacheService.syncFromSharedCache()
-              : this.columnRuleCacheService.reload(false),
+              ? this.columnRuleCacheBuilder.syncFromSharedCache()
+              : this.columnRuleCacheBuilder.reload(false),
           ),
           runStep('graphql', () =>
             sharedReplay
@@ -1126,6 +1198,11 @@ export class CacheOrchestratorService implements LifecycleAware {
           ),
         ]);
         await this.commitRuntimeReloadTransaction(steps);
+        await this.runtimeReloadAuditService?.markActivated({
+          reloadId,
+          durationMs: Date.now() - start,
+          steps: stepMetrics,
+        });
         if (notify) {
           const elapsed = Date.now() - start;
           if (elapsed < 200) {
@@ -1135,6 +1212,12 @@ export class CacheOrchestratorService implements LifecycleAware {
         }
       } catch (error) {
         reloadError = error;
+        await this.runtimeReloadAuditService?.markFailed({
+          reloadId,
+          durationMs: Date.now() - start,
+          steps: stepMetrics,
+          error: this.formatReloadError(error),
+        });
         throw error;
       } finally {
         this.runtimeMetricsCollectorService?.recordCacheReload({
@@ -1156,14 +1239,16 @@ export class CacheOrchestratorService implements LifecycleAware {
       }
       this.logger.log(`Admin reload ALL: ${Date.now() - start}ms`);
     };
-    if (this.runtimeMetricsCollectorService) {
-      await this.runtimeMetricsCollectorService.runWithQueryContext(
-        'cache',
-        runReload,
-      );
-      return;
-    }
-    await runReload();
+    await this.runWithReloadLock(async () => {
+      if (this.runtimeMetricsCollectorService) {
+        await this.runtimeMetricsCollectorService.runWithQueryContext(
+          'cache',
+          runReload,
+        );
+        return;
+      }
+      await runReload();
+    });
   }
 
   private subscribeToRedis(): void {

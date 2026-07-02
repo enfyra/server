@@ -3,11 +3,20 @@ import { isGeneratedScriptPersistenceField } from '../../../shared/utils/script-
 
 export class FieldStripper {
   constructor(private runtimeRegistryService: RuntimeRegistryService | null) {}
+
+  private getMetadata(): any {
+    if (typeof this.runtimeRegistryService?.getMetadata === 'function') {
+      return this.runtimeRegistryService.getMetadata();
+    }
+    return this.runtimeRegistryService?.requireMetadata?.();
+  }
+
   async stripUnknownColumns(tableName: string, data: any): Promise<any> {
     if (!tableName || !this.runtimeRegistryService) {
       return data;
     }
-    const metadata = this.runtimeRegistryService.requireMetadata();
+    const metadata = this.getMetadata();
+    if (!metadata) return data;
     const tableMeta =
       metadata.tables?.get?.(tableName) ||
       metadata.tablesList?.find((t: any) => t.name === tableName);
@@ -37,7 +46,8 @@ export class FieldStripper {
     if (!tableName || !this.runtimeRegistryService) {
       return data;
     }
-    const metadata = this.runtimeRegistryService.requireMetadata();
+    const metadata = this.getMetadata();
+    if (!metadata) return data;
     const tableMeta =
       metadata.tables?.get?.(tableName) ||
       metadata.tablesList?.find((t: any) => t.name === tableName);

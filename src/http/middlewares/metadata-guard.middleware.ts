@@ -1,7 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { HttpException } from '../../domain/exceptions';
 import {
-  GuardCacheService,
+  GuardCacheBuilder,
   GuardPosition,
   GuardEvaluatorService,
   GuardEvalContext,
@@ -11,13 +11,13 @@ async function runMetadataGuards(
   position: GuardPosition,
   req: any,
   res: Response,
-  guardCacheService: GuardCacheService,
+  guardCacheBuilder: GuardCacheBuilder,
   runtimeRegistryService: RuntimeRegistryService,
   guardEvaluatorService: GuardEvaluatorService,
 ): Promise<boolean> {
   if (!req.routeData) return true;
 
-  await guardCacheService.ensureGuardsLoaded();
+  await guardCacheBuilder.ensureGuardsLoaded();
 
   const routePath =
     req.routeData.path ||
@@ -62,7 +62,7 @@ async function runMetadataGuards(
 }
 
 export function preAuthMetadataGuard(
-  guardCacheService: GuardCacheService,
+  guardCacheBuilder: GuardCacheBuilder,
   runtimeRegistryService: RuntimeRegistryService,
   guardEvaluatorService: GuardEvaluatorService,
 ) {
@@ -72,7 +72,7 @@ export function preAuthMetadataGuard(
         'pre_auth',
         req,
         res,
-        guardCacheService,
+        guardCacheBuilder,
         runtimeRegistryService,
         guardEvaluatorService,
       );
@@ -84,7 +84,7 @@ export function preAuthMetadataGuard(
 }
 
 export function postAuthMetadataGuard(
-  guardCacheService: GuardCacheService,
+  guardCacheBuilder: GuardCacheBuilder,
   runtimeRegistryService: RuntimeRegistryService,
   guardEvaluatorService: GuardEvaluatorService,
 ) {
@@ -94,7 +94,7 @@ export function postAuthMetadataGuard(
         'post_auth',
         req,
         res,
-        guardCacheService,
+        guardCacheBuilder,
         runtimeRegistryService,
         guardEvaluatorService,
       );

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EventEmitter2 } from 'eventemitter2';
-import { WebsocketCacheService } from '../../src/engines/cache';
+import { WebsocketCacheBuilder } from '../../src/engines/cache';
 
 function makeQb(gateways: any[], events: any[]) {
   return {
@@ -34,14 +34,14 @@ function makeQb(gateways: any[], events: any[]) {
 
 function makeService(gateways: any[], events: any[]) {
   const qb = makeQb(gateways, events);
-  const svc = new WebsocketCacheService({
+  const svc = new WebsocketCacheBuilder({
     queryBuilderService: qb,
     eventEmitter: new EventEmitter2(),
   });
   return { svc, qb };
 }
 
-describe('WebsocketCacheService partial reload', () => {
+describe('WebsocketCacheBuilder partial reload', () => {
   it('supports partial reload', () => {
     const { svc } = makeService([], []);
     expect(svc.supportsPartialReload()).toBe(true);

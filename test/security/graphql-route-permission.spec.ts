@@ -27,7 +27,7 @@ function makeResolver(overrides: Record<string, any> = {}) {
         main: {},
       }),
     },
-    guardCacheService: {
+    guardCacheBuilder: {
       ensureGuardsLoaded: vi.fn().mockResolvedValue(undefined),
     },
     guardEvaluatorService: {

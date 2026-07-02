@@ -3,7 +3,7 @@ import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { BadRequestException } from '../../domain/exceptions';
-import type { OAuthConfig } from '../../engines/cache/services/oauth-config-cache.service';
+import type { OAuthConfig } from '../../engines/cache/services/oauth-config-cache-builder.service';
 
 type OAuthStatePayload = {
   redirect: string;

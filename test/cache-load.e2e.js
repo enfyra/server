@@ -1,6 +1,6 @@
 /**
  * Cache Load E2E Test
- * Verifies FlowCacheService and WebsocketCacheService load data correctly
+ * Verifies FlowCacheBuilder and WebsocketCacheBuilder load data correctly
  * using direct step queries for flows and relation joins for websocket events.
  *
  * Run: node test/cache-load.e2e.js

@@ -16,18 +16,18 @@ import type {
   GuardCache,
   GuardNode,
   GuardPosition,
-} from './guard-cache.service';
-import type { OAuthConfig } from './oauth-config-cache.service';
+} from './guard-cache-builder.service';
+import type { OAuthConfig } from './oauth-config-cache-builder.service';
 import type { FlowDefinition } from '../../../shared/types/flow.types';
 import type {
   TCompiledFieldPolicy,
   TFieldPermissionAction,
-} from './field-permission-cache.service';
-import type { TColumnRule } from './column-rule-cache.service';
+} from './field-permission-cache-builder.service';
+import type { TColumnRule } from './column-rule-cache-builder.service';
 import type {
   WebSocketEvent,
   WebSocketGateway,
-} from './websocket-cache.service';
+} from './websocket-cache-builder.service';
 import type {
   FolderNode,
   FolderTreeCache,

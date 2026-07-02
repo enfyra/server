@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter2 } from 'eventemitter2';
-import { FieldPermissionCacheService } from '../../src/engines/cache';
+import { FieldPermissionCacheBuilder } from '../../src/engines/cache';
 import { RuntimeRegistryService } from '../../src/engines/cache/services/runtime-registry.service';
 import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants';
 
@@ -82,7 +82,7 @@ function makeMetadata(rows: any[]) {
 function makeService(rows: any[], metadata = makeMetadata(rows)) {
   const qb = makeQb(rows);
   const registry = new RuntimeRegistryService();
-  const svc = new FieldPermissionCacheService({
+  const svc = new FieldPermissionCacheBuilder({
     queryBuilderService: qb,
     metadataCacheService: {
       getMetadata: vi.fn(async () => metadata),
@@ -108,7 +108,7 @@ function makeService(rows: any[], metadata = makeMetadata(rows)) {
   return { svc, qb, registry };
 }
 
-describe('FieldPermissionCacheService — partial reload', () => {
+describe('FieldPermissionCacheBuilder — partial reload', () => {
   it('supportsPartialReload returns true', () => {
     const { svc } = makeService([]);
     expect(svc.supportsPartialReload()).toBe(true);

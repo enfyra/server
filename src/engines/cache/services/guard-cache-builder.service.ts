@@ -56,7 +56,7 @@ export interface GuardCache {
   postAuthByRoute: Map<string, GuardNode[]>;
 }
 
-export class GuardCacheService extends BaseCacheService<GuardCache> {
+export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
   private readonly queryBuilderService: QueryBuilderService;
 
   constructor(deps: {

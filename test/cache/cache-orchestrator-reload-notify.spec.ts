@@ -23,16 +23,16 @@ function createOrchestrator(overrides: Record<string, any> = {}) {
     eventEmitter: new EventEmitter2(),
     metadataCacheService: cacheMock() as any,
     routeCacheService: cacheMock() as any,
-    guardCacheService: cacheMock() as any,
-    flowCacheService: cacheMock() as any,
-    websocketCacheService: cacheMock() as any,
+    guardCacheBuilder: cacheMock() as any,
+    flowCacheBuilder: cacheMock() as any,
+    websocketCacheBuilder: cacheMock() as any,
     packageCacheService: cacheMock() as any,
     settingCacheService: cacheMock() as any,
-    storageConfigCacheService: cacheMock() as any,
-    oauthConfigCacheService: cacheMock() as any,
+    storageConfigCacheBuilder: cacheMock() as any,
+    oauthConfigCacheBuilder: cacheMock() as any,
     folderTreeCacheService: cacheMock() as any,
-    fieldPermissionCacheService: cacheMock() as any,
-    columnRuleCacheService: cacheMock() as any,
+    fieldPermissionCacheBuilder: cacheMock() as any,
+    columnRuleCacheBuilder: cacheMock() as any,
     gqlDefinitionCacheService: cacheMock() as any,
     repoRegistryService: { rebuildFromMetadata: () => undefined } as any,
     graphqlService: { reloadSchema: async () => undefined } as any,
@@ -125,6 +125,98 @@ describe('CacheOrchestratorService reload notifications', () => {
     expect(runtimeRegistryService.publishFromCache).toHaveBeenCalledWith(
       'package',
       packageCacheService,
+    );
+  });
+
+  it('persists activated audit status after a successful reload transaction', async () => {
+    const runtimeRegistryService = {
+      publishFromCache: vi.fn(async () => undefined),
+    };
+    const runtimeReloadAuditService = {
+      markBuilding: vi.fn(async () => true),
+      markActivated: vi.fn(async () => undefined),
+      markFailed: vi.fn(async () => undefined),
+    };
+    const packageCacheService = cacheMock({
+      getCacheAsync: vi.fn(async () => ['demo-package']),
+    });
+    const { orchestrator } = createOrchestrator({
+      packageCacheService: packageCacheService as any,
+      runtimeRegistryService,
+      runtimeReloadAuditService,
+    });
+
+    await (orchestrator as any).executeChain(
+      {
+        table: 'enfyra_package',
+        action: 'reload',
+        scope: 'full',
+        timestamp: Date.now(),
+      },
+      true,
+    );
+
+    expect(runtimeReloadAuditService.markBuilding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        flow: 'package',
+        table: 'enfyra_package',
+        scope: 'full',
+        action: 'reload',
+        chain: ['package'],
+        instanceId: 'test-instance',
+      }),
+    );
+    expect(runtimeReloadAuditService.markActivated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reloadId:
+          runtimeReloadAuditService.markBuilding.mock.calls[0]?.[0].reloadId,
+        steps: [
+          expect.objectContaining({ name: 'package', status: 'success' }),
+        ],
+      }),
+    );
+    expect(runtimeReloadAuditService.markFailed).not.toHaveBeenCalled();
+  });
+
+  it('persists failed audit status when a reload transaction fails', async () => {
+    const runtimeRegistryService = {
+      publishFromCache: vi.fn(async () => undefined),
+    };
+    const runtimeReloadAuditService = {
+      markBuilding: vi.fn(async () => true),
+      markActivated: vi.fn(async () => undefined),
+      markFailed: vi.fn(async () => undefined),
+    };
+    const { orchestrator } = createOrchestrator({
+      packageCacheService: cacheMock({
+        reload: async () => {
+          throw new Error('package reload failed');
+        },
+      }) as any,
+      runtimeRegistryService,
+      runtimeReloadAuditService,
+    });
+
+    await expect(
+      (orchestrator as any).executeChain(
+        {
+          table: 'enfyra_package',
+          action: 'reload',
+          scope: 'full',
+          timestamp: Date.now(),
+        },
+        true,
+      ),
+    ).rejects.toThrow('package reload failed');
+
+    expect(runtimeReloadAuditService.markActivated).not.toHaveBeenCalled();
+    expect(runtimeReloadAuditService.markFailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reloadId:
+          runtimeReloadAuditService.markBuilding.mock.calls[0]?.[0].reloadId,
+        error: 'package reload failed',
+        steps: [expect.objectContaining({ name: 'package', status: 'failed' })],
+      }),
     );
   });
 

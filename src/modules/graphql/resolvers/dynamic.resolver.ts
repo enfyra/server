@@ -8,7 +8,7 @@ import { EnvService, DynamicContextFactory } from '../../../shared/services';
 import { ExecutorEngineService } from '@enfyra/kernel';
 import {
   RepoRegistryService,
-  GuardCacheService,
+  GuardCacheBuilder,
   GuardEvaluatorService,
 } from '../../../engines/cache';
 import { PolicyService, isPolicyDeny } from '../../../domain/policy';
@@ -22,7 +22,7 @@ export class DynamicResolver {
   private readonly queryBuilderService: QueryBuilderService;
   private readonly executorEngineService: ExecutorEngineService;
   private readonly repoRegistryService: RepoRegistryService;
-  private readonly guardCacheService: GuardCacheService;
+  private readonly guardCacheBuilder: GuardCacheBuilder;
   private readonly guardEvaluatorService: GuardEvaluatorService;
   private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly policyService: PolicyService;
@@ -33,7 +33,7 @@ export class DynamicResolver {
     queryBuilderService: QueryBuilderService;
     executorEngineService: ExecutorEngineService;
     repoRegistryService: RepoRegistryService;
-    guardCacheService: GuardCacheService;
+    guardCacheBuilder: GuardCacheBuilder;
     guardEvaluatorService: GuardEvaluatorService;
     runtimeRegistryService: RuntimeRegistryService;
     policyService: PolicyService;
@@ -43,7 +43,7 @@ export class DynamicResolver {
     this.queryBuilderService = deps.queryBuilderService;
     this.executorEngineService = deps.executorEngineService;
     this.repoRegistryService = deps.repoRegistryService;
-    this.guardCacheService = deps.guardCacheService;
+    this.guardCacheBuilder = deps.guardCacheBuilder;
     this.guardEvaluatorService = deps.guardEvaluatorService;
     this.runtimeRegistryService = deps.runtimeRegistryService;
     this.policyService = deps.policyService;
@@ -287,7 +287,7 @@ export class DynamicResolver {
     clientIp: string,
     userId: string | null,
   ) {
-    await this.guardCacheService.ensureGuardsLoaded();
+    await this.guardCacheBuilder.ensureGuardsLoaded();
     const guards = this.runtimeRegistryService.getGuardsForRoute(
       position,
       routePath,

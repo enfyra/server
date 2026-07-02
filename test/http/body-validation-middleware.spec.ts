@@ -36,7 +36,7 @@ function makeContainer(opts: {
   return {
     cradle: {
       metadataCacheService: metadataCache,
-      columnRuleCacheService: ruleCache,
+      columnRuleCacheBuilder: ruleCache,
       runtimeRegistryService,
       eventEmitter,
     },
@@ -409,7 +409,7 @@ describe('bodyValidationMiddleware — runtime registry view', () => {
       container.cradle.metadataCacheService.getMetadata,
     ).not.toHaveBeenCalled();
     expect(
-      container.cradle.columnRuleCacheService.getCacheAsync,
+      container.cradle.columnRuleCacheBuilder.getCacheAsync,
     ).not.toHaveBeenCalled();
   });
 });

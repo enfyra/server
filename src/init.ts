@@ -66,6 +66,11 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
       await c.firstRunInitializer.run();
     }
   });
+  await runInitStep('runtimeReloadAuditService.repairInterruptedReloads', () =>
+    c.runtimeReloadAuditService?.markInterruptedReloadsFailed?.(
+      'Runtime reload was interrupted by process restart before activation',
+    ),
+  );
 
   await runInitStep('cacheOrchestratorService.init', () =>
     c.cacheOrchestratorService?.init?.(),
@@ -92,26 +97,26 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
     runInitStep('routeCacheService.reload', () =>
       c.routeCacheService?.reload?.(),
     ),
-    runInitStep('fieldPermissionCacheService.reload', () =>
-      c.fieldPermissionCacheService?.reload?.(),
+    runInitStep('fieldPermissionCacheBuilder.reload', () =>
+      c.fieldPermissionCacheBuilder?.reload?.(),
     ),
-    runInitStep('columnRuleCacheService.reload', () =>
-      c.columnRuleCacheService?.reload?.(),
+    runInitStep('columnRuleCacheBuilder.reload', () =>
+      c.columnRuleCacheBuilder?.reload?.(),
     ),
     runInitStep('settingCacheService.reload', () =>
       c.settingCacheService?.reload?.(),
     ),
-    runInitStep('storageConfigCacheService.reload', () =>
-      c.storageConfigCacheService?.reload?.(),
+    runInitStep('storageConfigCacheBuilder.reload', () =>
+      c.storageConfigCacheBuilder?.reload?.(),
     ),
-    runInitStep('oauthConfigCacheService.reload', () =>
-      c.oauthConfigCacheService?.reload?.(),
+    runInitStep('oauthConfigCacheBuilder.reload', () =>
+      c.oauthConfigCacheBuilder?.reload?.(),
     ),
-    runInitStep('websocketCacheService.reload', () =>
-      c.websocketCacheService?.reload?.(),
+    runInitStep('websocketCacheBuilder.reload', () =>
+      c.websocketCacheBuilder?.reload?.(),
     ),
-    runInitStep('flowCacheService.reload', () =>
-      c.flowCacheService?.reload?.(),
+    runInitStep('flowCacheBuilder.reload', () =>
+      c.flowCacheBuilder?.reload?.(),
     ),
     runInitStep('packageCacheService.reload', () =>
       c.packageCacheService?.reload?.(),
@@ -119,8 +124,8 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
     runInitStep('folderTreeCacheService.reload', () =>
       c.folderTreeCacheService?.reload?.(),
     ),
-    runInitStep('guardCacheService.reload', () =>
-      c.guardCacheService?.reload?.(),
+    runInitStep('guardCacheBuilder.reload', () =>
+      c.guardCacheBuilder?.reload?.(),
     ),
     runInitStep('gqlDefinitionCacheService.reload', () =>
       c.gqlDefinitionCacheService?.reload?.(),
@@ -139,16 +144,16 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
     const entries = [
       [CACHE_IDENTIFIERS.METADATA, c.metadataCacheService],
       [CACHE_IDENTIFIERS.ROUTE, c.routeCacheService],
-      [CACHE_IDENTIFIERS.FIELD_PERMISSION, c.fieldPermissionCacheService],
-      [CACHE_IDENTIFIERS.COLUMN_RULE, c.columnRuleCacheService],
+      [CACHE_IDENTIFIERS.FIELD_PERMISSION, c.fieldPermissionCacheBuilder],
+      [CACHE_IDENTIFIERS.COLUMN_RULE, c.columnRuleCacheBuilder],
       [CACHE_IDENTIFIERS.SETTING, c.settingCacheService],
-      [CACHE_IDENTIFIERS.STORAGE, c.storageConfigCacheService],
-      [CACHE_IDENTIFIERS.OAUTH_CONFIG, c.oauthConfigCacheService],
-      [CACHE_IDENTIFIERS.WEBSOCKET, c.websocketCacheService],
-      [CACHE_IDENTIFIERS.FLOW, c.flowCacheService],
+      [CACHE_IDENTIFIERS.STORAGE, c.storageConfigCacheBuilder],
+      [CACHE_IDENTIFIERS.OAUTH_CONFIG, c.oauthConfigCacheBuilder],
+      [CACHE_IDENTIFIERS.WEBSOCKET, c.websocketCacheBuilder],
+      [CACHE_IDENTIFIERS.FLOW, c.flowCacheBuilder],
       [CACHE_IDENTIFIERS.PACKAGE, c.packageCacheService],
       [CACHE_IDENTIFIERS.FOLDER_TREE, c.folderTreeCacheService],
-      [CACHE_IDENTIFIERS.GUARD, c.guardCacheService],
+      [CACHE_IDENTIFIERS.GUARD, c.guardCacheBuilder],
       [CACHE_IDENTIFIERS.GRAPHQL, c.gqlDefinitionCacheService],
     ] as const;
     for (const [identifier, service] of entries) {

@@ -58,6 +58,13 @@ export class CascadeHandler {
     ) => Promise<any[]>,
   ) {}
 
+  private getMetadata(): any {
+    if (typeof this.runtimeRegistryService.getMetadata === 'function') {
+      return this.runtimeRegistryService.getMetadata();
+    }
+    return this.runtimeRegistryService.requireMetadata?.();
+  }
+
   private async checkPolicy(
     tableName: string,
     operation: 'create' | 'update' | 'delete',
@@ -94,7 +101,11 @@ export class CascadeHandler {
 
     const originalRelationData = contextData.relationData || contextData;
 
-    const metadata = this.runtimeRegistryService.requireMetadata();
+    const metadata = this.getMetadata();
+    if (!metadata) {
+      cascadeContextMap.delete(tableName);
+      return;
+    }
     const tableMetadata =
       metadata.tables?.get?.(tableName) ||
       metadata.tablesList?.find((t: any) => t.name === tableName);
@@ -687,7 +698,11 @@ export class CascadeHandler {
       return;
     }
 
-    const metadata = this.runtimeRegistryService.requireMetadata();
+    const metadata = this.getMetadata();
+    if (!metadata) {
+      cascadeContextMap.delete(tableName);
+      return;
+    }
     const tableMetadata =
       metadata.tables?.get?.(tableName) ||
       metadata.tablesList?.find((t: any) => t.name === tableName);
@@ -746,7 +761,8 @@ export class CascadeHandler {
       return;
     }
 
-    const metadata = this.runtimeRegistryService.requireMetadata();
+    const metadata = this.getMetadata();
+    if (!metadata) return;
     const tableMeta =
       metadata.tables?.get?.(tableName) ||
       metadata.tablesList?.find((t: any) => t.name === tableName);
@@ -768,7 +784,8 @@ export class CascadeHandler {
     parentTableName: string,
   ): Promise<string | null> {
     try {
-      const metadata = this.runtimeRegistryService.requireMetadata();
+      const metadata = this.getMetadata();
+      if (!metadata) return null;
       const tableMeta =
         metadata.tables?.get?.(parentTableName) ||
         metadata.tablesList?.find((t: any) => t.name === parentTableName);
