@@ -144,10 +144,15 @@ export class StorageConfigCacheService extends BaseCacheService<
   }
 
   private async getActiveStorageConfigs(): Promise<Map<string | number, any>> {
-    return (
-      this.runtimeRegistryService?.getSnapshot<Map<string | number, any>>(
-        CACHE_IDENTIFIERS.STORAGE,
-      )?.data ?? (await this.getCacheAsync())
-    );
+    return this.requireRuntimeRegistry().requireActiveData<
+      Map<string | number, any>
+    >(CACHE_IDENTIFIERS.STORAGE);
+  }
+
+  private requireRuntimeRegistry(): RuntimeRegistryService {
+    if (!this.runtimeRegistryService) {
+      throw new Error('Runtime registry service is required for storage reads');
+    }
+    return this.runtimeRegistryService;
   }
 }

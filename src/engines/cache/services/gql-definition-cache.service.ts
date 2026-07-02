@@ -112,10 +112,15 @@ export class GqlDefinitionCacheService extends BaseCacheService<
   }
 
   private async getActiveDefinitions(): Promise<Map<string, TGqlDefinition>> {
-    return (
-      this.runtimeRegistryService?.getSnapshot<Map<string, TGqlDefinition>>(
-        CACHE_IDENTIFIERS.GRAPHQL,
-      )?.data ?? (await this.getCacheAsync())
-    );
+    return this.requireRuntimeRegistry().requireActiveData<
+      Map<string, TGqlDefinition>
+    >(CACHE_IDENTIFIERS.GRAPHQL);
+  }
+
+  private requireRuntimeRegistry(): RuntimeRegistryService {
+    if (!this.runtimeRegistryService) {
+      throw new Error('Runtime registry service is required for GraphQL reads');
+    }
+    return this.runtimeRegistryService;
   }
 }

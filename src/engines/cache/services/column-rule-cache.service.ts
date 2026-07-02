@@ -159,10 +159,9 @@ export class ColumnRuleCacheService extends BaseCacheService<
   }
 
   async getRulesForColumn(columnId: string | number): Promise<TColumnRule[]> {
-    const cache =
-      this.runtimeRegistryService?.getSnapshot<Map<string, TColumnRule[]>>(
-        CACHE_IDENTIFIERS.COLUMN_RULE,
-      )?.data ?? (await this.getCacheAsync());
+    const cache = this.requireRuntimeRegistry().requireActiveData<
+      Map<string, TColumnRule[]>
+    >(CACHE_IDENTIFIERS.COLUMN_RULE);
     const key = String(columnId);
     return cache.get(key) ?? [];
   }
@@ -172,5 +171,14 @@ export class ColumnRuleCacheService extends BaseCacheService<
     if (!this.cacheLoaded) return [];
     const key = String(columnId);
     return this.cache.get(key) ?? [];
+  }
+
+  private requireRuntimeRegistry(): RuntimeRegistryService {
+    if (!this.runtimeRegistryService) {
+      throw new Error(
+        'Runtime registry service is required for column rule reads',
+      );
+    }
+    return this.runtimeRegistryService;
   }
 }

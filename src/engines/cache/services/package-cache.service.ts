@@ -59,10 +59,15 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   }
 
   async getPackages(): Promise<string[]> {
-    return (
-      this.runtimeRegistryService?.getSnapshot<string[]>(
-        CACHE_IDENTIFIERS.PACKAGE,
-      )?.data ?? (await this.getCacheAsync())
+    return this.requireRuntimeRegistry().requireActiveData<string[]>(
+      CACHE_IDENTIFIERS.PACKAGE,
     );
+  }
+
+  private requireRuntimeRegistry(): RuntimeRegistryService {
+    if (!this.runtimeRegistryService) {
+      throw new Error('Runtime registry service is required for package reads');
+    }
+    return this.runtimeRegistryService;
   }
 }

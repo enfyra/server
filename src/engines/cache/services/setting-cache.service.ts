@@ -110,10 +110,15 @@ export class SettingCacheService extends BaseCacheService<SettingData> {
   }
 
   private async getActiveSettings(): Promise<SettingData> {
-    return (
-      this.runtimeRegistryService?.getSnapshot<SettingData>(
-        CACHE_IDENTIFIERS.SETTING,
-      )?.data ?? (await this.getCacheAsync())
+    return this.requireRuntimeRegistry().requireActiveData<SettingData>(
+      CACHE_IDENTIFIERS.SETTING,
     );
+  }
+
+  private requireRuntimeRegistry(): RuntimeRegistryService {
+    if (!this.runtimeRegistryService) {
+      throw new Error('Runtime registry service is required for setting reads');
+    }
+    return this.runtimeRegistryService;
   }
 }

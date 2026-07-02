@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter2 } from 'eventemitter2';
 import { FieldPermissionCacheService } from '../../src/engines/cache';
+import { RuntimeRegistryService } from '../../src/engines/cache/services/runtime-registry.service';
+import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants';
 
 function makeRow(overrides: any) {
   return {
@@ -79,6 +81,7 @@ function makeMetadata(rows: any[]) {
 
 function makeService(rows: any[], metadata = makeMetadata(rows)) {
   const qb = makeQb(rows);
+  const registry = new RuntimeRegistryService();
   const svc = new FieldPermissionCacheService({
     queryBuilderService: qb,
     metadataCacheService: {
@@ -86,7 +89,22 @@ function makeService(rows: any[], metadata = makeMetadata(rows)) {
       getDirectMetadata: vi.fn(() => metadata),
     } as any,
     eventEmitter: new EventEmitter2(),
+    runtimeRegistryService: registry,
   });
+  const originalReload = svc.reload.bind(svc);
+  svc.reload = (async (...args: Parameters<typeof svc.reload>) => {
+    const result = await originalReload(...args);
+    await registry.publishFromCache(CACHE_IDENTIFIERS.FIELD_PERMISSION, svc);
+    return result;
+  }) as typeof svc.reload;
+  const originalPartialReload = svc.partialReload.bind(svc);
+  svc.partialReload = (async (
+    ...args: Parameters<typeof svc.partialReload>
+  ) => {
+    const result = await originalPartialReload(...args);
+    await registry.publishFromCache(CACHE_IDENTIFIERS.FIELD_PERMISSION, svc);
+    return result;
+  }) as typeof svc.partialReload;
   return { svc, qb };
 }
 
