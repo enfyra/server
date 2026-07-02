@@ -626,4 +626,94 @@ describe('CacheOrchestratorService reload notifications', () => {
       },
     ]);
   });
+
+  it('bounds concurrent full reload builder steps', async () => {
+    let active = 0;
+    let maxActive = 0;
+    const completed: string[] = [];
+    const track = async (name: string) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      completed.push(name);
+      active -= 1;
+    };
+    const trackedCache = (name: string) =>
+      cacheMock({
+        reload: () => track(name),
+        syncFromSharedCache: () => track(`${name}:shared`),
+      });
+    const { orchestrator } = createOrchestrator({
+      routeCacheService: trackedCache('route') as any,
+      guardCacheBuilder: trackedCache('guard') as any,
+      flowCacheBuilder: trackedCache('flow') as any,
+      websocketCacheBuilder: trackedCache('websocket') as any,
+      packageCacheService: trackedCache('package') as any,
+      settingCacheService: trackedCache('setting') as any,
+      storageConfigCacheBuilder: trackedCache('storage') as any,
+      oauthConfigCacheBuilder: trackedCache('oauth') as any,
+      folderTreeCacheService: trackedCache('folder') as any,
+      fieldPermissionCacheBuilder: trackedCache('fieldPermission') as any,
+      columnRuleCacheBuilder: trackedCache('columnRule') as any,
+      gqlDefinitionCacheService: trackedCache('graphql') as any,
+      repoRegistryService: {
+        rebuildFromMetadata: () => track('repoRegistry'),
+      } as any,
+    });
+
+    await orchestrator.reloadAll();
+
+    expect(maxActive).toBeGreaterThan(1);
+    expect(maxActive).toBeLessThanOrEqual(3);
+    expect(completed.sort()).toEqual(
+      [
+        'columnRule',
+        'fieldPermission',
+        'flow',
+        'folder',
+        'graphql',
+        'guard',
+        'oauth',
+        'package',
+        'repoRegistry',
+        'route',
+        'setting',
+        'storage',
+        'websocket',
+      ].sort(),
+    );
+  });
+
+  it('creates unique reload ids for same-flow reloads queued in one process', async () => {
+    const { orchestrator, emitted } = createOrchestrator();
+
+    await Promise.all([
+      (orchestrator as any).executeChain(
+        {
+          table: 'enfyra_extension',
+          action: 'reload',
+          scope: 'partial',
+          ids: [1],
+          timestamp: Date.now(),
+        },
+        true,
+      ),
+      (orchestrator as any).executeChain(
+        {
+          table: 'enfyra_extension',
+          action: 'reload',
+          scope: 'partial',
+          ids: [2],
+          timestamp: Date.now(),
+        },
+        true,
+      ),
+    ]);
+
+    const pendingIds = emitted
+      .filter((event) => event.data.status === 'pending')
+      .map((event) => event.data.reloadId);
+    expect(pendingIds).toHaveLength(2);
+    expect(new Set(pendingIds).size).toBe(2);
+  });
 });
