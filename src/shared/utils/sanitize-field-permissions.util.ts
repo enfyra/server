@@ -1,5 +1,7 @@
-import { FieldPermissionCacheService } from '../../engines/cache';
-import { decideFieldPermission } from './field-permission.util';
+import {
+  decideFieldPermission,
+  type TFieldPermissionPolicyReader,
+} from './field-permission.util';
 
 type TRequestedShape = {
   includeAll?: boolean;
@@ -32,7 +34,7 @@ export async function sanitizeFieldPermissionsResult(params: {
   tableName: string;
   user: any;
   action: 'read';
-  fieldPermissionCacheService: FieldPermissionCacheService;
+  fieldPermissionPolicyReader: TFieldPermissionPolicyReader;
   metadata: any;
   requested?: TRequestedShape;
 }): Promise<any> {
@@ -41,7 +43,7 @@ export async function sanitizeFieldPermissionsResult(params: {
     tableName,
     user,
     action,
-    fieldPermissionCacheService,
+    fieldPermissionPolicyReader,
     metadata,
     requested,
   } = params;
@@ -86,7 +88,7 @@ export async function sanitizeFieldPermissionsResult(params: {
       const decision = published
         ? { allowed: true }
         : await decideFieldPermission(
-            fieldPermissionCacheService,
+            fieldPermissionPolicyReader,
             {
               user,
               tableName: currentTable,
@@ -117,7 +119,7 @@ export async function sanitizeFieldPermissionsResult(params: {
       const decision = published
         ? { allowed: true }
         : await decideFieldPermission(
-            fieldPermissionCacheService,
+            fieldPermissionPolicyReader,
             {
               user,
               tableName: currentTable,

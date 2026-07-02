@@ -13,7 +13,6 @@ import {
 } from '../../../shared/utils/script-code.util';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { FlowDefinition, FlowStep } from '../../../shared/types/flow.types';
-import { RuntimeRegistryService } from './runtime-registry.service';
 
 export type {
   FlowDefinition,
@@ -28,17 +27,14 @@ const FLOW_CONFIG: CacheConfig = {
 
 export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
   private readonly queryBuilderService: QueryBuilderService;
-  private readonly runtimeRegistryService?: RuntimeRegistryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter: EventEmitter2;
-    runtimeRegistryService?: RuntimeRegistryService;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     super(FLOW_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
-    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.cache = [];
   }
 
@@ -134,38 +130,5 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
 
   protected getCount(): number {
     return this.cache.length;
-  }
-
-  async getFlows(): Promise<FlowDefinition[]> {
-    return this.requireRuntimeRegistry().requireActiveData<FlowDefinition[]>(
-      CACHE_IDENTIFIERS.FLOW,
-    );
-  }
-
-  async getFlowById(id: number | string): Promise<FlowDefinition | null> {
-    const cache = await this.getFlows();
-    const idStr = String(id);
-    return (
-      cache.find(
-        (f) => f.id === id || f.id === Number(id) || String(f.id) === idStr,
-      ) || null
-    );
-  }
-
-  async getFlowByName(name: string): Promise<FlowDefinition | null> {
-    const cache = await this.getFlows();
-    return cache.find((f) => f.name === name) || null;
-  }
-
-  async getFlowsByTriggerType(triggerType: string): Promise<FlowDefinition[]> {
-    const cache = await this.getFlows();
-    return cache.filter((f) => f.triggerType === triggerType);
-  }
-
-  private requireRuntimeRegistry(): RuntimeRegistryService {
-    if (!this.runtimeRegistryService) {
-      throw new Error('Runtime registry service is required for flow reads');
-    }
-    return this.runtimeRegistryService;
   }
 }

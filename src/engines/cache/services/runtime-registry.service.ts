@@ -13,6 +13,22 @@ import {
 } from '../../../shared/utils/constant';
 import type { EnfyraMetadata } from './metadata-cache.service';
 import type {
+  GuardCache,
+  GuardNode,
+  GuardPosition,
+} from './guard-cache.service';
+import type { OAuthConfig } from './oauth-config-cache.service';
+import type { FlowDefinition } from '../../../shared/types/flow.types';
+import type {
+  TCompiledFieldPolicy,
+  TFieldPermissionAction,
+} from './field-permission-cache.service';
+import type { TColumnRule } from './column-rule-cache.service';
+import type {
+  WebSocketEvent,
+  WebSocketGateway,
+} from './websocket-cache.service';
+import type {
   FolderNode,
   FolderTreeCache,
   RuntimeCacheIdentifier,
@@ -192,6 +208,25 @@ export class RuntimeRegistryService {
       .routes;
   }
 
+  getGuardsForRoute(
+    position: GuardPosition,
+    routePath: string,
+    method: string,
+  ): GuardNode[] {
+    const cache = this.requireActiveData<GuardCache>(CACHE_IDENTIFIERS.GUARD);
+    const globalGuards =
+      position === 'pre_auth' ? cache.preAuthGlobal : cache.postAuthGlobal;
+    const routeMap =
+      position === 'pre_auth' ? cache.preAuthByRoute : cache.postAuthByRoute;
+    const routeGuards = routeMap.get(routePath) || [];
+
+    const all = [...globalGuards, ...routeGuards];
+    return all.filter((guard) => {
+      if (guard.methods.length === 0) return true;
+      return guard.methods.includes(method);
+    });
+  }
+
   getSettings(): SettingData | undefined {
     return this.getActiveData<SettingData>(CACHE_IDENTIFIERS.SETTING);
   }
@@ -226,6 +261,139 @@ export class RuntimeRegistryService {
     return this.getSettings()?.[key];
   }
 
+  getStorageConfigById(id: unknown): any | null {
+    const cache = this.requireActiveData<Map<string | number, any>>(
+      CACHE_IDENTIFIERS.STORAGE,
+    );
+    if (id === null || id === undefined || id === '') return null;
+
+    const candidates: Array<string | number> = [];
+    if (typeof id === 'number' || typeof id === 'string') {
+      candidates.push(id);
+    }
+    if (typeof id === 'number') {
+      candidates.push(String(id));
+    } else if (typeof id === 'string' && !Number.isNaN(Number(id))) {
+      candidates.push(Number(id));
+    } else if (
+      typeof id === 'object' &&
+      id !== null &&
+      typeof (id as any).toString === 'function'
+    ) {
+      candidates.push((id as any).toString());
+    }
+
+    for (const candidate of candidates) {
+      const config = cache.get(candidate);
+      if (config) return config;
+    }
+    return null;
+  }
+
+  getStorageConfigByType(type: string): any | null {
+    const cache = this.requireActiveData<Map<string | number, any>>(
+      CACHE_IDENTIFIERS.STORAGE,
+    );
+    for (const config of cache.values()) {
+      if (config.type === type && config.isEnabled) return config;
+    }
+    return null;
+  }
+
+  getOauthConfigByProvider(provider: string): OAuthConfig | null {
+    const cache = this.requireActiveData<Map<string, OAuthConfig>>(
+      CACHE_IDENTIFIERS.OAUTH_CONFIG,
+    );
+    return cache.get(provider) || null;
+  }
+
+  getOauthProviders(): string[] {
+    const cache = this.requireActiveData<Map<string, OAuthConfig>>(
+      CACHE_IDENTIFIERS.OAUTH_CONFIG,
+    );
+    return Array.from(cache.keys());
+  }
+
+  getFlows(): FlowDefinition[] {
+    return this.requireActiveData<FlowDefinition[]>(CACHE_IDENTIFIERS.FLOW);
+  }
+
+  getFlowById(id: number | string | undefined | null): FlowDefinition | null {
+    if (id === undefined || id === null || id === '') return null;
+    const idStr = String(id);
+    return (
+      this.getFlows().find(
+        (flow) =>
+          flow.id === id || flow.id === Number(id) || String(flow.id) === idStr,
+      ) || null
+    );
+  }
+
+  getFlowByName(name: string | undefined | null): FlowDefinition | null {
+    if (!name) return null;
+    return this.getFlows().find((flow) => flow.name === name) || null;
+  }
+
+  getFlowsByTriggerType(triggerType: string): FlowDefinition[] {
+    return this.getFlows().filter((flow) => flow.triggerType === triggerType);
+  }
+
+  getWebsocketGateways(): WebSocketGateway[] {
+    return this.requireActiveData<WebSocketGateway[]>(
+      CACHE_IDENTIFIERS.WEBSOCKET,
+    );
+  }
+
+  getWebsocketGatewayByPath(path: string): WebSocketGateway | null {
+    return (
+      this.getWebsocketGateways().find((gateway) => gateway.path === path) ||
+      null
+    );
+  }
+
+  getWebsocketEventsByGatewayId(gatewayId: number | string): WebSocketEvent[] {
+    const gateway = this.getWebsocketGateways().find(
+      (candidate) => String(candidate.id) === String(gatewayId),
+    );
+    return gateway?.events || [];
+  }
+
+  getColumnRulesForColumn(columnId: string | number): TColumnRule[] {
+    const cache = this.requireActiveData<Map<string, TColumnRule[]>>(
+      CACHE_IDENTIFIERS.COLUMN_RULE,
+    );
+    return cache.get(String(columnId)) ?? [];
+  }
+
+  getFieldPermissionPoliciesFor(
+    user: any,
+    tableName: string,
+    action: TFieldPermissionAction,
+  ): TCompiledFieldPolicy[] {
+    const cache = this.requireActiveData<Map<string, TCompiledFieldPolicy>>(
+      CACHE_IDENTIFIERS.FIELD_PERMISSION,
+    );
+    const policies: TCompiledFieldPolicy[] = [];
+
+    const userId = this.toIdString(user);
+    const roleId = this.toIdString(user?.role);
+
+    if (userId) {
+      const userKey = `u:${userId}|${tableName}|${action}`;
+      if (cache.has(userKey)) policies.push(cache.get(userKey)!);
+    }
+
+    const roleKey = `r:${roleId ?? 'null'}|${tableName}|${action}`;
+    if (cache.has(roleKey)) policies.push(cache.get(roleKey)!);
+
+    if (roleId != null) {
+      const catchAllKey = `r:null|${tableName}|${action}`;
+      if (cache.has(catchAllKey)) policies.push(cache.get(catchAllKey)!);
+    }
+
+    return policies;
+  }
+
   getPackages(): string[] {
     return this.requireActiveData<string[]>(CACHE_IDENTIFIERS.PACKAGE);
   }
@@ -256,6 +424,11 @@ export class RuntimeRegistryService {
     return this.requireActiveData<FolderTreeCache>(
       CACHE_IDENTIFIERS.FOLDER_TREE,
     );
+  }
+
+  private toIdString(value: any): string | null {
+    if (value === undefined || value === null) return null;
+    return String(value?._id ?? value?.id ?? value);
   }
 
   getFolderTree(): FolderNode[] {

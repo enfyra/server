@@ -2,7 +2,6 @@ import { EventEmitter2 } from 'eventemitter2';
 import { DynamicRepository } from './dynamic.repository';
 import { TableHandlerService } from '../../table-management';
 import { QueryBuilderService } from '@enfyra/kernel';
-import { FieldPermissionCacheService } from '../../../engines/cache';
 import { PolicyService } from '../../../domain/policy';
 import { DynamicApiTableValidationService } from '../services/table-validation.service';
 import { UserRevocationService } from '../../../domain/auth';
@@ -15,7 +14,6 @@ export class DynamicRepositoryFactory {
   private readonly queryBuilderService: QueryBuilderService;
   private readonly policyService: PolicyService;
   private readonly tableValidationService: DynamicApiTableValidationService;
-  private readonly fieldPermissionCacheService: FieldPermissionCacheService;
   private readonly userRevocationService: UserRevocationService;
   private readonly flowQueueMaintenanceService: FlowQueueMaintenanceService;
   private readonly runtimeRegistryService: RuntimeRegistryService;
@@ -26,7 +24,6 @@ export class DynamicRepositoryFactory {
     queryBuilderService: QueryBuilderService;
     policyService: PolicyService;
     tableValidationService: DynamicApiTableValidationService;
-    fieldPermissionCacheService: FieldPermissionCacheService;
     userRevocationService: UserRevocationService;
     flowQueueMaintenanceService: FlowQueueMaintenanceService;
     runtimeRegistryService: RuntimeRegistryService;
@@ -36,7 +33,6 @@ export class DynamicRepositoryFactory {
     this.queryBuilderService = deps.queryBuilderService;
     this.policyService = deps.policyService;
     this.tableValidationService = deps.tableValidationService;
-    this.fieldPermissionCacheService = deps.fieldPermissionCacheService;
     this.userRevocationService = deps.userRevocationService;
     this.flowQueueMaintenanceService = deps.flowQueueMaintenanceService;
     this.runtimeRegistryService = deps.runtimeRegistryService;
@@ -56,7 +52,6 @@ export class DynamicRepositoryFactory {
       queryBuilderService: this.queryBuilderService,
       policyService: this.policyService,
       tableValidationService: this.tableValidationService,
-      fieldPermissionCacheService: this.fieldPermissionCacheService,
       userRevocationService: this.userRevocationService,
       flowQueueMaintenanceService: this.flowQueueMaintenanceService,
       runtimeRegistryService: this.runtimeRegistryService,

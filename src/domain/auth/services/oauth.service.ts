@@ -8,13 +8,14 @@ import { randomUUID, createHash } from 'crypto';
 import ms, { type StringValue } from 'ms';
 import { BadRequestException } from '../../../shared/errors';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
-import { IOAuthConfigCache } from '../../shared/interfaces/oauth-config-cache.interface';
 import { ICache } from '../../shared/interfaces/cache.interface';
 import { ExecutorEngineService } from '@enfyra/kernel';
 import { resolveExecutableScript } from '../../../shared/utils/script-code.util';
 import { RepoRegistryService } from '../../../engines/cache';
 import { primeCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
 import type { OAuthExchangeTokenPayload } from '../types/oauth-exchange-code.types';
+import type { OAuthConfig } from '../../../engines/cache/services/oauth-config-cache.service';
+import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 
 type OAuthProvider = 'google' | 'facebook' | 'github';
 
@@ -27,7 +28,7 @@ interface OAuthUserInfo {
 
 export class OAuthService {
   private readonly queryBuilderService: IQueryBuilder;
-  private readonly oauthConfigCacheService: IOAuthConfigCache;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly envService: EnvService;
   private readonly cacheService: ICache;
   private readonly executorEngineService: ExecutorEngineService;
@@ -61,7 +62,7 @@ export class OAuthService {
 
   constructor(deps: {
     queryBuilderService: IQueryBuilder;
-    oauthConfigCacheService: IOAuthConfigCache;
+    runtimeRegistryService: RuntimeRegistryService;
     envService: EnvService;
     cacheService: ICache;
     executorEngineService: ExecutorEngineService;
@@ -69,7 +70,7 @@ export class OAuthService {
     repoRegistryService: RepoRegistryService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
-    this.oauthConfigCacheService = deps.oauthConfigCacheService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.envService = deps.envService;
     this.cacheService = deps.cacheService;
     this.executorEngineService = deps.executorEngineService;
@@ -82,7 +83,7 @@ export class OAuthService {
     state: string,
   ): Promise<string> {
     const config =
-      await this.oauthConfigCacheService.getDirectConfigByProvider(provider);
+      this.runtimeRegistryService.getOauthConfigByProvider(provider);
     if (!config || !config.isEnabled) {
       throw new BadRequestException(
         `OAuth provider '${provider}' is not configured or disabled`,
@@ -121,7 +122,7 @@ export class OAuthService {
     code: string,
   ): Promise<OAuthExchangeTokenPayload> {
     const config =
-      await this.oauthConfigCacheService.getDirectConfigByProvider(provider);
+      this.runtimeRegistryService.getOauthConfigByProvider(provider);
     if (!config || !config.isEnabled) {
       throw new BadRequestException(
         `OAuth provider '${provider}' is not configured or disabled`,
@@ -240,7 +241,7 @@ export class OAuthService {
   private async findOrCreateUser(
     provider: OAuthProvider,
     userInfo: OAuthUserInfo,
-    config: Awaited<ReturnType<IOAuthConfigCache['getDirectConfigByProvider']>>,
+    config: OAuthConfig | null,
   ): Promise<any> {
     const isMongoDB = this.queryBuilderService.isMongoDb();
 
@@ -296,10 +297,7 @@ export class OAuthService {
       };
 
       try {
-        user = await this.queryBuilderService.insert(
-          'enfyra_user',
-          userData,
-        );
+        user = await this.queryBuilderService.insert('enfyra_user', userData);
         console.log(
           `Created new user via ${provider} OAuth: ${userInfo.email}`,
         );
@@ -334,7 +332,7 @@ export class OAuthService {
   }
 
   private async runUserProvisioningScript(
-    config: Awaited<ReturnType<IOAuthConfigCache['getDirectConfigByProvider']>>,
+    config: OAuthConfig | null,
   ): Promise<Record<string, any>> {
     if (!config?.sourceCode?.trim()) {
       return {};
@@ -345,11 +343,11 @@ export class OAuthService {
       return {};
     }
 
-    const ctx = this.dynamicContextFactory.createBase({ helpers: {}, user: null });
-    ctx.$repos = this.repoRegistryService.createReposProxy(
-      ctx,
-      'enfyra_user',
-    );
+    const ctx = this.dynamicContextFactory.createBase({
+      helpers: {},
+      user: null,
+    });
+    ctx.$repos = this.repoRegistryService.createReposProxy(ctx, 'enfyra_user');
 
     const result = await this.executorEngineService.run(executable, ctx);
     if (!isPlainObject(result)) {

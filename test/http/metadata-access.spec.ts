@@ -33,12 +33,14 @@ function policyService() {
       if (!ctx.user) return { allow: false };
       if (ctx.user.isRootAdmin) return { allow: true };
       const roleId = String(ctx.user.role?.id ?? ctx.user.role?._id ?? '');
-      const allowed = ctx.routeData?.routePermissions?.some((permission: any) => {
-        const methodAllowed = permission.methods?.some(
-          (item: any) => item.name === ctx.method,
-        );
-        return methodAllowed && String(permission.role?.id) === roleId;
-      });
+      const allowed = ctx.routeData?.routePermissions?.some(
+        (permission: any) => {
+          const methodAllowed = permission.methods?.some(
+            (item: any) => item.name === ctx.method,
+          );
+          return methodAllowed && String(permission.role?.id) === roleId;
+        },
+      );
       return { allow: !!allowed };
     },
   } as any;
@@ -48,10 +50,13 @@ function routeCacheService(routes: any[]) {
   return { getRoutes: async () => routes };
 }
 
-function fieldPermissionCacheService(rules: any[]) {
+function fieldPermissionPolicyReader(rules: any[]) {
   return {
-    async ensureLoaded() {},
-    async getPoliciesFor(user: any, tableName: string, action: string) {
+    getFieldPermissionPoliciesFor(
+      user: any,
+      tableName: string,
+      action: string,
+    ) {
       const roleId = String(user?.role?.id ?? '');
       const matched = rules.filter(
         (rule) =>
@@ -105,7 +110,7 @@ describe('metadata access projection', () => {
       user: { id: 1, isRootAdmin: true },
       policyService: policyService(),
       routeCacheService: routeCacheService([]),
-      fieldPermissionCacheService: fieldPermissionCacheService([]),
+      fieldPermissionPolicyReader: fieldPermissionPolicyReader([]),
     } as any);
 
     expect(data).toEqual(meta.tablesList);
@@ -133,12 +138,10 @@ describe('metadata access projection', () => {
           path: '/private_post_definition',
           mainTable: { name: 'private_post_definition' },
           availableMethods: [{ name: 'GET' }],
-          routePermissions: [
-            { role: { id: 2 }, methods: [{ name: 'GET' }] },
-          ],
+          routePermissions: [{ role: { id: 2 }, methods: [{ name: 'GET' }] }],
         },
       ]),
-      fieldPermissionCacheService: fieldPermissionCacheService([]),
+      fieldPermissionPolicyReader: fieldPermissionPolicyReader([]),
     } as any);
 
     expect(data.map((item: any) => item.name)).toEqual([
@@ -163,25 +166,18 @@ describe('metadata access projection', () => {
           path: '/post_definition',
           mainTable: { name: 'post_definition' },
           availableMethods: [{ name: 'GET' }],
-          routePermissions: [
-            { role: { id: 2 }, methods: [{ name: 'GET' }] },
-          ],
+          routePermissions: [{ role: { id: 2 }, methods: [{ name: 'GET' }] }],
         },
         {
           path: '/secret_definition',
           mainTable: { name: 'secret_definition' },
           availableMethods: [{ name: 'GET' }],
-          routePermissions: [
-            { role: { id: 3 }, methods: [{ name: 'GET' }] },
-          ],
+          routePermissions: [{ role: { id: 3 }, methods: [{ name: 'GET' }] }],
         },
       ]),
     } as any);
 
-    expect([...names].sort()).toEqual([
-      'enfyra_user',
-      'post_definition',
-    ]);
+    expect([...names].sort()).toEqual(['enfyra_user', 'post_definition']);
   });
 
   it('projects columns and relations by accessible action and field permissions', async () => {
@@ -195,10 +191,7 @@ describe('metadata access projection', () => {
           col('writeOnlyToken', { isPublished: false }),
           col('deniedTitle'),
         ],
-        [
-          rel('author'),
-          rel('internalAudit', { isPublished: false }),
-        ],
+        [rel('author'), rel('internalAudit', { isPublished: false })],
       ),
     ]);
     const user = { id: 10, role: { id: 2 } };
@@ -220,7 +213,7 @@ describe('metadata access projection', () => {
           ],
         },
       ]),
-      fieldPermissionCacheService: fieldPermissionCacheService([
+      fieldPermissionPolicyReader: fieldPermissionPolicyReader([
         {
           id: 1,
           tableName: 'post_definition',
@@ -278,10 +271,9 @@ describe('metadata access projection', () => {
       read: false,
       create: true,
     });
-    expect(projected.relations.map((item: any) => item.propertyName).sort()).toEqual([
-      'author',
-      'internalAudit',
-    ]);
+    expect(
+      projected.relations.map((item: any) => item.propertyName).sort(),
+    ).toEqual(['author', 'internalAudit']);
   });
 
   it('does not expose create-only fields when the user only has read route access', async () => {
@@ -302,12 +294,10 @@ describe('metadata access projection', () => {
           path: '/post_definition',
           mainTable: { name: 'post_definition' },
           availableMethods: [{ name: 'GET' }],
-          routePermissions: [
-            { role: { id: 2 }, methods: [{ name: 'GET' }] },
-          ],
+          routePermissions: [{ role: { id: 2 }, methods: [{ name: 'GET' }] }],
         },
       ]),
-      fieldPermissionCacheService: fieldPermissionCacheService([
+      fieldPermissionPolicyReader: fieldPermissionPolicyReader([
         {
           id: 1,
           tableName: 'post_definition',
@@ -343,12 +333,10 @@ describe('metadata access projection', () => {
           path: '/post_definition',
           mainTable: { name: 'post_definition' },
           availableMethods: [{ name: 'GET' }],
-          routePermissions: [
-            { role: { id: 2 }, methods: [{ name: 'GET' }] },
-          ],
+          routePermissions: [{ role: { id: 2 }, methods: [{ name: 'GET' }] }],
         },
       ]),
-      fieldPermissionCacheService: fieldPermissionCacheService([
+      fieldPermissionPolicyReader: fieldPermissionPolicyReader([
         {
           id: 1,
           tableName: 'post_definition',
@@ -381,12 +369,10 @@ describe('metadata access projection', () => {
           path: '/post_definition',
           mainTable: { name: 'post_definition' },
           availableMethods: [{ name: 'GET' }],
-          routePermissions: [
-            { role: { id: 2 }, methods: [{ name: 'GET' }] },
-          ],
+          routePermissions: [{ role: { id: 2 }, methods: [{ name: 'GET' }] }],
         },
       ]),
-      fieldPermissionCacheService: fieldPermissionCacheService([]),
+      fieldPermissionPolicyReader: fieldPermissionPolicyReader([]),
       tableName: 'secret_definition',
     } as any);
 

@@ -11,7 +11,6 @@ import {
   CACHE_IDENTIFIERS,
   type TCacheInvalidationPayload,
 } from '../../../shared/utils/cache-events.constants';
-import { RuntimeRegistryService } from './runtime-registry.service';
 import { DatabaseConfigService } from '../../../shared/services';
 
 const WEBSOCKET_CONFIG: CacheConfig = {
@@ -42,17 +41,14 @@ export class WebsocketCacheService extends BaseCacheService<
   WebSocketGateway[]
 > {
   private readonly queryBuilderService: QueryBuilderService;
-  private readonly runtimeRegistryService?: RuntimeRegistryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter?: EventEmitter2;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
-    runtimeRegistryService?: RuntimeRegistryService;
   }) {
     super(WEBSOCKET_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
-    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.cache = [];
   }
 
@@ -261,33 +257,5 @@ export class WebsocketCacheService extends BaseCacheService<
     if (this.eventEmitter) {
       this.eventEmitter.emit(`${this.config.cacheIdentifier}_LOADED`);
     }
-  }
-
-  async getGateways(): Promise<WebSocketGateway[]> {
-    return this.requireRuntimeRegistry().requireActiveData<WebSocketGateway[]>(
-      CACHE_IDENTIFIERS.WEBSOCKET,
-    );
-  }
-
-  async getGatewayByPath(path: string): Promise<WebSocketGateway | null> {
-    const cache = await this.getGateways();
-    return cache.find((g) => g.path === path) || null;
-  }
-
-  async getEventsByGatewayId(
-    gatewayId: number | string,
-  ): Promise<WebSocketEvent[]> {
-    const cache = await this.getGateways();
-    const gateway = cache.find((g) => g.id === gatewayId);
-    return gateway?.events || [];
-  }
-
-  private requireRuntimeRegistry(): RuntimeRegistryService {
-    if (!this.runtimeRegistryService) {
-      throw new Error(
-        'Runtime registry service is required for websocket reads',
-      );
-    }
-    return this.runtimeRegistryService;
   }
 }

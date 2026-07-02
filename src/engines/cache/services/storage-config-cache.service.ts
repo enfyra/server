@@ -4,7 +4,6 @@ import { QueryBuilderService } from '@enfyra/kernel';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
-import { RuntimeRegistryService } from './runtime-registry.service';
 
 const STORAGE_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.STORAGE,
@@ -16,17 +15,14 @@ export class StorageConfigCacheService extends BaseCacheService<
   Map<string | number, any>
 > {
   private readonly queryBuilderService: QueryBuilderService;
-  private readonly runtimeRegistryService?: RuntimeRegistryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter?: EventEmitter2;
-    runtimeRegistryService?: RuntimeRegistryService;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     super(STORAGE_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
-    this.runtimeRegistryService = deps.runtimeRegistryService;
   }
 
   protected async loadFromDb(): Promise<any[]> {
@@ -80,79 +76,5 @@ export class StorageConfigCacheService extends BaseCacheService<
 
   protected getLogCount(): string {
     return `${this.cache.size} storage configs`;
-  }
-
-  async getStorageConfigById(
-    id: number | string | null | undefined,
-  ): Promise<any | null> {
-    const cache = await this.getActiveStorageConfigs();
-
-    if (!id || id === null || id === undefined) {
-      return null;
-    }
-
-    let normalizedId: string | number = id;
-    const isMongoDb = this.queryBuilderService.isMongoDb();
-
-    if (isMongoDb) {
-      if (
-        typeof id === 'object' &&
-        id !== null &&
-        typeof (id as any).toString === 'function'
-      ) {
-        normalizedId = (id as any).toString();
-      } else {
-        normalizedId = String(id);
-      }
-    }
-
-    let config = cache.get(normalizedId);
-    if (config) {
-      return config;
-    }
-
-    if (!isMongoDb) {
-      const numId =
-        typeof normalizedId === 'string'
-          ? parseInt(normalizedId, 10)
-          : normalizedId;
-      if (!isNaN(numId as number)) {
-        config = cache.get(numId);
-        if (config) {
-          return config;
-        }
-      }
-      if (typeof normalizedId === 'number') {
-        config = cache.get(String(normalizedId));
-        if (config) {
-          return config;
-        }
-      }
-    }
-    return null;
-  }
-
-  async getStorageConfigByType(type: string): Promise<any | null> {
-    const cache = await this.getActiveStorageConfigs();
-    const values = Array.from(cache.values());
-    for (const config of values) {
-      if (config.type === type && config.isEnabled) {
-        return config;
-      }
-    }
-    return null;
-  }
-
-  private async getActiveStorageConfigs(): Promise<Map<string | number, any>> {
-    return this.requireRuntimeRegistry().requireActiveData<
-      Map<string | number, any>
-    >(CACHE_IDENTIFIERS.STORAGE);
-  }
-
-  private requireRuntimeRegistry(): RuntimeRegistryService {
-    if (!this.runtimeRegistryService) {
-      throw new Error('Runtime registry service is required for storage reads');
-    }
-    return this.runtimeRegistryService;
   }
 }

@@ -86,6 +86,7 @@ function makeAppContainer(dispose = vi.fn()) {
       getMaxRequestBodySizeBytes: () => 1024 * 1024,
       getMaxUploadFileSizeBytes: () => 1024 * 1024,
       requireRoutes: () => routes,
+      getGuardsForRoute: vi.fn(() => []),
     },
     runtimeMetricsCollectorService: {
       recordRequest: vi.fn(),
@@ -166,7 +167,6 @@ function makeAppContainer(dispose = vi.fn()) {
     },
     guardCacheService: {
       ensureGuardsLoaded: vi.fn(),
-      getGuardsForRoute: vi.fn(() => []),
     },
     guardEvaluatorService: {
       evaluateGuard: vi.fn(),

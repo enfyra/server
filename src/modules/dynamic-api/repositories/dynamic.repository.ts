@@ -15,7 +15,6 @@ import { TableHandlerService } from '../../table-management';
 import { PolicyService, isPolicyDeny } from '../../../domain/policy';
 import { DynamicApiTableValidationService } from '../services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
-import { FieldPermissionCacheService } from '../../../engines/cache';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import {
@@ -52,7 +51,6 @@ export class DynamicRepository {
   private policyService: PolicyService;
   private tableValidationService: DynamicApiTableValidationService;
   private eventEmitter: EventEmitter2;
-  private fieldPermissionCacheService?: FieldPermissionCacheService;
   private userRevocationService?: UserRevocationService;
   private flowQueueMaintenanceService?: FlowQueueMaintenanceService;
   private runtimeRegistryService: RuntimeRegistryService;
@@ -67,7 +65,6 @@ export class DynamicRepository {
     policyService,
     tableValidationService,
     eventEmitter,
-    fieldPermissionCacheService,
     userRevocationService,
     flowQueueMaintenanceService,
     runtimeRegistryService,
@@ -80,7 +77,7 @@ export class DynamicRepository {
     policyService: PolicyService;
     tableValidationService: DynamicApiTableValidationService;
     eventEmitter: EventEmitter2;
-    fieldPermissionCacheService?: FieldPermissionCacheService;
+    fieldPermissionCacheService?: unknown;
     userRevocationService?: UserRevocationService;
     flowQueueMaintenanceService?: FlowQueueMaintenanceService;
     runtimeRegistryService: RuntimeRegistryService;
@@ -93,7 +90,6 @@ export class DynamicRepository {
     this.policyService = policyService;
     this.tableValidationService = tableValidationService;
     this.eventEmitter = eventEmitter;
-    this.fieldPermissionCacheService = fieldPermissionCacheService;
     this.userRevocationService = userRevocationService;
     this.flowQueueMaintenanceService = flowQueueMaintenanceService;
     this.runtimeRegistryService = runtimeRegistryService;
@@ -244,13 +240,12 @@ export class DynamicRepository {
 
   private async assertQueryAllowed() {
     if (!this.enforceFieldPermission) return;
-    if (!this.fieldPermissionCacheService) return;
     if (this.context?.$user?.isRootAdmin) return;
 
     const meta = await this.lookupActiveTableByName(this.tableName);
     if (!meta) return;
 
-    const policies = await this.fieldPermissionCacheService.getPoliciesFor(
+    const policies = this.runtimeRegistryService.getFieldPermissionPoliciesFor(
       this.context.$user,
       this.tableName,
       'read',
@@ -456,8 +451,7 @@ export class DynamicRepository {
     subjectType: 'column' | 'relation',
     subjectName: string,
   ): Promise<boolean> {
-    if (!this.fieldPermissionCacheService) return false;
-    const policies = await this.fieldPermissionCacheService.getPoliciesFor(
+    const policies = this.runtimeRegistryService.getFieldPermissionPoliciesFor(
       this.context.$user,
       tableName,
       action,
@@ -487,7 +481,7 @@ export class DynamicRepository {
     deep: Record<string, any> | undefined;
     needsPostSql: boolean;
   }> {
-    if (!this.enforceFieldPermission || !this.fieldPermissionCacheService) {
+    if (!this.enforceFieldPermission) {
       return { fields, deep, needsPostSql: false };
     }
 
@@ -538,7 +532,7 @@ export class DynamicRepository {
       if (col?.isPrimary) continue;
       const defaultAllowed = col?.isPublished !== false;
       const decision = await decideFieldPermission(
-        this.fieldPermissionCacheService,
+        this.runtimeRegistryService,
         {
           user: this.context.$user,
           tableName,
@@ -572,7 +566,7 @@ export class DynamicRepository {
       );
       const defaultAllowed = rel?.isPublished !== false;
       const decision = await decideFieldPermission(
-        this.fieldPermissionCacheService,
+        this.runtimeRegistryService,
         {
           user: this.context.$user,
           tableName,
@@ -646,11 +640,7 @@ export class DynamicRepository {
         let cleanedFilter = relEntry.filter;
         let cleanedSort = relEntry.sort;
 
-        if (
-          this.enforceFieldPermission &&
-          this.fieldPermissionCacheService &&
-          !this.context?.$user?.isRootAdmin
-        ) {
+        if (this.enforceFieldPermission && !this.context?.$user?.isRootAdmin) {
           const targetMeta = await this.lookupActiveTableByName(targetTable);
           if (targetMeta) {
             const fullMetadata = await this.getActiveMetadata();
@@ -816,7 +806,7 @@ export class DynamicRepository {
       tableName: this.tableName,
       user: this.context.$user,
       action: 'read',
-      fieldPermissionCacheService: this.fieldPermissionCacheService!,
+      fieldPermissionPolicyReader: this.runtimeRegistryService,
       metadata,
       requested,
     });
@@ -1426,11 +1416,7 @@ export class DynamicRepository {
     body: any,
     existing?: any,
   ): Promise<void> {
-    if (
-      !this.enforceFieldPermission ||
-      !this.fieldPermissionCacheService ||
-      this.context?.$user?.isRootAdmin
-    ) {
+    if (!this.enforceFieldPermission || this.context?.$user?.isRootAdmin) {
       return;
     }
 
@@ -1444,7 +1430,7 @@ export class DynamicRepository {
       if (col) {
         if (action === 'update' && col.isUpdatable === false) continue;
         const decision = await decideFieldPermission(
-          this.fieldPermissionCacheService,
+          this.runtimeRegistryService,
           {
             user: this.context.$user,
             tableName: this.tableName,
@@ -1461,7 +1447,7 @@ export class DynamicRepository {
       const rel = meta.relations?.find((r: any) => r.propertyName === key);
       if (rel) {
         const decision = await decideFieldPermission(
-          this.fieldPermissionCacheService,
+          this.runtimeRegistryService,
           {
             user: this.context.$user,
             tableName: this.tableName,
@@ -1492,8 +1478,7 @@ export class DynamicRepository {
     action: 'create' | 'update',
     data: any,
   ): Promise<void> {
-    if (!this.enforceFieldPermission || !this.fieldPermissionCacheService)
-      return;
+    if (!this.enforceFieldPermission) return;
     const meta = await this.lookupActiveTableByName(tableName);
     if (!meta) return;
     const denied: Array<{ type: 'column' | 'relation'; name: string }> = [];
@@ -1502,7 +1487,7 @@ export class DynamicRepository {
       if (col) {
         if (action === 'update' && col.isUpdatable === false) continue;
         const decision = await decideFieldPermission(
-          this.fieldPermissionCacheService,
+          this.runtimeRegistryService,
           {
             user: this.context.$user,
             tableName,
@@ -1518,7 +1503,7 @@ export class DynamicRepository {
       const rel = meta.relations?.find((r: any) => r.propertyName === key);
       if (rel) {
         const decision = await decideFieldPermission(
-          this.fieldPermissionCacheService,
+          this.runtimeRegistryService,
           {
             user: this.context.$user,
             tableName,
@@ -1546,11 +1531,7 @@ export class DynamicRepository {
   private wrapWithFieldPermissionCheck<T>(
     callback: () => Promise<T>,
   ): Promise<T> {
-    if (
-      !this.enforceFieldPermission ||
-      !this.fieldPermissionCacheService ||
-      this.context?.$user?.isRootAdmin
-    ) {
+    if (!this.enforceFieldPermission || this.context?.$user?.isRootAdmin) {
       return callback();
     }
     return this.queryBuilderService.runWithFieldPermissionCheck(

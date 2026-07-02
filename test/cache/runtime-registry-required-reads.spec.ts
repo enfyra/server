@@ -1,38 +1,6 @@
-import { EventEmitter2 } from 'eventemitter2';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  ColumnRuleCacheService,
-  FlowCacheService,
-  FieldPermissionCacheService,
-  GuardCacheService,
-  OAuthConfigCacheService,
-  RuntimeRegistryService,
-  StorageConfigCacheService,
-  WebsocketCacheService,
-} from '../../src/engines/cache';
+import { RuntimeRegistryService } from '../../src/engines/cache';
 import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants';
-
-function registrySnapshot(identifier: string, data: unknown) {
-  return {
-    getSnapshot: vi.fn((requested: string) =>
-      requested === identifier
-        ? {
-            identifier,
-            version: 1,
-            activatedAt: '2026-07-02T00:00:00.000Z',
-            data,
-          }
-        : undefined,
-    ),
-    getActiveData: vi.fn((requested: string) =>
-      requested === identifier ? data : undefined,
-    ),
-    requireActiveData: vi.fn((requested: string) => {
-      if (requested === identifier) return data;
-      throw new Error(`Runtime cache ${requested} is not activated`);
-    }),
-  };
-}
 
 describe('runtime registry required reads', () => {
   it('serves package names from the active registry snapshot', async () => {
@@ -68,20 +36,19 @@ describe('runtime registry required reads', () => {
         throw new Error('DB should not be read');
       }),
     };
-    const service = new FlowCacheService({
-      queryBuilderService: queryBuilderService as any,
-      eventEmitter: new EventEmitter2(),
-      runtimeRegistryService: registrySnapshot(CACHE_IDENTIFIERS.FLOW, [
+    const registry = new RuntimeRegistryService();
+    await registry.publishFromCache(CACHE_IDENTIFIERS.FLOW, {
+      getCacheAsync: vi.fn(async () => [
         {
           id: 7,
           name: 'scheduled-flow',
           triggerType: 'schedule',
           steps: [],
         },
-      ]) as any,
+      ]),
     });
 
-    await expect(service.getFlowByName('scheduled-flow')).resolves.toEqual(
+    expect(registry.getFlowByName('scheduled-flow')).toEqual(
       expect.objectContaining({ id: 7 }),
     );
     expect(queryBuilderService.find).not.toHaveBeenCalled();
@@ -93,20 +60,19 @@ describe('runtime registry required reads', () => {
         throw new Error('DB should not be read');
       }),
     };
-    const service = new WebsocketCacheService({
-      queryBuilderService: queryBuilderService as any,
-      eventEmitter: new EventEmitter2(),
-      runtimeRegistryService: registrySnapshot(CACHE_IDENTIFIERS.WEBSOCKET, [
+    const registry = new RuntimeRegistryService();
+    await registry.publishFromCache(CACHE_IDENTIFIERS.WEBSOCKET, {
+      getCacheAsync: vi.fn(async () => [
         {
           id: 3,
           path: '/chat',
           isEnabled: true,
           events: [],
         },
-      ]) as any,
+      ]),
     });
 
-    await expect(service.getGatewayByPath('/chat')).resolves.toEqual(
+    expect(registry.getWebsocketGatewayByPath('/chat')).toEqual(
       expect.objectContaining({ id: 3 }),
     );
     expect(queryBuilderService.find).not.toHaveBeenCalled();
@@ -134,20 +100,19 @@ describe('runtime registry required reads', () => {
       children: [],
       rules: [],
     };
-    const service = new GuardCacheService({
-      queryBuilderService: queryBuilderService as any,
-      eventEmitter: new EventEmitter2(),
-      runtimeRegistryService: registrySnapshot(CACHE_IDENTIFIERS.GUARD, {
+    const registry = new RuntimeRegistryService();
+    await registry.publishFromCache(CACHE_IDENTIFIERS.GUARD, {
+      getCacheAsync: vi.fn(async () => ({
         preAuthGlobal: [guard],
         postAuthGlobal: [],
         preAuthByRoute: new Map(),
         postAuthByRoute: new Map(),
-      }) as any,
+      })),
     });
 
-    await expect(
-      service.getGuardsForRoute('pre_auth', '/posts', 'GET'),
-    ).resolves.toEqual([guard]);
+    expect(registry.getGuardsForRoute('pre_auth', '/posts', 'GET')).toEqual([
+      guard,
+    ]);
     expect(queryBuilderService.find).not.toHaveBeenCalled();
   });
 
@@ -164,19 +129,20 @@ describe('runtime registry required reads', () => {
       unconditionalDeniedRelations: new Set<string>(),
       rules: [],
     };
-    const service = new FieldPermissionCacheService({
-      queryBuilderService: queryBuilderService as any,
-      metadataCacheService: {} as any,
-      eventEmitter: new EventEmitter2(),
-      runtimeRegistryService: registrySnapshot(
-        CACHE_IDENTIFIERS.FIELD_PERMISSION,
-        new Map([['r:editor|posts|read', policy]]),
-      ) as any,
+    const registry = new RuntimeRegistryService();
+    await registry.publishFromCache(CACHE_IDENTIFIERS.FIELD_PERMISSION, {
+      getCacheAsync: vi.fn(
+        async () => new Map([['r:editor|posts|read', policy]]),
+      ),
     });
 
-    await expect(
-      service.getPoliciesFor({ role: { id: 'editor' } }, 'posts', 'read'),
-    ).resolves.toEqual([policy]);
+    expect(
+      registry.getFieldPermissionPoliciesFor(
+        { role: { id: 'editor' } },
+        'posts',
+        'read',
+      ),
+    ).toEqual([policy]);
     expect(queryBuilderService.find).not.toHaveBeenCalled();
   });
 
@@ -194,18 +160,12 @@ describe('runtime registry required reads', () => {
       isEnabled: true,
       columnId: 'title-column',
     };
-    const service = new ColumnRuleCacheService({
-      queryBuilderService: queryBuilderService as any,
-      eventEmitter: new EventEmitter2(),
-      runtimeRegistryService: registrySnapshot(
-        CACHE_IDENTIFIERS.COLUMN_RULE,
-        new Map([['title-column', [rule]]]),
-      ) as any,
+    const registry = new RuntimeRegistryService();
+    await registry.publishFromCache(CACHE_IDENTIFIERS.COLUMN_RULE, {
+      getCacheAsync: vi.fn(async () => new Map([['title-column', [rule]]])),
     });
 
-    await expect(service.getRulesForColumn('title-column')).resolves.toEqual([
-      rule,
-    ]);
+    expect(registry.getColumnRulesForColumn('title-column')).toEqual([rule]);
     expect(queryBuilderService.find).not.toHaveBeenCalled();
   });
 
@@ -237,22 +197,21 @@ describe('runtime registry required reads', () => {
       }),
       isMongoDb: vi.fn(() => false),
     };
-    const service = new StorageConfigCacheService({
-      queryBuilderService: queryBuilderService as any,
-      eventEmitter: new EventEmitter2(),
-      runtimeRegistryService: registrySnapshot(
-        CACHE_IDENTIFIERS.STORAGE,
-        new Map<any, any>([
-          [9, { id: 9, type: 'local', isEnabled: true }],
-          ['s3-main', { id: 's3-main', type: 's3', isEnabled: true }],
-        ]),
-      ) as any,
+    const registry = new RuntimeRegistryService();
+    await registry.publishFromCache(CACHE_IDENTIFIERS.STORAGE, {
+      getCacheAsync: vi.fn(
+        async () =>
+          new Map<any, any>([
+            [9, { id: 9, type: 'local', isEnabled: true }],
+            ['s3-main', { id: 's3-main', type: 's3', isEnabled: true }],
+          ]),
+      ),
     });
 
-    await expect(service.getStorageConfigById(9)).resolves.toEqual(
+    expect(registry.getStorageConfigById(9)).toEqual(
       expect.objectContaining({ type: 'local' }),
     );
-    await expect(service.getStorageConfigByType('s3')).resolves.toEqual(
+    expect(registry.getStorageConfigByType('s3')).toEqual(
       expect.objectContaining({ id: 's3-main' }),
     );
     expect(queryBuilderService.find).not.toHaveBeenCalled();
@@ -264,32 +223,31 @@ describe('runtime registry required reads', () => {
         throw new Error('DB should not be read');
       }),
     };
-    const service = new OAuthConfigCacheService({
-      queryBuilderService: queryBuilderService as any,
-      eventEmitter: new EventEmitter2(),
-      runtimeRegistryService: registrySnapshot(
-        CACHE_IDENTIFIERS.OAUTH_CONFIG,
-        new Map([
-          [
-            'google',
-            {
-              id: 1,
-              provider: 'google',
-              clientId: 'client',
-              clientSecret: 'secret',
-              redirectUri: 'https://example.com/callback',
-              autoSetCookies: true,
-              isEnabled: true,
-            },
-          ],
-        ]),
-      ) as any,
+    const registry = new RuntimeRegistryService();
+    await registry.publishFromCache(CACHE_IDENTIFIERS.OAUTH_CONFIG, {
+      getCacheAsync: vi.fn(
+        async () =>
+          new Map([
+            [
+              'google',
+              {
+                id: 1,
+                provider: 'google',
+                clientId: 'client',
+                clientSecret: 'secret',
+                redirectUri: 'https://example.com/callback',
+                autoSetCookies: true,
+                isEnabled: true,
+              },
+            ],
+          ]),
+      ),
     });
 
-    await expect(service.getDirectConfigByProvider('google')).resolves.toEqual(
+    expect(registry.getOauthConfigByProvider('google')).toEqual(
       expect.objectContaining({ clientId: 'client' }),
     );
-    await expect(service.getAllProviders()).resolves.toEqual(['google']);
+    expect(registry.getOauthProviders()).toEqual(['google']);
     expect(queryBuilderService.find).not.toHaveBeenCalled();
   });
 

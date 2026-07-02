@@ -1,13 +1,15 @@
-import type { FieldPermissionCacheService } from '../../engines/cache';
 import type { PolicyService } from '../../domain/policy';
-import { decideFieldPermission } from './field-permission.util';
+import {
+  decideFieldPermission,
+  type TFieldPermissionPolicyReader,
+} from './field-permission.util';
 
 type MetadataAccessDeps = {
   metadata: any;
   user: any;
   routeCacheService: { getRoutes: () => Promise<any[]> };
   policyService: PolicyService;
-  fieldPermissionCacheService?: FieldPermissionCacheService;
+  fieldPermissionPolicyReader?: TFieldPermissionPolicyReader;
 };
 
 type ProjectionDeps = MetadataAccessDeps & {
@@ -131,7 +133,7 @@ async function getSubjectAccess(params: {
   subjectName: string;
   subject: any;
   actions: Set<MetadataFieldAction>;
-  fieldPermissionCacheService?: FieldPermissionCacheService;
+  fieldPermissionPolicyReader?: TFieldPermissionPolicyReader;
 }): Promise<Record<MetadataFieldAction, boolean>> {
   const {
     user,
@@ -140,7 +142,7 @@ async function getSubjectAccess(params: {
     subjectName,
     subject,
     actions,
-    fieldPermissionCacheService,
+    fieldPermissionPolicyReader,
   } = params;
 
   const access = {
@@ -161,7 +163,7 @@ async function getSubjectAccess(params: {
     return access;
   }
 
-  if (!fieldPermissionCacheService) {
+  if (!fieldPermissionPolicyReader) {
     for (const action of actions) {
       access[action] = subject?.isPublished !== false;
     }
@@ -170,7 +172,7 @@ async function getSubjectAccess(params: {
 
   for (const action of actions) {
     const decision = await decideFieldPermission(
-      fieldPermissionCacheService,
+      fieldPermissionPolicyReader,
       {
         user,
         tableName,
@@ -195,7 +197,7 @@ async function projectTable(
   table: any,
   user: any,
   actions: Set<MetadataFieldAction>,
-  fieldPermissionCacheService?: FieldPermissionCacheService,
+  fieldPermissionPolicyReader?: TFieldPermissionPolicyReader,
 ) {
   const columns = [];
   for (const column of table?.columns ?? []) {
@@ -208,7 +210,7 @@ async function projectTable(
       subjectName: name,
       subject: column,
       actions,
-      fieldPermissionCacheService,
+      fieldPermissionPolicyReader,
     });
     if (hasAnyAccess(metadataAccess)) {
       columns.push({ ...column, metadataAccess });
@@ -226,7 +228,7 @@ async function projectTable(
       subjectName: name,
       subject: relation,
       actions,
-      fieldPermissionCacheService,
+      fieldPermissionPolicyReader,
     });
     if (hasAnyAccess(metadataAccess)) {
       relations.push({ ...relation, metadataAccess });
@@ -250,7 +252,7 @@ export async function projectMetadataForUser({
   user,
   routeCacheService,
   policyService,
-  fieldPermissionCacheService,
+  fieldPermissionPolicyReader,
   tableName,
 }: ProjectionDeps): Promise<any[] | any | null> {
   if (!metadata) return tableName ? null : [];
@@ -264,7 +266,7 @@ export async function projectMetadataForUser({
     user,
     routeCacheService,
     policyService,
-    fieldPermissionCacheService,
+    fieldPermissionPolicyReader,
   });
 
   const canSeeTable = (table: any) =>
@@ -277,7 +279,7 @@ export async function projectMetadataForUser({
       table,
       user,
       accessibleActions.get(table.name)!,
-      fieldPermissionCacheService,
+      fieldPermissionPolicyReader,
     );
   }
 
@@ -289,7 +291,7 @@ export async function projectMetadataForUser({
         table,
         user,
         accessibleActions.get(table.name)!,
-        fieldPermissionCacheService,
+        fieldPermissionPolicyReader,
       ),
     );
   }

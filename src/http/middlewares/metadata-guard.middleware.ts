@@ -6,11 +6,13 @@ import {
   GuardEvaluatorService,
   GuardEvalContext,
 } from '../../engines/cache';
+import { RuntimeRegistryService } from '../../engines/cache/services/runtime-registry.service';
 async function runMetadataGuards(
   position: GuardPosition,
   req: any,
   res: Response,
   guardCacheService: GuardCacheService,
+  runtimeRegistryService: RuntimeRegistryService,
   guardEvaluatorService: GuardEvaluatorService,
 ): Promise<boolean> {
   if (!req.routeData) return true;
@@ -25,7 +27,7 @@ async function runMetadataGuards(
     'unknown';
   const method = req.method;
 
-  const guards = await guardCacheService.getGuardsForRoute(
+  const guards = runtimeRegistryService.getGuardsForRoute(
     position,
     routePath,
     method,
@@ -61,6 +63,7 @@ async function runMetadataGuards(
 
 export function preAuthMetadataGuard(
   guardCacheService: GuardCacheService,
+  runtimeRegistryService: RuntimeRegistryService,
   guardEvaluatorService: GuardEvaluatorService,
 ) {
   return async (req: any, res: Response, next: NextFunction) => {
@@ -70,6 +73,7 @@ export function preAuthMetadataGuard(
         req,
         res,
         guardCacheService,
+        runtimeRegistryService,
         guardEvaluatorService,
       );
       next();
@@ -81,6 +85,7 @@ export function preAuthMetadataGuard(
 
 export function postAuthMetadataGuard(
   guardCacheService: GuardCacheService,
+  runtimeRegistryService: RuntimeRegistryService,
   guardEvaluatorService: GuardEvaluatorService,
 ) {
   return async (req: any, res: Response, next: NextFunction) => {
@@ -90,6 +95,7 @@ export function postAuthMetadataGuard(
         req,
         res,
         guardCacheService,
+        runtimeRegistryService,
         guardEvaluatorService,
       );
       next();

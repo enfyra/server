@@ -288,7 +288,7 @@ export class DynamicResolver {
     userId: string | null,
   ) {
     await this.guardCacheService.ensureGuardsLoaded();
-    const guards = await this.guardCacheService.getGuardsForRoute(
+    const guards = this.runtimeRegistryService.getGuardsForRoute(
       position,
       routePath,
       method,

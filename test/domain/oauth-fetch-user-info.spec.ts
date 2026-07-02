@@ -4,7 +4,7 @@ import { OAuthService } from '../../src/domain/auth';
 function makeService(): OAuthService {
   return new OAuthService({
     queryBuilderService: {} as any,
-    oauthConfigCacheService: {} as any,
+    runtimeRegistryService: {} as any,
     envService: {} as any,
     cacheService: {} as any,
     executorEngineService: {} as any,
@@ -164,7 +164,7 @@ describe('OAuthService.fetchUserInfo — provider mapping', () => {
   it('accepts object results from user provisioning scripts', async () => {
     service = new OAuthService({
       queryBuilderService: {} as any,
-      oauthConfigCacheService: {} as any,
+      runtimeRegistryService: {} as any,
       envService: {} as any,
       cacheService: {} as any,
       executorEngineService: {
@@ -191,7 +191,7 @@ describe('OAuthService.fetchUserInfo — provider mapping', () => {
     const run = vi.fn();
     service = new OAuthService({
       queryBuilderService: {} as any,
-      oauthConfigCacheService: {} as any,
+      runtimeRegistryService: {} as any,
       envService: {} as any,
       cacheService: {} as any,
       executorEngineService: { run } as any,
@@ -216,7 +216,7 @@ describe('OAuthService.fetchUserInfo — provider mapping', () => {
   it('rejects non-object results from user provisioning scripts', async () => {
     service = new OAuthService({
       queryBuilderService: {} as any,
-      oauthConfigCacheService: {} as any,
+      runtimeRegistryService: {} as any,
       envService: {} as any,
       cacheService: {} as any,
       executorEngineService: {

@@ -43,7 +43,7 @@ describe('ColumnRuleCacheService — partial reload', () => {
     ];
     const { svc, qb } = makeService(initial);
     await svc.reload(false);
-    expect(svc.getRulesForColumnSync(100)).toHaveLength(1);
+    expect(svc.getRawCache().get('100') ?? []).toHaveLength(1);
 
     initial.push({
       id: 2,
@@ -65,7 +65,7 @@ describe('ColumnRuleCacheService — partial reload', () => {
       false,
     );
 
-    const rules = svc.getRulesForColumnSync(100);
+    const rules = svc.getRawCache().get('100') ?? [];
     expect(rules).toHaveLength(2);
     expect(rules.find((r) => r.id === '2')?.ruleType).toBe('max');
     const calls = qb.find.mock.calls;
@@ -92,7 +92,7 @@ describe('ColumnRuleCacheService — partial reload', () => {
     ];
     const { svc } = makeService(data);
     await svc.reload(false);
-    expect(svc.getRulesForColumnSync(100)).toHaveLength(2);
+    expect(svc.getRawCache().get('100') ?? []).toHaveLength(2);
 
     data.splice(1, 1);
 
@@ -107,7 +107,7 @@ describe('ColumnRuleCacheService — partial reload', () => {
       false,
     );
 
-    const rules = svc.getRulesForColumnSync(100);
+    const rules = svc.getRawCache().get('100') ?? [];
     expect(rules).toHaveLength(1);
     expect(rules[0].id).toBe('1');
   });
@@ -124,7 +124,7 @@ describe('ColumnRuleCacheService — partial reload', () => {
     ];
     const { svc } = makeService(data);
     await svc.reload(false);
-    expect(svc.getRulesForColumnSync(100)).toHaveLength(1);
+    expect(svc.getRawCache().get('100') ?? []).toHaveLength(1);
 
     data.length = 0;
     await svc.partialReload(
@@ -138,7 +138,7 @@ describe('ColumnRuleCacheService — partial reload', () => {
       false,
     );
 
-    expect(svc.getRulesForColumnSync(100)).toHaveLength(0);
+    expect(svc.getRawCache().get('100') ?? []).toHaveLength(0);
   });
 
   it('partialReload treats isEnabled=false as effective delete', async () => {
@@ -153,7 +153,7 @@ describe('ColumnRuleCacheService — partial reload', () => {
     ];
     const { svc, qb } = makeService(data);
     await svc.reload(false);
-    expect(svc.getRulesForColumnSync(100)).toHaveLength(1);
+    expect(svc.getRawCache().get('100') ?? []).toHaveLength(1);
 
     qb.find.mockImplementationOnce(async (args: any) => {
       if (args?.filter?.id?._in) return { data: [] };
@@ -171,7 +171,7 @@ describe('ColumnRuleCacheService — partial reload', () => {
       false,
     );
 
-    expect(svc.getRulesForColumnSync(100)).toHaveLength(0);
+    expect(svc.getRawCache().get('100') ?? []).toHaveLength(0);
   });
 
   it('partialReload moves rule between columns when column FK changes', async () => {
@@ -186,8 +186,8 @@ describe('ColumnRuleCacheService — partial reload', () => {
     ];
     const { svc } = makeService(data);
     await svc.reload(false);
-    expect(svc.getRulesForColumnSync(100)).toHaveLength(1);
-    expect(svc.getRulesForColumnSync(200)).toHaveLength(0);
+    expect(svc.getRawCache().get('100') ?? []).toHaveLength(1);
+    expect(svc.getRawCache().get('200') ?? []).toHaveLength(0);
 
     data[0].column.id = 200;
 
@@ -202,8 +202,8 @@ describe('ColumnRuleCacheService — partial reload', () => {
       false,
     );
 
-    expect(svc.getRulesForColumnSync(100)).toHaveLength(0);
-    expect(svc.getRulesForColumnSync(200)).toHaveLength(1);
+    expect(svc.getRawCache().get('100') ?? []).toHaveLength(0);
+    expect(svc.getRawCache().get('200') ?? []).toHaveLength(1);
   });
 
   it('partial reload falls back to full reload when applyPartialUpdate throws', async () => {
@@ -233,7 +233,7 @@ describe('ColumnRuleCacheService — partial reload', () => {
       false,
     );
 
-    expect(svc.getRulesForColumnSync(999)).toHaveLength(1);
+    expect(svc.getRawCache().get('999') ?? []).toHaveLength(1);
   });
 
   it('partialReload with empty ids is a no-op', async () => {
@@ -262,6 +262,6 @@ describe('ColumnRuleCacheService — partial reload', () => {
     );
 
     expect(qb.find).not.toHaveBeenCalled();
-    expect(svc.getRulesForColumnSync(100)).toHaveLength(1);
+    expect(svc.getRawCache().get('100') ?? []).toHaveLength(1);
   });
 });

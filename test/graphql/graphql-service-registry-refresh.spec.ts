@@ -54,5 +54,42 @@ describe('GraphqlService registry refresh', () => {
     ).toHaveBeenCalled();
     expect(runtimeRegistryService.getMaxQueryDepth).toHaveBeenCalled();
     expect(service.getSchemaSdl()).toContain('type posts');
+    expect(service.getStatus()).toEqual(
+      expect.objectContaining({
+        schemaReady: true,
+        lastReload: expect.objectContaining({ status: 'ok' }),
+      }),
+    );
+  });
+
+  it('marks GraphQL runtime degraded when reload fails after a registry commit', async () => {
+    const runtimeRegistryService = {
+      requireMetadata: vi.fn(() => {
+        throw new Error('metadata missing');
+      }),
+      getAllEnabledGraphqlDefinitions: vi.fn(() => []),
+      getMaxQueryDepth: vi.fn(() => 10),
+    };
+    const service = new GraphqlService({
+      runtimeRegistryService: runtimeRegistryService as any,
+      dynamicResolver: {
+        dynamicResolver: vi.fn(),
+        dynamicMutationResolver: vi.fn(),
+      } as any,
+      eventEmitter: new EventEmitter2(),
+      envService: { isProd: false } as any,
+    });
+
+    await expect(service.reloadSchema()).rejects.toThrow('metadata missing');
+
+    expect(service.getStatus()).toEqual(
+      expect.objectContaining({
+        schemaReady: false,
+        lastReload: expect.objectContaining({
+          status: 'degraded',
+          error: 'metadata missing',
+        }),
+      }),
+    );
   });
 });
