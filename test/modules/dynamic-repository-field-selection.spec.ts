@@ -248,12 +248,6 @@ function makeRepo({
       return { data: projectRows(args.table, rows, args), count: rows.length };
     }),
   };
-  const metadataCacheService = {
-    lookupTableByName: vi.fn((name: string) =>
-      Promise.resolve(metadata.tables.get(name)),
-    ),
-    getMetadata: vi.fn().mockResolvedValue(metadata),
-  };
   const settingCacheService = {
     getMaxQueryDepth: vi.fn().mockResolvedValue(10),
   };
@@ -271,14 +265,13 @@ function makeRepo({
     tableHandlerService: {} as any,
     policyService: {} as any,
     tableValidationService: {} as any,
-    metadataCacheService: metadataCacheService as any,
     settingCacheService: settingCacheService as any,
     fieldPermissionCacheService: fieldPermissionCacheService as any,
     runtimeRegistryService: activeRuntimeRegistryService,
     eventEmitter: {} as any,
     enforceFieldPermission,
   });
-  return { repo, queryBuilderService, metadataCacheService };
+  return { repo, queryBuilderService };
 }
 
 describe('dynamic read field selection', () => {
@@ -586,7 +579,7 @@ describe('dynamic read field selection', () => {
       requireMetadata: vi.fn(() => metadata),
       lookupTableByName: vi.fn((name: string) => metadata.tables.get(name)),
     };
-    const { repo, metadataCacheService } = makeRepo({
+    const { repo } = makeRepo({
       tableName: 'enfyra_flow_step',
       fields: 'id,key',
       runtimeRegistryService,
@@ -598,7 +591,5 @@ describe('dynamic read field selection', () => {
     expect(runtimeRegistryService.lookupTableByName).toHaveBeenCalledWith(
       'enfyra_flow_step',
     );
-    expect(metadataCacheService.getMetadata).not.toHaveBeenCalled();
-    expect(metadataCacheService.lookupTableByName).not.toHaveBeenCalled();
   });
 });
