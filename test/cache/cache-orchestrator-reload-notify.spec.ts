@@ -46,12 +46,16 @@ function createOrchestrator(overrides: Record<string, any> = {}) {
 
 describe('CacheOrchestratorService reload notifications', () => {
   it('emits done after package reload failure so admin reload UI cannot hang', async () => {
+    const runtimeRegistryService = {
+      publishFromCache: vi.fn(async () => undefined),
+    };
     const { orchestrator, emitted } = createOrchestrator({
       packageCacheService: cacheMock({
         reload: async () => {
           throw new Error('package reload failed');
         },
       }) as any,
+      runtimeRegistryService,
     });
 
     await expect(
@@ -88,6 +92,35 @@ describe('CacheOrchestratorService reload notifications', () => {
         }),
       },
     ]);
+    expect(runtimeRegistryService.publishFromCache).not.toHaveBeenCalled();
+  });
+
+  it('publishes package cache to runtime registry after a successful chain', async () => {
+    const runtimeRegistryService = {
+      publishFromCache: vi.fn(async () => undefined),
+    };
+    const packageCacheService = cacheMock({
+      getCacheAsync: vi.fn(async () => ['demo-package']),
+    });
+    const { orchestrator } = createOrchestrator({
+      packageCacheService: packageCacheService as any,
+      runtimeRegistryService,
+    });
+
+    await (orchestrator as any).executeChain(
+      {
+        table: 'enfyra_package',
+        action: 'reload',
+        scope: 'full',
+        timestamp: Date.now(),
+      },
+      true,
+    );
+
+    expect(runtimeRegistryService.publishFromCache).toHaveBeenCalledWith(
+      'package',
+      packageCacheService,
+    );
   });
 
   it('emits extension reload notifications for extension definition changes', async () => {

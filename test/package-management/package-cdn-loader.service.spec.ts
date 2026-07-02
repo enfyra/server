@@ -4,8 +4,12 @@ import { EventEmitter2 } from 'eventemitter2';
 import {
   PackageCacheService,
   PackageCdnLoaderService,
+  PackageRuntimeService,
 } from '../../src/engines/cache';
-import { CACHE_EVENTS } from '../../src/shared/utils/cache-events.constants';
+import {
+  CACHE_EVENTS,
+  CACHE_IDENTIFIERS,
+} from '../../src/shared/utils/cache-events.constants';
 import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../src/shared/utils/constant';
 
 function response(body: string, ok = true, status = 200) {
@@ -119,7 +123,7 @@ describe('PackageCdnLoaderService', () => {
   });
 });
 
-describe('PackageCacheService CDN preload', () => {
+describe('PackageRuntimeService CDN preload', () => {
   it('does not start CDN preload during cache reload until the system is ready', async () => {
     const eventEmitter = new EventEmitter2();
     const queryBuilderService = {
@@ -153,13 +157,21 @@ describe('PackageCacheService CDN preload', () => {
       packageCdnLoaderService: packageCdnLoaderService as any,
       lazyRef: { dynamicWebSocketGateway: {} } as any,
     });
+    const packageRuntime = new PackageRuntimeService({
+      queryBuilderService: queryBuilderService as any,
+      eventEmitter,
+      packageCdnLoaderService: packageCdnLoaderService as any,
+      lazyRef: { dynamicWebSocketGateway: {} } as any,
+    });
 
+    packageRuntime.init();
     await packageCache.reload();
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(packageCdnLoaderService.loadPackage).not.toHaveBeenCalled();
 
     eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
+    eventEmitter.emit(`${CACHE_IDENTIFIERS.PACKAGE}_LOADED`);
     await new Promise((resolve) => setImmediate(resolve));
     await vi.waitFor(() => {
       expect(packageCdnLoaderService.loadPackage).toHaveBeenCalledWith(
@@ -188,7 +200,7 @@ describe('PackageCacheService CDN preload', () => {
       loadPackage: vi.fn(async () => ({})),
     };
     const emitToNamespace = vi.fn();
-    const packageCache = new PackageCacheService({
+    const packageRuntime = new PackageRuntimeService({
       queryBuilderService: queryBuilderService as any,
       eventEmitter: new EventEmitter2(),
       packageCdnLoaderService: packageCdnLoaderService as any,
@@ -200,12 +212,15 @@ describe('PackageCacheService CDN preload', () => {
       } as any,
     });
 
-    await (packageCache as any).preloadPackagesFromCdn();
+    (packageRuntime as any).systemReady = true;
+    packageRuntime.schedulePackagePreload();
+    await vi.waitFor(() => {
+      expect(packageCdnLoaderService.loadPackage).toHaveBeenCalledWith(
+        'node-ssh',
+        '13.2.1',
+      );
+    });
 
-    expect(packageCdnLoaderService.loadPackage).toHaveBeenCalledWith(
-      'node-ssh',
-      '13.2.1',
-    );
     expect(queryBuilderService.update).toHaveBeenCalledWith(
       'enfyra_package',
       7,

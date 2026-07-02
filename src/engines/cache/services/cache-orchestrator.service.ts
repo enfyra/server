@@ -19,8 +19,15 @@ import { FieldPermissionCacheService } from './field-permission-cache.service';
 import { ColumnRuleCacheService } from './column-rule-cache.service';
 import { RepoRegistryService } from './repo-registry.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
+import {
+  RuntimeRegistryService,
+  type RuntimeCacheViewSource,
+} from './runtime-registry.service';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
-import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
+import {
+  CACHE_EVENTS,
+  CACHE_IDENTIFIERS,
+} from '../../../shared/utils/cache-events.constants';
 import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
 import { logMemory } from '../../../shared/utils/memory-log.util';
 import { SYSTEM_TABLES } from '../../../shared/utils/system-tables.constants';
@@ -28,6 +35,7 @@ import { DynamicWebSocketGateway } from '../../../modules/websocket';
 import { GraphqlService } from '../../../modules/graphql';
 import { BootstrapScriptService } from '../../../domain/bootstrap';
 import { LifecycleAware } from '../../../shared/interfaces/lifecycle-aware.interface';
+import type { RuntimeCacheIdentifier } from '../types/runtime-registry.types';
 
 const COLOR = '\x1b[33m';
 const RESET = '\x1b[0m';
@@ -142,6 +150,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   private readonly fieldPermissionCacheService: FieldPermissionCacheService;
   private readonly columnRuleCacheService: ColumnRuleCacheService;
   private readonly repoRegistryService: RepoRegistryService;
+  private readonly runtimeRegistryService?: RuntimeRegistryService;
   private readonly graphqlService: GraphqlService;
   private readonly bootstrapScriptService: BootstrapScriptService;
   private readonly dynamicWebSocketGateway: DynamicWebSocketGateway;
@@ -177,6 +186,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     fieldPermissionCacheService: FieldPermissionCacheService;
     columnRuleCacheService: ColumnRuleCacheService;
     repoRegistryService: RepoRegistryService;
+    runtimeRegistryService?: RuntimeRegistryService;
     graphqlService: GraphqlService;
     bootstrapScriptService: BootstrapScriptService;
     dynamicWebSocketGateway: DynamicWebSocketGateway;
@@ -199,6 +209,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     this.fieldPermissionCacheService = deps.fieldPermissionCacheService;
     this.columnRuleCacheService = deps.columnRuleCacheService;
     this.repoRegistryService = deps.repoRegistryService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.graphqlService = deps.graphqlService;
     this.bootstrapScriptService = deps.bootstrapScriptService;
     this.dynamicWebSocketGateway = deps.dynamicWebSocketGateway;
@@ -503,6 +514,7 @@ export class CacheOrchestratorService implements LifecycleAware {
 
     try {
       await this.reloadLock;
+      await this.publishRuntimeCachesForSteps(chain);
       if (publish && sharedRuntimeCache) {
         await this.publishSignal(payload);
       }
@@ -641,6 +653,101 @@ export class CacheOrchestratorService implements LifecycleAware {
     await this.bootstrapScriptService.reloadBootstrapScripts();
   }
 
+  private getRuntimeCachePublishTarget(step: string): {
+    identifier: RuntimeCacheIdentifier;
+    service: RuntimeCacheViewSource;
+  } | null {
+    switch (step) {
+      case 'metadata':
+        return {
+          identifier: CACHE_IDENTIFIERS.METADATA,
+          service: this
+            .metadataCacheService as unknown as RuntimeCacheViewSource,
+        };
+      case 'route':
+        return {
+          identifier: CACHE_IDENTIFIERS.ROUTE,
+          service: this.routeCacheService as unknown as RuntimeCacheViewSource,
+        };
+      case 'guard':
+        return {
+          identifier: CACHE_IDENTIFIERS.GUARD,
+          service: this.guardCacheService as unknown as RuntimeCacheViewSource,
+        };
+      case 'flow':
+        return {
+          identifier: CACHE_IDENTIFIERS.FLOW,
+          service: this.flowCacheService as unknown as RuntimeCacheViewSource,
+        };
+      case 'websocket':
+        return {
+          identifier: CACHE_IDENTIFIERS.WEBSOCKET,
+          service: this
+            .websocketCacheService as unknown as RuntimeCacheViewSource,
+        };
+      case 'package':
+        return {
+          identifier: CACHE_IDENTIFIERS.PACKAGE,
+          service: this
+            .packageCacheService as unknown as RuntimeCacheViewSource,
+        };
+      case 'setting':
+        return {
+          identifier: CACHE_IDENTIFIERS.SETTING,
+          service: this
+            .settingCacheService as unknown as RuntimeCacheViewSource,
+        };
+      case 'storage':
+        return {
+          identifier: CACHE_IDENTIFIERS.STORAGE,
+          service: this
+            .storageConfigCacheService as unknown as RuntimeCacheViewSource,
+        };
+      case 'oauth':
+        return {
+          identifier: CACHE_IDENTIFIERS.OAUTH_CONFIG,
+          service: this
+            .oauthConfigCacheService as unknown as RuntimeCacheViewSource,
+        };
+      case 'folder':
+        return {
+          identifier: CACHE_IDENTIFIERS.FOLDER_TREE,
+          service: this
+            .folderTreeCacheService as unknown as RuntimeCacheViewSource,
+        };
+      case 'fieldPermission':
+        return {
+          identifier: CACHE_IDENTIFIERS.FIELD_PERMISSION,
+          service: this
+            .fieldPermissionCacheService as unknown as RuntimeCacheViewSource,
+        };
+      case 'column-rule':
+      case 'columnRule':
+        return {
+          identifier: CACHE_IDENTIFIERS.COLUMN_RULE,
+          service: this
+            .columnRuleCacheService as unknown as RuntimeCacheViewSource,
+        };
+      default:
+        return null;
+    }
+  }
+
+  private async publishRuntimeCachesForSteps(steps: string[]): Promise<void> {
+    if (!this.runtimeRegistryService) return;
+
+    const published = new Set<RuntimeCacheIdentifier>();
+    for (const step of steps) {
+      const target = this.getRuntimeCachePublishTarget(step);
+      if (!target || published.has(target.identifier)) continue;
+      await this.runtimeRegistryService.publishFromCache(
+        target.identifier,
+        target.service,
+      );
+      published.add(target.identifier);
+    }
+  }
+
   private formatReloadError(error: unknown): string | undefined {
     if (!error) return undefined;
     return error instanceof Error ? error.message : String(error);
@@ -714,6 +821,7 @@ export class CacheOrchestratorService implements LifecycleAware {
       this.notifyClients('pending', input.flow, input.steps, reloadId);
       try {
         await input.run(tracker.runStep);
+        await this.publishRuntimeCachesForSteps(input.steps);
       } catch (error) {
         reloadError = error;
         throw error;
@@ -954,6 +1062,7 @@ export class CacheOrchestratorService implements LifecycleAware {
             }),
           );
         }
+        await this.publishRuntimeCachesForSteps(steps);
         if (notify) {
           const elapsed = Date.now() - start;
           if (elapsed < 200) {

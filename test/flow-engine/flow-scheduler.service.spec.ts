@@ -17,7 +17,9 @@ function createScheduler(options?: {
 }) {
   const eventEmitter = new EventEmitter2();
   const flowQueue = createQueueMock();
-  flowQueue.getJobSchedulers.mockResolvedValue(options?.existingSchedulers || []);
+  flowQueue.getJobSchedulers.mockResolvedValue(
+    options?.existingSchedulers || [],
+  );
   const flowCacheService = {
     getFlowsByTriggerType: vi.fn(async () => options?.flows || []),
   };
@@ -55,6 +57,12 @@ describe('FlowSchedulerService', () => {
           flowName: 'cloud-reconcile-hosts',
           payload: { trigger: 'schedule', cron: '*/15 * * * *' },
         },
+      }),
+    );
+    expect(service.getLastReconcileState()).toEqual(
+      expect.objectContaining({
+        status: 'ok',
+        registeredCount: 1,
       }),
     );
   });
@@ -112,5 +120,21 @@ describe('FlowSchedulerService', () => {
     await vi.waitFor(() => {
       expect(flowQueue.upsertJobScheduler).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it('marks schedule reconcile as degraded when rebuild fails', async () => {
+    const { service, flowCacheService } = createScheduler();
+    flowCacheService.getFlowsByTriggerType.mockRejectedValueOnce(
+      new Error('flow cache unavailable'),
+    );
+
+    await service.init();
+
+    expect(service.getLastReconcileState()).toEqual(
+      expect.objectContaining({
+        status: 'degraded',
+        error: 'flow cache unavailable',
+      }),
+    );
   });
 });

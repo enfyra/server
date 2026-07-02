@@ -17,11 +17,28 @@ interface FlowCacheSource {
   getFlowsByTriggerType(triggerType: string): Promise<ScheduledFlow[]>;
 }
 
+export type FlowScheduleReconcileStatus =
+  | 'idle'
+  | 'running'
+  | 'ok'
+  | 'degraded';
+
+export interface FlowScheduleReconcileState {
+  status: FlowScheduleReconcileStatus;
+  startedAt?: string;
+  completedAt?: string;
+  error?: string;
+  registeredCount?: number;
+}
+
 export class FlowSchedulerService {
   private readonly logger = new Logger(FlowSchedulerService.name);
   private registeredSchedulers = new Set<string>();
   private initialized = false;
   private rebuildPromise: Promise<void> | null = null;
+  private lastReconcileState: FlowScheduleReconcileState = {
+    status: 'idle',
+  };
   private readonly flowQueue: Queue;
   private readonly flowCacheService: FlowCacheSource;
   private eventEmitter: any;
@@ -39,14 +56,23 @@ export class FlowSchedulerService {
 
   private setupEventListeners() {
     this.eventEmitter.on(CACHE_EVENTS.FLOW_LOADED, () => {
-      void this.rebuildSchedules();
+      void this.reconcileSchedules();
     });
   }
 
   async init(): Promise<void> {
     if (this.initialized) return;
     this.initialized = true;
+    await this.reconcileSchedules();
+  }
+
+  async reconcileSchedules(): Promise<FlowScheduleReconcileState> {
     await this.rebuildSchedules();
+    return this.getLastReconcileState();
+  }
+
+  getLastReconcileState(): FlowScheduleReconcileState {
+    return { ...this.lastReconcileState };
   }
 
   private async rebuildSchedules(): Promise<void> {
@@ -60,6 +86,9 @@ export class FlowSchedulerService {
   }
 
   private async rebuildSchedulesInternal(): Promise<void> {
+    const startedAt = new Date().toISOString();
+    this.lastReconcileState = { status: 'running', startedAt };
+
     try {
       const schedulerIds = await this.resolveExistingSchedulerIds();
       for (const schedulerId of schedulerIds) {
@@ -121,10 +150,22 @@ export class FlowSchedulerService {
       if (registered > 0) {
         this.logger.log(`Registered ${registered} scheduled flows`);
       }
+
+      this.lastReconcileState = {
+        status: 'ok',
+        startedAt,
+        completedAt: new Date().toISOString(),
+        registeredCount: registered,
+      };
     } catch (error) {
-      this.logger.error(
-        `Failed to rebuild flow schedules: ${getErrorMessage(error)}`,
-      );
+      const message = getErrorMessage(error);
+      this.lastReconcileState = {
+        status: 'degraded',
+        startedAt,
+        completedAt: new Date().toISOString(),
+        error: message,
+      };
+      this.logger.error(`Failed to rebuild flow schedules: ${message}`);
     }
   }
 

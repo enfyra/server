@@ -1,7 +1,10 @@
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from './container';
 import { ensureDatabaseExists } from './engines/knex';
-import { CACHE_EVENTS } from './shared/utils/cache-events.constants';
+import {
+  CACHE_EVENTS,
+  CACHE_IDENTIFIERS,
+} from './shared/utils/cache-events.constants';
 import { Logger } from './shared/logger';
 
 const logger = new Logger('Init');
@@ -67,6 +70,9 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
   await runInitStep('cacheOrchestratorService.init', () =>
     c.cacheOrchestratorService?.init?.(),
   );
+  await runInitStep('runtimeRegistryService.init', () =>
+    c.runtimeRegistryService?.init?.(),
+  );
   await runInitStep('metadataCacheService.reload', () =>
     c.metadataCacheService?.reload?.(),
   );
@@ -74,6 +80,12 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
   logger.log('Init event emitted: METADATA_LOADED');
   await runInitStep('repoRegistryService.rebuildFromMetadata', () =>
     c.repoRegistryService?.rebuildFromMetadata?.(c.metadataCacheService),
+  );
+  await runInitStep('websocketRuntimeService.init', () =>
+    c.websocketRuntimeService?.init?.(),
+  );
+  await runInitStep('packageRuntimeService.init', () =>
+    c.packageRuntimeService?.init?.(),
   );
 
   await Promise.all([
@@ -121,8 +133,31 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
     ),
   ]);
 
-  await runInitStep('flowSchedulerService.init', () =>
-    c.flowSchedulerService?.init?.(),
+  await runInitStep('runtimeRegistryService.publishInitialCaches', async () => {
+    const runtimeRegistry = c.runtimeRegistryService;
+    if (!runtimeRegistry?.publishFromCache) return;
+    const entries = [
+      [CACHE_IDENTIFIERS.METADATA, c.metadataCacheService],
+      [CACHE_IDENTIFIERS.ROUTE, c.routeCacheService],
+      [CACHE_IDENTIFIERS.FIELD_PERMISSION, c.fieldPermissionCacheService],
+      [CACHE_IDENTIFIERS.COLUMN_RULE, c.columnRuleCacheService],
+      [CACHE_IDENTIFIERS.SETTING, c.settingCacheService],
+      [CACHE_IDENTIFIERS.STORAGE, c.storageConfigCacheService],
+      [CACHE_IDENTIFIERS.OAUTH_CONFIG, c.oauthConfigCacheService],
+      [CACHE_IDENTIFIERS.WEBSOCKET, c.websocketCacheService],
+      [CACHE_IDENTIFIERS.FLOW, c.flowCacheService],
+      [CACHE_IDENTIFIERS.PACKAGE, c.packageCacheService],
+      [CACHE_IDENTIFIERS.FOLDER_TREE, c.folderTreeCacheService],
+      [CACHE_IDENTIFIERS.GUARD, c.guardCacheService],
+      [CACHE_IDENTIFIERS.GRAPHQL, c.gqlDefinitionCacheService],
+    ] as const;
+    for (const [identifier, service] of entries) {
+      await runtimeRegistry.publishFromCache(identifier, service);
+    }
+  });
+
+  await runInitStep('flowRuntimeService.init', () =>
+    c.flowRuntimeService?.init?.(),
   );
 
   await runInitStep('graphqlService.reloadSchema', () =>
