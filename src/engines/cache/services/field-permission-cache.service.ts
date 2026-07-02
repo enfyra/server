@@ -7,6 +7,7 @@ import {
 import { BaseCacheService } from './base-cache.service';
 import { MetadataCacheService } from './metadata-cache.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
+import { RuntimeRegistryService } from './runtime-registry.service';
 
 export type TFieldPermissionAction = 'read' | 'create' | 'update';
 export type TFieldPermissionEffect = 'allow' | 'deny';
@@ -66,11 +67,13 @@ export class FieldPermissionCacheService extends BaseCacheService<
 > {
   private readonly queryBuilderService: QueryBuilderService;
   private readonly metadataCacheService: MetadataCacheService;
+  private readonly runtimeRegistryService?: RuntimeRegistryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     metadataCacheService: MetadataCacheService;
     eventEmitter: EventEmitter2;
+    runtimeRegistryService?: RuntimeRegistryService;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     super(
@@ -84,6 +87,7 @@ export class FieldPermissionCacheService extends BaseCacheService<
     );
     this.queryBuilderService = deps.queryBuilderService;
     this.metadataCacheService = deps.metadataCacheService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
   }
 
   protected async loadFromDb(): Promise<any> {
@@ -101,7 +105,9 @@ export class FieldPermissionCacheService extends BaseCacheService<
 
   protected transformData(rawData: any): Map<string, TCompiledFieldPolicy> {
     const map = new Map<string, TCompiledFieldPolicy>();
-    const rows: any[] = Array.isArray(rawData) ? rawData : rawData?.rows ?? [];
+    const rows: any[] = Array.isArray(rawData)
+      ? rawData
+      : (rawData?.rows ?? []);
     const metadataIndex = this.buildMetadataIndex(rawData?.metadata);
     for (const row of rows) {
       const rule = this.rowToRule(row, metadataIndex);
@@ -348,7 +354,11 @@ export class FieldPermissionCacheService extends BaseCacheService<
     tableName: string,
     action: TFieldPermissionAction,
   ): Promise<TCompiledFieldPolicy[]> {
-    const cache = await this.getCacheAsync();
+    const cache =
+      this.runtimeRegistryService?.getSnapshot<
+        Map<string, TCompiledFieldPolicy>
+      >(CACHE_IDENTIFIERS.FIELD_PERMISSION)?.data ??
+      (await this.getCacheAsync());
     const policies: TCompiledFieldPolicy[] = [];
 
     const userId = toIdString(user);

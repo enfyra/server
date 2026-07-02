@@ -8,6 +8,7 @@ import {
   DEFAULT_MAX_REQUEST_BODY_SIZE_MB,
 } from '../../../shared/utils/constant';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+import { RuntimeRegistryService } from './runtime-registry.service';
 
 const SETTING_CACHE_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.SETTING,
@@ -24,18 +25,17 @@ interface SettingData {
 
 export class SettingCacheService extends BaseCacheService<SettingData> {
   private readonly queryBuilderService: QueryBuilderService;
+  private readonly runtimeRegistryService?: RuntimeRegistryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter?: EventEmitter2;
+    runtimeRegistryService?: RuntimeRegistryService;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
-    super(
-      SETTING_CACHE_CONFIG,
-      deps.eventEmitter,
-      deps.redisRuntimeCacheStore,
-    );
+    super(SETTING_CACHE_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
   }
 
   protected async loadFromDb(): Promise<any> {
@@ -77,12 +77,12 @@ export class SettingCacheService extends BaseCacheService<SettingData> {
   }
 
   async getMaxQueryDepth(): Promise<number> {
-    const cache = await this.getCacheAsync();
+    const cache = await this.getActiveSettings();
     return cache?.maxQueryDepth ?? DEFAULT_MAX_QUERY_DEPTH;
   }
 
   async getMaxUploadFileSizeBytes(): Promise<number> {
-    const cache = await this.getCacheAsync();
+    const cache = await this.getActiveSettings();
     return (
       (cache?.maxUploadFileSize ?? DEFAULT_MAX_UPLOAD_FILE_SIZE_MB) *
       1024 *
@@ -91,7 +91,7 @@ export class SettingCacheService extends BaseCacheService<SettingData> {
   }
 
   async getMaxRequestBodySizeBytes(): Promise<number> {
-    const cache = await this.getCacheAsync();
+    const cache = await this.getActiveSettings();
     return (
       (cache?.maxRequestBodySize ?? DEFAULT_MAX_REQUEST_BODY_SIZE_MB) *
       1024 *
@@ -100,7 +100,15 @@ export class SettingCacheService extends BaseCacheService<SettingData> {
   }
 
   async getSetting<T = any>(key: string): Promise<T | undefined> {
-    const cache = await this.getCacheAsync();
+    const cache = await this.getActiveSettings();
     return cache?.[key];
+  }
+
+  private async getActiveSettings(): Promise<SettingData> {
+    return (
+      this.runtimeRegistryService?.getSnapshot<SettingData>(
+        CACHE_IDENTIFIERS.SETTING,
+      )?.data ?? (await this.getCacheAsync())
+    );
   }
 }

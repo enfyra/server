@@ -4,6 +4,7 @@ import { QueryBuilderService } from '@enfyra/kernel';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+import { RuntimeRegistryService } from './runtime-registry.service';
 
 const STORAGE_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.STORAGE,
@@ -15,14 +16,17 @@ export class StorageConfigCacheService extends BaseCacheService<
   Map<string | number, any>
 > {
   private readonly queryBuilderService: QueryBuilderService;
+  private readonly runtimeRegistryService?: RuntimeRegistryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter?: EventEmitter2;
+    runtimeRegistryService?: RuntimeRegistryService;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     super(STORAGE_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
   }
 
   protected async loadFromDb(): Promise<any[]> {
@@ -81,7 +85,7 @@ export class StorageConfigCacheService extends BaseCacheService<
   async getStorageConfigById(
     id: number | string | null | undefined,
   ): Promise<any | null> {
-    const cache = await this.getCacheAsync();
+    const cache = await this.getActiveStorageConfigs();
 
     if (!id || id === null || id === undefined) {
       return null;
@@ -129,7 +133,7 @@ export class StorageConfigCacheService extends BaseCacheService<
   }
 
   async getStorageConfigByType(type: string): Promise<any | null> {
-    const cache = await this.getCacheAsync();
+    const cache = await this.getActiveStorageConfigs();
     const values = Array.from(cache.values());
     for (const config of values) {
       if (config.type === type && config.isEnabled) {
@@ -137,5 +141,13 @@ export class StorageConfigCacheService extends BaseCacheService<
       }
     }
     return null;
+  }
+
+  private async getActiveStorageConfigs(): Promise<Map<string | number, any>> {
+    return (
+      this.runtimeRegistryService?.getSnapshot<Map<string | number, any>>(
+        CACHE_IDENTIFIERS.STORAGE,
+      )?.data ?? (await this.getCacheAsync())
+    );
   }
 }
