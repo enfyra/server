@@ -8,11 +8,6 @@ import { createYoga } from 'graphql-yoga';
 import { useDepthLimit } from '@envelop/depth-limit';
 import { Logger } from '../../../shared/logger';
 import { EventEmitter2 } from 'eventemitter2';
-import {
-  SettingCacheService,
-  GqlDefinitionCacheService,
-  MetadataCacheService,
-} from '../../../engines/cache';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { DynamicResolver } from '../resolvers/dynamic.resolver';
 import {
@@ -42,52 +37,33 @@ export class GraphqlService {
 
   private pendingPayload: TCacheInvalidationPayload | null = null;
 
-  private readonly metadataCacheService: MetadataCacheService;
-  private readonly settingCacheService: SettingCacheService;
-  private readonly gqlDefinitionCacheService: GqlDefinitionCacheService;
   private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly dynamicResolver: DynamicResolver;
   private readonly eventEmitter: EventEmitter2;
   private readonly envService: EnvService;
 
   constructor(deps: {
-    metadataCacheService: MetadataCacheService;
-    settingCacheService: SettingCacheService;
-    gqlDefinitionCacheService: GqlDefinitionCacheService;
     runtimeRegistryService: RuntimeRegistryService;
     dynamicResolver: DynamicResolver;
     eventEmitter: EventEmitter2;
     envService: EnvService;
   }) {
-    this.metadataCacheService = deps.metadataCacheService;
-    this.settingCacheService = deps.settingCacheService;
-    this.gqlDefinitionCacheService = deps.gqlDefinitionCacheService;
     this.runtimeRegistryService = deps.runtimeRegistryService;
     this.dynamicResolver = deps.dynamicResolver;
     this.eventEmitter = deps.eventEmitter;
     this.envService = deps.envService;
   }
 
-  async reloadSchema(
-    payload?: TCacheInvalidationPayload,
-    options: { definitionFromSharedCache?: boolean } = {},
-  ): Promise<void> {
+  async reloadSchema(payload?: TCacheInvalidationPayload): Promise<void> {
     try {
       const start = Date.now();
       logMemory(this.logger, 'graphql reload start', {
         table: payload?.table,
         scope: payload?.scope,
         ids: payload?.ids?.length ?? 0,
-        definitionFromSharedCache: options.definitionFromSharedCache === true,
       });
 
-      if (options.definitionFromSharedCache) {
-        await this.gqlDefinitionCacheService.syncFromSharedCache();
-      } else {
-        await this.gqlDefinitionCacheService.reload();
-      }
-
-      const metadata = await this.getActiveMetadata();
+      const metadata = this.runtimeRegistryService.requireMetadata();
       if (!metadata || metadata.tables.size === 0) {
         this.logger.warn(
           'Metadata not available, skipping GraphQL schema generation',
@@ -96,7 +72,7 @@ export class GraphqlService {
       }
 
       const enabledDefs =
-        await this.gqlDefinitionCacheService.getAllEnabledFromCache();
+        this.runtimeRegistryService.getAllEnabledGraphqlDefinitions();
       const newQueryableNames = new Set<string>();
       for (const def of enabledDefs) {
         newQueryableNames.add(def.tableName);
@@ -107,7 +83,6 @@ export class GraphqlService {
         newQueryableNames,
         metadata,
       );
-
       if (
         affectedTables !== null &&
         this.schema &&
@@ -149,10 +124,6 @@ export class GraphqlService {
       );
       throw error;
     }
-  }
-
-  private async getActiveMetadata(): Promise<any> {
-    return await this.metadataCacheService.getMetadata();
   }
 
   private getAffectedTables(
@@ -325,7 +296,6 @@ export class GraphqlService {
 
     const isProduction = this.envService.isProd;
     const maxDepth = this.runtimeRegistryService.getMaxQueryDepth();
-
     this.yogaApp = createYoga({
       schema: this.schema,
       graphqlEndpoint: '/graphql',
@@ -337,7 +307,7 @@ export class GraphqlService {
   async onSettingChanged() {
     if (!this.schema) return;
     const isProduction = this.envService.isProd;
-    const maxDepth = await this.settingCacheService.getMaxQueryDepthFromCache();
+    const maxDepth = this.runtimeRegistryService.getMaxQueryDepth();
     this.yogaApp = createYoga({
       schema: this.schema,
       graphqlEndpoint: '/graphql',

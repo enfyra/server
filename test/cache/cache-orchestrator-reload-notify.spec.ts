@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EventEmitter2 } from 'eventemitter2';
-import { CacheOrchestratorService } from '../../src/engines/cache';
+import {
+  CacheOrchestratorService,
+  RuntimeRegistryService,
+} from '../../src/engines/cache';
+import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants';
 
 function cacheMock(overrides: Record<string, any> = {}) {
   return {
@@ -29,6 +33,7 @@ function createOrchestrator(overrides: Record<string, any> = {}) {
     folderTreeCacheService: cacheMock() as any,
     fieldPermissionCacheService: cacheMock() as any,
     columnRuleCacheService: cacheMock() as any,
+    gqlDefinitionCacheService: cacheMock() as any,
     repoRegistryService: { rebuildFromMetadata: () => undefined } as any,
     graphqlService: { reloadSchema: async () => undefined } as any,
     bootstrapScriptService: {
@@ -151,7 +156,94 @@ describe('CacheOrchestratorService reload notifications', () => {
     );
   });
 
-  it('runs settingGraphql only after setting reload finishes', async () => {
+  it('reloads GraphQL runtime only after staged snapshots are activated', async () => {
+    const runtimeRegistryService = new RuntimeRegistryService();
+    const oldDefinitions = new Map([
+      ['posts', { id: 1, isEnabled: true, tableName: 'posts' }],
+    ]);
+    const nextDefinitions = new Map([
+      ['posts', { id: 2, isEnabled: true, tableName: 'posts' }],
+    ]);
+    await runtimeRegistryService.publishFromCache(CACHE_IDENTIFIERS.GRAPHQL, {
+      getCacheAsync: vi.fn(async () => oldDefinitions),
+    });
+
+    const gqlDefinitionCacheService = cacheMock({
+      reload: vi.fn(async () => undefined),
+      getCacheAsync: vi.fn(async () => nextDefinitions),
+    });
+    const graphqlService = {
+      reloadSchema: vi.fn(async () => {
+        expect(
+          runtimeRegistryService.getActiveData(CACHE_IDENTIFIERS.GRAPHQL),
+        ).toEqual(nextDefinitions);
+      }),
+    };
+    const { orchestrator } = createOrchestrator({
+      gqlDefinitionCacheService: gqlDefinitionCacheService as any,
+      graphqlService: graphqlService as any,
+      runtimeRegistryService,
+    });
+
+    await (orchestrator as any).executeChain(
+      {
+        table: 'enfyra_graphql',
+        action: 'reload',
+        scope: 'full',
+        timestamp: Date.now(),
+      },
+      true,
+    );
+
+    expect(
+      runtimeRegistryService.getActiveData(CACHE_IDENTIFIERS.GRAPHQL),
+    ).toEqual(nextDefinitions);
+    expect(graphqlService.reloadSchema).toHaveBeenCalled();
+  });
+
+  it('keeps old active snapshots when staging cache snapshots fails', async () => {
+    const runtimeRegistryService = new RuntimeRegistryService();
+    const oldDefinitions = new Map([
+      ['posts', { id: 1, isEnabled: true, tableName: 'posts' }],
+    ]);
+    await runtimeRegistryService.publishFromCache(CACHE_IDENTIFIERS.GRAPHQL, {
+      getCacheAsync: vi.fn(async () => oldDefinitions),
+    });
+
+    const gqlDefinitionCacheService = cacheMock({
+      reload: vi.fn(async () => undefined),
+      getCacheAsync: vi.fn(async () => {
+        throw new Error('snapshot stage failed');
+      }),
+    });
+    const graphqlService = {
+      reloadSchema: vi.fn(),
+    };
+    const { orchestrator } = createOrchestrator({
+      gqlDefinitionCacheService: gqlDefinitionCacheService as any,
+      graphqlService: graphqlService as any,
+      runtimeRegistryService,
+    });
+
+    await expect(
+      (orchestrator as any).executeChain(
+        {
+          table: 'enfyra_graphql',
+          action: 'reload',
+          scope: 'full',
+          timestamp: Date.now(),
+        },
+        true,
+      ),
+    ).rejects.toThrow('snapshot stage failed');
+
+    expect(
+      runtimeRegistryService.getActiveData(CACHE_IDENTIFIERS.GRAPHQL),
+    ).toEqual(oldDefinitions);
+    expect(graphqlService.reloadSchema).not.toHaveBeenCalled();
+  });
+
+  it('runs settingGraphql only after setting reload publishes to runtime registry', async () => {
     let settingFinished = false;
     const events: string[] = [];
     const settingCacheService = cacheMock({
@@ -168,9 +260,15 @@ describe('CacheOrchestratorService reload notifications', () => {
         expect(settingFinished).toBe(true);
       }),
     };
+    const runtimeRegistryService = {
+      publishFromCache: vi.fn(async () => {
+        events.push('publish');
+      }),
+    };
     const { orchestrator } = createOrchestrator({
       settingCacheService: settingCacheService as any,
       graphqlService: graphqlService as any,
+      runtimeRegistryService,
     });
 
     await (orchestrator as any).executeChain(
@@ -183,7 +281,12 @@ describe('CacheOrchestratorService reload notifications', () => {
       true,
     );
 
-    expect(events).toEqual(['setting:start', 'setting:done', 'settingGraphql']);
+    expect(events).toEqual([
+      'setting:start',
+      'setting:done',
+      'publish',
+      'settingGraphql',
+    ]);
   });
 
   it('emits extension reload notifications for extension definition changes', async () => {

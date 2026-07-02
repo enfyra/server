@@ -36,7 +36,10 @@ import { DynamicWebSocketGateway } from '../../../modules/websocket';
 import { GraphqlService } from '../../../modules/graphql';
 import { BootstrapScriptService } from '../../../domain/bootstrap';
 import { LifecycleAware } from '../../../shared/interfaces/lifecycle-aware.interface';
-import type { RuntimeCacheIdentifier } from '../types/runtime-registry.types';
+import type {
+  RuntimeCacheIdentifier,
+  RuntimeRegistrySnapshot,
+} from '../types/runtime-registry.types';
 
 const COLOR = '\x1b[33m';
 const RESET = '\x1b[0m';
@@ -267,7 +270,7 @@ export class CacheOrchestratorService implements LifecycleAware {
           p,
           options?.sharedReplay,
         ),
-      settingGraphql: () => this.reloadSettingGraphql(),
+      settingGraphql: async () => undefined,
       bootstrap: () => this.reloadBootstrapScripts(),
     };
 
@@ -470,13 +473,6 @@ export class CacheOrchestratorService implements LifecycleAware {
           stepTimings.push(`[${middleSteps.join('+')}]:${Date.now() - s}ms`);
         }
 
-        if (chain.includes('settingGraphql')) {
-          const durationMs = await runStep('settingGraphql', () =>
-            this.stepMap['settingGraphql'](payload, { sharedReplay }),
-          );
-          stepTimings.push(`settingGraphql:${durationMs}ms`);
-        }
-
         if (chain.includes('graphql')) {
           const durationMs = await runStep('graphql', () =>
             this.stepMap['graphql'](payload, { sharedReplay }),
@@ -525,7 +521,7 @@ export class CacheOrchestratorService implements LifecycleAware {
 
     try {
       await this.reloadLock;
-      await this.publishRuntimeCachesForSteps(chain);
+      await this.commitRuntimeReloadTransaction(chain, payload);
       if (publish && sharedRuntimeCache) {
         await this.publishSignal(payload);
       }
@@ -618,10 +614,11 @@ export class CacheOrchestratorService implements LifecycleAware {
     payload: TCacheInvalidationPayload,
     sharedReplay = false,
   ): Promise<void> {
-    if (!this.graphqlService) return;
-    await this.graphqlService.reloadSchema(payload, {
-      definitionFromSharedCache: sharedReplay,
-    });
+    if (sharedReplay) {
+      await this.gqlDefinitionCacheService.syncFromSharedCache();
+      return;
+    }
+    await this.gqlDefinitionCacheService.reload(false);
   }
 
   private async reloadSimple(
@@ -765,6 +762,56 @@ export class CacheOrchestratorService implements LifecycleAware {
     }
   }
 
+  private async stageRuntimeSnapshotsForSteps(
+    steps: string[],
+  ): Promise<RuntimeRegistrySnapshot[]> {
+    if (!this.runtimeRegistryService?.stageSnapshotFromCache) return [];
+
+    const staged: RuntimeRegistrySnapshot[] = [];
+    const published = new Set<RuntimeCacheIdentifier>();
+    for (const step of steps) {
+      const target = this.getRuntimeCachePublishTarget(step);
+      if (!target || published.has(target.identifier)) continue;
+      staged.push(
+        await this.runtimeRegistryService.stageSnapshotFromCache(
+          target.identifier,
+          target.service,
+        ),
+      );
+      published.add(target.identifier);
+    }
+    return staged;
+  }
+
+  private async commitRuntimeReloadTransaction(
+    steps: string[],
+    payload?: TCacheInvalidationPayload,
+  ): Promise<void> {
+    if (
+      !this.runtimeRegistryService?.stageSnapshotFromCache ||
+      !this.runtimeRegistryService?.activateSnapshots
+    ) {
+      await this.publishRuntimeCachesForSteps(steps);
+      await this.reloadRuntimeArtifactsAfterCommit(steps, payload);
+      return;
+    }
+
+    const snapshots = await this.stageRuntimeSnapshotsForSteps(steps);
+    this.runtimeRegistryService.activateSnapshots(snapshots);
+    await this.reloadRuntimeArtifactsAfterCommit(steps, payload);
+  }
+
+  private async reloadRuntimeArtifactsAfterCommit(
+    steps: string[],
+    payload?: TCacheInvalidationPayload,
+  ): Promise<void> {
+    if (steps.includes('graphql')) {
+      await this.graphqlService?.reloadSchema?.(payload);
+    } else if (steps.includes('settingGraphql')) {
+      await this.reloadSettingGraphql();
+    }
+  }
+
   private formatReloadError(error: unknown): string | undefined {
     if (!error) return undefined;
     return error instanceof Error ? error.message : String(error);
@@ -838,7 +885,7 @@ export class CacheOrchestratorService implements LifecycleAware {
       this.notifyClients('pending', input.flow, input.steps, reloadId);
       try {
         await input.run(tracker.runStep);
-        await this.publishRuntimeCachesForSteps(input.steps);
+        await this.commitRuntimeReloadTransaction(input.steps);
       } catch (error) {
         reloadError = error;
         throw error;
@@ -870,9 +917,9 @@ export class CacheOrchestratorService implements LifecycleAware {
         await runStep('metadata', () => this.metadataCacheService.reload());
         await runStep('repoRegistry', () => this.reloadRepoRegistry());
         await runStep('route', () => this.routeCacheService.reload(false));
-        if (this.graphqlService) {
-          await runStep('graphql', () => this.graphqlService.reloadSchema());
-        }
+        await runStep('graphql', () =>
+          this.gqlDefinitionCacheService.reload(false),
+        );
       },
     });
     await this.publishSignal({
@@ -910,9 +957,9 @@ export class CacheOrchestratorService implements LifecycleAware {
       steps,
       logLabel: 'Admin reload graphql',
       run: async (runStep) => {
-        if (this.graphqlService) {
-          await runStep('graphql', () => this.graphqlService.reloadSchema());
-        }
+        await runStep('graphql', () =>
+          this.gqlDefinitionCacheService.reload(false),
+        );
       },
     });
     await this.publishSignal({
@@ -978,6 +1025,7 @@ export class CacheOrchestratorService implements LifecycleAware {
         'oauth',
         'folder',
         'fieldPermission',
+        'columnRule',
         'graphql',
       ];
       const stepMetrics: Array<{
@@ -1071,15 +1119,13 @@ export class CacheOrchestratorService implements LifecycleAware {
               ? this.columnRuleCacheService.syncFromSharedCache()
               : this.columnRuleCacheService.reload(false),
           ),
+          runStep('graphql', () =>
+            sharedReplay
+              ? this.gqlDefinitionCacheService.syncFromSharedCache()
+              : this.gqlDefinitionCacheService.reload(false),
+          ),
         ]);
-        if (this.graphqlService) {
-          await runStep('graphql', () =>
-            this.graphqlService.reloadSchema(undefined, {
-              definitionFromSharedCache: sharedReplay,
-            }),
-          );
-        }
-        await this.publishRuntimeCachesForSteps(steps);
+        await this.commitRuntimeReloadTransaction(steps);
         if (notify) {
           const elapsed = Date.now() - start;
           if (elapsed < 200) {
