@@ -37,6 +37,7 @@ export async function sanitizeFieldPermissionsResult(params: {
   action: 'read';
   metadataCacheService: MetadataCacheService;
   fieldPermissionCacheService: FieldPermissionCacheService;
+  metadata?: any;
   requested?: TRequestedShape;
 }): Promise<any> {
   const {
@@ -46,10 +47,11 @@ export async function sanitizeFieldPermissionsResult(params: {
     action,
     metadataCacheService,
     fieldPermissionCacheService,
+    metadata,
     requested,
   } = params;
 
-  const meta = await metadataCacheService.getMetadata();
+  const meta = metadata ?? (await metadataCacheService.getMetadata());
   const tableMeta = meta?.tables?.get?.(tableName) || null;
 
   const walk = async (

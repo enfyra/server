@@ -12,6 +12,7 @@ import { DynamicApiTableValidationService } from '../services/table-validation.s
 import { UserRevocationService } from '../../../domain/auth';
 import { TDynamicContext } from '../../../shared/types';
 import { FlowQueueMaintenanceService } from '../../flow';
+import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 
 export class DynamicRepositoryFactory {
   private readonly tableHandlerService: TableHandlerService;
@@ -23,6 +24,7 @@ export class DynamicRepositoryFactory {
   private readonly fieldPermissionCacheService: FieldPermissionCacheService;
   private readonly userRevocationService: UserRevocationService;
   private readonly flowQueueMaintenanceService: FlowQueueMaintenanceService;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly eventEmitter: EventEmitter2;
 
   constructor(deps: {
@@ -35,6 +37,7 @@ export class DynamicRepositoryFactory {
     fieldPermissionCacheService: FieldPermissionCacheService;
     userRevocationService: UserRevocationService;
     flowQueueMaintenanceService: FlowQueueMaintenanceService;
+    runtimeRegistryService: RuntimeRegistryService;
     eventEmitter: EventEmitter2;
   }) {
     this.tableHandlerService = deps.tableHandlerService;
@@ -46,6 +49,7 @@ export class DynamicRepositoryFactory {
     this.fieldPermissionCacheService = deps.fieldPermissionCacheService;
     this.userRevocationService = deps.userRevocationService;
     this.flowQueueMaintenanceService = deps.flowQueueMaintenanceService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.eventEmitter = deps.eventEmitter;
   }
 
@@ -67,6 +71,7 @@ export class DynamicRepositoryFactory {
       fieldPermissionCacheService: this.fieldPermissionCacheService,
       userRevocationService: this.userRevocationService,
       flowQueueMaintenanceService: this.flowQueueMaintenanceService,
+      runtimeRegistryService: this.runtimeRegistryService,
       eventEmitter: this.eventEmitter,
     });
   }

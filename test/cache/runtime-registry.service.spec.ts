@@ -68,6 +68,22 @@ describe('RuntimeRegistryService', () => {
         tablesList: [{ name: 'enfyra_user' }],
       }),
     );
+    expect(service.getMetadata()?.tablesList).toEqual([
+      { name: 'enfyra_user' },
+    ]);
+    expect(service.requireMetadata().tablesList).toEqual([
+      { name: 'enfyra_user' },
+    ]);
+    expect(service.lookupTableByName('enfyra_user')).toEqual({
+      name: 'enfyra_user',
+    });
+    expect(service.getTableMetadata('enfyra_user')).toEqual({
+      name: 'enfyra_user',
+    });
+    expect(service.requireTableMetadata('enfyra_user')).toEqual({
+      name: 'enfyra_user',
+    });
+    expect(service.lookupTableById(1)).toBeNull();
   });
 
   it('records failed publish attempts explicitly', async () => {

@@ -1,14 +1,14 @@
 import { Logger } from '../../../shared/logger';
-import type { MetadataCacheService } from '../../cache';
+import type { RuntimeRegistryService } from '../../cache';
 import { getForeignKeyColumnName } from '@enfyra/kernel';
 export class RelationTransformer {
   constructor(
-    private metadataCacheService: MetadataCacheService,
+    private runtimeRegistryService: RuntimeRegistryService,
     private logger: Logger,
   ) {}
   async transformRelationsToFK(tableName: string, data: any): Promise<any> {
     if (!tableName) return data;
-    const metadata = await this.metadataCacheService.getMetadata();
+    const metadata = this.runtimeRegistryService.requireMetadata();
     const tableMeta =
       metadata.tables?.get?.(tableName) ||
       metadata.tablesList?.find((t: any) => t.name === tableName);

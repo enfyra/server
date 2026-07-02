@@ -57,8 +57,6 @@ function assignValidationBody(req: Request, routeData: any, body: any): void {
 }
 
 export function bodyValidationMiddleware(container: AwilixContainer<Cradle>) {
-  const metadataCache = container.cradle.metadataCacheService;
-  const ruleCache = container.cradle.columnRuleCacheService;
   const runtimeRegistryService = container.cradle.runtimeRegistryService;
 
   return async (req: Request, res: Response, next: NextFunction) => {
@@ -76,13 +74,10 @@ export function bodyValidationMiddleware(container: AwilixContainer<Cradle>) {
     if (path !== canonicalCollection && path !== canonicalItem) return next();
 
     const mode: Mode = method === 'POST' ? 'create' : 'update';
-    const metadata: any =
-      runtimeRegistryService?.getActiveData?.(CACHE_IDENTIFIERS.METADATA) ??
-      (await metadataCache.getMetadata());
+    const metadata: any = runtimeRegistryService.requireMetadata();
     if (!metadata) return next();
     const rulesByColumn: Map<string, any[]> =
-      runtimeRegistryService?.getActiveData?.(CACHE_IDENTIFIERS.COLUMN_RULE) ??
-      (await ruleCache.getCacheAsync());
+      runtimeRegistryService.requireActiveData(CACHE_IDENTIFIERS.COLUMN_RULE);
     const tableMeta = metadata.tables?.get(mainTable.name) ?? null;
     const schema = tableMeta
       ? buildSchema(mode, tableMeta, metadata, rulesByColumn)

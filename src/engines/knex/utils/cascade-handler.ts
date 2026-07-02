@@ -1,6 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { Knex } from 'knex';
-import type { MetadataCacheService } from '../../cache';
+import type { RuntimeRegistryService } from '../../cache';
 import { getForeignKeyColumnName } from '@enfyra/kernel';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 
@@ -16,7 +16,7 @@ import { getErrorMessage } from '../../../shared/utils/error.util';
 export class CascadeHandler {
   constructor(
     private knexInstance: Knex,
-    private metadataCacheService: MetadataCacheService,
+    private runtimeRegistryService: RuntimeRegistryService,
     private logger: Logger,
     private stripUnknownColumns?: (
       tableName: string,
@@ -94,7 +94,7 @@ export class CascadeHandler {
 
     const originalRelationData = contextData.relationData || contextData;
 
-    const metadata = await this.metadataCacheService.getMetadata();
+    const metadata = this.runtimeRegistryService.requireMetadata();
     const tableMetadata =
       metadata.tables?.get?.(tableName) ||
       metadata.tablesList?.find((t: any) => t.name === tableName);
@@ -427,7 +427,11 @@ export class CascadeHandler {
       const valueObject = Array.isArray(relValue) ? relValue[0] : relValue;
       if (valueObject && typeof valueObject === 'object') {
         if (valueObject.id != null) {
-          this.pushGroupedUpdate(groupedUpdates, valueObject.id, entry.recordId);
+          this.pushGroupedUpdate(
+            groupedUpdates,
+            valueObject.id,
+            entry.recordId,
+          );
         } else {
           createRows.push(valueObject);
           createParentIds.push(entry.recordId);
@@ -594,8 +598,7 @@ export class CascadeHandler {
         (item: any) => item != null,
       );
       for (const rawItem of items) {
-        const item =
-          typeof rawItem === 'object' ? rawItem : { id: rawItem };
+        const item = typeof rawItem === 'object' ? rawItem : { id: rawItem };
         if (!item || typeof item !== 'object') continue;
 
         if (relation.isInverse) {
@@ -627,7 +630,11 @@ export class CascadeHandler {
     }
 
     if (inverseCreateRows.length > 0) {
-      await this.insertRecordsAndGetIds(targetTableName, inverseCreateRows, knex);
+      await this.insertRecordsAndGetIds(
+        targetTableName,
+        inverseCreateRows,
+        knex,
+      );
     }
 
     if (ownerCreateRows.length > 0) {
@@ -639,7 +646,11 @@ export class CascadeHandler {
       for (let index = 0; index < createdIds.length; index++) {
         const id = createdIds[index];
         if (id != null) {
-          this.pushGroupedUpdate(parentFkUpdates, id, ownerCreateParentIds[index]);
+          this.pushGroupedUpdate(
+            parentFkUpdates,
+            id,
+            ownerCreateParentIds[index],
+          );
         }
       }
     }
@@ -676,7 +687,7 @@ export class CascadeHandler {
       return;
     }
 
-    const metadata = await this.metadataCacheService.getMetadata();
+    const metadata = this.runtimeRegistryService.requireMetadata();
     const tableMetadata =
       metadata.tables?.get?.(tableName) ||
       metadata.tablesList?.find((t: any) => t.name === tableName);
@@ -735,7 +746,7 @@ export class CascadeHandler {
       return;
     }
 
-    const metadata = await this.metadataCacheService.getMetadata();
+    const metadata = this.runtimeRegistryService.requireMetadata();
     const tableMeta =
       metadata.tables?.get?.(tableName) ||
       metadata.tablesList?.find((t: any) => t.name === tableName);
@@ -757,7 +768,7 @@ export class CascadeHandler {
     parentTableName: string,
   ): Promise<string | null> {
     try {
-      const metadata = await this.metadataCacheService.getMetadata();
+      const metadata = this.runtimeRegistryService.requireMetadata();
       const tableMeta =
         metadata.tables?.get?.(parentTableName) ||
         metadata.tablesList?.find((t: any) => t.name === parentTableName);
@@ -901,7 +912,9 @@ export class CascadeHandler {
 
     const ids: any[] = [];
     for (const row of preparedRows) {
-      ids.push(await this.insertRecordAndGetId(targetTableName, row, knexOrTrx));
+      ids.push(
+        await this.insertRecordAndGetId(targetTableName, row, knexOrTrx),
+      );
     }
     return ids;
   }

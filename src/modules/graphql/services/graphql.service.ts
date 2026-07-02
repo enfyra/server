@@ -9,7 +9,6 @@ import { useDepthLimit } from '@envelop/depth-limit';
 import { Logger } from '../../../shared/logger';
 import { EventEmitter2 } from 'eventemitter2';
 import {
-  MetadataCacheService,
   RouteCacheService,
   SettingCacheService,
   GqlDefinitionCacheService,
@@ -27,6 +26,7 @@ import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { EnvService } from '../../../shared/services';
 import { logMemory } from '../../../shared/utils/memory-log.util';
+import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 
 const COLOR = '\x1b[95m';
 const RESET = '\x1b[0m';
@@ -42,30 +42,30 @@ export class GraphqlService {
 
   private pendingPayload: TCacheInvalidationPayload | null = null;
 
-  private readonly metadataCacheService: MetadataCacheService;
   private readonly routeCacheService: RouteCacheService;
   private readonly settingCacheService: SettingCacheService;
   private readonly gqlDefinitionCacheService: GqlDefinitionCacheService;
   private readonly dynamicResolver: DynamicResolver;
   private readonly eventEmitter: EventEmitter2;
   private readonly envService: EnvService;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
 
   constructor(deps: {
-    metadataCacheService: MetadataCacheService;
     routeCacheService: RouteCacheService;
     settingCacheService: SettingCacheService;
     gqlDefinitionCacheService: GqlDefinitionCacheService;
     dynamicResolver: DynamicResolver;
     eventEmitter: EventEmitter2;
     envService: EnvService;
+    runtimeRegistryService: RuntimeRegistryService;
   }) {
-    this.metadataCacheService = deps.metadataCacheService;
     this.routeCacheService = deps.routeCacheService;
     this.settingCacheService = deps.settingCacheService;
     this.gqlDefinitionCacheService = deps.gqlDefinitionCacheService;
     this.dynamicResolver = deps.dynamicResolver;
     this.eventEmitter = deps.eventEmitter;
     this.envService = deps.envService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
   }
 
   async reloadSchema(
@@ -87,7 +87,7 @@ export class GraphqlService {
         await this.gqlDefinitionCacheService.reload();
       }
 
-      const metadata = await this.metadataCacheService.getMetadata();
+      const metadata = await this.getActiveMetadata();
       if (!metadata || metadata.tables.size === 0) {
         this.logger.warn(
           'Metadata not available, skipping GraphQL schema generation',
@@ -148,6 +148,10 @@ export class GraphqlService {
       );
       throw error;
     }
+  }
+
+  private async getActiveMetadata(): Promise<any> {
+    return this.runtimeRegistryService.requireMetadata();
   }
 
   private getAffectedTables(

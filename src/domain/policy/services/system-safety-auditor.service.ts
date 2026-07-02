@@ -1,20 +1,20 @@
 import { isDeepStrictEqual as isEqual } from 'node:util';
 import { CommonService } from '../../../shared/common';
 import { SchemaMigrationValidatorService } from './schema-migration-validator.service';
-import { IMetadataCache } from '../../shared/interfaces/metadata-cache.interface';
+import { RuntimeRegistryService } from '../../../engines/cache';
 
 export class SystemSafetyAuditorService {
   private readonly commonService: CommonService;
-  private readonly metadataCacheService: IMetadataCache;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly schemaMigrationValidatorService: SchemaMigrationValidatorService;
 
   constructor(deps: {
     commonService: CommonService;
-    metadataCacheService: IMetadataCache;
+    runtimeRegistryService: RuntimeRegistryService;
     schemaMigrationValidatorService: SchemaMigrationValidatorService;
   }) {
     this.commonService = deps.commonService;
-    this.metadataCacheService = deps.metadataCacheService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.schemaMigrationValidatorService = deps.schemaMigrationValidatorService;
   }
 
@@ -112,10 +112,7 @@ export class SystemSafetyAuditorService {
       }
     }
 
-    if (
-      tableName === 'enfyra_pre_hook' ||
-      tableName === 'enfyra_post_hook'
-    ) {
+    if (tableName === 'enfyra_pre_hook' || tableName === 'enfyra_post_hook') {
       if (operation === 'create' && data?.isSystem) {
         throw new Error('Cannot create system hook');
       }
@@ -501,7 +498,7 @@ export class SystemSafetyAuditorService {
   }
 
   private async tableHasSystemFlag(tableName: string): Promise<boolean> {
-    const metadata: any = await this.metadataCacheService.getMetadata();
+    const metadata: any = this.runtimeRegistryService.requireMetadata();
     const table =
       metadata?.tables?.get?.(tableName) ||
       metadata?.tablesList?.find?.((item: any) => item?.name === tableName);

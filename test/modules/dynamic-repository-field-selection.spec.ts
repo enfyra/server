@@ -233,11 +233,13 @@ function makeRepo({
   deep,
   tableName = 'enfyra_flow_step',
   enforceFieldPermission = false,
+  runtimeRegistryService,
 }: {
   fields?: string | string[];
   deep?: Record<string, any>;
   tableName?: string;
   enforceFieldPermission?: boolean;
+  runtimeRegistryService?: any;
 } = {}) {
   const queryBuilderService = {
     getPkField: vi.fn(() => (tableName === 'mongo_doc' ? '_id' : 'id')),
@@ -258,6 +260,10 @@ function makeRepo({
   const fieldPermissionCacheService = {
     getPoliciesFor: vi.fn().mockResolvedValue([]),
   };
+  const activeRuntimeRegistryService = runtimeRegistryService ?? {
+    requireMetadata: vi.fn(() => metadata),
+    lookupTableByName: vi.fn((name: string) => metadata.tables.get(name)),
+  };
   const repo = new DynamicRepository({
     context: { $query: { fields, deep } } as any,
     tableName,
@@ -268,10 +274,11 @@ function makeRepo({
     metadataCacheService: metadataCacheService as any,
     settingCacheService: settingCacheService as any,
     fieldPermissionCacheService: fieldPermissionCacheService as any,
+    runtimeRegistryService: activeRuntimeRegistryService,
     eventEmitter: {} as any,
     enforceFieldPermission,
   });
-  return { repo, queryBuilderService };
+  return { repo, queryBuilderService, metadataCacheService };
 }
 
 describe('dynamic read field selection', () => {
@@ -572,5 +579,26 @@ describe('dynamic read field selection', () => {
     expect(result.data[0]).not.toHaveProperty('accessKeyId');
     expect(result.data[0]).not.toHaveProperty('secretAccessKey');
     expect(result.data[0].updatedBy).not.toHaveProperty('password');
+  });
+
+  it('reads repository metadata from the active runtime registry when available', async () => {
+    const runtimeRegistryService = {
+      requireMetadata: vi.fn(() => metadata),
+      lookupTableByName: vi.fn((name: string) => metadata.tables.get(name)),
+    };
+    const { repo, metadataCacheService } = makeRepo({
+      tableName: 'enfyra_flow_step',
+      fields: 'id,key',
+      runtimeRegistryService,
+    });
+
+    await repo.find();
+
+    expect(runtimeRegistryService.requireMetadata).toHaveBeenCalled();
+    expect(runtimeRegistryService.lookupTableByName).toHaveBeenCalledWith(
+      'enfyra_flow_step',
+    );
+    expect(metadataCacheService.getMetadata).not.toHaveBeenCalled();
+    expect(metadataCacheService.lookupTableByName).not.toHaveBeenCalled();
   });
 });

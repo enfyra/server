@@ -1,13 +1,13 @@
-import type { MetadataCacheService } from '../../cache';
+import type { RuntimeRegistryService } from '../../cache';
 import { isGeneratedScriptPersistenceField } from '../../../shared/utils/script-persistence-contract.util';
 
 export class FieldStripper {
-  constructor(private metadataCacheService: MetadataCacheService | null) {}
+  constructor(private runtimeRegistryService: RuntimeRegistryService | null) {}
   async stripUnknownColumns(tableName: string, data: any): Promise<any> {
-    if (!tableName || !this.metadataCacheService) {
+    if (!tableName || !this.runtimeRegistryService) {
       return data;
     }
-    const metadata = await this.metadataCacheService.getMetadata();
+    const metadata = this.runtimeRegistryService.requireMetadata();
     const tableMeta =
       metadata.tables?.get?.(tableName) ||
       metadata.tablesList?.find((t: any) => t.name === tableName);
@@ -34,10 +34,10 @@ export class FieldStripper {
     return stripped;
   }
   async stripNonUpdatableFields(tableName: string, data: any): Promise<any> {
-    if (!tableName || !this.metadataCacheService) {
+    if (!tableName || !this.runtimeRegistryService) {
       return data;
     }
-    const metadata = await this.metadataCacheService.getMetadata();
+    const metadata = this.runtimeRegistryService.requireMetadata();
     const tableMeta =
       metadata.tables?.get?.(tableName) ||
       metadata.tablesList?.find((t: any) => t.name === tableName);

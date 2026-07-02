@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DynamicRepository } from '../../src/modules/dynamic-api';
 
-function makeRepo(overrides: Partial<ConstructorParameters<typeof DynamicRepository>[0]> = {}) {
+function makeRepo(
+  overrides: Partial<ConstructorParameters<typeof DynamicRepository>[0]> = {},
+) {
   const queryBuilderService = {
     getPkField: vi.fn(() => '_id'),
     find: vi.fn().mockResolvedValue({ data: [], count: 0 }),
@@ -17,6 +19,28 @@ function makeRepo(overrides: Partial<ConstructorParameters<typeof DynamicReposit
       tables: new Map(),
     }),
   };
+  const runtimeRegistryService = {
+    requireMetadata: vi.fn(() => ({
+      version: 1,
+      tables: new Map([
+        [
+          'enfyra_route',
+          {
+            name: 'enfyra_route',
+            columns: [{ name: '_id', isPrimary: true }],
+            relations: [],
+          },
+        ],
+      ]),
+      tablesList: [],
+      timestamp: new Date(),
+    })),
+    lookupTableByName: vi.fn(() => ({
+      name: 'enfyra_route',
+      columns: [{ name: '_id', isPrimary: true }],
+      relations: [],
+    })),
+  };
   const settingCacheService = {
     getMaxQueryDepth: vi.fn().mockResolvedValue(10),
   };
@@ -29,6 +53,7 @@ function makeRepo(overrides: Partial<ConstructorParameters<typeof DynamicReposit
     tableValidationService: {} as any,
     metadataCacheService: metadataCacheService as any,
     settingCacheService: settingCacheService as any,
+    runtimeRegistryService: runtimeRegistryService as any,
     eventEmitter: {} as any,
     ...overrides,
   });
@@ -45,11 +70,7 @@ describe('DynamicRepository route method relations', () => {
       publicMethods: [{ _id: getId }, postId, deleteId],
     };
 
-    (repo as any).filterMethodsSubsetOfAvailable(
-      body,
-      null,
-      'publicMethods',
-    );
+    (repo as any).filterMethodsSubsetOfAvailable(body, null, 'publicMethods');
 
     expect(body.publicMethods).toEqual([{ _id: getId }, postId]);
   });

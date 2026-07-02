@@ -11,11 +11,11 @@ function makeLogger(): Logger {
   } as any;
 }
 
-function makeMetadataCacheService(
+function makeRuntimeRegistryService(
   tableRelations: Record<string, any[]> = {},
 ): any {
   return {
-    getMetadata: async () => ({
+    requireMetadata: () => ({
       tables: {
         get: (name: string) => {
           if (tableRelations[name]) {
@@ -54,7 +54,7 @@ describe('CascadeHandler – getPolicyContext callback', () => {
 
     const cascadeHandler = new CascadeHandler(
       makeCallableKnex(),
-      makeMetadataCacheService({
+      makeRuntimeRegistryService({
         post: [
           {
             propertyName: 'author',
@@ -101,7 +101,7 @@ describe('CascadeHandler – getPolicyContext callback', () => {
 
     const cascadeHandler = new CascadeHandler(
       makeCallableKnex(),
-      makeMetadataCacheService({
+      makeRuntimeRegistryService({
         post: [
           {
             propertyName: 'author',
@@ -144,7 +144,7 @@ describe('CascadeHandler – getPolicyContext callback', () => {
 
     const cascadeHandler = new CascadeHandler(
       makeCallableKnex(),
-      makeMetadataCacheService({
+      makeRuntimeRegistryService({
         post: [
           {
             propertyName: 'author',
@@ -189,7 +189,7 @@ describe('CascadeHandler – getPolicyContext callback', () => {
 
     const cascadeHandler = new CascadeHandler(
       makeCallableKnex(),
-      makeMetadataCacheService({
+      makeRuntimeRegistryService({
         post: [
           {
             propertyName: 'author',
@@ -230,14 +230,16 @@ describe('CascadeHandler – getPolicyContext callback', () => {
   it('blocks cascade create when a related payload attempts isSystem=true', async () => {
     const policyCheck = jest.fn(async (_table, _operation, data) => {
       if (data?.isSystem === true) {
-        throw new Error('Cannot create application record with isSystem = true');
+        throw new Error(
+          'Cannot create application record with isSystem = true',
+        );
       }
     });
     const insertWithCascade = jest.fn(async () => ({ id: 1 }));
 
     const cascadeHandler = new CascadeHandler(
       makeCallableKnex(),
-      makeMetadataCacheService({
+      makeRuntimeRegistryService({
         post: [
           {
             propertyName: 'author',
@@ -295,7 +297,7 @@ describe('CascadeHandler – getPolicyContext callback', () => {
 
     const cascadeHandler = new CascadeHandler(
       knexCallable,
-      makeMetadataCacheService({
+      makeRuntimeRegistryService({
         post: [
           {
             propertyName: 'tags',
@@ -355,7 +357,7 @@ describe('CascadeHandler – getPolicyContext callback', () => {
 
     const cascadeHandler = new CascadeHandler(
       mockKnex,
-      makeMetadataCacheService({
+      makeRuntimeRegistryService({
         post: [
           {
             propertyName: 'author',
@@ -405,7 +407,7 @@ describe('CascadeHandler – getPolicyContext callback', () => {
 
     const cascadeHandler = new CascadeHandler(
       knexCallable,
-      makeMetadataCacheService({
+      makeRuntimeRegistryService({
         post: [
           {
             propertyName: 'tags',

@@ -14,7 +14,7 @@ import { AsyncLocalStorage } from 'async_hooks';
 import type { Cradle } from '../../../container';
 import { Logger } from '../../../shared/logger';
 import { EnvService, DatabaseConfigService } from '../../../shared/services';
-import { MetadataCacheService } from '../../cache';
+import { RuntimeRegistryService } from '../../cache';
 import { MongoRelationManagerService } from './mongo-relation-manager.service';
 import { MongoHookManagerService } from './mongo-hook-manager.service';
 import type { MongoSagaSession } from './mongo-saga-session';
@@ -37,7 +37,7 @@ export class MongoService {
   private readonly logger = new Logger(MongoService.name);
   private readonly envService: EnvService;
   private readonly databaseConfigService: DatabaseConfigService;
-  private readonly metadataCacheService: MetadataCacheService;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly mongoRelationManagerService: MongoRelationManagerService;
   private readonly mongoHookManagerService: MongoHookManagerService;
   private readonly lazyRef: Cradle;
@@ -68,7 +68,7 @@ export class MongoService {
     deps: Partial<{
       envService: EnvService;
       databaseConfigService: DatabaseConfigService;
-      metadataCacheService: MetadataCacheService;
+      runtimeRegistryService: RuntimeRegistryService;
       mongoRelationManagerService: MongoRelationManagerService;
       mongoHookManagerService: MongoHookManagerService;
       lazyRef: Cradle;
@@ -76,7 +76,7 @@ export class MongoService {
   ) {
     this.envService = deps.envService as any;
     this.databaseConfigService = deps.databaseConfigService as any;
-    this.metadataCacheService = deps.metadataCacheService as any;
+    this.runtimeRegistryService = deps.runtimeRegistryService as any;
     this.mongoRelationManagerService = deps.mongoRelationManagerService as any;
     this.mongoHookManagerService =
       deps.mongoHookManagerService || new MongoHookManagerService();
@@ -287,7 +287,7 @@ export class MongoService {
       'afterSelect',
       async (collectionName, result) => {
         const metadata =
-          await this.metadataCacheService.lookupTableByName(collectionName);
+          this.runtimeRegistryService.lookupTableByName(collectionName);
         if (!metadata?.columns) return result;
         return decryptResultFields(result, metadata.columns);
       },
@@ -568,8 +568,7 @@ export class MongoService {
   }
 
   async applyDefaultValues(tableName: string, data: any): Promise<any> {
-    const metadata =
-      await this.metadataCacheService.lookupTableByName(tableName);
+    const metadata = this.runtimeRegistryService.lookupTableByName(tableName);
     if (!metadata || !metadata.columns) {
       return data;
     }
@@ -598,8 +597,7 @@ export class MongoService {
   }
 
   async parseJsonFields(tableName: string, data: any): Promise<any> {
-    const metadata =
-      await this.metadataCacheService.lookupTableByName(tableName);
+    const metadata = this.runtimeRegistryService.lookupTableByName(tableName);
     if (!metadata || !metadata.columns) {
       return data;
     }
@@ -885,7 +883,7 @@ export class MongoService {
     }
 
     const metadata =
-      await this.metadataCacheService.lookupTableByName(collectionName);
+      this.runtimeRegistryService.lookupTableByName(collectionName);
     const columns = metadata?.columns || [];
     const relations = metadata?.relations || [];
     const validFields = metadata ? buildMongoWritableFieldSet(metadata) : null;
@@ -1140,7 +1138,7 @@ export class MongoService {
     data: any,
   ): Promise<any> {
     const tableMetadata =
-      await this.metadataCacheService.getTableMetadata(collectionName);
+      this.runtimeRegistryService.getTableMetadata(collectionName);
     if (!tableMetadata || !tableMetadata.columns) return data;
 
     const filteredData = { ...data };
@@ -1162,14 +1160,14 @@ export class MongoService {
     data: any,
   ): Promise<any> {
     const tableMetadata =
-      await this.metadataCacheService.lookupTableByName(collectionName);
+      this.runtimeRegistryService.lookupTableByName(collectionName);
     if (!tableMetadata?.columns) return data;
     return encryptRecordFields(data, tableMetadata.columns);
   }
 
   async stripUnknownColumns(collectionName: string, data: any): Promise<any> {
     const tableMetadata =
-      await this.metadataCacheService.lookupTableByName(collectionName);
+      this.runtimeRegistryService.lookupTableByName(collectionName);
     if (!tableMetadata) return data;
 
     const validFields = buildMongoWritableFieldSet(tableMetadata);

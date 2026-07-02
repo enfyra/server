@@ -137,7 +137,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
         }
         validateUniquePropertyNames(body.columns || [], body.relations || []);
         stepLog(`STEP 4 validators done (+${lap()}ms)`);
-        const oldMetadata = await this.metadataCacheService.lookupTableByName(
+        const oldMetadata = this.runtimeRegistryService.lookupTableByName(
           exists.name,
         );
         stepLog(`STEP 5 loaded oldMetadata (+${lap()}ms)`);
@@ -296,11 +296,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
         if ('validateBody' in body) updateData.validateBody = body.validateBody;
         if (Object.keys(updateData).length > 0) {
           this.assertNotAborted();
-          await this.queryBuilderService.update(
-            'enfyra_table',
-            id,
-            updateData,
-          );
+          await this.queryBuilderService.update('enfyra_table', id, updateData);
         }
         await renameMongoAutoTableRoute({
           mongoService: this.mongoService,
