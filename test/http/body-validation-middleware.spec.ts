@@ -3,6 +3,7 @@ import {
   bodyValidationMiddleware,
   invalidateBodyValidationCache,
 } from '../../src/http/middlewares/body-validation.middleware';
+import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants';
 
 function makeMetadata(tableMeta: any) {
   const tables = new Map([[tableMeta.name, tableMeta]]);
@@ -12,19 +13,32 @@ function makeMetadata(tableMeta: any) {
 function makeContainer(opts: {
   tableMeta: any;
   rulesByColumn?: Map<string, any[]>;
+  runtimeMetadata?: any;
+  runtimeRulesByColumn?: Map<string, any[]>;
 }) {
   const metadata = makeMetadata(opts.tableMeta);
   const metadataCache: any = {
-    getMetadata: async () => metadata,
+    getMetadata: vi.fn(async () => metadata),
   };
   const ruleCache: any = {
-    getCacheAsync: async () => opts.rulesByColumn ?? new Map(),
+    getCacheAsync: vi.fn(async () => opts.rulesByColumn ?? new Map()),
+  };
+  const runtimeRegistryService = {
+    getActiveData: vi.fn((identifier: string) => {
+      if (identifier === CACHE_IDENTIFIERS.METADATA)
+        return opts.runtimeMetadata;
+      if (identifier === CACHE_IDENTIFIERS.COLUMN_RULE) {
+        return opts.runtimeRulesByColumn;
+      }
+      return undefined;
+    }),
   };
   const eventEmitter = { on: vi.fn() };
   return {
     cradle: {
       metadataCacheService: metadataCache,
       columnRuleCacheService: ruleCache,
+      runtimeRegistryService,
       eventEmitter,
     },
   } as any;
@@ -251,7 +265,9 @@ describe('bodyValidationMiddleware — POST validates on create', () => {
         },
       ],
     };
-    const mw = bodyValidationMiddleware(makeContainer({ tableMeta: generatedMeta }));
+    const mw = bodyValidationMiddleware(
+      makeContainer({ tableMeta: generatedMeta }),
+    );
     const { req, res, next } = makeReqRes({
       method: 'POST',
       routeData: { mainTable: generatedMeta, path: '/' + generatedMeta.name },
@@ -349,6 +365,53 @@ describe('bodyValidationMiddleware — column rules applied', () => {
     });
     await mw(req, res, next);
     expect(next).toHaveBeenCalledWith();
+  });
+});
+
+describe('bodyValidationMiddleware — runtime registry view', () => {
+  const tableMeta = {
+    name: 'post',
+    validateBody: true,
+    columns: [{ id: 'c1', name: 'title', type: 'varchar', isNullable: false }],
+    relations: [],
+  };
+
+  it('uses active registry metadata and column rules before cache services', async () => {
+    const runtimeMetadata = makeMetadata(tableMeta);
+    const runtimeRulesByColumn = new Map([
+      [
+        'c1',
+        [
+          {
+            id: 'r1',
+            ruleType: 'minLength',
+            value: { v: 3 },
+            message: 'Title is too short',
+          },
+        ],
+      ],
+    ]);
+    const container = makeContainer({
+      tableMeta,
+      runtimeMetadata,
+      runtimeRulesByColumn,
+    });
+    const mw = bodyValidationMiddleware(container);
+    const { req, res, next } = makeReqRes({
+      method: 'POST',
+      routeData: { mainTable: tableMeta, path: '/' + tableMeta.name },
+      body: { title: 'hi' },
+    });
+
+    await mw(req, res, next);
+
+    expect(next.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(
+      container.cradle.metadataCacheService.getMetadata,
+    ).not.toHaveBeenCalled();
+    expect(
+      container.cradle.columnRuleCacheService.getCacheAsync,
+    ).not.toHaveBeenCalled();
   });
 });
 
