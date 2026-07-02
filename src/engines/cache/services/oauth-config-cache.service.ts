@@ -5,6 +5,7 @@ import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 import { IOAuthConfigCache } from '../../../domain/shared/interfaces/oauth-config-cache.interface';
 import { normalizeScriptRecord } from '../../../shared/utils/script-code.util';
+import { RuntimeRegistryService } from './runtime-registry.service';
 
 const OAUTH_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.OAUTH_CONFIG,
@@ -32,14 +33,17 @@ export class OAuthConfigCacheService
   implements IOAuthConfigCache
 {
   private readonly queryBuilderService: QueryBuilderService;
+  private readonly runtimeRegistryService?: RuntimeRegistryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter?: EventEmitter2;
+    runtimeRegistryService?: RuntimeRegistryService;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     super(OAUTH_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
   }
 
   protected async loadFromDb(): Promise<OAuthConfig[]> {
@@ -82,16 +86,26 @@ export class OAuthConfigCacheService
   }
 
   async getConfigByProvider(provider: string): Promise<OAuthConfig | null> {
-    const cache = await this.getCacheAsync();
+    const cache = await this.getActiveOauthConfigs();
     return cache.get(provider) || null;
   }
 
-  async getDirectConfigByProvider(provider: string): Promise<OAuthConfig | null> {
+  async getDirectConfigByProvider(
+    provider: string,
+  ): Promise<OAuthConfig | null> {
     return this.getConfigByProvider(provider);
   }
 
   async getAllProviders(): Promise<string[]> {
-    const cache = await this.getCacheAsync();
+    const cache = await this.getActiveOauthConfigs();
     return Array.from(cache.keys());
+  }
+
+  private async getActiveOauthConfigs(): Promise<Map<string, OAuthConfig>> {
+    return (
+      this.runtimeRegistryService?.getSnapshot<Map<string, OAuthConfig>>(
+        CACHE_IDENTIFIERS.OAUTH_CONFIG,
+      )?.data ?? (await this.getCacheAsync())
+    );
   }
 }

@@ -3,6 +3,7 @@ import { QueryBuilderService } from '@enfyra/kernel';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+import { RuntimeRegistryService } from './runtime-registry.service';
 
 const FOLDER_TREE_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.FOLDER_TREE,
@@ -28,14 +29,17 @@ interface FolderTreeCache {
 
 export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
   private readonly queryBuilderService: QueryBuilderService;
+  private readonly runtimeRegistryService?: RuntimeRegistryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter?: EventEmitter2;
+    runtimeRegistryService?: RuntimeRegistryService;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     super(FOLDER_TREE_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
   }
 
   protected async loadFromDb(): Promise<FolderNode[]> {
@@ -107,12 +111,12 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
   }
 
   async getTree(): Promise<FolderNode[]> {
-    const cache = await this.getCacheAsync();
+    const cache = await this.getActiveFolderTree();
     return cache.tree;
   }
 
   async getFolders(): Promise<Map<string, FolderNode>> {
-    const cache = await this.getCacheAsync();
+    const cache = await this.getActiveFolderTree();
     return cache.folders;
   }
 
@@ -120,7 +124,7 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
     folderId: string | null,
     newParentId: string | null,
   ): Promise<boolean> {
-    const cache = await this.getCacheAsync();
+    const cache = await this.getActiveFolderTree();
 
     if (!folderId) return false;
     if (!newParentId) return false;
@@ -143,5 +147,13 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
     }
 
     return false;
+  }
+
+  private async getActiveFolderTree(): Promise<FolderTreeCache> {
+    return (
+      this.runtimeRegistryService?.getSnapshot<FolderTreeCache>(
+        CACHE_IDENTIFIERS.FOLDER_TREE,
+      )?.data ?? (await this.getCacheAsync())
+    );
   }
 }

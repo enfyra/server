@@ -6,6 +6,7 @@ import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
 } from '../../../shared/utils/cache-events.constants';
+import { RuntimeRegistryService } from './runtime-registry.service';
 
 const GUARD_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.GUARD,
@@ -58,14 +59,17 @@ export interface GuardCache {
 
 export class GuardCacheService extends BaseCacheService<GuardCache> {
   private readonly queryBuilderService: QueryBuilderService;
+  private readonly runtimeRegistryService?: RuntimeRegistryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter: EventEmitter2;
+    runtimeRegistryService?: RuntimeRegistryService;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     super(GUARD_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.cache = {
       preAuthGlobal: [],
       postAuthGlobal: [],
@@ -251,15 +255,14 @@ export class GuardCacheService extends BaseCacheService<GuardCache> {
     routePath: string,
     method: string,
   ): Promise<GuardNode[]> {
-    const cache = await this.getCacheAsync();
+    const cache =
+      this.runtimeRegistryService?.getSnapshot<GuardCache>(
+        CACHE_IDENTIFIERS.GUARD,
+      )?.data ?? (await this.getCacheAsync());
     const globalGuards =
-      position === 'pre_auth'
-        ? cache.preAuthGlobal
-        : cache.postAuthGlobal;
+      position === 'pre_auth' ? cache.preAuthGlobal : cache.postAuthGlobal;
     const routeMap =
-      position === 'pre_auth'
-        ? cache.preAuthByRoute
-        : cache.postAuthByRoute;
+      position === 'pre_auth' ? cache.preAuthByRoute : cache.postAuthByRoute;
     const routeGuards = routeMap.get(routePath) || [];
 
     const all = [...globalGuards, ...routeGuards];
