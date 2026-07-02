@@ -18,9 +18,6 @@ export function registerMetadataRoutes(
       container.cradle.databaseConfigService;
     const policyService =
       req.scope?.cradle?.policyService ?? container.cradle.policyService;
-    const fieldPermissionCacheService =
-      req.scope?.cradle?.fieldPermissionCacheService ??
-      container.cradle.fieldPermissionCacheService;
     const metadata = runtimeRegistryService.requireMetadata();
     if (!metadata) {
       throw new NotFoundException('Metadata not available');
@@ -31,7 +28,7 @@ export function registerMetadataRoutes(
       user: req.user,
       routeCacheService: { getRoutes: async () => routes },
       policyService,
-      fieldPermissionCacheService,
+      fieldPermissionPolicyReader: runtimeRegistryService,
     });
     res.json({
       data,
@@ -46,9 +43,6 @@ export function registerMetadataRoutes(
       (container.cradle.runtimeRegistryService as RuntimeRegistryService);
     const policyService =
       req.scope?.cradle?.policyService ?? container.cradle.policyService;
-    const fieldPermissionCacheService =
-      req.scope?.cradle?.fieldPermissionCacheService ??
-      container.cradle.fieldPermissionCacheService;
     const metadata = runtimeRegistryService.requireMetadata();
     const routes = runtimeRegistryService.requireRoutes();
     const table = await projectMetadataForUser({
@@ -56,7 +50,7 @@ export function registerMetadataRoutes(
       user: req.user,
       routeCacheService: { getRoutes: async () => routes },
       policyService,
-      fieldPermissionCacheService,
+      fieldPermissionPolicyReader: runtimeRegistryService,
       tableName: req.params.name,
     });
     if (!table) {

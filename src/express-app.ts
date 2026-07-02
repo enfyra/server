@@ -131,7 +131,13 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
     next();
   });
   app.use(notFoundDetectMiddleware);
-  app.use(preAuthMetadataGuard(c.guardCacheService, c.guardEvaluatorService));
+  app.use(
+    preAuthMetadataGuard(
+      c.guardCacheService,
+      c.runtimeRegistryService,
+      c.guardEvaluatorService,
+    ),
+  );
   app.use(
     jwtAuthMiddleware(
       c.queryBuilderService,
@@ -145,7 +151,13 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
     next();
   });
   app.use(roleGuardMiddleware(c.policyService));
-  app.use(postAuthMetadataGuard(c.guardCacheService, c.guardEvaluatorService));
+  app.use(
+    postAuthMetadataGuard(
+      c.guardCacheService,
+      c.runtimeRegistryService,
+      c.guardEvaluatorService,
+    ),
+  );
   app.use(fileUploadMiddleware(c.runtimeRegistryService));
   app.use(requestLoggingBegin);
   app.use(bodyValidationMiddleware(container));

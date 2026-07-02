@@ -1,5 +1,5 @@
 import {
-  FieldPermissionCacheService,
+  type TCompiledFieldPolicy,
   TFieldPermissionAction,
   TFieldPermissionRule,
 } from '../../engines/cache';
@@ -34,6 +34,14 @@ export type TFieldPermissionContext = {
   subjectType: TFieldPermissionSubject;
   subjectName: string;
   record?: any | null;
+};
+
+export type TFieldPermissionPolicyReader = {
+  getFieldPermissionPoliciesFor(
+    user: any,
+    tableName: string,
+    action: TFieldPermissionAction,
+  ): TCompiledFieldPolicy[] | Promise<TCompiledFieldPolicy[]>;
 };
 
 function bucketPriority(
@@ -81,14 +89,14 @@ function ruleAppliesToUser(rule: TFieldPermissionRule, user: any): boolean {
 }
 
 export async function decideFieldPermission(
-  cache: FieldPermissionCacheService,
+  policyReader: TFieldPermissionPolicyReader,
   ctx: TFieldPermissionContext,
   opt?: { defaultAllowed?: boolean },
 ): Promise<TFieldPermissionDecision> {
   const userId = getUserId(ctx.user);
   const defaultAllowed = opt?.defaultAllowed ?? true;
 
-  const policies = await cache.getPoliciesFor(
+  const policies = await policyReader.getFieldPermissionPoliciesFor(
     ctx.user,
     ctx.tableName,
     ctx.action,

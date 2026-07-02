@@ -105,7 +105,7 @@ function makeService(rows: any[], metadata = makeMetadata(rows)) {
     await registry.publishFromCache(CACHE_IDENTIFIERS.FIELD_PERMISSION, svc);
     return result;
   }) as typeof svc.partialReload;
-  return { svc, qb };
+  return { svc, qb, registry };
 }
 
 describe('FieldPermissionCacheService — partial reload', () => {
@@ -121,7 +121,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
         column: { id: 1, name: 'name', table: { id: 1, name: 'post' } },
       }),
     ];
-    const { svc } = makeService(data);
+    const { svc, registry } = makeService(data);
     await svc.reload(false);
 
     data.push(
@@ -141,7 +141,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
       false,
     );
 
-    const policies = await svc.getPoliciesFor(
+    const policies = await registry.getFieldPermissionPoliciesFor(
       { id: 99, role: { id: 10 } },
       'post',
       'read',
@@ -172,7 +172,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
         column: { id: 101 },
       }),
     ];
-    const { svc, qb } = makeService(data, metadata);
+    const { svc, qb, registry } = makeService(data, metadata);
     await svc.reload(false);
 
     expect(qb.find).toHaveBeenCalledWith(
@@ -192,7 +192,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
       }),
     );
 
-    const policies = await svc.getPoliciesFor(
+    const policies = await registry.getFieldPermissionPoliciesFor(
       { id: 99, role: { id: 10 } },
       'post',
       'read',
@@ -223,10 +223,10 @@ describe('FieldPermissionCacheService — partial reload', () => {
         relation: { id: 201 },
       }),
     ];
-    const { svc } = makeService(data, metadata);
+    const { svc, registry } = makeService(data, metadata);
     await svc.reload(false);
 
-    const policies = await svc.getPoliciesFor(
+    const policies = await registry.getFieldPermissionPoliciesFor(
       { id: 99, role: { id: 10 } },
       'post',
       'read',
@@ -247,7 +247,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
         column: { id: 2, name: 'email', table: { id: 1, name: 'post' } },
       }),
     ];
-    const { svc } = makeService(data);
+    const { svc, registry } = makeService(data);
     await svc.reload(false);
 
     data.splice(1, 1);
@@ -262,7 +262,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
       false,
     );
 
-    const policies = await svc.getPoliciesFor(
+    const policies = await registry.getFieldPermissionPoliciesFor(
       { id: 99, role: { id: 10 } },
       'post',
       'read',
@@ -280,7 +280,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
         column: { id: 1, name: 'name', table: { id: 1, name: 'post' } },
       }),
     ];
-    const { svc } = makeService(data);
+    const { svc, registry } = makeService(data);
     await svc.reload(false);
 
     data.length = 0;
@@ -295,7 +295,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
       false,
     );
 
-    const policies = await svc.getPoliciesFor(
+    const policies = await registry.getFieldPermissionPoliciesFor(
       { id: 99, role: { id: 10 } },
       'post',
       'read',
@@ -312,7 +312,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
         column: { id: 1, name: 'name', table: { id: 1, name: 'post' } },
       }),
     ];
-    const { svc } = makeService(data);
+    const { svc, registry } = makeService(data);
     await svc.reload(false);
 
     data[0] = makeRow({
@@ -333,14 +333,14 @@ describe('FieldPermissionCacheService — partial reload', () => {
       false,
     );
 
-    const oldBucket = await svc.getPoliciesFor(
+    const oldBucket = await registry.getFieldPermissionPoliciesFor(
       { id: 99, role: { id: 10 } },
       'post',
       'read',
     );
     expect(oldBucket).toHaveLength(0);
 
-    const newBucket = await svc.getPoliciesFor(
+    const newBucket = await registry.getFieldPermissionPoliciesFor(
       { id: 99, role: { id: 20 } },
       'post',
       'update',
@@ -359,7 +359,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
         column: { id: 1, name: 'name', table: { id: 1, name: 'post' } },
       }),
     ];
-    const { svc } = makeService(data);
+    const { svc, registry } = makeService(data);
     await svc.reload(false);
 
     const cache = svc.getRawCache();
@@ -367,7 +367,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
     expect(cache.has('u:200|post|read')).toBe(true);
     expect(cache.has('u:100,200|post|read')).toBe(false);
 
-    const matchingPolicies = await svc.getPoliciesFor(
+    const matchingPolicies = await registry.getFieldPermissionPoliciesFor(
       { id: 100, role: { id: 10 } },
       'post',
       'read',
@@ -375,7 +375,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
     expect(matchingPolicies).toHaveLength(1);
     expect(matchingPolicies[0].rules[0].id).toBe(1);
 
-    const otherPolicies = await svc.getPoliciesFor(
+    const otherPolicies = await registry.getFieldPermissionPoliciesFor(
       { id: 300, role: { id: 10 } },
       'post',
       'read',
@@ -390,7 +390,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
         column: { id: 1, name: 'name', table: { id: 1, name: 'post' } },
       }),
     ];
-    const { svc, qb } = makeService(data);
+    const { svc, qb, registry } = makeService(data);
     await svc.reload(false);
 
     qb.find.mockImplementationOnce(async (args: any) => {
@@ -409,7 +409,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
       false,
     );
 
-    const policies = await svc.getPoliciesFor(
+    const policies = await registry.getFieldPermissionPoliciesFor(
       { id: 99, role: { id: 10 } },
       'post',
       'read',
@@ -429,10 +429,10 @@ describe('FieldPermissionCacheService — partial reload', () => {
         },
       }),
     ];
-    const { svc } = makeService(data);
+    const { svc, registry } = makeService(data);
     await svc.reload(false);
 
-    let policies = await svc.getPoliciesFor(
+    let policies = await registry.getFieldPermissionPoliciesFor(
       { id: 99, role: { id: 10 } },
       'enfyra_user',
       'read',
@@ -451,7 +451,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
       false,
     );
 
-    policies = await svc.getPoliciesFor(
+    policies = await registry.getFieldPermissionPoliciesFor(
       { id: 99, role: { id: 10 } },
       'enfyra_user',
       'read',
@@ -467,7 +467,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
         column: { id: 1, name: 'name', table: { id: 1, name: 'post' } },
       }),
     ];
-    const { svc } = makeService(data);
+    const { svc, registry } = makeService(data);
     await svc.reload(false);
 
     data.push(
@@ -487,7 +487,7 @@ describe('FieldPermissionCacheService — partial reload', () => {
       false,
     );
 
-    const policies = await svc.getPoliciesFor(
+    const policies = await registry.getFieldPermissionPoliciesFor(
       { id: 99, role: { id: 10 } },
       'post',
       'read',

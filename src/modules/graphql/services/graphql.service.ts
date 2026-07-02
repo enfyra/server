@@ -26,6 +26,17 @@ import type { RuntimeRegistryService } from '../../../engines/cache/services/run
 const COLOR = '\x1b[95m';
 const RESET = '\x1b[0m';
 
+export interface GraphqlRuntimeStatus {
+  schemaReady: boolean;
+  lastReload?: {
+    status: 'running' | 'ok' | 'degraded';
+    startedAt: string;
+    completedAt?: string;
+    error?: string;
+    mode?: string;
+  };
+}
+
 export class GraphqlService {
   private readonly logger = new Logger(`${COLOR}GraphQL${RESET}`);
   private yogaApp!: ReturnType<typeof createYoga>;
@@ -36,6 +47,7 @@ export class GraphqlService {
   private queryableTableNames = new Set<string>();
 
   private pendingPayload: TCacheInvalidationPayload | null = null;
+  private lastReload: GraphqlRuntimeStatus['lastReload'];
 
   private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly dynamicResolver: DynamicResolver;
@@ -55,6 +67,8 @@ export class GraphqlService {
   }
 
   async reloadSchema(payload?: TCacheInvalidationPayload): Promise<void> {
+    const startedAt = new Date().toISOString();
+    this.lastReload = { status: 'running', startedAt };
     try {
       const start = Date.now();
       logMemory(this.logger, 'graphql reload start', {
@@ -68,6 +82,12 @@ export class GraphqlService {
         this.logger.warn(
           'Metadata not available, skipping GraphQL schema generation',
         );
+        this.lastReload = {
+          status: 'degraded',
+          startedAt,
+          completedAt: new Date().toISOString(),
+          error: 'Metadata not available',
+        };
         return;
       }
 
@@ -118,10 +138,21 @@ export class GraphqlService {
         typeRegistrySize: this.typeRegistry.size,
       });
       this.eventEmitter.emit(CACHE_EVENTS.GRAPHQL_LOADED);
+      this.lastReload = {
+        status: 'ok',
+        startedAt,
+        completedAt: new Date().toISOString(),
+        mode: rebuildMode,
+      };
     } catch (error) {
-      this.logger.error(
-        `Failed to reload GraphQL schema: ${getErrorMessage(error)}`,
-      );
+      const message = getErrorMessage(error);
+      this.lastReload = {
+        status: 'degraded',
+        startedAt,
+        completedAt: new Date().toISOString(),
+        error: message,
+      };
+      this.logger.error(`Failed to reload GraphQL schema: ${message}`);
       throw error;
     }
   }
@@ -306,14 +337,42 @@ export class GraphqlService {
 
   async onSettingChanged() {
     if (!this.schema) return;
-    const isProduction = this.envService.isProd;
-    const maxDepth = this.runtimeRegistryService.getMaxQueryDepth();
-    this.yogaApp = createYoga({
-      schema: this.schema,
-      graphqlEndpoint: '/graphql',
-      graphiql: !isProduction,
-      plugins: [useDepthLimit({ maxDepth })],
-    });
+    const startedAt = new Date().toISOString();
+    this.lastReload = { status: 'running', startedAt, mode: 'settingGraphql' };
+    try {
+      const isProduction = this.envService.isProd;
+      const maxDepth = this.runtimeRegistryService.getMaxQueryDepth();
+      this.yogaApp = createYoga({
+        schema: this.schema,
+        graphqlEndpoint: '/graphql',
+        graphiql: !isProduction,
+        plugins: [useDepthLimit({ maxDepth })],
+      });
+      this.lastReload = {
+        status: 'ok',
+        startedAt,
+        completedAt: new Date().toISOString(),
+        mode: 'settingGraphql',
+      };
+    } catch (error) {
+      const message = getErrorMessage(error);
+      this.lastReload = {
+        status: 'degraded',
+        startedAt,
+        completedAt: new Date().toISOString(),
+        error: message,
+        mode: 'settingGraphql',
+      };
+      this.logger.error(`Failed to refresh GraphQL Yoga app: ${message}`);
+      throw error;
+    }
+  }
+
+  getStatus(): GraphqlRuntimeStatus {
+    return {
+      schemaReady: !!this.schema,
+      lastReload: this.lastReload ? { ...this.lastReload } : undefined,
+    };
   }
 
   getSchemaSdl(): string {

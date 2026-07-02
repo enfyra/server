@@ -7,7 +7,6 @@ import {
 import { BaseCacheService } from './base-cache.service';
 import { MetadataCacheService } from './metadata-cache.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
-import { RuntimeRegistryService } from './runtime-registry.service';
 
 export type TFieldPermissionAction = 'read' | 'create' | 'update';
 export type TFieldPermissionEffect = 'allow' | 'deny';
@@ -67,13 +66,11 @@ export class FieldPermissionCacheService extends BaseCacheService<
 > {
   private readonly queryBuilderService: QueryBuilderService;
   private readonly metadataCacheService: MetadataCacheService;
-  private readonly runtimeRegistryService?: RuntimeRegistryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     metadataCacheService: MetadataCacheService;
     eventEmitter: EventEmitter2;
-    runtimeRegistryService?: RuntimeRegistryService;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     super(
@@ -87,7 +84,6 @@ export class FieldPermissionCacheService extends BaseCacheService<
     );
     this.queryBuilderService = deps.queryBuilderService;
     this.metadataCacheService = deps.metadataCacheService;
-    this.runtimeRegistryService = deps.runtimeRegistryService;
   }
 
   protected async loadFromDb(): Promise<any> {
@@ -347,43 +343,5 @@ export class FieldPermissionCacheService extends BaseCacheService<
 
   async ensureLoaded(): Promise<void> {
     await super.ensureLoaded();
-  }
-
-  async getPoliciesFor(
-    user: any,
-    tableName: string,
-    action: TFieldPermissionAction,
-  ): Promise<TCompiledFieldPolicy[]> {
-    const cache = this.requireRuntimeRegistry().requireActiveData<
-      Map<string, TCompiledFieldPolicy>
-    >(CACHE_IDENTIFIERS.FIELD_PERMISSION);
-    const policies: TCompiledFieldPolicy[] = [];
-
-    const userId = toIdString(user);
-    const roleId = toIdString(user?.role);
-
-    if (userId) {
-      const userKey = `u:${userId}|${tableName}|${action}`;
-      if (cache.has(userKey)) policies.push(cache.get(userKey)!);
-    }
-
-    const roleKey = `r:${roleId ?? 'null'}|${tableName}|${action}`;
-    if (cache.has(roleKey)) policies.push(cache.get(roleKey)!);
-
-    if (roleId != null) {
-      const catchAllKey = `r:null|${tableName}|${action}`;
-      if (cache.has(catchAllKey)) policies.push(cache.get(catchAllKey)!);
-    }
-
-    return policies;
-  }
-
-  private requireRuntimeRegistry(): RuntimeRegistryService {
-    if (!this.runtimeRegistryService) {
-      throw new Error(
-        'Runtime registry service is required for field permission reads',
-      );
-    }
-    return this.runtimeRegistryService;
   }
 }

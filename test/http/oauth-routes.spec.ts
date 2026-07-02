@@ -21,9 +21,9 @@ function createHarness() {
   const oauthExchangeCodeService = {
     createCodeForTokens: vi.fn(async () => 'exchange-code'),
   };
-  const oauthConfigCacheService = {
-    getAllProviders: vi.fn(async () => ['google']),
-    getDirectConfigByProvider: vi.fn(async () => ({
+  const runtimeRegistryService = {
+    getOauthProviders: vi.fn(() => ['google']),
+    getOauthConfigByProvider: vi.fn(() => ({
       clientId: 'client-id',
       clientSecret: 'client-secret',
       redirectUri: 'https://demo.enfyra.io/api/auth/google/callback',
@@ -37,7 +37,7 @@ function createHarness() {
   const cradle = {
     oauthService,
     oauthExchangeCodeService,
-    oauthConfigCacheService,
+    runtimeRegistryService,
     configService,
   };
 
@@ -92,28 +92,28 @@ describe('OAuth routes', () => {
   it.each(['enfyra', '/enfyra', '/enfyra/'])(
     'normalizes cookieBridgePrefix %s for third-app auto cookie callback',
     async (cookieBridgePrefix) => {
-    const { get } = createHarness();
-    const start = await get(
-      '/auth/:provider',
-      { provider: 'google' },
-      {
-        redirect: 'https://chat.example.com/chat',
-        cookieBridgePrefix,
-      },
-    );
-    const callback = await get(
-      '/auth/:provider/callback',
-      { provider: 'google' },
-      { code: 'oauth-code', state: getStateFromLocation(start.location) },
-    );
-    const location = new URL(callback.location);
+      const { get } = createHarness();
+      const start = await get(
+        '/auth/:provider',
+        { provider: 'google' },
+        {
+          redirect: 'https://chat.example.com/chat',
+          cookieBridgePrefix,
+        },
+      );
+      const callback = await get(
+        '/auth/:provider/callback',
+        { provider: 'google' },
+        { code: 'oauth-code', state: getStateFromLocation(start.location) },
+      );
+      const location = new URL(callback.location);
 
-    expect(`${location.origin}${location.pathname}`).toBe(
-      'https://chat.example.com/enfyra/auth/set-cookies',
-    );
-    expect(location.searchParams.get('redirect')).toBe(
-      'https://chat.example.com/chat',
-    );
+      expect(`${location.origin}${location.pathname}`).toBe(
+        'https://chat.example.com/enfyra/auth/set-cookies',
+      );
+      expect(location.searchParams.get('redirect')).toBe(
+        'https://chat.example.com/chat',
+      );
     },
   );
 });

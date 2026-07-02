@@ -3,9 +3,7 @@ import { QueryBuilderService } from '@enfyra/kernel';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
-import { IOAuthConfigCache } from '../../../domain/shared/interfaces/oauth-config-cache.interface';
 import { normalizeScriptRecord } from '../../../shared/utils/script-code.util';
-import { RuntimeRegistryService } from './runtime-registry.service';
 
 const OAUTH_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.OAUTH_CONFIG,
@@ -28,22 +26,18 @@ export interface OAuthConfig {
   description?: string;
 }
 
-export class OAuthConfigCacheService
-  extends BaseCacheService<Map<string, OAuthConfig>>
-  implements IOAuthConfigCache
-{
+export class OAuthConfigCacheService extends BaseCacheService<
+  Map<string, OAuthConfig>
+> {
   private readonly queryBuilderService: QueryBuilderService;
-  private readonly runtimeRegistryService?: RuntimeRegistryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter?: EventEmitter2;
-    runtimeRegistryService?: RuntimeRegistryService;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     super(OAUTH_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
-    this.runtimeRegistryService = deps.runtimeRegistryService;
   }
 
   protected async loadFromDb(): Promise<OAuthConfig[]> {
@@ -83,34 +77,5 @@ export class OAuthConfigCacheService
 
   protected getLogCount(): string {
     return `${this.cache.size} OAuth configs`;
-  }
-
-  async getConfigByProvider(provider: string): Promise<OAuthConfig | null> {
-    const cache = await this.getActiveOauthConfigs();
-    return cache.get(provider) || null;
-  }
-
-  async getDirectConfigByProvider(
-    provider: string,
-  ): Promise<OAuthConfig | null> {
-    return this.getConfigByProvider(provider);
-  }
-
-  async getAllProviders(): Promise<string[]> {
-    const cache = await this.getActiveOauthConfigs();
-    return Array.from(cache.keys());
-  }
-
-  private async getActiveOauthConfigs(): Promise<Map<string, OAuthConfig>> {
-    return this.requireRuntimeRegistry().requireActiveData<
-      Map<string, OAuthConfig>
-    >(CACHE_IDENTIFIERS.OAUTH_CONFIG);
-  }
-
-  private requireRuntimeRegistry(): RuntimeRegistryService {
-    if (!this.runtimeRegistryService) {
-      throw new Error('Runtime registry service is required for OAuth reads');
-    }
-    return this.runtimeRegistryService;
   }
 }

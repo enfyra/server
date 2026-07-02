@@ -6,7 +6,6 @@ import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
 } from '../../../shared/utils/cache-events.constants';
-import { RuntimeRegistryService } from './runtime-registry.service';
 
 const GUARD_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.GUARD,
@@ -59,17 +58,14 @@ export interface GuardCache {
 
 export class GuardCacheService extends BaseCacheService<GuardCache> {
   private readonly queryBuilderService: QueryBuilderService;
-  private readonly runtimeRegistryService?: RuntimeRegistryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter: EventEmitter2;
-    runtimeRegistryService?: RuntimeRegistryService;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     super(GUARD_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
-    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.cache = {
       preAuthGlobal: [],
       postAuthGlobal: [],
@@ -250,36 +246,8 @@ export class GuardCacheService extends BaseCacheService<GuardCache> {
     );
   }
 
-  async getGuardsForRoute(
-    position: GuardPosition,
-    routePath: string,
-    method: string,
-  ): Promise<GuardNode[]> {
-    const cache = this.requireRuntimeRegistry().requireActiveData<GuardCache>(
-      CACHE_IDENTIFIERS.GUARD,
-    );
-    const globalGuards =
-      position === 'pre_auth' ? cache.preAuthGlobal : cache.postAuthGlobal;
-    const routeMap =
-      position === 'pre_auth' ? cache.preAuthByRoute : cache.postAuthByRoute;
-    const routeGuards = routeMap.get(routePath) || [];
-
-    const all = [...globalGuards, ...routeGuards];
-    return all.filter((g) => {
-      if (g.methods.length === 0) return true;
-      return g.methods.includes(method);
-    });
-  }
-
   async ensureGuardsLoaded(): Promise<void> {
     await this.ensureLoaded();
-  }
-
-  private requireRuntimeRegistry(): RuntimeRegistryService {
-    if (!this.runtimeRegistryService) {
-      throw new Error('Runtime registry service is required for guard reads');
-    }
-    return this.runtimeRegistryService;
   }
 
   private validateGuardTree(

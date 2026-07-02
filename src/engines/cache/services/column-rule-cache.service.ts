@@ -6,7 +6,6 @@ import {
 } from '../../../shared/utils/cache-events.constants';
 import { BaseCacheService } from './base-cache.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
-import { RuntimeRegistryService } from './runtime-registry.service';
 
 export type TColumnRuleType =
   | 'min'
@@ -37,12 +36,10 @@ export class ColumnRuleCacheService extends BaseCacheService<
   Map<string, TColumnRule[]>
 > {
   private readonly queryBuilderService: QueryBuilderService;
-  private readonly runtimeRegistryService?: RuntimeRegistryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter: EventEmitter2;
-    runtimeRegistryService?: RuntimeRegistryService;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     super(
@@ -55,7 +52,6 @@ export class ColumnRuleCacheService extends BaseCacheService<
       deps.redisRuntimeCacheStore,
     );
     this.queryBuilderService = deps.queryBuilderService;
-    this.runtimeRegistryService = deps.runtimeRegistryService;
   }
 
   protected async loadFromDb(): Promise<any> {
@@ -156,29 +152,5 @@ export class ColumnRuleCacheService extends BaseCacheService<
       isEnabled: row.isEnabled !== false,
       columnId,
     };
-  }
-
-  async getRulesForColumn(columnId: string | number): Promise<TColumnRule[]> {
-    const cache = this.requireRuntimeRegistry().requireActiveData<
-      Map<string, TColumnRule[]>
-    >(CACHE_IDENTIFIERS.COLUMN_RULE);
-    const key = String(columnId);
-    return cache.get(key) ?? [];
-  }
-
-  getRulesForColumnSync(columnId: string | number): TColumnRule[] {
-    if (this.usesSharedRuntimeCache()) return [];
-    if (!this.cacheLoaded) return [];
-    const key = String(columnId);
-    return this.cache.get(key) ?? [];
-  }
-
-  private requireRuntimeRegistry(): RuntimeRegistryService {
-    if (!this.runtimeRegistryService) {
-      throw new Error(
-        'Runtime registry service is required for column rule reads',
-      );
-    }
-    return this.runtimeRegistryService;
   }
 }

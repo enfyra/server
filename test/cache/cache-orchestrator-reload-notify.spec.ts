@@ -243,6 +243,51 @@ describe('CacheOrchestratorService reload notifications', () => {
     expect(graphqlService.reloadSchema).not.toHaveBeenCalled();
   });
 
+  it('keeps committed snapshots when GraphQL post-commit runtime reload fails', async () => {
+    const runtimeRegistryService = new RuntimeRegistryService();
+    const oldDefinitions = new Map([
+      ['posts', { id: 1, isEnabled: true, tableName: 'posts' }],
+    ]);
+    const nextDefinitions = new Map([
+      ['posts', { id: 2, isEnabled: true, tableName: 'posts' }],
+    ]);
+    await runtimeRegistryService.publishFromCache(CACHE_IDENTIFIERS.GRAPHQL, {
+      getCacheAsync: vi.fn(async () => oldDefinitions),
+    });
+
+    const gqlDefinitionCacheService = cacheMock({
+      reload: vi.fn(async () => undefined),
+      getCacheAsync: vi.fn(async () => nextDefinitions),
+    });
+    const graphqlService = {
+      reloadSchema: vi.fn(async () => {
+        throw new Error('yoga reload failed');
+      }),
+    };
+    const { orchestrator } = createOrchestrator({
+      gqlDefinitionCacheService: gqlDefinitionCacheService as any,
+      graphqlService: graphqlService as any,
+      runtimeRegistryService,
+    });
+
+    await expect(
+      (orchestrator as any).executeChain(
+        {
+          table: 'enfyra_graphql',
+          action: 'reload',
+          scope: 'full',
+          timestamp: Date.now(),
+        },
+        true,
+      ),
+    ).rejects.toThrow('yoga reload failed');
+
+    expect(
+      runtimeRegistryService.getActiveData(CACHE_IDENTIFIERS.GRAPHQL),
+    ).toEqual(nextDefinitions);
+    expect(graphqlService.reloadSchema).toHaveBeenCalled();
+  });
+
   it('runs settingGraphql only after setting reload publishes to runtime registry', async () => {
     let settingFinished = false;
     const events: string[] = [];

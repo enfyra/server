@@ -17,6 +17,7 @@ function makeResolver(overrides: Record<string, any> = {}) {
   const runtimeRegistryService = {
     requireRoutes: vi.fn().mockReturnValue([]),
     isGraphqlEnabledForTable: vi.fn().mockReturnValue(true),
+    getGuardsForRoute: vi.fn().mockReturnValue([]),
   };
   const resolver = new DynamicResolver({
     queryBuilderService: {},
@@ -28,7 +29,6 @@ function makeResolver(overrides: Record<string, any> = {}) {
     },
     guardCacheService: {
       ensureGuardsLoaded: vi.fn().mockResolvedValue(undefined),
-      getGuardsForRoute: vi.fn().mockResolvedValue([]),
     },
     guardEvaluatorService: {
       evaluateGuard: vi.fn(),
