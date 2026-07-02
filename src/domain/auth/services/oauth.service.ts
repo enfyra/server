@@ -14,7 +14,7 @@ import { resolveExecutableScript } from '../../../shared/utils/script-code.util'
 import { RepoRegistryService } from '../../../engines/cache';
 import { primeCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
 import type { OAuthExchangeTokenPayload } from '../types/oauth-exchange-code.types';
-import type { OAuthConfig } from '../../../engines/cache/services/oauth-config-cache.service';
+import type { OAuthConfig } from '../../../engines/cache/services/oauth-config-cache-builder.service';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 
 type OAuthProvider = 'google' | 'facebook' | 'github';

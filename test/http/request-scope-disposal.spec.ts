@@ -165,7 +165,7 @@ function makeAppContainer(dispose = vi.fn()) {
         },
       })),
     },
-    guardCacheService: {
+    guardCacheBuilder: {
       ensureGuardsLoaded: vi.fn(),
     },
     guardEvaluatorService: {

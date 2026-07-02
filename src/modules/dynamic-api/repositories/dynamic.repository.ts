@@ -77,7 +77,7 @@ export class DynamicRepository {
     policyService: PolicyService;
     tableValidationService: DynamicApiTableValidationService;
     eventEmitter: EventEmitter2;
-    fieldPermissionCacheService?: unknown;
+    fieldPermissionCacheBuilder?: unknown;
     userRevocationService?: UserRevocationService;
     flowQueueMaintenanceService?: FlowQueueMaintenanceService;
     runtimeRegistryService: RuntimeRegistryService;
@@ -245,11 +245,12 @@ export class DynamicRepository {
     const meta = await this.lookupActiveTableByName(this.tableName);
     if (!meta) return;
 
-    const policies = this.runtimeRegistryService.getFieldPermissionPoliciesFor(
-      this.context.$user,
-      this.tableName,
-      'read',
-    );
+    const policies =
+      this.runtimeRegistryService.getFieldPermissionPoliciesFor?.(
+        this.context.$user,
+        this.tableName,
+        'read',
+      ) ?? [];
 
     const allowedColumns = new Set<string>();
     const allowedRelations = new Set<string>();
@@ -451,11 +452,12 @@ export class DynamicRepository {
     subjectType: 'column' | 'relation',
     subjectName: string,
   ): Promise<boolean> {
-    const policies = this.runtimeRegistryService.getFieldPermissionPoliciesFor(
-      this.context.$user,
-      tableName,
-      action,
-    );
+    const policies =
+      this.runtimeRegistryService.getFieldPermissionPoliciesFor?.(
+        this.context.$user,
+        tableName,
+        action,
+      ) ?? [];
     for (const p of policies) {
       for (const r of p.rules) {
         if (r.condition == null) continue;

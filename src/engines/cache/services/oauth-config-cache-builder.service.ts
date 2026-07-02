@@ -26,7 +26,7 @@ export interface OAuthConfig {
   description?: string;
 }
 
-export class OAuthConfigCacheService extends BaseCacheService<
+export class OAuthConfigCacheBuilder extends BaseCacheService<
   Map<string, OAuthConfig>
 > {
   private readonly queryBuilderService: QueryBuilderService;

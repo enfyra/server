@@ -133,7 +133,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   app.use(notFoundDetectMiddleware);
   app.use(
     preAuthMetadataGuard(
-      c.guardCacheService,
+      c.guardCacheBuilder,
       c.runtimeRegistryService,
       c.guardEvaluatorService,
     ),
@@ -153,7 +153,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   app.use(roleGuardMiddleware(c.policyService));
   app.use(
     postAuthMetadataGuard(
-      c.guardCacheService,
+      c.guardCacheBuilder,
       c.runtimeRegistryService,
       c.guardEvaluatorService,
     ),

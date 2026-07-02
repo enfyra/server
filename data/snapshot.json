@@ -845,5 +845,29 @@
     "relations": [
       { "propertyName": "table", "type": "many-to-one", "isSystem": true, "targetTable": "enfyra_table", "isNullable": false, "onDelete": "CASCADE", "inversePropertyName": "gqlConfig", "description": "The table this GraphQL config belongs to" }
     ]
+  },
+  "enfyra_runtime_reload_log": {
+    "name": "enfyra_runtime_reload_log",
+    "description": "Audits runtime reload transactions and terminal activation status",
+    "isSystem": true,
+    "uniques": [["reloadId"]],
+    "indexes": [["status"], ["tableName"], ["flow"], ["createdAt"]],
+    "columns": [
+      { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key" },
+      { "name": "reloadId", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Unique runtime reload transaction id" },
+      { "name": "flow", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Primary reload flow or first affected runtime area" },
+      { "name": "tableName", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Invalidated table or synthetic admin reload target" },
+      { "name": "scope", "type": "enum", "options": ["partial", "full"], "isNullable": false, "isSystem": true, "defaultValue": "full", "description": "Reload scope" },
+      { "name": "action", "type": "varchar", "isNullable": false, "isSystem": true, "defaultValue": "reload", "description": "Invalidation action that triggered the reload" },
+      { "name": "status", "type": "enum", "options": ["pending", "building", "activated", "failed"], "isNullable": false, "isSystem": true, "defaultValue": "building", "description": "Runtime reload status; building records must become activated or failed" },
+      { "name": "chain", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Ordered reload chain requested by the orchestrator" },
+      { "name": "steps", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Step timing and failure details collected during reload" },
+      { "name": "payload", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Cache invalidation payload when available" },
+      { "name": "instanceId", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Runtime instance that processed the reload" },
+      { "name": "errorMessage", "type": "text", "isNullable": true, "isSystem": true, "description": "Terminal failure reason" },
+      { "name": "startedAt", "type": "date", "isNullable": false, "isSystem": true, "description": "When reload processing started" },
+      { "name": "completedAt", "type": "date", "isNullable": true, "isSystem": true, "description": "When reload reached activated or failed terminal status" },
+      { "name": "durationMs", "type": "int", "isNullable": true, "isSystem": true, "description": "Total reload duration in milliseconds" }
+    ]
   }
 }

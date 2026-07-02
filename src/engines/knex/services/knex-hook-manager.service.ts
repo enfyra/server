@@ -600,36 +600,40 @@ export class KnexHookManagerService {
 
     qb.then = function (onFulfilled: any, onRejected: any) {
       const signal = getIoAbortSignal();
-      if (signal?.aborted) {
-        return Promise.reject(new Error('Operation aborted')).then(
-          onFulfilled,
-          onRejected,
-        );
-      }
-      if (!options.skipMetadataHooks) {
-        runHooks('beforeSelect', this, tableName);
-      }
 
-      return originalThen.call(
-        this,
-        async (result: any) => {
-          if (signal?.aborted) {
-            throw new Error('Operation aborted');
-          }
-          if (options.skipMetadataHooks) {
-            return onFulfilled ? onFulfilled(result) : result;
-          }
-          const processedResult = await runHooks(
-            'afterSelect',
-            tableName,
-            result,
-          );
-          if (signal?.aborted) {
-            throw new Error('Operation aborted');
-          }
-          return onFulfilled ? onFulfilled(processedResult) : processedResult;
+      const runSelect = async () => {
+        if (signal?.aborted) {
+          throw new Error('Operation aborted');
+        }
+        if (!options.skipMetadataHooks) {
+          await runHooks('beforeSelect', this, tableName);
+        }
+        if (signal?.aborted) {
+          throw new Error('Operation aborted');
+        }
+
+        const result = await originalThen.call(this, (value: any) => value);
+        if (options.skipMetadataHooks || signal?.aborted) {
+          return result;
+        }
+
+        const processedResult = await runHooks('afterSelect', tableName, result);
+        if (signal?.aborted) {
+          return processedResult;
+        }
+        return processedResult;
+      };
+
+      return runSelect().then(
+        (result) => {
+          return onFulfilled ? onFulfilled(result) : result;
         },
-        onRejected,
+        (error) => {
+          if (onRejected) {
+            return onRejected(error);
+          }
+          throw error;
+        },
       );
     };
 
@@ -669,7 +673,7 @@ export class KnexHookManagerService {
   }
 
   private async isJunctionTable(tableName: string): Promise<boolean> {
-    const metadata = this.runtimeRegistryService.requireMetadata();
+    const metadata = this.runtimeRegistryService.getMetadata();
     if (!metadata) return false;
 
     const tables =

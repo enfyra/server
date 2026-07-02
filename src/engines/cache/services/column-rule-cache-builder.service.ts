@@ -32,7 +32,7 @@ function toIdString(v: any): string | null {
   return String(v?._id ?? v?.id ?? v);
 }
 
-export class ColumnRuleCacheService extends BaseCacheService<
+export class ColumnRuleCacheBuilder extends BaseCacheService<
   Map<string, TColumnRule[]>
 > {
   private readonly queryBuilderService: QueryBuilderService;

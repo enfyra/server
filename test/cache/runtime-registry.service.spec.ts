@@ -20,13 +20,13 @@ describe('RuntimeRegistryService', () => {
   });
 
   it('publishes only after the caller supplies the rebuilt cache view', async () => {
-    const flowCacheService = {
+    const flowCacheBuilder = {
       getCacheAsync: vi.fn(async () => [{ id: 2, name: 'after-reload' }]),
     };
     const service = new RuntimeRegistryService();
 
     service.init();
-    await service.publishFromCache(CACHE_IDENTIFIERS.FLOW, flowCacheService);
+    await service.publishFromCache(CACHE_IDENTIFIERS.FLOW, flowCacheBuilder);
 
     expect(service.getSnapshot(CACHE_IDENTIFIERS.FLOW)?.data).toEqual([
       { id: 2, name: 'after-reload' },

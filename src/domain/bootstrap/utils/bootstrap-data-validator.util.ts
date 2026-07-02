@@ -36,7 +36,8 @@ function nestedTableName(value: any) {
 function collectPermissionRules(permission: any): any[] {
   if (!permission || typeof permission !== 'object') return [];
   const rules: any[] = [];
-  if (permission.route || permission.methods || permission.actions) rules.push(permission);
+  if (permission.route || permission.methods || permission.actions)
+    rules.push(permission);
   for (const key of ['and', 'or']) {
     if (Array.isArray(permission[key])) {
       for (const item of permission[key]) {
@@ -148,7 +149,8 @@ function validateWebsocketEvent(input: {
   record: any;
   gateways: Set<string>;
 }) {
-  const gateway = input.record.gateway ?? input.record.websocket ?? input.record.parent;
+  const gateway =
+    input.record.gateway ?? input.record.websocket ?? input.record.parent;
   const name = nestedTableName(gateway) ?? recordName(gateway) ?? gateway;
   if (!name || input.gateways.has(name)) return [];
   return [
@@ -258,6 +260,26 @@ function validateUniqueRoutePaths(
   return issues;
 }
 
+function validateSnapshotTables(snapshot: Record<string, any>) {
+  const issues: BootstrapValidationIssue[] = [];
+  for (const [tableName, table] of Object.entries(snapshot)) {
+    if (tableName.startsWith('_')) continue;
+    const columns = Array.isArray(table?.columns) ? table.columns : [];
+    for (const column of columns) {
+      if (column?.name !== 'createdAt' && column?.name !== 'updatedAt') {
+        continue;
+      }
+      issues.push({
+        file: 'snapshot.json',
+        table: tableName,
+        field: 'columns',
+        message: `Snapshot table "${tableName}" must not define "${column.name}" because SQL physical schema adds system timestamps automatically.`,
+      });
+    }
+  }
+  return issues;
+}
+
 export function validateBootstrapDataFiles(input: BootstrapDataFiles) {
   const issues: BootstrapValidationIssue[] = [];
   const methods = methodNames(input.defaultData);
@@ -273,18 +295,17 @@ export function validateBootstrapDataFiles(input: BootstrapDataFiles) {
     ...(input.dataMigration.enfyra_menu ?? []).map(routePath).filter(Boolean),
   ]);
   const gateways = new Set(
-    (input.defaultData.enfyra_websocket ?? [])
-      .map(recordName)
-      .filter(Boolean),
+    (input.defaultData.enfyra_websocket ?? []).map(recordName).filter(Boolean),
   );
   const flows = new Set(
-    (input.defaultData.enfyra_flow ?? [])
-      .map(recordName)
-      .filter(Boolean),
+    (input.defaultData.enfyra_flow ?? []).map(recordName).filter(Boolean),
   );
 
+  issues.push(...validateSnapshotTables(input.snapshot));
   issues.push(...validateUniqueRoutePaths('default-data.json', defaultRoutes));
-  issues.push(...validateUniqueRoutePaths('data-migration.json', migrationRoutes));
+  issues.push(
+    ...validateUniqueRoutePaths('data-migration.json', migrationRoutes),
+  );
 
   for (const record of defaultRoutes) {
     issues.push(

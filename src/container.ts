@@ -112,15 +112,15 @@ import {
 import {
   CacheOrchestratorService,
   CacheService,
-  FieldPermissionCacheService,
-  ColumnRuleCacheService,
-  FlowCacheService,
+  FieldPermissionCacheBuilder,
+  ColumnRuleCacheBuilder,
+  FlowCacheBuilder,
   FolderTreeCacheService,
   GqlDefinitionCacheService,
-  GuardCacheService,
+  GuardCacheBuilder,
   GuardEvaluatorService,
   MetadataCacheService,
-  OAuthConfigCacheService,
+  OAuthConfigCacheBuilder,
   PackageCacheService,
   PackageCdnLoaderService,
   PackageRuntimeService,
@@ -130,11 +130,12 @@ import {
   RepoRegistryService,
   RouteCacheService,
   RuntimeRegistryService,
+  RuntimeReloadAuditService,
   RuntimeScriptRepairService,
   SettingCacheService,
-  StorageConfigCacheService,
+  StorageConfigCacheBuilder,
   UserCacheService,
-  WebsocketCacheService,
+  WebsocketCacheBuilder,
 } from './engines/cache';
 import {
   DynamicRepositoryFactory,
@@ -307,21 +308,22 @@ export interface Cradle {
   routeCacheService: RouteCacheService;
   packageCacheService: PackageCacheService;
   packageRuntimeService: PackageRuntimeService;
-  storageConfigCacheService: StorageConfigCacheService;
-  websocketCacheService: WebsocketCacheService;
-  oauthConfigCacheService: OAuthConfigCacheService;
+  storageConfigCacheBuilder: StorageConfigCacheBuilder;
+  websocketCacheBuilder: WebsocketCacheBuilder;
+  oauthConfigCacheBuilder: OAuthConfigCacheBuilder;
   rateLimitService: RateLimitService;
   folderTreeCacheService: FolderTreeCacheService;
-  flowCacheService: FlowCacheService;
+  flowCacheBuilder: FlowCacheBuilder;
   packageCdnLoaderService: PackageCdnLoaderService;
-  guardCacheService: GuardCacheService;
+  guardCacheBuilder: GuardCacheBuilder;
   guardEvaluatorService: GuardEvaluatorService;
   settingCacheService: SettingCacheService;
-  fieldPermissionCacheService: FieldPermissionCacheService;
-  columnRuleCacheService: ColumnRuleCacheService;
+  fieldPermissionCacheBuilder: FieldPermissionCacheBuilder;
+  columnRuleCacheBuilder: ColumnRuleCacheBuilder;
   gqlDefinitionCacheService: GqlDefinitionCacheService;
   repoRegistryService: RepoRegistryService;
   runtimeRegistryService: RuntimeRegistryService;
+  runtimeReloadAuditService: RuntimeReloadAuditService;
   runtimeScriptRepairService: RuntimeScriptRepairService;
   dynamicRepositoryFactory: DynamicRepositoryFactory;
   cacheOrchestratorService: CacheOrchestratorService;
@@ -582,23 +584,24 @@ export function buildContainer(): AwilixContainer<Cradle> {
     routeCacheService: asClass(RouteCacheService).singleton(),
     packageCacheService: asClass(PackageCacheService).singleton(),
     packageRuntimeService: asClass(PackageRuntimeService).singleton(),
-    storageConfigCacheService: asClass(StorageConfigCacheService).singleton(),
-    websocketCacheService: asClass(WebsocketCacheService).singleton(),
-    oauthConfigCacheService: asClass(OAuthConfigCacheService).singleton(),
+    storageConfigCacheBuilder: asClass(StorageConfigCacheBuilder).singleton(),
+    websocketCacheBuilder: asClass(WebsocketCacheBuilder).singleton(),
+    oauthConfigCacheBuilder: asClass(OAuthConfigCacheBuilder).singleton(),
     rateLimitService: asClass(RateLimitService).singleton(),
     folderTreeCacheService: asClass(FolderTreeCacheService).singleton(),
-    flowCacheService: asClass(FlowCacheService).singleton(),
+    flowCacheBuilder: asClass(FlowCacheBuilder).singleton(),
     packageCdnLoaderService: asClass(PackageCdnLoaderService).singleton(),
-    guardCacheService: asClass(GuardCacheService).singleton(),
+    guardCacheBuilder: asClass(GuardCacheBuilder).singleton(),
     guardEvaluatorService: asClass(GuardEvaluatorService).singleton(),
     settingCacheService: asClass(SettingCacheService).singleton(),
-    fieldPermissionCacheService: asClass(
-      FieldPermissionCacheService,
+    fieldPermissionCacheBuilder: asClass(
+      FieldPermissionCacheBuilder,
     ).singleton(),
-    columnRuleCacheService: asClass(ColumnRuleCacheService).singleton(),
+    columnRuleCacheBuilder: asClass(ColumnRuleCacheBuilder).singleton(),
     gqlDefinitionCacheService: asClass(GqlDefinitionCacheService).singleton(),
     repoRegistryService: asClass(RepoRegistryService).singleton(),
     runtimeRegistryService: asClass(RuntimeRegistryService).singleton(),
+    runtimeReloadAuditService: asClass(RuntimeReloadAuditService).singleton(),
     runtimeScriptRepairService: asClass(RuntimeScriptRepairService).singleton(),
     dynamicRepositoryFactory: asClass(DynamicRepositoryFactory).singleton(),
     cacheOrchestratorService: asClass(CacheOrchestratorService)

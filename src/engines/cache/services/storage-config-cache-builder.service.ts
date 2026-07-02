@@ -11,7 +11,7 @@ const STORAGE_CONFIG: CacheConfig = {
   cacheName: 'StorageConfigCache',
 };
 
-export class StorageConfigCacheService extends BaseCacheService<
+export class StorageConfigCacheBuilder extends BaseCacheService<
   Map<string | number, any>
 > {
   private readonly queryBuilderService: QueryBuilderService;

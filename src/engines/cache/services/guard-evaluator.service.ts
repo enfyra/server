@@ -1,6 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { RateLimitService, RateLimitResult } from './rate-limit.service';
-import { GuardNode, GuardRuleNode } from './guard-cache.service';
+import { GuardNode, GuardRuleNode } from './guard-cache-builder.service';
 
 export interface GuardEvalContext {
   clientIp: string;

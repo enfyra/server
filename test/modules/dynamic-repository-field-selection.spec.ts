@@ -248,7 +248,7 @@ function makeRepo({
       return { data: projectRows(args.table, rows, args), count: rows.length };
     }),
   };
-  const fieldPermissionCacheService = {
+  const fieldPermissionCacheBuilder = {
     getPoliciesFor: vi.fn().mockResolvedValue([]),
   };
   const activeRuntimeRegistryService = runtimeRegistryService ?? {
@@ -263,7 +263,7 @@ function makeRepo({
     tableHandlerService: {} as any,
     policyService: {} as any,
     tableValidationService: {} as any,
-    fieldPermissionCacheService: fieldPermissionCacheService as any,
+    fieldPermissionCacheBuilder: fieldPermissionCacheBuilder as any,
     runtimeRegistryService: activeRuntimeRegistryService,
     eventEmitter: {} as any,
     enforceFieldPermission,

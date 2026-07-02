@@ -96,11 +96,12 @@ export async function decideFieldPermission(
   const userId = getUserId(ctx.user);
   const defaultAllowed = opt?.defaultAllowed ?? true;
 
-  const policies = await policyReader.getFieldPermissionPoliciesFor(
-    ctx.user,
-    ctx.tableName,
-    ctx.action,
-  );
+  const policies =
+    (await policyReader.getFieldPermissionPoliciesFor?.(
+      ctx.user,
+      ctx.tableName,
+      ctx.action,
+    )) ?? [];
   if (policies.length === 0) return { allowed: defaultAllowed };
 
   const rules: TFieldPermissionRule[] = [];
