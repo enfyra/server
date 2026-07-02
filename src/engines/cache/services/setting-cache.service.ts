@@ -81,6 +81,11 @@ export class SettingCacheService extends BaseCacheService<SettingData> {
     return cache?.maxQueryDepth ?? DEFAULT_MAX_QUERY_DEPTH;
   }
 
+  async getMaxQueryDepthFromCache(): Promise<number> {
+    const cache = await this.getCacheAsync();
+    return cache?.maxQueryDepth ?? DEFAULT_MAX_QUERY_DEPTH;
+  }
+
   async getMaxUploadFileSizeBytes(): Promise<number> {
     const cache = await this.getActiveSettings();
     return (

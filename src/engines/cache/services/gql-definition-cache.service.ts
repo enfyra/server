@@ -94,6 +94,17 @@ export class GqlDefinitionCacheService extends BaseCacheService<
 
   async getAllEnabled(): Promise<TGqlDefinition[]> {
     const cache = await this.getActiveDefinitions();
+    return this.filterEnabled(cache);
+  }
+
+  async getAllEnabledFromCache(): Promise<TGqlDefinition[]> {
+    const cache = await this.getCacheAsync();
+    return this.filterEnabled(cache);
+  }
+
+  private filterEnabled(
+    cache: Map<string, TGqlDefinition> | undefined,
+  ): TGqlDefinition[] {
     if (!cache) return [];
     return Array.from(cache.values()).filter(
       (d) => d.isEnabled && !isMetadataTable(d.tableName),

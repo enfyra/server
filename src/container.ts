@@ -130,6 +130,7 @@ import {
   RepoRegistryService,
   RouteCacheService,
   RuntimeRegistryService,
+  RuntimeScriptRepairService,
   SettingCacheService,
   StorageConfigCacheService,
   UserCacheService,
@@ -321,6 +322,7 @@ export interface Cradle {
   gqlDefinitionCacheService: GqlDefinitionCacheService;
   repoRegistryService: RepoRegistryService;
   runtimeRegistryService: RuntimeRegistryService;
+  runtimeScriptRepairService: RuntimeScriptRepairService;
   dynamicRepositoryFactory: DynamicRepositoryFactory;
   cacheOrchestratorService: CacheOrchestratorService;
 
@@ -595,6 +597,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     gqlDefinitionCacheService: asClass(GqlDefinitionCacheService).singleton(),
     repoRegistryService: asClass(RepoRegistryService).singleton(),
     runtimeRegistryService: asClass(RuntimeRegistryService).singleton(),
+    runtimeScriptRepairService: asClass(RuntimeScriptRepairService).singleton(),
     dynamicRepositoryFactory: asClass(DynamicRepositoryFactory).singleton(),
     cacheOrchestratorService: asClass(CacheOrchestratorService)
       .singleton()

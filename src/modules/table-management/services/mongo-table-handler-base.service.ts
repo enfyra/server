@@ -1,47 +1,22 @@
-import { Logger } from '../../../shared/logger';
+import { QueryBuilderService, getIoAbortSignal } from '@enfyra/kernel';
 import { ObjectId } from 'mongodb';
-import { getIoAbortSignal, QueryBuilderService } from '@enfyra/kernel';
-import {
-  type MongoPhysicalMigrationService,
-  MongoSchemaMigrationService,
-  MongoService,
-  MongoSchemaMigrationLockService,
-} from '../../../engines/mongo';
+import { LoggingService } from '../../../domain/exceptions';
+import { PolicyService } from '../../../domain/policy';
 import {
   MetadataCacheService,
   RuntimeRegistryService,
 } from '../../../engines/cache';
 import {
-  LoggingService,
-  DatabaseException,
-  DuplicateResourceException,
-  ResourceNotFoundException,
-  ValidationException,
-} from '../../../domain/exceptions';
-import {
-  PolicyService,
-  isPolicyDeny,
-  isPolicyPreview,
-} from '../../../domain/policy';
-import { TDynamicContext } from '../../../shared/types';
-import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
-import { DatabaseConfigService } from '../../../shared/services';
-import { getDeletedIds } from '../utils/get-deleted-ids';
+  type MongoPhysicalMigrationService,
+  MongoSchemaMigrationLockService,
+  MongoSchemaMigrationService,
+  MongoService,
+} from '../../../engines/mongo';
+import { Logger } from '../../../shared/logger';
 import { TCreateTableBody } from '../types/table-handler.types';
-import { TableManagementValidationService } from './table-validation.service';
+import { getDeletedIds } from '../utils/get-deleted-ids';
 import { MongoMetadataSnapshotService } from './mongo-metadata-snapshot.service';
-import {
-  MONGO_PRIMARY_KEY_TYPE,
-  isMongoPrimaryKeyType,
-  normalizeMongoPrimaryKeyColumn,
-} from '../utils/mongo-primary-key.util';
-import { getRelationMappedByProperty } from '../utils/relation-target-id.util';
-import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
-import { ensureMongoTableRouteArtifacts } from './table-route-artifacts.service';
-import {
-  ensureMongoSingleRecord,
-  syncMongoGqlDefinition,
-} from './table-post-migration.service';
+import { TableManagementValidationService } from './table-validation.service';
 
 export class MongoTableHandlerService {
   protected logger = new Logger(MongoTableHandlerService.name);

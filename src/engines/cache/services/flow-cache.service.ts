@@ -66,8 +66,6 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
       const steps: FlowStep[] = [];
       for (const step of rawSteps) {
         if (step.type === 'script' || step.type === 'condition') {
-          const hadLegacyScriptConfig =
-            typeof step.config === 'string' || this.hasLegacyScriptConfig(step);
           const normalizedStep = normalizeFlowStepScriptConfig(step);
           Object.assign(step, normalizedStep);
           if (step.sourceCode || step.compiledCode) {
@@ -82,9 +80,6 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
                 compiledCode: step.compiledCode,
                 code: result.code,
               };
-            }
-            if (result.shouldPersistCompiledCode || hadLegacyScriptConfig) {
-              await this.persistStepScriptRepair(step, idField);
             }
           }
         }
@@ -121,37 +116,6 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
     }
 
     return flows;
-  }
-
-  private hasLegacyScriptConfig(step: any): boolean {
-    const config = step?.config;
-    return Boolean(
-      config &&
-      typeof config === 'object' &&
-      ('sourceCode' in config ||
-        'scriptLanguage' in config ||
-        'compiledCode' in config ||
-        'code' in config),
-    );
-  }
-
-  private async persistStepScriptRepair(
-    step: any,
-    idField: string,
-  ): Promise<void> {
-    const id = step[idField];
-    if (id == null) return;
-    const config = { ...(step.config || {}) };
-    delete config.sourceCode;
-    delete config.scriptLanguage;
-    delete config.compiledCode;
-    delete config.code;
-    await this.queryBuilderService.update('enfyra_flow_step', id, {
-      sourceCode: step.sourceCode ?? null,
-      scriptLanguage: step.scriptLanguage ?? 'typescript',
-      compiledCode: step.compiledCode ?? null,
-      config,
-    });
   }
 
   protected transformData(data: FlowDefinition[]): FlowDefinition[] {

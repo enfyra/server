@@ -123,6 +123,69 @@ describe('CacheOrchestratorService reload notifications', () => {
     );
   });
 
+  it('publishes graphql definition cache after graphql reload chain succeeds', async () => {
+    const runtimeRegistryService = {
+      publishFromCache: vi.fn(async () => undefined),
+    };
+    const gqlDefinitionCacheService = cacheMock({
+      getCacheAsync: vi.fn(async () => new Map([['posts', { id: 1 }]])),
+    });
+    const { orchestrator } = createOrchestrator({
+      gqlDefinitionCacheService: gqlDefinitionCacheService as any,
+      runtimeRegistryService,
+    });
+
+    await (orchestrator as any).executeChain(
+      {
+        table: 'enfyra_graphql',
+        action: 'reload',
+        scope: 'full',
+        timestamp: Date.now(),
+      },
+      true,
+    );
+
+    expect(runtimeRegistryService.publishFromCache).toHaveBeenCalledWith(
+      'graphql',
+      gqlDefinitionCacheService,
+    );
+  });
+
+  it('runs settingGraphql only after setting reload finishes', async () => {
+    let settingFinished = false;
+    const events: string[] = [];
+    const settingCacheService = cacheMock({
+      reload: vi.fn(async () => {
+        events.push('setting:start');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        settingFinished = true;
+        events.push('setting:done');
+      }),
+    });
+    const graphqlService = {
+      onSettingChanged: vi.fn(async () => {
+        events.push('settingGraphql');
+        expect(settingFinished).toBe(true);
+      }),
+    };
+    const { orchestrator } = createOrchestrator({
+      settingCacheService: settingCacheService as any,
+      graphqlService: graphqlService as any,
+    });
+
+    await (orchestrator as any).executeChain(
+      {
+        table: 'enfyra_setting',
+        action: 'reload',
+        scope: 'full',
+        timestamp: Date.now(),
+      },
+      true,
+    );
+
+    expect(events).toEqual(['setting:start', 'setting:done', 'settingGraphql']);
+  });
+
   it('emits extension reload notifications for extension definition changes', async () => {
     const { orchestrator, emitted } = createOrchestrator();
 

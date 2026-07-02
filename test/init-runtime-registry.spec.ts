@@ -85,6 +85,6 @@ describe('init runtime registry publish', () => {
     expect(metadataCacheService.getMetadata).toHaveBeenCalled();
     expect(
       runtimeRegistryService.getSnapshot(CACHE_IDENTIFIERS.METADATA)?.data,
-    ).toBe(metadata);
+    ).toEqual(metadata);
   });
 });

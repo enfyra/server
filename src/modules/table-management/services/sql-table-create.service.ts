@@ -1,43 +1,23 @@
-import { Logger } from '../../../shared/logger';
-import type { Knex } from 'knex';
 import { getIoAbortSignal } from '@enfyra/kernel';
-import { QueryBuilderService, getForeignKeyColumnName } from '@enfyra/kernel';
+import type { Knex } from 'knex';
 import {
-  SqlSchemaMigrationService,
-  SchemaMigrationLockService,
-} from '../../../engines/knex';
-import { MetadataCacheService } from '../../../engines/cache';
-import {
-  LoggingService,
   DatabaseException,
   DuplicateResourceException,
-  ResourceNotFoundException,
   ValidationException,
 } from '../../../domain/exceptions';
-import {
-  PolicyService,
-  isPolicyDeny,
-  isPolicyPreview,
-} from '../../../domain/policy';
+import { isPolicyDeny } from '../../../domain/policy';
 import { TDynamicContext } from '../../../shared/types';
-import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
+import { stringifyJsonFieldValue } from '../../../shared/utils/json-field-normalizer.util';
 import { TCreateTableBody } from '../types/table-handler.types';
+import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
 import {
   getRelationTargetTableId,
   relationTargetTableMapKey,
 } from '../utils/relation-target-id.util';
-import { TableManagementValidationService } from './table-validation.service';
-import { SqlTableMetadataBuilderService } from './sql-table-metadata-builder.service';
-import { SqlTableMetadataWriterService } from './sql-table-metadata-writer.service';
 import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
-import { ensureSqlTableRouteArtifacts } from './table-route-artifacts.service';
-import {
-  ensureSqlM2mJunctionTables,
-  ensureSqlSingleRecord,
-  syncSqlGqlDefinition,
-} from './table-post-migration.service';
 import { SqlTableHandlerService } from './sql-table-handler-base.service';
-import { stringifyJsonFieldValue } from '../../../shared/utils/json-field-normalizer.util';
+import { ensureSqlSingleRecord } from './table-post-migration.service';
+import { ensureSqlTableRouteArtifacts } from './table-route-artifacts.service';
 
 export class SqlTableCreateService extends SqlTableHandlerService {
   async createTable(body: TCreateTableBody, context?: TDynamicContext) {

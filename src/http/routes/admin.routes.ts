@@ -529,7 +529,6 @@ async function runTest(body: any, cradle: any, currentUser: any = null) {
 
     const handlerExecutorService = cradle.executorEngineService;
     const repoRegistryService = cradle.repoRegistryService;
-    const dynamicContextFactory = cradle.dynamicContextFactory;
 
     const ctx = createHttpLikeTestContext({
       body,

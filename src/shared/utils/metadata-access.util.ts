@@ -16,11 +16,6 @@ type ProjectionDeps = MetadataAccessDeps & {
 
 type MetadataFieldAction = 'read' | 'create' | 'update';
 
-function getRecordId(value: any): string | null {
-  if (value === undefined || value === null) return null;
-  return String(value?._id ?? value?.id ?? value);
-}
-
 function getRouteTableName(route: any): string | null {
   const mainTable = route?.mainTable;
   if (typeof mainTable === 'string') return mainTable;
@@ -35,10 +30,7 @@ function getRouteTableName(route: any): string | null {
 
 function getRouteMethods(route: any): string[] {
   const candidates =
-    route?.availableMethods ??
-    route?.publicMethods ??
-    route?.methods ??
-    [];
+    route?.availableMethods ?? route?.publicMethods ?? route?.methods ?? [];
   if (!Array.isArray(candidates)) return [];
   return candidates
     .map((item: any) => String(item?.name ?? item).toUpperCase())

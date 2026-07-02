@@ -420,7 +420,6 @@ export class DynamicWebSocketGateway {
     script: string,
   ) {
     const user = this.getSocketUser(socket);
-    const userId = socket.data.userId || user?.id || user?._id || null;
     const ctx = this.lazyRef.dynamicContextFactory.createWebsocketConnection({
       gatewayPath: gatewayData.path,
       socketId: socket.id,
@@ -467,7 +466,6 @@ export class DynamicWebSocketGateway {
       ackSentAt,
     } = options;
     const user = this.getSocketUser(socket);
-    const userId = socket.data.userId || user?.id || user?._id || null;
     const ctx = this.lazyRef.dynamicContextFactory.createWebsocketEvent({
       gatewayPath,
       socketId: socket.id,

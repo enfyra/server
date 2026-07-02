@@ -104,4 +104,83 @@ describe('RuntimeRegistryService', () => {
       }),
     );
   });
+
+  it('keeps the previous active snapshot when a later publish fails', async () => {
+    const service = new RuntimeRegistryService();
+
+    await service.publishFromCache(CACHE_IDENTIFIERS.PACKAGE, {
+      getCacheAsync: vi.fn(async () => ['stable']),
+    });
+
+    await expect(
+      service.publishFromCache(CACHE_IDENTIFIERS.PACKAGE, {
+        getCacheAsync: vi.fn(async () => {
+          throw new Error('cache unavailable');
+        }),
+      }),
+    ).rejects.toThrow('cache unavailable');
+
+    expect(service.getActiveData(CACHE_IDENTIFIERS.PACKAGE)).toEqual([
+      'stable',
+    ]);
+    expect(service.getEntry(CACHE_IDENTIFIERS.PACKAGE)).toEqual(
+      expect.objectContaining({
+        status: 'failed',
+        error: 'cache unavailable',
+      }),
+    );
+  });
+
+  it('serves the previous active snapshot while a new publish is building', async () => {
+    const service = new RuntimeRegistryService();
+    await service.publishFromCache(CACHE_IDENTIFIERS.FLOW, {
+      getCacheAsync: vi.fn(async () => ['active']),
+    });
+
+    let resolveBuild: (value: string[]) => void = () => undefined;
+    const building = service.publishFromCache(CACHE_IDENTIFIERS.FLOW, {
+      getCacheAsync: vi.fn(
+        () =>
+          new Promise<string[]>((resolve) => {
+            resolveBuild = resolve;
+          }),
+      ),
+    });
+
+    expect(service.getActiveData(CACHE_IDENTIFIERS.FLOW)).toEqual(['active']);
+    expect(service.getEntry(CACHE_IDENTIFIERS.FLOW)).toEqual(
+      expect.objectContaining({ status: 'building' }),
+    );
+
+    resolveBuild(['next']);
+    await building;
+
+    expect(service.getActiveData(CACHE_IDENTIFIERS.FLOW)).toEqual(['next']);
+  });
+
+  it('stores a cloned snapshot so builder mutations do not leak before activation', async () => {
+    const service = new RuntimeRegistryService();
+    const cache = new Map<string, any>([
+      [
+        'posts',
+        {
+          name: 'posts',
+          columns: [{ name: 'title' }],
+        },
+      ],
+    ]);
+
+    await service.publishFromCache(CACHE_IDENTIFIERS.METADATA, {
+      getCacheAsync: vi.fn(async () => cache),
+    });
+
+    cache.get('posts').columns.push({ name: 'draft' });
+    cache.set('comments', { name: 'comments', columns: [] });
+
+    const active = service.getActiveData<Map<string, any>>(
+      CACHE_IDENTIFIERS.METADATA,
+    );
+    expect(active?.has('comments')).toBe(false);
+    expect(active?.get('posts').columns).toEqual([{ name: 'title' }]);
+  });
 });

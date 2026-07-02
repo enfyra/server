@@ -1,32 +1,13 @@
-import { Logger } from '../../../shared/logger';
 import { ObjectId } from 'mongodb';
-import { QueryBuilderService } from '@enfyra/kernel';
 import {
-  type MongoPhysicalMigrationService,
-  MongoSchemaMigrationService,
-  MongoService,
-  MongoSchemaMigrationLockService,
-} from '../../../engines/mongo';
-import { MetadataCacheService } from '../../../engines/cache';
-import {
-  LoggingService,
   DatabaseException,
   DuplicateResourceException,
-  ResourceNotFoundException,
   ValidationException,
 } from '../../../domain/exceptions';
-import {
-  PolicyService,
-  isPolicyDeny,
-  isPolicyPreview,
-} from '../../../domain/policy';
+import { isPolicyDeny } from '../../../domain/policy';
 import { TDynamicContext } from '../../../shared/types';
-import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
-import { DatabaseConfigService } from '../../../shared/services';
-import { getDeletedIds } from '../utils/get-deleted-ids';
 import { TCreateTableBody } from '../types/table-handler.types';
-import { TableManagementValidationService } from './table-validation.service';
-import { MongoMetadataSnapshotService } from './mongo-metadata-snapshot.service';
+import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
 import {
   MONGO_PRIMARY_KEY_TYPE,
   isMongoPrimaryKeyType,
@@ -34,12 +15,12 @@ import {
 } from '../utils/mongo-primary-key.util';
 import { getRelationMappedByProperty } from '../utils/relation-target-id.util';
 import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
-import { ensureMongoTableRouteArtifacts } from './table-route-artifacts.service';
+import { MongoTableHandlerService } from './mongo-table-handler-base.service';
 import {
   ensureMongoSingleRecord,
   syncMongoGqlDefinition,
 } from './table-post-migration.service';
-import { MongoTableHandlerService } from './mongo-table-handler-base.service';
+import { ensureMongoTableRouteArtifacts } from './table-route-artifacts.service';
 
 export class MongoTableCreateService extends MongoTableHandlerService {
   async createTable(body: TCreateTableBody, context?: TDynamicContext) {

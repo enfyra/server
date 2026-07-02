@@ -17,6 +17,7 @@ import { OAuthConfigCacheService } from './oauth-config-cache.service';
 import { FolderTreeCacheService } from './folder-tree-cache.service';
 import { FieldPermissionCacheService } from './field-permission-cache.service';
 import { ColumnRuleCacheService } from './column-rule-cache.service';
+import { GqlDefinitionCacheService } from './gql-definition-cache.service';
 import { RepoRegistryService } from './repo-registry.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import {
@@ -149,6 +150,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   private readonly folderTreeCacheService: FolderTreeCacheService;
   private readonly fieldPermissionCacheService: FieldPermissionCacheService;
   private readonly columnRuleCacheService: ColumnRuleCacheService;
+  private readonly gqlDefinitionCacheService: GqlDefinitionCacheService;
   private readonly repoRegistryService: RepoRegistryService;
   private readonly runtimeRegistryService?: RuntimeRegistryService;
   private readonly graphqlService: GraphqlService;
@@ -185,6 +187,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     folderTreeCacheService: FolderTreeCacheService;
     fieldPermissionCacheService: FieldPermissionCacheService;
     columnRuleCacheService: ColumnRuleCacheService;
+    gqlDefinitionCacheService: GqlDefinitionCacheService;
     repoRegistryService: RepoRegistryService;
     runtimeRegistryService?: RuntimeRegistryService;
     graphqlService: GraphqlService;
@@ -208,6 +211,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     this.folderTreeCacheService = deps.folderTreeCacheService;
     this.fieldPermissionCacheService = deps.fieldPermissionCacheService;
     this.columnRuleCacheService = deps.columnRuleCacheService;
+    this.gqlDefinitionCacheService = deps.gqlDefinitionCacheService;
     this.repoRegistryService = deps.repoRegistryService;
     this.runtimeRegistryService = deps.runtimeRegistryService;
     this.graphqlService = deps.graphqlService;
@@ -451,7 +455,7 @@ export class CacheOrchestratorService implements LifecycleAware {
         }
 
         const middleSteps = chain.filter(
-          (s) => s !== 'metadata' && s !== 'graphql',
+          (s) => s !== 'metadata' && s !== 'graphql' && s !== 'settingGraphql',
         );
         if (middleSteps.length > 0) {
           const s = Date.now();
@@ -464,6 +468,13 @@ export class CacheOrchestratorService implements LifecycleAware {
             }),
           );
           stepTimings.push(`[${middleSteps.join('+')}]:${Date.now() - s}ms`);
+        }
+
+        if (chain.includes('settingGraphql')) {
+          const durationMs = await runStep('settingGraphql', () =>
+            this.stepMap['settingGraphql'](payload, { sharedReplay }),
+          );
+          stepTimings.push(`settingGraphql:${durationMs}ms`);
         }
 
         if (chain.includes('graphql')) {
@@ -714,6 +725,12 @@ export class CacheOrchestratorService implements LifecycleAware {
           identifier: CACHE_IDENTIFIERS.FOLDER_TREE,
           service: this
             .folderTreeCacheService as unknown as RuntimeCacheViewSource,
+        };
+      case 'graphql':
+        return {
+          identifier: CACHE_IDENTIFIERS.GRAPHQL,
+          service: this
+            .gqlDefinitionCacheService as unknown as RuntimeCacheViewSource,
         };
       case 'fieldPermission':
         return {
