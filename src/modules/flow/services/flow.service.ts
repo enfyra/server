@@ -1,6 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { Queue } from 'bullmq';
-import { FlowCacheService, RepoRegistryService } from '../../../engines/cache';
+import { RepoRegistryService } from '../../../engines/cache';
 import { FlowJobData } from '../../../shared/types/flow.types';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { ExecutorEngineService } from '@enfyra/kernel';
@@ -10,7 +10,12 @@ import {
 } from '../utils/step-executor.util';
 import { SocketEmitCapture } from '../../websocket';
 import { DynamicContextFactory } from '../../../shared/services';
-import type { FlowDefinition, FlowStep } from '../../../shared/types/flow.types';
+import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
+import type {
+  FlowDefinition,
+  FlowStep,
+} from '../../../shared/types/flow.types';
 
 interface FlowStepTestInput {
   id?: number | string;
@@ -29,20 +34,20 @@ interface FlowStepTestInput {
 export class FlowService {
   private readonly logger = new Logger(FlowService.name);
   private readonly flowQueue: Queue;
-  private readonly flowCacheService: FlowCacheService;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly executorEngineService: ExecutorEngineService;
   private readonly repoRegistryService: RepoRegistryService;
   private readonly dynamicContextFactory: DynamicContextFactory;
 
   constructor(deps: {
     flowQueue: Queue;
-    flowCacheService: FlowCacheService;
+    runtimeRegistryService: RuntimeRegistryService;
     executorEngineService: ExecutorEngineService;
     repoRegistryService: RepoRegistryService;
     dynamicContextFactory: DynamicContextFactory;
   }) {
     this.flowQueue = deps.flowQueue;
-    this.flowCacheService = deps.flowCacheService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.executorEngineService = deps.executorEngineService;
     this.repoRegistryService = deps.repoRegistryService;
     this.dynamicContextFactory = deps.dynamicContextFactory;
@@ -58,11 +63,9 @@ export class FlowService {
       typeof flowIdOrName === 'number' ||
       /^\d+$/.test(asString) ||
       /^[a-f0-9]{24}$/i.test(asString);
-    let flow = looksLikeId
-      ? await this.flowCacheService.getFlowById(flowIdOrName)
-      : null;
+    let flow = looksLikeId ? this.getFlowById(flowIdOrName) : null;
     if (!flow) {
-      flow = await this.flowCacheService.getFlowByName(asString);
+      flow = this.getFlowByName(asString);
     }
 
     if (!flow) {
@@ -212,18 +215,17 @@ export class FlowService {
 
     let flows: FlowDefinition[] = [];
     if (flowId !== undefined && flowId !== null) {
-      const flow = await this.flowCacheService.getFlowById(flowId);
+      const flow = this.getFlowById(flowId);
       if (flow) flows = [flow];
     } else if (flowName) {
-      const flow = await this.flowCacheService.getFlowByName(flowName);
+      const flow = this.getFlowByName(flowName);
       if (flow) flows = [flow];
     } else if (
       stepId !== undefined ||
       step.key ||
       this.getStepSourceCode(step)
     ) {
-      if (typeof this.flowCacheService.getFlows !== 'function') return null;
-      flows = await this.flowCacheService.getFlows();
+      flows = this.getFlows();
     }
 
     for (const flow of flows) {
@@ -257,6 +259,26 @@ export class FlowService {
     }
 
     return null;
+  }
+
+  private getFlows(): FlowDefinition[] {
+    return this.runtimeRegistryService.requireActiveData<FlowDefinition[]>(
+      CACHE_IDENTIFIERS.FLOW,
+    );
+  }
+
+  private getFlowById(id: number | string): FlowDefinition | null {
+    const idStr = String(id);
+    return (
+      this.getFlows().find(
+        (flow) =>
+          flow.id === id || flow.id === Number(id) || String(flow.id) === idStr,
+      ) || null
+    );
+  }
+
+  private getFlowByName(name: string): FlowDefinition | null {
+    return this.getFlows().find((flow) => flow.name === name) || null;
   }
 
   private isMatchingTestStep(
