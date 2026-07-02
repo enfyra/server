@@ -99,6 +99,20 @@ export class RuntimeRegistryService {
     };
   }
 
+  getActiveData<T = unknown>(
+    identifier: RuntimeCacheIdentifier,
+  ): T | undefined {
+    return this.getSnapshot<T>(identifier)?.data;
+  }
+
+  requireActiveData<T = unknown>(identifier: RuntimeCacheIdentifier): T {
+    const data = this.getActiveData<T>(identifier);
+    if (data === undefined) {
+      throw new Error(`Runtime cache ${identifier} is not activated`);
+    }
+    return data;
+  }
+
   getEntry(
     identifier: RuntimeCacheIdentifier,
   ): RuntimeRegistryEntry | undefined {

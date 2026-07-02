@@ -7,7 +7,7 @@ import {
   ExecutorEngineService,
   type IsolatedExecutorService,
 } from '@enfyra/kernel';
-import { RepoRegistryService, FlowCacheService } from '../../../engines/cache';
+import { RepoRegistryService } from '../../../engines/cache';
 import {
   getErrorMessage,
   getErrorStack,
@@ -30,6 +30,8 @@ import {
   RuntimeMetricsCollectorService,
 } from '../../../shared/services';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
+import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 
 export type { FlowJobData } from '../../../shared/types/flow.types';
 
@@ -60,7 +62,7 @@ export class FlowExecutionQueueService {
   private readonly logger = new Logger(FlowExecutionQueueService.name);
   private readonly executorEngineService: ExecutorEngineService;
   private readonly repoRegistryService: RepoRegistryService;
-  private readonly flowCacheService: FlowCacheService;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly queryBuilderService: QueryBuilderService;
   private readonly websocketEmitService: WebsocketEmitService;
   private readonly dynamicContextFactory: DynamicContextFactory;
@@ -81,7 +83,7 @@ export class FlowExecutionQueueService {
   constructor(deps: {
     executorEngineService: ExecutorEngineService;
     repoRegistryService: RepoRegistryService;
-    flowCacheService: FlowCacheService;
+    runtimeRegistryService: RuntimeRegistryService;
     queryBuilderService: QueryBuilderService;
     websocketEmitService: WebsocketEmitService;
     dynamicContextFactory: DynamicContextFactory;
@@ -92,7 +94,7 @@ export class FlowExecutionQueueService {
   }) {
     this.executorEngineService = deps.executorEngineService;
     this.repoRegistryService = deps.repoRegistryService;
-    this.flowCacheService = deps.flowCacheService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.queryBuilderService = deps.queryBuilderService;
     this.websocketEmitService = deps.websocketEmitService;
     this.dynamicContextFactory = deps.dynamicContextFactory;
@@ -329,19 +331,10 @@ export class FlowExecutionQueueService {
       );
     }
 
-    const resolveFlow = async (): Promise<FlowDefinition | null> => {
-      return flowName
-        ? await this.flowCacheService.getFlowByName(flowName)
-        : await this.flowCacheService.getFlowById(flowId);
-    };
-
     const resolveStarted = Date.now();
-    let flow = await resolveFlow();
-
-    if (!flow) {
-      await this.flowCacheService.reload();
-      flow = await resolveFlow();
-    }
+    const flow = flowName
+      ? this.getFlowByName(flowName)
+      : this.getFlowById(flowId);
     const resolveFlowMs = Date.now() - resolveStarted;
 
     if (!flow) {
@@ -612,16 +605,13 @@ export class FlowExecutionQueueService {
         return;
       }
 
-      await (this.queryBuilderService as any).insert(
-        'enfyra_flow_execution',
-        {
-          flow: flow.id,
-          status: finalState.status,
-          triggeredBy: triggeredBy?.id || null,
-          payload: payload || {},
-          ...finalState,
-        },
-      );
+      await (this.queryBuilderService as any).insert('enfyra_flow_execution', {
+        flow: flow.id,
+        status: finalState.status,
+        triggeredBy: triggeredBy?.id || null,
+        payload: payload || {},
+        ...finalState,
+      });
     } catch (error: any) {
       this.logger.error(
         `Flow execution history finalize failed for ${flow.name}: ${getErrorMessage(error)}`,
@@ -693,8 +683,8 @@ export class FlowExecutionQueueService {
     ) => {
       const targetFlow =
         typeof flowIdOrName === 'number' || /^\d+$/.test(String(flowIdOrName))
-          ? await this.flowCacheService.getFlowById(flowIdOrName)
-          : await this.flowCacheService.getFlowByName(String(flowIdOrName));
+          ? this.getFlowById(flowIdOrName)
+          : this.getFlowByName(String(flowIdOrName));
       if (!targetFlow) throw new Error(`Flow "${flowIdOrName}" not found`);
       const sourceStepKey = (ctx as any).$flow?.$meta?.currentStep;
       await this.flowQueue.add(`flow:${targetFlow.name}`, {
@@ -940,8 +930,8 @@ export class FlowExecutionQueueService {
 
     if (step.type === 'trigger_flow') {
       const targetFlow =
-        (await this.flowCacheService.getFlowById((config as any).flowId)) ||
-        (await this.flowCacheService.getFlowByName((config as any).flowName));
+        this.getFlowById((config as any).flowId) ||
+        this.getFlowByName((config as any).flowName);
       if (!targetFlow)
         throw new Error(
           `Target flow ${(config as any).flowId || (config as any).flowName} not found`,
@@ -973,5 +963,31 @@ export class FlowExecutionQueueService {
       ctx,
       executorEngineService: this.executorEngineService,
     });
+  }
+
+  private getFlows(): FlowDefinition[] {
+    return this.runtimeRegistryService.requireActiveData<FlowDefinition[]>(
+      CACHE_IDENTIFIERS.FLOW,
+    );
+  }
+
+  private getFlowById(
+    id: number | string | undefined | null,
+  ): FlowDefinition | null {
+    if (id === undefined || id === null || id === '') return null;
+    const idStr = String(id);
+    return (
+      this.getFlows().find(
+        (flow) =>
+          flow.id === id || flow.id === Number(id) || String(flow.id) === idStr,
+      ) || null
+    );
+  }
+
+  private getFlowByName(
+    name: string | undefined | null,
+  ): FlowDefinition | null {
+    if (!name) return null;
+    return this.getFlows().find((flow) => flow.name === name) || null;
   }
 }

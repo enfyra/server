@@ -3,6 +3,7 @@ import { FlowExecutionQueueService, FlowService } from '../../src/modules/flow';
 import { transformTemplateSyntax as transformCode } from '../../src/shared/utils/template-syntax.util';
 import { WebsocketContextFactory } from '../../src/modules/websocket';
 import { DynamicContextFactory } from '../../src/shared/services';
+import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants';
 
 class InlineExecutor {
   async run(code: string, ctx: any) {
@@ -25,6 +26,19 @@ class MockRepoRegistry {
   createReposProxy() {
     return {};
   }
+}
+
+function runtimeRegistryWithFlows(flows: any[] = []) {
+  return {
+    getActiveData: (identifier: string) =>
+      identifier === CACHE_IDENTIFIERS.FLOW ? flows : undefined,
+    requireActiveData: (identifier: string) => {
+      if (identifier !== CACHE_IDENTIFIERS.FLOW) {
+        throw new Error(`unexpected identifier ${identifier}`);
+      }
+      return flows;
+    },
+  };
 }
 
 function createDynamicContextFactory(dynamicWebSocketGateway: any) {
@@ -59,7 +73,7 @@ describe('flow step socket context', () => {
     const service = new FlowExecutionQueueService({
       executorEngineService: new InlineExecutor() as any,
       repoRegistryService: new MockRepoRegistry() as any,
-      flowCacheService: {} as any,
+      runtimeRegistryService: runtimeRegistryWithFlows() as any,
       queryBuilderService: { update: async () => undefined } as any,
       websocketEmitService: {} as any,
       dynamicContextFactory,
@@ -101,14 +115,17 @@ describe('flow step socket context', () => {
     expect(result.context.notify).toEqual({ roomSize: 3 });
     expect(emitted).toEqual([
       { method: 'emitToUser', args: [7, 'order:paid', { id: 42 }] },
-      { method: 'emitToRoom', args: ['/admin', 'admins', 'order:paid', { id: 42 }] },
+      {
+        method: 'emitToRoom',
+        args: ['/admin', 'admins', 'order:paid', { id: 42 }],
+      },
     ]);
   });
 
   it('captures @SOCKET emits in flow step test mode', async () => {
     const service = new FlowService({
       flowQueue: {} as any,
-      flowCacheService: {} as any,
+      runtimeRegistryService: runtimeRegistryWithFlows() as any,
       executorEngineService: {
         run: (code: string, ctx: any) => new InlineExecutor().run(code, ctx),
       } as any,
@@ -136,7 +153,7 @@ describe('flow step socket context', () => {
   it('returns console logs from flow step test mode', async () => {
     const service = new FlowService({
       flowQueue: {} as any,
-      flowCacheService: {} as any,
+      runtimeRegistryService: runtimeRegistryWithFlows() as any,
       executorEngineService: {
         run: (code: string, ctx: any) => new InlineExecutor().run(code, ctx),
       } as any,
@@ -159,51 +176,95 @@ describe('flow step socket context', () => {
     expect(result.logs).toEqual(['visible-log', { ok: true }]);
   });
 
-  it('primes @FLOW_LAST from previous live flow steps in test mode', async () => {
+  it('triggers flows from the active registry view', async () => {
+    const addedJobs: any[] = [];
     const service = new FlowService({
-      flowQueue: {} as any,
-      flowCacheService: {
-        getFlows: async () => [
+      flowQueue: {
+        add: async (name: string, data: any, opts: any) => {
+          addedJobs.push({ name, data, opts });
+          return { id: 'job-1' };
+        },
+      } as any,
+      runtimeRegistryService: runtimeRegistryWithFlows([
+        {
+          id: 9,
+          name: 'notify-admin',
+          triggerType: 'manual',
+          isEnabled: true,
+          steps: [],
+        },
+      ]) as any,
+      executorEngineService: {
+        run: (code: string, ctx: any) => new InlineExecutor().run(code, ctx),
+      } as any,
+      repoRegistryService: new MockRepoRegistry() as any,
+      dynamicContextFactory: createDynamicContextFactory({}),
+    });
+
+    const result = await service.trigger(
+      'notify-admin',
+      { ok: true },
+      { id: 1 },
+    );
+
+    expect(result).toEqual({ jobId: 'job-1', flowId: 9 });
+    expect(addedJobs[0]).toEqual(
+      expect.objectContaining({
+        name: 'flow:notify-admin',
+        data: expect.objectContaining({
+          flowId: 9,
+          flowName: 'notify-admin',
+          payload: { ok: true },
+          triggeredBy: { id: 1 },
+        }),
+      }),
+    );
+  });
+
+  it('primes @FLOW_LAST from previous live flow steps in test mode', async () => {
+    const flows = [
+      {
+        id: 1,
+        name: 'send-mail',
+        triggerType: 'manual',
+        isEnabled: true,
+        steps: [
           {
-            id: 1,
-            name: 'send-mail',
-            triggerType: 'manual',
+            id: 11,
+            key: 'get_mail_config',
+            stepOrder: 1,
+            type: 'condition',
+            config: {
+              sourceCode: "return { mailUser: 'sender@test.com' };",
+              scriptLanguage: 'typescript',
+            },
+            timeout: 5000,
+            onError: 'stop',
+            retryAttempts: 0,
             isEnabled: true,
-            steps: [
-              {
-                id: 11,
-                key: 'get_mail_config',
-                stepOrder: 1,
-                type: 'condition',
-                config: {
-                  sourceCode: "return { mailUser: 'sender@test.com' };",
-                  scriptLanguage: 'typescript',
-                },
-                timeout: 5000,
-                onError: 'stop',
-                retryAttempts: 0,
-                isEnabled: true,
-              },
-              {
-                id: 12,
-                key: 'send_mail',
-                stepOrder: 1,
-                type: 'script',
-                config: {
-                  sourceCode: 'return @FLOW_LAST;',
-                  scriptLanguage: 'typescript',
-                },
-                timeout: 5000,
-                onError: 'stop',
-                retryAttempts: 0,
-                isEnabled: true,
-                parentId: 11,
-                branch: 'true',
-              },
-            ],
+          },
+          {
+            id: 12,
+            key: 'send_mail',
+            stepOrder: 1,
+            type: 'script',
+            config: {
+              sourceCode: 'return @FLOW_LAST;',
+              scriptLanguage: 'typescript',
+            },
+            timeout: 5000,
+            onError: 'stop',
+            retryAttempts: 0,
+            isEnabled: true,
+            parentId: 11,
+            branch: 'true',
           },
         ],
-      } as any,
+      },
+    ];
+    const service = new FlowService({
+      flowQueue: {} as any,
+      runtimeRegistryService: runtimeRegistryWithFlows(flows) as any,
       executorEngineService: {
         run: (code: string, ctx: any) => new InlineExecutor().run(code, ctx),
       } as any,

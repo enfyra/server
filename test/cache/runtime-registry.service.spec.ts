@@ -31,6 +31,20 @@ describe('RuntimeRegistryService', () => {
     expect(service.getSnapshot(CACHE_IDENTIFIERS.FLOW)?.data).toEqual([
       { id: 2, name: 'after-reload' },
     ]);
+    expect(service.getActiveData(CACHE_IDENTIFIERS.FLOW)).toEqual([
+      { id: 2, name: 'after-reload' },
+    ]);
+    expect(service.requireActiveData(CACHE_IDENTIFIERS.FLOW)).toEqual([
+      { id: 2, name: 'after-reload' },
+    ]);
+  });
+
+  it('fails clearly when active data is required before activation', () => {
+    const service = new RuntimeRegistryService();
+
+    expect(() => service.requireActiveData(CACHE_IDENTIFIERS.FLOW)).toThrow(
+      'Runtime cache flow is not activated',
+    );
   });
 
   it('publishes metadata caches through the metadata active-view API', async () => {
