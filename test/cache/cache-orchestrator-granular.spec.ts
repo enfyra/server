@@ -1,56 +1,11 @@
-describe('CacheOrchestratorService — RELOAD_CHAINS + multi-instance', () => {
-  const RELOAD_CHAINS: Record<string, string[]> = {
-    enfyra_table: [
-      'metadata',
-      'repoRegistry',
-      'route',
-      'graphql',
-      'fieldPermission',
-    ],
-    enfyra_column: [
-      'metadata',
-      'repoRegistry',
-      'route',
-      'graphql',
-      'fieldPermission',
-    ],
-    enfyra_relation: [
-      'metadata',
-      'repoRegistry',
-      'route',
-      'graphql',
-      'fieldPermission',
-    ],
-    enfyra_route: ['route', 'graphql', 'guard'],
-    enfyra_pre_hook: ['route'],
-    enfyra_post_hook: ['route'],
-    enfyra_route_handler: ['route'],
-    enfyra_route_permission: ['route'],
-    enfyra_role: ['route'],
-    enfyra_method: ['route', 'graphql'],
-    enfyra_guard: ['guard'],
-    enfyra_guard_rule: ['guard'],
-    enfyra_field_permission: ['fieldPermission'],
-    enfyra_setting: ['setting', 'settingGraphql'],
-    enfyra_storage_config: ['storage'],
-    enfyra_oauth_config: ['oauth'],
-    enfyra_websocket: ['websocket'],
-    enfyra_websocket_event: ['websocket'],
-    enfyra_package: ['package'],
-    enfyra_flow: ['flow'],
-    enfyra_flow_step: ['flow'],
-    enfyra_folder: ['folder'],
-    enfyra_bootstrap_script: ['bootstrap'],
-  };
+import { RELOAD_CHAINS } from '../../src/engines/cache/services/cache-orchestrator.service';
 
+describe('CacheOrchestratorService — RELOAD_CHAINS + multi-instance', () => {
   describe('RELOAD_CHAINS — dependency correctness', () => {
     it('table/column/relation changes should invalidate fieldPermission', () => {
-      for (const t of [
-        'enfyra_table',
-        'enfyra_column',
-        'enfyra_relation',
-      ]) {
+      for (const t of ['enfyra_table', 'enfyra_column', 'enfyra_relation']) {
         expect(RELOAD_CHAINS[t]).toContain('fieldPermission');
+        expect(RELOAD_CHAINS[t]).toContain('column-rule');
       }
     });
 
@@ -59,11 +14,7 @@ describe('CacheOrchestratorService — RELOAD_CHAINS + multi-instance', () => {
     });
 
     it('structural metadata changes should reload metadata → route → graphql', () => {
-      for (const t of [
-        'enfyra_table',
-        'enfyra_column',
-        'enfyra_relation',
-      ]) {
+      for (const t of ['enfyra_table', 'enfyra_column', 'enfyra_relation']) {
         const chain = RELOAD_CHAINS[t];
         expect(chain.indexOf('metadata')).toBeLessThan(chain.indexOf('route'));
         expect(chain.indexOf('route')).toBeLessThan(chain.indexOf('graphql'));
@@ -126,7 +77,7 @@ describe('CacheOrchestratorService — RELOAD_CHAINS + multi-instance', () => {
         await stepMap['metadata']();
       }
       const middleSteps = chain.filter(
-        (s) => s !== 'metadata' && s !== 'graphql',
+        (s) => s !== 'metadata' && s !== 'graphql' && s !== 'settingGraphql',
       );
       await Promise.all(middleSteps.map((s) => stepMap[s]?.()));
       if (chain.includes('graphql')) {
@@ -153,7 +104,9 @@ describe('CacheOrchestratorService — RELOAD_CHAINS + multi-instance', () => {
 
       const chain = RELOAD_CHAINS['enfyra_pre_hook'];
       if (chain.includes('metadata')) await stepMap['metadata']?.();
-      const middle = chain.filter((s) => s !== 'metadata' && s !== 'graphql');
+      const middle = chain.filter(
+        (s) => s !== 'metadata' && s !== 'graphql' && s !== 'settingGraphql',
+      );
       await Promise.all(middle.map((s) => stepMap[s]?.()));
       if (chain.includes('graphql')) await stepMap['graphql']?.();
 
@@ -245,23 +198,19 @@ describe('CacheOrchestratorService — RELOAD_CHAINS + multi-instance', () => {
   });
 
   describe('mergePayload — cross-table merge picks longer chain', () => {
-    it('should pick enfyra_table over enfyra_route (4 > 3)', () => {
+    it('should pick enfyra_table over enfyra_route', () => {
       const chainA = RELOAD_CHAINS['enfyra_table'];
       const chainB = RELOAD_CHAINS['enfyra_route'];
       const winner =
-        chainA.length >= chainB.length
-          ? 'enfyra_table'
-          : 'enfyra_route';
+        chainA.length >= chainB.length ? 'enfyra_table' : 'enfyra_route';
       expect(winner).toBe('enfyra_table');
     });
 
-    it('should pick enfyra_column over enfyra_pre_hook (5 > 1)', () => {
+    it('should pick enfyra_column over enfyra_pre_hook', () => {
       const chainA = RELOAD_CHAINS['enfyra_column'];
       const chainB = RELOAD_CHAINS['enfyra_pre_hook'];
       const winner =
-        chainA.length >= chainB.length
-          ? 'enfyra_column'
-          : 'enfyra_pre_hook';
+        chainA.length >= chainB.length ? 'enfyra_column' : 'enfyra_pre_hook';
       expect(winner).toBe('enfyra_column');
     });
   });

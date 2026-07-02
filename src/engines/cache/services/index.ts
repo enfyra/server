@@ -19,6 +19,7 @@ export * from './redis-runtime-cache-store.service';
 export * from './repo-registry.service';
 export * from './route-cache.service';
 export * from './runtime-registry.service';
+export * from './runtime-script-repair.service';
 export * from './setting-cache.service';
 export * from './storage-config-cache.service';
 export * from './user-cache.service';

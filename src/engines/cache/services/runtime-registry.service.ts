@@ -25,6 +25,10 @@ export class RuntimeRegistryService {
     RuntimeCacheIdentifier,
     RuntimeRegistryEntry
   >();
+  private readonly publishStates = new Map<
+    RuntimeCacheIdentifier,
+    RuntimeRegistryEntry
+  >();
   private initialized = false;
 
   constructor(deps: { eventEmitter?: EventEmitter2; lazyRef?: unknown } = {}) {
@@ -41,7 +45,7 @@ export class RuntimeRegistryService {
     service: RuntimeCacheViewSource,
   ): Promise<RuntimeRegistrySnapshot> {
     const nextVersion = (this.entries.get(identifier)?.version ?? 0) + 1;
-    this.entries.set(identifier, {
+    this.publishStates.set(identifier, {
       identifier,
       version: nextVersion,
       status: 'building',
@@ -57,24 +61,31 @@ export class RuntimeRegistryService {
       if (data === undefined) {
         throw new Error(`Cache ${identifier} did not return active data`);
       }
+      const snapshotData = this.cloneRuntimeData(data);
       const activatedAt = new Date().toISOString();
       const entry: RuntimeRegistryEntry = {
         identifier,
         version: nextVersion,
         status: 'activated',
         activatedAt,
-        data,
+        data: snapshotData,
       };
       this.entries.set(identifier, entry);
+      this.publishStates.set(identifier, entry);
       this.eventEmitter?.emit(CACHE_EVENTS.RUNTIME_CACHE_ACTIVATED, {
         identifier,
         version: nextVersion,
         activatedAt,
       });
-      return { identifier, version: nextVersion, activatedAt, data };
+      return {
+        identifier,
+        version: nextVersion,
+        activatedAt,
+        data: snapshotData,
+      };
     } catch (error) {
       const message = getErrorMessage(error);
-      this.entries.set(identifier, {
+      this.publishStates.set(identifier, {
         identifier,
         version: nextVersion,
         status: 'failed',
@@ -156,7 +167,60 @@ export class RuntimeRegistryService {
   getEntry(
     identifier: RuntimeCacheIdentifier,
   ): RuntimeRegistryEntry | undefined {
-    const entry = this.entries.get(identifier);
+    const entry =
+      this.publishStates.get(identifier) ?? this.entries.get(identifier);
     return entry ? { ...entry } : undefined;
+  }
+
+  private cloneRuntimeData<T>(data: T): T {
+    try {
+      return structuredClone(data);
+    } catch {
+      return this.cloneValue(data, new WeakMap()) as T;
+    }
+  }
+
+  private cloneValue(value: unknown, seen: WeakMap<object, unknown>): unknown {
+    if (value === null || typeof value !== 'object') return value;
+    const existing = seen.get(value);
+    if (existing) return existing;
+
+    if (value instanceof Date) {
+      return new Date(value.getTime());
+    }
+
+    if (value instanceof Map) {
+      const clone = new Map();
+      seen.set(value, clone);
+      for (const [key, item] of value.entries()) {
+        clone.set(this.cloneValue(key, seen), this.cloneValue(item, seen));
+      }
+      return clone;
+    }
+
+    if (value instanceof Set) {
+      const clone = new Set();
+      seen.set(value, clone);
+      for (const item of value.values()) {
+        clone.add(this.cloneValue(item, seen));
+      }
+      return clone;
+    }
+
+    if (Array.isArray(value)) {
+      const clone: unknown[] = [];
+      seen.set(value, clone);
+      for (const item of value) {
+        clone.push(this.cloneValue(item, seen));
+      }
+      return clone;
+    }
+
+    const clone: Record<string, unknown> = {};
+    seen.set(value, clone);
+    for (const [key, item] of Object.entries(value)) {
+      clone[key] = this.cloneValue(item, seen);
+    }
+    return clone;
   }
 }

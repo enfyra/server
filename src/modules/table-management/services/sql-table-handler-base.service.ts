@@ -1,44 +1,26 @@
-import { Logger } from '../../../shared/logger';
-import type { Knex } from 'knex';
-import { getIoAbortSignal } from '@enfyra/kernel';
 import { QueryBuilderService, getForeignKeyColumnName } from '@enfyra/kernel';
 import {
-  SqlSchemaMigrationService,
-  SchemaMigrationLockService,
-} from '../../../engines/knex';
+  LoggingService,
+  ValidationException,
+} from '../../../domain/exceptions';
+import { PolicyService } from '../../../domain/policy';
 import {
   MetadataCacheService,
   RuntimeRegistryService,
 } from '../../../engines/cache';
 import {
-  LoggingService,
-  DatabaseException,
-  DuplicateResourceException,
-  ResourceNotFoundException,
-  ValidationException,
-} from '../../../domain/exceptions';
-import {
-  PolicyService,
-  isPolicyDeny,
-  isPolicyPreview,
-} from '../../../domain/policy';
-import { TDynamicContext } from '../../../shared/types';
-import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
-import { TCreateTableBody } from '../types/table-handler.types';
+  SchemaMigrationLockService,
+  SqlSchemaMigrationService,
+} from '../../../engines/knex';
+import { Logger } from '../../../shared/logger';
 import {
   getRelationTargetTableId,
   relationTargetTableMapKey,
 } from '../utils/relation-target-id.util';
-import { TableManagementValidationService } from './table-validation.service';
+import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
 import { SqlTableMetadataBuilderService } from './sql-table-metadata-builder.service';
 import { SqlTableMetadataWriterService } from './sql-table-metadata-writer.service';
-import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
-import { ensureSqlTableRouteArtifacts } from './table-route-artifacts.service';
-import {
-  ensureSqlM2mJunctionTables,
-  ensureSqlSingleRecord,
-  syncSqlGqlDefinition,
-} from './table-post-migration.service';
+import { TableManagementValidationService } from './table-validation.service';
 
 export class SqlTableHandlerService {
   protected logger = new Logger(SqlTableHandlerService.name);

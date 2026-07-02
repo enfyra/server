@@ -9,9 +9,9 @@ import { useDepthLimit } from '@envelop/depth-limit';
 import { Logger } from '../../../shared/logger';
 import { EventEmitter2 } from 'eventemitter2';
 import {
-  RouteCacheService,
   SettingCacheService,
   GqlDefinitionCacheService,
+  MetadataCacheService,
 } from '../../../engines/cache';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { DynamicResolver } from '../resolvers/dynamic.resolver';
@@ -26,7 +26,6 @@ import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { EnvService } from '../../../shared/services';
 import { logMemory } from '../../../shared/utils/memory-log.util';
-import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 
 const COLOR = '\x1b[95m';
 const RESET = '\x1b[0m';
@@ -42,30 +41,27 @@ export class GraphqlService {
 
   private pendingPayload: TCacheInvalidationPayload | null = null;
 
-  private readonly routeCacheService: RouteCacheService;
+  private readonly metadataCacheService: MetadataCacheService;
   private readonly settingCacheService: SettingCacheService;
   private readonly gqlDefinitionCacheService: GqlDefinitionCacheService;
   private readonly dynamicResolver: DynamicResolver;
   private readonly eventEmitter: EventEmitter2;
   private readonly envService: EnvService;
-  private readonly runtimeRegistryService: RuntimeRegistryService;
 
   constructor(deps: {
-    routeCacheService: RouteCacheService;
+    metadataCacheService: MetadataCacheService;
     settingCacheService: SettingCacheService;
     gqlDefinitionCacheService: GqlDefinitionCacheService;
     dynamicResolver: DynamicResolver;
     eventEmitter: EventEmitter2;
     envService: EnvService;
-    runtimeRegistryService: RuntimeRegistryService;
   }) {
-    this.routeCacheService = deps.routeCacheService;
+    this.metadataCacheService = deps.metadataCacheService;
     this.settingCacheService = deps.settingCacheService;
     this.gqlDefinitionCacheService = deps.gqlDefinitionCacheService;
     this.dynamicResolver = deps.dynamicResolver;
     this.eventEmitter = deps.eventEmitter;
     this.envService = deps.envService;
-    this.runtimeRegistryService = deps.runtimeRegistryService;
   }
 
   async reloadSchema(
@@ -95,7 +91,8 @@ export class GraphqlService {
         return;
       }
 
-      const enabledDefs = await this.gqlDefinitionCacheService.getAllEnabled();
+      const enabledDefs =
+        await this.gqlDefinitionCacheService.getAllEnabledFromCache();
       const newQueryableNames = new Set<string>();
       for (const def of enabledDefs) {
         newQueryableNames.add(def.tableName);
@@ -151,7 +148,7 @@ export class GraphqlService {
   }
 
   private async getActiveMetadata(): Promise<any> {
-    return this.runtimeRegistryService.requireMetadata();
+    return await this.metadataCacheService.getMetadata();
   }
 
   private getAffectedTables(
@@ -336,7 +333,7 @@ export class GraphqlService {
   async onSettingChanged() {
     if (!this.schema) return;
     const isProduction = this.envService.isProd;
-    const maxDepth = await this.settingCacheService.getMaxQueryDepth();
+    const maxDepth = await this.settingCacheService.getMaxQueryDepthFromCache();
     this.yogaApp = createYoga({
       schema: this.schema,
       graphqlEndpoint: '/graphql',

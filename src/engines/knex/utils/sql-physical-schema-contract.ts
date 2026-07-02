@@ -5,7 +5,6 @@ import {
 } from '@enfyra/kernel';
 import { createHash } from 'crypto';
 import type {
-  ColumnDef,
   JunctionTableDef,
   RelationDef,
   TableDef,
@@ -79,7 +78,9 @@ export function getSqlRelationForeignKeyColumn(relation: {
   propertyName: string;
   foreignKeyColumn?: string | null;
 }): string {
-  return relation.foreignKeyColumn || getForeignKeyColumnName(relation.propertyName);
+  return (
+    relation.foreignKeyColumn || getForeignKeyColumnName(relation.propertyName)
+  );
 }
 
 export function getSqlRelationReferencedColumn(relation: {
@@ -99,24 +100,22 @@ export function buildSqlForeignKeyContracts(
   tableName: string,
   relations: RelationLike[] = [],
 ): SqlForeignKeyContract[] {
-  return relations
-    .filter(isSqlForeignKeyRelation)
-    .map((relation) => {
-      const columnName = getSqlRelationForeignKeyColumn(relation);
-      return {
-        tableName,
-        propertyName: relation.propertyName,
-        columnName,
-        constraintName:
-          relation.constraintName ||
-          getShortFkConstraintName(tableName, columnName, 'src'),
-        targetTable: getSqlRelationTargetTable(relation),
-        targetColumn: getSqlRelationReferencedColumn(relation),
-        onDelete: resolveSqlRelationOnDelete(relation),
-        onUpdate: 'CASCADE',
-        nullable: relation.isNullable !== false,
-      };
-    });
+  return relations.filter(isSqlForeignKeyRelation).map((relation) => {
+    const columnName = getSqlRelationForeignKeyColumn(relation);
+    return {
+      tableName,
+      propertyName: relation.propertyName,
+      columnName,
+      constraintName:
+        relation.constraintName ||
+        getShortFkConstraintName(tableName, columnName, 'src'),
+      targetTable: getSqlRelationTargetTable(relation),
+      targetColumn: getSqlRelationReferencedColumn(relation),
+      onDelete: resolveSqlRelationOnDelete(relation),
+      onUpdate: 'CASCADE',
+      nullable: relation.isNullable !== false,
+    };
+  });
 }
 
 export function resolveSqlPhysicalColumns(
@@ -204,7 +203,10 @@ export function buildSqlIndexContracts(
   add(['updatedAt'], ['updatedAt'], 'system-timestamp');
 
   for (const col of table.columns || []) {
-    if (TEMPORAL_TYPES.has(col.type) && !['createdAt', 'updatedAt'].includes(col.name)) {
+    if (
+      TEMPORAL_TYPES.has(col.type) &&
+      !['createdAt', 'updatedAt'].includes(col.name)
+    ) {
       add([col.name], [col.name], 'temporal-column');
     }
   }
