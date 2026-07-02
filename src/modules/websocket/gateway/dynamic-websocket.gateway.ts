@@ -9,7 +9,6 @@ import { getErrorMessage } from '../../../shared/utils/error.util';
 import { CacheService, WebsocketCacheService } from '../../../engines/cache';
 import { BuiltInSocketRegistry } from '../services/built-in-socket.registry';
 import { EnvService } from '../../../shared/services';
-import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 import {
   ENFYRA_ADMIN_ROOT_WEBSOCKET_ROOM,
   ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
@@ -59,12 +58,11 @@ export class DynamicWebSocketGateway {
   private readonly cacheService: CacheService;
   private readonly redisAdminService: RedisAdminService;
   private readonly lazyRef: Cradle;
-  private eventEmitter: any;
 
   constructor(deps: {
     websocketCacheService: WebsocketCacheService;
     builtInSocketRegistry: BuiltInSocketRegistry;
-    eventEmitter: any;
+    eventEmitter?: any;
     envService: EnvService;
     queryBuilderService: QueryBuilderService;
     cacheService: CacheService;
@@ -78,7 +76,6 @@ export class DynamicWebSocketGateway {
     this.cacheService = deps.cacheService;
     this.redisAdminService = deps.redisAdminService;
     this.lazyRef = deps.lazyRef;
-    this.eventEmitter = deps.eventEmitter;
     this.roomFanoutChunkThreshold = this.readPositiveEnvNumber(
       'WS_ROOM_FANOUT_CHUNK_THRESHOLD',
       200,
@@ -95,18 +92,6 @@ export class DynamicWebSocketGateway {
       'WS_ROOM_FANOUT_BACKPRESSURE_THRESHOLD',
       1000,
     );
-    this.setupEventListeners();
-  }
-
-  private setupEventListeners() {
-    this.eventEmitter.on(`${CACHE_IDENTIFIERS.WEBSOCKET}_LOADED`, () => {
-      const reload = this.server
-        ? this.reloadGateways()
-        : this.registerGateways();
-      reload.catch((error) =>
-        this.logger.error('Failed to reload websocket gateways:', error),
-      );
-    });
   }
 
   private async setupRedisAdapter(server: Server) {
@@ -675,6 +660,14 @@ export class DynamicWebSocketGateway {
     this.logger.log(
       `Gateways reloaded. Total registered: ${this.registeredGateways.size}`,
     );
+  }
+
+  async refreshGateways() {
+    if (this.server) {
+      await this.reloadGateways();
+      return;
+    }
+    await this.registerGateways();
   }
 
   joinRoom(path: string, socketId: string, room: string) {

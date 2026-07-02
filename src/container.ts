@@ -123,11 +123,13 @@ import {
   OAuthConfigCacheService,
   PackageCacheService,
   PackageCdnLoaderService,
+  PackageRuntimeService,
   RateLimitService,
   RedisPubSubService,
   RedisRuntimeCacheStore,
   RepoRegistryService,
   RouteCacheService,
+  RuntimeRegistryService,
   SettingCacheService,
   StorageConfigCacheService,
   UserCacheService,
@@ -196,6 +198,7 @@ import {
 import {
   FlowExecutionQueueService,
   FlowQueueMaintenanceService,
+  FlowRuntimeService,
   FlowSchedulerService,
   FlowService,
 } from './modules/flow';
@@ -228,6 +231,7 @@ import {
   BuiltInSocketRegistry,
   WebsocketEmitService,
   WebsocketContextFactory,
+  WebsocketRuntimeService,
 } from './modules/websocket';
 
 import { CommonService } from './shared/common';
@@ -301,6 +305,7 @@ export interface Cradle {
   metadataCacheService: MetadataCacheService;
   routeCacheService: RouteCacheService;
   packageCacheService: PackageCacheService;
+  packageRuntimeService: PackageRuntimeService;
   storageConfigCacheService: StorageConfigCacheService;
   websocketCacheService: WebsocketCacheService;
   oauthConfigCacheService: OAuthConfigCacheService;
@@ -315,6 +320,7 @@ export interface Cradle {
   columnRuleCacheService: ColumnRuleCacheService;
   gqlDefinitionCacheService: GqlDefinitionCacheService;
   repoRegistryService: RepoRegistryService;
+  runtimeRegistryService: RuntimeRegistryService;
   dynamicRepositoryFactory: DynamicRepositoryFactory;
   cacheOrchestratorService: CacheOrchestratorService;
 
@@ -356,11 +362,13 @@ export interface Cradle {
 
   flowService: FlowService;
   flowQueueMaintenanceService: FlowQueueMaintenanceService;
+  flowRuntimeService: FlowRuntimeService;
   flowSchedulerService: FlowSchedulerService;
   flowExecutionQueueService: FlowExecutionQueueService;
   mongoPhysicalMigrationQueue: Queue;
 
   dynamicWebSocketGateway: DynamicWebSocketGateway;
+  websocketRuntimeService: WebsocketRuntimeService;
   builtInSocketRegistry: BuiltInSocketRegistry;
   websocketGatewayFactory: WebsocketGatewayFactory;
   connectionQueueService: ConnectionQueueService;
@@ -569,6 +577,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     metadataCacheService: asClass(MetadataCacheService).singleton(),
     routeCacheService: asClass(RouteCacheService).singleton(),
     packageCacheService: asClass(PackageCacheService).singleton(),
+    packageRuntimeService: asClass(PackageRuntimeService).singleton(),
     storageConfigCacheService: asClass(StorageConfigCacheService).singleton(),
     websocketCacheService: asClass(WebsocketCacheService).singleton(),
     oauthConfigCacheService: asClass(OAuthConfigCacheService).singleton(),
@@ -585,6 +594,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     columnRuleCacheService: asClass(ColumnRuleCacheService).singleton(),
     gqlDefinitionCacheService: asClass(GqlDefinitionCacheService).singleton(),
     repoRegistryService: asClass(RepoRegistryService).singleton(),
+    runtimeRegistryService: asClass(RuntimeRegistryService).singleton(),
     dynamicRepositoryFactory: asClass(DynamicRepositoryFactory).singleton(),
     cacheOrchestratorService: asClass(CacheOrchestratorService)
       .singleton()
@@ -662,6 +672,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     flowQueueMaintenanceService: asClass(
       FlowQueueMaintenanceService,
     ).singleton(),
+    flowRuntimeService: asClass(FlowRuntimeService).singleton(),
     flowSchedulerService: asClass(FlowSchedulerService).singleton(),
     flowExecutionQueueService: asClass(FlowExecutionQueueService)
       .singleton()
@@ -671,6 +682,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     dynamicWebSocketGateway: asClass(DynamicWebSocketGateway)
       .singleton()
       .disposer((service) => service.onDestroy()),
+    websocketRuntimeService: asClass(WebsocketRuntimeService).singleton(),
     websocketGatewayFactory: asClass(WebsocketGatewayFactory).singleton(),
     connectionQueueService: asClass(ConnectionQueueService)
       .singleton()
