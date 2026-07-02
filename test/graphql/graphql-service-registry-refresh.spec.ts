@@ -21,14 +21,10 @@ function metadata() {
 }
 
 describe('GraphqlService registry refresh', () => {
-  it('builds schema from freshly reloaded definition and metadata cache data', async () => {
-    const metadataCacheService = {
-      getMetadata: vi.fn(async () => metadata()),
-    };
-    const gqlDefinitionCacheService = {
-      reload: vi.fn(async () => undefined),
-      syncFromSharedCache: vi.fn(async () => undefined),
-      getAllEnabledFromCache: vi.fn(async () => [
+  it('builds schema from activated registry definition and metadata data', async () => {
+    const runtimeRegistryService = {
+      requireMetadata: vi.fn(() => metadata()),
+      getAllEnabledGraphqlDefinitions: vi.fn(() => [
         {
           id: 1,
           isEnabled: true,
@@ -38,16 +34,9 @@ describe('GraphqlService registry refresh', () => {
           tableName: 'posts',
         },
       ]),
-    };
-    const runtimeRegistryService = {
       getMaxQueryDepth: vi.fn(() => 10),
     };
     const service = new GraphqlService({
-      metadataCacheService: metadataCacheService as any,
-      settingCacheService: {
-        getMaxQueryDepthFromCache: vi.fn(async () => 10),
-      } as any,
-      gqlDefinitionCacheService: gqlDefinitionCacheService as any,
       runtimeRegistryService: runtimeRegistryService as any,
       dynamicResolver: {
         dynamicResolver: vi.fn(),
@@ -59,10 +48,11 @@ describe('GraphqlService registry refresh', () => {
 
     await service.reloadSchema();
 
-    expect(gqlDefinitionCacheService.reload).toHaveBeenCalled();
-    expect(gqlDefinitionCacheService.getAllEnabledFromCache).toHaveBeenCalled();
+    expect(runtimeRegistryService.requireMetadata).toHaveBeenCalled();
+    expect(
+      runtimeRegistryService.getAllEnabledGraphqlDefinitions,
+    ).toHaveBeenCalled();
     expect(runtimeRegistryService.getMaxQueryDepth).toHaveBeenCalled();
-    expect(metadataCacheService.getMetadata).toHaveBeenCalled();
     expect(service.getSchemaSdl()).toContain('type posts');
   });
 });

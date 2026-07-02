@@ -54,6 +54,15 @@ export class RuntimeRegistryService {
     identifier: RuntimeCacheIdentifier,
     service: RuntimeCacheViewSource,
   ): Promise<RuntimeRegistrySnapshot> {
+    const snapshot = await this.stageSnapshotFromCache(identifier, service);
+    this.activateSnapshots([snapshot]);
+    return snapshot;
+  }
+
+  async stageSnapshotFromCache(
+    identifier: RuntimeCacheIdentifier,
+    service: RuntimeCacheViewSource,
+  ): Promise<RuntimeRegistrySnapshot> {
     const nextVersion = (this.entries.get(identifier)?.version ?? 0) + 1;
     this.publishStates.set(identifier, {
       identifier,
@@ -73,20 +82,6 @@ export class RuntimeRegistryService {
       }
       const snapshotData = this.cloneRuntimeData(data);
       const activatedAt = new Date().toISOString();
-      const entry: RuntimeRegistryEntry = {
-        identifier,
-        version: nextVersion,
-        status: 'activated',
-        activatedAt,
-        data: snapshotData,
-      };
-      this.entries.set(identifier, entry);
-      this.publishStates.set(identifier, entry);
-      this.eventEmitter?.emit(CACHE_EVENTS.RUNTIME_CACHE_ACTIVATED, {
-        identifier,
-        version: nextVersion,
-        activatedAt,
-      });
       return {
         identifier,
         version: nextVersion,
@@ -106,6 +101,29 @@ export class RuntimeRegistryService {
         `Failed to publish runtime cache ${identifier}: ${message}`,
       );
       throw error;
+    }
+  }
+
+  activateSnapshots(snapshots: RuntimeRegistrySnapshot[]): void {
+    const activatedAt = new Date().toISOString();
+    for (const snapshot of snapshots) {
+      const entry: RuntimeRegistryEntry = {
+        identifier: snapshot.identifier,
+        version: snapshot.version,
+        status: 'activated',
+        activatedAt,
+        data: snapshot.data,
+      };
+      this.entries.set(snapshot.identifier, entry);
+      this.publishStates.set(snapshot.identifier, entry);
+    }
+
+    for (const snapshot of snapshots) {
+      this.eventEmitter?.emit(CACHE_EVENTS.RUNTIME_CACHE_ACTIVATED, {
+        identifier: snapshot.identifier,
+        version: snapshot.version,
+        activatedAt,
+      });
     }
   }
 
