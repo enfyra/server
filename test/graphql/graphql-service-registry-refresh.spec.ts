@@ -28,9 +28,6 @@ describe('GraphqlService registry refresh', () => {
     const gqlDefinitionCacheService = {
       reload: vi.fn(async () => undefined),
       syncFromSharedCache: vi.fn(async () => undefined),
-      getAllEnabled: vi.fn(async () => {
-        throw new Error('stale registry-backed definition read');
-      }),
       getAllEnabledFromCache: vi.fn(async () => [
         {
           id: 1,
@@ -42,12 +39,16 @@ describe('GraphqlService registry refresh', () => {
         },
       ]),
     };
+    const runtimeRegistryService = {
+      getMaxQueryDepth: vi.fn(() => 10),
+    };
     const service = new GraphqlService({
       metadataCacheService: metadataCacheService as any,
       settingCacheService: {
-        getMaxQueryDepth: vi.fn(async () => 10),
+        getMaxQueryDepthFromCache: vi.fn(async () => 10),
       } as any,
       gqlDefinitionCacheService: gqlDefinitionCacheService as any,
+      runtimeRegistryService: runtimeRegistryService as any,
       dynamicResolver: {
         dynamicResolver: vi.fn(),
         dynamicMutationResolver: vi.fn(),
@@ -60,7 +61,7 @@ describe('GraphqlService registry refresh', () => {
 
     expect(gqlDefinitionCacheService.reload).toHaveBeenCalled();
     expect(gqlDefinitionCacheService.getAllEnabledFromCache).toHaveBeenCalled();
-    expect(gqlDefinitionCacheService.getAllEnabled).not.toHaveBeenCalled();
+    expect(runtimeRegistryService.getMaxQueryDepth).toHaveBeenCalled();
     expect(metadataCacheService.getMetadata).toHaveBeenCalled();
     expect(service.getSchemaSdl()).toContain('type posts');
   });

@@ -6,27 +6,16 @@ import {
   CACHE_IDENTIFIERS,
   isMetadataTable,
 } from '../../../shared/utils/cache-events.constants';
-import { RuntimeRegistryService } from './runtime-registry.service';
-
-export interface TGqlDefinition {
-  id: number;
-  isEnabled: boolean;
-  isSystem: boolean;
-  description: string | null;
-  metadata: Record<string, any> | null;
-  tableName: string;
-}
+import type { TGqlDefinition } from '../types/cache-data.types';
 
 export class GqlDefinitionCacheService extends BaseCacheService<
   Map<string, TGqlDefinition>
 > {
   private readonly queryBuilderService: QueryBuilderService;
-  private readonly runtimeRegistryService?: RuntimeRegistryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter: EventEmitter2;
-    runtimeRegistryService?: RuntimeRegistryService;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     super(
@@ -39,7 +28,6 @@ export class GqlDefinitionCacheService extends BaseCacheService<
       deps.redisRuntimeCacheStore,
     );
     this.queryBuilderService = deps.queryBuilderService;
-    this.runtimeRegistryService = deps.runtimeRegistryService;
   }
 
   protected async loadFromDb(): Promise<any> {
@@ -80,23 +68,6 @@ export class GqlDefinitionCacheService extends BaseCacheService<
     return `${this.cache?.size ?? 0} definitions`;
   }
 
-  async isEnabledForTable(tableName: string): Promise<boolean> {
-    const cache = await this.getActiveDefinitions();
-    if (isMetadataTable(tableName)) return false;
-    const def = cache?.get(tableName);
-    return !!def?.isEnabled;
-  }
-
-  async getForTable(tableName: string): Promise<TGqlDefinition | undefined> {
-    const cache = await this.getActiveDefinitions();
-    return cache?.get(tableName);
-  }
-
-  async getAllEnabled(): Promise<TGqlDefinition[]> {
-    const cache = await this.getActiveDefinitions();
-    return this.filterEnabled(cache);
-  }
-
   async getAllEnabledFromCache(): Promise<TGqlDefinition[]> {
     const cache = await this.getCacheAsync();
     return this.filterEnabled(cache);
@@ -109,18 +80,5 @@ export class GqlDefinitionCacheService extends BaseCacheService<
     return Array.from(cache.values()).filter(
       (d) => d.isEnabled && !isMetadataTable(d.tableName),
     );
-  }
-
-  private async getActiveDefinitions(): Promise<Map<string, TGqlDefinition>> {
-    return this.requireRuntimeRegistry().requireActiveData<
-      Map<string, TGqlDefinition>
-    >(CACHE_IDENTIFIERS.GRAPHQL);
-  }
-
-  private requireRuntimeRegistry(): RuntimeRegistryService {
-    if (!this.runtimeRegistryService) {
-      throw new Error('Runtime registry service is required for GraphQL reads');
-    }
-    return this.runtimeRegistryService;
   }
 }

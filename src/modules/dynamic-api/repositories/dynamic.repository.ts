@@ -15,10 +15,7 @@ import { TableHandlerService } from '../../table-management';
 import { PolicyService, isPolicyDeny } from '../../../domain/policy';
 import { DynamicApiTableValidationService } from '../services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
-import {
-  SettingCacheService,
-  FieldPermissionCacheService,
-} from '../../../engines/cache';
+import { FieldPermissionCacheService } from '../../../engines/cache';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import {
@@ -54,7 +51,6 @@ export class DynamicRepository {
   private tableHandlerService: TableHandlerService;
   private policyService: PolicyService;
   private tableValidationService: DynamicApiTableValidationService;
-  private settingCacheService: SettingCacheService;
   private eventEmitter: EventEmitter2;
   private fieldPermissionCacheService?: FieldPermissionCacheService;
   private userRevocationService?: UserRevocationService;
@@ -70,7 +66,6 @@ export class DynamicRepository {
     tableHandlerService,
     policyService,
     tableValidationService,
-    settingCacheService,
     eventEmitter,
     fieldPermissionCacheService,
     userRevocationService,
@@ -84,7 +79,6 @@ export class DynamicRepository {
     tableHandlerService: TableHandlerService;
     policyService: PolicyService;
     tableValidationService: DynamicApiTableValidationService;
-    settingCacheService: SettingCacheService;
     eventEmitter: EventEmitter2;
     fieldPermissionCacheService?: FieldPermissionCacheService;
     userRevocationService?: UserRevocationService;
@@ -98,7 +92,6 @@ export class DynamicRepository {
     this.tableHandlerService = tableHandlerService;
     this.policyService = policyService;
     this.tableValidationService = tableValidationService;
-    this.settingCacheService = settingCacheService;
     this.eventEmitter = eventEmitter;
     this.fieldPermissionCacheService = fieldPermissionCacheService;
     this.userRevocationService = userRevocationService;
@@ -765,7 +758,7 @@ export class DynamicRepository {
         projectedDeep,
         metadata,
         0,
-        await this.settingCacheService.getMaxQueryDepth(),
+        this.runtimeRegistryService.getMaxQueryDepth(),
       );
     }
 
@@ -806,7 +799,7 @@ export class DynamicRepository {
       deep: cleanDeep || {},
       debugMode: debugMode,
       debugTrace: this.context.$debug || undefined,
-      maxQueryDepth: await this.settingCacheService.getMaxQueryDepth(),
+      maxQueryDepth: this.runtimeRegistryService.getMaxQueryDepth(),
     });
 
     if (!needsPostSql) {

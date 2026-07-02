@@ -26,6 +26,7 @@ import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { EnvService } from '../../../shared/services';
 import { logMemory } from '../../../shared/utils/memory-log.util';
+import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 
 const COLOR = '\x1b[95m';
 const RESET = '\x1b[0m';
@@ -44,6 +45,7 @@ export class GraphqlService {
   private readonly metadataCacheService: MetadataCacheService;
   private readonly settingCacheService: SettingCacheService;
   private readonly gqlDefinitionCacheService: GqlDefinitionCacheService;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly dynamicResolver: DynamicResolver;
   private readonly eventEmitter: EventEmitter2;
   private readonly envService: EnvService;
@@ -52,6 +54,7 @@ export class GraphqlService {
     metadataCacheService: MetadataCacheService;
     settingCacheService: SettingCacheService;
     gqlDefinitionCacheService: GqlDefinitionCacheService;
+    runtimeRegistryService: RuntimeRegistryService;
     dynamicResolver: DynamicResolver;
     eventEmitter: EventEmitter2;
     envService: EnvService;
@@ -59,6 +62,7 @@ export class GraphqlService {
     this.metadataCacheService = deps.metadataCacheService;
     this.settingCacheService = deps.settingCacheService;
     this.gqlDefinitionCacheService = deps.gqlDefinitionCacheService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.dynamicResolver = deps.dynamicResolver;
     this.eventEmitter = deps.eventEmitter;
     this.envService = deps.envService;
@@ -320,7 +324,7 @@ export class GraphqlService {
     });
 
     const isProduction = this.envService.isProd;
-    const maxDepth = await this.settingCacheService.getMaxQueryDepth();
+    const maxDepth = this.runtimeRegistryService.getMaxQueryDepth();
 
     this.yogaApp = createYoga({
       schema: this.schema,

@@ -553,7 +553,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
         databaseConfigService: cradle.databaseConfigService,
         runtimeMetricsCollectorService: cradle.runtimeMetricsCollectorService,
         lazyRef: cradle.lazyRef,
-        getPackageCacheService: () => cradle.packageCacheService,
+        getPackageCacheService: () => ({
+          getPackages: () => cradle.runtimeRegistryService.getPackages(),
+        }),
         getPackageCdnLoaderService: () => cradle.packageCdnLoaderService,
       }),
     ).singleton(),

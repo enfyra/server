@@ -7,7 +7,6 @@ import { getErrorMessage } from '../../../shared/utils/error.util';
 import { EnvService, DynamicContextFactory } from '../../../shared/services';
 import { ExecutorEngineService } from '@enfyra/kernel';
 import {
-  GqlDefinitionCacheService,
   RepoRegistryService,
   GuardCacheService,
   GuardEvaluatorService,
@@ -22,7 +21,6 @@ import type { RuntimeRegistryService } from '../../../engines/cache/services/run
 export class DynamicResolver {
   private readonly queryBuilderService: QueryBuilderService;
   private readonly executorEngineService: ExecutorEngineService;
-  private readonly gqlDefinitionCacheService: GqlDefinitionCacheService;
   private readonly repoRegistryService: RepoRegistryService;
   private readonly guardCacheService: GuardCacheService;
   private readonly guardEvaluatorService: GuardEvaluatorService;
@@ -34,7 +32,6 @@ export class DynamicResolver {
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     executorEngineService: ExecutorEngineService;
-    gqlDefinitionCacheService: GqlDefinitionCacheService;
     repoRegistryService: RepoRegistryService;
     guardCacheService: GuardCacheService;
     guardEvaluatorService: GuardEvaluatorService;
@@ -45,7 +42,6 @@ export class DynamicResolver {
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.executorEngineService = deps.executorEngineService;
-    this.gqlDefinitionCacheService = deps.gqlDefinitionCacheService;
     this.repoRegistryService = deps.repoRegistryService;
     this.guardCacheService = deps.guardCacheService;
     this.guardEvaluatorService = deps.guardEvaluatorService;
@@ -199,7 +195,7 @@ export class DynamicResolver {
     }
 
     const isEnabled =
-      await this.gqlDefinitionCacheService.isEnabledForTable(mainTableName);
+      this.runtimeRegistryService.isGraphqlEnabledForTable(mainTableName);
     if (!isEnabled) {
       throwGqlError(
         '404',
