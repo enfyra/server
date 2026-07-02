@@ -51,7 +51,7 @@ describe('script cache builders', () => {
 
     await service.reload(false);
 
-    const flows = await service.getFlows();
+    const flows = await service.getCacheAsync();
     expect(flows[0].steps[0].compiledCode).toContain(
       'const value = $ctx.$body.name;',
     );
@@ -91,7 +91,7 @@ describe('script cache builders', () => {
 
     await service.reload(false);
 
-    const gateways = await service.getGateways();
+    const gateways = await service.getCacheAsync();
     expect(gateways[0].connectionHandlerScript).toContain(
       'const value = $ctx.$body.name;',
     );

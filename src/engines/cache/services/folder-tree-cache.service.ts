@@ -150,10 +150,17 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
   }
 
   private async getActiveFolderTree(): Promise<FolderTreeCache> {
-    return (
-      this.runtimeRegistryService?.getSnapshot<FolderTreeCache>(
-        CACHE_IDENTIFIERS.FOLDER_TREE,
-      )?.data ?? (await this.getCacheAsync())
+    return this.requireRuntimeRegistry().requireActiveData<FolderTreeCache>(
+      CACHE_IDENTIFIERS.FOLDER_TREE,
     );
+  }
+
+  private requireRuntimeRegistry(): RuntimeRegistryService {
+    if (!this.runtimeRegistryService) {
+      throw new Error(
+        'Runtime registry service is required for folder tree reads',
+      );
+    }
+    return this.runtimeRegistryService;
   }
 }

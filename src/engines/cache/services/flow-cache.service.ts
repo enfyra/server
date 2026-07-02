@@ -137,10 +137,8 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
   }
 
   async getFlows(): Promise<FlowDefinition[]> {
-    return (
-      this.runtimeRegistryService?.getSnapshot<FlowDefinition[]>(
-        CACHE_IDENTIFIERS.FLOW,
-      )?.data ?? (await this.getCacheAsync())
+    return this.requireRuntimeRegistry().requireActiveData<FlowDefinition[]>(
+      CACHE_IDENTIFIERS.FLOW,
     );
   }
 
@@ -162,5 +160,12 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
   async getFlowsByTriggerType(triggerType: string): Promise<FlowDefinition[]> {
     const cache = await this.getFlows();
     return cache.filter((f) => f.triggerType === triggerType);
+  }
+
+  private requireRuntimeRegistry(): RuntimeRegistryService {
+    if (!this.runtimeRegistryService) {
+      throw new Error('Runtime registry service is required for flow reads');
+    }
+    return this.runtimeRegistryService;
   }
 }

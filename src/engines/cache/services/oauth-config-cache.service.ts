@@ -102,10 +102,15 @@ export class OAuthConfigCacheService
   }
 
   private async getActiveOauthConfigs(): Promise<Map<string, OAuthConfig>> {
-    return (
-      this.runtimeRegistryService?.getSnapshot<Map<string, OAuthConfig>>(
-        CACHE_IDENTIFIERS.OAUTH_CONFIG,
-      )?.data ?? (await this.getCacheAsync())
-    );
+    return this.requireRuntimeRegistry().requireActiveData<
+      Map<string, OAuthConfig>
+    >(CACHE_IDENTIFIERS.OAUTH_CONFIG);
+  }
+
+  private requireRuntimeRegistry(): RuntimeRegistryService {
+    if (!this.runtimeRegistryService) {
+      throw new Error('Runtime registry service is required for OAuth reads');
+    }
+    return this.runtimeRegistryService;
   }
 }

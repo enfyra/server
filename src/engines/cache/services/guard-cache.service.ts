@@ -255,10 +255,9 @@ export class GuardCacheService extends BaseCacheService<GuardCache> {
     routePath: string,
     method: string,
   ): Promise<GuardNode[]> {
-    const cache =
-      this.runtimeRegistryService?.getSnapshot<GuardCache>(
-        CACHE_IDENTIFIERS.GUARD,
-      )?.data ?? (await this.getCacheAsync());
+    const cache = this.requireRuntimeRegistry().requireActiveData<GuardCache>(
+      CACHE_IDENTIFIERS.GUARD,
+    );
     const globalGuards =
       position === 'pre_auth' ? cache.preAuthGlobal : cache.postAuthGlobal;
     const routeMap =
@@ -274,6 +273,13 @@ export class GuardCacheService extends BaseCacheService<GuardCache> {
 
   async ensureGuardsLoaded(): Promise<void> {
     await this.ensureLoaded();
+  }
+
+  private requireRuntimeRegistry(): RuntimeRegistryService {
+    if (!this.runtimeRegistryService) {
+      throw new Error('Runtime registry service is required for guard reads');
+    }
+    return this.runtimeRegistryService;
   }
 
   private validateGuardTree(

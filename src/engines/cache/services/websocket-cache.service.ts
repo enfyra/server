@@ -264,10 +264,8 @@ export class WebsocketCacheService extends BaseCacheService<
   }
 
   async getGateways(): Promise<WebSocketGateway[]> {
-    return (
-      this.runtimeRegistryService?.getSnapshot<WebSocketGateway[]>(
-        CACHE_IDENTIFIERS.WEBSOCKET,
-      )?.data ?? (await this.getCacheAsync())
+    return this.requireRuntimeRegistry().requireActiveData<WebSocketGateway[]>(
+      CACHE_IDENTIFIERS.WEBSOCKET,
     );
   }
 
@@ -282,5 +280,14 @@ export class WebsocketCacheService extends BaseCacheService<
     const cache = await this.getGateways();
     const gateway = cache.find((g) => g.id === gatewayId);
     return gateway?.events || [];
+  }
+
+  private requireRuntimeRegistry(): RuntimeRegistryService {
+    if (!this.runtimeRegistryService) {
+      throw new Error(
+        'Runtime registry service is required for websocket reads',
+      );
+    }
+    return this.runtimeRegistryService;
   }
 }

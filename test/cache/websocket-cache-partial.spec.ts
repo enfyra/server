@@ -86,14 +86,14 @@ describe('WebsocketCacheService partial reload', () => {
       false,
     );
 
-    const cached = await svc.getGateways();
+    const cached = await svc.getCacheAsync();
     expect(cached).toHaveLength(2);
-    expect(cached.find((gateway) => gateway.id === 1)?.events[0].eventName).toBe(
-      'chat:new',
-    );
-    expect(cached.find((gateway) => gateway.id === 2)?.events[0].eventName).toBe(
-      'admin:ping',
-    );
+    expect(
+      cached.find((gateway) => gateway.id === 1)?.events[0].eventName,
+    ).toBe('chat:new');
+    expect(
+      cached.find((gateway) => gateway.id === 2)?.events[0].eventName,
+    ).toBe('admin:ping');
     expect(qb.find).toHaveBeenCalledWith(
       expect.objectContaining({
         table: 'enfyra_websocket_event',
@@ -131,7 +131,7 @@ describe('WebsocketCacheService partial reload', () => {
       false,
     );
 
-    const cached = await svc.getGateways();
+    const cached = await svc.getCacheAsync();
     expect(cached.map((gateway) => gateway.id)).toEqual([2]);
   });
 });

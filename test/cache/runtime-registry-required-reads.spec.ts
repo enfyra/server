@@ -27,10 +27,17 @@ function registrySnapshot(identifier: string, data: unknown) {
           }
         : undefined,
     ),
+    getActiveData: vi.fn((requested: string) =>
+      requested === identifier ? data : undefined,
+    ),
+    requireActiveData: vi.fn((requested: string) => {
+      if (requested === identifier) return data;
+      throw new Error(`Runtime cache ${requested} is not activated`);
+    }),
   };
 }
 
-describe('runtime registry read bridge', () => {
+describe('runtime registry required reads', () => {
   it('serves package names from the active registry snapshot', async () => {
     const queryBuilderService = {
       find: vi.fn(async () => {
@@ -48,6 +55,24 @@ describe('runtime registry read bridge', () => {
     });
 
     await expect(service.getPackages()).resolves.toEqual(['lodash']);
+    expect(queryBuilderService.find).not.toHaveBeenCalled();
+  });
+
+  it('fails clearly instead of falling back when the package registry is not activated', async () => {
+    const queryBuilderService = {
+      find: vi.fn(async () => ['stale-db-package']),
+    };
+    const service = new PackageCacheService({
+      queryBuilderService: queryBuilderService as any,
+      eventEmitter: new EventEmitter2(),
+      packageCdnLoaderService: {} as any,
+      runtimeRegistryService: registrySnapshot('other-cache', []) as any,
+      lazyRef: {} as any,
+    });
+
+    await expect(service.getPackages()).rejects.toThrow(
+      'Runtime cache package is not activated',
+    );
     expect(queryBuilderService.find).not.toHaveBeenCalled();
   });
 

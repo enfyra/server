@@ -1,6 +1,8 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { Logger } from '../../src/shared/logger';
 import { GuardCacheService } from '../../src/engines/cache';
+import { RuntimeRegistryService } from '../../src/engines/cache/services/runtime-registry.service';
+import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants';
 
 async function loadGuardCache(
   guards: any[],
@@ -13,11 +15,14 @@ async function loadGuardCache(
   });
   const qb = { find, isMongoDb: () => false };
   const ee = new EventEmitter2();
+  const registry = new RuntimeRegistryService();
   const svc = new GuardCacheService({
     queryBuilderService: qb as any,
     eventEmitter: ee,
+    runtimeRegistryService: registry,
   });
   await svc.reload(false);
+  await registry.publishFromCache(CACHE_IDENTIFIERS.GUARD, svc);
   return svc;
 }
 

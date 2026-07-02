@@ -354,11 +354,9 @@ export class FieldPermissionCacheService extends BaseCacheService<
     tableName: string,
     action: TFieldPermissionAction,
   ): Promise<TCompiledFieldPolicy[]> {
-    const cache =
-      this.runtimeRegistryService?.getSnapshot<
-        Map<string, TCompiledFieldPolicy>
-      >(CACHE_IDENTIFIERS.FIELD_PERMISSION)?.data ??
-      (await this.getCacheAsync());
+    const cache = this.requireRuntimeRegistry().requireActiveData<
+      Map<string, TCompiledFieldPolicy>
+    >(CACHE_IDENTIFIERS.FIELD_PERMISSION);
     const policies: TCompiledFieldPolicy[] = [];
 
     const userId = toIdString(user);
@@ -378,5 +376,14 @@ export class FieldPermissionCacheService extends BaseCacheService<
     }
 
     return policies;
+  }
+
+  private requireRuntimeRegistry(): RuntimeRegistryService {
+    if (!this.runtimeRegistryService) {
+      throw new Error(
+        'Runtime registry service is required for field permission reads',
+      );
+    }
+    return this.runtimeRegistryService;
   }
 }
