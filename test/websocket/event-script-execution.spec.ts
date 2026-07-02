@@ -58,23 +58,28 @@ describe('DynamicWebSocketGateway event script execution — real socket E2E', (
     ioServer = new Server(httpServer, { cors: { origin: '*' } });
 
     const gateway = new DynamicWebSocketGateway({
-      websocketCacheService: {
-        getGateways: async () => [
-          {
-            path: namespace,
-            requireAuth: false,
-            events: [
-              {
-                eventName: 'profile:update',
-                handlerScript:
-                  'return await $ctx.$socket.reply("profile:accepted", { id: $ctx.$data.userId, name: $ctx.$data.displayName });',
-              },
-              {
-                eventName: 'legacy-config:ignored',
-              },
-            ],
-          },
-        ],
+      runtimeRegistryService: {
+        getSnapshot: () => ({
+          identifier: 'websocket',
+          version: 1,
+          activatedAt: '2026-07-02T00:00:00.000Z',
+          data: [
+            {
+              path: namespace,
+              requireAuth: false,
+              events: [
+                {
+                  eventName: 'profile:update',
+                  handlerScript:
+                    'return await $ctx.$socket.reply("profile:accepted", { id: $ctx.$data.userId, name: $ctx.$data.displayName });',
+                },
+                {
+                  eventName: 'legacy-config:ignored',
+                },
+              ],
+            },
+          ],
+        }),
       } as any,
       builtInSocketRegistry: {
         getConnectionScript: () => null,

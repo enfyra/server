@@ -19,16 +19,21 @@ function createScheduler(options?: {
   flowQueue.getJobSchedulers.mockResolvedValue(
     options?.existingSchedulers || [],
   );
-  const flowCacheService = {
-    getFlowsByTriggerType: vi.fn(async () => options?.flows || []),
+  const runtimeRegistryService = {
+    getSnapshot: vi.fn(() => ({
+      identifier: 'flow',
+      version: 1,
+      activatedAt: '2026-07-02T00:00:00.000Z',
+      data: options?.flows || [],
+    })),
   };
   const service = new FlowSchedulerService({
     eventEmitter,
     flowQueue: flowQueue as any,
-    flowCacheService: flowCacheService as any,
+    runtimeRegistryService: runtimeRegistryService as any,
   });
 
-  return { eventEmitter, flowQueue, flowCacheService, service };
+  return { eventEmitter, flowQueue, runtimeRegistryService, service };
 }
 
 describe('FlowSchedulerService', () => {
@@ -102,17 +107,15 @@ describe('FlowSchedulerService', () => {
   });
 
   it('marks schedule reconcile as degraded when rebuild fails', async () => {
-    const { service, flowCacheService } = createScheduler();
-    flowCacheService.getFlowsByTriggerType.mockRejectedValueOnce(
-      new Error('flow cache unavailable'),
-    );
+    const { service, runtimeRegistryService } = createScheduler();
+    runtimeRegistryService.getSnapshot.mockReturnValueOnce(undefined);
 
     await service.init();
 
     expect(service.getLastReconcileState()).toEqual(
       expect.objectContaining({
         status: 'degraded',
-        error: 'flow cache unavailable',
+        error: 'Flow runtime registry snapshot is unavailable',
       }),
     );
   });

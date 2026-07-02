@@ -2,6 +2,8 @@ import { Logger } from '../../../shared/logger';
 import { parseExpression } from 'cron-parser';
 import { Queue } from 'bullmq';
 import { getErrorMessage } from '../../../shared/utils/error.util';
+import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 
 interface ScheduledFlow {
   id: string | number;
@@ -10,10 +12,6 @@ interface ScheduledFlow {
     cron?: string;
     timezone?: string;
   } | null;
-}
-
-interface FlowCacheSource {
-  getFlowsByTriggerType(triggerType: string): Promise<ScheduledFlow[]>;
 }
 
 export type FlowScheduleReconcileStatus =
@@ -39,15 +37,15 @@ export class FlowSchedulerService {
     status: 'idle',
   };
   private readonly flowQueue: Queue;
-  private readonly flowCacheService: FlowCacheSource;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
 
   constructor(deps: {
     flowQueue: Queue;
-    flowCacheService: FlowCacheSource;
+    runtimeRegistryService: RuntimeRegistryService;
     eventEmitter?: any;
   }) {
     this.flowQueue = deps.flowQueue;
-    this.flowCacheService = deps.flowCacheService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
   }
 
   async init(): Promise<void> {
@@ -92,8 +90,15 @@ export class FlowSchedulerService {
       }
       this.registeredSchedulers.clear();
 
-      const scheduleFlows =
-        await this.flowCacheService.getFlowsByTriggerType('schedule');
+      const flows = this.runtimeRegistryService.getSnapshot<ScheduledFlow[]>(
+        CACHE_IDENTIFIERS.FLOW,
+      )?.data;
+      if (!flows) {
+        throw new Error('Flow runtime registry snapshot is unavailable');
+      }
+      const scheduleFlows = flows.filter(
+        (flow: any) => flow.triggerType === 'schedule',
+      );
       let registered = 0;
 
       for (const flow of scheduleFlows) {
