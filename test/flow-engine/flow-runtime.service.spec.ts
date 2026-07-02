@@ -1,7 +1,13 @@
+import { EventEmitter2 } from 'eventemitter2';
 import { describe, expect, it, vi } from 'vitest';
 import { FlowRuntimeService } from '../../src/modules/flow/services/flow-runtime.service';
+import {
+  CACHE_EVENTS,
+  CACHE_IDENTIFIERS,
+} from '../../src/shared/utils/cache-events.constants';
 
 function createRuntime() {
+  const eventEmitter = new EventEmitter2();
   const schedulerState = {
     status: 'idle',
   };
@@ -15,9 +21,10 @@ function createRuntime() {
   };
   const service = new FlowRuntimeService({
     flowSchedulerService: flowSchedulerService as any,
+    eventEmitter,
   });
 
-  return { flowSchedulerService, service, schedulerState };
+  return { eventEmitter, flowSchedulerService, service, schedulerState };
 }
 
 describe('FlowRuntimeService', () => {
@@ -43,6 +50,19 @@ describe('FlowRuntimeService', () => {
     expect(service.getStatus()).toEqual({
       initialized: false,
       scheduleReconcile: schedulerState,
+    });
+  });
+
+  it('reconciles schedules when the flow runtime cache activates', async () => {
+    const { eventEmitter, flowSchedulerService, service } = createRuntime();
+
+    await service.init();
+    eventEmitter.emit(CACHE_EVENTS.RUNTIME_CACHE_ACTIVATED, {
+      identifier: CACHE_IDENTIFIERS.FLOW,
+    });
+
+    await vi.waitFor(() => {
+      expect(flowSchedulerService.reconcileSchedules).toHaveBeenCalledTimes(1);
     });
   });
 });

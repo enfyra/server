@@ -13,6 +13,7 @@ import {
 } from '../../../shared/utils/script-code.util';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { FlowDefinition, FlowStep } from '../../../shared/types/flow.types';
+import { RuntimeRegistryService } from './runtime-registry.service';
 
 export type {
   FlowDefinition,
@@ -27,14 +28,17 @@ const FLOW_CONFIG: CacheConfig = {
 
 export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
   private readonly queryBuilderService: QueryBuilderService;
+  private readonly runtimeRegistryService?: RuntimeRegistryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter: EventEmitter2;
+    runtimeRegistryService?: RuntimeRegistryService;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     super(FLOW_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.cache = [];
   }
 
@@ -123,11 +127,11 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
     const config = step?.config;
     return Boolean(
       config &&
-        typeof config === 'object' &&
-        ('sourceCode' in config ||
-          'scriptLanguage' in config ||
-          'compiledCode' in config ||
-          'code' in config),
+      typeof config === 'object' &&
+      ('sourceCode' in config ||
+        'scriptLanguage' in config ||
+        'compiledCode' in config ||
+        'code' in config),
     );
   }
 
@@ -169,11 +173,15 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
   }
 
   async getFlows(): Promise<FlowDefinition[]> {
-    return this.getCacheAsync();
+    return (
+      this.runtimeRegistryService?.getSnapshot<FlowDefinition[]>(
+        CACHE_IDENTIFIERS.FLOW,
+      )?.data ?? (await this.getCacheAsync())
+    );
   }
 
   async getFlowById(id: number | string): Promise<FlowDefinition | null> {
-    const cache = await this.getCacheAsync();
+    const cache = await this.getFlows();
     const idStr = String(id);
     return (
       cache.find(
@@ -183,12 +191,12 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
   }
 
   async getFlowByName(name: string): Promise<FlowDefinition | null> {
-    const cache = await this.getCacheAsync();
+    const cache = await this.getFlows();
     return cache.find((f) => f.name === name) || null;
   }
 
   async getFlowsByTriggerType(triggerType: string): Promise<FlowDefinition[]> {
-    const cache = await this.getCacheAsync();
+    const cache = await this.getFlows();
     return cache.filter((f) => f.triggerType === triggerType);
   }
 }

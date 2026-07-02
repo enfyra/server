@@ -171,7 +171,9 @@ describe('PackageRuntimeService CDN preload', () => {
     expect(packageCdnLoaderService.loadPackage).not.toHaveBeenCalled();
 
     eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
-    eventEmitter.emit(`${CACHE_IDENTIFIERS.PACKAGE}_LOADED`);
+    eventEmitter.emit(CACHE_EVENTS.RUNTIME_CACHE_ACTIVATED, {
+      identifier: CACHE_IDENTIFIERS.PACKAGE,
+    });
     await new Promise((resolve) => setImmediate(resolve));
     await vi.waitFor(() => {
       expect(packageCdnLoaderService.loadPackage).toHaveBeenCalledWith(

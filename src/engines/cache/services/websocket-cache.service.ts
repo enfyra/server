@@ -12,6 +12,7 @@ import {
   CACHE_IDENTIFIERS,
   type TCacheInvalidationPayload,
 } from '../../../shared/utils/cache-events.constants';
+import { RuntimeRegistryService } from './runtime-registry.service';
 
 const WEBSOCKET_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.WEBSOCKET,
@@ -41,14 +42,17 @@ export class WebsocketCacheService extends BaseCacheService<
   WebSocketGateway[]
 > {
   private readonly queryBuilderService: QueryBuilderService;
+  private readonly runtimeRegistryService?: RuntimeRegistryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter?: EventEmitter2;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
+    runtimeRegistryService?: RuntimeRegistryService;
   }) {
     super(WEBSOCKET_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.cache = [];
   }
 
@@ -283,18 +287,22 @@ export class WebsocketCacheService extends BaseCacheService<
   }
 
   async getGateways(): Promise<WebSocketGateway[]> {
-    return this.getCacheAsync();
+    return (
+      this.runtimeRegistryService?.getSnapshot<WebSocketGateway[]>(
+        CACHE_IDENTIFIERS.WEBSOCKET,
+      )?.data ?? (await this.getCacheAsync())
+    );
   }
 
   async getGatewayByPath(path: string): Promise<WebSocketGateway | null> {
-    const cache = await this.getCacheAsync();
+    const cache = await this.getGateways();
     return cache.find((g) => g.path === path) || null;
   }
 
   async getEventsByGatewayId(
     gatewayId: number | string,
   ): Promise<WebSocketEvent[]> {
-    const cache = await this.getCacheAsync();
+    const cache = await this.getGateways();
     const gateway = cache.find((g) => g.id === gatewayId);
     return gateway?.events || [];
   }

@@ -35,11 +35,14 @@ export class WebsocketRuntimeService {
   init(): void {
     if (this.initialized) return;
     this.initialized = true;
-    const refresh = () => {
-      void this.refreshGateways();
-    };
-    this.eventEmitter.on(CACHE_EVENTS.WEBSOCKET_LOADED, refresh);
-    this.eventEmitter.on(`${CACHE_IDENTIFIERS.WEBSOCKET}_LOADED`, refresh);
+    this.eventEmitter.on(
+      CACHE_EVENTS.RUNTIME_CACHE_ACTIVATED,
+      (event: { identifier?: string }) => {
+        if (event?.identifier === CACHE_IDENTIFIERS.WEBSOCKET) {
+          void this.refreshGateways();
+        }
+      },
+    );
   }
 
   async refreshGateways(): Promise<void> {

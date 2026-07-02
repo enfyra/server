@@ -5,6 +5,7 @@ import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 import type { Cradle } from '../../../container';
+import { RuntimeRegistryService } from './runtime-registry.service';
 
 const PACKAGE_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.PACKAGE,
@@ -15,17 +16,20 @@ const PACKAGE_CONFIG: CacheConfig = {
 export class PackageCacheService extends BaseCacheService<string[]> {
   private readonly queryBuilderService: QueryBuilderService;
   private readonly packageCdnLoaderService: PackageCdnLoaderService;
+  private readonly runtimeRegistryService?: RuntimeRegistryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter: EventEmitter2;
     packageCdnLoaderService: PackageCdnLoaderService;
+    runtimeRegistryService?: RuntimeRegistryService;
     lazyRef: Cradle;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     super(PACKAGE_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
     this.packageCdnLoaderService = deps.packageCdnLoaderService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
   }
 
   protected async loadFromDb(): Promise<string[]> {
@@ -55,6 +59,10 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   }
 
   async getPackages(): Promise<string[]> {
-    return this.getCacheAsync();
+    return (
+      this.runtimeRegistryService?.getSnapshot<string[]>(
+        CACHE_IDENTIFIERS.PACKAGE,
+      )?.data ?? (await this.getCacheAsync())
+    );
   }
 }
