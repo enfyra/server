@@ -248,15 +248,13 @@ function makeRepo({
       return { data: projectRows(args.table, rows, args), count: rows.length };
     }),
   };
-  const settingCacheService = {
-    getMaxQueryDepth: vi.fn().mockResolvedValue(10),
-  };
   const fieldPermissionCacheService = {
     getPoliciesFor: vi.fn().mockResolvedValue([]),
   };
   const activeRuntimeRegistryService = runtimeRegistryService ?? {
     requireMetadata: vi.fn(() => metadata),
     lookupTableByName: vi.fn((name: string) => metadata.tables.get(name)),
+    getMaxQueryDepth: vi.fn(() => 10),
   };
   const repo = new DynamicRepository({
     context: { $query: { fields, deep } } as any,
@@ -265,7 +263,6 @@ function makeRepo({
     tableHandlerService: {} as any,
     policyService: {} as any,
     tableValidationService: {} as any,
-    settingCacheService: settingCacheService as any,
     fieldPermissionCacheService: fieldPermissionCacheService as any,
     runtimeRegistryService: activeRuntimeRegistryService,
     eventEmitter: {} as any,
@@ -578,6 +575,7 @@ describe('dynamic read field selection', () => {
     const runtimeRegistryService = {
       requireMetadata: vi.fn(() => metadata),
       lookupTableByName: vi.fn((name: string) => metadata.tables.get(name)),
+      getMaxQueryDepth: vi.fn(() => 10),
     };
     const { repo } = makeRepo({
       tableName: 'enfyra_flow_step',

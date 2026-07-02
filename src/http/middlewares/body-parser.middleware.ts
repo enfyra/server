@@ -3,15 +3,17 @@ import express, {
   type Response,
   type NextFunction,
 } from 'express';
-import { SettingCacheService } from '../../engines/cache';
+import type { RuntimeRegistryService } from '../../engines/cache/services/runtime-registry.service';
 import { captureRawBody } from '../utils/raw-body-capture.util';
 
-export function bodyParserMiddleware(settingCacheService: SettingCacheService) {
+export function bodyParserMiddleware(
+  runtimeRegistryService: RuntimeRegistryService,
+) {
   return async (req: Request, res: Response, next: NextFunction) => {
     const contentType = req.headers['content-type'] || '';
     if (contentType.includes('multipart/')) return next();
 
-    const limit = await settingCacheService.getMaxRequestBodySizeBytes();
+    const limit = runtimeRegistryService.getMaxRequestBodySizeBytes();
     const limitStr = `${limit}`;
 
     if (contentType.includes('json')) {

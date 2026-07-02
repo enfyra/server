@@ -2,10 +2,7 @@ import { EventEmitter2 } from 'eventemitter2';
 import { DynamicRepository } from './dynamic.repository';
 import { TableHandlerService } from '../../table-management';
 import { QueryBuilderService } from '@enfyra/kernel';
-import {
-  SettingCacheService,
-  FieldPermissionCacheService,
-} from '../../../engines/cache';
+import { FieldPermissionCacheService } from '../../../engines/cache';
 import { PolicyService } from '../../../domain/policy';
 import { DynamicApiTableValidationService } from '../services/table-validation.service';
 import { UserRevocationService } from '../../../domain/auth';
@@ -18,7 +15,6 @@ export class DynamicRepositoryFactory {
   private readonly queryBuilderService: QueryBuilderService;
   private readonly policyService: PolicyService;
   private readonly tableValidationService: DynamicApiTableValidationService;
-  private readonly settingCacheService: SettingCacheService;
   private readonly fieldPermissionCacheService: FieldPermissionCacheService;
   private readonly userRevocationService: UserRevocationService;
   private readonly flowQueueMaintenanceService: FlowQueueMaintenanceService;
@@ -30,7 +26,6 @@ export class DynamicRepositoryFactory {
     queryBuilderService: QueryBuilderService;
     policyService: PolicyService;
     tableValidationService: DynamicApiTableValidationService;
-    settingCacheService: SettingCacheService;
     fieldPermissionCacheService: FieldPermissionCacheService;
     userRevocationService: UserRevocationService;
     flowQueueMaintenanceService: FlowQueueMaintenanceService;
@@ -41,7 +36,6 @@ export class DynamicRepositoryFactory {
     this.queryBuilderService = deps.queryBuilderService;
     this.policyService = deps.policyService;
     this.tableValidationService = deps.tableValidationService;
-    this.settingCacheService = deps.settingCacheService;
     this.fieldPermissionCacheService = deps.fieldPermissionCacheService;
     this.userRevocationService = deps.userRevocationService;
     this.flowQueueMaintenanceService = deps.flowQueueMaintenanceService;
@@ -62,7 +56,6 @@ export class DynamicRepositoryFactory {
       queryBuilderService: this.queryBuilderService,
       policyService: this.policyService,
       tableValidationService: this.tableValidationService,
-      settingCacheService: this.settingCacheService,
       fieldPermissionCacheService: this.fieldPermissionCacheService,
       userRevocationService: this.userRevocationService,
       flowQueueMaintenanceService: this.flowQueueMaintenanceService,

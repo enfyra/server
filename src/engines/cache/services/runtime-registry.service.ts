@@ -4,12 +4,22 @@ import { getErrorMessage } from '../../../shared/utils/error.util';
 import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
+  isMetadataTable,
 } from '../../../shared/utils/cache-events.constants';
+import {
+  DEFAULT_MAX_QUERY_DEPTH,
+  DEFAULT_MAX_REQUEST_BODY_SIZE_MB,
+  DEFAULT_MAX_UPLOAD_FILE_SIZE_MB,
+} from '../../../shared/utils/constant';
 import type { EnfyraMetadata } from './metadata-cache.service';
 import type {
+  FolderNode,
+  FolderTreeCache,
   RuntimeCacheIdentifier,
   RuntimeRegistryEntry,
   RuntimeRegistrySnapshot,
+  SettingData,
+  TGqlDefinition,
 } from '../types/runtime-registry.types';
 
 export interface RuntimeCacheViewSource {
@@ -162,6 +172,103 @@ export class RuntimeRegistryService {
   requireRoutes(): any[] {
     return this.requireActiveData<{ routes: any[] }>(CACHE_IDENTIFIERS.ROUTE)
       .routes;
+  }
+
+  getSettings(): SettingData | undefined {
+    return this.getActiveData<SettingData>(CACHE_IDENTIFIERS.SETTING);
+  }
+
+  requireSettings(): SettingData {
+    return this.requireActiveData<SettingData>(CACHE_IDENTIFIERS.SETTING);
+  }
+
+  getMaxQueryDepth(): number {
+    return this.getSettings()?.maxQueryDepth ?? DEFAULT_MAX_QUERY_DEPTH;
+  }
+
+  getMaxUploadFileSizeBytes(): number {
+    return (
+      (this.getSettings()?.maxUploadFileSize ??
+        DEFAULT_MAX_UPLOAD_FILE_SIZE_MB) *
+      1024 *
+      1024
+    );
+  }
+
+  getMaxRequestBodySizeBytes(): number {
+    return (
+      (this.getSettings()?.maxRequestBodySize ??
+        DEFAULT_MAX_REQUEST_BODY_SIZE_MB) *
+      1024 *
+      1024
+    );
+  }
+
+  getSetting<T = any>(key: string): T | undefined {
+    return this.getSettings()?.[key];
+  }
+
+  getPackages(): string[] {
+    return this.requireActiveData<string[]>(CACHE_IDENTIFIERS.PACKAGE);
+  }
+
+  getGraphqlDefinitions(): Map<string, TGqlDefinition> {
+    return this.requireActiveData<Map<string, TGqlDefinition>>(
+      CACHE_IDENTIFIERS.GRAPHQL,
+    );
+  }
+
+  getGraphqlDefinitionForTable(tableName: string): TGqlDefinition | undefined {
+    return this.getGraphqlDefinitions().get(tableName);
+  }
+
+  isGraphqlEnabledForTable(tableName: string): boolean {
+    if (isMetadataTable(tableName)) return false;
+    return !!this.getGraphqlDefinitionForTable(tableName)?.isEnabled;
+  }
+
+  getAllEnabledGraphqlDefinitions(): TGqlDefinition[] {
+    return Array.from(this.getGraphqlDefinitions().values()).filter(
+      (definition) =>
+        definition.isEnabled && !isMetadataTable(definition.tableName),
+    );
+  }
+
+  getFolderTreeCache(): FolderTreeCache {
+    return this.requireActiveData<FolderTreeCache>(
+      CACHE_IDENTIFIERS.FOLDER_TREE,
+    );
+  }
+
+  getFolderTree(): FolderNode[] {
+    return this.getFolderTreeCache().tree;
+  }
+
+  getFolders(): Map<string, FolderNode> {
+    return this.getFolderTreeCache().folders;
+  }
+
+  isCircularFolderParent(
+    folderId: string | null,
+    newParentId: string | null,
+  ): boolean {
+    if (!folderId) return false;
+    if (!newParentId) return false;
+
+    const cache = this.getFolderTreeCache();
+    const visited = new Set<string>();
+    let currentId: string | null = newParentId;
+
+    while (currentId) {
+      if (currentId === folderId) return true;
+      if (visited.has(currentId)) break;
+
+      visited.add(currentId);
+      const folder = cache.folders.get(currentId);
+      currentId = folder?.parentId ?? null;
+    }
+
+    return false;
   }
 
   lookupTableByName(tableName: string): any | null {

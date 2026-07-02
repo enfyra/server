@@ -21,3 +21,5 @@ export interface RuntimeRegistrySnapshot<T = unknown> {
   activatedAt: string;
   data: T;
 }
+
+export * from './cache-data.types';

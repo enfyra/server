@@ -16,13 +16,11 @@ function makeResolver(overrides: Record<string, any> = {}) {
   };
   const runtimeRegistryService = {
     requireRoutes: vi.fn().mockReturnValue([]),
+    isGraphqlEnabledForTable: vi.fn().mockReturnValue(true),
   };
   const resolver = new DynamicResolver({
     queryBuilderService: {},
     executorEngineService,
-    gqlDefinitionCacheService: {
-      isEnabledForTable: vi.fn().mockResolvedValue(true),
-    },
     repoRegistryService: {
       createReposProxy: vi.fn().mockReturnValue({
         main: {},

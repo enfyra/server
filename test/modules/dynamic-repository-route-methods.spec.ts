@@ -29,9 +29,7 @@ function makeRepo(
       columns: [{ name: '_id', isPrimary: true }],
       relations: [],
     })),
-  };
-  const settingCacheService = {
-    getMaxQueryDepth: vi.fn().mockResolvedValue(10),
+    getMaxQueryDepth: vi.fn(() => 10),
   };
   return new DynamicRepository({
     context: { $query: {} } as any,
@@ -40,7 +38,6 @@ function makeRepo(
     tableHandlerService: {} as any,
     policyService: {} as any,
     tableValidationService: {} as any,
-    settingCacheService: settingCacheService as any,
     runtimeRegistryService: runtimeRegistryService as any,
     eventEmitter: {} as any,
     ...overrides,

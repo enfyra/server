@@ -3,7 +3,7 @@ import { QueryBuilderService } from '@enfyra/kernel';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
-import { RuntimeRegistryService } from './runtime-registry.service';
+import type { FolderNode, FolderTreeCache } from '../types/cache-data.types';
 
 const FOLDER_TREE_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.FOLDER_TREE,
@@ -11,35 +11,16 @@ const FOLDER_TREE_CONFIG: CacheConfig = {
   cacheName: 'FolderTreeCache',
 };
 
-interface FolderNode {
-  id: string;
-  parentId: string | null;
-  name: string;
-  slug: string;
-  order: number;
-  icon: string;
-  description: string | null;
-  children?: FolderNode[];
-}
-
-interface FolderTreeCache {
-  folders: Map<string, FolderNode>;
-  tree: FolderNode[];
-}
-
 export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
   private readonly queryBuilderService: QueryBuilderService;
-  private readonly runtimeRegistryService?: RuntimeRegistryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter?: EventEmitter2;
-    runtimeRegistryService?: RuntimeRegistryService;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
     super(FOLDER_TREE_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
-    this.runtimeRegistryService = deps.runtimeRegistryService;
   }
 
   protected async loadFromDb(): Promise<FolderNode[]> {
@@ -108,59 +89,5 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
 
   protected getLogCount(): string {
     return `${this.cache.folders.size} folders`;
-  }
-
-  async getTree(): Promise<FolderNode[]> {
-    const cache = await this.getActiveFolderTree();
-    return cache.tree;
-  }
-
-  async getFolders(): Promise<Map<string, FolderNode>> {
-    const cache = await this.getActiveFolderTree();
-    return cache.folders;
-  }
-
-  async isCircular(
-    folderId: string | null,
-    newParentId: string | null,
-  ): Promise<boolean> {
-    const cache = await this.getActiveFolderTree();
-
-    if (!folderId) return false;
-    if (!newParentId) return false;
-
-    const visited = new Set<string>();
-    let currentId: string | null = newParentId;
-
-    while (currentId) {
-      if (currentId === folderId) {
-        return true;
-      }
-
-      if (visited.has(currentId)) {
-        break;
-      }
-
-      visited.add(currentId);
-      const folder = cache.folders.get(currentId);
-      currentId = folder?.parentId ?? null;
-    }
-
-    return false;
-  }
-
-  private async getActiveFolderTree(): Promise<FolderTreeCache> {
-    return this.requireRuntimeRegistry().requireActiveData<FolderTreeCache>(
-      CACHE_IDENTIFIERS.FOLDER_TREE,
-    );
-  }
-
-  private requireRuntimeRegistry(): RuntimeRegistryService {
-    if (!this.runtimeRegistryService) {
-      throw new Error(
-        'Runtime registry service is required for folder tree reads',
-      );
-    }
-    return this.runtimeRegistryService;
   }
 }

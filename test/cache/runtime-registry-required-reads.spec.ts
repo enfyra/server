@@ -4,12 +4,9 @@ import {
   ColumnRuleCacheService,
   FlowCacheService,
   FieldPermissionCacheService,
-  FolderTreeCacheService,
-  GqlDefinitionCacheService,
   GuardCacheService,
   OAuthConfigCacheService,
-  PackageCacheService,
-  SettingCacheService,
+  RuntimeRegistryService,
   StorageConfigCacheService,
   WebsocketCacheService,
 } from '../../src/engines/cache';
@@ -44,33 +41,22 @@ describe('runtime registry required reads', () => {
         throw new Error('DB should not be read');
       }),
     };
-    const service = new PackageCacheService({
-      queryBuilderService: queryBuilderService as any,
-      eventEmitter: new EventEmitter2(),
-      packageCdnLoaderService: {} as any,
-      runtimeRegistryService: registrySnapshot(CACHE_IDENTIFIERS.PACKAGE, [
-        'lodash',
-      ]) as any,
-      lazyRef: {} as any,
+    const registry = new RuntimeRegistryService();
+    await registry.publishFromCache(CACHE_IDENTIFIERS.PACKAGE, {
+      getCacheAsync: vi.fn(async () => ['lodash']),
     });
 
-    await expect(service.getPackages()).resolves.toEqual(['lodash']);
+    expect(registry.getPackages()).toEqual(['lodash']);
     expect(queryBuilderService.find).not.toHaveBeenCalled();
   });
 
-  it('fails clearly instead of falling back when the package registry is not activated', async () => {
+  it('fails clearly instead of falling back when the package registry is not activated', () => {
     const queryBuilderService = {
       find: vi.fn(async () => ['stale-db-package']),
     };
-    const service = new PackageCacheService({
-      queryBuilderService: queryBuilderService as any,
-      eventEmitter: new EventEmitter2(),
-      packageCdnLoaderService: {} as any,
-      runtimeRegistryService: registrySnapshot('other-cache', []) as any,
-      lazyRef: {} as any,
-    });
+    const registry = new RuntimeRegistryService();
 
-    await expect(service.getPackages()).rejects.toThrow(
+    expect(() => registry.getPackages()).toThrow(
       'Runtime cache package is not activated',
     );
     expect(queryBuilderService.find).not.toHaveBeenCalled();
@@ -229,19 +215,18 @@ describe('runtime registry required reads', () => {
         throw new Error('DB should not be read');
       }),
     };
-    const service = new SettingCacheService({
-      queryBuilderService: queryBuilderService as any,
-      eventEmitter: new EventEmitter2(),
-      runtimeRegistryService: registrySnapshot(CACHE_IDENTIFIERS.SETTING, {
+    const registry = new RuntimeRegistryService();
+    await registry.publishFromCache(CACHE_IDENTIFIERS.SETTING, {
+      getCacheAsync: vi.fn(async () => ({
         maxQueryDepth: 17,
         maxUploadFileSize: 4,
         maxRequestBodySize: 2,
         customFlag: 'on',
-      }) as any,
+      })),
     });
 
-    await expect(service.getMaxQueryDepth()).resolves.toBe(17);
-    await expect(service.getSetting('customFlag')).resolves.toBe('on');
+    expect(registry.getMaxQueryDepth()).toBe(17);
+    expect(registry.getSetting('customFlag')).toBe('on');
     expect(queryBuilderService.find).not.toHaveBeenCalled();
   });
 
@@ -314,29 +299,28 @@ describe('runtime registry required reads', () => {
         throw new Error('DB should not be read');
       }),
     };
-    const service = new GqlDefinitionCacheService({
-      queryBuilderService: queryBuilderService as any,
-      eventEmitter: new EventEmitter2(),
-      runtimeRegistryService: registrySnapshot(
-        CACHE_IDENTIFIERS.GRAPHQL,
-        new Map([
-          [
-            'posts',
-            {
-              id: 1,
-              isEnabled: true,
-              isSystem: false,
-              description: null,
-              metadata: null,
-              tableName: 'posts',
-            },
-          ],
-        ]),
-      ) as any,
+    const registry = new RuntimeRegistryService();
+    await registry.publishFromCache(CACHE_IDENTIFIERS.GRAPHQL, {
+      getCacheAsync: vi.fn(
+        async () =>
+          new Map([
+            [
+              'posts',
+              {
+                id: 1,
+                isEnabled: true,
+                isSystem: false,
+                description: null,
+                metadata: null,
+                tableName: 'posts',
+              },
+            ],
+          ]),
+      ),
     });
 
-    await expect(service.isEnabledForTable('posts')).resolves.toBe(true);
-    await expect(service.getAllEnabled()).resolves.toEqual([
+    expect(registry.isGraphqlEnabledForTable('posts')).toBe(true);
+    expect(registry.getAllEnabledGraphqlDefinitions()).toEqual([
       expect.objectContaining({ tableName: 'posts' }),
     ]);
     expect(queryBuilderService.find).not.toHaveBeenCalled();
@@ -368,20 +352,19 @@ describe('runtime registry required reads', () => {
       description: null,
       children: [],
     };
-    const service = new FolderTreeCacheService({
-      queryBuilderService: queryBuilderService as any,
-      eventEmitter: new EventEmitter2(),
-      runtimeRegistryService: registrySnapshot(CACHE_IDENTIFIERS.FOLDER_TREE, {
+    const registry = new RuntimeRegistryService();
+    await registry.publishFromCache(CACHE_IDENTIFIERS.FOLDER_TREE, {
+      getCacheAsync: vi.fn(async () => ({
         folders: new Map([
           ['root', root],
           ['child', child],
         ]),
         tree: [root],
-      }) as any,
+      })),
     });
 
-    await expect(service.getTree()).resolves.toEqual([root]);
-    await expect(service.isCircular('root', 'child')).resolves.toBe(true);
+    expect(registry.getFolderTree()).toEqual([root]);
+    expect(registry.isCircularFolderParent('root', 'child')).toBe(true);
     expect(queryBuilderService.find).not.toHaveBeenCalled();
   });
 });
