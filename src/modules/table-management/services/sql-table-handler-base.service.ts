@@ -1,15 +1,15 @@
 import { Logger } from '../../../shared/logger';
 import type { Knex } from 'knex';
 import { getIoAbortSignal } from '@enfyra/kernel';
-import {
-  QueryBuilderService,
-  getForeignKeyColumnName,
-} from '@enfyra/kernel';
+import { QueryBuilderService, getForeignKeyColumnName } from '@enfyra/kernel';
 import {
   SqlSchemaMigrationService,
   SchemaMigrationLockService,
 } from '../../../engines/knex';
-import { MetadataCacheService } from '../../../engines/cache';
+import {
+  MetadataCacheService,
+  RuntimeRegistryService,
+} from '../../../engines/cache';
 import {
   LoggingService,
   DatabaseException,
@@ -51,10 +51,12 @@ export class SqlTableHandlerService {
   protected tableValidationService: TableManagementValidationService;
   protected sqlTableMetadataBuilderService: SqlTableMetadataBuilderService;
   protected sqlTableMetadataWriterService: SqlTableMetadataWriterService;
+  protected runtimeRegistryService: RuntimeRegistryService;
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     sqlSchemaMigrationService: SqlSchemaMigrationService;
     metadataCacheService: MetadataCacheService;
+    runtimeRegistryService: RuntimeRegistryService;
     loggingService: LoggingService;
     schemaMigrationLockService: SchemaMigrationLockService;
     policyService: PolicyService;
@@ -65,6 +67,7 @@ export class SqlTableHandlerService {
     this.queryBuilderService = deps.queryBuilderService;
     this.schemaMigrationService = deps.sqlSchemaMigrationService;
     this.metadataCacheService = deps.metadataCacheService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.loggingService = deps.loggingService;
     this.schemaMigrationLockService = deps.schemaMigrationLockService;
     this.policyService = deps.policyService;

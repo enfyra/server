@@ -109,11 +109,7 @@ export class SqlTableCreateService extends SqlTableHandlerService {
         .first();
       if (existing) {
         await trx.rollback();
-        throw new DuplicateResourceException(
-          'enfyra_table',
-          'name',
-          body.name,
-        );
+        throw new DuplicateResourceException('enfyra_table', 'name', body.name);
       }
       if (hasTable && !existing) {
         this.logger.warn(
@@ -371,7 +367,7 @@ export class SqlTableCreateService extends SqlTableHandlerService {
       }
       await ensureSqlTableRouteArtifacts({
         trx,
-        metadataCacheService: this.metadataCacheService,
+        runtimeRegistryService: this.runtimeRegistryService,
         tableName: body.name,
         tableId,
         logger: this.logger,

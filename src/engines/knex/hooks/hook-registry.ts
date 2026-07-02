@@ -1,6 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { Knex } from 'knex';
-import type { MetadataCacheService } from '../../cache';
+import type { RuntimeRegistryService } from '../../cache';
 import { stringifyRecordJsonFields } from '../utils/json-parser';
 import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
 export type HookEvent =
@@ -36,7 +36,7 @@ export class KnexHookRegistry {
   };
   constructor(
     private knexInstance: Knex,
-    private metadataCacheService: MetadataCacheService,
+    private runtimeRegistryService: RuntimeRegistryService,
     private logger: Logger,
     private stripUnknownColumns: (tableName: string, data: any) => Promise<any>,
     private stripNonUpdatableFields: (
@@ -104,14 +104,14 @@ export class KnexHookRegistry {
     });
     this.addHook('beforeInsert', async (tableName, data) => {
       const tableMetadata =
-        await this.metadataCacheService.getTableMetadata(tableName);
+        await this.runtimeRegistryService.getTableMetadata(tableName);
       if (!tableMetadata) return data;
       return stringifyRecordJsonFields(data, tableMetadata);
     });
     this.addHook('beforeInsert', async (tableName, data) => {
       if (await this.isJunctionTable(tableName)) return data;
       const tableMetadata =
-        await this.metadataCacheService.getTableMetadata(tableName);
+        await this.runtimeRegistryService.getTableMetadata(tableName);
       if (!tableMetadata || !tableMetadata.columns) return data;
 
       const hasCreatedAt = tableMetadata.columns.some(
@@ -181,7 +181,7 @@ export class KnexHookRegistry {
     });
     this.addHook('beforeUpdate', async (tableName, data) => {
       const tableMetadata =
-        await this.metadataCacheService.getTableMetadata(tableName);
+        await this.runtimeRegistryService.getTableMetadata(tableName);
       if (!tableMetadata) return data;
       return stringifyRecordJsonFields(data, tableMetadata);
     });
@@ -199,7 +199,7 @@ export class KnexHookRegistry {
     });
     this.addHook('beforeUpdate', async (tableName, data) => {
       const tableMetadata =
-        await this.metadataCacheService.getTableMetadata(tableName);
+        await this.runtimeRegistryService.getTableMetadata(tableName);
       if (!tableMetadata || !tableMetadata.columns) return data;
       const filteredData = { ...data };
       for (const column of tableMetadata.columns) {
@@ -216,7 +216,7 @@ export class KnexHookRegistry {
     this.addHook('beforeUpdate', async (tableName, data) => {
       if (await this.isJunctionTable(tableName)) return data;
       const tableMetadata =
-        await this.metadataCacheService.getTableMetadata(tableName);
+        await this.runtimeRegistryService.getTableMetadata(tableName);
       if (!tableMetadata || !tableMetadata.columns) return data;
 
       const hasUpdatedAt = tableMetadata.columns.some(
@@ -244,7 +244,8 @@ export class KnexHookRegistry {
       }
       let metadata: any;
       try {
-        metadata = await this.metadataCacheService.getTableMetadata(tableName);
+        metadata =
+          await this.runtimeRegistryService.getTableMetadata(tableName);
       } catch (err) {
         this.logger.error(
           `[afterDelete] Failed to get metadata for ${tableName}: ${err}`,
@@ -287,7 +288,9 @@ export class KnexHookRegistry {
           let targetMeta: any;
           try {
             targetMeta =
-              await this.metadataCacheService.getTableMetadata(targetTableName);
+              await this.runtimeRegistryService.getTableMetadata(
+                targetTableName,
+              );
           } catch (err) {
             this.logger.error(
               `[afterDelete] Failed to get target metadata for ${targetTableName}: ${err}`,
@@ -318,7 +321,7 @@ export class KnexHookRegistry {
           let sourceMeta: any;
           try {
             sourceMeta =
-              await this.metadataCacheService.getTableMetadata(tableName);
+              await this.runtimeRegistryService.getTableMetadata(tableName);
           } catch (err) {
             this.logger.error(
               `[afterDelete] Failed to get source metadata for ${tableName}: ${err}`,

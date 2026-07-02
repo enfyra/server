@@ -1,7 +1,11 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { Logger } from '../../../shared/logger';
 import { getErrorMessage } from '../../../shared/utils/error.util';
-import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
+import {
+  CACHE_EVENTS,
+  CACHE_IDENTIFIERS,
+} from '../../../shared/utils/cache-events.constants';
+import type { EnfyraMetadata } from './metadata-cache.service';
 import type {
   RuntimeCacheIdentifier,
   RuntimeRegistryEntry,
@@ -111,6 +115,42 @@ export class RuntimeRegistryService {
       throw new Error(`Runtime cache ${identifier} is not activated`);
     }
     return data;
+  }
+
+  getMetadata(): EnfyraMetadata | undefined {
+    return this.getActiveData<EnfyraMetadata>(CACHE_IDENTIFIERS.METADATA);
+  }
+
+  requireMetadata(): EnfyraMetadata {
+    return this.requireActiveData<EnfyraMetadata>(CACHE_IDENTIFIERS.METADATA);
+  }
+
+  getTableMetadata(tableName: string): any | null {
+    return this.getMetadata()?.tables.get(tableName) ?? null;
+  }
+
+  requireTableMetadata(tableName: string): any {
+    const table = this.getTableMetadata(tableName);
+    if (!table) {
+      throw new Error(`Runtime metadata table ${tableName} is not activated`);
+    }
+    return table;
+  }
+
+  getAllTablesMetadata(): any[] {
+    return this.getMetadata()?.tablesList ?? [];
+  }
+
+  lookupTableByName(tableName: string): any | null {
+    return this.getTableMetadata(tableName);
+  }
+
+  lookupTableById(tableId: number | string): any | null {
+    return (
+      this.getMetadata()?.tablesList.find(
+        (table) => table.id === tableId || table.id === Number(tableId),
+      ) ?? null
+    );
   }
 
   getEntry(

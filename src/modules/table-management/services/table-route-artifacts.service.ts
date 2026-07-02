@@ -1,7 +1,7 @@
 import type { Knex } from 'knex';
 import { compileScriptSource } from '../../../shared/utils/script-code.util';
 import { DEFAULT_REST_HANDLER_LOGIC } from '../../../domain/bootstrap';
-import type { MetadataCacheService } from '../../../engines/cache';
+import type { RuntimeRegistryService } from '../../../engines/cache';
 import type { MongoService } from '../../../engines/mongo';
 import type { QueryBuilderService } from '@enfyra/kernel';
 import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
@@ -10,12 +10,12 @@ const ROUTE_METHOD_PROPERTY = 'availableMethods';
 
 export async function ensureSqlTableRouteArtifacts(input: {
   trx: Knex.Transaction;
-  metadataCacheService: MetadataCacheService;
+  runtimeRegistryService: RuntimeRegistryService;
   tableName: string;
   tableId: number;
   logger: { warn(message: string): void };
 }): Promise<void> {
-  const { trx, metadataCacheService, tableName, tableId, logger } = input;
+  const { trx, runtimeRegistryService, tableName, tableId, logger } = input;
   const existingRoute = await trx('enfyra_route')
     .where({ path: `/${tableName}` })
     .first();
@@ -38,7 +38,7 @@ export async function ensureSqlTableRouteArtifacts(input: {
 
   const methods = await trx('enfyra_method').select('id', 'name');
   const routeTableMeta =
-    await metadataCacheService.getTableMetadata('enfyra_route');
+    runtimeRegistryService.getTableMetadata('enfyra_route');
   const availableMethodsRel = routeTableMeta?.relations?.find(
     (relation: any) => relation.propertyName === ROUTE_METHOD_PROPERTY,
   );
@@ -171,16 +171,19 @@ export async function renameMongoAutoTableRoute(input: {
 }): Promise<void> {
   const { mongoService, tableId, oldTableName, newTableName } = input;
   if (!newTableName || oldTableName === newTableName) return;
-  await mongoService.getDb().collection('enfyra_route').updateOne(
-    {
-      mainTable: tableId,
-      path: `/${oldTableName}`,
-    },
-    {
-      $set: {
-        path: `/${newTableName}`,
-        updatedAt: new Date(),
+  await mongoService
+    .getDb()
+    .collection('enfyra_route')
+    .updateOne(
+      {
+        mainTable: tableId,
+        path: `/${oldTableName}`,
       },
-    },
-  );
+      {
+        $set: {
+          path: `/${newTableName}`,
+          updatedAt: new Date(),
+        },
+      },
+    );
 }

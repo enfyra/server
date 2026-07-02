@@ -24,13 +24,12 @@ function makeContainer(opts: {
     getCacheAsync: vi.fn(async () => opts.rulesByColumn ?? new Map()),
   };
   const runtimeRegistryService = {
-    getActiveData: vi.fn((identifier: string) => {
-      if (identifier === CACHE_IDENTIFIERS.METADATA)
-        return opts.runtimeMetadata;
+    requireMetadata: vi.fn(() => opts.runtimeMetadata ?? metadata),
+    requireActiveData: vi.fn((identifier: string) => {
       if (identifier === CACHE_IDENTIFIERS.COLUMN_RULE) {
-        return opts.runtimeRulesByColumn;
+        return opts.runtimeRulesByColumn ?? opts.rulesByColumn ?? new Map();
       }
-      return undefined;
+      throw new Error(`Unexpected runtime cache ${identifier}`);
     }),
   };
   const eventEmitter = { on: vi.fn() };
@@ -426,14 +425,14 @@ describe('bodyValidationMiddleware — schema rebuilding', () => {
   it('second request with same metadata version rebuilds schema', async () => {
     const container = makeContainer({ tableMeta });
     const getMetaSpy = vi.spyOn(
-      container.cradle.metadataCacheService,
-      'getMetadata',
+      container.cradle.runtimeRegistryService,
+      'requireMetadata',
     );
     const getRulesSpy = vi.spyOn(
-      container.cradle.columnRuleCacheService,
-      'getCacheAsync',
+      container.cradle.runtimeRegistryService,
+      'requireActiveData',
     );
-    getMetaSpy.mockResolvedValue({
+    getMetaSpy.mockReturnValue({
       tables: new Map([[tableMeta.name, tableMeta]]),
       tablesList: [tableMeta],
       version: 1,
@@ -469,11 +468,11 @@ describe('bodyValidationMiddleware — schema rebuilding', () => {
     const container = makeContainer({ tableMeta });
     let currentVersion = 1;
     const getMetaSpy = vi.spyOn(
-      container.cradle.metadataCacheService,
-      'getMetadata',
+      container.cradle.runtimeRegistryService,
+      'requireMetadata',
     );
     getMetaSpy.mockImplementation(
-      async () =>
+      () =>
         ({
           tables: new Map([[tableMeta.name, tableMeta]]),
           tablesList: [tableMeta],
@@ -511,8 +510,8 @@ describe('bodyValidationMiddleware — schema rebuilding', () => {
   it('invalidateBodyValidationCache() is a compatibility no-op', async () => {
     const container = makeContainer({ tableMeta });
     const getMetaSpy = vi.spyOn(
-      container.cradle.metadataCacheService,
-      'getMetadata',
+      container.cradle.runtimeRegistryService,
+      'requireMetadata',
     );
     const mw = bodyValidationMiddleware(container);
     await mw(
@@ -634,8 +633,8 @@ describe('bodyValidationMiddleware — defensive body handling', () => {
   });
 });
 
-describe('bodyValidationMiddleware — metadata cache null (cold start)', () => {
-  it('getMetadata returns null → middleware passes through (no validation)', async () => {
+describe('bodyValidationMiddleware — runtime metadata missing', () => {
+  it('requireMetadata fails clearly instead of silently skipping validation', async () => {
     const tableMeta = {
       name: 'post',
       validateBody: true,
@@ -645,16 +644,19 @@ describe('bodyValidationMiddleware — metadata cache null (cold start)', () => 
       relations: [],
     };
     const container = makeContainer({ tableMeta });
-    (container.cradle.metadataCacheService as any).getMetadata = async () =>
-      null;
+    container.cradle.runtimeRegistryService.requireMetadata = vi.fn(() => {
+      throw new Error('Runtime cache metadata is not activated');
+    });
     const mw = bodyValidationMiddleware(container);
     const { req, res, next } = makeReqRes({
       method: 'POST',
       routeData: { mainTable: tableMeta, path: '/post' },
       body: {},
     });
-    await mw(req, res, next);
-    expect(next).toHaveBeenCalledWith();
+    await expect(mw(req, res, next)).rejects.toThrow(
+      'Runtime cache metadata is not activated',
+    );
+    expect(next).not.toHaveBeenCalled();
   });
 });
 
