@@ -1,16 +1,15 @@
 import { Response, NextFunction } from 'express';
-import {
-  RouteCacheService,
-  RepoRegistryService,
-  RateLimitService,
-} from '../../engines/cache';
+import { RepoRegistryService, RateLimitService } from '../../engines/cache';
 import { UploadFileHelper } from '../../shared/helpers';
 import { FlowService } from '../../modules/flow';
 import { resolveClientIpFromRequest } from '../../shared/utils/client-ip.util';
 import { DynamicContextFactory } from '../../shared/services';
+import { CACHE_IDENTIFIERS } from '../../shared/utils/cache-events.constants';
+import { matchRouteInRoutes } from '../../shared/utils/route-match.util';
+import type { RuntimeRegistryService } from '../../engines/cache/services/runtime-registry.service';
 
 export function routeDetectMiddleware(
-  routeCacheService: RouteCacheService,
+  runtimeRegistryService: RuntimeRegistryService,
   repoRegistryService: RepoRegistryService,
   uploadFileHelper: UploadFileHelper,
   rateLimitService: RateLimitService,
@@ -20,7 +19,10 @@ export function routeDetectMiddleware(
   return async (req: any, res: Response, next: NextFunction) => {
     const method = req.method;
     const path = req.path || req.url?.split('?')[0] || '/';
-    const matchedRoute = await routeCacheService.matchRoute(method, path);
+    const routeData = runtimeRegistryService.requireActiveData<{
+      routes: any[];
+    }>(CACHE_IDENTIFIERS.ROUTE);
+    const matchedRoute = matchRouteInRoutes(routeData.routes, method, path);
 
     const isMethodAvailable = (route: any) => {
       const methods = route?.availableMethods;
