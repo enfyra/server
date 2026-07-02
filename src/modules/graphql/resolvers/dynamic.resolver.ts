@@ -11,12 +11,16 @@ import {
   RepoRegistryService,
   GuardCacheService,
   GuardEvaluatorService,
-  RouteCacheService,
 } from '../../../engines/cache';
 import { PolicyService, isPolicyDeny } from '../../../domain/policy';
 import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
-import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
+import {
+  CACHE_IDENTIFIERS,
+  isMetadataTable,
+} from '../../../shared/utils/cache-events.constants';
 import { loadCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
+import { matchRouteInRoutes } from '../../../shared/utils/route-match.util';
+import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 
 export class DynamicResolver {
   private readonly queryBuilderService: QueryBuilderService;
@@ -25,7 +29,7 @@ export class DynamicResolver {
   private readonly repoRegistryService: RepoRegistryService;
   private readonly guardCacheService: GuardCacheService;
   private readonly guardEvaluatorService: GuardEvaluatorService;
-  private readonly routeCacheService: RouteCacheService;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly policyService: PolicyService;
   private readonly envService: EnvService;
   private readonly dynamicContextFactory: DynamicContextFactory;
@@ -37,7 +41,7 @@ export class DynamicResolver {
     repoRegistryService: RepoRegistryService;
     guardCacheService: GuardCacheService;
     guardEvaluatorService: GuardEvaluatorService;
-    routeCacheService: RouteCacheService;
+    runtimeRegistryService: RuntimeRegistryService;
     policyService: PolicyService;
     envService: EnvService;
     dynamicContextFactory: DynamicContextFactory;
@@ -48,7 +52,7 @@ export class DynamicResolver {
     this.repoRegistryService = deps.repoRegistryService;
     this.guardCacheService = deps.guardCacheService;
     this.guardEvaluatorService = deps.guardEvaluatorService;
-    this.routeCacheService = deps.routeCacheService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.policyService = deps.policyService;
     this.envService = deps.envService;
     this.dynamicContextFactory = deps.dynamicContextFactory;
@@ -233,8 +237,15 @@ export class DynamicResolver {
     return 'GET';
   }
 
-  private async assertRouteAccess(routePath: string, method: string, user: any) {
-    const match = await this.routeCacheService.matchRoute(method, routePath);
+  private async assertRouteAccess(
+    routePath: string,
+    method: string,
+    user: any,
+  ) {
+    const routeData = this.runtimeRegistryService.requireActiveData<{
+      routes: any[];
+    }>(CACHE_IDENTIFIERS.ROUTE);
+    const match = matchRouteInRoutes(routeData.routes, method, routePath);
     if (!match?.route) {
       throwGqlError('403', 'Forbidden');
     }

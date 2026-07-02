@@ -117,7 +117,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   });
   app.use(
     routeDetectMiddleware(
-      c.routeCacheService,
+      c.runtimeRegistryService,
       c.repoRegistryService,
       c.uploadFileHelper,
       c.rateLimitService,
