@@ -652,8 +652,6 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     if (methods.length === 0) return;
 
-    if (methods.length === 0) return;
-
     for (const method of methods) {
       this.routeEngine.insert(method, basePath, route);
       if (['DELETE', 'PATCH'].includes(method)) {

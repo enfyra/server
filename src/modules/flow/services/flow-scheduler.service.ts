@@ -90,12 +90,9 @@ export class FlowSchedulerService {
       }
       this.registeredSchedulers.clear();
 
-      const flows = this.runtimeRegistryService.getSnapshot<ScheduledFlow[]>(
-        CACHE_IDENTIFIERS.FLOW,
-      )?.data;
-      if (!flows) {
-        throw new Error('Flow runtime registry snapshot is unavailable');
-      }
+      const flows = this.runtimeRegistryService.requireActiveData<
+        ScheduledFlow[]
+      >(CACHE_IDENTIFIERS.FLOW);
       const scheduleFlows = flows.filter(
         (flow: any) => flow.triggerType === 'schedule',
       );

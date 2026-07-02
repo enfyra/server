@@ -86,6 +86,25 @@ describe('RuntimeRegistryService', () => {
     expect(service.lookupTableById(1)).toBeNull();
   });
 
+  it('serves route snapshots through the route active-view API', async () => {
+    const service = new RuntimeRegistryService();
+
+    expect(service.getRoutes()).toEqual([]);
+    expect(() => service.requireRoutes()).toThrow(
+      'Runtime cache route is not activated',
+    );
+
+    await service.publishFromCache(CACHE_IDENTIFIERS.ROUTE, {
+      getCacheAsync: vi.fn(async () => ({
+        routes: [{ id: 1, path: '/posts' }],
+        methods: ['GET'],
+      })),
+    });
+
+    expect(service.getRoutes()).toEqual([{ id: 1, path: '/posts' }]);
+    expect(service.requireRoutes()).toEqual([{ id: 1, path: '/posts' }]);
+  });
+
   it('records failed publish attempts explicitly', async () => {
     const service = new RuntimeRegistryService();
 
