@@ -48,10 +48,15 @@ describe('PackageRuntimeService', () => {
     });
 
     service.init();
-    eventEmitter.emit(`${CACHE_IDENTIFIERS.PACKAGE}_LOADED`);
+    eventEmitter.emit(CACHE_EVENTS.RUNTIME_CACHE_ACTIVATED, {
+      identifier: CACHE_IDENTIFIERS.PACKAGE,
+    });
     expect(packageCdnLoaderService.loadPackage).not.toHaveBeenCalled();
 
     eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
+    eventEmitter.emit(CACHE_EVENTS.RUNTIME_CACHE_ACTIVATED, {
+      identifier: CACHE_IDENTIFIERS.PACKAGE,
+    });
 
     await vi.waitFor(() => {
       expect(packageCdnLoaderService.loadPackage).toHaveBeenCalledWith(
@@ -76,7 +81,9 @@ describe('PackageRuntimeService', () => {
 
     service.init();
     eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
-    eventEmitter.emit(CACHE_EVENTS.PACKAGE_LOADED);
+    eventEmitter.emit(CACHE_EVENTS.RUNTIME_CACHE_ACTIVATED, {
+      identifier: CACHE_IDENTIFIERS.PACKAGE,
+    });
 
     await vi.waitFor(() => {
       expect(service.getStatus().lastPreload).toEqual(

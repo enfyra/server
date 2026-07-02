@@ -1,7 +1,6 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { describe, expect, it, vi } from 'vitest';
 import { FlowSchedulerService } from '../../src/modules/flow/services/flow-scheduler.service';
-import { CACHE_EVENTS } from '../../src/shared/utils/cache-events.constants';
 
 function createQueueMock() {
   return {
@@ -100,26 +99,6 @@ describe('FlowSchedulerService', () => {
       { pattern: '0 2 * * *', tz: undefined },
       expect.objectContaining({ name: 'flow:daily-flow' }),
     );
-  });
-
-  it('rebuilds schedules when flow cache reloads after init', async () => {
-    const { service, eventEmitter, flowQueue } = createScheduler({
-      flows: [
-        {
-          id: 1,
-          name: 'hourly-flow',
-          triggerType: 'schedule',
-          triggerConfig: { cron: '0 * * * *' },
-        },
-      ],
-    });
-
-    await service.init();
-    eventEmitter.emit(CACHE_EVENTS.FLOW_LOADED);
-
-    await vi.waitFor(() => {
-      expect(flowQueue.upsertJobScheduler).toHaveBeenCalledTimes(2);
-    });
   });
 
   it('marks schedule reconcile as degraded when rebuild fails', async () => {

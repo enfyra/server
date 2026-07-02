@@ -24,7 +24,9 @@ describe('WebsocketRuntimeService', () => {
     const { eventEmitter, dynamicWebSocketGateway, service } = createRuntime();
 
     service.init();
-    eventEmitter.emit(`${CACHE_IDENTIFIERS.WEBSOCKET}_LOADED`);
+    eventEmitter.emit(CACHE_EVENTS.RUNTIME_CACHE_ACTIVATED, {
+      identifier: CACHE_IDENTIFIERS.WEBSOCKET,
+    });
 
     await vi.waitFor(() => {
       expect(dynamicWebSocketGateway.refreshGateways).toHaveBeenCalledTimes(1);
@@ -41,7 +43,9 @@ describe('WebsocketRuntimeService', () => {
     );
 
     service.init();
-    eventEmitter.emit(CACHE_EVENTS.WEBSOCKET_LOADED);
+    eventEmitter.emit(CACHE_EVENTS.RUNTIME_CACHE_ACTIVATED, {
+      identifier: CACHE_IDENTIFIERS.WEBSOCKET,
+    });
 
     await vi.waitFor(() => {
       expect(service.getStatus().lastRefresh).toEqual(

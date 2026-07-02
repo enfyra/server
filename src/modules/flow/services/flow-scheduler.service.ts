@@ -2,7 +2,6 @@ import { Logger } from '../../../shared/logger';
 import { parseExpression } from 'cron-parser';
 import { Queue } from 'bullmq';
 import { getErrorMessage } from '../../../shared/utils/error.util';
-import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 
 interface ScheduledFlow {
   id: string | number;
@@ -41,23 +40,14 @@ export class FlowSchedulerService {
   };
   private readonly flowQueue: Queue;
   private readonly flowCacheService: FlowCacheSource;
-  private eventEmitter: any;
 
   constructor(deps: {
     flowQueue: Queue;
     flowCacheService: FlowCacheSource;
-    eventEmitter: any;
+    eventEmitter?: any;
   }) {
     this.flowQueue = deps.flowQueue;
     this.flowCacheService = deps.flowCacheService;
-    this.eventEmitter = deps.eventEmitter;
-    this.setupEventListeners();
-  }
-
-  private setupEventListeners() {
-    this.eventEmitter.on(CACHE_EVENTS.FLOW_LOADED, () => {
-      void this.reconcileSchedules();
-    });
   }
 
   async init(): Promise<void> {

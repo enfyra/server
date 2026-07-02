@@ -1,5 +1,7 @@
+import { EventEmitter2 } from 'eventemitter2';
 import { Logger } from '../../../shared/logger';
 import { getErrorMessage } from '../../../shared/utils/error.util';
+import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import type {
   RuntimeCacheIdentifier,
   RuntimeRegistryEntry,
@@ -13,13 +15,16 @@ export interface RuntimeCacheViewSource {
 
 export class RuntimeRegistryService {
   private readonly logger = new Logger(RuntimeRegistryService.name);
+  private readonly eventEmitter?: EventEmitter2;
   private readonly entries = new Map<
     RuntimeCacheIdentifier,
     RuntimeRegistryEntry
   >();
   private initialized = false;
 
-  constructor(_deps: { eventEmitter?: unknown; lazyRef?: unknown } = {}) {}
+  constructor(deps: { eventEmitter?: EventEmitter2; lazyRef?: unknown } = {}) {
+    this.eventEmitter = deps.eventEmitter;
+  }
 
   init(): void {
     if (this.initialized) return;
@@ -54,6 +59,11 @@ export class RuntimeRegistryService {
         data,
       };
       this.entries.set(identifier, entry);
+      this.eventEmitter?.emit(CACHE_EVENTS.RUNTIME_CACHE_ACTIVATED, {
+        identifier,
+        version: nextVersion,
+        activatedAt,
+      });
       return { identifier, version: nextVersion, activatedAt, data };
     } catch (error) {
       const message = getErrorMessage(error);

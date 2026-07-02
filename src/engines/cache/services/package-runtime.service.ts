@@ -58,11 +58,14 @@ export class PackageRuntimeService {
   init(): void {
     if (this.initialized) return;
     this.initialized = true;
-    const schedule = () => {
-      this.schedulePackagePreload();
-    };
-    this.eventEmitter.on(CACHE_EVENTS.PACKAGE_LOADED, schedule);
-    this.eventEmitter.on(`${CACHE_IDENTIFIERS.PACKAGE}_LOADED`, schedule);
+    this.eventEmitter.on(
+      CACHE_EVENTS.RUNTIME_CACHE_ACTIVATED,
+      (event: { identifier?: string }) => {
+        if (event?.identifier === CACHE_IDENTIFIERS.PACKAGE) {
+          this.schedulePackagePreload();
+        }
+      },
+    );
     this.eventEmitter.once(CACHE_EVENTS.SYSTEM_READY, () => {
       this.systemReady = true;
       if (this.preloadRequested) {
