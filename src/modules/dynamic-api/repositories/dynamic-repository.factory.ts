@@ -3,7 +3,6 @@ import { DynamicRepository } from './dynamic.repository';
 import { TableHandlerService } from '../../table-management';
 import { QueryBuilderService } from '@enfyra/kernel';
 import {
-  MetadataCacheService,
   SettingCacheService,
   FieldPermissionCacheService,
 } from '../../../engines/cache';
@@ -17,7 +16,6 @@ import type { RuntimeRegistryService } from '../../../engines/cache/services/run
 export class DynamicRepositoryFactory {
   private readonly tableHandlerService: TableHandlerService;
   private readonly queryBuilderService: QueryBuilderService;
-  private readonly metadataCacheService: MetadataCacheService;
   private readonly policyService: PolicyService;
   private readonly tableValidationService: DynamicApiTableValidationService;
   private readonly settingCacheService: SettingCacheService;
@@ -30,7 +28,6 @@ export class DynamicRepositoryFactory {
   constructor(deps: {
     tableHandlerService: TableHandlerService;
     queryBuilderService: QueryBuilderService;
-    metadataCacheService: MetadataCacheService;
     policyService: PolicyService;
     tableValidationService: DynamicApiTableValidationService;
     settingCacheService: SettingCacheService;
@@ -42,7 +39,6 @@ export class DynamicRepositoryFactory {
   }) {
     this.tableHandlerService = deps.tableHandlerService;
     this.queryBuilderService = deps.queryBuilderService;
-    this.metadataCacheService = deps.metadataCacheService;
     this.policyService = deps.policyService;
     this.tableValidationService = deps.tableValidationService;
     this.settingCacheService = deps.settingCacheService;
@@ -64,7 +60,6 @@ export class DynamicRepositoryFactory {
       enforceFieldPermission,
       tableHandlerService: this.tableHandlerService,
       queryBuilderService: this.queryBuilderService,
-      metadataCacheService: this.metadataCacheService,
       policyService: this.policyService,
       tableValidationService: this.tableValidationService,
       settingCacheService: this.settingCacheService,

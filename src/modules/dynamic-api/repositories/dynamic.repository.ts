@@ -16,7 +16,6 @@ import { PolicyService, isPolicyDeny } from '../../../domain/policy';
 import { DynamicApiTableValidationService } from '../services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
 import {
-  MetadataCacheService,
   SettingCacheService,
   FieldPermissionCacheService,
 } from '../../../engines/cache';
@@ -55,7 +54,6 @@ export class DynamicRepository {
   private tableHandlerService: TableHandlerService;
   private policyService: PolicyService;
   private tableValidationService: DynamicApiTableValidationService;
-  private metadataCacheService: MetadataCacheService;
   private settingCacheService: SettingCacheService;
   private eventEmitter: EventEmitter2;
   private fieldPermissionCacheService?: FieldPermissionCacheService;
@@ -72,7 +70,6 @@ export class DynamicRepository {
     tableHandlerService,
     policyService,
     tableValidationService,
-    metadataCacheService,
     settingCacheService,
     eventEmitter,
     fieldPermissionCacheService,
@@ -87,7 +84,6 @@ export class DynamicRepository {
     tableHandlerService: TableHandlerService;
     policyService: PolicyService;
     tableValidationService: DynamicApiTableValidationService;
-    metadataCacheService: MetadataCacheService;
     settingCacheService: SettingCacheService;
     eventEmitter: EventEmitter2;
     fieldPermissionCacheService?: FieldPermissionCacheService;
@@ -102,7 +98,6 @@ export class DynamicRepository {
     this.tableHandlerService = tableHandlerService;
     this.policyService = policyService;
     this.tableValidationService = tableValidationService;
-    this.metadataCacheService = metadataCacheService;
     this.settingCacheService = settingCacheService;
     this.eventEmitter = eventEmitter;
     this.fieldPermissionCacheService = fieldPermissionCacheService;
@@ -828,7 +823,6 @@ export class DynamicRepository {
       tableName: this.tableName,
       user: this.context.$user,
       action: 'read',
-      metadataCacheService: this.metadataCacheService,
       fieldPermissionCacheService: this.fieldPermissionCacheService!,
       metadata,
       requested,

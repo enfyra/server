@@ -8,17 +8,6 @@ function makeRepo(
     getPkField: vi.fn(() => '_id'),
     find: vi.fn().mockResolvedValue({ data: [], count: 0 }),
   };
-  const metadataCacheService = {
-    lookupTableByName: vi.fn().mockResolvedValue({
-      name: 'enfyra_route',
-      columns: [{ name: '_id', isPrimary: true }],
-      relations: [],
-    }),
-    getMetadata: vi.fn().mockResolvedValue({
-      version: 1,
-      tables: new Map(),
-    }),
-  };
   const runtimeRegistryService = {
     requireMetadata: vi.fn(() => ({
       version: 1,
@@ -51,7 +40,6 @@ function makeRepo(
     tableHandlerService: {} as any,
     policyService: {} as any,
     tableValidationService: {} as any,
-    metadataCacheService: metadataCacheService as any,
     settingCacheService: settingCacheService as any,
     runtimeRegistryService: runtimeRegistryService as any,
     eventEmitter: {} as any,
