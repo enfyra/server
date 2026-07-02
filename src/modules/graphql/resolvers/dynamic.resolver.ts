@@ -14,10 +14,7 @@ import {
 } from '../../../engines/cache';
 import { PolicyService, isPolicyDeny } from '../../../domain/policy';
 import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
-import {
-  CACHE_IDENTIFIERS,
-  isMetadataTable,
-} from '../../../shared/utils/cache-events.constants';
+import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
 import { loadCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
 import { matchRouteInRoutes } from '../../../shared/utils/route-match.util';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
@@ -242,10 +239,11 @@ export class DynamicResolver {
     method: string,
     user: any,
   ) {
-    const routeData = this.runtimeRegistryService.requireActiveData<{
-      routes: any[];
-    }>(CACHE_IDENTIFIERS.ROUTE);
-    const match = matchRouteInRoutes(routeData.routes, method, routePath);
+    const match = matchRouteInRoutes(
+      this.runtimeRegistryService.requireRoutes(),
+      method,
+      routePath,
+    );
     if (!match?.route) {
       throwGqlError('403', 'Forbidden');
     }

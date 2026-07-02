@@ -166,10 +166,9 @@ export class DynamicWebSocketGateway {
   async registerGateways() {
     if (!this.server) return;
     try {
-      const gateways =
-        this.runtimeRegistryService.getSnapshot<WebSocketGateway[]>(
-          CACHE_IDENTIFIERS.WEBSOCKET,
-        )?.data ?? [];
+      const gateways = this.runtimeRegistryService.requireActiveData<
+        WebSocketGateway[]
+      >(CACHE_IDENTIFIERS.WEBSOCKET);
       const newPaths = new Set(gateways.map((g: any) => g.path));
       for (const path of this.registeredGateways) {
         if (path === ENFYRA_ADMIN_WEBSOCKET_NAMESPACE) continue;

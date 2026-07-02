@@ -152,6 +152,18 @@ export class RuntimeRegistryService {
     return this.getMetadata()?.tablesList ?? [];
   }
 
+  getRoutes(): any[] {
+    return (
+      this.getActiveData<{ routes: any[] }>(CACHE_IDENTIFIERS.ROUTE)?.routes ??
+      []
+    );
+  }
+
+  requireRoutes(): any[] {
+    return this.requireActiveData<{ routes: any[] }>(CACHE_IDENTIFIERS.ROUTE)
+      .routes;
+  }
+
   lookupTableByName(tableName: string): any | null {
     return this.getTableMetadata(tableName);
   }

@@ -20,12 +20,7 @@ function createScheduler(options?: {
     options?.existingSchedulers || [],
   );
   const runtimeRegistryService = {
-    getSnapshot: vi.fn(() => ({
-      identifier: 'flow',
-      version: 1,
-      activatedAt: '2026-07-02T00:00:00.000Z',
-      data: options?.flows || [],
-    })),
+    requireActiveData: vi.fn(() => options?.flows || []),
   };
   const service = new FlowSchedulerService({
     eventEmitter,
@@ -108,14 +103,16 @@ describe('FlowSchedulerService', () => {
 
   it('marks schedule reconcile as degraded when rebuild fails', async () => {
     const { service, runtimeRegistryService } = createScheduler();
-    runtimeRegistryService.getSnapshot.mockReturnValueOnce(undefined);
+    runtimeRegistryService.requireActiveData.mockImplementationOnce(() => {
+      throw new Error('Runtime cache flow is not activated');
+    });
 
     await service.init();
 
     expect(service.getLastReconcileState()).toEqual(
       expect.objectContaining({
         status: 'degraded',
-        error: 'Flow runtime registry snapshot is unavailable',
+        error: 'Runtime cache flow is not activated',
       }),
     );
   });

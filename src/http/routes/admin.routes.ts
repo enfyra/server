@@ -728,10 +728,7 @@ async function resolveWebsocketConnectionTest(body: any, cradle: any) {
 }
 
 async function findRouteForTest(body: any, cradle: any) {
-  const routeData = cradle.runtimeRegistryService?.getActiveData?.(
-    CACHE_IDENTIFIERS.ROUTE,
-  );
-  const routes = Array.isArray(routeData?.routes) ? routeData.routes : [];
+  const routes = cradle.runtimeRegistryService?.getRoutes?.() ?? [];
   const routeId = body?.routeId ?? body?.route?.id;
   const path = String(body?.path || body?.routePath || '').trim();
   return (

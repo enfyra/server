@@ -3,7 +3,6 @@ import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 import { NotFoundException } from '../../domain/exceptions';
 import { projectMetadataForUser } from '../../shared/utils/metadata-access.util';
-import { CACHE_IDENTIFIERS } from '../../shared/utils/cache-events.constants';
 import type { RuntimeRegistryService } from '../../engines/cache/services/runtime-registry.service';
 
 export function registerMetadataRoutes(
@@ -22,19 +21,15 @@ export function registerMetadataRoutes(
     const fieldPermissionCacheService =
       req.scope?.cradle?.fieldPermissionCacheService ??
       container.cradle.fieldPermissionCacheService;
-    const metadata = runtimeRegistryService.requireActiveData(
-      CACHE_IDENTIFIERS.METADATA,
-    );
+    const metadata = runtimeRegistryService.requireMetadata();
     if (!metadata) {
       throw new NotFoundException('Metadata not available');
     }
-    const routeData = runtimeRegistryService.requireActiveData<{
-      routes: any[];
-    }>(CACHE_IDENTIFIERS.ROUTE);
+    const routes = runtimeRegistryService.requireRoutes();
     const data = await projectMetadataForUser({
       metadata,
       user: req.user,
-      routeCacheService: { getRoutes: async () => routeData.routes },
+      routeCacheService: { getRoutes: async () => routes },
       policyService,
       fieldPermissionCacheService,
     });
@@ -54,16 +49,12 @@ export function registerMetadataRoutes(
     const fieldPermissionCacheService =
       req.scope?.cradle?.fieldPermissionCacheService ??
       container.cradle.fieldPermissionCacheService;
-    const metadata = runtimeRegistryService.requireActiveData(
-      CACHE_IDENTIFIERS.METADATA,
-    );
-    const routeData = runtimeRegistryService.requireActiveData<{
-      routes: any[];
-    }>(CACHE_IDENTIFIERS.ROUTE);
+    const metadata = runtimeRegistryService.requireMetadata();
+    const routes = runtimeRegistryService.requireRoutes();
     const table = await projectMetadataForUser({
       metadata,
       user: req.user,
-      routeCacheService: { getRoutes: async () => routeData.routes },
+      routeCacheService: { getRoutes: async () => routes },
       policyService,
       fieldPermissionCacheService,
       tableName: req.params.name,
