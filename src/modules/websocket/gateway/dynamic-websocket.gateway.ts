@@ -6,9 +6,14 @@ import { appendFileSync } from 'node:fs';
 import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import { getErrorMessage } from '../../../shared/utils/error.util';
-import { CacheService, WebsocketCacheService } from '../../../engines/cache';
+import {
+  CacheService,
+  RuntimeRegistryService,
+  type WebSocketGateway,
+} from '../../../engines/cache';
 import { BuiltInSocketRegistry } from '../services/built-in-socket.registry';
 import { EnvService } from '../../../shared/services';
+import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 import {
   ENFYRA_ADMIN_ROOT_WEBSOCKET_ROOM,
   ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
@@ -51,7 +56,7 @@ export class DynamicWebSocketGateway {
   private activeRoomFanoutQueues = new Set<string>();
   private redisPubClient: Redis | null = null;
   private redisSubClient: Redis | null = null;
-  private readonly websocketCacheService: WebsocketCacheService;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly builtInRegistry: BuiltInSocketRegistry;
   private readonly envService: EnvService;
   private readonly queryBuilderService: QueryBuilderService;
@@ -60,7 +65,7 @@ export class DynamicWebSocketGateway {
   private readonly lazyRef: Cradle;
 
   constructor(deps: {
-    websocketCacheService: WebsocketCacheService;
+    runtimeRegistryService: RuntimeRegistryService;
     builtInSocketRegistry: BuiltInSocketRegistry;
     eventEmitter?: any;
     envService: EnvService;
@@ -69,7 +74,7 @@ export class DynamicWebSocketGateway {
     redisAdminService: RedisAdminService;
     lazyRef: Cradle;
   }) {
-    this.websocketCacheService = deps.websocketCacheService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.builtInRegistry = deps.builtInSocketRegistry;
     this.envService = deps.envService;
     this.queryBuilderService = deps.queryBuilderService;
@@ -161,7 +166,10 @@ export class DynamicWebSocketGateway {
   async registerGateways() {
     if (!this.server) return;
     try {
-      const gateways = await this.websocketCacheService.getGateways();
+      const gateways =
+        this.runtimeRegistryService.getSnapshot<WebSocketGateway[]>(
+          CACHE_IDENTIFIERS.WEBSOCKET,
+        )?.data ?? [];
       const newPaths = new Set(gateways.map((g: any) => g.path));
       for (const path of this.registeredGateways) {
         if (path === ENFYRA_ADMIN_WEBSOCKET_NAMESPACE) continue;
