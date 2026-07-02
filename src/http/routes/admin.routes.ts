@@ -2,7 +2,10 @@ import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 import { BadRequestException } from '../../domain/exceptions';
-import { CACHE_EVENTS } from '../../shared/utils/cache-events.constants';
+import {
+  CACHE_EVENTS,
+  CACHE_IDENTIFIERS,
+} from '../../shared/utils/cache-events.constants';
 import { compileScriptSource } from '../../shared/utils/script-code.util';
 import type { TCacheInvalidationPayload } from '../../shared/types/cache.types';
 
@@ -34,7 +37,8 @@ function resolveRuntimeMonitor(req: any, container: AwilixContainer<Cradle>) {
 
 function getRecordId(record: any, pkField: string) {
   if (!record) return null;
-  let id = pkField === '_id' ? (record._id ?? record.id) : (record.id ?? record._id);
+  let id =
+    pkField === '_id' ? (record._id ?? record.id) : (record.id ?? record._id);
   while (id && typeof id === 'object') {
     id = pkField === '_id' ? (id._id ?? id.id) : (id.id ?? id._id);
   }
@@ -60,13 +64,17 @@ function normalizeMenuReorderUpdates(body: any): MenuReorderUpdate[] {
     }
     const idKey = String(id);
     if (seen.has(idKey)) {
-      throw new BadRequestException(`Duplicate menu id in reorder payload: ${idKey}`);
+      throw new BadRequestException(
+        `Duplicate menu id in reorder payload: ${idKey}`,
+      );
     }
     seen.add(idKey);
 
     const order = Number(item?.order);
     if (!Number.isInteger(order) || order < 0) {
-      throw new BadRequestException(`updates[${index}].order must be a non-negative integer`);
+      throw new BadRequestException(
+        `updates[${index}].order must be a non-negative integer`,
+      );
     }
 
     const parent = item?.parent ?? null;
@@ -100,8 +108,13 @@ function assertNoMenuCycle(
   }
 }
 
-async function emitMenuReload(req: any, container: AwilixContainer<Cradle>, ids: (string | number)[]) {
-  const eventEmitter = req.scope?.cradle?.eventEmitter ?? container.cradle.eventEmitter;
+async function emitMenuReload(
+  req: any,
+  container: AwilixContainer<Cradle>,
+  ids: (string | number)[],
+) {
+  const eventEmitter =
+    req.scope?.cradle?.eventEmitter ?? container.cradle.eventEmitter;
   const payload: TCacheInvalidationPayload = {
     table: 'enfyra_menu',
     action: 'reload',
@@ -171,14 +184,17 @@ export function registerAdminRoutes(
   });
 
   app.post('/admin/menu/reorder', async (req: any, res: Response) => {
-    const updates = normalizeMenuReorderUpdates(req.routeData?.context?.$body ?? req.body ?? {});
+    const updates = normalizeMenuReorderUpdates(
+      req.routeData?.context?.$body ?? req.body ?? {},
+    );
     if (updates.length === 0) {
       res.json({ success: true, data: { updated: 0 } });
       return;
     }
 
     const queryBuilderService =
-      req.scope?.cradle?.queryBuilderService ?? container.cradle.queryBuilderService;
+      req.scope?.cradle?.queryBuilderService ??
+      container.cradle.queryBuilderService;
     const pkField = queryBuilderService.getPkField();
     const ids = updates.map((update) => update.id);
     const existingResult = await queryBuilderService.find({
@@ -213,13 +229,17 @@ export function registerAdminRoutes(
 
         const parent = existingById.get(String(update.parent));
         if (!parent) {
-          throw new BadRequestException(`Menu parent not found: ${String(update.parent)}`);
+          throw new BadRequestException(
+            `Menu parent not found: ${String(update.parent)}`,
+          );
         }
         if (parent.type !== 'Dropdown Menu') {
           throw new BadRequestException('Menu parent must be a dropdown menu');
         }
         if (parent.path === '/data') {
-          throw new BadRequestException('The Data menu cannot accept child menus');
+          throw new BadRequestException(
+            'The Data menu cannot accept child menus',
+          );
         }
       }
 
@@ -709,9 +729,10 @@ async function resolveWebsocketConnectionTest(body: any, cradle: any) {
 }
 
 async function findRouteForTest(body: any, cradle: any) {
-  const routeCacheService = cradle.routeCacheService;
-  if (!routeCacheService?.getRoutes) return null;
-  const routes = await routeCacheService.getRoutes();
+  const routeData = cradle.runtimeRegistryService?.getActiveData?.(
+    CACHE_IDENTIFIERS.ROUTE,
+  );
+  const routes = Array.isArray(routeData?.routes) ? routeData.routes : [];
   const routeId = body?.routeId ?? body?.route?.id;
   const path = String(body?.path || body?.routePath || '').trim();
   return (
@@ -759,9 +780,10 @@ function findRouteScriptRecord(options: {
 }
 
 async function findWebsocketGatewayForTest(body: any, cradle: any) {
-  const websocketCacheService = cradle.websocketCacheService;
-  if (!websocketCacheService?.getGateways) return null;
-  const gateways = await websocketCacheService.getGateways();
+  const gateways =
+    cradle.runtimeRegistryService?.getActiveData?.(
+      CACHE_IDENTIFIERS.WEBSOCKET,
+    ) ?? [];
   const gatewayId = body?.gatewayId ?? body?.gateway?.id;
   const path = String(body?.gatewayPath || body?.path || '').trim();
   return (
