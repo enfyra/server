@@ -45,6 +45,7 @@ import type {
 const COLOR = '\x1b[33m';
 const RESET = '\x1b[0m';
 const SYNC_CHANNEL = 'enfyra:cache-orchestrator-sync';
+const FULL_RELOAD_BUILDER_CONCURRENCY = 3;
 
 const FLOW_PRIORITY = [
   'metadata',
@@ -174,6 +175,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   private debounceResolvers: Array<() => void> = [];
   private pendingPayload: TCacheInvalidationPayload | null = null;
   private reloadLock: Promise<void> | null = null;
+  private reloadEventSequence = 0;
   private processedVersions: Set<string> = new Set();
 
   constructor(deps: {
@@ -574,6 +576,23 @@ export class CacheOrchestratorService implements LifecycleAware {
     }
   }
 
+  private async runBoundedReloadSteps<T>(
+    items: T[],
+    concurrency: number,
+    run: (item: T) => Promise<void>,
+  ): Promise<void> {
+    let nextIndex = 0;
+    const workerCount = Math.min(Math.max(1, concurrency), items.length);
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => {
+        while (nextIndex < items.length) {
+          const item = items[nextIndex++];
+          await run(item);
+        }
+      }),
+    );
+  }
+
   private resolveFlowName(chain: string[]): string {
     for (const step of FLOW_PRIORITY) {
       if (chain.includes(step)) return step;
@@ -582,7 +601,11 @@ export class CacheOrchestratorService implements LifecycleAware {
   }
 
   private createReloadEventId(flow: string): string {
-    return `${this.instanceService.getInstanceId()}:${flow}:${Date.now()}`;
+    this.reloadEventSequence =
+      this.reloadEventSequence >= Number.MAX_SAFE_INTEGER
+        ? 1
+        : this.reloadEventSequence + 1;
+    return `${this.instanceService.getInstanceId()}:${flow}:${Date.now()}:${this.reloadEventSequence}`;
   }
 
   private notifyClients(
@@ -1134,69 +1157,98 @@ export class CacheOrchestratorService implements LifecycleAware {
             ? this.metadataCacheService.syncFromSharedCache()
             : this.metadataCacheService.reload(),
         );
-        await Promise.all([
-          runStep('repoRegistry', () => this.reloadRepoRegistry()),
-          runStep('route', () =>
-            sharedReplay
-              ? this.routeCacheService.syncFromSharedCache()
-              : this.routeCacheService.reload(false),
-          ),
-          runStep('guard', () =>
-            sharedReplay
-              ? this.guardCacheBuilder.syncFromSharedCache()
-              : this.guardCacheBuilder.reload(false),
-          ),
-          runStep('flow', () =>
-            sharedReplay
-              ? this.flowCacheBuilder.syncFromSharedCache()
-              : this.flowCacheBuilder.reload(false),
-          ),
-          runStep('websocket', () =>
-            sharedReplay
-              ? this.websocketCacheBuilder.syncFromSharedCache()
-              : this.websocketCacheBuilder.reload(false),
-          ),
-          runStep('package', () =>
-            sharedReplay
-              ? this.packageCacheService.syncFromSharedCache()
-              : this.packageCacheService.reload(false),
-          ),
-          runStep('setting', () =>
-            sharedReplay
-              ? this.settingCacheService.syncFromSharedCache()
-              : this.settingCacheService.reload(false),
-          ),
-          runStep('storage', () =>
-            sharedReplay
-              ? this.storageConfigCacheBuilder.syncFromSharedCache()
-              : this.storageConfigCacheBuilder.reload(false),
-          ),
-          runStep('oauth', () =>
-            sharedReplay
-              ? this.oauthConfigCacheBuilder.syncFromSharedCache()
-              : this.oauthConfigCacheBuilder.reload(false),
-          ),
-          runStep('folder', () =>
-            sharedReplay
-              ? this.folderTreeCacheService.syncFromSharedCache()
-              : this.folderTreeCacheService.reload(false),
-          ),
-          runStep('fieldPermission', () =>
-            sharedReplay
-              ? this.fieldPermissionCacheBuilder.syncFromSharedCache()
-              : this.fieldPermissionCacheBuilder.reload(false),
-          ),
-          runStep('columnRule', () =>
-            sharedReplay
-              ? this.columnRuleCacheBuilder.syncFromSharedCache()
-              : this.columnRuleCacheBuilder.reload(false),
-          ),
-          runStep('graphql', () =>
-            sharedReplay
-              ? this.gqlDefinitionCacheService.syncFromSharedCache()
-              : this.gqlDefinitionCacheService.reload(false),
-          ),
-        ]);
+        const builderSteps = [
+          { name: 'repoRegistry', run: () => this.reloadRepoRegistry() },
+          {
+            name: 'route',
+            run: () =>
+              sharedReplay
+                ? this.routeCacheService.syncFromSharedCache()
+                : this.routeCacheService.reload(false),
+          },
+          {
+            name: 'guard',
+            run: () =>
+              sharedReplay
+                ? this.guardCacheBuilder.syncFromSharedCache()
+                : this.guardCacheBuilder.reload(false),
+          },
+          {
+            name: 'flow',
+            run: () =>
+              sharedReplay
+                ? this.flowCacheBuilder.syncFromSharedCache()
+                : this.flowCacheBuilder.reload(false),
+          },
+          {
+            name: 'websocket',
+            run: () =>
+              sharedReplay
+                ? this.websocketCacheBuilder.syncFromSharedCache()
+                : this.websocketCacheBuilder.reload(false),
+          },
+          {
+            name: 'package',
+            run: () =>
+              sharedReplay
+                ? this.packageCacheService.syncFromSharedCache()
+                : this.packageCacheService.reload(false),
+          },
+          {
+            name: 'setting',
+            run: () =>
+              sharedReplay
+                ? this.settingCacheService.syncFromSharedCache()
+                : this.settingCacheService.reload(false),
+          },
+          {
+            name: 'storage',
+            run: () =>
+              sharedReplay
+                ? this.storageConfigCacheBuilder.syncFromSharedCache()
+                : this.storageConfigCacheBuilder.reload(false),
+          },
+          {
+            name: 'oauth',
+            run: () =>
+              sharedReplay
+                ? this.oauthConfigCacheBuilder.syncFromSharedCache()
+                : this.oauthConfigCacheBuilder.reload(false),
+          },
+          {
+            name: 'folder',
+            run: () =>
+              sharedReplay
+                ? this.folderTreeCacheService.syncFromSharedCache()
+                : this.folderTreeCacheService.reload(false),
+          },
+          {
+            name: 'fieldPermission',
+            run: () =>
+              sharedReplay
+                ? this.fieldPermissionCacheBuilder.syncFromSharedCache()
+                : this.fieldPermissionCacheBuilder.reload(false),
+          },
+          {
+            name: 'columnRule',
+            run: () =>
+              sharedReplay
+                ? this.columnRuleCacheBuilder.syncFromSharedCache()
+                : this.columnRuleCacheBuilder.reload(false),
+          },
+          {
+            name: 'graphql',
+            run: () =>
+              sharedReplay
+                ? this.gqlDefinitionCacheService.syncFromSharedCache()
+                : this.gqlDefinitionCacheService.reload(false),
+          },
+        ];
+        await this.runBoundedReloadSteps(
+          builderSteps,
+          FULL_RELOAD_BUILDER_CONCURRENCY,
+          (step) => runStep(step.name, step.run),
+        );
         await this.commitRuntimeReloadTransaction(steps);
         await this.runtimeReloadAuditService?.markActivated({
           reloadId,
