@@ -33,6 +33,29 @@ describe('RuntimeRegistryService', () => {
     ]);
   });
 
+  it('publishes metadata caches through the metadata active-view API', async () => {
+    const metadataCacheService = {
+      getMetadata: vi.fn(async () => ({
+        tables: new Map([['enfyra_user', { name: 'enfyra_user' }]]),
+        tablesList: [{ name: 'enfyra_user' }],
+        version: 1,
+        timestamp: new Date('2026-07-02T00:00:00.000Z'),
+      })),
+    };
+    const service = new RuntimeRegistryService();
+
+    await service.publishFromCache(
+      CACHE_IDENTIFIERS.METADATA,
+      metadataCacheService,
+    );
+
+    expect(service.getSnapshot<any>(CACHE_IDENTIFIERS.METADATA)?.data).toEqual(
+      expect.objectContaining({
+        tablesList: [{ name: 'enfyra_user' }],
+      }),
+    );
+  });
+
   it('records failed publish attempts explicitly', async () => {
     const service = new RuntimeRegistryService();
 

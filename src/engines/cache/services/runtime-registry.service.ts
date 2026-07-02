@@ -10,6 +10,7 @@ import type {
 
 export interface RuntimeCacheViewSource {
   getCacheAsync?: () => Promise<unknown>;
+  getMetadata?: () => Promise<unknown>;
   getRawCache?: () => unknown;
 }
 
@@ -46,7 +47,9 @@ export class RuntimeRegistryService {
       const data =
         typeof service.getCacheAsync === 'function'
           ? await service.getCacheAsync()
-          : service.getRawCache?.();
+          : typeof service.getMetadata === 'function'
+            ? await service.getMetadata()
+            : service.getRawCache?.();
       if (data === undefined) {
         throw new Error(`Cache ${identifier} did not return active data`);
       }
