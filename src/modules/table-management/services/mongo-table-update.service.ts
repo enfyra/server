@@ -1,47 +1,24 @@
-import { Logger } from '../../../shared/logger';
 import { ObjectId } from 'mongodb';
-import { QueryBuilderService } from '@enfyra/kernel';
 import {
-  type MongoPhysicalMigrationService,
-  MongoSchemaMigrationService,
-  MongoService,
-  MongoSchemaMigrationLockService,
-} from '../../../engines/mongo';
-import { MetadataCacheService } from '../../../engines/cache';
-import {
-  LoggingService,
   DatabaseException,
-  DuplicateResourceException,
   ResourceNotFoundException,
   ValidationException,
 } from '../../../domain/exceptions';
-import {
-  PolicyService,
-  isPolicyDeny,
-  isPolicyPreview,
-} from '../../../domain/policy';
-import { TDynamicContext } from '../../../shared/types';
-import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
+import { isPolicyDeny, isPolicyPreview } from '../../../domain/policy';
 import { DatabaseConfigService } from '../../../shared/services';
-import { getDeletedIds } from '../utils/get-deleted-ids';
+import { TDynamicContext } from '../../../shared/types';
+import { logMemory } from '../../../shared/utils/memory-log.util';
 import { TCreateTableBody } from '../types/table-handler.types';
-import { TableManagementValidationService } from './table-validation.service';
-import { MongoMetadataSnapshotService } from './mongo-metadata-snapshot.service';
-import {
-  MONGO_PRIMARY_KEY_TYPE,
-  isMongoPrimaryKeyType,
-  normalizeMongoPrimaryKeyColumn,
-} from '../utils/mongo-primary-key.util';
+import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
+import { getDeletedIds } from '../utils/get-deleted-ids';
 import { getRelationMappedByProperty } from '../utils/relation-target-id.util';
 import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
-import { ensureMongoTableRouteArtifacts } from './table-route-artifacts.service';
+import { MongoTableHandlerService } from './mongo-table-handler-base.service';
 import {
   ensureMongoSingleRecord,
   syncMongoGqlDefinition,
 } from './table-post-migration.service';
-import { MongoTableHandlerService } from './mongo-table-handler-base.service';
 import { renameMongoAutoTableRoute } from './table-route-artifacts.service';
-import { logMemory } from '../../../shared/utils/memory-log.util';
 
 export class MongoTableUpdateService extends MongoTableHandlerService {
   async updateTable(
@@ -137,7 +114,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
         }
         validateUniquePropertyNames(body.columns || [], body.relations || []);
         stepLog(`STEP 4 validators done (+${lap()}ms)`);
-        const oldMetadata = await this.metadataCacheService.lookupTableByName(
+        const oldMetadata = this.runtimeRegistryService.lookupTableByName(
           exists.name,
         );
         stepLog(`STEP 5 loaded oldMetadata (+${lap()}ms)`);
@@ -296,11 +273,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
         if ('validateBody' in body) updateData.validateBody = body.validateBody;
         if (Object.keys(updateData).length > 0) {
           this.assertNotAborted();
-          await this.queryBuilderService.update(
-            'enfyra_table',
-            id,
-            updateData,
-          );
+          await this.queryBuilderService.update('enfyra_table', id, updateData);
         }
         await renameMongoAutoTableRoute({
           mongoService: this.mongoService,

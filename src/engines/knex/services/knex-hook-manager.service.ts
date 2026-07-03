@@ -1,7 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import { Knex } from 'knex';
 import { AsyncLocalStorage } from 'async_hooks';
-import { MetadataCacheService } from '../../cache';
+import { RuntimeRegistryService } from '../../cache';
 import { CascadeHandler } from '../utils/cascade-handler';
 import { FieldStripper } from '../utils/field-stripper';
 import { RelationTransformer } from '../utils/relation-transformer';
@@ -54,14 +54,14 @@ export class KnexHookManagerService {
   private cascadeHandler!: CascadeHandler;
   private fieldStripper!: FieldStripper;
   private relationTransformer!: RelationTransformer;
-  private readonly metadataCacheService: MetadataCacheService;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly replicationManager?: ReplicationManager;
 
   constructor(deps: {
-    metadataCacheService: MetadataCacheService;
+    runtimeRegistryService: RuntimeRegistryService;
     replicationManager?: ReplicationManager;
   }) {
-    this.metadataCacheService = deps.metadataCacheService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.replicationManager = deps.replicationManager;
   }
 
@@ -110,7 +110,7 @@ export class KnexHookManagerService {
 
     this.cascadeHandler = new CascadeHandler(
       knexInstance,
-      this.metadataCacheService,
+      this.runtimeRegistryService,
       this.logger,
       stripUnknownColumns,
       stripNonUpdatableFields,
@@ -121,9 +121,9 @@ export class KnexHookManagerService {
       insertManyWithCascade,
     );
 
-    this.fieldStripper = new FieldStripper(this.metadataCacheService);
+    this.fieldStripper = new FieldStripper(this.runtimeRegistryService);
     this.relationTransformer = new RelationTransformer(
-      this.metadataCacheService,
+      this.runtimeRegistryService,
       this.logger,
     );
 
@@ -151,7 +151,7 @@ export class KnexHookManagerService {
   ) {
     this.addHook('beforeInsert', async (tableName, data) => {
       const tableMetadata =
-        await this.metadataCacheService.getTableMetadata(tableName);
+        this.runtimeRegistryService.getTableMetadata(tableName);
       if (!tableMetadata) return data;
 
       const pkColumn = tableMetadata.columns.find((col: any) => col.isPrimary);
@@ -229,7 +229,7 @@ export class KnexHookManagerService {
 
     this.addHook('beforeInsert', async (tableName, data) => {
       const tableMetadata =
-        await this.metadataCacheService.getTableMetadata(tableName);
+        this.runtimeRegistryService.getTableMetadata(tableName);
       if (!tableMetadata) return data;
 
       if (Array.isArray(data)) {
@@ -242,7 +242,7 @@ export class KnexHookManagerService {
 
     this.addHook('beforeInsert', async (tableName, data) => {
       const tableMetadata =
-        await this.metadataCacheService.getTableMetadata(tableName);
+        this.runtimeRegistryService.getTableMetadata(tableName);
       if (!tableMetadata?.columns) return data;
 
       if (Array.isArray(data)) {
@@ -257,7 +257,7 @@ export class KnexHookManagerService {
       if (await this.isJunctionTable(tableName)) return data;
 
       const tableMetadata =
-        await this.metadataCacheService.getTableMetadata(tableName);
+        this.runtimeRegistryService.getTableMetadata(tableName);
       if (!tableMetadata?.columns) return data;
 
       const hasCreatedAt = tableMetadata.columns.some(
@@ -348,7 +348,7 @@ export class KnexHookManagerService {
       if (!data?.id) return data;
 
       const tableMetadata =
-        await this.metadataCacheService.getTableMetadata(tableName);
+        this.runtimeRegistryService.getTableMetadata(tableName);
       if (!tableMetadata?.uniques || !tableMetadata?.relations) return data;
 
       const uniques = Array.isArray(tableMetadata.uniques)
@@ -406,14 +406,14 @@ export class KnexHookManagerService {
 
     this.addHook('beforeUpdate', async (tableName, data) => {
       const tableMetadata =
-        await this.metadataCacheService.getTableMetadata(tableName);
+        this.runtimeRegistryService.getTableMetadata(tableName);
       if (!tableMetadata) return data;
       return stringifyRecordJsonFields(data, tableMetadata);
     });
 
     this.addHook('beforeUpdate', async (tableName, data) => {
       const tableMetadata =
-        await this.metadataCacheService.getTableMetadata(tableName);
+        this.runtimeRegistryService.getTableMetadata(tableName);
       if (!tableMetadata?.columns) return data;
       return encryptRecordFields(data, tableMetadata.columns);
     });
@@ -433,7 +433,7 @@ export class KnexHookManagerService {
 
     this.addHook('beforeUpdate', async (tableName, data) => {
       const tableMetadata =
-        await this.metadataCacheService.getTableMetadata(tableName);
+        this.runtimeRegistryService.getTableMetadata(tableName);
       if (!tableMetadata || !tableMetadata.columns) return data;
 
       const filteredData = { ...data };
@@ -454,7 +454,7 @@ export class KnexHookManagerService {
     this.addHook('beforeUpdate', async (tableName, data) => {
       if (await this.isJunctionTable(tableName)) return data;
       const tableMetadata =
-        await this.metadataCacheService.getTableMetadata(tableName);
+        this.runtimeRegistryService.getTableMetadata(tableName);
       if (!tableMetadata?.columns) return data;
 
       const hasUpdatedAt = tableMetadata.columns.some(
@@ -482,7 +482,7 @@ export class KnexHookManagerService {
 
     this.addHook('afterSelect', async (tableName, result) => {
       const tableMetadata =
-        await this.metadataCacheService.getTableMetadata(tableName);
+        this.runtimeRegistryService.getTableMetadata(tableName);
       if (!tableMetadata?.columns) return result;
       return decryptResultFields(result, tableMetadata.columns);
     });
@@ -600,36 +600,40 @@ export class KnexHookManagerService {
 
     qb.then = function (onFulfilled: any, onRejected: any) {
       const signal = getIoAbortSignal();
-      if (signal?.aborted) {
-        return Promise.reject(new Error('Operation aborted')).then(
-          onFulfilled,
-          onRejected,
-        );
-      }
-      if (!options.skipMetadataHooks) {
-        runHooks('beforeSelect', this, tableName);
-      }
 
-      return originalThen.call(
-        this,
-        async (result: any) => {
-          if (signal?.aborted) {
-            throw new Error('Operation aborted');
-          }
-          if (options.skipMetadataHooks) {
-            return onFulfilled ? onFulfilled(result) : result;
-          }
-          const processedResult = await runHooks(
-            'afterSelect',
-            tableName,
-            result,
-          );
-          if (signal?.aborted) {
-            throw new Error('Operation aborted');
-          }
-          return onFulfilled ? onFulfilled(processedResult) : processedResult;
+      const runSelect = async () => {
+        if (signal?.aborted) {
+          throw new Error('Operation aborted');
+        }
+        if (!options.skipMetadataHooks) {
+          await runHooks('beforeSelect', this, tableName);
+        }
+        if (signal?.aborted) {
+          throw new Error('Operation aborted');
+        }
+
+        const result = await originalThen.call(this, (value: any) => value);
+        if (options.skipMetadataHooks || signal?.aborted) {
+          return result;
+        }
+
+        const processedResult = await runHooks('afterSelect', tableName, result);
+        if (signal?.aborted) {
+          return processedResult;
+        }
+        return processedResult;
+      };
+
+      return runSelect().then(
+        (result) => {
+          return onFulfilled ? onFulfilled(result) : result;
         },
-        onRejected,
+        (error) => {
+          if (onRejected) {
+            return onRejected(error);
+          }
+          throw error;
+        },
       );
     };
 
@@ -669,7 +673,7 @@ export class KnexHookManagerService {
   }
 
   private async isJunctionTable(tableName: string): Promise<boolean> {
-    const metadata = await this.metadataCacheService.getMetadata();
+    const metadata = this.runtimeRegistryService.getMetadata();
     if (!metadata) return false;
 
     const tables =

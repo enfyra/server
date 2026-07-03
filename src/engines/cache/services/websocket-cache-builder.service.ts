@@ -2,7 +2,6 @@ import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
-import { DatabaseConfigService } from '../../../shared/services';
 import {
   compileScriptSource,
   normalizeScriptRecord,
@@ -12,6 +11,7 @@ import {
   CACHE_IDENTIFIERS,
   type TCacheInvalidationPayload,
 } from '../../../shared/utils/cache-events.constants';
+import { DatabaseConfigService } from '../../../shared/services';
 
 const WEBSOCKET_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.WEBSOCKET,
@@ -37,7 +37,7 @@ export interface WebSocketGateway {
   events: WebSocketEvent[];
 }
 
-export class WebsocketCacheService extends BaseCacheService<
+export class WebsocketCacheBuilder extends BaseCacheService<
   WebSocketGateway[]
 > {
   private readonly queryBuilderService: QueryBuilderService;
@@ -67,36 +67,19 @@ export class WebsocketCacheService extends BaseCacheService<
     return gateways;
   }
 
-  private async resolveAndRepairScript(
-    tableName: string,
-    record: any,
-  ): Promise<string | null> {
+  private resolveScriptCode(record: any): string | null {
     if (typeof record?.sourceCode === 'string' && record.sourceCode !== '') {
       const compiledCode = compileScriptSource(
         record.sourceCode,
         record.scriptLanguage,
       );
-      if (compiledCode !== record.compiledCode) {
-        record.compiledCode = compiledCode;
-        const id = DatabaseConfigService.getRecordId(record);
-        if (id != null) {
-          await this.queryBuilderService.update(tableName, id, {
-            compiledCode,
-          });
-        }
-      }
+      record.compiledCode = compiledCode;
       return compiledCode;
     }
 
     const result = resolveExecutableScript(record);
     if (result.shouldPersistCompiledCode) {
       record.compiledCode = result.compiledCode;
-      const id = DatabaseConfigService.getRecordId(record);
-      if (id != null) {
-        await this.queryBuilderService.update(tableName, id, {
-          compiledCode: result.compiledCode,
-        });
-      }
     }
     return result.code;
   }
@@ -246,10 +229,7 @@ export class WebsocketCacheService extends BaseCacheService<
         gateway,
       );
       Object.assign(gateway, normalizedGateway);
-      const connectionCode = await this.resolveAndRepairScript(
-        'enfyra_websocket',
-        gateway,
-      );
+      const connectionCode = this.resolveScriptCode(gateway);
       if (connectionCode) {
         gateway.connectionHandlerScript = connectionCode;
       }
@@ -260,10 +240,7 @@ export class WebsocketCacheService extends BaseCacheService<
             event,
           );
           Object.assign(event, normalizedEvent);
-          const code = await this.resolveAndRepairScript(
-            'enfyra_websocket_event',
-            event,
-          );
+          const code = this.resolveScriptCode(event);
           if (code) {
             event.handlerScript = code;
           }
@@ -280,22 +257,5 @@ export class WebsocketCacheService extends BaseCacheService<
     if (this.eventEmitter) {
       this.eventEmitter.emit(`${this.config.cacheIdentifier}_LOADED`);
     }
-  }
-
-  async getGateways(): Promise<WebSocketGateway[]> {
-    return this.getCacheAsync();
-  }
-
-  async getGatewayByPath(path: string): Promise<WebSocketGateway | null> {
-    const cache = await this.getCacheAsync();
-    return cache.find((g) => g.path === path) || null;
-  }
-
-  async getEventsByGatewayId(
-    gatewayId: number | string,
-  ): Promise<WebSocketEvent[]> {
-    const cache = await this.getCacheAsync();
-    const gateway = cache.find((g) => g.id === gatewayId);
-    return gateway?.events || [];
   }
 }

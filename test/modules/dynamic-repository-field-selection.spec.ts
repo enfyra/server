@@ -233,11 +233,13 @@ function makeRepo({
   deep,
   tableName = 'enfyra_flow_step',
   enforceFieldPermission = false,
+  runtimeRegistryService,
 }: {
   fields?: string | string[];
   deep?: Record<string, any>;
   tableName?: string;
   enforceFieldPermission?: boolean;
+  runtimeRegistryService?: any;
 } = {}) {
   const queryBuilderService = {
     getPkField: vi.fn(() => (tableName === 'mongo_doc' ? '_id' : 'id')),
@@ -246,17 +248,13 @@ function makeRepo({
       return { data: projectRows(args.table, rows, args), count: rows.length };
     }),
   };
-  const metadataCacheService = {
-    lookupTableByName: vi.fn((name: string) =>
-      Promise.resolve(metadata.tables.get(name)),
-    ),
-    getMetadata: vi.fn().mockResolvedValue(metadata),
-  };
-  const settingCacheService = {
-    getMaxQueryDepth: vi.fn().mockResolvedValue(10),
-  };
-  const fieldPermissionCacheService = {
+  const fieldPermissionCacheBuilder = {
     getPoliciesFor: vi.fn().mockResolvedValue([]),
+  };
+  const activeRuntimeRegistryService = runtimeRegistryService ?? {
+    requireMetadata: vi.fn(() => metadata),
+    lookupTableByName: vi.fn((name: string) => metadata.tables.get(name)),
+    getMaxQueryDepth: vi.fn(() => 10),
   };
   const repo = new DynamicRepository({
     context: { $query: { fields, deep } } as any,
@@ -265,9 +263,8 @@ function makeRepo({
     tableHandlerService: {} as any,
     policyService: {} as any,
     tableValidationService: {} as any,
-    metadataCacheService: metadataCacheService as any,
-    settingCacheService: settingCacheService as any,
-    fieldPermissionCacheService: fieldPermissionCacheService as any,
+    fieldPermissionCacheBuilder: fieldPermissionCacheBuilder as any,
+    runtimeRegistryService: activeRuntimeRegistryService,
     eventEmitter: {} as any,
     enforceFieldPermission,
   });
@@ -572,5 +569,25 @@ describe('dynamic read field selection', () => {
     expect(result.data[0]).not.toHaveProperty('accessKeyId');
     expect(result.data[0]).not.toHaveProperty('secretAccessKey');
     expect(result.data[0].updatedBy).not.toHaveProperty('password');
+  });
+
+  it('reads repository metadata from the active runtime registry when available', async () => {
+    const runtimeRegistryService = {
+      requireMetadata: vi.fn(() => metadata),
+      lookupTableByName: vi.fn((name: string) => metadata.tables.get(name)),
+      getMaxQueryDepth: vi.fn(() => 10),
+    };
+    const { repo } = makeRepo({
+      tableName: 'enfyra_flow_step',
+      fields: 'id,key',
+      runtimeRegistryService,
+    });
+
+    await repo.find();
+
+    expect(runtimeRegistryService.requireMetadata).toHaveBeenCalled();
+    expect(runtimeRegistryService.lookupTableByName).toHaveBeenCalledWith(
+      'enfyra_flow_step',
+    );
   });
 });

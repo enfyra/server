@@ -1,11 +1,13 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { Logger } from '../../src/shared/logger';
-import { GuardCacheService } from '../../src/engines/cache';
+import { GuardCacheBuilder } from '../../src/engines/cache';
+import { RuntimeRegistryService } from '../../src/engines/cache/services/runtime-registry.service';
+import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants';
 
 async function loadGuardCache(
   guards: any[],
   rules: any[],
-): Promise<GuardCacheService> {
+): Promise<{ svc: GuardCacheBuilder; registry: RuntimeRegistryService }> {
   const find = jest.fn(async (params: any) => {
     if (params.table === 'enfyra_guard') return { data: guards };
     if (params.table === 'enfyra_guard_rule') return { data: rules };
@@ -13,17 +15,19 @@ async function loadGuardCache(
   });
   const qb = { find, isMongoDb: () => false };
   const ee = new EventEmitter2();
-  const svc = new GuardCacheService({
+  const registry = new RuntimeRegistryService();
+  const svc = new GuardCacheBuilder({
     queryBuilderService: qb as any,
     eventEmitter: ee,
   });
   await svc.reload(false);
-  return svc;
+  await registry.publishFromCache(CACHE_IDENTIFIERS.GUARD, svc);
+  return { svc, registry };
 }
 
-describe('GuardCacheService — tree building', () => {
+describe('GuardCacheBuilder — tree building', () => {
   it('should build flat guard with rules', async () => {
-    const svc = await loadGuardCache(
+    const { svc } = await loadGuardCache(
       [
         {
           id: 1,
@@ -57,7 +61,7 @@ describe('GuardCacheService — tree building', () => {
   });
 
   it('should build nested guard tree', async () => {
-    const svc = await loadGuardCache(
+    const { svc } = await loadGuardCache(
       [
         {
           id: 1,
@@ -124,7 +128,7 @@ describe('GuardCacheService — tree building', () => {
   });
 
   it('should group by route path', async () => {
-    const svc = await loadGuardCache(
+    const { svc } = await loadGuardCache(
       [
         {
           id: 1,
@@ -161,7 +165,7 @@ describe('GuardCacheService — tree building', () => {
   });
 
   it('should merge global + route guards in getGuardsForRoute', async () => {
-    const svc = await loadGuardCache(
+    const { registry } = await loadGuardCache(
       [
         {
           id: 1,
@@ -190,12 +194,12 @@ describe('GuardCacheService — tree building', () => {
       ],
       [],
     );
-    const guards = await svc.getGuardsForRoute('pre_auth', '/posts', 'GET');
+    const guards = registry.getGuardsForRoute('pre_auth', '/posts', 'GET');
     expect(guards).toHaveLength(2);
   });
 
   it('should filter by method', async () => {
-    const svc = await loadGuardCache(
+    const { registry } = await loadGuardCache(
       [
         {
           id: 1,
@@ -212,16 +216,16 @@ describe('GuardCacheService — tree building', () => {
       ],
       [],
     );
-    await expect(
-      svc.getGuardsForRoute('pre_auth', '/test', 'POST'),
-    ).resolves.toHaveLength(1);
-    await expect(
-      svc.getGuardsForRoute('pre_auth', '/test', 'GET'),
-    ).resolves.toHaveLength(0);
+    expect(
+      registry.getGuardsForRoute('pre_auth', '/test', 'POST'),
+    ).toHaveLength(1);
+    expect(registry.getGuardsForRoute('pre_auth', '/test', 'GET')).toHaveLength(
+      0,
+    );
   });
 
   it('should apply to all methods when methods is empty', async () => {
-    const svc = await loadGuardCache(
+    const { registry } = await loadGuardCache(
       [
         {
           id: 1,
@@ -238,16 +242,16 @@ describe('GuardCacheService — tree building', () => {
       ],
       [],
     );
-    await expect(
-      svc.getGuardsForRoute('pre_auth', '/test', 'GET'),
-    ).resolves.toHaveLength(1);
-    await expect(
-      svc.getGuardsForRoute('pre_auth', '/test', 'DELETE'),
-    ).resolves.toHaveLength(1);
+    expect(registry.getGuardsForRoute('pre_auth', '/test', 'GET')).toHaveLength(
+      1,
+    );
+    expect(
+      registry.getGuardsForRoute('pre_auth', '/test', 'DELETE'),
+    ).toHaveLength(1);
   });
 
   it('should sort children by priority', async () => {
-    const svc = await loadGuardCache(
+    const { svc } = await loadGuardCache(
       [
         {
           id: 1,
@@ -290,7 +294,7 @@ describe('GuardCacheService — tree building', () => {
   });
 
   it('should load userIds from rule.users', async () => {
-    const svc = await loadGuardCache(
+    const { svc } = await loadGuardCache(
       [
         {
           id: 1,
@@ -324,7 +328,7 @@ describe('GuardCacheService — tree building', () => {
   });
 });
 
-describe('GuardCacheService — validation', () => {
+describe('GuardCacheBuilder — validation', () => {
   let warnSpy: jest.SpyInstance;
 
   beforeEach(() => {
@@ -336,7 +340,7 @@ describe('GuardCacheService — validation', () => {
   });
 
   it('should skip rate_limit_by_user in pre_auth guard', async () => {
-    const svc = await loadGuardCache(
+    const { svc } = await loadGuardCache(
       [
         {
           id: 1,
@@ -372,7 +376,7 @@ describe('GuardCacheService — validation', () => {
   });
 
   it('should clear userIds on pre_auth rules', async () => {
-    const svc = await loadGuardCache(
+    const { svc } = await loadGuardCache(
       [
         {
           id: 1,
@@ -408,7 +412,7 @@ describe('GuardCacheService — validation', () => {
   });
 
   it('should allow rate_limit_by_user in post_auth guard', async () => {
-    const svc = await loadGuardCache(
+    const { svc } = await loadGuardCache(
       [
         {
           id: 1,
@@ -440,7 +444,7 @@ describe('GuardCacheService — validation', () => {
   });
 
   it('should validate nested child rules against root position', async () => {
-    const svc = await loadGuardCache(
+    const { svc } = await loadGuardCache(
       [
         {
           id: 1,
@@ -488,7 +492,7 @@ describe('GuardCacheService — validation', () => {
   });
 
   it('should skip guards with no position', async () => {
-    const svc = await loadGuardCache(
+    const { svc } = await loadGuardCache(
       [
         {
           id: 1,

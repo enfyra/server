@@ -1,8 +1,7 @@
 import {
-  MetadataCacheService,
-  FieldPermissionCacheService,
-} from '../../engines/cache';
-import { decideFieldPermission } from './field-permission.util';
+  decideFieldPermission,
+  type TFieldPermissionPolicyReader,
+} from './field-permission.util';
 
 type TRequestedShape = {
   includeAll?: boolean;
@@ -35,8 +34,8 @@ export async function sanitizeFieldPermissionsResult(params: {
   tableName: string;
   user: any;
   action: 'read';
-  metadataCacheService: MetadataCacheService;
-  fieldPermissionCacheService: FieldPermissionCacheService;
+  fieldPermissionPolicyReader: TFieldPermissionPolicyReader;
+  metadata: any;
   requested?: TRequestedShape;
 }): Promise<any> {
   const {
@@ -44,13 +43,12 @@ export async function sanitizeFieldPermissionsResult(params: {
     tableName,
     user,
     action,
-    metadataCacheService,
-    fieldPermissionCacheService,
+    fieldPermissionPolicyReader,
+    metadata,
     requested,
   } = params;
 
-  const meta = await metadataCacheService.getMetadata();
-  const tableMeta = meta?.tables?.get?.(tableName) || null;
+  const tableMeta = metadata?.tables?.get?.(tableName) || null;
 
   const walk = async (
     node: any,
@@ -71,7 +69,7 @@ export async function sanitizeFieldPermissionsResult(params: {
       return node;
     }
 
-    const direct = meta?.tables?.get?.(currentTable) || tableMeta;
+    const direct = metadata?.tables?.get?.(currentTable) || tableMeta;
     if (!direct) return node;
 
     const out: any = { ...node };
@@ -90,7 +88,7 @@ export async function sanitizeFieldPermissionsResult(params: {
       const decision = published
         ? { allowed: true }
         : await decideFieldPermission(
-            fieldPermissionCacheService,
+            fieldPermissionPolicyReader,
             {
               user,
               tableName: currentTable,
@@ -121,7 +119,7 @@ export async function sanitizeFieldPermissionsResult(params: {
       const decision = published
         ? { allowed: true }
         : await decideFieldPermission(
-            fieldPermissionCacheService,
+            fieldPermissionPolicyReader,
             {
               user,
               tableName: currentTable,

@@ -1,6 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { ObjectId, Collection, Document } from 'mongodb';
-import { MetadataCacheService } from '../../cache';
+import { RuntimeRegistryService } from '../../cache';
 import {
   normalizeRelationOnDelete,
   TRelationOnDeleteAction,
@@ -15,15 +15,14 @@ const M2M_PENDING = Symbol('mongoService.m2mPending');
 export class MongoRelationManagerService {
   private readonly logger = new Logger(MongoRelationManagerService.name);
 
-  private readonly metadataCacheService: MetadataCacheService;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
 
-  constructor(deps: { metadataCacheService: MetadataCacheService }) {
-    this.metadataCacheService = deps.metadataCacheService;
+  constructor(deps: { runtimeRegistryService: RuntimeRegistryService }) {
+    this.runtimeRegistryService = deps.runtimeRegistryService;
   }
 
   async stripInverseRelations(tableName: string, data: any): Promise<any> {
-    const metadata =
-      await this.metadataCacheService.lookupTableByName(tableName);
+    const metadata = this.runtimeRegistryService.lookupTableByName(tableName);
     if (!metadata?.relations) {
       return data;
     }
@@ -50,8 +49,7 @@ export class MongoRelationManagerService {
     newData: any,
     getCollection: (name: string) => Collection<Document>,
   ): Promise<void> {
-    const metadata =
-      await this.metadataCacheService.lookupTableByName(tableName);
+    const metadata = this.runtimeRegistryService.lookupTableByName(tableName);
     if (!metadata || !metadata.relations) {
       return;
     }
@@ -185,8 +183,7 @@ export class MongoRelationManagerService {
     insertOne: (collectionName: string, data: any) => Promise<any>,
     updateOne: (collectionName: string, id: string, data: any) => Promise<any>,
   ): Promise<any> {
-    const metadata =
-      await this.metadataCacheService.lookupTableByName(tableName);
+    const metadata = this.runtimeRegistryService.lookupTableByName(tableName);
     if (!metadata || !metadata.relations) {
       return data;
     }
@@ -216,15 +213,15 @@ export class MongoRelationManagerService {
       const targetCollection = relation.targetTableName || relation.targetTable;
 
       if (fieldValue === null || fieldValue === undefined) {
-          if (relation.type === 'many-to-many') {
-            this.setM2mPending(processed, fieldName, []);
-            delete processed[fieldName];
-          } else {
-            processed[storedFieldName] = null;
-            if (storedFieldName !== fieldName) delete processed[fieldName];
-          }
-          continue;
+        if (relation.type === 'many-to-many') {
+          this.setM2mPending(processed, fieldName, []);
+          delete processed[fieldName];
+        } else {
+          processed[storedFieldName] = null;
+          if (storedFieldName !== fieldName) delete processed[fieldName];
         }
+        continue;
+      }
 
       if (['many-to-one', 'one-to-one'].includes(relation.type)) {
         if (
@@ -331,8 +328,7 @@ export class MongoRelationManagerService {
     data: any,
     getCollection: (name: string) => Collection<Document>,
   ): Promise<void> {
-    const metadata =
-      await this.metadataCacheService.lookupTableByName(tableName);
+    const metadata = this.runtimeRegistryService.lookupTableByName(tableName);
     if (!metadata?.relations) return;
 
     const referencesByTarget = new Map<string, Map<string, ObjectId>>();
@@ -469,8 +465,7 @@ export class MongoRelationManagerService {
     recordData: any,
     getCollection: (name: string) => Collection<Document>,
   ): Promise<void> {
-    const metadata =
-      await this.metadataCacheService.lookupTableByName(tableName);
+    const metadata = this.runtimeRegistryService.lookupTableByName(tableName);
 
     if (metadata?.relations) {
       for (const relation of metadata.relations) {
@@ -544,7 +539,7 @@ export class MongoRelationManagerService {
     recordId: ObjectId,
     getCollection: (name: string) => Collection<Document>,
   ): Promise<void> {
-    const allTables = await this.metadataCacheService.getAllTablesMetadata();
+    const allTables = this.runtimeRegistryService.getAllTablesMetadata();
     if (!allTables) return;
 
     for (const table of allTables) {
@@ -571,7 +566,7 @@ export class MongoRelationManagerService {
     targetCollection: string,
   ): Promise<Record<string, unknown>> {
     const meta =
-      await this.metadataCacheService.lookupTableByName(targetCollection);
+      this.runtimeRegistryService.lookupTableByName(targetCollection);
     const has = !!meta?.columns?.some(
       (c: { name?: string }) => c.name === 'isSystem',
     );
@@ -749,8 +744,7 @@ export class MongoRelationManagerService {
     const pending = this.getM2mPending(data);
     if (!pending || pending.size === 0) return;
 
-    const metadata =
-      await this.metadataCacheService.lookupTableByName(tableName);
+    const metadata = this.runtimeRegistryService.lookupTableByName(tableName);
     if (!metadata?.relations) return;
 
     for (const [propertyName, targetIds] of pending.entries()) {
@@ -784,8 +778,7 @@ export class MongoRelationManagerService {
   ): Promise<void> {
     if (entries.length === 0) return;
 
-    const metadata =
-      await this.metadataCacheService.lookupTableByName(tableName);
+    const metadata = this.runtimeRegistryService.lookupTableByName(tableName);
     if (!metadata?.relations) return;
 
     for (const relation of metadata.relations) {
@@ -798,7 +791,10 @@ export class MongoRelationManagerService {
       if (!targetCollection) continue;
 
       if (relation.type === 'many-to-one') {
-        const grouped = new Map<string, { targetId: ObjectId; recordIds: ObjectId[] }>();
+        const grouped = new Map<
+          string,
+          { targetId: ObjectId; recordIds: ObjectId[] }
+        >();
         for (const entry of entries) {
           if (!(fieldName in entry.data)) continue;
           const targetId = this.safeObjectId(entry.data[fieldName]);
@@ -848,8 +844,7 @@ export class MongoRelationManagerService {
   ): Promise<void> {
     if (entries.length === 0) return;
 
-    const metadata =
-      await this.metadataCacheService.lookupTableByName(tableName);
+    const metadata = this.runtimeRegistryService.lookupTableByName(tableName);
     if (!metadata?.relations) return;
 
     const rowsByJunction = new Map<string, any[]>();
@@ -899,8 +894,7 @@ export class MongoRelationManagerService {
     const pending = this.getM2mPending(data);
     if (!pending || pending.size === 0) return;
 
-    const metadata =
-      await this.metadataCacheService.lookupTableByName(tableName);
+    const metadata = this.runtimeRegistryService.lookupTableByName(tableName);
     if (!metadata?.relations) return;
 
     for (const [propertyName, targetIds] of pending.entries()) {
@@ -1007,7 +1001,7 @@ export class MongoRelationManagerService {
     getCollection: (name: string) => Collection<Document>,
   ): Promise<void> {
     const metadata =
-      await this.metadataCacheService.lookupTableByName(collectionName);
+      this.runtimeRegistryService.lookupTableByName(collectionName);
     if (!metadata?.relations) {
       return;
     }

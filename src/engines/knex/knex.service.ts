@@ -159,7 +159,7 @@ export class KnexService implements LifecycleAware {
     }
 
     this.fieldStripper = new FieldStripper(
-      this.lazyRef.metadataCacheService || (null as any),
+      this.lazyRef.runtimeRegistryService || (null as any),
     );
     this.hookManager = this.knexHookManagerService;
 
@@ -209,7 +209,7 @@ export class KnexService implements LifecycleAware {
   }
 
   private async isJunctionTable(tableName: string): Promise<boolean> {
-    const metadata = await this.lazyRef.metadataCacheService?.getMetadata();
+    const metadata = this.lazyRef.runtimeRegistryService?.getMetadata();
     if (!metadata) return false;
 
     const tables =
@@ -236,7 +236,7 @@ export class KnexService implements LifecycleAware {
     const booleanFields = new Set<string>();
 
     const tableMetadata =
-      await this.lazyRef.metadataCacheService.lookupTableByName(tableName);
+      this.lazyRef.runtimeRegistryService.lookupTableByName(tableName);
     if (!tableMetadata) return booleanFields;
 
     if (tableMetadata.columns) {
@@ -722,9 +722,7 @@ export class KnexService implements LifecycleAware {
 
     try {
       const tableMetadata =
-        await this.lazyRef.metadataCacheService.getTableMetadata?.(
-          parentTableName,
-        );
+        this.lazyRef.runtimeRegistryService.getTableMetadata(parentTableName);
       if (tableMetadata && tableMetadata.relations) {
         const relation = tableMetadata.relations.find(
           (r: any) => r.propertyName === relationName,

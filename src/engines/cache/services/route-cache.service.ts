@@ -11,6 +11,13 @@ import {
   resolveExecutableScript,
 } from '../../../shared/utils/script-code.util';
 import {
+  getRouteCandidatePaths,
+  getRouteMethods,
+  isRouteMethodAvailable,
+  matchRouteInRoutes,
+  matchRouteIndexEntry,
+} from '../../../shared/utils/route-match.util';
+import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
 } from '../../../shared/utils/cache-events.constants';
@@ -197,9 +204,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       }
     }
 
-    if (
-      ['enfyra_pre_hook', 'enfyra_post_hook'].includes(payload.table)
-    ) {
+    if (['enfyra_pre_hook', 'enfyra_post_hook'].includes(payload.table)) {
       await this.reloadGlobalHooksAndMerge();
       if (payload.ids?.length) {
         const routeIds = await this.resolveAffectedRouteIds(
@@ -647,8 +652,6 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     if (methods.length === 0) return;
 
-    if (methods.length === 0) return;
-
     for (const method of methods) {
       this.routeEngine.insert(method, basePath, route);
       if (['DELETE', 'PATCH'].includes(method)) {
@@ -681,30 +684,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     if (redisMatch) return redisMatch;
 
     const cache = await this.getCacheAsync();
-    const normalizedPath = this.normalizePath(path);
-    let best:
-      | {
-          route: any;
-          params: Record<string, string>;
-          score: number;
-          index: number;
-        }
-      | null = null;
-
-    for (let i = 0; i < cache.routes.length; i++) {
-      const route = cache.routes[i];
-      if (!this.isMethodAvailable(route, method)) continue;
-      for (const candidate of this.getCandidatePaths(route, method)) {
-        const match = this.matchPattern(candidate, normalizedPath);
-        if (!match) continue;
-        const score = this.scorePattern(candidate);
-        if (!best || score > best.score) {
-          best = { route, params: match, score, index: i };
-        }
-      }
-    }
-
-    return best ? { route: best.route, params: best.params } : null;
+    return matchRouteInRoutes(cache.routes, method, path);
   }
 
   private async persistRedisRouteLookup(routes: any[]): Promise<void> {
@@ -717,7 +697,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     for (let i = 0; i < routes.length; i++) {
       const route = routes[i];
       const key = String(DatabaseConfigService.getRecordId(route) ?? i);
-      const methods = this.getRouteMethods(route);
+      const methods = getRouteMethods(route);
       entries.push({
         key,
         path: route.path,
@@ -746,31 +726,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     >(this.config.cacheIdentifier, 'match-index');
     if (!Array.isArray(index) || index.length === 0) return null;
 
-    const normalizedPath = this.normalizePath(path);
-    let best:
-      | {
-          entry: RedisRouteMatchIndexEntry;
-          params: Record<string, string>;
-          score: number;
-        }
-      | null = null;
-
-    for (const entry of index) {
-      if (!entry.methods.includes(method)) continue;
-      for (const candidate of this.getCandidatePaths(entry, method)) {
-        const match = this.matchPattern(candidate, normalizedPath);
-        if (!match) continue;
-        const score = this.scorePattern(candidate);
-        if (
-          !best ||
-          score > best.score ||
-          (score === best.score && entry.order < best.entry.order)
-        ) {
-          best = { entry, params: match, score };
-        }
-      }
-    }
-
+    const best = matchRouteIndexEntry(index, method, path);
     if (!best) return null;
     const route = await this.redisRuntimeCacheStore!.getAux<any>(
       this.config.cacheIdentifier,
@@ -780,74 +736,14 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   private isMethodAvailable(route: any, method: string): boolean {
-    return this.getRouteMethods(route).includes(method);
+    return isRouteMethodAvailable(route, method);
   }
 
   private getRouteMethods(route: any): string[] {
-    const methods = route?.availableMethods;
-    if (!Array.isArray(methods) || methods.length === 0) return [];
-    return methods.map((m: any) => m?.name ?? m).filter(Boolean);
+    return getRouteMethods(route);
   }
 
   private getCandidatePaths(route: any, method: string): string[] {
-    const paths = [route.path];
-    if (['DELETE', 'PATCH'].includes(method)) {
-      paths.push(`${route.path}/:id`);
-    }
-    return paths.filter(Boolean);
-  }
-
-  private normalizePath(path: string): string {
-    if (!path) return '/';
-    let normalized = path.startsWith('/') ? path : `/${path}`;
-    if (normalized.length > 1 && normalized.endsWith('/')) {
-      normalized = normalized.slice(0, -1);
-    }
-    return normalized;
-  }
-
-  private splitPath(path: string): string[] {
-    if (path === '/') return [];
-    return path.split('/').filter((segment) => segment.length > 0);
-  }
-
-  private matchPattern(
-    pattern: string,
-    path: string,
-  ): Record<string, string> | null {
-    const patternSegments = this.splitPath(this.normalizePath(pattern));
-    const pathSegments = this.splitPath(path);
-    const params: Record<string, string> = {};
-
-    for (let i = 0; i < patternSegments.length; i++) {
-      const patternSegment = patternSegments[i];
-      const pathSegment = pathSegments[i];
-      if (patternSegment === '*' || patternSegment.startsWith('*')) {
-        params.splat = pathSegments.slice(i).join('/');
-        return params;
-      }
-      if (pathSegment === undefined) return null;
-      if (patternSegment.startsWith(':')) {
-        const paramName = patternSegment.slice(1);
-        try {
-          params[paramName] = decodeURIComponent(pathSegment);
-        } catch {
-          params[paramName] = pathSegment;
-        }
-        continue;
-      }
-      if (patternSegment !== pathSegment) return null;
-    }
-
-    return patternSegments.length === pathSegments.length ? params : null;
-  }
-
-  private scorePattern(pattern: string): number {
-    const segments = this.splitPath(this.normalizePath(pattern));
-    return segments.reduce((score, segment) => {
-      if (segment === '*' || segment.startsWith('*')) return score;
-      if (segment.startsWith(':')) return score + 10;
-      return score + 100;
-    }, segments.length);
+    return getRouteCandidatePaths(route, method);
   }
 }

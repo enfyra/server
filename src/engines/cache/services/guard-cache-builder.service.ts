@@ -56,7 +56,7 @@ export interface GuardCache {
   postAuthByRoute: Map<string, GuardNode[]>;
 }
 
-export class GuardCacheService extends BaseCacheService<GuardCache> {
+export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
   private readonly queryBuilderService: QueryBuilderService;
 
   constructor(deps: {
@@ -244,29 +244,6 @@ export class GuardCacheService extends BaseCacheService<GuardCache> {
       ) +
       [...this.cache.postAuthByRoute.values()].reduce((s, l) => s + l.length, 0)
     );
-  }
-
-  async getGuardsForRoute(
-    position: GuardPosition,
-    routePath: string,
-    method: string,
-  ): Promise<GuardNode[]> {
-    const cache = await this.getCacheAsync();
-    const globalGuards =
-      position === 'pre_auth'
-        ? cache.preAuthGlobal
-        : cache.postAuthGlobal;
-    const routeMap =
-      position === 'pre_auth'
-        ? cache.preAuthByRoute
-        : cache.postAuthByRoute;
-    const routeGuards = routeMap.get(routePath) || [];
-
-    const all = [...globalGuards, ...routeGuards];
-    return all.filter((g) => {
-      if (g.methods.length === 0) return true;
-      return g.methods.includes(method);
-    });
   }
 
   async ensureGuardsLoaded(): Promise<void> {

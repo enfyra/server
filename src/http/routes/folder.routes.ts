@@ -7,17 +7,17 @@ export function registerFolderRoutes(
   container: AwilixContainer<Cradle>,
 ) {
   app.get('/enfyra_folder/tree', async (req: any, res: Response) => {
-    const folderTreeCache =
-      req.scope?.cradle?.folderTreeCacheService ??
-      container.cradle.folderTreeCacheService;
+    const runtimeRegistryService =
+      req.scope?.cradle?.runtimeRegistryService ??
+      container.cradle.runtimeRegistryService;
     const flat = req.query.flat === 'true';
 
     if (flat) {
-      const folders = await folderTreeCache.getFolders();
+      const folders = runtimeRegistryService.getFolders();
       return res.json({ data: Array.from(folders.values()) });
     }
 
-    const tree = await folderTreeCache.getTree();
+    const tree = runtimeRegistryService.getFolderTree();
     return res.json({ data: tree });
   });
 }

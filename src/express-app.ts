@@ -109,7 +109,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
       .catch(next);
   });
 
-  app.use(bodyParserMiddleware(c.settingCacheService));
+  app.use(bodyParserMiddleware(c.runtimeRegistryService));
   app.use(parseQueryMiddleware);
   app.use((req: any, _res: any, next: any) => {
     req._perfRouteDetect = performance.now();
@@ -117,7 +117,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   });
   app.use(
     routeDetectMiddleware(
-      c.routeCacheService,
+      c.runtimeRegistryService,
       c.repoRegistryService,
       c.uploadFileHelper,
       c.rateLimitService,
@@ -131,7 +131,13 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
     next();
   });
   app.use(notFoundDetectMiddleware);
-  app.use(preAuthMetadataGuard(c.guardCacheService, c.guardEvaluatorService));
+  app.use(
+    preAuthMetadataGuard(
+      c.guardCacheBuilder,
+      c.runtimeRegistryService,
+      c.guardEvaluatorService,
+    ),
+  );
   app.use(
     jwtAuthMiddleware(
       c.queryBuilderService,
@@ -145,8 +151,14 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
     next();
   });
   app.use(roleGuardMiddleware(c.policyService));
-  app.use(postAuthMetadataGuard(c.guardCacheService, c.guardEvaluatorService));
-  app.use(fileUploadMiddleware(c.settingCacheService));
+  app.use(
+    postAuthMetadataGuard(
+      c.guardCacheBuilder,
+      c.runtimeRegistryService,
+      c.guardEvaluatorService,
+    ),
+  );
+  app.use(fileUploadMiddleware(c.runtimeRegistryService));
   app.use(requestLoggingBegin);
   app.use(bodyValidationMiddleware(container));
   app.use(dynamicInterceptorBegin(c.executorEngineService));

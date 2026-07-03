@@ -8,12 +8,6 @@ import { createYoga } from 'graphql-yoga';
 import { useDepthLimit } from '@envelop/depth-limit';
 import { Logger } from '../../../shared/logger';
 import { EventEmitter2 } from 'eventemitter2';
-import {
-  MetadataCacheService,
-  RouteCacheService,
-  SettingCacheService,
-  GqlDefinitionCacheService,
-} from '../../../engines/cache';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { DynamicResolver } from '../resolvers/dynamic.resolver';
 import {
@@ -27,9 +21,21 @@ import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { EnvService } from '../../../shared/services';
 import { logMemory } from '../../../shared/utils/memory-log.util';
+import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 
 const COLOR = '\x1b[95m';
 const RESET = '\x1b[0m';
+
+export interface GraphqlRuntimeStatus {
+  schemaReady: boolean;
+  lastReload?: {
+    status: 'running' | 'ok' | 'degraded';
+    startedAt: string;
+    completedAt?: string;
+    error?: string;
+    mode?: string;
+  };
+}
 
 export class GraphqlService {
   private readonly logger = new Logger(`${COLOR}GraphQL${RESET}`);
@@ -41,61 +47,52 @@ export class GraphqlService {
   private queryableTableNames = new Set<string>();
 
   private pendingPayload: TCacheInvalidationPayload | null = null;
+  private lastReload: GraphqlRuntimeStatus['lastReload'];
 
-  private readonly metadataCacheService: MetadataCacheService;
-  private readonly routeCacheService: RouteCacheService;
-  private readonly settingCacheService: SettingCacheService;
-  private readonly gqlDefinitionCacheService: GqlDefinitionCacheService;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly dynamicResolver: DynamicResolver;
   private readonly eventEmitter: EventEmitter2;
   private readonly envService: EnvService;
 
   constructor(deps: {
-    metadataCacheService: MetadataCacheService;
-    routeCacheService: RouteCacheService;
-    settingCacheService: SettingCacheService;
-    gqlDefinitionCacheService: GqlDefinitionCacheService;
+    runtimeRegistryService: RuntimeRegistryService;
     dynamicResolver: DynamicResolver;
     eventEmitter: EventEmitter2;
     envService: EnvService;
   }) {
-    this.metadataCacheService = deps.metadataCacheService;
-    this.routeCacheService = deps.routeCacheService;
-    this.settingCacheService = deps.settingCacheService;
-    this.gqlDefinitionCacheService = deps.gqlDefinitionCacheService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.dynamicResolver = deps.dynamicResolver;
     this.eventEmitter = deps.eventEmitter;
     this.envService = deps.envService;
   }
 
-  async reloadSchema(
-    payload?: TCacheInvalidationPayload,
-    options: { definitionFromSharedCache?: boolean } = {},
-  ): Promise<void> {
+  async reloadSchema(payload?: TCacheInvalidationPayload): Promise<void> {
+    const startedAt = new Date().toISOString();
+    this.lastReload = { status: 'running', startedAt };
     try {
       const start = Date.now();
       logMemory(this.logger, 'graphql reload start', {
         table: payload?.table,
         scope: payload?.scope,
         ids: payload?.ids?.length ?? 0,
-        definitionFromSharedCache: options.definitionFromSharedCache === true,
       });
 
-      if (options.definitionFromSharedCache) {
-        await this.gqlDefinitionCacheService.syncFromSharedCache();
-      } else {
-        await this.gqlDefinitionCacheService.reload();
-      }
-
-      const metadata = await this.metadataCacheService.getMetadata();
+      const metadata = this.runtimeRegistryService.requireMetadata();
       if (!metadata || metadata.tables.size === 0) {
         this.logger.warn(
           'Metadata not available, skipping GraphQL schema generation',
         );
+        this.lastReload = {
+          status: 'degraded',
+          startedAt,
+          completedAt: new Date().toISOString(),
+          error: 'Metadata not available',
+        };
         return;
       }
 
-      const enabledDefs = await this.gqlDefinitionCacheService.getAllEnabled();
+      const enabledDefs =
+        this.runtimeRegistryService.getAllEnabledGraphqlDefinitions();
       const newQueryableNames = new Set<string>();
       for (const def of enabledDefs) {
         newQueryableNames.add(def.tableName);
@@ -106,7 +103,6 @@ export class GraphqlService {
         newQueryableNames,
         metadata,
       );
-
       if (
         affectedTables !== null &&
         this.schema &&
@@ -142,10 +138,21 @@ export class GraphqlService {
         typeRegistrySize: this.typeRegistry.size,
       });
       this.eventEmitter.emit(CACHE_EVENTS.GRAPHQL_LOADED);
+      this.lastReload = {
+        status: 'ok',
+        startedAt,
+        completedAt: new Date().toISOString(),
+        mode: rebuildMode,
+      };
     } catch (error) {
-      this.logger.error(
-        `Failed to reload GraphQL schema: ${getErrorMessage(error)}`,
-      );
+      const message = getErrorMessage(error);
+      this.lastReload = {
+        status: 'degraded',
+        startedAt,
+        completedAt: new Date().toISOString(),
+        error: message,
+      };
+      this.logger.error(`Failed to reload GraphQL schema: ${message}`);
       throw error;
     }
   }
@@ -319,8 +326,7 @@ export class GraphqlService {
     });
 
     const isProduction = this.envService.isProd;
-    const maxDepth = await this.settingCacheService.getMaxQueryDepth();
-
+    const maxDepth = this.runtimeRegistryService.getMaxQueryDepth();
     this.yogaApp = createYoga({
       schema: this.schema,
       graphqlEndpoint: '/graphql',
@@ -331,14 +337,42 @@ export class GraphqlService {
 
   async onSettingChanged() {
     if (!this.schema) return;
-    const isProduction = this.envService.isProd;
-    const maxDepth = await this.settingCacheService.getMaxQueryDepth();
-    this.yogaApp = createYoga({
-      schema: this.schema,
-      graphqlEndpoint: '/graphql',
-      graphiql: !isProduction,
-      plugins: [useDepthLimit({ maxDepth })],
-    });
+    const startedAt = new Date().toISOString();
+    this.lastReload = { status: 'running', startedAt, mode: 'settingGraphql' };
+    try {
+      const isProduction = this.envService.isProd;
+      const maxDepth = this.runtimeRegistryService.getMaxQueryDepth();
+      this.yogaApp = createYoga({
+        schema: this.schema,
+        graphqlEndpoint: '/graphql',
+        graphiql: !isProduction,
+        plugins: [useDepthLimit({ maxDepth })],
+      });
+      this.lastReload = {
+        status: 'ok',
+        startedAt,
+        completedAt: new Date().toISOString(),
+        mode: 'settingGraphql',
+      };
+    } catch (error) {
+      const message = getErrorMessage(error);
+      this.lastReload = {
+        status: 'degraded',
+        startedAt,
+        completedAt: new Date().toISOString(),
+        error: message,
+        mode: 'settingGraphql',
+      };
+      this.logger.error(`Failed to refresh GraphQL Yoga app: ${message}`);
+      throw error;
+    }
+  }
+
+  getStatus(): GraphqlRuntimeStatus {
+    return {
+      schemaReady: !!this.schema,
+      lastReload: this.lastReload ? { ...this.lastReload } : undefined,
+    };
   }
 
   getSchemaSdl(): string {

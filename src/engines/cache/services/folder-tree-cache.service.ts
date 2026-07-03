@@ -3,28 +3,13 @@ import { QueryBuilderService } from '@enfyra/kernel';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+import type { FolderNode, FolderTreeCache } from '../types/cache-data.types';
 
 const FOLDER_TREE_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.FOLDER_TREE,
   colorCode: '\x1b[36m',
   cacheName: 'FolderTreeCache',
 };
-
-interface FolderNode {
-  id: string;
-  parentId: string | null;
-  name: string;
-  slug: string;
-  order: number;
-  icon: string;
-  description: string | null;
-  children?: FolderNode[];
-}
-
-interface FolderTreeCache {
-  folders: Map<string, FolderNode>;
-  tree: FolderNode[];
-}
 
 export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
   private readonly queryBuilderService: QueryBuilderService;
@@ -104,44 +89,5 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
 
   protected getLogCount(): string {
     return `${this.cache.folders.size} folders`;
-  }
-
-  async getTree(): Promise<FolderNode[]> {
-    const cache = await this.getCacheAsync();
-    return cache.tree;
-  }
-
-  async getFolders(): Promise<Map<string, FolderNode>> {
-    const cache = await this.getCacheAsync();
-    return cache.folders;
-  }
-
-  async isCircular(
-    folderId: string | null,
-    newParentId: string | null,
-  ): Promise<boolean> {
-    const cache = await this.getCacheAsync();
-
-    if (!folderId) return false;
-    if (!newParentId) return false;
-
-    const visited = new Set<string>();
-    let currentId: string | null = newParentId;
-
-    while (currentId) {
-      if (currentId === folderId) {
-        return true;
-      }
-
-      if (visited.has(currentId)) {
-        break;
-      }
-
-      visited.add(currentId);
-      const folder = cache.folders.get(currentId);
-      currentId = folder?.parentId ?? null;
-    }
-
-    return false;
   }
 }

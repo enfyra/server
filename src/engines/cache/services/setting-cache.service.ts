@@ -8,19 +8,13 @@ import {
   DEFAULT_MAX_REQUEST_BODY_SIZE_MB,
 } from '../../../shared/utils/constant';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+import type { SettingData } from '../types/cache-data.types';
 
 const SETTING_CACHE_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.SETTING,
   colorCode: '\x1b[36m',
   cacheName: 'SettingCache',
 };
-
-interface SettingData {
-  maxQueryDepth: number;
-  maxUploadFileSize: number;
-  maxRequestBodySize: number;
-  [key: string]: any;
-}
 
 export class SettingCacheService extends BaseCacheService<SettingData> {
   private readonly queryBuilderService: QueryBuilderService;
@@ -30,11 +24,7 @@ export class SettingCacheService extends BaseCacheService<SettingData> {
     eventEmitter?: EventEmitter2;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
   }) {
-    super(
-      SETTING_CACHE_CONFIG,
-      deps.eventEmitter,
-      deps.redisRuntimeCacheStore,
-    );
+    super(SETTING_CACHE_CONFIG, deps.eventEmitter, deps.redisRuntimeCacheStore);
     this.queryBuilderService = deps.queryBuilderService;
   }
 
@@ -76,31 +66,8 @@ export class SettingCacheService extends BaseCacheService<SettingData> {
     return '1 setting record';
   }
 
-  async getMaxQueryDepth(): Promise<number> {
+  async getMaxQueryDepthFromCache(): Promise<number> {
     const cache = await this.getCacheAsync();
     return cache?.maxQueryDepth ?? DEFAULT_MAX_QUERY_DEPTH;
-  }
-
-  async getMaxUploadFileSizeBytes(): Promise<number> {
-    const cache = await this.getCacheAsync();
-    return (
-      (cache?.maxUploadFileSize ?? DEFAULT_MAX_UPLOAD_FILE_SIZE_MB) *
-      1024 *
-      1024
-    );
-  }
-
-  async getMaxRequestBodySizeBytes(): Promise<number> {
-    const cache = await this.getCacheAsync();
-    return (
-      (cache?.maxRequestBodySize ?? DEFAULT_MAX_REQUEST_BODY_SIZE_MB) *
-      1024 *
-      1024
-    );
-  }
-
-  async getSetting<T = any>(key: string): Promise<T | undefined> {
-    const cache = await this.getCacheAsync();
-    return cache?.[key];
   }
 }

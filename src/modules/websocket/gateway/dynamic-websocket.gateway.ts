@@ -6,7 +6,11 @@ import { appendFileSync } from 'node:fs';
 import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import { getErrorMessage } from '../../../shared/utils/error.util';
-import { CacheService, WebsocketCacheService } from '../../../engines/cache';
+import {
+  CacheService,
+  RuntimeRegistryService,
+  type WebSocketGateway,
+} from '../../../engines/cache';
 import { BuiltInSocketRegistry } from '../services/built-in-socket.registry';
 import { EnvService } from '../../../shared/services';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
@@ -52,33 +56,31 @@ export class DynamicWebSocketGateway {
   private activeRoomFanoutQueues = new Set<string>();
   private redisPubClient: Redis | null = null;
   private redisSubClient: Redis | null = null;
-  private readonly websocketCacheService: WebsocketCacheService;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly builtInRegistry: BuiltInSocketRegistry;
   private readonly envService: EnvService;
   private readonly queryBuilderService: QueryBuilderService;
   private readonly cacheService: CacheService;
   private readonly redisAdminService: RedisAdminService;
   private readonly lazyRef: Cradle;
-  private eventEmitter: any;
 
   constructor(deps: {
-    websocketCacheService: WebsocketCacheService;
+    runtimeRegistryService: RuntimeRegistryService;
     builtInSocketRegistry: BuiltInSocketRegistry;
-    eventEmitter: any;
+    eventEmitter?: any;
     envService: EnvService;
     queryBuilderService: QueryBuilderService;
     cacheService: CacheService;
     redisAdminService: RedisAdminService;
     lazyRef: Cradle;
   }) {
-    this.websocketCacheService = deps.websocketCacheService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.builtInRegistry = deps.builtInSocketRegistry;
     this.envService = deps.envService;
     this.queryBuilderService = deps.queryBuilderService;
     this.cacheService = deps.cacheService;
     this.redisAdminService = deps.redisAdminService;
     this.lazyRef = deps.lazyRef;
-    this.eventEmitter = deps.eventEmitter;
     this.roomFanoutChunkThreshold = this.readPositiveEnvNumber(
       'WS_ROOM_FANOUT_CHUNK_THRESHOLD',
       200,
@@ -95,18 +97,6 @@ export class DynamicWebSocketGateway {
       'WS_ROOM_FANOUT_BACKPRESSURE_THRESHOLD',
       1000,
     );
-    this.setupEventListeners();
-  }
-
-  private setupEventListeners() {
-    this.eventEmitter.on(`${CACHE_IDENTIFIERS.WEBSOCKET}_LOADED`, () => {
-      const reload = this.server
-        ? this.reloadGateways()
-        : this.registerGateways();
-      reload.catch((error) =>
-        this.logger.error('Failed to reload websocket gateways:', error),
-      );
-    });
   }
 
   private async setupRedisAdapter(server: Server) {
@@ -176,7 +166,9 @@ export class DynamicWebSocketGateway {
   async registerGateways() {
     if (!this.server) return;
     try {
-      const gateways = await this.websocketCacheService.getGateways();
+      const gateways = this.runtimeRegistryService.requireActiveData<
+        WebSocketGateway[]
+      >(CACHE_IDENTIFIERS.WEBSOCKET);
       const newPaths = new Set(gateways.map((g: any) => g.path));
       for (const path of this.registeredGateways) {
         if (path === ENFYRA_ADMIN_WEBSOCKET_NAMESPACE) continue;
@@ -427,7 +419,6 @@ export class DynamicWebSocketGateway {
     script: string,
   ) {
     const user = this.getSocketUser(socket);
-    const userId = socket.data.userId || user?.id || user?._id || null;
     const ctx = this.lazyRef.dynamicContextFactory.createWebsocketConnection({
       gatewayPath: gatewayData.path,
       socketId: socket.id,
@@ -474,7 +465,6 @@ export class DynamicWebSocketGateway {
       ackSentAt,
     } = options;
     const user = this.getSocketUser(socket);
-    const userId = socket.data.userId || user?.id || user?._id || null;
     const ctx = this.lazyRef.dynamicContextFactory.createWebsocketEvent({
       gatewayPath,
       socketId: socket.id,
@@ -675,6 +665,14 @@ export class DynamicWebSocketGateway {
     this.logger.log(
       `Gateways reloaded. Total registered: ${this.registeredGateways.size}`,
     );
+  }
+
+  async refreshGateways() {
+    if (this.server) {
+      await this.reloadGateways();
+      return;
+    }
+    await this.registerGateways();
   }
 
   joinRoom(path: string, socketId: string, room: string) {

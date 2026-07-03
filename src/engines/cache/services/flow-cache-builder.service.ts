@@ -25,7 +25,7 @@ const FLOW_CONFIG: CacheConfig = {
   cacheName: 'FlowCache',
 };
 
-export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
+export class FlowCacheBuilder extends BaseCacheService<FlowDefinition[]> {
   private readonly queryBuilderService: QueryBuilderService;
 
   constructor(deps: {
@@ -62,8 +62,6 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
       const steps: FlowStep[] = [];
       for (const step of rawSteps) {
         if (step.type === 'script' || step.type === 'condition') {
-          const hadLegacyScriptConfig =
-            typeof step.config === 'string' || this.hasLegacyScriptConfig(step);
           const normalizedStep = normalizeFlowStepScriptConfig(step);
           Object.assign(step, normalizedStep);
           if (step.sourceCode || step.compiledCode) {
@@ -78,9 +76,6 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
                 compiledCode: step.compiledCode,
                 code: result.code,
               };
-            }
-            if (result.shouldPersistCompiledCode || hadLegacyScriptConfig) {
-              await this.persistStepScriptRepair(step, idField);
             }
           }
         }
@@ -119,37 +114,6 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
     return flows;
   }
 
-  private hasLegacyScriptConfig(step: any): boolean {
-    const config = step?.config;
-    return Boolean(
-      config &&
-        typeof config === 'object' &&
-        ('sourceCode' in config ||
-          'scriptLanguage' in config ||
-          'compiledCode' in config ||
-          'code' in config),
-    );
-  }
-
-  private async persistStepScriptRepair(
-    step: any,
-    idField: string,
-  ): Promise<void> {
-    const id = step[idField];
-    if (id == null) return;
-    const config = { ...(step.config || {}) };
-    delete config.sourceCode;
-    delete config.scriptLanguage;
-    delete config.compiledCode;
-    delete config.code;
-    await this.queryBuilderService.update('enfyra_flow_step', id, {
-      sourceCode: step.sourceCode ?? null,
-      scriptLanguage: step.scriptLanguage ?? 'typescript',
-      compiledCode: step.compiledCode ?? null,
-      config,
-    });
-  }
-
   protected transformData(data: FlowDefinition[]): FlowDefinition[] {
     return data;
   }
@@ -166,29 +130,5 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
 
   protected getCount(): number {
     return this.cache.length;
-  }
-
-  async getFlows(): Promise<FlowDefinition[]> {
-    return this.getCacheAsync();
-  }
-
-  async getFlowById(id: number | string): Promise<FlowDefinition | null> {
-    const cache = await this.getCacheAsync();
-    const idStr = String(id);
-    return (
-      cache.find(
-        (f) => f.id === id || f.id === Number(id) || String(f.id) === idStr,
-      ) || null
-    );
-  }
-
-  async getFlowByName(name: string): Promise<FlowDefinition | null> {
-    const cache = await this.getCacheAsync();
-    return cache.find((f) => f.name === name) || null;
-  }
-
-  async getFlowsByTriggerType(triggerType: string): Promise<FlowDefinition[]> {
-    const cache = await this.getCacheAsync();
-    return cache.filter((f) => f.triggerType === triggerType);
   }
 }

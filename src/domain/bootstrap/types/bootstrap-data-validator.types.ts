@@ -5,7 +5,7 @@ export type BootstrapDataFiles = {
 };
 
 export type BootstrapValidationIssue = {
-  file: 'default-data.json' | 'data-migration.json';
+  file: 'snapshot.json' | 'default-data.json' | 'data-migration.json';
   table: string;
   path?: string;
   field: string;

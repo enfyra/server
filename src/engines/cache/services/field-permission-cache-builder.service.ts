@@ -61,7 +61,7 @@ function isFalseValue(v: any): boolean {
   return v === false || v === 0 || v === '0';
 }
 
-export class FieldPermissionCacheService extends BaseCacheService<
+export class FieldPermissionCacheBuilder extends BaseCacheService<
   Map<string, TCompiledFieldPolicy>
 > {
   private readonly queryBuilderService: QueryBuilderService;
@@ -101,7 +101,9 @@ export class FieldPermissionCacheService extends BaseCacheService<
 
   protected transformData(rawData: any): Map<string, TCompiledFieldPolicy> {
     const map = new Map<string, TCompiledFieldPolicy>();
-    const rows: any[] = Array.isArray(rawData) ? rawData : rawData?.rows ?? [];
+    const rows: any[] = Array.isArray(rawData)
+      ? rawData
+      : (rawData?.rows ?? []);
     const metadataIndex = this.buildMetadataIndex(rawData?.metadata);
     for (const row of rows) {
       const rule = this.rowToRule(row, metadataIndex);
@@ -341,32 +343,5 @@ export class FieldPermissionCacheService extends BaseCacheService<
 
   async ensureLoaded(): Promise<void> {
     await super.ensureLoaded();
-  }
-
-  async getPoliciesFor(
-    user: any,
-    tableName: string,
-    action: TFieldPermissionAction,
-  ): Promise<TCompiledFieldPolicy[]> {
-    const cache = await this.getCacheAsync();
-    const policies: TCompiledFieldPolicy[] = [];
-
-    const userId = toIdString(user);
-    const roleId = toIdString(user?.role);
-
-    if (userId) {
-      const userKey = `u:${userId}|${tableName}|${action}`;
-      if (cache.has(userKey)) policies.push(cache.get(userKey)!);
-    }
-
-    const roleKey = `r:${roleId ?? 'null'}|${tableName}|${action}`;
-    if (cache.has(roleKey)) policies.push(cache.get(roleKey)!);
-
-    if (roleId != null) {
-      const catchAllKey = `r:null|${tableName}|${action}`;
-      if (cache.has(catchAllKey)) policies.push(cache.get(catchAllKey)!);
-    }
-
-    return policies;
   }
 }

@@ -32,7 +32,7 @@ function toIdString(v: any): string | null {
   return String(v?._id ?? v?.id ?? v);
 }
 
-export class ColumnRuleCacheService extends BaseCacheService<
+export class ColumnRuleCacheBuilder extends BaseCacheService<
   Map<string, TColumnRule[]>
 > {
   private readonly queryBuilderService: QueryBuilderService;
@@ -152,18 +152,5 @@ export class ColumnRuleCacheService extends BaseCacheService<
       isEnabled: row.isEnabled !== false,
       columnId,
     };
-  }
-
-  async getRulesForColumn(columnId: string | number): Promise<TColumnRule[]> {
-    const cache = await this.getCacheAsync();
-    const key = String(columnId);
-    return cache.get(key) ?? [];
-  }
-
-  getRulesForColumnSync(columnId: string | number): TColumnRule[] {
-    if (this.usesSharedRuntimeCache()) return [];
-    if (!this.cacheLoaded) return [];
-    const key = String(columnId);
-    return this.cache.get(key) ?? [];
   }
 }

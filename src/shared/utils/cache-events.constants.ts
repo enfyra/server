@@ -14,6 +14,7 @@ export const CACHE_EVENTS = {
   GUARD_LOADED: 'cache:guard:loaded',
   SETTING_LOADED: 'cache:setting:loaded',
   GRAPHQL_LOADED: 'cache:graphql:loaded',
+  RUNTIME_CACHE_ACTIVATED: 'runtime:cache:activated',
   SYSTEM_READY: 'system:ready',
 } as const;
 

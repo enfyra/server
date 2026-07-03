@@ -1,12 +1,12 @@
 import { isDeepStrictEqual as isEqual } from 'node:util';
 import { createHash } from 'node:crypto';
-import { IMetadataCache } from '../../shared/interfaces/metadata-cache.interface';
+import { RuntimeRegistryService } from '../../../engines/cache';
 
 export class SchemaMigrationValidatorService {
-  private readonly metadataCacheService: IMetadataCache;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
 
-  constructor(deps: { metadataCacheService: IMetadataCache }) {
-    this.metadataCacheService = deps.metadataCacheService;
+  constructor(deps: { runtimeRegistryService: RuntimeRegistryService }) {
+    this.runtimeRegistryService = deps.runtimeRegistryService;
   }
 
   async checkSchemaMigration(ctx: any): Promise<any> {
@@ -419,12 +419,9 @@ export class SchemaMigrationValidatorService {
     if (!beforeMetadata || removedRelationKeys.length === 0) {
       return [];
     }
-    if (!this.metadataCacheService) {
-      return [];
-    }
     let meta: { tables: Map<string, any> };
     try {
-      meta = await this.metadataCacheService.getMetadata();
+      meta = this.runtimeRegistryService.getMetadata() as any;
     } catch {
       return [];
     }
@@ -475,7 +472,7 @@ export class SchemaMigrationValidatorService {
 
   async getAllRelationFieldsWithInverse(tableName: string): Promise<string[]> {
     try {
-      const metadata = await this.metadataCacheService.getMetadata();
+      const metadata = this.runtimeRegistryService.requireMetadata();
       const tableMeta = metadata.tables.get(tableName);
       if (!tableMeta) return [];
       const relations = (tableMeta.relations || []).map(
@@ -532,7 +529,7 @@ export class SchemaMigrationValidatorService {
 
   async enrichTableDefinitionData(existing: any): Promise<any> {
     if (!existing?.name) return existing;
-    const metadata = await this.metadataCacheService.getMetadata();
+    const metadata = this.runtimeRegistryService.requireMetadata();
     const tableMeta = metadata.tables.get(existing.name);
     if (!tableMeta) return existing;
     const enriched = { ...existing };
@@ -547,7 +544,7 @@ export class SchemaMigrationValidatorService {
 
   async getJsonFields(tableName: string): Promise<string[]> {
     try {
-      const metadata = await this.metadataCacheService.getMetadata();
+      const metadata = this.runtimeRegistryService.requireMetadata();
       const tableMeta = metadata.tables.get(tableName);
       if (!tableMeta) return [];
       return (tableMeta.columns || [])
