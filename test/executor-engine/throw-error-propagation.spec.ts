@@ -253,6 +253,37 @@ describe('$throw error propagation across isolated-vm boundary', () => {
   });
 
   describe('custom messages', () => {
+    it('$throw.http(status, message, details) preserves raw HTTP message and details', async () => {
+      try {
+        await single(
+          '$ctx.$throw.http(409, "Project already exists", { field: "slug" });',
+        );
+        fail('should have thrown');
+      } catch (err: any) {
+        expect(err.statusCode).toBe(409);
+        expect(err.message).toBe('Project already exists');
+        expect(err.details).toEqual({ field: 'slug' });
+      }
+    });
+
+    it('semantic $throw.notFound and $throw.duplicate keep Enfyra-formatted messages', async () => {
+      try {
+        await single('$ctx.$throw.notFound("Project", "p_123");');
+        fail('should have thrown');
+      } catch (err: any) {
+        expect(err.statusCode).toBe(404);
+        expect(err.message).toBe("Project with identifier 'p_123' not found");
+      }
+
+      try {
+        await single('$ctx.$throw.duplicate("Project", "slug", "demo");');
+        fail('should have thrown');
+      } catch (err: any) {
+        expect(err.statusCode).toBe(409);
+        expect(err.message).toBe("Project with slug 'demo' already exists");
+      }
+    });
+
     it('$throw["401"]("Token expired") preserves exact message', async () => {
       try {
         await batch([
