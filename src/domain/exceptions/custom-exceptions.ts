@@ -226,10 +226,10 @@ export class NotFoundException extends CustomException {
 
 export class HttpException extends CustomException {
   private _response: string | object;
-  constructor(message: string | object, statusCode: number) {
+  constructor(message: string | object, statusCode: number, details?: any) {
     const messageStr =
       typeof message === 'string' ? message : JSON.stringify(message);
-    super(messageStr, statusCode, 'HTTP_ERROR');
+    super(messageStr, statusCode, 'HTTP_ERROR', details);
     this._response = message;
   }
   getStatus() {

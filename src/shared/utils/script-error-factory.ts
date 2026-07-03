@@ -19,10 +19,14 @@ import {
   FileUploadException,
   FileNotFoundException,
   FileSizeExceededException,
+  HttpException,
 } from '../../domain/exceptions';
 export class ScriptErrorFactory {
   static createThrowHandlers() {
     return {
+      http: (statusCode: number, message: string, details?: any) => {
+        throw new HttpException(message, statusCode, details);
+      },
       businessLogic: (message: string, details?: any) => {
         throw new BusinessLogicException(message, details);
       },
@@ -83,32 +87,32 @@ export class ScriptErrorFactory {
       fileSizeExceeded: (maxSize: string, actualSize: string) => {
         throw new FileSizeExceededException(maxSize, actualSize);
       },
-      '400': (message: string) => {
-        throw new BusinessLogicException(message || 'Bad request');
+      '400': (message: string, details?: any) => {
+        throw new HttpException(message || 'Bad request', 400, details);
       },
       '401': (message?: string) => {
-        throw new AuthenticationException(message || 'Unauthorized');
+        throw new HttpException(message || 'Unauthorized', 401);
       },
       '403': (message?: string) => {
-        throw new AuthorizationException(message || 'Forbidden');
+        throw new HttpException(message || 'Forbidden', 403);
       },
-      '404': (resource: string, id?: string) => {
-        throw new ResourceNotFoundException(resource, id);
+      '404': (message: string, details?: any) => {
+        throw new HttpException(message || 'Not found', 404, details);
       },
-      '409': (resource: string, field: string, value: string) => {
-        throw new DuplicateResourceException(resource, field, value);
+      '409': (message: string, details?: any) => {
+        throw new HttpException(message || 'Conflict', 409, details);
       },
       '422': (message: string, details?: any) => {
-        throw new ValidationException(message, details);
+        throw new HttpException(message || 'Validation failed', 422, details);
       },
-      '429': (limit: number, window: string) => {
-        throw new RateLimitExceededException(limit, window);
+      '429': (message: string, details?: any) => {
+        throw new HttpException(message || 'Rate limit exceeded', 429, details);
       },
       '500': (message: string, details?: any) => {
-        throw new DatabaseException(message, details);
+        throw new HttpException(message || 'Internal server error', 500, details);
       },
-      '503': (service: string) => {
-        throw new ServiceUnavailableException(service);
+      '503': (message: string, details?: any) => {
+        throw new HttpException(message || 'Service unavailable', 503, details);
       },
     };
   }
