@@ -94,9 +94,14 @@ function registerSqlSuite(
 
     test(`${dbLabel} oracle (batch)`, async () => {
       const executor = new SqlQueryExecutor(ctx!.knex, dbLabel);
-      for (const filter of filters) {
+      for (const [index, filter] of filters.entries()) {
         const got = await sqlRowIds(executor, metadata, filter);
-        expect(got).toEqual(oracleExtensionRowIds(filter));
+        const expected = oracleExtensionRowIds(filter);
+        if (JSON.stringify(got) !== JSON.stringify(expected)) {
+          throw new Error(
+            `${dbLabel} filter case ${index} mismatch\nfilter=${JSON.stringify(filter)}\ngot=${JSON.stringify(got)}\nexpected=${JSON.stringify(expected)}`,
+          );
+        }
       }
     }, 120000);
   });
@@ -126,9 +131,14 @@ function registerMongoSuite(
     }, 120000);
 
     test(`mongodb oracle (batch)`, async () => {
-      for (const filter of filters) {
+      for (const [index, filter] of filters.entries()) {
         const got = await mongoRowIds(executor, metadata, filter);
-        expect(got).toEqual(oracleExtensionRowIds(filter));
+        const expected = oracleExtensionRowIds(filter);
+        if (JSON.stringify(got) !== JSON.stringify(expected)) {
+          throw new Error(
+            `mongodb filter case ${index} mismatch\nfilter=${JSON.stringify(filter)}\ngot=${JSON.stringify(got)}\nexpected=${JSON.stringify(expected)}`,
+          );
+        }
       }
     }, 120000);
   });
