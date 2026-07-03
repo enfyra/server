@@ -424,12 +424,46 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
   // --- _not combinations ---
 
   runOrSkip(
-    '_not on single relation shorthand: not menu=m88 → rows not linked to m88',
+    '_not on nested relation predicate follows SQL null semantics',
     async () => {
       const ids = await rowIds({
         _not: { menu: { label: { _eq: 'm88' } } },
       });
-      expect(ids).toEqual(idxs([2, 3, 4]));
+      expect(ids).toEqual(idxs([2, 4]));
+    },
+  );
+
+  runOrSkip(
+    '_not on direct relation shorthand excludes null relations',
+    async () => {
+      const ids = await rowIds({
+        _not: { menu: { _eq: menuIds[1] } },
+      });
+      expect(ids).toEqual(idxs([2, 4]));
+    },
+  );
+
+  runOrSkip('_not on relation _is_null returns non-null relations', async () => {
+    const ids = await rowIds({
+      _not: { menu: { _is_null: true } },
+    });
+    expect(ids).toEqual(idxs([0, 1, 2, 4, 5]));
+  });
+
+  runOrSkip('_not on relation _is_not_null returns null relations', async () => {
+    const ids = await rowIds({
+      _not: { menu: { _is_not_null: true } },
+    });
+    expect(ids).toEqual(idxs([3]));
+  });
+
+  runOrSkip(
+    '_not on nested relation predicate with no target match excludes null relations',
+    async () => {
+      const ids = await rowIds({
+        _not: { menu: { label: { _eq: 'missing' } } },
+      });
+      expect(ids).toEqual(idxs([0, 1, 2, 4, 5]));
     },
   );
 
@@ -461,14 +495,14 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
   );
 
   runOrSkip(
-    '_not + _or relations: NOT (menu=m88 ∨ menu=m99) → [3]',
+    '_not + _or relation shorthand follows SQL null semantics',
     async () => {
       const ids = await rowIds({
         _not: {
           _or: [{ menu: { _eq: menuIds[1] } }, { menu: { _eq: menuIds[2] } }],
         },
       });
-      expect(ids).toEqual(idxs([3]));
+      expect(ids).toEqual([]);
     },
   );
 
