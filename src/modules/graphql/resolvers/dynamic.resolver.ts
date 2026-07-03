@@ -7,25 +7,24 @@ import { getErrorMessage } from '../../../shared/utils/error.util';
 import { EnvService, DynamicContextFactory } from '../../../shared/services';
 import { ExecutorEngineService } from '@enfyra/kernel';
 import {
-  GqlDefinitionCacheService,
   RepoRegistryService,
-  GuardCacheService,
+  GuardCacheBuilder,
   GuardEvaluatorService,
-  RouteCacheService,
 } from '../../../engines/cache';
 import { PolicyService, isPolicyDeny } from '../../../domain/policy';
 import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
 import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
 import { loadCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
+import { matchRouteInRoutes } from '../../../shared/utils/route-match.util';
+import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 
 export class DynamicResolver {
   private readonly queryBuilderService: QueryBuilderService;
   private readonly executorEngineService: ExecutorEngineService;
-  private readonly gqlDefinitionCacheService: GqlDefinitionCacheService;
   private readonly repoRegistryService: RepoRegistryService;
-  private readonly guardCacheService: GuardCacheService;
+  private readonly guardCacheBuilder: GuardCacheBuilder;
   private readonly guardEvaluatorService: GuardEvaluatorService;
-  private readonly routeCacheService: RouteCacheService;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly policyService: PolicyService;
   private readonly envService: EnvService;
   private readonly dynamicContextFactory: DynamicContextFactory;
@@ -33,22 +32,20 @@ export class DynamicResolver {
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     executorEngineService: ExecutorEngineService;
-    gqlDefinitionCacheService: GqlDefinitionCacheService;
     repoRegistryService: RepoRegistryService;
-    guardCacheService: GuardCacheService;
+    guardCacheBuilder: GuardCacheBuilder;
     guardEvaluatorService: GuardEvaluatorService;
-    routeCacheService: RouteCacheService;
+    runtimeRegistryService: RuntimeRegistryService;
     policyService: PolicyService;
     envService: EnvService;
     dynamicContextFactory: DynamicContextFactory;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.executorEngineService = deps.executorEngineService;
-    this.gqlDefinitionCacheService = deps.gqlDefinitionCacheService;
     this.repoRegistryService = deps.repoRegistryService;
-    this.guardCacheService = deps.guardCacheService;
+    this.guardCacheBuilder = deps.guardCacheBuilder;
     this.guardEvaluatorService = deps.guardEvaluatorService;
-    this.routeCacheService = deps.routeCacheService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.policyService = deps.policyService;
     this.envService = deps.envService;
     this.dynamicContextFactory = deps.dynamicContextFactory;
@@ -198,7 +195,7 @@ export class DynamicResolver {
     }
 
     const isEnabled =
-      await this.gqlDefinitionCacheService.isEnabledForTable(mainTableName);
+      this.runtimeRegistryService.isGraphqlEnabledForTable(mainTableName);
     if (!isEnabled) {
       throwGqlError(
         '404',
@@ -233,8 +230,16 @@ export class DynamicResolver {
     return 'GET';
   }
 
-  private async assertRouteAccess(routePath: string, method: string, user: any) {
-    const match = await this.routeCacheService.matchRoute(method, routePath);
+  private async assertRouteAccess(
+    routePath: string,
+    method: string,
+    user: any,
+  ) {
+    const match = matchRouteInRoutes(
+      this.runtimeRegistryService.requireRoutes(),
+      method,
+      routePath,
+    );
     if (!match?.route) {
       throwGqlError('403', 'Forbidden');
     }
@@ -282,8 +287,8 @@ export class DynamicResolver {
     clientIp: string,
     userId: string | null,
   ) {
-    await this.guardCacheService.ensureGuardsLoaded();
-    const guards = await this.guardCacheService.getGuardsForRoute(
+    await this.guardCacheBuilder.ensureGuardsLoaded();
+    const guards = this.runtimeRegistryService.getGuardsForRoute(
       position,
       routePath,
       method,

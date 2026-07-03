@@ -107,7 +107,7 @@ describe('admin test run', () => {
   it('resolves saved websocket event code and runs it with websocket context', async () => {
     const cradle = {
       executorEngineService: new InlineExecutor(),
-      websocketCacheService: {
+      websocketCacheBuilder: {
         getGateways: async () => [
           {
             id: 1,

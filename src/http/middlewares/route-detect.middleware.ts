@@ -1,16 +1,14 @@
 import { Response, NextFunction } from 'express';
-import {
-  RouteCacheService,
-  RepoRegistryService,
-  RateLimitService,
-} from '../../engines/cache';
+import { RepoRegistryService, RateLimitService } from '../../engines/cache';
 import { UploadFileHelper } from '../../shared/helpers';
 import { FlowService } from '../../modules/flow';
 import { resolveClientIpFromRequest } from '../../shared/utils/client-ip.util';
 import { DynamicContextFactory } from '../../shared/services';
+import { matchRouteInRoutes } from '../../shared/utils/route-match.util';
+import type { RuntimeRegistryService } from '../../engines/cache/services/runtime-registry.service';
 
 export function routeDetectMiddleware(
-  routeCacheService: RouteCacheService,
+  runtimeRegistryService: RuntimeRegistryService,
   repoRegistryService: RepoRegistryService,
   uploadFileHelper: UploadFileHelper,
   rateLimitService: RateLimitService,
@@ -20,7 +18,11 @@ export function routeDetectMiddleware(
   return async (req: any, res: Response, next: NextFunction) => {
     const method = req.method;
     const path = req.path || req.url?.split('?')[0] || '/';
-    const matchedRoute = await routeCacheService.matchRoute(method, path);
+    const matchedRoute = matchRouteInRoutes(
+      runtimeRegistryService.requireRoutes(),
+      method,
+      path,
+    );
 
     const isMethodAvailable = (route: any) => {
       const methods = route?.availableMethods;

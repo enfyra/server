@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { FlowExecutionQueueService } from '../../src/modules/flow';
 import { WebsocketContextFactory } from '../../src/modules/websocket';
 import { DynamicContextFactory } from '../../src/shared/services';
+import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants';
 
 class InlineExecutor {
   async run(code: string, ctx: any) {
@@ -25,6 +26,17 @@ function createDynamicContextFactory() {
       dynamicWebSocketGateway: {},
     }),
   });
+}
+
+function runtimeRegistryWithFlows(flows: any[] = []) {
+  return {
+    requireActiveData: (identifier: string) => {
+      if (identifier !== CACHE_IDENTIFIERS.FLOW) {
+        throw new Error(`unexpected identifier ${identifier}`);
+      }
+      return flows;
+    },
+  };
 }
 
 describe('FlowExecutionQueueService failure diagnostics', () => {
@@ -52,11 +64,7 @@ describe('FlowExecutionQueueService failure diagnostics', () => {
     const service = new FlowExecutionQueueService({
       executorEngineService: new InlineExecutor() as any,
       repoRegistryService: new MockRepoRegistry() as any,
-      flowCacheService: {
-        getFlowByName: vi.fn().mockResolvedValue(flow),
-        getFlowById: vi.fn().mockResolvedValue(flow),
-        reload: vi.fn(),
-      } as any,
+      runtimeRegistryService: runtimeRegistryWithFlows([flow]) as any,
       queryBuilderService: {
         insert: vi.fn(async (_table: string, data: any, options?: any) => {
           inserts.push(data);
@@ -157,11 +165,7 @@ describe('FlowExecutionQueueService failure diagnostics', () => {
     const service = new FlowExecutionQueueService({
       executorEngineService: new InlineExecutor() as any,
       repoRegistryService: new MockRepoRegistry() as any,
-      flowCacheService: {
-        getFlowByName: vi.fn().mockResolvedValue(flow),
-        getFlowById: vi.fn().mockResolvedValue(flow),
-        reload: vi.fn(),
-      } as any,
+      runtimeRegistryService: runtimeRegistryWithFlows([flow]) as any,
       queryBuilderService: {
         insert: vi.fn(async (_table: string, data: any, options?: any) => {
           inserts.push(data);

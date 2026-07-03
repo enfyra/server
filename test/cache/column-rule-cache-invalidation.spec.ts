@@ -55,7 +55,6 @@ describe('bodyValidationMiddleware — schema cache invalidation on column-rule 
     bodyValidationMiddleware({
       cradle: {
         metadataCacheService: { getDirectMetadata: () => null },
-        columnRuleCacheService: { getRulesForColumnSync: () => [] },
         eventEmitter: emitter,
       },
     } as any);

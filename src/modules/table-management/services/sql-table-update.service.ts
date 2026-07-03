@@ -1,46 +1,25 @@
-import { Logger } from '../../../shared/logger';
-import type { Knex } from 'knex';
 import { getIoAbortSignal } from '@enfyra/kernel';
+import type { Knex } from 'knex';
 import {
-  QueryBuilderService,
-  getForeignKeyColumnName,
-} from '@enfyra/kernel';
-import {
-  SqlSchemaMigrationService,
-  SchemaMigrationLockService,
-} from '../../../engines/knex';
-import { MetadataCacheService } from '../../../engines/cache';
-import {
-  LoggingService,
   DatabaseException,
-  DuplicateResourceException,
   ResourceNotFoundException,
   ValidationException,
 } from '../../../domain/exceptions';
-import {
-  PolicyService,
-  isPolicyDeny,
-  isPolicyPreview,
-} from '../../../domain/policy';
+import { isPolicyDeny, isPolicyPreview } from '../../../domain/policy';
 import { TDynamicContext } from '../../../shared/types';
-import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
+import { logMemory } from '../../../shared/utils/memory-log.util';
 import { TCreateTableBody } from '../types/table-handler.types';
+import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
 import {
   getRelationTargetTableId,
   relationTargetTableMapKey,
 } from '../utils/relation-target-id.util';
-import { TableManagementValidationService } from './table-validation.service';
-import { SqlTableMetadataBuilderService } from './sql-table-metadata-builder.service';
-import { SqlTableMetadataWriterService } from './sql-table-metadata-writer.service';
-import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
-import { ensureSqlTableRouteArtifacts } from './table-route-artifacts.service';
+import { SqlTableHandlerService } from './sql-table-handler-base.service';
 import {
   ensureSqlM2mJunctionTables,
   ensureSqlSingleRecord,
   syncSqlGqlDefinition,
 } from './table-post-migration.service';
-import { SqlTableHandlerService } from './sql-table-handler-base.service';
-import { logMemory } from '../../../shared/utils/memory-log.util';
 
 export class SqlTableUpdateService extends SqlTableHandlerService {
   async updateTable(
@@ -515,16 +494,15 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
         id: exists.id,
         name: body.name ?? exists.name,
         affectedTables: [...affectedTableNames],
-        tableRenames:
-          tableRenamed
-            ? [
-                {
-                  id: exists.id,
-                  oldName: exists.name,
-                  newName: body.name,
-                },
-              ]
-            : undefined,
+        tableRenames: tableRenamed
+          ? [
+              {
+                id: exists.id,
+                oldName: exists.name,
+                newName: body.name,
+              },
+            ]
+          : undefined,
       };
     } catch (error: any) {
       this.loggingService.error('Table update failed', {
@@ -539,6 +517,5 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
         operation: 'update',
       });
     }
-}
-
+  }
 }

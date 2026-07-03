@@ -72,10 +72,21 @@ function close(server: Server): Promise<void> {
 }
 
 function makeAppContainer(dispose = vi.fn()) {
+  const routes = ['/ok', '/boom', '/stream', '/webhook'].map((path) => ({
+    path,
+    route: { path },
+    availableMethods: [{ name: path === '/webhook' ? 'POST' : 'GET' }],
+    publicMethods: [{ name: path === '/webhook' ? 'POST' : 'GET' }],
+    handlers: [],
+    preHooks: [],
+    postHooks: [],
+  }));
   const cradle: any = {
-    settingCacheService: {
+    runtimeRegistryService: {
       getMaxRequestBodySizeBytes: () => 1024 * 1024,
       getMaxUploadFileSizeBytes: () => 1024 * 1024,
+      requireRoutes: () => routes,
+      getGuardsForRoute: vi.fn(() => []),
     },
     runtimeMetricsCollectorService: {
       recordRequest: vi.fn(),
@@ -106,22 +117,22 @@ function makeAppContainer(dispose = vi.fn()) {
       },
       getRouteEngine: () => ({
         find: (method: string, path: string) => {
-        const isKnownGet =
-          method === 'GET' && ['/ok', '/boom', '/stream'].includes(path);
-        const isKnownPost = method === 'POST' && path === '/webhook';
-        if (!isKnownGet && !isKnownPost) {
-          return null;
-        }
-        return {
-          params: {},
-          route: {
-            path,
-            route: { path },
-            availableMethods: [{ name: method }],
-            publicMethods: [{ name: method }],
-            handlers: [],
-            preHooks: [],
-            postHooks: [],
+          const isKnownGet =
+            method === 'GET' && ['/ok', '/boom', '/stream'].includes(path);
+          const isKnownPost = method === 'POST' && path === '/webhook';
+          if (!isKnownGet && !isKnownPost) {
+            return null;
+          }
+          return {
+            params: {},
+            route: {
+              path,
+              route: { path },
+              availableMethods: [{ name: method }],
+              publicMethods: [{ name: method }],
+              handlers: [],
+              preHooks: [],
+              postHooks: [],
             },
           };
         },
@@ -154,9 +165,8 @@ function makeAppContainer(dispose = vi.fn()) {
         },
       })),
     },
-    guardCacheService: {
+    guardCacheBuilder: {
       ensureGuardsLoaded: vi.fn(),
-      getGuardsForRoute: vi.fn(() => []),
     },
     guardEvaluatorService: {
       evaluateGuard: vi.fn(),
@@ -284,7 +294,8 @@ describe('request scope disposal through the Express pipeline', () => {
     const { container, dispose } = makeAppContainer();
     const server = createServer(buildExpressApp(container));
     const baseUrl = await listen(server);
-    const payload = '{"event_type":"transaction.completed","data":{"id":"txn_1"}}';
+    const payload =
+      '{"event_type":"transaction.completed","data":{"id":"txn_1"}}';
 
     try {
       const response = await fetch(`${baseUrl}/webhook`, {

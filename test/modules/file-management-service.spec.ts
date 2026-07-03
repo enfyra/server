@@ -11,13 +11,13 @@ function makeMp4Buffer() {
 }
 
 function makeService(overrides: Record<string, any> = {}) {
-  const storageConfigCacheService = {
-    getStorageConfigByType: vi.fn(async () => ({
+  const runtimeRegistryService = {
+    getStorageConfigByType: vi.fn(() => ({
       id: 'local',
       type: 'Local Storage',
       isEnabled: true,
     })),
-    getStorageConfigById: vi.fn(async (id: string) => ({
+    getStorageConfigById: vi.fn((id: string) => ({
       id,
       type: id === 'local' ? 'Local Storage' : 'Amazon S3',
       isEnabled: true,
@@ -40,14 +40,14 @@ function makeService(overrides: Record<string, any> = {}) {
       getPkField: vi.fn(() => 'id'),
       isMongoDb: vi.fn(() => false),
     } as any,
-    storageConfigCacheService:
-      overrides.storageConfigCacheService ?? storageConfigCacheService,
+    runtimeRegistryService:
+      overrides.runtimeRegistryService ?? runtimeRegistryService,
     storageFactoryService: {
       getStorageServiceByConfig: vi.fn(() => storageService),
     } as any,
   });
 
-  return { service, storageService, storageConfigCacheService };
+  return { service, storageService, runtimeRegistryService };
 }
 
 describe('FileManagementService file replacement', () => {

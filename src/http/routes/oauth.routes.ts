@@ -3,7 +3,7 @@ import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { BadRequestException } from '../../domain/exceptions';
-import type { IOAuthConfig } from '../../domain/shared/interfaces/oauth-config-cache.interface';
+import type { OAuthConfig } from '../../engines/cache/services/oauth-config-cache-builder.service';
 
 type OAuthStatePayload = {
   redirect: string;
@@ -16,13 +16,15 @@ export function registerOAuthRoutes(
   container: AwilixContainer<Cradle>,
 ) {
   app.get('/auth/providers', async (req: any, res: Response) => {
-    const oauthConfigCache =
-      req.scope?.cradle?.oauthConfigCacheService ??
-      container.cradle.oauthConfigCacheService;
+    const runtimeRegistry =
+      req.scope?.cradle?.runtimeRegistryService ??
+      container.cradle.runtimeRegistryService;
 
-    const providers = (await oauthConfigCache.getAllProviders())
-      .filter((provider: string): provider is 'google' | 'facebook' | 'github' =>
-        VALID_OAUTH_PROVIDERS.includes(provider as any),
+    const providers = runtimeRegistry
+      .getOauthProviders()
+      .filter(
+        (provider: string): provider is 'google' | 'facebook' | 'github' =>
+          VALID_OAUTH_PROVIDERS.includes(provider as any),
       )
       .sort(
         (
@@ -39,9 +41,9 @@ export function registerOAuthRoutes(
   app.get('/auth/:provider', async (req: any, res: Response) => {
     const oauthService =
       req.scope?.cradle?.oauthService ?? container.cradle.oauthService;
-    const oauthConfigCache =
-      req.scope?.cradle?.oauthConfigCacheService ??
-      container.cradle.oauthConfigCacheService;
+    const runtimeRegistry =
+      req.scope?.cradle?.runtimeRegistryService ??
+      container.cradle.runtimeRegistryService;
     const configService =
       req.scope?.cradle?.configService ?? container.cradle.configService;
 
@@ -63,9 +65,7 @@ export function registerOAuthRoutes(
       cookieBridgePrefix = normalizeCookieBridgePrefix(cookieBridgePrefixValue);
     }
 
-    const config = await oauthConfigCache.getDirectConfigByProvider(
-      provider as any,
-    );
+    const config = runtimeRegistry.getOauthConfigByProvider(provider as any);
     if (!config) {
       throw new BadRequestException(
         `OAuth provider '${provider}' is not configured`,
@@ -91,9 +91,9 @@ export function registerOAuthRoutes(
   app.get('/auth/:provider/callback', async (req: any, res: Response) => {
     const oauthService =
       req.scope?.cradle?.oauthService ?? container.cradle.oauthService;
-    const oauthConfigCache =
-      req.scope?.cradle?.oauthConfigCacheService ??
-      container.cradle.oauthConfigCacheService;
+    const runtimeRegistry =
+      req.scope?.cradle?.runtimeRegistryService ??
+      container.cradle.runtimeRegistryService;
     const oauthExchangeCodeService =
       req.scope?.cradle?.oauthExchangeCodeService ??
       container.cradle.oauthExchangeCodeService;
@@ -106,9 +106,7 @@ export function registerOAuthRoutes(
     const error = req.query.error as string;
     const errorDescription = req.query.error_description as string;
 
-    const config = await oauthConfigCache.getDirectConfigByProvider(
-      provider as any,
-    );
+    const config = runtimeRegistry.getOauthConfigByProvider(provider as any);
     if (!config) {
       throw new BadRequestException(
         `OAuth provider '${provider}' is not configured`,
@@ -230,7 +228,7 @@ function normalizeCookieBridgePrefix(prefix: unknown): string {
 
 function getSuccessCallbackUrl(
   statePayload: OAuthStatePayload,
-  config: IOAuthConfig,
+  config: OAuthConfig,
 ) {
   if (config.autoSetCookies) {
     const redirectUrl = new URL(statePayload.redirect);
@@ -245,7 +243,7 @@ function getSuccessCallbackUrl(
 
 function getSafeRedirectUrl(
   statePayload: OAuthStatePayload,
-  config: IOAuthConfig,
+  config: OAuthConfig,
   errorMessage: string,
 ) {
   const url = config.autoSetCookies
@@ -281,7 +279,7 @@ function getValidatedAppCallbackUrl(appCallbackUrl: string | null | undefined) {
 
 function getFallbackCallbackUrl(
   statePayload: OAuthStatePayload,
-  config: IOAuthConfig,
+  config: OAuthConfig,
 ) {
   try {
     return getValidatedAppCallbackUrl(config.appCallbackUrl);

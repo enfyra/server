@@ -1,21 +1,23 @@
 import { Response, NextFunction } from 'express';
 import { HttpException } from '../../domain/exceptions';
 import {
-  GuardCacheService,
+  GuardCacheBuilder,
   GuardPosition,
   GuardEvaluatorService,
   GuardEvalContext,
 } from '../../engines/cache';
+import { RuntimeRegistryService } from '../../engines/cache/services/runtime-registry.service';
 async function runMetadataGuards(
   position: GuardPosition,
   req: any,
   res: Response,
-  guardCacheService: GuardCacheService,
+  guardCacheBuilder: GuardCacheBuilder,
+  runtimeRegistryService: RuntimeRegistryService,
   guardEvaluatorService: GuardEvaluatorService,
 ): Promise<boolean> {
   if (!req.routeData) return true;
 
-  await guardCacheService.ensureGuardsLoaded();
+  await guardCacheBuilder.ensureGuardsLoaded();
 
   const routePath =
     req.routeData.path ||
@@ -25,7 +27,7 @@ async function runMetadataGuards(
     'unknown';
   const method = req.method;
 
-  const guards = await guardCacheService.getGuardsForRoute(
+  const guards = runtimeRegistryService.getGuardsForRoute(
     position,
     routePath,
     method,
@@ -60,7 +62,8 @@ async function runMetadataGuards(
 }
 
 export function preAuthMetadataGuard(
-  guardCacheService: GuardCacheService,
+  guardCacheBuilder: GuardCacheBuilder,
+  runtimeRegistryService: RuntimeRegistryService,
   guardEvaluatorService: GuardEvaluatorService,
 ) {
   return async (req: any, res: Response, next: NextFunction) => {
@@ -69,7 +72,8 @@ export function preAuthMetadataGuard(
         'pre_auth',
         req,
         res,
-        guardCacheService,
+        guardCacheBuilder,
+        runtimeRegistryService,
         guardEvaluatorService,
       );
       next();
@@ -80,7 +84,8 @@ export function preAuthMetadataGuard(
 }
 
 export function postAuthMetadataGuard(
-  guardCacheService: GuardCacheService,
+  guardCacheBuilder: GuardCacheBuilder,
+  runtimeRegistryService: RuntimeRegistryService,
   guardEvaluatorService: GuardEvaluatorService,
 ) {
   return async (req: any, res: Response, next: NextFunction) => {
@@ -89,7 +94,8 @@ export function postAuthMetadataGuard(
         'post_auth',
         req,
         res,
-        guardCacheService,
+        guardCacheBuilder,
+        runtimeRegistryService,
         guardEvaluatorService,
       );
       next();

@@ -25,14 +25,12 @@ export function registerPackageRoutes(
     const body = req.routeData?.context?.$body || {};
 
     if (!body.name) {
-      const { ValidationException } =
-        await import('../../domain/exceptions');
+      const { ValidationException } = await import('../../domain/exceptions');
       throw new ValidationException('Package name is required');
     }
 
     if (!body.type) {
-      const { ValidationException } =
-        await import('../../domain/exceptions');
+      const { ValidationException } = await import('../../domain/exceptions');
       throw new ValidationException('Package type is required (App or Server)');
     }
 
@@ -41,23 +39,18 @@ export function registerPackageRoutes(
       req.routeData?.context?.$repos?.enfyra_package;
 
     if (!packageRepo) {
-      const { ValidationException } =
-        await import('../../domain/exceptions');
+      const { ValidationException } = await import('../../domain/exceptions');
       throw new ValidationException('Repository not found in context');
     }
 
     const existingPackages = await packageRepo.find({
       filter: {
-        _and: [
-          { name: { _eq: body.name } },
-          { type: { _eq: body.type } },
-        ],
+        _and: [{ name: { _eq: body.name } }, { type: { _eq: body.type } }],
       },
     });
 
     if (existingPackages.data && existingPackages.data.length > 0) {
-      const { ValidationException } =
-        await import('../../domain/exceptions');
+      const { ValidationException } = await import('../../domain/exceptions');
       throw new ValidationException(
         `Package ${body.name} (${body.type}) already installed`,
       );
@@ -130,8 +123,7 @@ export function registerPackageRoutes(
       req.routeData?.context?.$repos?.enfyra_package;
 
     if (!packageRepo) {
-      const { ValidationException } =
-        await import('../../domain/exceptions');
+      const { ValidationException } = await import('../../domain/exceptions');
       throw new ValidationException('Repository not found in context');
     }
 
@@ -190,8 +182,6 @@ export function registerPackageRoutes(
     const websocketGateway =
       req.scope?.cradle?.dynamicWebSocketGateway ??
       container.cradle.dynamicWebSocketGateway;
-    const eventEmitter =
-      req.scope?.cradle?.eventEmitter ?? container.cradle.eventEmitter;
 
     const id = req.params.id;
 
@@ -200,8 +190,7 @@ export function registerPackageRoutes(
       req.routeData?.context?.$repos?.enfyra_package;
 
     if (!packageRepo) {
-      const { ValidationException } =
-        await import('../../domain/exceptions');
+      const { ValidationException } = await import('../../domain/exceptions');
       throw new ValidationException('Repository not found in context');
     }
 
@@ -215,8 +204,7 @@ export function registerPackageRoutes(
     }
 
     if (packageRecord.isSystem) {
-      const { ValidationException } =
-        await import('../../domain/exceptions');
+      const { ValidationException } = await import('../../domain/exceptions');
       throw new ValidationException('Cannot uninstall system packages');
     }
 

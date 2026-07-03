@@ -3,7 +3,6 @@ import { BadRequestException } from '../../../domain/exceptions';
 import { Storage } from '@google-cloud/storage';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
-import fs from 'fs';
 import {
   IStorageService,
   StorageConfig,

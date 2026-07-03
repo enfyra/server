@@ -1,44 +1,22 @@
-import { Logger } from '../../../shared/logger';
+import { QueryBuilderService, getIoAbortSignal } from '@enfyra/kernel';
 import { ObjectId } from 'mongodb';
-import { getIoAbortSignal, QueryBuilderService } from '@enfyra/kernel';
+import { LoggingService } from '../../../domain/exceptions';
+import { PolicyService } from '../../../domain/policy';
+import {
+  MetadataCacheService,
+  RuntimeRegistryService,
+} from '../../../engines/cache';
 import {
   type MongoPhysicalMigrationService,
+  MongoSchemaMigrationLockService,
   MongoSchemaMigrationService,
   MongoService,
-  MongoSchemaMigrationLockService,
 } from '../../../engines/mongo';
-import { MetadataCacheService } from '../../../engines/cache';
-import {
-  LoggingService,
-  DatabaseException,
-  DuplicateResourceException,
-  ResourceNotFoundException,
-  ValidationException,
-} from '../../../domain/exceptions';
-import {
-  PolicyService,
-  isPolicyDeny,
-  isPolicyPreview,
-} from '../../../domain/policy';
-import { TDynamicContext } from '../../../shared/types';
-import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
-import { DatabaseConfigService } from '../../../shared/services';
-import { getDeletedIds } from '../utils/get-deleted-ids';
+import { Logger } from '../../../shared/logger';
 import { TCreateTableBody } from '../types/table-handler.types';
-import { TableManagementValidationService } from './table-validation.service';
+import { getDeletedIds } from '../utils/get-deleted-ids';
 import { MongoMetadataSnapshotService } from './mongo-metadata-snapshot.service';
-import {
-  MONGO_PRIMARY_KEY_TYPE,
-  isMongoPrimaryKeyType,
-  normalizeMongoPrimaryKeyColumn,
-} from '../utils/mongo-primary-key.util';
-import { getRelationMappedByProperty } from '../utils/relation-target-id.util';
-import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
-import { ensureMongoTableRouteArtifacts } from './table-route-artifacts.service';
-import {
-  ensureMongoSingleRecord,
-  syncMongoGqlDefinition,
-} from './table-post-migration.service';
+import { TableManagementValidationService } from './table-validation.service';
 
 export class MongoTableHandlerService {
   protected logger = new Logger(MongoTableHandlerService.name);
@@ -48,6 +26,7 @@ export class MongoTableHandlerService {
   protected mongoService: MongoService;
   protected mongoSchemaMigrationLockService: MongoSchemaMigrationLockService;
   protected metadataCacheService: MetadataCacheService;
+  protected runtimeRegistryService: RuntimeRegistryService;
   protected loggingService: LoggingService;
   protected policyService: PolicyService;
   protected tableValidationService: TableManagementValidationService;
@@ -59,6 +38,7 @@ export class MongoTableHandlerService {
     mongoService: MongoService;
     mongoSchemaMigrationLockService: MongoSchemaMigrationLockService;
     metadataCacheService: MetadataCacheService;
+    runtimeRegistryService: RuntimeRegistryService;
     loggingService: LoggingService;
     policyService: PolicyService;
     tableManagementValidationService: TableManagementValidationService;
@@ -70,6 +50,7 @@ export class MongoTableHandlerService {
     this.mongoService = deps.mongoService;
     this.mongoSchemaMigrationLockService = deps.mongoSchemaMigrationLockService;
     this.metadataCacheService = deps.metadataCacheService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.loggingService = deps.loggingService;
     this.policyService = deps.policyService;
     this.tableValidationService = deps.tableManagementValidationService;
@@ -115,10 +96,7 @@ export class MongoTableHandlerService {
           ruleData,
         );
       } else {
-        await this.queryBuilderService.insert(
-          'enfyra_column_rule',
-          ruleData,
-        );
+        await this.queryBuilderService.insert('enfyra_column_rule', ruleData);
       }
     }
   }
@@ -246,7 +224,9 @@ export class MongoTableHandlerService {
     return table;
   }
 
-  protected getAllowedConstraintFields(body: TCreateTableBody): Set<string> | null {
+  protected getAllowedConstraintFields(
+    body: TCreateTableBody,
+  ): Set<string> | null {
     if (!body.columns && !body.relations) return null;
     const fields = new Set<string>(['_id', 'id', 'createdAt', 'updatedAt']);
     for (const col of body.columns || []) {
@@ -263,8 +243,8 @@ export class MongoTableHandlerService {
     allowedFields: Set<string>,
   ): any[] {
     return (groups || []).filter((group) =>
-      (Array.isArray(group) ? group : group?.value || []).every((field: string) =>
-        allowedFields.has(field),
+      (Array.isArray(group) ? group : group?.value || []).every(
+        (field: string) => allowedFields.has(field),
       ),
     );
   }
@@ -284,8 +264,8 @@ export class MongoTableHandlerService {
         return Array.isArray(group) ? values : { ...group, value: values };
       })
       .filter((group) =>
-        (Array.isArray(group) ? group : group?.value || []).every((field: string) =>
-          allowedFields.has(field),
+        (Array.isArray(group) ? group : group?.value || []).every(
+          (field: string) => allowedFields.has(field),
         ),
       );
   }
@@ -302,7 +282,9 @@ export class MongoTableHandlerService {
       ]),
     );
     for (const col of body.columns || []) {
-      const oldCol = oldColumnsById.get(String((col as any).id ?? (col as any)._id));
+      const oldCol = oldColumnsById.get(
+        String((col as any).id ?? (col as any)._id),
+      );
       if (oldCol?.name && col.name && oldCol.name !== col.name) {
         renames.set(oldCol.name, col.name);
       }
@@ -315,7 +297,9 @@ export class MongoTableHandlerService {
       ]),
     );
     for (const rel of body.relations || []) {
-      const oldRel = oldRelationsById.get(String((rel as any).id ?? (rel as any)._id));
+      const oldRel = oldRelationsById.get(
+        String((rel as any).id ?? (rel as any)._id),
+      );
       if (
         oldRel?.propertyName &&
         rel.propertyName &&
@@ -337,6 +321,5 @@ export class MongoTableHandlerService {
     } finally {
       await this.mongoSchemaMigrationLockService.release(lock);
     }
-}
-
+  }
 }

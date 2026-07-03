@@ -3,7 +3,6 @@ import { QueryBuilderService } from '@enfyra/kernel';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
-import { IOAuthConfigCache } from '../../../domain/shared/interfaces/oauth-config-cache.interface';
 import { normalizeScriptRecord } from '../../../shared/utils/script-code.util';
 
 const OAUTH_CONFIG: CacheConfig = {
@@ -27,10 +26,9 @@ export interface OAuthConfig {
   description?: string;
 }
 
-export class OAuthConfigCacheService
-  extends BaseCacheService<Map<string, OAuthConfig>>
-  implements IOAuthConfigCache
-{
+export class OAuthConfigCacheBuilder extends BaseCacheService<
+  Map<string, OAuthConfig>
+> {
   private readonly queryBuilderService: QueryBuilderService;
 
   constructor(deps: {
@@ -79,19 +77,5 @@ export class OAuthConfigCacheService
 
   protected getLogCount(): string {
     return `${this.cache.size} OAuth configs`;
-  }
-
-  async getConfigByProvider(provider: string): Promise<OAuthConfig | null> {
-    const cache = await this.getCacheAsync();
-    return cache.get(provider) || null;
-  }
-
-  async getDirectConfigByProvider(provider: string): Promise<OAuthConfig | null> {
-    return this.getConfigByProvider(provider);
-  }
-
-  async getAllProviders(): Promise<string[]> {
-    const cache = await this.getCacheAsync();
-    return Array.from(cache.keys());
   }
 }

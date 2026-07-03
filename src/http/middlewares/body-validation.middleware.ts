@@ -2,13 +2,10 @@ import { Request, Response, NextFunction } from 'express';
 import type { ZodType } from 'zod';
 import type { Cradle } from '../../container';
 import type { AwilixContainer } from 'awilix';
-import {
-  MetadataCacheService,
-  ColumnRuleCacheService,
-} from '../../engines/cache';
 import { buildZodFromMetadata } from '../../shared/utils/zod-from-metadata';
 import { parseOrBadRequest } from '../../shared/utils/zod-parse.util';
 import { BadRequestException } from '../../domain/exceptions';
+import { CACHE_IDENTIFIERS } from '../../shared/utils/cache-events.constants';
 
 type Mode = 'create' | 'update';
 
@@ -19,7 +16,7 @@ export function invalidateBodyValidationCache(): void {
 function buildSchema(
   mode: Mode,
   tableMeta: any,
-  metadata: Awaited<ReturnType<MetadataCacheService['getMetadata']>>,
+  metadata: any,
   rulesByColumn: Map<string, any[]>,
 ): ZodType | null {
   if (!tableMeta) return null;
@@ -60,8 +57,7 @@ function assignValidationBody(req: Request, routeData: any, body: any): void {
 }
 
 export function bodyValidationMiddleware(container: AwilixContainer<Cradle>) {
-  const metadataCache = container.cradle.metadataCacheService;
-  const ruleCache = container.cradle.columnRuleCacheService;
+  const runtimeRegistryService = container.cradle.runtimeRegistryService;
 
   return async (req: Request, res: Response, next: NextFunction) => {
     const method = req.method?.toUpperCase();
@@ -78,9 +74,10 @@ export function bodyValidationMiddleware(container: AwilixContainer<Cradle>) {
     if (path !== canonicalCollection && path !== canonicalItem) return next();
 
     const mode: Mode = method === 'POST' ? 'create' : 'update';
-    const metadata = await metadataCache.getMetadata();
+    const metadata: any = runtimeRegistryService.requireMetadata();
     if (!metadata) return next();
-    const rulesByColumn = await ruleCache.getCacheAsync();
+    const rulesByColumn: Map<string, any[]> =
+      runtimeRegistryService.requireActiveData(CACHE_IDENTIFIERS.COLUMN_RULE);
     const tableMeta = metadata.tables?.get(mainTable.name) ?? null;
     const schema = tableMeta
       ? buildSchema(mode, tableMeta, metadata, rulesByColumn)

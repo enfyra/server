@@ -6,25 +6,25 @@ import * as path from 'path';
 import { autoSlug } from '../../../shared/utils/auto-slug.helper';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { QueryBuilderService } from '@enfyra/kernel';
-import { StorageConfigCacheService } from '../../../engines/cache';
 import { StorageFactoryService } from '../storage/storage-factory.service';
 import { Readable } from 'stream';
 import { FileSignatureHelper } from '../utils/file-signature.helper';
 import type { StorageStreamOptions } from '../storage/storage.interface';
+import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 
 export class FileManagementService {
   private readonly logger = new Logger(FileManagementService.name);
   private readonly queryBuilderService: QueryBuilderService;
-  private readonly storageConfigCacheService: StorageConfigCacheService;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly storageFactoryService: StorageFactoryService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
-    storageConfigCacheService: StorageConfigCacheService;
+    runtimeRegistryService: RuntimeRegistryService;
     storageFactoryService: StorageFactoryService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
-    this.storageConfigCacheService = deps.storageConfigCacheService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.storageFactoryService = deps.storageFactoryService;
   }
 
@@ -576,9 +576,7 @@ export class FileManagementService {
 
   async getStorageConfigById(storageConfigId: number | string): Promise<any> {
     const config =
-      await this.storageConfigCacheService.getStorageConfigById(
-        storageConfigId,
-      );
+      this.runtimeRegistryService.getStorageConfigById(storageConfigId);
 
     if (!config) {
       throw new BadRequestException(
@@ -598,9 +596,7 @@ export class FileManagementService {
       config = await this.getStorageConfigById(storageConfigId);
     } else {
       config =
-        await this.storageConfigCacheService.getStorageConfigByType(
-          'Local Storage',
-        );
+        this.runtimeRegistryService.getStorageConfigByType('Local Storage');
 
       if (!config) {
         throw new BadRequestException('No local storage configured');

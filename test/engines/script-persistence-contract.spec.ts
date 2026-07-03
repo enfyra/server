@@ -25,10 +25,7 @@ function metadataFor(tableName: string) {
 describe('script persistence contract', () => {
   it('marks compiledCode as an internal generated field only on script tables', () => {
     expect(
-      isGeneratedScriptPersistenceField(
-        'enfyra_route_handler',
-        'compiledCode',
-      ),
+      isGeneratedScriptPersistenceField('enfyra_route_handler', 'compiledCode'),
     ).toBe(true);
     expect(
       isGeneratedScriptPersistenceField('article_definition', 'compiledCode'),
@@ -40,7 +37,7 @@ describe('script persistence contract', () => {
 
   it('keeps generated compiledCode while stripping other non-updatable fields', async () => {
     const stripper = new FieldStripper({
-      getMetadata: async () => metadataFor('enfyra_route_handler'),
+      requireMetadata: () => metadataFor('enfyra_route_handler'),
     } as any);
 
     const stripped = await stripper.stripNonUpdatableFields(
@@ -63,7 +60,7 @@ describe('script persistence contract', () => {
 
   it('does not keep compiledCode for non-script tables', async () => {
     const stripper = new FieldStripper({
-      getMetadata: async () => metadataFor('article_definition'),
+      requireMetadata: () => metadataFor('article_definition'),
     } as any);
 
     const stripped = await stripper.stripNonUpdatableFields(

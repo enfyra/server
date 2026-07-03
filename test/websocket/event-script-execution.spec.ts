@@ -58,8 +58,8 @@ describe('DynamicWebSocketGateway event script execution — real socket E2E', (
     ioServer = new Server(httpServer, { cors: { origin: '*' } });
 
     const gateway = new DynamicWebSocketGateway({
-      websocketCacheService: {
-        getGateways: async () => [
+      runtimeRegistryService: {
+        requireActiveData: () => [
           {
             path: namespace,
             requireAuth: false,

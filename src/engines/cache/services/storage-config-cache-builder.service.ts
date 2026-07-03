@@ -11,7 +11,7 @@ const STORAGE_CONFIG: CacheConfig = {
   cacheName: 'StorageConfigCache',
 };
 
-export class StorageConfigCacheService extends BaseCacheService<
+export class StorageConfigCacheBuilder extends BaseCacheService<
   Map<string | number, any>
 > {
   private readonly queryBuilderService: QueryBuilderService;
@@ -76,66 +76,5 @@ export class StorageConfigCacheService extends BaseCacheService<
 
   protected getLogCount(): string {
     return `${this.cache.size} storage configs`;
-  }
-
-  async getStorageConfigById(
-    id: number | string | null | undefined,
-  ): Promise<any | null> {
-    const cache = await this.getCacheAsync();
-
-    if (!id || id === null || id === undefined) {
-      return null;
-    }
-
-    let normalizedId: string | number = id;
-    const isMongoDb = this.queryBuilderService.isMongoDb();
-
-    if (isMongoDb) {
-      if (
-        typeof id === 'object' &&
-        id !== null &&
-        typeof (id as any).toString === 'function'
-      ) {
-        normalizedId = (id as any).toString();
-      } else {
-        normalizedId = String(id);
-      }
-    }
-
-    let config = cache.get(normalizedId);
-    if (config) {
-      return config;
-    }
-
-    if (!isMongoDb) {
-      const numId =
-        typeof normalizedId === 'string'
-          ? parseInt(normalizedId, 10)
-          : normalizedId;
-      if (!isNaN(numId as number)) {
-        config = cache.get(numId);
-        if (config) {
-          return config;
-        }
-      }
-      if (typeof normalizedId === 'number') {
-        config = cache.get(String(normalizedId));
-        if (config) {
-          return config;
-        }
-      }
-    }
-    return null;
-  }
-
-  async getStorageConfigByType(type: string): Promise<any | null> {
-    const cache = await this.getCacheAsync();
-    const values = Array.from(cache.values());
-    for (const config of values) {
-      if (config.type === type && config.isEnabled) {
-        return config;
-      }
-    }
-    return null;
   }
 }

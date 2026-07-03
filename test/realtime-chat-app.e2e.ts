@@ -31,10 +31,18 @@ const BURST_MAX = Number(process.env.CHAT_LOAD_BURST_MAX || 4);
 const GROUP_MESSAGE_RATIO = Number(
   process.env.CHAT_LOAD_GROUP_MESSAGE_RATIO || 0.65,
 );
-const READ_PAUSE_MIN_MS = Number(process.env.CHAT_LOAD_READ_PAUSE_MIN_MS || 900);
-const READ_PAUSE_MAX_MS = Number(process.env.CHAT_LOAD_READ_PAUSE_MAX_MS || 4500);
-const BURST_PAUSE_MIN_MS = Number(process.env.CHAT_LOAD_BURST_PAUSE_MIN_MS || 120);
-const BURST_PAUSE_MAX_MS = Number(process.env.CHAT_LOAD_BURST_PAUSE_MAX_MS || 650);
+const READ_PAUSE_MIN_MS = Number(
+  process.env.CHAT_LOAD_READ_PAUSE_MIN_MS || 900,
+);
+const READ_PAUSE_MAX_MS = Number(
+  process.env.CHAT_LOAD_READ_PAUSE_MAX_MS || 4500,
+);
+const BURST_PAUSE_MIN_MS = Number(
+  process.env.CHAT_LOAD_BURST_PAUSE_MIN_MS || 120,
+);
+const BURST_PAUSE_MAX_MS = Number(
+  process.env.CHAT_LOAD_BURST_PAUSE_MAX_MS || 650,
+);
 const GROUP_COUNT = Number(process.env.CHAT_LOAD_GROUPS || 20);
 const CONNECT_BATCH = Number(process.env.CHAT_LOAD_CONNECT_BATCH || 100);
 const CONNECT_TIMEOUT_MS = Number(
@@ -47,7 +55,6 @@ const RESULT_TIMEOUT_MS = Number(
 const DELIVERY_TIMEOUT_MS = Number(
   process.env.CHAT_LOAD_DELIVERY_TIMEOUT_MS || 20000,
 );
-const DB_TIMEOUT_MS = Number(process.env.CHAT_LOAD_DB_TIMEOUT_MS || 30000);
 const DB_DRAIN_OBSERVE_MS = Number(
   process.env.CHAT_LOAD_DB_DRAIN_OBSERVE_MS || 5000,
 );
@@ -571,9 +578,9 @@ async function reloadRuntime(container: ReturnType<typeof buildContainer>) {
   c.eventEmitter.emit(CACHE_EVENTS.METADATA_LOADED);
   await c.repoRegistryService.rebuildFromMetadata(c.metadataCacheService);
   await Promise.all([
-    c.websocketCacheService.reload(),
+    c.websocketCacheBuilder.reload(),
     c.routeCacheService.reload(),
-    c.fieldPermissionCacheService.reload(),
+    c.fieldPermissionCacheBuilder.reload(),
   ]);
   if (c.dynamicWebSocketGateway.server) {
     await c.dynamicWebSocketGateway.reloadGateways();
@@ -649,7 +656,13 @@ async function startAppInstance(): Promise<AppInstance> {
     );
   });
   await container.cradle.flowExecutionQueueService?.init?.();
-  return { container, httpServer, ioServer, port, url: `http://127.0.0.1:${port}` };
+  return {
+    container,
+    httpServer,
+    ioServer,
+    port,
+    url: `http://127.0.0.1:${port}`,
+  };
 }
 
 async function stopAppInstance(instance: AppInstance) {

@@ -1,7 +1,6 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { describe, expect, it, vi } from 'vitest';
 import { FlowSchedulerService } from '../../src/modules/flow/services/flow-scheduler.service';
-import { CACHE_EVENTS } from '../../src/shared/utils/cache-events.constants';
 
 function createQueueMock() {
   return {
@@ -17,17 +16,19 @@ function createScheduler(options?: {
 }) {
   const eventEmitter = new EventEmitter2();
   const flowQueue = createQueueMock();
-  flowQueue.getJobSchedulers.mockResolvedValue(options?.existingSchedulers || []);
-  const flowCacheService = {
-    getFlowsByTriggerType: vi.fn(async () => options?.flows || []),
+  flowQueue.getJobSchedulers.mockResolvedValue(
+    options?.existingSchedulers || [],
+  );
+  const runtimeRegistryService = {
+    requireActiveData: vi.fn(() => options?.flows || []),
   };
   const service = new FlowSchedulerService({
     eventEmitter,
     flowQueue: flowQueue as any,
-    flowCacheService: flowCacheService as any,
+    runtimeRegistryService: runtimeRegistryService as any,
   });
 
-  return { eventEmitter, flowQueue, flowCacheService, service };
+  return { eventEmitter, flowQueue, runtimeRegistryService, service };
 }
 
 describe('FlowSchedulerService', () => {
@@ -55,6 +56,12 @@ describe('FlowSchedulerService', () => {
           flowName: 'cloud-reconcile-hosts',
           payload: { trigger: 'schedule', cron: '*/15 * * * *' },
         },
+      }),
+    );
+    expect(service.getLastReconcileState()).toEqual(
+      expect.objectContaining({
+        status: 'ok',
+        registeredCount: 1,
       }),
     );
   });
@@ -94,23 +101,19 @@ describe('FlowSchedulerService', () => {
     );
   });
 
-  it('rebuilds schedules when flow cache reloads after init', async () => {
-    const { service, eventEmitter, flowQueue } = createScheduler({
-      flows: [
-        {
-          id: 1,
-          name: 'hourly-flow',
-          triggerType: 'schedule',
-          triggerConfig: { cron: '0 * * * *' },
-        },
-      ],
+  it('marks schedule reconcile as degraded when rebuild fails', async () => {
+    const { service, runtimeRegistryService } = createScheduler();
+    runtimeRegistryService.requireActiveData.mockImplementationOnce(() => {
+      throw new Error('Runtime cache flow is not activated');
     });
 
     await service.init();
-    eventEmitter.emit(CACHE_EVENTS.FLOW_LOADED);
 
-    await vi.waitFor(() => {
-      expect(flowQueue.upsertJobScheduler).toHaveBeenCalledTimes(2);
-    });
+    expect(service.getLastReconcileState()).toEqual(
+      expect.objectContaining({
+        status: 'degraded',
+        error: 'Runtime cache flow is not activated',
+      }),
+    );
   });
 });

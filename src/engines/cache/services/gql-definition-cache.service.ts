@@ -6,15 +6,7 @@ import {
   CACHE_IDENTIFIERS,
   isMetadataTable,
 } from '../../../shared/utils/cache-events.constants';
-
-export interface TGqlDefinition {
-  id: number;
-  isEnabled: boolean;
-  isSystem: boolean;
-  description: string | null;
-  metadata: Record<string, any> | null;
-  tableName: string;
-}
+import type { TGqlDefinition } from '../types/cache-data.types';
 
 export class GqlDefinitionCacheService extends BaseCacheService<
   Map<string, TGqlDefinition>
@@ -76,20 +68,14 @@ export class GqlDefinitionCacheService extends BaseCacheService<
     return `${this.cache?.size ?? 0} definitions`;
   }
 
-  async isEnabledForTable(tableName: string): Promise<boolean> {
+  async getAllEnabledFromCache(): Promise<TGqlDefinition[]> {
     const cache = await this.getCacheAsync();
-    if (isMetadataTable(tableName)) return false;
-    const def = cache?.get(tableName);
-    return !!def?.isEnabled;
+    return this.filterEnabled(cache);
   }
 
-  async getForTable(tableName: string): Promise<TGqlDefinition | undefined> {
-    const cache = await this.getCacheAsync();
-    return cache?.get(tableName);
-  }
-
-  async getAllEnabled(): Promise<TGqlDefinition[]> {
-    const cache = await this.getCacheAsync();
+  private filterEnabled(
+    cache: Map<string, TGqlDefinition> | undefined,
+  ): TGqlDefinition[] {
     if (!cache) return [];
     return Array.from(cache.values()).filter(
       (d) => d.isEnabled && !isMetadataTable(d.tableName),

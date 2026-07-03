@@ -2,7 +2,7 @@ import { Response, NextFunction } from 'express';
 import multer from 'multer';
 import os from 'os';
 import crypto from 'crypto';
-import { SettingCacheService } from '../../engines/cache';
+import type { RuntimeRegistryService } from '../../engines/cache/services/runtime-registry.service';
 
 export function resolveUploadFileSizeLimitBytes(
   globalLimitBytes: number,
@@ -28,7 +28,9 @@ const diskStorage = multer.diskStorage({
     cb(null, `enfyra-upload-${crypto.randomUUID()}`),
 });
 
-export function fileUploadMiddleware(settingCacheService: SettingCacheService) {
+export function fileUploadMiddleware(
+  runtimeRegistryService: RuntimeRegistryService,
+) {
   return async (req: any, res: Response, next: NextFunction) => {
     const isPostOrPatch = ['POST', 'PATCH'].includes(req.method);
     const isMultipartContent = req.headers['content-type']?.includes(
@@ -41,7 +43,7 @@ export function fileUploadMiddleware(settingCacheService: SettingCacheService) {
       storage: diskStorage,
       limits: {
         fileSize: resolveUploadFileSizeLimitBytes(
-          await settingCacheService.getMaxUploadFileSizeBytes(),
+          runtimeRegistryService.getMaxUploadFileSizeBytes(),
           req.routeData?.maxUploadFileSize,
         ),
       },

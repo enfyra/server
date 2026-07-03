@@ -14,28 +14,26 @@ function makeResolver(overrides: Record<string, any> = {}) {
   const executorEngineService = {
     run: vi.fn().mockResolvedValue({ data: [{ id: '1', title: 'Updated' }] }),
   };
-  const routeCacheService = {
-    matchRoute: vi.fn(),
+  const runtimeRegistryService = {
+    requireRoutes: vi.fn().mockReturnValue([]),
+    isGraphqlEnabledForTable: vi.fn().mockReturnValue(true),
+    getGuardsForRoute: vi.fn().mockReturnValue([]),
   };
   const resolver = new DynamicResolver({
     queryBuilderService: {},
     executorEngineService,
-    gqlDefinitionCacheService: {
-      isEnabledForTable: vi.fn().mockResolvedValue(true),
-    },
     repoRegistryService: {
       createReposProxy: vi.fn().mockReturnValue({
         main: {},
       }),
     },
-    guardCacheService: {
+    guardCacheBuilder: {
       ensureGuardsLoaded: vi.fn().mockResolvedValue(undefined),
-      getGuardsForRoute: vi.fn().mockResolvedValue([]),
     },
     guardEvaluatorService: {
       evaluateGuard: vi.fn(),
     },
-    routeCacheService,
+    runtimeRegistryService,
     policyService: {
       checkRequestAccess: vi.fn().mockReturnValue({ allow: true }),
     },
@@ -53,7 +51,7 @@ function makeResolver(overrides: Record<string, any> = {}) {
     ...overrides,
   } as any);
 
-  return { resolver, executorEngineService, routeCacheService };
+  return { resolver, executorEngineService, runtimeRegistryService };
 }
 
 function authContext() {
@@ -83,18 +81,19 @@ describe('DynamicResolver route permissions', () => {
         message: 'Forbidden',
       }),
     };
-    const { resolver, executorEngineService, routeCacheService } = makeResolver({
-      policyService,
-    });
-    routeCacheService.matchRoute.mockResolvedValue({
-      route: {
+    const { resolver, executorEngineService, runtimeRegistryService } =
+      makeResolver({
+        policyService,
+      });
+    runtimeRegistryService.requireRoutes.mockReturnValue([
+      {
         path: '/posts',
+        availableMethods: [{ name: 'PATCH' }],
         routePermissions: [],
         publicMethods: [],
         skipRoleGuardMethods: [],
       },
-      params: {},
-    });
+    ]);
 
     await expect(
       resolver.dynamicMutationResolver(
@@ -107,7 +106,7 @@ describe('DynamicResolver route permissions', () => {
       extensions: { code: 'MUTATION_ERROR' },
     });
 
-    expect(routeCacheService.matchRoute).toHaveBeenCalledWith('PATCH', '/posts');
+    expect(runtimeRegistryService.requireRoutes).toHaveBeenCalled();
     expect(policyService.checkRequestAccess).toHaveBeenCalledWith(
       expect.objectContaining({
         method: 'PATCH',
@@ -118,18 +117,18 @@ describe('DynamicResolver route permissions', () => {
   });
 
   it('checks DELETE route permission for GraphQL delete mutations', async () => {
-    const { resolver, routeCacheService } = makeResolver();
-    routeCacheService.matchRoute.mockResolvedValue({
-      route: {
+    const { resolver, runtimeRegistryService } = makeResolver();
+    runtimeRegistryService.requireRoutes.mockReturnValue([
+      {
         path: '/posts',
+        availableMethods: [{ name: 'DELETE' }],
         routePermissions: [
           { methods: [{ name: 'DELETE' }], role: { id: 'role-user' } },
         ],
         publicMethods: [],
         skipRoleGuardMethods: [],
       },
-      params: {},
-    });
+    ]);
 
     await resolver.dynamicMutationResolver(
       'delete_posts',
@@ -138,6 +137,6 @@ describe('DynamicResolver route permissions', () => {
       {},
     );
 
-    expect(routeCacheService.matchRoute).toHaveBeenCalledWith('DELETE', '/posts');
+    expect(runtimeRegistryService.requireRoutes).toHaveBeenCalled();
   });
 });
