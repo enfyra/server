@@ -205,15 +205,18 @@ export type TGqlDynamicContext = {
     [key: string]: any;
   };
   $throw: {
+    http: (statusCode: number, msg: string, details?: any) => never;
+    notFound: (resource: string, id?: string) => never;
+    duplicate: (resource: string, field: string, value: string) => never;
     '400': (msg: string) => never;
     '401': (msg?: string) => never;
     '403': (msg?: string) => never;
-    '404': (resource: string, id?: string) => never;
-    '409': (resource: string, field: string, value: string) => never;
+    '404': (msg: string, details?: any) => never;
+    '409': (msg: string, details?: any) => never;
     '422': (msg: string, details?: any) => never;
-    '429': (limit: number, window: string) => never;
+    '429': (msg: string, details?: any) => never;
     '500': (msg: string, details?: any) => never;
-    '503': (service: string) => never;
+    '503': (msg: string, details?: any) => never;
   };
   $error?: any;
   $result?: any;
