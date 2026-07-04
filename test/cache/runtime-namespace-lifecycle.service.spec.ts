@@ -186,4 +186,17 @@ describe('RuntimeNamespaceLifecycleService', () => {
       false,
     );
   });
+
+  it('renews one system queue namespace on demand', async () => {
+    const redis = new FakeRedis();
+    redis.values.set('app-a:sys_flow-execution:wait', 'queue');
+    redis.values.set('app-a:sys_session-cleanup:wait', 'queue');
+
+    const service = createService(redis);
+
+    await service.renewSystemQueueKeys('sys_flow-execution');
+
+    expect(redis.expiries.get('app-a:sys_flow-execution:wait')).toBe(10000);
+    expect(redis.expiries.has('app-a:sys_session-cleanup:wait')).toBe(false);
+  });
 });
