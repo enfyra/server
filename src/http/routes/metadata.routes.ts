@@ -4,6 +4,7 @@ import type { Cradle } from '../../container';
 import { NotFoundException } from '../../domain/exceptions';
 import { projectMetadataForUser } from '../../shared/utils/metadata-access.util';
 import type { RuntimeRegistryService } from '../../engines/cache/services/runtime-registry.service';
+import { getEnfyraVersion } from '../../shared/utils/enfyra-version.util';
 
 export function registerMetadataRoutes(
   app: Express,
@@ -34,6 +35,7 @@ export function registerMetadataRoutes(
       data,
       dbType: databaseConfigService.getDbType(),
       pkField: databaseConfigService.getPkField(),
+      enfyraVersion: getEnfyraVersion(),
     });
   });
 
