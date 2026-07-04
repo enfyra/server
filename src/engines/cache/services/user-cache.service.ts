@@ -93,18 +93,12 @@ export class UserCacheService implements ICache {
     if (ttlMs > 0) {
       await this.redis.set(decoratedKey, serializedValue, 'PX', ttlMs);
     } else {
-      const namespaceTtlMs =
-        this.runtimeNamespaceLifecycleService?.getKeyTtlMs();
-      if (namespaceTtlMs && namespaceTtlMs > 0) {
-        await this.redis.set(
-          decoratedKey,
-          serializedValue,
-          'PX',
-          namespaceTtlMs,
-        );
-      } else {
-        await this.redis.set(decoratedKey, serializedValue);
-      }
+      await this.redis.set(
+        decoratedKey,
+        serializedValue,
+        'PX',
+        this.lifecycleTtlMs(),
+      );
     }
     await this.track(decoratedKey, size);
     await this.evictIfNeeded();
@@ -150,7 +144,8 @@ export class UserCacheService implements ICache {
   }
 
   private decorateKey(key: string): string {
-    if (!key || typeof key !== 'string') throw new Error('cache key is required');
+    if (!key || typeof key !== 'string')
+      throw new Error('cache key is required');
     if (key.startsWith(this.dataPrefix())) return key;
     return `${this.dataPrefix()}${key}`;
   }
@@ -244,7 +239,9 @@ export class UserCacheService implements ICache {
     while (total > this.limitBytes) {
       const [oldest] = await this.redis.zrange(this.lruKey(), 0, 0);
       if (!oldest) break;
-      const size = Number((await this.redis.hget(this.sizesKey(), oldest)) ?? 0);
+      const size = Number(
+        (await this.redis.hget(this.sizesKey(), oldest)) ?? 0,
+      );
       await this.redis
         .pipeline()
         .del(oldest)
@@ -254,5 +251,13 @@ export class UserCacheService implements ICache {
         .exec();
       total -= size;
     }
+  }
+
+  private lifecycleTtlMs(): number {
+    const ttlMs = this.runtimeNamespaceLifecycleService?.getKeyTtlMs();
+    if (!ttlMs || ttlMs <= 0) {
+      throw new Error('Runtime namespace lifecycle TTL is required');
+    }
+    return ttlMs;
   }
 }

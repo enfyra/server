@@ -5,18 +5,11 @@ import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 
 type Timer = ReturnType<typeof setInterval>;
 
-const DEFAULT_KEY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const DEFAULT_LEASE_TTL_MS = 5 * 60 * 1000;
-const DEFAULT_RENEW_INTERVAL_MS = 60 * 1000;
-const DEFAULT_JANITOR_INTERVAL_MS = 5 * 60 * 1000;
-const DEFAULT_STALE_GRACE_MS = 24 * 60 * 60 * 1000;
-const MIN_KEY_TTL_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_KEY_TTL_MS = 30 * 60 * 1000;
+const DEFAULT_LEASE_TTL_MS = 60 * 1000;
+const DEFAULT_RENEW_INTERVAL_MS = 20 * 1000;
+const MIN_KEY_TTL_MS = 5 * 60 * 1000;
 const SCAN_COUNT = 250;
-
-export interface RuntimeNamespaceCleanupResult {
-  namespace: string;
-  deleted: number;
-}
 
 export class RuntimeNamespaceLifecycleService {
   private readonly logger = new Logger(RuntimeNamespaceLifecycleService.name);
@@ -29,13 +22,9 @@ export class RuntimeNamespaceLifecycleService {
   private readonly keyTtlMs: number;
   private readonly leaseTtlMs: number;
   private readonly renewIntervalMs: number;
-  private readonly janitorIntervalMs: number;
-  private readonly staleGraceMs: number;
   private renewTimer?: Timer;
-  private janitorTimer?: Timer;
   private running = false;
   private renewing = false;
-  private cleaning = false;
 
   constructor(deps: {
     redis: Redis;
@@ -68,14 +57,6 @@ export class RuntimeNamespaceLifecycleService {
       ),
       Math.max(1000, Math.floor(this.keyTtlMs / 3)),
     );
-    this.janitorIntervalMs = this.readPositiveNumber(
-      'REDIS_NAMESPACE_JANITOR_INTERVAL_MS',
-      DEFAULT_JANITOR_INTERVAL_MS,
-    );
-    this.staleGraceMs = this.readPositiveNumber(
-      'REDIS_NAMESPACE_STALE_GRACE_MS',
-      DEFAULT_STALE_GRACE_MS,
-    );
   }
 
   async init(): Promise<void> {
@@ -83,23 +64,16 @@ export class RuntimeNamespaceLifecycleService {
     this.running = true;
     await this.heartbeat();
     await this.renewCurrentNamespaceKeys();
-    await this.cleanupStaleNamespaces();
     this.renewTimer = setInterval(() => {
       void this.renewCurrentNamespaceKeys();
     }, this.renewIntervalMs);
-    this.janitorTimer = setInterval(() => {
-      void this.cleanupStaleNamespaces();
-    }, this.janitorIntervalMs);
     this.renewTimer.unref?.();
-    this.janitorTimer.unref?.();
   }
 
   async onDestroy(): Promise<void> {
     this.running = false;
     if (this.renewTimer) clearInterval(this.renewTimer);
-    if (this.janitorTimer) clearInterval(this.janitorTimer);
     this.renewTimer = undefined;
-    this.janitorTimer = undefined;
     if (!this.enabled) return;
     await this.redis.del(this.currentLeaseKey());
   }
@@ -159,47 +133,6 @@ export class RuntimeNamespaceLifecycleService {
     }
   }
 
-  async cleanupStaleNamespaces(
-    now = Date.now(),
-  ): Promise<RuntimeNamespaceCleanupResult[]> {
-    if (!this.enabled || this.cleaning) return [];
-    this.cleaning = true;
-    try {
-      const staleBefore = now - this.staleGraceMs;
-      const namespaces = await this.redis.zrangebyscore(
-        this.registryKey(),
-        0,
-        staleBefore,
-      );
-      const results: RuntimeNamespaceCleanupResult[] = [];
-      for (const namespace of namespaces) {
-        if (!namespace || namespace === this.nodeName) continue;
-        if (await this.hasActiveLease(namespace)) continue;
-        const deleted = await this.cleanupNamespace(namespace);
-        await this.redis.zrem(this.registryKey(), namespace);
-        await this.redis.del(this.namespaceMetaKey(namespace));
-        results.push({ namespace, deleted });
-      }
-      return results;
-    } catch (error) {
-      this.logger.warn(
-        `Runtime namespace cleanup failed: ${(error as Error).message}`,
-      );
-      return [];
-    } finally {
-      this.cleaning = false;
-    }
-  }
-
-  async cleanupNamespace(namespace: string): Promise<number> {
-    if (!this.enabled || !namespace || namespace === this.nodeName) return 0;
-    let deleted = 0;
-    for (const pattern of this.cleanupNamespacePatterns(namespace)) {
-      deleted += await this.unlinkByPattern(pattern);
-    }
-    return deleted;
-  }
-
   private async heartbeat(): Promise<void> {
     const now = Date.now();
     const payload = JSON.stringify({
@@ -210,31 +143,7 @@ export class RuntimeNamespaceLifecycleService {
     await this.redis
       .pipeline()
       .set(this.currentLeaseKey(), payload, 'PX', this.leaseTtlMs)
-      .zadd(this.registryKey(), now, this.nodeName)
-      .hset(this.namespaceMetaKey(this.nodeName), {
-        namespace: this.nodeName,
-        updatedAt: new Date(now).toISOString(),
-      })
-      .pexpire(this.namespaceMetaKey(this.nodeName), this.keyTtlMs)
-      .pexpire(this.registryKey(), this.keyTtlMs)
       .exec();
-  }
-
-  private async hasActiveLease(namespace: string): Promise<boolean> {
-    let cursor = '0';
-    const pattern = `${namespace}:runtime_lifecycle:lease:*`;
-    do {
-      const [nextCursor, keys] = await this.redis.scan(
-        cursor,
-        'MATCH',
-        pattern,
-        'COUNT',
-        SCAN_COUNT,
-      );
-      if (keys.length > 0) return true;
-      cursor = nextCursor;
-    } while (cursor !== '0');
-    return false;
   }
 
   private async expireByPattern(pattern: string, ttlMs: number): Promise<void> {
@@ -252,35 +161,6 @@ export class RuntimeNamespaceLifecycleService {
     } while (cursor !== '0');
   }
 
-  private async unlinkByPattern(pattern: string): Promise<number> {
-    let cursor = '0';
-    let deleted = 0;
-    do {
-      const [nextCursor, keys] = await this.redis.scan(
-        cursor,
-        'MATCH',
-        pattern,
-        'COUNT',
-        SCAN_COUNT,
-      );
-      if (keys.length > 0) {
-        deleted += await this.unlinkKeys(keys);
-      }
-      cursor = nextCursor;
-    } while (cursor !== '0');
-    return deleted;
-  }
-
-  private async unlinkKeys(keys: string[]): Promise<number> {
-    const redisWithUnlink = this.redis as Redis & {
-      unlink?: (...keys: string[]) => Promise<number>;
-    };
-    if (typeof redisWithUnlink.unlink === 'function') {
-      return redisWithUnlink.unlink(...keys);
-    }
-    return this.redis.del(...keys);
-  }
-
   private renewableNamespacePatterns(namespace: string): string[] {
     return [
       `${namespace}:runtime_lifecycle:*`,
@@ -294,18 +174,6 @@ export class RuntimeNamespaceLifecycleService {
       `${namespace}:coord:sql:*`,
       ...Object.values(SYSTEM_QUEUES).map((queue) => `${namespace}:${queue}:*`),
     ];
-  }
-
-  private cleanupNamespacePatterns(namespace: string): string[] {
-    return this.renewableNamespacePatterns(namespace);
-  }
-
-  private registryKey(): string {
-    return 'enfyra:runtime_namespaces';
-  }
-
-  private namespaceMetaKey(namespace: string): string {
-    return `enfyra:runtime_namespace:${namespace}`;
   }
 
   private currentLeaseKey(): string {

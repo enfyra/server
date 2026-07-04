@@ -87,18 +87,12 @@ export class CacheService implements ICache {
     if (ttlMs > 0) {
       await this.redis.set(decoratedKey, serializedValue, 'PX', ttlMs);
     } else {
-      const namespaceTtlMs =
-        this.runtimeNamespaceLifecycleService?.getKeyTtlMs();
-      if (namespaceTtlMs && namespaceTtlMs > 0) {
-        await this.redis.set(
-          decoratedKey,
-          serializedValue,
-          'PX',
-          namespaceTtlMs,
-        );
-      } else {
-        await this.redis.set(decoratedKey, serializedValue);
-      }
+      await this.redis.set(
+        decoratedKey,
+        serializedValue,
+        'PX',
+        this.lifecycleTtlMs(),
+      );
     }
   }
   async exists(key: string, value: any): Promise<boolean> {
@@ -115,12 +109,20 @@ export class CacheService implements ICache {
   }
   async setNoExpire<T = any>(key: string, val: T): Promise<void> {
     const decoratedKey = this.decorateKey(key);
+    await this.redis.set(
+      decoratedKey,
+      JSON.stringify(val),
+      'PX',
+      this.lifecycleTtlMs(),
+    );
+  }
+
+  private lifecycleTtlMs(): number {
     const ttlMs = this.runtimeNamespaceLifecycleService?.getKeyTtlMs();
-    if (ttlMs && ttlMs > 0) {
-      await this.redis.set(decoratedKey, JSON.stringify(val), 'PX', ttlMs);
-    } else {
-      await this.redis.set(decoratedKey, JSON.stringify(val));
+    if (!ttlMs || ttlMs <= 0) {
+      throw new Error('Runtime namespace lifecycle TTL is required');
     }
+    return ttlMs;
   }
   async clearAll(): Promise<void> {
     if (!this.nodeName) {

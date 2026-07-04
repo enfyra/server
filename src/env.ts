@@ -35,27 +35,9 @@ const EnvSchema = z.object({
     .optional()
     .default('true')
     .transform((v) => v === 'true'),
-  REDIS_NAMESPACE_KEY_TTL_MS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .optional(),
-  REDIS_NAMESPACE_LEASE_TTL_MS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .optional(),
+  REDIS_NAMESPACE_KEY_TTL_MS: z.coerce.number().int().positive().optional(),
+  REDIS_NAMESPACE_LEASE_TTL_MS: z.coerce.number().int().positive().optional(),
   REDIS_NAMESPACE_RENEW_INTERVAL_MS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .optional(),
-  REDIS_NAMESPACE_JANITOR_INTERVAL_MS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .optional(),
-  REDIS_NAMESPACE_STALE_GRACE_MS: z.coerce
     .number()
     .int()
     .positive()

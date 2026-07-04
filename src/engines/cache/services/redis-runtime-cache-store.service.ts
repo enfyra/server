@@ -167,12 +167,12 @@ export class RedisRuntimeCacheStore {
       data,
     };
     const key = this.cacheKey(cacheIdentifier);
-    const ttlMs = this.runtimeNamespaceLifecycleService?.getKeyTtlMs();
-    if (ttlMs && ttlMs > 0) {
-      await this.redis.set(key, this.encode(snapshot), 'PX', ttlMs);
-    } else {
-      await this.redis.set(key, this.encode(snapshot));
-    }
+    await this.redis.set(
+      key,
+      this.encode(snapshot),
+      'PX',
+      this.lifecycleTtlMs(),
+    );
     return snapshot;
   }
 
@@ -192,12 +192,12 @@ export class RedisRuntimeCacheStore {
   ): Promise<void> {
     if (!this.enabled) return;
     const redisKey = this.auxKey(cacheIdentifier, key);
-    const ttlMs = this.runtimeNamespaceLifecycleService?.getKeyTtlMs();
-    if (ttlMs && ttlMs > 0) {
-      await this.redis.set(redisKey, this.encode(value), 'PX', ttlMs);
-    } else {
-      await this.redis.set(redisKey, this.encode(value));
-    }
+    await this.redis.set(
+      redisKey,
+      this.encode(value),
+      'PX',
+      this.lifecycleTtlMs(),
+    );
   }
 
   async deleteAuxByPrefix(
@@ -277,5 +277,13 @@ export class RedisRuntimeCacheStore {
       await new Promise((resolve) => setTimeout(resolve, 50));
     } while (Date.now() < deadline);
     return null;
+  }
+
+  private lifecycleTtlMs(): number {
+    const ttlMs = this.runtimeNamespaceLifecycleService?.getKeyTtlMs();
+    if (!ttlMs || ttlMs <= 0) {
+      throw new Error('Runtime namespace lifecycle TTL is required');
+    }
+    return ttlMs;
   }
 }

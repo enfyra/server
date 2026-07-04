@@ -131,8 +131,6 @@ function createService(redis: FakeRedis, nodeName = 'app-a') {
         if (key === 'REDIS_NAMESPACE_KEY_TTL_MS') return 10000;
         if (key === 'REDIS_NAMESPACE_LEASE_TTL_MS') return 1000;
         if (key === 'REDIS_NAMESPACE_RENEW_INTERVAL_MS') return 1000000;
-        if (key === 'REDIS_NAMESPACE_JANITOR_INTERVAL_MS') return 1000000;
-        if (key === 'REDIS_NAMESPACE_STALE_GRACE_MS') return 5000;
         if (key === 'NODE_ENV') return 'test';
         return undefined;
       },
@@ -157,33 +155,21 @@ describe('RuntimeNamespaceLifecycleService', () => {
     );
     expect(redis.expiries.has('other:runtime_cache:metadata')).toBe(false);
     expect(redis.values.has('app-a:runtime_lifecycle:lease:inst-a')).toBe(true);
-    expect(redis.zsets.get('enfyra:runtime_namespaces')?.has('app-a')).toBe(
-      true,
-    );
   });
 
-  it('cleans stale Enfyra-owned namespace keys without touching custom keys', async () => {
+  it('renews existing lifecycle keys for the same namespace after restart', async () => {
     const redis = new FakeRedis();
-    redis.zaddSync('enfyra:runtime_namespaces', 1000, 'old-app');
-    redis.zaddSync('enfyra:runtime_namespaces', 1000, 'active-app');
-    redis.values.set('old-app:runtime_cache:metadata', 'cache');
-    redis.values.set('old-app:sys_session-cleanup:completed', 'queue');
-    redis.values.set('old-app:custom:key', 'custom');
-    redis.values.set('active-app:runtime_cache:metadata', 'cache');
-    redis.values.set('active-app:runtime_lifecycle:lease:inst-b', 'lease');
+    redis.values.set('app-a:runtime_cache:metadata', 'old-cache');
+    redis.values.set('app-a:sys_session-cleanup:completed', 'old-queue');
+    redis.expiries.set('app-a:runtime_cache:metadata', 100);
+    redis.expiries.set('app-a:sys_session-cleanup:completed', 100);
 
-    const service = createService(redis, 'app-a');
-    const result = await service.cleanupStaleNamespaces(7000);
+    const restartedService = createService(redis, 'app-a');
+    await restartedService.renewCurrentNamespaceKeys();
 
-    expect(result).toEqual([{ namespace: 'old-app', deleted: 2 }]);
-    expect(redis.values.has('old-app:runtime_cache:metadata')).toBe(false);
-    expect(redis.values.has('old-app:sys_session-cleanup:completed')).toBe(
-      false,
-    );
-    expect(redis.values.get('old-app:custom:key')).toBe('custom');
-    expect(redis.values.get('active-app:runtime_cache:metadata')).toBe('cache');
-    expect(redis.zsets.get('enfyra:runtime_namespaces')?.has('old-app')).toBe(
-      false,
+    expect(redis.expiries.get('app-a:runtime_cache:metadata')).toBe(10000);
+    expect(redis.expiries.get('app-a:sys_session-cleanup:completed')).toBe(
+      10000,
     );
   });
 
