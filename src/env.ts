@@ -1,5 +1,8 @@
 import 'dotenv/config';
 import { z } from 'zod';
+import { getEnfyraVersion } from './shared/utils/enfyra-version.util';
+
+process.env.ENFYRA_VERSION = getEnfyraVersion();
 
 const EnvSchema = z.object({
   DB_URI: z.string(),
@@ -55,6 +58,7 @@ const EnvSchema = z.object({
     .default(5000),
   DEFAULT_TTL: z.coerce.number().int().positive().optional().default(5),
   NODE_NAME: z.string().optional().default('enfyra'),
+  ENFYRA_VERSION: z.string(),
   PORT: z.coerce.number().int().positive().default(1105),
   SECRET_KEY: z.string().min(1),
   SALT_ROUNDS: z.coerce.number().int().min(1).optional().default(10),

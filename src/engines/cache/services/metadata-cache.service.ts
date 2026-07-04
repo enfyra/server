@@ -14,7 +14,10 @@ import { EventEmitter2 } from 'eventemitter2';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { normalizeMongoPrimaryKeyColumn } from '../../../modules/table-management/utils/mongo-primary-key.util';
 import { logMemory } from '../../../shared/utils/memory-log.util';
-import { normalizeJsonFieldValue } from '../../../shared/utils/json-field-normalizer.util';
+import {
+  normalizeColumnOptionsValue,
+  normalizeJsonFieldValue,
+} from '../../../shared/utils/json-field-normalizer.util';
 
 const COLOR = '\x1b[36m';
 const RESET = '\x1b[0m';
@@ -398,7 +401,7 @@ export class MetadataCacheService implements IMetadataCache {
         column.metadata = normalizeJsonFieldValue(column.metadata);
         if (col.options && typeof col.options === 'string') {
           try {
-            column.options = normalizeJsonFieldValue(col.options);
+            column.options = normalizeColumnOptionsValue(col.options);
           } catch (e) {}
         }
         if (col.defaultValue && typeof col.defaultValue === 'string') {
@@ -853,7 +856,7 @@ export class MetadataCacheService implements IMetadataCache {
       table.metadata = normalizeJsonFieldValue(table.metadata);
       for (const column of table.columns ?? []) {
         column.metadata = normalizeJsonFieldValue(column.metadata);
-        column.options = normalizeJsonFieldValue(column.options);
+        column.options = normalizeColumnOptionsValue(column.options);
         column.defaultValue = normalizeJsonFieldValue(column.defaultValue);
       }
       for (const relation of table.relations ?? []) {

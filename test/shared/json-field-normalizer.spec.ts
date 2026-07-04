@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  normalizeColumnOptionsValue,
   normalizeJsonFieldValue,
   stringifyJsonFieldValue,
 } from '../../src/shared/utils/json-field-normalizer.util';
@@ -26,5 +27,18 @@ describe('json field normalizer', () => {
   it('leaves non-JSON strings intact', () => {
     expect(normalizeJsonFieldValue('plain text')).toBe('plain text');
     expect(stringifyJsonFieldValue('plain text')).toBe('"plain text"');
+  });
+
+  it('normalizes PostgreSQL array literals for column options', () => {
+    expect(normalizeColumnOptionsValue('{"page","widget","global"}')).toEqual([
+      'page',
+      'widget',
+      'global',
+    ]);
+    expect(normalizeColumnOptionsValue('["page","widget"]')).toEqual([
+      'page',
+      'widget',
+    ]);
+    expect(normalizeColumnOptionsValue('plain text')).toBe('plain text');
   });
 });
