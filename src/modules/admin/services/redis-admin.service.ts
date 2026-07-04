@@ -2,6 +2,7 @@ import type { Redis } from 'ioredis';
 import { EnvService } from '../../../shared/services';
 import { UserCacheService } from '../../../engines/cache';
 import { AuthorizationException } from '../../../domain/exceptions';
+import type { RuntimeNamespaceLifecycleService } from '../../../engines/cache/services/runtime-namespace-lifecycle.service';
 import {
   BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
   PROVISION_LOCK_KEY,
@@ -14,6 +15,7 @@ import type {
   RedisAdminNamespaceScope,
   RedisAdminOverview,
   RedisAdminSeverity,
+  RedisAdminSystemKind,
   RedisAdminSystemMark,
   RedisAdminValueType,
 } from '../types';
@@ -35,14 +37,18 @@ export class RedisAdminService {
   private readonly userCacheLimitBytes: number;
   private readonly userCacheMaxValueBytes: number;
   private readonly userCacheService: UserCacheService;
+  private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
 
   constructor(deps: {
     redis: Redis;
     envService: EnvService;
     userCacheService: UserCacheService;
+    runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
   }) {
     this.redis = deps.redis;
     this.userCacheService = deps.userCacheService;
+    this.runtimeNamespaceLifecycleService =
+      deps.runtimeNamespaceLifecycleService;
     this.nodeName = deps.envService.get('NODE_NAME') || 'enfyra';
     this.userCacheLimitBytes =
       Number(deps.envService.get('REDIS_USER_CACHE_LIMIT_MB') || 0) *
@@ -77,18 +83,22 @@ export class RedisAdminService {
         .map((key) => this.describeKey(key)),
     );
     const summaries = allSummaries;
+    const currentSummaries = summaries.filter(
+      (summary) => summary.namespaceScope === 'current',
+    );
+    const browserSummaries = currentSummaries.filter(
+      (summary) => !this.isTransientKey(summary),
+    );
 
-    for (const summary of summaries) {
+    for (const summary of currentSummaries) {
       const group = this.groupKey(summary);
-      const current =
-        groups.get(group.name) ??
-        {
-          ...group,
-          count: 0,
-          memoryBytes: 0,
-          system: summary.isSystem,
-          systemKind: summary.systemKind,
-        };
+      const current = groups.get(group.name) ?? {
+        ...group,
+        count: 0,
+        memoryBytes: 0,
+        system: summary.isSystem,
+        systemKind: summary.systemKind,
+      };
       current.count += 1;
       current.memoryBytes += summary.memoryBytes ?? 0;
       current.system = current.system || summary.isSystem;
@@ -100,14 +110,14 @@ export class RedisAdminService {
     return {
       connected: true,
       health: this.evaluateHealth(server),
-      keyCount: summaries.length,
+      keyCount: browserSummaries.length,
       scanned: keys.scanned,
       scanComplete: keys.complete,
       server,
       keyspace: this.parseInfoSection(keyspace),
       userCache: await this.getUserCacheQuota(),
       groups: [...groups.values()].sort((a, b) => b.count - a.count),
-      topKeys: summaries
+      topKeys: browserSummaries
         .filter((item) => item.memoryBytes != null)
         .sort((a, b) => (b.memoryBytes ?? 0) - (a.memoryBytes ?? 0))
         .slice(0, 20),
@@ -118,6 +128,7 @@ export class RedisAdminService {
     cursor?: string;
     pattern?: string;
     count?: number;
+    filter?: RedisAdminSystemKind | 'custom' | 'all';
   }): Promise<{
     cursor: string;
     count: number;
@@ -129,16 +140,28 @@ export class RedisAdminService {
       MAX_SCAN_COUNT,
     );
     const pattern = this.effectiveListPattern(options.pattern);
-    const [cursor, keys] = await this.redis.scan(
-      options.cursor || '0',
-      'MATCH',
-      pattern,
-      'COUNT',
-      count,
-    );
-
-    const summaries = await Promise.all(keys.map((key) => this.describeKey(key)));
-    const readable = summaries.filter((key) => key.namespaceScope === 'current');
+    let cursor = options.cursor || '0';
+    const readable: RedisAdminKeySummary[] = [];
+    do {
+      const [nextCursor, keys] = await this.redis.scan(
+        cursor,
+        'MATCH',
+        pattern,
+        'COUNT',
+        count,
+      );
+      cursor = nextCursor;
+      const summaries = await Promise.all(
+        keys.map((key) => this.describeKey(key)),
+      );
+      readable.push(
+        ...summaries.filter(
+          (key) =>
+            key.namespaceScope === 'current' &&
+            this.matchesListFilter(key, options.filter),
+        ),
+      );
+    } while (cursor !== '0' && readable.length < count);
     return {
       cursor,
       count: readable.length,
@@ -180,7 +203,8 @@ export class RedisAdminService {
     const redisKey = await this.resolveKeyForOperation(input.key);
     this.assertCanModify(redisKey);
     const type = input.type || 'string';
-    const ttlMs = input.ttlSeconds == null ? 0 : Number(input.ttlSeconds) * 1000;
+    const ttlMs =
+      input.ttlSeconds == null ? 0 : Number(input.ttlSeconds) * 1000;
     if (input.ttlSeconds != null) {
       this.assertPositiveTtlSeconds(input.ttlSeconds);
     }
@@ -188,9 +212,18 @@ export class RedisAdminService {
       if (type !== 'string') {
         throw new Error('Redis Admin $cache keys support string values only');
       }
-      await this.userCacheService.set(this.publicKey(redisKey), input.value, ttlMs);
+      await this.userCacheService.set(
+        this.publicKey(redisKey),
+        input.value,
+        ttlMs,
+      );
     } else {
-      await this.writeRawKey(redisKey, type, input.value, input.ttlSeconds ?? null);
+      await this.writeRawKey(
+        redisKey,
+        type,
+        input.value,
+        input.ttlSeconds ?? null,
+      );
     }
     return this.getKey(input.key);
   }
@@ -214,7 +247,7 @@ export class RedisAdminService {
     const redisKey = await this.resolveKeyForOperation(key);
     this.assertCanModify(redisKey);
     if (ttlSeconds == null) {
-      await this.redis.persist(redisKey);
+      await this.redis.expire(redisKey, this.lifecycleTtlSeconds());
     } else {
       this.assertPositiveTtlSeconds(ttlSeconds);
       await this.redis.expire(redisKey, Number(ttlSeconds));
@@ -261,12 +294,23 @@ export class RedisAdminService {
         reason: '$cache user data',
       };
     }
-    if (key.startsWith('coord:sql:pool:')) {
+    if (
+      key.startsWith(`${this.nodeName}:coord:sql:pool:`) ||
+      key.startsWith('coord:sql:pool:')
+    ) {
       return {
         isSystem: true,
         modifiable: false,
         systemKind: 'sql_pool_coordination',
         reason: 'SQL pool coordination',
+      };
+    }
+    if (key.startsWith(`${this.nodeName}:rl:`) || key.startsWith('rl:')) {
+      return {
+        isSystem: true,
+        modifiable: false,
+        systemKind: 'rate_limit',
+        reason: 'rate limit state',
       };
     }
     for (const item of systemPrefixes) {
@@ -358,13 +402,7 @@ export class RedisAdminService {
         return { value, truncated: size > value.length };
       }
       case 'stream': {
-        const items = await this.redis.xrange(
-          key,
-          '-',
-          '+',
-          'COUNT',
-          limit,
-        );
+        const items = await this.redis.xrange(key, '-', '+', 'COUNT', limit);
         const size = await this.redis.xlen(key);
         return {
           value: items.map(([id, fields]) => ({ id, fields })),
@@ -384,7 +422,7 @@ export class RedisAdminService {
     value: any,
     ttlSeconds: number | null,
   ): Promise<void> {
-    const pipeline = this.redis.pipeline();
+    const pipeline = this.redisTransaction();
     pipeline.del(key);
     switch (type) {
       case 'string':
@@ -415,7 +453,7 @@ export class RedisAdminService {
       default:
         throw new Error(`Redis Admin cannot write ${type} values`);
     }
-    if (ttlSeconds != null) pipeline.expire(key, ttlSeconds);
+    pipeline.expire(key, ttlSeconds ?? this.lifecycleTtlSeconds());
     await pipeline.exec();
   }
 
@@ -439,7 +477,9 @@ export class RedisAdminService {
     const rows = this.asArray(value);
     return rows.map((item) => {
       if (!item || typeof item !== 'object' || !('value' in item)) {
-        throw new Error('zset value must be an array of { value, score } objects');
+        throw new Error(
+          'zset value must be an array of { value, score } objects',
+        );
       }
       const score = Number(item.score);
       if (!Number.isFinite(score)) {
@@ -463,7 +503,11 @@ export class RedisAdminService {
         Math.min(limit, 100),
       );
       cursor = nextCursor;
-      for (let i = 0; i < rows.length && Object.keys(value).length < limit; i += 2) {
+      for (
+        let i = 0;
+        i < rows.length && Object.keys(value).length < limit;
+        i += 2
+      ) {
         value[rows[i]] = rows[i + 1];
       }
     } while (cursor !== '0' && Object.keys(value).length < limit);
@@ -570,7 +614,9 @@ export class RedisAdminService {
         ? Number(parsed.uptime_in_seconds)
         : undefined,
       usedMemoryHuman: parsed.used_memory_human,
-      usedMemoryBytes: parsed.used_memory ? Number(parsed.used_memory) : undefined,
+      usedMemoryBytes: parsed.used_memory
+        ? Number(parsed.used_memory)
+        : undefined,
       maxMemoryHuman: parsed.maxmemory_human,
       maxMemoryBytes: parsed.maxmemory ? Number(parsed.maxmemory) : undefined,
       totalSystemMemoryHuman: parsed.total_system_memory_human,
@@ -597,7 +643,9 @@ export class RedisAdminService {
     };
   }
 
-  private evaluateHealth(server: RedisAdminOverview['server']): RedisAdminOverview['health'] {
+  private evaluateHealth(
+    server: RedisAdminOverview['server'],
+  ): RedisAdminOverview['health'] {
     const warnings: string[] = [];
     let severity: RedisAdminSeverity = 'ok';
     const used = server.usedMemoryBytes ?? 0;
@@ -606,10 +654,14 @@ export class RedisAdminService {
       const ratio = used / max;
       if (ratio >= REDIS_MEMORY_ERROR_RATIO) {
         severity = 'error';
-        warnings.push(`Redis memory usage is ${this.formatPercent(ratio)} of configured maxmemory.`);
+        warnings.push(
+          `Redis memory usage is ${this.formatPercent(ratio)} of configured maxmemory.`,
+        );
       } else if (ratio >= REDIS_MEMORY_WARNING_RATIO) {
         severity = 'warning';
-        warnings.push(`Redis memory usage is ${this.formatPercent(ratio)} of configured maxmemory.`);
+        warnings.push(
+          `Redis memory usage is ${this.formatPercent(ratio)} of configured maxmemory.`,
+        );
       }
     }
 
@@ -689,10 +741,34 @@ export class RedisAdminService {
     };
   }
 
+  private matchesListFilter(
+    key: RedisAdminKeySummary,
+    filter?: RedisAdminSystemKind | 'custom' | 'all',
+  ): boolean {
+    if (filter === 'rate_limit' || filter === 'sql_pool_coordination') {
+      return key.systemKind === filter;
+    }
+    if (this.isTransientKey(key)) return false;
+    if (!filter || filter === 'all') return true;
+    if (filter === 'custom') return !key.isSystem && !key.systemKind;
+    return key.systemKind === filter;
+  }
+
+  private isTransientKey(key: RedisAdminKeySummary): boolean {
+    return (
+      key.systemKind === 'rate_limit' ||
+      key.systemKind === 'sql_pool_coordination'
+    );
+  }
+
   private async getUserCacheQuota(): Promise<RedisAdminOverview['userCache']> {
     const usedBytes = Math.max(
       0,
-      Number((await this.redis.get(`${this.nodeName}:user_cache_meta:total_bytes`)) ?? 0),
+      Number(
+        (await this.redis.get(
+          `${this.nodeName}:user_cache_meta:total_bytes`,
+        )) ?? 0,
+      ),
     );
     return {
       usedBytes,
@@ -706,15 +782,16 @@ export class RedisAdminService {
     };
   }
 
-  private effectiveListPattern(
-    patternInput: string | undefined,
-  ): string {
+  private effectiveListPattern(patternInput: string | undefined): string {
     const pattern = patternInput?.trim() || '*';
     if (pattern.startsWith(`${this.nodeName}:`)) return pattern;
     if (this.isSystemPublicKey(pattern) || pattern === '*') {
       return `${this.nodeName}:${pattern}`;
     }
-    if (pattern.startsWith('user_cache:') || pattern.startsWith('user_cache_meta:')) {
+    if (
+      pattern.startsWith('user_cache:') ||
+      pattern.startsWith('user_cache_meta:')
+    ) {
       return `${this.nodeName}:${pattern}`;
     }
     if (!pattern.includes(':')) {
@@ -818,6 +895,23 @@ export class RedisAdminService {
     }
   }
 
+  private lifecycleTtlSeconds(): number {
+    const ttlMs = this.runtimeNamespaceLifecycleService?.getKeyTtlMs();
+    if (!ttlMs || ttlMs <= 0) {
+      throw new Error('Runtime namespace lifecycle TTL is required');
+    }
+    return Math.max(1, Math.ceil(ttlMs / 1000));
+  }
+
+  private redisTransaction(): ReturnType<Redis['pipeline']> {
+    const redis = this.redis as Redis & {
+      multi?: () => ReturnType<Redis['pipeline']>;
+    };
+    return typeof redis.multi === 'function'
+      ? redis.multi()
+      : this.redis.pipeline();
+  }
+
   private isReadableKey(key: string): boolean {
     return (
       key.startsWith(`${this.nodeName}:`) ||
@@ -830,7 +924,9 @@ export class RedisAdminService {
     );
   }
 
-  private systemKindLabel(kind: NonNullable<RedisAdminSystemMark['systemKind']>) {
+  private systemKindLabel(
+    kind: NonNullable<RedisAdminSystemMark['systemKind']>,
+  ) {
     switch (kind) {
       case 'runtime_cache':
         return 'runtime cache';
@@ -844,6 +940,8 @@ export class RedisAdminService {
         return 'runtime monitor';
       case 'sql_pool_coordination':
         return 'SQL pool';
+      case 'rate_limit':
+        return 'rate limit';
       case 'system_lock':
         return 'system lock';
     }
@@ -916,5 +1014,4 @@ export class RedisAdminService {
       throw new Error('key is required');
     }
   }
-
 }

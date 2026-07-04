@@ -1,16 +1,24 @@
 import { Redis } from 'ioredis';
 import { EnvService } from '../../../shared/services';
 import { ICache } from '../../../domain/shared/interfaces/cache.interface';
+import { RuntimeNamespaceLifecycleService } from './runtime-namespace-lifecycle.service';
 
 export class UserCacheService implements ICache {
   private readonly redis: Redis;
   private readonly nodeName: string;
   private readonly limitBytes: number;
   private readonly maxValueBytes: number;
+  private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
 
-  constructor(deps: { redis: Redis; envService: EnvService }) {
+  constructor(deps: {
+    redis: Redis;
+    envService: EnvService;
+    runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
+  }) {
     this.redis = deps.redis;
     this.nodeName = deps.envService.get('NODE_NAME') || 'enfyra';
+    this.runtimeNamespaceLifecycleService =
+      deps.runtimeNamespaceLifecycleService;
     this.limitBytes =
       Number(deps.envService.get('REDIS_USER_CACHE_LIMIT_MB') || 0) *
       1024 *
@@ -30,7 +38,7 @@ export class UserCacheService implements ICache {
       decoratedKey,
       serializedValue,
       'PX',
-      ttlMs,
+      ttlMs > 0 ? ttlMs : this.lifecycleTtlMs(),
       'NX',
     );
     if (result !== 'OK') {
@@ -85,7 +93,12 @@ export class UserCacheService implements ICache {
     if (ttlMs > 0) {
       await this.redis.set(decoratedKey, serializedValue, 'PX', ttlMs);
     } else {
-      await this.redis.set(decoratedKey, serializedValue);
+      await this.redis.set(
+        decoratedKey,
+        serializedValue,
+        'PX',
+        this.lifecycleTtlMs(),
+      );
     }
     await this.track(decoratedKey, size);
     await this.evictIfNeeded();
@@ -131,7 +144,8 @@ export class UserCacheService implements ICache {
   }
 
   private decorateKey(key: string): string {
-    if (!key || typeof key !== 'string') throw new Error('cache key is required');
+    if (!key || typeof key !== 'string')
+      throw new Error('cache key is required');
     if (key.startsWith(this.dataPrefix())) return key;
     return `${this.dataPrefix()}${key}`;
   }
@@ -186,27 +200,30 @@ export class UserCacheService implements ICache {
   }
 
   private async touch(key: string): Promise<void> {
-    await this.redis.zadd(this.lruKey(), Date.now(), key);
+    const pipeline = this.redisTransaction();
+    pipeline.zadd(this.lruKey(), Date.now(), key);
+    this.touchMetadataKeys(pipeline);
+    await pipeline.exec();
   }
 
   private async track(key: string, size: number): Promise<void> {
     const oldSize = Number((await this.redis.hget(this.sizesKey(), key)) ?? 0);
-    await this.redis
-      .pipeline()
-      .hset(this.sizesKey(), key, size)
-      .incrby(this.totalKey(), size - oldSize)
-      .zadd(this.lruKey(), Date.now(), key)
-      .exec();
+    const pipeline = this.redisTransaction();
+    pipeline.hset(this.sizesKey(), key, size);
+    pipeline.incrby(this.totalKey(), size - oldSize);
+    pipeline.zadd(this.lruKey(), Date.now(), key);
+    this.touchMetadataKeys(pipeline);
+    await pipeline.exec();
   }
 
   private async untrack(key: string): Promise<void> {
     const oldSize = Number((await this.redis.hget(this.sizesKey(), key)) ?? 0);
-    await this.redis
-      .pipeline()
-      .hdel(this.sizesKey(), key)
-      .zrem(this.lruKey(), key)
-      .incrby(this.totalKey(), -oldSize)
-      .exec();
+    const pipeline = this.redisTransaction();
+    pipeline.hdel(this.sizesKey(), key);
+    pipeline.zrem(this.lruKey(), key);
+    if (oldSize !== 0) pipeline.incrby(this.totalKey(), -oldSize);
+    this.touchMetadataKeys(pipeline);
+    await pipeline.exec();
   }
 
   private async evictIfNeeded(): Promise<void> {
@@ -215,15 +232,44 @@ export class UserCacheService implements ICache {
     while (total > this.limitBytes) {
       const [oldest] = await this.redis.zrange(this.lruKey(), 0, 0);
       if (!oldest) break;
-      const size = Number((await this.redis.hget(this.sizesKey(), oldest)) ?? 0);
-      await this.redis
-        .pipeline()
-        .del(oldest)
-        .hdel(this.sizesKey(), oldest)
-        .zrem(this.lruKey(), oldest)
-        .incrby(this.totalKey(), -size)
-        .exec();
+      const size = Number(
+        (await this.redis.hget(this.sizesKey(), oldest)) ?? 0,
+      );
+      const pipeline = this.redisTransaction();
+      pipeline.del(oldest);
+      pipeline.hdel(this.sizesKey(), oldest);
+      pipeline.zrem(this.lruKey(), oldest);
+      if (size !== 0) pipeline.incrby(this.totalKey(), -size);
+      this.touchMetadataKeys(pipeline);
+      await pipeline.exec();
       total -= size;
     }
+  }
+
+  private lifecycleTtlMs(): number {
+    const ttlMs = this.runtimeNamespaceLifecycleService?.getKeyTtlMs();
+    if (!ttlMs || ttlMs <= 0) {
+      throw new Error('Runtime namespace lifecycle TTL is required');
+    }
+    return ttlMs;
+  }
+
+  private redisTransaction(): ReturnType<Redis['pipeline']> {
+    const redis = this.redis as Redis & {
+      multi?: () => ReturnType<Redis['pipeline']>;
+    };
+    return typeof redis.multi === 'function'
+      ? redis.multi()
+      : this.redis.pipeline();
+  }
+
+  private touchMetadataKeys(pipeline: ReturnType<Redis['pipeline']>): void {
+    if (!this.runtimeNamespaceLifecycleService) {
+      throw new Error('Runtime namespace lifecycle TTL is required');
+    }
+    const ttlMs = this.lifecycleTtlMs();
+    pipeline.pexpire(this.lruKey(), ttlMs);
+    pipeline.pexpire(this.sizesKey(), ttlMs);
+    pipeline.pexpire(this.totalKey(), ttlMs);
   }
 }

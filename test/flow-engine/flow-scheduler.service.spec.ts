@@ -22,27 +22,38 @@ function createScheduler(options?: {
   const runtimeRegistryService = {
     requireActiveData: vi.fn(() => options?.flows || []),
   };
+  const runtimeNamespaceLifecycleService = {
+    renewSystemQueueKeys: vi.fn(async () => undefined),
+  };
   const service = new FlowSchedulerService({
     eventEmitter,
     flowQueue: flowQueue as any,
     runtimeRegistryService: runtimeRegistryService as any,
+    runtimeNamespaceLifecycleService: runtimeNamespaceLifecycleService as any,
   });
 
-  return { eventEmitter, flowQueue, runtimeRegistryService, service };
+  return {
+    eventEmitter,
+    flowQueue,
+    runtimeRegistryService,
+    runtimeNamespaceLifecycleService,
+    service,
+  };
 }
 
 describe('FlowSchedulerService', () => {
   it('registers scheduled flows during init even if FLOW_LOADED already happened', async () => {
-    const { service, flowQueue } = createScheduler({
-      flows: [
-        {
-          id: 6,
-          name: 'cloud-reconcile-hosts',
-          triggerType: 'schedule',
-          triggerConfig: { cron: '*/15 * * * *', timezone: 'UTC' },
-        },
-      ],
-    });
+    const { service, flowQueue, runtimeNamespaceLifecycleService } =
+      createScheduler({
+        flows: [
+          {
+            id: 6,
+            name: 'cloud-reconcile-hosts',
+            triggerType: 'schedule',
+            triggerConfig: { cron: '*/15 * * * *', timezone: 'UTC' },
+          },
+        ],
+      });
 
     await service.init();
 
@@ -64,6 +75,9 @@ describe('FlowSchedulerService', () => {
         registeredCount: 1,
       }),
     );
+    expect(
+      runtimeNamespaceLifecycleService.renewSystemQueueKeys,
+    ).toHaveBeenCalledWith('sys_flow-execution');
   });
 
   it('removes existing flow schedulers before rebuilding schedules', async () => {

@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { serialize, deserialize } from 'node:v8';
 import type { Redis } from 'ioredis';
 import { EnvService } from '../../../shared/services';
+import { RuntimeNamespaceLifecycleService } from './runtime-namespace-lifecycle.service';
 
 export interface RedisRuntimeCacheSnapshot<T> {
   cacheIdentifier: string;
@@ -80,11 +81,18 @@ export class RedisRuntimeCacheStore {
   private readonly redis: Redis;
   private readonly nodeName: string;
   private readonly enabled: boolean;
+  private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
 
-  constructor(deps: { redis: Redis; envService: EnvService }) {
+  constructor(deps: {
+    redis: Redis;
+    envService: EnvService;
+    runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
+  }) {
     this.redis = deps.redis;
     this.nodeName = deps.envService.get('NODE_NAME') || 'enfyra';
     this.enabled = deps.envService.get('REDIS_RUNTIME_CACHE') === true;
+    this.runtimeNamespaceLifecycleService =
+      deps.runtimeNamespaceLifecycleService;
   }
 
   isEnabled(): boolean {
@@ -141,8 +149,10 @@ export class RedisRuntimeCacheStore {
     cacheIdentifier: string,
   ): Promise<RedisRuntimeCacheSnapshot<T> | null> {
     if (!this.enabled) return null;
-    const raw = await this.getBuffer(this.cacheKey(cacheIdentifier));
+    const key = this.cacheKey(cacheIdentifier);
+    const raw = await this.getBuffer(key);
     if (!raw) return null;
+    await this.touchLifecycleKey(key);
     return this.decode<RedisRuntimeCacheSnapshot<T>>(raw);
   }
 
@@ -156,14 +166,22 @@ export class RedisRuntimeCacheStore {
       updatedAt: new Date().toISOString(),
       data,
     };
-    await this.redis.set(this.cacheKey(cacheIdentifier), this.encode(snapshot));
+    const key = this.cacheKey(cacheIdentifier);
+    await this.redis.set(
+      key,
+      this.encode(snapshot),
+      'PX',
+      this.lifecycleTtlMs(),
+    );
     return snapshot;
   }
 
   async getAux<T>(cacheIdentifier: string, key: string): Promise<T | null> {
     if (!this.enabled) return null;
-    const raw = await this.getBuffer(this.auxKey(cacheIdentifier, key));
+    const redisKey = this.auxKey(cacheIdentifier, key);
+    const raw = await this.getBuffer(redisKey);
     if (!raw) return null;
+    await this.touchLifecycleKey(redisKey);
     return this.decode<T>(raw);
   }
 
@@ -173,9 +191,12 @@ export class RedisRuntimeCacheStore {
     value: T,
   ): Promise<void> {
     if (!this.enabled) return;
+    const redisKey = this.auxKey(cacheIdentifier, key);
     await this.redis.set(
-      this.auxKey(cacheIdentifier, key),
+      redisKey,
       this.encode(value),
+      'PX',
+      this.lifecycleTtlMs(),
     );
   }
 
@@ -256,5 +277,20 @@ export class RedisRuntimeCacheStore {
       await new Promise((resolve) => setTimeout(resolve, 50));
     } while (Date.now() < deadline);
     return null;
+  }
+
+  private lifecycleTtlMs(): number {
+    const ttlMs = this.runtimeNamespaceLifecycleService?.getKeyTtlMs();
+    if (!ttlMs || ttlMs <= 0) {
+      throw new Error('Runtime namespace lifecycle TTL is required');
+    }
+    return ttlMs;
+  }
+
+  private async touchLifecycleKey(key: string): Promise<void> {
+    if (!this.runtimeNamespaceLifecycleService) {
+      throw new Error('Runtime namespace lifecycle TTL is required');
+    }
+    await this.runtimeNamespaceLifecycleService.touchKey(key);
   }
 }

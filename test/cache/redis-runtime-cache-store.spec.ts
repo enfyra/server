@@ -9,6 +9,7 @@ import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants
 
 class MemoryRedis {
   data = new Map<string, string | Buffer>();
+  expiries = new Map<string, number>();
 
   async get(key: string) {
     const value = this.data.get(key);
@@ -22,9 +23,13 @@ class MemoryRedis {
     return Buffer.isBuffer(value) ? value : Buffer.from(value);
   }
 
-  async set(key: string, value: string | Buffer, ...args: string[]) {
+  async set(key: string, value: string | Buffer, ...args: any[]) {
     if (args.includes('NX') && this.data.has(key)) return null;
     this.data.set(key, value);
+    const pxIndex = args.indexOf('PX');
+    if (pxIndex >= 0 && typeof args[pxIndex + 1] === 'number') {
+      this.expiries.set(key, args[pxIndex + 1]);
+    }
     return 'OK';
   }
 
@@ -38,10 +43,7 @@ class MemoryRedis {
 
   async scan(_cursor: string, _match: string, pattern: string) {
     const prefix = pattern.endsWith('*') ? pattern.slice(0, -1) : pattern;
-    return [
-      '0',
-      [...this.data.keys()].filter((key) => key.startsWith(prefix)),
-    ];
+    return ['0', [...this.data.keys()].filter((key) => key.startsWith(prefix))];
   }
 
   async del(...keys: string[]) {
@@ -63,7 +65,17 @@ function createStore(redis = new MemoryRedis()) {
         return undefined;
       },
     } as any,
+    runtimeNamespaceLifecycleService: {
+      getKeyTtlMs: () => 5000,
+      touchKey: async (key: string) => {
+        redis.expiries.set(key, 5000);
+      },
+    } as any,
   });
+}
+
+function createStoreWithLifecycle(redis = new MemoryRedis()) {
+  return createStore(redis);
 }
 
 class SharedTestCache extends BaseCacheService<Map<string, Set<string>>> {
@@ -113,6 +125,43 @@ describe('Redis runtime cache mode', () => {
     expect(snapshot?.data.get('alpha')).toEqual(new Set(['one', 'two']));
     expect(() => cache.getRawCache()).toThrow(/Redis-backed/);
     expect(redis.data.has('shared-node:runtime_cache:setting')).toBe(true);
+  });
+
+  it('stores runtime snapshots with namespace lifecycle TTL when available', async () => {
+    const redis = new MemoryRedis();
+    const store = createStoreWithLifecycle(redis);
+
+    await store.setSnapshot(CACHE_IDENTIFIERS.SETTING, { ok: true });
+
+    expect(redis.expiries.get('shared-node:runtime_cache:setting')).toBe(5000);
+  });
+
+  it('renews runtime snapshot lifecycle TTL when reading a shared snapshot', async () => {
+    const redis = new MemoryRedis();
+    const store = createStoreWithLifecycle(redis);
+
+    await store.setSnapshot(CACHE_IDENTIFIERS.SETTING, { ok: true });
+    redis.expiries.set('shared-node:runtime_cache:setting', 100);
+    await store.getSnapshot(CACHE_IDENTIFIERS.SETTING);
+
+    expect(redis.expiries.get('shared-node:runtime_cache:setting')).toBe(5000);
+  });
+
+  it('stores and renews runtime aux keys with namespace lifecycle TTL', async () => {
+    const redis = new MemoryRedis();
+    const store = createStoreWithLifecycle(redis);
+
+    await store.setAux(CACHE_IDENTIFIERS.ROUTE, 'match-index', [{ id: 1 }]);
+    expect(
+      redis.expiries.get('shared-node:runtime_cache:route:aux:match_index'),
+    ).toBe(5000);
+
+    redis.expiries.set('shared-node:runtime_cache:route:aux:match_index', 100);
+    await store.getAux(CACHE_IDENTIFIERS.ROUTE, 'match-index');
+
+    expect(
+      redis.expiries.get('shared-node:runtime_cache:route:aux:match_index'),
+    ).toBe(5000);
   });
 
   it('round-trips structured cache values through JSON snapshots', async () => {

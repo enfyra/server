@@ -56,8 +56,15 @@ export class OAuthExchangeCodeService {
     };
 
     await this.cacheService.set(this.codeKey(code), payload, CODE_TTL_MS);
-    await this.cacheService.set(this.pendingKey(code), pending, 0);
-    await this.redis.zadd(this.pendingIndexKey(), expiresAt, code);
+    await this.cacheService.set(
+      this.pendingKey(code),
+      pending,
+      CODE_TTL_MS * 2,
+    );
+    const pipeline = this.redisTransaction();
+    pipeline.zadd(this.pendingIndexKey(), expiresAt, code);
+    pipeline.pexpire(this.pendingIndexKey(), CODE_TTL_MS * 2);
+    await pipeline.exec();
 
     return code;
   }
@@ -71,7 +78,9 @@ export class OAuthExchangeCodeService {
       this.codeKey(code),
     );
     if (!payload) {
-      throw new BadRequestException('OAuth exchange code is invalid or expired');
+      throw new BadRequestException(
+        'OAuth exchange code is invalid or expired',
+      );
     }
 
     await this.deleteCode(code);
@@ -111,6 +120,13 @@ export class OAuthExchangeCodeService {
       }
     }
 
+    const remaining = await this.redis.zcard(indexKey);
+    if (remaining > 0) {
+      await this.redis.pexpire(indexKey, CODE_TTL_MS * 2);
+    } else {
+      await this.redis.del(indexKey);
+    }
+
     return { deleted };
   }
 
@@ -135,6 +151,17 @@ export class OAuthExchangeCodeService {
   }
 
   private pendingIndexKey(): string {
-    return this.nodeName ? `${this.nodeName}:${PENDING_INDEX_KEY}` : PENDING_INDEX_KEY;
+    return this.nodeName
+      ? `${this.nodeName}:${PENDING_INDEX_KEY}`
+      : PENDING_INDEX_KEY;
+  }
+
+  private redisTransaction(): ReturnType<Redis['pipeline']> {
+    const redis = this.redis as Redis & {
+      multi?: () => ReturnType<Redis['pipeline']>;
+    };
+    return typeof redis.multi === 'function'
+      ? redis.multi()
+      : this.redis.pipeline();
   }
 }

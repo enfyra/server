@@ -129,6 +129,7 @@ import {
   RedisRuntimeCacheStore,
   RepoRegistryService,
   RouteCacheService,
+  RuntimeNamespaceLifecycleService,
   RuntimeRegistryService,
   RuntimeReloadAuditService,
   RuntimeScriptRepairService,
@@ -303,6 +304,7 @@ export interface Cradle {
   cacheService: CacheService;
   userCacheService: UserCacheService;
   redisPubSubService: RedisPubSubService;
+  runtimeNamespaceLifecycleService: RuntimeNamespaceLifecycleService;
   redisRuntimeCacheStore: RedisRuntimeCacheStore;
   metadataCacheService: MetadataCacheService;
   routeCacheService: RouteCacheService;
@@ -577,6 +579,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     cacheService: asClass(CacheService).singleton(),
     userCacheService: asClass(UserCacheService).singleton(),
     redisPubSubService: asClass(RedisPubSubService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
+    runtimeNamespaceLifecycleService: asClass(RuntimeNamespaceLifecycleService)
       .singleton()
       .disposer((service) => service.onDestroy()),
     redisRuntimeCacheStore: asClass(RedisRuntimeCacheStore).singleton(),

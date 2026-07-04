@@ -577,6 +577,7 @@ export class DynamicWebSocketGateway {
           cursor: payload?.cursor,
           pattern: payload?.pattern,
           count: payload?.count,
+          filter: payload?.filter,
         }),
       );
     });

@@ -4,6 +4,7 @@ import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import { EnvService } from '../../../shared/services';
 import { Logger } from '../../../shared/logger';
 import { getErrorMessage } from '../../../shared/utils/error.util';
+import type { RuntimeNamespaceLifecycleService } from '../../../engines/cache/services/runtime-namespace-lifecycle.service';
 
 const BATCH_SIZE = 20;
 
@@ -12,16 +13,20 @@ export class SessionCleanupService {
   private readonly queryBuilderService: IQueryBuilder;
   private readonly cleanupQueue: Queue;
   private readonly envService: EnvService;
+  private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
   private worker?: Worker;
 
   constructor(deps: {
     queryBuilderService: IQueryBuilder;
     cleanupQueue: Queue;
     envService: EnvService;
+    runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.cleanupQueue = deps.cleanupQueue;
     this.envService = deps.envService;
+    this.runtimeNamespaceLifecycleService =
+      deps.runtimeNamespaceLifecycleService;
   }
 
   async init() {
@@ -44,7 +49,16 @@ export class SessionCleanupService {
     await this.cleanupQueue.upsertJobScheduler(
       'session-cleanup-daily',
       { pattern: '0 2 * * *' },
-      { name: 'cleanup-expired-sessions' },
+      {
+        name: 'cleanup-expired-sessions',
+        opts: {
+          removeOnComplete: { count: 30, age: 3600 * 24 * 7 },
+          removeOnFail: { count: 30, age: 3600 * 24 * 30 },
+        },
+      },
+    );
+    await this.runtimeNamespaceLifecycleService?.renewSystemQueueKeys(
+      SYSTEM_QUEUES.SESSION_CLEANUP,
     );
   }
 

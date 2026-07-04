@@ -32,6 +32,7 @@ import {
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
+import type { RuntimeNamespaceLifecycleService } from '../../../engines/cache/services/runtime-namespace-lifecycle.service';
 
 export type { FlowJobData } from '../../../shared/types/flow.types';
 
@@ -69,6 +70,7 @@ export class FlowExecutionQueueService {
   private readonly envService: EnvService;
   private readonly isolatedExecutorService: IsolatedExecutorService;
   private readonly runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
+  private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
   private readonly flowQueue: Queue;
   private readonly traceFile?: string;
   private readonly flowWorkerEventLoopDelay = monitorEventLoopDelay({
@@ -90,6 +92,7 @@ export class FlowExecutionQueueService {
     envService: EnvService;
     isolatedExecutorService: IsolatedExecutorService;
     runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
+    runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
     flowQueue: Queue;
   }) {
     this.executorEngineService = deps.executorEngineService;
@@ -101,6 +104,8 @@ export class FlowExecutionQueueService {
     this.envService = deps.envService;
     this.isolatedExecutorService = deps.isolatedExecutorService;
     this.runtimeMetricsCollectorService = deps.runtimeMetricsCollectorService;
+    this.runtimeNamespaceLifecycleService =
+      deps.runtimeNamespaceLifecycleService;
     this.flowQueue = deps.flowQueue;
     const traceFile = this.envService.get('FLOW_WORKER_TRACE_FILE');
     this.traceFile =
@@ -687,16 +692,25 @@ export class FlowExecutionQueueService {
           : this.getFlowByName(String(flowIdOrName));
       if (!targetFlow) throw new Error(`Flow "${flowIdOrName}" not found`);
       const sourceStepKey = (ctx as any).$flow?.$meta?.currentStep;
-      await this.flowQueue.add(`flow:${targetFlow.name}`, {
-        flowId: targetFlow.id,
-        flowName: targetFlow.name,
-        payload: triggerPayload,
-        depth: depth + 1,
-        visitedFlowIds,
-        sourceFlowId: flow.id,
-        sourceFlowName: flow.name,
-        sourceStepKey,
-      });
+      await this.flowQueue.add(
+        `flow:${targetFlow.name}`,
+        {
+          flowId: targetFlow.id,
+          flowName: targetFlow.name,
+          payload: triggerPayload,
+          depth: depth + 1,
+          visitedFlowIds,
+          sourceFlowId: flow.id,
+          sourceFlowName: flow.name,
+          sourceStepKey,
+        },
+        {
+          attempts: 1,
+          removeOnComplete: { count: 200, age: 3600 * 24 },
+          removeOnFail: { count: 500, age: 3600 * 24 * 7 },
+        },
+      );
+      await this.touchFlowQueueKeys();
       return {
         triggered: true,
         flowId: targetFlow.id,
@@ -939,16 +953,25 @@ export class FlowExecutionQueueService {
       const childPayload =
         (config as any).payload || (ctx as any).$flow?.$last || {};
       const currentDepth = (ctx as any).$flow?.$meta?.depth || 0;
-      await this.flowQueue.add(`flow:${targetFlow.name}`, {
-        flowId: targetFlow.id,
-        flowName: targetFlow.name,
-        payload: childPayload,
-        depth: currentDepth + 1,
-        visitedFlowIds,
-        sourceFlowId: (ctx as any).$flow?.$meta?.flowId,
-        sourceFlowName: (ctx as any).$flow?.$meta?.flowName,
-        sourceStepKey: step.key,
-      });
+      await this.flowQueue.add(
+        `flow:${targetFlow.name}`,
+        {
+          flowId: targetFlow.id,
+          flowName: targetFlow.name,
+          payload: childPayload,
+          depth: currentDepth + 1,
+          visitedFlowIds,
+          sourceFlowId: (ctx as any).$flow?.$meta?.flowId,
+          sourceFlowName: (ctx as any).$flow?.$meta?.flowName,
+          sourceStepKey: step.key,
+        },
+        {
+          attempts: 1,
+          removeOnComplete: { count: 200, age: 3600 * 24 },
+          removeOnFail: { count: 500, age: 3600 * 24 * 7 },
+        },
+      );
+      await this.touchFlowQueueKeys();
       return {
         triggered: true,
         flowId: targetFlow.id,
@@ -963,6 +986,12 @@ export class FlowExecutionQueueService {
       ctx,
       executorEngineService: this.executorEngineService,
     });
+  }
+
+  private async touchFlowQueueKeys(): Promise<void> {
+    await this.runtimeNamespaceLifecycleService?.renewSystemQueueKeys(
+      SYSTEM_QUEUES.FLOW_EXECUTION,
+    );
   }
 
   private getFlows(): FlowDefinition[] {
