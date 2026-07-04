@@ -27,7 +27,10 @@ function pushLatency(target: number[], value: number) {
 function percentile(values: number[], p: number) {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
-  const index = Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1);
+  const index = Math.min(
+    sorted.length - 1,
+    Math.ceil((p / 100) * sorted.length) - 1,
+  );
   return sorted[Math.max(0, index)];
 }
 
@@ -63,18 +66,16 @@ class RuntimeMetricsRedisStore {
       const raw = await this.redis.hget(key, field);
       const metric = raw ? (JSON.parse(raw) as T) : create();
       update(metric);
-      await this.redis
-        .pipeline()
-        .hset(key, field, JSON.stringify(metric))
-        .pexpire(key, LIVE_METRIC_TTL_MS)
-        .exec();
+      const pipeline = this.redisTransaction();
+      pipeline.hset(key, field, JSON.stringify(metric));
+      pipeline.pexpire(key, LIVE_METRIC_TTL_MS);
+      await pipeline.exec();
     });
   }
 
   pushCacheReload(record: RuntimeCacheReloadMetric): void {
     this.enqueue(() =>
-      this.redis
-        .pipeline()
+      this.redisTransaction()
         .lpush(this.keys.cacheReloads, JSON.stringify(record))
         .ltrim(this.keys.cacheReloads, 0, MAX_RECENT - 1)
         .pexpire(this.keys.cacheReloads, CACHE_RELOAD_TTL_MS)
@@ -126,8 +127,19 @@ class RuntimeMetricsRedisStore {
     this.writeChain = this.writeChain.then(operation).catch(() => {});
   }
 
+  private redisTransaction(): ReturnType<Redis['pipeline']> {
+    const redis = this.redis as Redis & {
+      multi?: () => ReturnType<Redis['pipeline']>;
+    };
+    return typeof redis.multi === 'function'
+      ? redis.multi()
+      : this.redis.pipeline();
+  }
+
   private async readHash<T>(bucket: RuntimeMetricsHashBucket): Promise<T[]> {
-    return this.parseRows(Object.values(await this.redis.hgetall(this.keys[bucket])));
+    return this.parseRows(
+      Object.values(await this.redis.hgetall(this.keys[bucket])),
+    );
   }
 
   private parseRows<T>(values: string[]): T[] {
@@ -206,19 +218,17 @@ export class RuntimeMetricsCollectorService {
     }
 
     const key = `${input.method}:${input.route}`;
-    const current =
-      this.requests.get(key) ??
-      {
-        method: input.method,
-        route: input.route,
-        count: 0,
-        status2xx: 0,
-        status3xx: 0,
-        status4xx: 0,
-        status5xx: 0,
-        totalMs: 0,
-        latencies: [],
-      };
+    const current = this.requests.get(key) ?? {
+      method: input.method,
+      route: input.route,
+      count: 0,
+      status2xx: 0,
+      status3xx: 0,
+      status4xx: 0,
+      status5xx: 0,
+      totalMs: 0,
+      latencies: [],
+    };
     this.applyRequestMetric(current, input);
     this.requests.set(key, current);
   }
@@ -254,19 +264,17 @@ export class RuntimeMetricsCollectorService {
     }
 
     const key = `${context}:${input.op}:${table}`;
-    const current =
-      this.queries.get(key) ??
-      {
-        context,
-        op: input.op,
-        table,
-        count: 0,
-        errors: 0,
-        poolAcquireTimeouts: 0,
-        slow: 0,
-        totalMs: 0,
-        latencies: [],
-      };
+    const current = this.queries.get(key) ?? {
+      context,
+      op: input.op,
+      table,
+      count: 0,
+      errors: 0,
+      poolAcquireTimeouts: 0,
+      slow: 0,
+      totalMs: 0,
+      latencies: [],
+    };
     this.applyQueryMetric(current, input);
     this.queries.set(key, current);
   }
@@ -452,18 +460,27 @@ export class RuntimeMetricsCollectorService {
         running: item.running,
         completed: item.completed,
         failed: item.failed,
-        avgMs: item.completed + item.failed > 0 ? item.totalMs / (item.completed + item.failed) : 0,
+        avgMs:
+          item.completed + item.failed > 0
+            ? item.totalMs / (item.completed + item.failed)
+            : 0,
         p95Ms: percentile(item.latencies, 95),
         failedSteps: Object.entries(item.failedSteps)
           .map(([step, count]) => ({ step, count }))
           .sort((a, b) => b.count - a.count)
           .slice(0, 5),
         slowSteps: Object.entries(item.stepLatencies)
-          .map(([step, latencies]) => ({ step, p95Ms: percentile(latencies, 95) }))
+          .map(([step, latencies]) => ({
+            step,
+            p95Ms: percentile(latencies, 95),
+          }))
           .sort((a, b) => b.p95Ms - a.p95Ms)
           .slice(0, 5),
       }))
-      .sort((a, b) => b.running - a.running || b.failed - a.failed || b.p95Ms - a.p95Ms)
+      .sort(
+        (a, b) =>
+          b.running - a.running || b.failed - a.failed || b.p95Ms - a.p95Ms,
+      )
       .slice(0, 20);
 
     return {
@@ -500,8 +517,7 @@ export class RuntimeMetricsCollectorService {
   ): RuntimeFlowMetric {
     const key = String(flowId);
     const current =
-      this.flows.get(key) ??
-      this.createFlowMetric(flowId, flowName);
+      this.flows.get(key) ?? this.createFlowMetric(flowId, flowName);
     this.flows.set(key, current);
     return current;
   }
@@ -592,5 +608,4 @@ export class RuntimeMetricsCollectorService {
         (metric.failedSteps[input.stepKey] ?? 0) + 1;
     }
   }
-
 }

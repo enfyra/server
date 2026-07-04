@@ -18,7 +18,6 @@ export class RuntimeNamespaceLifecycleService {
   private readonly instanceService: InstanceService;
   private readonly nodeName: string;
   private readonly instanceId: string;
-  private readonly enabled: boolean;
   private readonly keyTtlMs: number;
   private readonly leaseTtlMs: number;
   private readonly renewIntervalMs: number;
@@ -36,8 +35,6 @@ export class RuntimeNamespaceLifecycleService {
     this.instanceService = deps.instanceService;
     this.nodeName = deps.envService.get('NODE_NAME') || 'enfyra';
     this.instanceId = deps.instanceService.getInstanceId();
-    this.enabled =
-      deps.envService.get('REDIS_NAMESPACE_LIFECYCLE_ENABLED') !== false;
     this.keyTtlMs = this.readPositiveNumber(
       'REDIS_NAMESPACE_KEY_TTL_MS',
       DEFAULT_KEY_TTL_MS,
@@ -60,7 +57,7 @@ export class RuntimeNamespaceLifecycleService {
   }
 
   async init(): Promise<void> {
-    if (!this.enabled || this.running) return;
+    if (this.running) return;
     this.running = true;
     await this.heartbeat();
     await this.renewCurrentNamespaceKeys();
@@ -74,7 +71,6 @@ export class RuntimeNamespaceLifecycleService {
     this.running = false;
     if (this.renewTimer) clearInterval(this.renewTimer);
     this.renewTimer = undefined;
-    if (!this.enabled) return;
     await this.redis.del(this.currentLeaseKey());
   }
 
@@ -83,12 +79,12 @@ export class RuntimeNamespaceLifecycleService {
   }
 
   async touchKey(key: string, ttlMs = this.keyTtlMs): Promise<void> {
-    if (!this.enabled || ttlMs <= 0) return;
+    if (ttlMs <= 0) return;
     await this.redis.pexpire(key, ttlMs);
   }
 
   async touchKeys(keys: string[], ttlMs = this.keyTtlMs): Promise<void> {
-    if (!this.enabled || ttlMs <= 0 || keys.length === 0) return;
+    if (ttlMs <= 0 || keys.length === 0) return;
     const pipeline = this.redis.pipeline();
     for (const key of keys) pipeline.pexpire(key, ttlMs);
     await pipeline.exec();
@@ -98,7 +94,7 @@ export class RuntimeNamespaceLifecycleService {
     pattern: string,
     ttlMs = this.keyTtlMs,
   ): Promise<void> {
-    if (!this.enabled || ttlMs <= 0 || !pattern) return;
+    if (ttlMs <= 0 || !pattern) return;
     try {
       await this.expireByPattern(pattern, ttlMs);
     } catch (error) {
@@ -109,7 +105,7 @@ export class RuntimeNamespaceLifecycleService {
   }
 
   async renewSystemQueueKeys(queueName: string): Promise<void> {
-    if (!this.enabled || !queueName) return;
+    if (!queueName) return;
     await this.renewKeysByPattern(
       `${this.nodeName}:${queueName}:*`,
       this.keyTtlMs,
@@ -117,7 +113,7 @@ export class RuntimeNamespaceLifecycleService {
   }
 
   async renewCurrentNamespaceKeys(): Promise<void> {
-    if (!this.enabled || this.renewing) return;
+    if (this.renewing) return;
     this.renewing = true;
     try {
       await this.heartbeat();

@@ -6,8 +6,8 @@ function makeService(metadata: any): MongoService {
   return new MongoService({
     envService: {} as any,
     databaseConfigService: {} as any,
-    metadataCacheService: {
-      lookupTableByName: async () => metadata,
+    runtimeRegistryService: {
+      lookupTableByName: () => metadata,
     } as any,
     mongoRelationManagerService: {} as any,
     lazyRef: {} as any,

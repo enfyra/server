@@ -12,9 +12,9 @@ function makeService() {
     ],
     relations: [],
   };
-  const metadataCacheService = {
-    lookupTableByName: vi.fn().mockResolvedValue(metadata),
-    getTableMetadata: vi.fn().mockResolvedValue(metadata),
+  const runtimeRegistryService = {
+    lookupTableByName: vi.fn(() => metadata),
+    getTableMetadata: vi.fn(() => metadata),
   };
   const relationManager = {
     stripInverseRelations: vi.fn(async (_table, data) => data),
@@ -43,7 +43,7 @@ function makeService() {
   const service = new MongoService({
     envService: {} as any,
     databaseConfigService: {} as any,
-    metadataCacheService: metadataCacheService as any,
+    runtimeRegistryService: runtimeRegistryService as any,
     mongoRelationManagerService: relationManager as any,
     lazyRef: {} as any,
   });

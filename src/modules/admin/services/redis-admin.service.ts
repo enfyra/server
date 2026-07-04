@@ -422,7 +422,7 @@ export class RedisAdminService {
     value: any,
     ttlSeconds: number | null,
   ): Promise<void> {
-    const pipeline = this.redis.pipeline();
+    const pipeline = this.redisTransaction();
     pipeline.del(key);
     switch (type) {
       case 'string':
@@ -901,6 +901,15 @@ export class RedisAdminService {
       throw new Error('Runtime namespace lifecycle TTL is required');
     }
     return Math.max(1, Math.ceil(ttlMs / 1000));
+  }
+
+  private redisTransaction(): ReturnType<Redis['pipeline']> {
+    const redis = this.redis as Redis & {
+      multi?: () => ReturnType<Redis['pipeline']>;
+    };
+    return typeof redis.multi === 'function'
+      ? redis.multi()
+      : this.redis.pipeline();
   }
 
   private isReadableKey(key: string): boolean {

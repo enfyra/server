@@ -142,11 +142,10 @@ export class SqlPoolClusterCoordinatorService {
       return;
     }
     try {
-      await this.redis
-        .pipeline()
-        .zadd(this.zsetKey, Date.now(), this.instanceId)
-        .pexpire(this.zsetKey, this.coordinationKeyTtlMs)
-        .exec();
+      const pipeline = this.redisTransaction(this.redis);
+      pipeline.zadd(this.zsetKey, Date.now(), this.instanceId);
+      pipeline.pexpire(this.zsetKey, this.coordinationKeyTtlMs);
+      await pipeline.exec();
     } catch (e) {
       this.logger.warn(
         `Pool coordination heartbeat failed: ${(e as Error).message}`,
@@ -338,5 +337,14 @@ export class SqlPoolClusterCoordinatorService {
         `Pool coordination reconcile failed: ${(e as Error).message}`,
       );
     }
+  }
+
+  private redisTransaction(redis: Redis): ReturnType<Redis['pipeline']> {
+    const client = redis as Redis & {
+      multi?: () => ReturnType<Redis['pipeline']>;
+    };
+    return typeof client.multi === 'function'
+      ? client.multi()
+      : redis.pipeline();
   }
 }

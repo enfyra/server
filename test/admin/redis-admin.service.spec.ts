@@ -417,6 +417,24 @@ describe('RedisAdminService', () => {
     ).toBe(1800);
   });
 
+  it.each([
+    ['hash', { field: 'value' }],
+    ['list', ['a', 'b']],
+    ['set', ['a', 'b']],
+    ['zset', [{ value: 'a', score: 1 }]],
+  ] as const)('uses lifecycle ttl for raw %s writes', async (type, value) => {
+    const { redis, service } = makeService();
+    redis.setSync(`app-a:custom:${type}`, 'old');
+
+    await service.setKey({
+      key: `custom:${type}`,
+      type,
+      value,
+    });
+
+    expect(redis.values.get(`app-a:custom:${type}`)?.ttl).toBe(1800);
+  });
+
   it('searches editable keys through the $cache user_cache namespace', async () => {
     const { redis, service } = makeService();
     redis.setSync('app-a:user_cache:feature', 'enabled');
