@@ -31,13 +31,13 @@ function makeService() {
       },
     ],
   };
-  const metadataCacheService = {
-    lookupTableByName: vi.fn(async (name: string) =>
+  const runtimeRegistryService = {
+    lookupTableByName: vi.fn((name: string) =>
       name === 'post' ? postMeta : { name, relations: [] },
     ),
   };
   const service = new MongoRelationManagerService({
-    metadataCacheService: metadataCacheService as any,
+    runtimeRegistryService: runtimeRegistryService as any,
   });
   return { service };
 }

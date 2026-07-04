@@ -2,10 +2,7 @@ import { monitorEventLoopDelay } from 'perf_hooks';
 import { getHeapStatistics } from 'v8';
 import { Redis } from 'ioredis';
 import { EnvService, InstanceService } from '../../../shared/services';
-import {
-  getEffectiveCpuCount,
-  getEffectiveMemoryBytes,
-} from '@enfyra/kernel';
+import { getEffectiveCpuCount, getEffectiveMemoryBytes } from '@enfyra/kernel';
 import type { RuntimeAverageSample } from '../../../shared/types';
 
 const AVERAGE_FIELDS: Array<keyof RuntimeAverageSample> = [
@@ -141,13 +138,22 @@ export class RuntimeProcessMetricsService {
 
   async pushAverageSample(sample: RuntimeAverageSample) {
     const key = this.averageKey();
-    const pipeline = this.redis.pipeline();
+    const pipeline = this.redisTransaction();
     pipeline.hincrby(key, 'samples', 1);
     for (const field of AVERAGE_FIELDS) {
       pipeline.hincrbyfloat(key, `total:${field}`, sample[field]);
     }
     pipeline.pexpire(key, DEFAULT_AVERAGE_TTL_MS);
     await pipeline.exec();
+  }
+
+  private redisTransaction(): ReturnType<Redis['pipeline']> {
+    const redis = this.redis as Redis & {
+      multi?: () => ReturnType<Redis['pipeline']>;
+    };
+    return typeof redis.multi === 'function'
+      ? redis.multi()
+      : this.redis.pipeline();
   }
 
   async getAverages() {

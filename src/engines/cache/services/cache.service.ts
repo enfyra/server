@@ -49,7 +49,7 @@ export class CacheService implements ICache {
       decoratedKey,
       serializedValue,
       'PX',
-      ttlMs,
+      ttlMs > 0 ? ttlMs : this.lifecycleTtlMs(),
       'NX',
     );
     return result === 'OK';

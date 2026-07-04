@@ -60,8 +60,8 @@ describe('admin test run', () => {
   it('resolves saved route handler code and runs it with HTTP-like context', async () => {
     const cradle = {
       executorEngineService: new InlineExecutor(),
-      routeCacheService: {
-        getRoutes: async () => [
+      runtimeRegistryService: {
+        getRoutes: () => [
           {
             id: 1,
             path: '/orders',
@@ -107,8 +107,8 @@ describe('admin test run', () => {
   it('resolves saved websocket event code and runs it with websocket context', async () => {
     const cradle = {
       executorEngineService: new InlineExecutor(),
-      websocketCacheBuilder: {
-        getGateways: async () => [
+      runtimeRegistryService: {
+        getActiveData: () => [
           {
             id: 1,
             path: '/ws',

@@ -37,6 +37,7 @@ export class RateLimitService {
       redis.call('PEXPIRE', key, window * 1000)
       return {1, limit - current - 1, now + window * 1000, 0}
     else
+      redis.call('PEXPIRE', key, window * 1000)
       local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
       local resetAt = tonumber(oldest[2]) + window * 1000
       return {0, 0, resetAt, math.ceil((resetAt - now) / 1000)}
@@ -149,6 +150,7 @@ export class RateLimitService {
       pipeline.zremrangebyscore(decoratedKey, 0, windowStart);
       pipeline.zcard(decoratedKey);
       pipeline.zrange(decoratedKey, 0, 0, 'WITHSCORES');
+      pipeline.pexpire(decoratedKey, options.perSeconds * 1000);
       const results = await pipeline.exec();
 
       if (!results) {

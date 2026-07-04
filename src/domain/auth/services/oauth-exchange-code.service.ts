@@ -61,11 +61,10 @@ export class OAuthExchangeCodeService {
       pending,
       CODE_TTL_MS * 2,
     );
-    await this.redis
-      .pipeline()
-      .zadd(this.pendingIndexKey(), expiresAt, code)
-      .pexpire(this.pendingIndexKey(), CODE_TTL_MS * 2)
-      .exec();
+    const pipeline = this.redisTransaction();
+    pipeline.zadd(this.pendingIndexKey(), expiresAt, code);
+    pipeline.pexpire(this.pendingIndexKey(), CODE_TTL_MS * 2);
+    await pipeline.exec();
 
     return code;
   }
@@ -155,5 +154,14 @@ export class OAuthExchangeCodeService {
     return this.nodeName
       ? `${this.nodeName}:${PENDING_INDEX_KEY}`
       : PENDING_INDEX_KEY;
+  }
+
+  private redisTransaction(): ReturnType<Redis['pipeline']> {
+    const redis = this.redis as Redis & {
+      multi?: () => ReturnType<Redis['pipeline']>;
+    };
+    return typeof redis.multi === 'function'
+      ? redis.multi()
+      : this.redis.pipeline();
   }
 }

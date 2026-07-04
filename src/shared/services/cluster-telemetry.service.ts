@@ -40,7 +40,7 @@ export class ClusterTelemetryService {
     const sampledAt = options.sampledAt ?? new Date().toISOString();
     const now = Date.now();
     const instancesKey = this.instancesKey(namespace);
-    const pipeline = this.redis.pipeline();
+    const pipeline = this.redisTransaction();
     pipeline.set(
       this.payloadKey(namespace, instanceId),
       JSON.stringify({ instanceId, sampledAt, payload }),
@@ -94,5 +94,14 @@ export class ClusterTelemetryService {
       .del(this.payloadKey(namespace, instanceId))
       .zrem(this.instancesKey(namespace), instanceId)
       .exec();
+  }
+
+  private redisTransaction(): ReturnType<Redis['pipeline']> {
+    const redis = this.redis as Redis & {
+      multi?: () => ReturnType<Redis['pipeline']>;
+    };
+    return typeof redis.multi === 'function'
+      ? redis.multi()
+      : this.redis.pipeline();
   }
 }

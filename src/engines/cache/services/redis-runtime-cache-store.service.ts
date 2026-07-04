@@ -152,7 +152,7 @@ export class RedisRuntimeCacheStore {
     const key = this.cacheKey(cacheIdentifier);
     const raw = await this.getBuffer(key);
     if (!raw) return null;
-    await this.runtimeNamespaceLifecycleService?.touchKey(key);
+    await this.touchLifecycleKey(key);
     return this.decode<RedisRuntimeCacheSnapshot<T>>(raw);
   }
 
@@ -181,7 +181,7 @@ export class RedisRuntimeCacheStore {
     const redisKey = this.auxKey(cacheIdentifier, key);
     const raw = await this.getBuffer(redisKey);
     if (!raw) return null;
-    await this.runtimeNamespaceLifecycleService?.touchKey(redisKey);
+    await this.touchLifecycleKey(redisKey);
     return this.decode<T>(raw);
   }
 
@@ -285,5 +285,12 @@ export class RedisRuntimeCacheStore {
       throw new Error('Runtime namespace lifecycle TTL is required');
     }
     return ttlMs;
+  }
+
+  private async touchLifecycleKey(key: string): Promise<void> {
+    if (!this.runtimeNamespaceLifecycleService) {
+      throw new Error('Runtime namespace lifecycle TTL is required');
+    }
+    await this.runtimeNamespaceLifecycleService.touchKey(key);
   }
 }

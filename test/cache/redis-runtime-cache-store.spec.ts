@@ -136,6 +136,34 @@ describe('Redis runtime cache mode', () => {
     expect(redis.expiries.get('shared-node:runtime_cache:setting')).toBe(5000);
   });
 
+  it('renews runtime snapshot lifecycle TTL when reading a shared snapshot', async () => {
+    const redis = new MemoryRedis();
+    const store = createStoreWithLifecycle(redis);
+
+    await store.setSnapshot(CACHE_IDENTIFIERS.SETTING, { ok: true });
+    redis.expiries.set('shared-node:runtime_cache:setting', 100);
+    await store.getSnapshot(CACHE_IDENTIFIERS.SETTING);
+
+    expect(redis.expiries.get('shared-node:runtime_cache:setting')).toBe(5000);
+  });
+
+  it('stores and renews runtime aux keys with namespace lifecycle TTL', async () => {
+    const redis = new MemoryRedis();
+    const store = createStoreWithLifecycle(redis);
+
+    await store.setAux(CACHE_IDENTIFIERS.ROUTE, 'match-index', [{ id: 1 }]);
+    expect(
+      redis.expiries.get('shared-node:runtime_cache:route:aux:match_index'),
+    ).toBe(5000);
+
+    redis.expiries.set('shared-node:runtime_cache:route:aux:match_index', 100);
+    await store.getAux(CACHE_IDENTIFIERS.ROUTE, 'match-index');
+
+    expect(
+      redis.expiries.get('shared-node:runtime_cache:route:aux:match_index'),
+    ).toBe(5000);
+  });
+
   it('round-trips structured cache values through JSON snapshots', async () => {
     const store = createStore();
     const timestamp = new Date('2026-04-29T00:00:00.000Z');
