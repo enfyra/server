@@ -1,16 +1,24 @@
 import { Redis } from 'ioredis';
 import { EnvService } from '../../../shared/services';
 import { ICache } from '../../../domain/shared/interfaces/cache.interface';
+import { RuntimeNamespaceLifecycleService } from './runtime-namespace-lifecycle.service';
 
 export class UserCacheService implements ICache {
   private readonly redis: Redis;
   private readonly nodeName: string;
   private readonly limitBytes: number;
   private readonly maxValueBytes: number;
+  private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
 
-  constructor(deps: { redis: Redis; envService: EnvService }) {
+  constructor(deps: {
+    redis: Redis;
+    envService: EnvService;
+    runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
+  }) {
     this.redis = deps.redis;
     this.nodeName = deps.envService.get('NODE_NAME') || 'enfyra';
+    this.runtimeNamespaceLifecycleService =
+      deps.runtimeNamespaceLifecycleService;
     this.limitBytes =
       Number(deps.envService.get('REDIS_USER_CACHE_LIMIT_MB') || 0) *
       1024 *
@@ -85,7 +93,18 @@ export class UserCacheService implements ICache {
     if (ttlMs > 0) {
       await this.redis.set(decoratedKey, serializedValue, 'PX', ttlMs);
     } else {
-      await this.redis.set(decoratedKey, serializedValue);
+      const namespaceTtlMs =
+        this.runtimeNamespaceLifecycleService?.getKeyTtlMs();
+      if (namespaceTtlMs && namespaceTtlMs > 0) {
+        await this.redis.set(
+          decoratedKey,
+          serializedValue,
+          'PX',
+          namespaceTtlMs,
+        );
+      } else {
+        await this.redis.set(decoratedKey, serializedValue);
+      }
     }
     await this.track(decoratedKey, size);
     await this.evictIfNeeded();
@@ -187,6 +206,11 @@ export class UserCacheService implements ICache {
 
   private async touch(key: string): Promise<void> {
     await this.redis.zadd(this.lruKey(), Date.now(), key);
+    await this.runtimeNamespaceLifecycleService?.touchKeys([
+      this.lruKey(),
+      this.sizesKey(),
+      this.totalKey(),
+    ]);
   }
 
   private async track(key: string, size: number): Promise<void> {
@@ -197,6 +221,11 @@ export class UserCacheService implements ICache {
       .incrby(this.totalKey(), size - oldSize)
       .zadd(this.lruKey(), Date.now(), key)
       .exec();
+    await this.runtimeNamespaceLifecycleService?.touchKeys([
+      this.lruKey(),
+      this.sizesKey(),
+      this.totalKey(),
+    ]);
   }
 
   private async untrack(key: string): Promise<void> {

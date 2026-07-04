@@ -14,6 +14,7 @@ import type {
   RedisAdminNamespaceScope,
   RedisAdminOverview,
   RedisAdminSeverity,
+  RedisAdminSystemKind,
   RedisAdminSystemMark,
   RedisAdminValueType,
 } from '../types';
@@ -77,8 +78,12 @@ export class RedisAdminService {
         .map((key) => this.describeKey(key)),
     );
     const summaries = allSummaries;
+    const currentSummaries = summaries.filter((summary) => summary.namespaceScope === 'current');
+    const browserSummaries = currentSummaries.filter(
+      (summary) => !this.isTransientKey(summary),
+    );
 
-    for (const summary of summaries) {
+    for (const summary of currentSummaries) {
       const group = this.groupKey(summary);
       const current =
         groups.get(group.name) ??
@@ -100,14 +105,14 @@ export class RedisAdminService {
     return {
       connected: true,
       health: this.evaluateHealth(server),
-      keyCount: summaries.length,
+      keyCount: browserSummaries.length,
       scanned: keys.scanned,
       scanComplete: keys.complete,
       server,
       keyspace: this.parseInfoSection(keyspace),
       userCache: await this.getUserCacheQuota(),
       groups: [...groups.values()].sort((a, b) => b.count - a.count),
-      topKeys: summaries
+      topKeys: browserSummaries
         .filter((item) => item.memoryBytes != null)
         .sort((a, b) => (b.memoryBytes ?? 0) - (a.memoryBytes ?? 0))
         .slice(0, 20),
@@ -118,6 +123,7 @@ export class RedisAdminService {
     cursor?: string;
     pattern?: string;
     count?: number;
+    filter?: RedisAdminSystemKind | 'custom' | 'all';
   }): Promise<{
     cursor: string;
     count: number;
@@ -129,16 +135,24 @@ export class RedisAdminService {
       MAX_SCAN_COUNT,
     );
     const pattern = this.effectiveListPattern(options.pattern);
-    const [cursor, keys] = await this.redis.scan(
-      options.cursor || '0',
-      'MATCH',
-      pattern,
-      'COUNT',
-      count,
-    );
-
-    const summaries = await Promise.all(keys.map((key) => this.describeKey(key)));
-    const readable = summaries.filter((key) => key.namespaceScope === 'current');
+    let cursor = options.cursor || '0';
+    const readable: RedisAdminKeySummary[] = [];
+    do {
+      const [nextCursor, keys] = await this.redis.scan(
+        cursor,
+        'MATCH',
+        pattern,
+        'COUNT',
+        count,
+      );
+      cursor = nextCursor;
+      const summaries = await Promise.all(keys.map((key) => this.describeKey(key)));
+      readable.push(
+        ...summaries.filter((key) =>
+          key.namespaceScope === 'current' && this.matchesListFilter(key, options.filter),
+        ),
+      );
+    } while (cursor !== '0' && readable.length < count);
     return {
       cursor,
       count: readable.length,
@@ -261,12 +275,20 @@ export class RedisAdminService {
         reason: '$cache user data',
       };
     }
-    if (key.startsWith('coord:sql:pool:')) {
+    if (key.startsWith(`${this.nodeName}:coord:sql:pool:`) || key.startsWith('coord:sql:pool:')) {
       return {
         isSystem: true,
         modifiable: false,
         systemKind: 'sql_pool_coordination',
         reason: 'SQL pool coordination',
+      };
+    }
+    if (key.startsWith(`${this.nodeName}:rl:`) || key.startsWith('rl:')) {
+      return {
+        isSystem: true,
+        modifiable: false,
+        systemKind: 'rate_limit',
+        reason: 'rate limit state',
       };
     }
     for (const item of systemPrefixes) {
@@ -689,6 +711,23 @@ export class RedisAdminService {
     };
   }
 
+  private matchesListFilter(
+    key: RedisAdminKeySummary,
+    filter?: RedisAdminSystemKind | 'custom' | 'all',
+  ): boolean {
+    if (filter === 'rate_limit' || filter === 'sql_pool_coordination') {
+      return key.systemKind === filter;
+    }
+    if (this.isTransientKey(key)) return false;
+    if (!filter || filter === 'all') return true;
+    if (filter === 'custom') return !key.isSystem && !key.systemKind;
+    return key.systemKind === filter;
+  }
+
+  private isTransientKey(key: RedisAdminKeySummary): boolean {
+    return key.systemKind === 'rate_limit' || key.systemKind === 'sql_pool_coordination';
+  }
+
   private async getUserCacheQuota(): Promise<RedisAdminOverview['userCache']> {
     const usedBytes = Math.max(
       0,
@@ -844,6 +883,8 @@ export class RedisAdminService {
         return 'runtime monitor';
       case 'sql_pool_coordination':
         return 'SQL pool';
+      case 'rate_limit':
+        return 'rate limit';
       case 'system_lock':
         return 'system lock';
     }

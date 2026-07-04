@@ -92,19 +92,19 @@ export class GuardEvaluatorService {
     switch (rule.type) {
       case 'rate_limit_by_ip':
         return this.evalRateLimit(
-          `ip:${evalCtx.clientIp}:${evalCtx.routePath}`,
+          `guard_rule:${rule.id}:ip:${evalCtx.clientIp}`,
           rule,
           guardName,
         );
       case 'rate_limit_by_user':
         return this.evalRateLimit(
-          `user:${evalCtx.userId || 'anonymous'}:${evalCtx.routePath}`,
+          `guard_rule:${rule.id}:user:${evalCtx.userId || 'anonymous'}`,
           rule,
           guardName,
         );
       case 'rate_limit_by_route':
         return this.evalRateLimit(
-          `route:${evalCtx.routePath}`,
+          `guard_rule:${rule.id}:route:${evalCtx.routePath}`,
           rule,
           guardName,
         );

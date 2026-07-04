@@ -104,7 +104,7 @@ describe('GuardEvaluatorService', () => {
     });
 
     it('should reject with 429 when rate limit exceeded', async () => {
-      rateLimitService.setResult('ip:1.2.3.4:/test', false);
+      rateLimitService.setResult('guard_rule:1:ip:1.2.3.4', false);
       const guard = makeGuard({
         rules: [
           makeRule({
@@ -136,7 +136,7 @@ describe('GuardEvaluatorService', () => {
         routePath: '/test',
         userId: 'user-123',
       });
-      expect(rateLimitService.calledKeys).toContain('user:user-123:/test');
+      expect(rateLimitService.calledKeys).toContain('guard_rule:1:user:user-123');
     });
 
     it('should use correct key for rate_limit_by_route', async () => {
@@ -152,7 +152,34 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/api/posts',
       });
-      expect(rateLimitService.calledKeys).toContain('route:/api/posts');
+      expect(rateLimitService.calledKeys).toContain('guard_rule:1:route:/api/posts');
+    });
+
+    it('should scope IP counters by guard rule instead of route path', async () => {
+      const guard = makeGuard({
+        isGlobal: true,
+        rules: [
+          makeRule({
+            id: 9,
+            type: 'rate_limit_by_ip',
+            config: { maxRequests: 100, perSeconds: 60 },
+          }),
+        ],
+      });
+
+      await evaluator.evaluateGuard(guard, {
+        clientIp: '1.2.3.4',
+        routePath: '/metadata',
+      });
+      await evaluator.evaluateGuard(guard, {
+        clientIp: '1.2.3.4',
+        routePath: '/enfyra_menu',
+      });
+
+      expect(rateLimitService.calledKeys).toEqual([
+        'guard_rule:9:ip:1.2.3.4',
+        'guard_rule:9:ip:1.2.3.4',
+      ]);
     });
 
     it('should skip rule with missing config', async () => {
@@ -333,7 +360,7 @@ describe('GuardEvaluatorService', () => {
     });
 
     it('should reject on first failing rule (short-circuit)', async () => {
-      rateLimitService.setResult('ip:1.2.3.4:/test', false);
+      rateLimitService.setResult('guard_rule:10:ip:1.2.3.4', false);
       const guard = makeGuard({
         combinator: 'and',
         rules: [
@@ -361,7 +388,7 @@ describe('GuardEvaluatorService', () => {
 
   describe('cost-based rule ordering', () => {
     it('should evaluate IP rules before rate limit rules (AND)', async () => {
-      rateLimitService.setResult('ip:1.2.3.4:/test', false);
+      rateLimitService.setResult('guard_rule:1:ip:1.2.3.4', false);
       const guard = makeGuard({
         combinator: 'and',
         rules: [
@@ -416,7 +443,7 @@ describe('GuardEvaluatorService', () => {
     });
 
     it('should skip rate limit when IP whitelist passes (OR)', async () => {
-      rateLimitService.setResult('ip:10.0.0.1:/test', false);
+      rateLimitService.setResult('guard_rule:1:ip:10.0.0.1', false);
       const guard = makeGuard({
         combinator: 'or',
         rules: [
@@ -442,7 +469,7 @@ describe('GuardEvaluatorService', () => {
     });
 
     it('should still call rate limit when IP check passes (AND)', async () => {
-      rateLimitService.setResult('ip:10.0.0.1:/test', false);
+      rateLimitService.setResult('guard_rule:1:ip:10.0.0.1', false);
       const guard = makeGuard({
         combinator: 'and',
         rules: [
@@ -521,7 +548,7 @@ describe('GuardEvaluatorService', () => {
 
   describe('nested guard tree', () => {
     it('should evaluate (rate_limit AND rate_limit_by_route) OR ip_whitelist', async () => {
-      rateLimitService.setResult('ip:1.2.3.4:/test', false);
+      rateLimitService.setResult('guard_rule:10:ip:1.2.3.4', false);
 
       const guard = makeGuard({
         combinator: 'or',
@@ -568,7 +595,7 @@ describe('GuardEvaluatorService', () => {
     });
 
     it('should reject when nested OR has no passing branch', async () => {
-      rateLimitService.setResult('ip:1.2.3.4:/test', false);
+      rateLimitService.setResult('guard_rule:10:ip:1.2.3.4', false);
 
       const guard = makeGuard({
         combinator: 'or',
@@ -677,7 +704,7 @@ describe('GuardEvaluatorService', () => {
 
   describe('user scoping', () => {
     it('should apply rule only to specified users', async () => {
-      rateLimitService.setResult('user:user-A:/test', false);
+      rateLimitService.setResult('guard_rule:1:user:user-A', false);
       const guard = makeGuard({
         rules: [
           makeRule({
@@ -723,7 +750,7 @@ describe('GuardEvaluatorService', () => {
     });
 
     it('should apply rule to all users when userIds is empty', async () => {
-      rateLimitService.setResult('user:user-X:/test', false);
+      rateLimitService.setResult('guard_rule:1:user:user-X', false);
       const guard = makeGuard({
         rules: [
           makeRule({

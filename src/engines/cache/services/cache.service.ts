@@ -1,14 +1,22 @@
 import { Redis } from 'ioredis';
 import { EnvService } from '../../../shared/services';
 import { ICache } from '../../../domain/shared/interfaces/cache.interface';
+import { RuntimeNamespaceLifecycleService } from './runtime-namespace-lifecycle.service';
 
 export class CacheService implements ICache {
   private readonly redis: Redis;
   private readonly nodeName: string | null;
   private readonly envService: EnvService;
-  constructor(deps: { redis: Redis; envService: EnvService }) {
+  private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
+  constructor(deps: {
+    redis: Redis;
+    envService: EnvService;
+    runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
+  }) {
     this.redis = deps.redis;
     this.envService = deps.envService;
+    this.runtimeNamespaceLifecycleService =
+      deps.runtimeNamespaceLifecycleService;
     if (!this.redis) {
       throw new Error(
         'Redis connection not available - CacheService cannot initialize',
@@ -96,7 +104,12 @@ export class CacheService implements ICache {
   }
   async setNoExpire<T = any>(key: string, val: T): Promise<void> {
     const decoratedKey = this.decorateKey(key);
-    await this.redis.set(decoratedKey, JSON.stringify(val));
+    const ttlMs = this.runtimeNamespaceLifecycleService?.getKeyTtlMs();
+    if (ttlMs && ttlMs > 0) {
+      await this.redis.set(decoratedKey, JSON.stringify(val), 'PX', ttlMs);
+    } else {
+      await this.redis.set(decoratedKey, JSON.stringify(val));
+    }
   }
   async clearAll(): Promise<void> {
     if (!this.nodeName) {
