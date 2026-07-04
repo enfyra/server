@@ -38,6 +38,11 @@ class FakePipeline {
     return this;
   }
 
+  pexpire(key: string, ttlMs: number) {
+    this.ops.push(() => this.redis.pexpireSync(key, ttlMs));
+    return this;
+  }
+
   async exec() {
     for (const op of this.ops) op();
     return [];
@@ -48,6 +53,7 @@ class FakeRedis {
   strings = new Map<string, string>();
   hashes = new Map<string, Map<string, string>>();
   zsets = new Map<string, Map<string, number>>();
+  expiries = new Map<string, number>();
 
   pipeline() {
     return new FakePipeline(this);
@@ -56,6 +62,10 @@ class FakeRedis {
   async set(key: string, value: string, ...args: any[]) {
     if (args.includes('NX') && this.strings.has(key)) return null;
     this.strings.set(key, value);
+    const pxIndex = args.indexOf('PX');
+    if (pxIndex >= 0 && typeof args[pxIndex + 1] === 'number') {
+      this.pexpireSync(key, args[pxIndex + 1]);
+    }
     return 'OK';
   }
 
@@ -131,6 +141,12 @@ class FakeRedis {
     const next = Number(this.strings.get(key) ?? 0) + amount;
     this.strings.set(key, String(next));
   }
+
+  pexpireSync(key: string, ttlMs: number) {
+    if (this.strings.has(key) || this.hashes.has(key) || this.zsets.has(key)) {
+      this.expiries.set(key, ttlMs);
+    }
+  }
 }
 
 function makeService(limitMb: number, maxValueBytes = 0) {
@@ -147,6 +163,9 @@ function makeService(limitMb: number, maxValueBytes = 0) {
           return undefined;
         },
       } as any,
+      runtimeNamespaceLifecycleService: {
+        getKeyTtlMs: () => 5000,
+      } as any,
     }),
   };
 }
@@ -160,7 +179,34 @@ describe('UserCacheService', () => {
     expect(redis.strings.get('app-a:user_cache:feature')).toBe(
       '{"enabled":true}',
     );
+    expect(redis.expiries.get('app-a:user_cache:feature')).toBe(1000);
     expect(await service.get('feature')).toEqual({ enabled: true });
+  });
+
+  it('stores zero-ttl values and user cache metadata with lifecycle ttl', async () => {
+    const { redis, service } = makeService(1);
+
+    await service.set('feature', { enabled: true }, 0);
+
+    expect(redis.expiries.get('app-a:user_cache:feature')).toBe(5000);
+    expect(redis.expiries.get('app-a:user_cache_meta:lru')).toBe(5000);
+    expect(redis.expiries.get('app-a:user_cache_meta:sizes')).toBe(5000);
+    expect(redis.expiries.get('app-a:user_cache_meta:total_bytes')).toBe(5000);
+  });
+
+  it('repairs lifecycle ttl when untracking stale user cache metadata', async () => {
+    const { redis, service } = makeService(1);
+    const key = 'app-a:user_cache:ghost';
+
+    redis.hsetSync('app-a:user_cache_meta:sizes', key, '4');
+    redis.zaddSync('app-a:user_cache_meta:lru', 1, key);
+    redis.strings.set('app-a:user_cache_meta:total_bytes', '4');
+
+    await service.deleteKey('ghost');
+
+    expect(redis.expiries.get('app-a:user_cache_meta:lru')).toBe(5000);
+    expect(redis.expiries.get('app-a:user_cache_meta:sizes')).toBe(5000);
+    expect(redis.expiries.get('app-a:user_cache_meta:total_bytes')).toBe(5000);
   });
 
   it('evicts least recently used keys when the user cache quota is exceeded', async () => {
@@ -189,5 +235,13 @@ describe('UserCacheService', () => {
     expect(await service.get('lock')).toBe('a');
     expect(await service.release('lock', 'a')).toBe(true);
     expect(await service.get('lock')).toBeNull();
+  });
+
+  it('acquires zero-ttl locks with lifecycle ttl', async () => {
+    const { redis, service } = makeService(1);
+
+    expect(await service.acquire('lock', 'a', 0)).toBe(true);
+
+    expect(redis.expiries.get('app-a:user_cache:lock')).toBe(5000);
   });
 });

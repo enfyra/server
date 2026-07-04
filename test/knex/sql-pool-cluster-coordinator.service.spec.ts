@@ -3,6 +3,50 @@ import { SqlPoolClusterCoordinatorService } from '../../src/engines/knex';
 
 class FakeRedis {
   zsets = new Map<string, Map<string, number>>();
+  expiries = new Map<string, number>();
+
+  pipeline() {
+    const ops: Array<() => void> = [];
+    return {
+      zadd: (key: string, score: number, member: string) => {
+        ops.push(() => {
+          const zset = this.zsets.get(key) ?? new Map<string, number>();
+          zset.set(member, score);
+          this.zsets.set(key, zset);
+        });
+        return this.pipelineProxy(ops);
+      },
+      pexpire: (key: string, ttlMs: number) => {
+        ops.push(() => this.expiries.set(key, ttlMs));
+        return this.pipelineProxy(ops);
+      },
+      exec: async () => {
+        for (const op of ops) op();
+        return [];
+      },
+    };
+  }
+
+  private pipelineProxy(ops: Array<() => void>): any {
+    return {
+      zadd: (key: string, score: number, member: string) => {
+        ops.push(() => {
+          const zset = this.zsets.get(key) ?? new Map<string, number>();
+          zset.set(member, score);
+          this.zsets.set(key, zset);
+        });
+        return this.pipelineProxy(ops);
+      },
+      pexpire: (key: string, ttlMs: number) => {
+        ops.push(() => this.expiries.set(key, ttlMs));
+        return this.pipelineProxy(ops);
+      },
+      exec: async () => {
+        for (const op of ops) op();
+        return [];
+      },
+    };
+  }
 
   async zadd(key: string, score: number, member: string) {
     const zset = this.zsets.get(key) ?? new Map<string, number>();
@@ -26,6 +70,11 @@ class FakeRedis {
       }
     }
     return removed;
+  }
+
+  async pexpire(key: string, ttlMs: number) {
+    this.expiries.set(key, ttlMs);
+    return 1;
   }
 
   async zcard(key: string) {
@@ -98,6 +147,7 @@ describe('SqlPoolClusterCoordinatorService', () => {
       }),
     );
     const appAStats = await appA.getClusterStats();
+    expect(redis.expiries.get(appAStats.key)).toBeGreaterThan(0);
     expect(appAStats.instances).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'app-b:same-instance' }),

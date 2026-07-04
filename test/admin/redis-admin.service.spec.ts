@@ -97,13 +97,13 @@ class FakeRedis {
     const matchIndex = args.findIndex((item) => item === 'MATCH');
     const pattern = matchIndex >= 0 ? String(args[matchIndex + 1]) : '*';
     const regex = new RegExp(
-      `^${pattern
-        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*/g, '.*')}$`,
+      `^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`,
     );
     return [
       '0',
-      cursor === '0' ? [...this.values.keys()].filter((key) => regex.test(key)) : [],
+      cursor === '0'
+        ? [...this.values.keys()].filter((key) => regex.test(key))
+        : [],
     ];
   }
 
@@ -155,7 +155,10 @@ class FakeRedis {
 
   async hscan(key: string) {
     const value = this.values.get(key)?.value ?? {};
-    return ['0', Object.entries(value).flatMap(([field, item]) => [field, item])];
+    return [
+      '0',
+      Object.entries(value).flatMap(([field, item]) => [field, item]),
+    ];
   }
 
   async lrange(key: string, start: number, end: number) {
@@ -194,12 +197,6 @@ class FakeRedis {
   async expire(key: string, ttl: number) {
     this.expireSync(key, ttl);
     return 1;
-  }
-
-  async persist(key: string) {
-    const value = this.values.get(key);
-    if (value) value.ttl = -1;
-    return value ? 1 : 0;
   }
 
   delSync(key: string) {
@@ -242,12 +239,13 @@ class FakeRedis {
 }
 
 function makeService(redis = new FakeRedis()) {
+  const lifecycleTtlMs = 30 * 60 * 1000;
   const userCacheService = {
     async set(key: string, value: any, ttlMs: number) {
       redis.values.set(`app-a:user_cache:${key}`, {
         type: 'string',
         value: typeof value === 'string' ? value : JSON.stringify(value),
-        ttl: ttlMs > 0 ? ttlMs / 1000 : -1,
+        ttl: ttlMs > 0 ? ttlMs / 1000 : lifecycleTtlMs / 1000,
       });
     },
     async deleteKey(key: string) {
@@ -262,6 +260,9 @@ function makeService(redis = new FakeRedis()) {
         get: (key: string) => (key === 'NODE_NAME' ? 'app-a' : 0),
       } as any,
       userCacheService: userCacheService as any,
+      runtimeNamespaceLifecycleService: {
+        getKeyTtlMs: () => lifecycleTtlMs,
+      } as any,
     }),
   };
 }
@@ -391,6 +392,49 @@ describe('RedisAdminService', () => {
     expect(redis.values.has('app-a:user_cache:user:feature-flag')).toBe(true);
   });
 
+  it('uses lifecycle ttl instead of persisting custom keys', async () => {
+    const { redis, service } = makeService();
+
+    const detail = await service.setKey({
+      key: 'user:lifecycle-default',
+      type: 'string',
+      value: 'enabled',
+    });
+
+    expect(detail.ttlSeconds).toBe(1800);
+    expect(
+      redis.values.get('app-a:user_cache:user:lifecycle-default')?.ttl,
+    ).toBe(1800);
+
+    await service.expireKey('user:lifecycle-default', 120);
+    expect(
+      redis.values.get('app-a:user_cache:user:lifecycle-default')?.ttl,
+    ).toBe(120);
+
+    await service.expireKey('user:lifecycle-default', null);
+    expect(
+      redis.values.get('app-a:user_cache:user:lifecycle-default')?.ttl,
+    ).toBe(1800);
+  });
+
+  it.each([
+    ['hash', { field: 'value' }],
+    ['list', ['a', 'b']],
+    ['set', ['a', 'b']],
+    ['zset', [{ value: 'a', score: 1 }]],
+  ] as const)('uses lifecycle ttl for raw %s writes', async (type, value) => {
+    const { redis, service } = makeService();
+    redis.setSync(`app-a:custom:${type}`, 'old');
+
+    await service.setKey({
+      key: `custom:${type}`,
+      type,
+      value,
+    });
+
+    expect(redis.values.get(`app-a:custom:${type}`)?.ttl).toBe(1800);
+  });
+
   it('searches editable keys through the $cache user_cache namespace', async () => {
     const { redis, service } = makeService();
     redis.setSync('app-a:user_cache:feature', 'enabled');
@@ -412,14 +456,22 @@ describe('RedisAdminService', () => {
     const { redis, service } = makeService();
     redis.setSync('app-a:user:0c94ba93-5440-4038-80f6-919e9787aabf', 'legacy');
 
-    const detail = await service.getKey('user:0c94ba93-5440-4038-80f6-919e9787aabf');
+    const detail = await service.getKey(
+      'user:0c94ba93-5440-4038-80f6-919e9787aabf',
+    );
     expect(detail.value).toBe('legacy');
 
     await expect(
       service.deleteKey('user:0c94ba93-5440-4038-80f6-919e9787aabf'),
     ).resolves.toEqual({ deleted: 1 });
-    expect(redis.values.has('app-a:user:0c94ba93-5440-4038-80f6-919e9787aabf')).toBe(false);
-    expect(redis.values.has('app-a:user_cache:user:0c94ba93-5440-4038-80f6-919e9787aabf')).toBe(false);
+    expect(
+      redis.values.has('app-a:user:0c94ba93-5440-4038-80f6-919e9787aabf'),
+    ).toBe(false);
+    expect(
+      redis.values.has(
+        'app-a:user_cache:user:0c94ba93-5440-4038-80f6-919e9787aabf',
+      ),
+    ).toBe(false);
   });
 
   it('marks user cache quota trackers as editable user cache, not system', async () => {
@@ -465,7 +517,9 @@ describe('RedisAdminService', () => {
         reason: 'runtime cache snapshot',
       }),
     );
-    await expect(service.deleteKey('app-a:runtime_cache:metadata')).rejects.toMatchObject({
+    await expect(
+      service.deleteKey('app-a:runtime_cache:metadata'),
+    ).rejects.toMatchObject({
       statusCode: 403,
       errorCode: 'AUTHORIZATION_ERROR',
     });
@@ -496,7 +550,9 @@ describe('RedisAdminService', () => {
     const current = await service.listKeys({});
     const overview = await service.getOverview();
 
-    expect(current.keys.map((item) => item.key)).toEqual(['runtime_cache:metadata']);
+    expect(current.keys.map((item) => item.key)).toEqual([
+      'runtime_cache:metadata',
+    ]);
     expect(overview.groups[0]).toEqual(
       expect.objectContaining({
         name: 'runtime cache',
@@ -505,7 +561,9 @@ describe('RedisAdminService', () => {
       }),
     );
     expect(current.keys).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ namespace: 'enfyra_bench_1' })]),
+      expect.arrayContaining([
+        expect.objectContaining({ namespace: 'enfyra_bench_1' }),
+      ]),
     );
   });
 
@@ -519,7 +577,9 @@ describe('RedisAdminService', () => {
     });
     const detail = await service.getKey('runtime_cache:metadata');
 
-    expect(result.keys.map((item) => item.key)).toEqual(['runtime_cache:metadata']);
+    expect(result.keys.map((item) => item.key)).toEqual([
+      'runtime_cache:metadata',
+    ]);
     expect(detail).toEqual(
       expect.objectContaining({
         key: 'runtime_cache:metadata',

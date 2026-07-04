@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { SystemSafetyAuditorService } from '../../src/domain/policy/services/system-safety-auditor.service';
 
 function makeService(tableColumns: any[] = [{ name: 'isSystem' }]) {
-  const metadataCacheService = {
-    getMetadata: vi.fn().mockResolvedValue({
+  const runtimeRegistryService = {
+    requireMetadata: vi.fn().mockReturnValue({
       tables: new Map([
         [
           'app_user',
@@ -30,7 +30,7 @@ function makeService(tableColumns: any[] = [{ name: 'isSystem' }]) {
   return {
     service: new SystemSafetyAuditorService({
       commonService: commonService as any,
-      metadataCacheService: metadataCacheService as any,
+      runtimeRegistryService: runtimeRegistryService as any,
       schemaMigrationValidatorService: schemaMigrationValidatorService as any,
     }),
     commonService,

@@ -30,6 +30,13 @@ const EnvSchema = z.object({
     .min(0)
     .optional()
     .default(0),
+  REDIS_NAMESPACE_KEY_TTL_MS: z.coerce.number().int().positive().optional(),
+  REDIS_NAMESPACE_LEASE_TTL_MS: z.coerce.number().int().positive().optional(),
+  REDIS_NAMESPACE_RENEW_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional(),
   ASSET_CACHE_MEMORY_PRESSURE_RATIO: z.coerce
     .number()
     .min(0)

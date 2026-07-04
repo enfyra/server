@@ -39,6 +39,10 @@ export class SqlPoolClusterCoordinatorService {
   private readonly knexService: KnexService;
   private readonly eventEmitter: EventEmitter2;
   private readonly replicationManager?: ReplicationManager;
+  private readonly coordinationKeyTtlMs = Math.max(
+    SQL_COORD_STALE_MS * 2,
+    SQL_COORD_HEARTBEAT_MS * 5,
+  );
 
   constructor(deps: {
     redis: Redis;
@@ -138,7 +142,10 @@ export class SqlPoolClusterCoordinatorService {
       return;
     }
     try {
-      await this.redis.zadd(this.zsetKey, Date.now(), this.instanceId);
+      const pipeline = this.redisTransaction(this.redis);
+      pipeline.zadd(this.zsetKey, Date.now(), this.instanceId);
+      pipeline.pexpire(this.zsetKey, this.coordinationKeyTtlMs);
+      await pipeline.exec();
     } catch (e) {
       this.logger.warn(
         `Pool coordination heartbeat failed: ${(e as Error).message}`,
@@ -156,6 +163,7 @@ export class SqlPoolClusterCoordinatorService {
       '-inf',
       now - SQL_COORD_STALE_MS,
     );
+    await this.redis.pexpire(this.zsetKey, this.coordinationKeyTtlMs);
     const n = await this.redis.zcard(this.zsetKey);
     return Math.max(1, n);
   }
@@ -209,6 +217,7 @@ export class SqlPoolClusterCoordinatorService {
       '-inf',
       now - SQL_COORD_STALE_MS,
     );
+    await this.redis.pexpire(this.zsetKey, this.coordinationKeyTtlMs);
     const rows = await this.redis.zrange(this.zsetKey, 0, -1, 'WITHSCORES');
     const instances: Array<{
       id: string;
@@ -328,5 +337,14 @@ export class SqlPoolClusterCoordinatorService {
         `Pool coordination reconcile failed: ${(e as Error).message}`,
       );
     }
+  }
+
+  private redisTransaction(redis: Redis): ReturnType<Redis['pipeline']> {
+    const client = redis as Redis & {
+      multi?: () => ReturnType<Redis['pipeline']>;
+    };
+    return typeof client.multi === 'function'
+      ? client.multi()
+      : redis.pipeline();
   }
 }
