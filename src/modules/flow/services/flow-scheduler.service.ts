@@ -3,7 +3,9 @@ import { parseExpression } from 'cron-parser';
 import { Queue } from 'bullmq';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
+import type { RuntimeNamespaceLifecycleService } from '../../../engines/cache/services/runtime-namespace-lifecycle.service';
 
 interface ScheduledFlow {
   id: string | number;
@@ -38,14 +40,18 @@ export class FlowSchedulerService {
   };
   private readonly flowQueue: Queue;
   private readonly runtimeRegistryService: RuntimeRegistryService;
+  private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
 
   constructor(deps: {
     flowQueue: Queue;
     runtimeRegistryService: RuntimeRegistryService;
+    runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
     eventEmitter?: any;
   }) {
     this.flowQueue = deps.flowQueue;
     this.runtimeRegistryService = deps.runtimeRegistryService;
+    this.runtimeNamespaceLifecycleService =
+      deps.runtimeNamespaceLifecycleService;
   }
 
   async init(): Promise<void> {
@@ -142,6 +148,9 @@ export class FlowSchedulerService {
       if (registered > 0) {
         this.logger.log(`Registered ${registered} scheduled flows`);
       }
+      await this.runtimeNamespaceLifecycleService?.renewSystemQueueKeys(
+        SYSTEM_QUEUES.FLOW_EXECUTION,
+      );
 
       this.lastReconcileState = {
         status: 'ok',

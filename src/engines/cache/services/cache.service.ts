@@ -87,7 +87,18 @@ export class CacheService implements ICache {
     if (ttlMs > 0) {
       await this.redis.set(decoratedKey, serializedValue, 'PX', ttlMs);
     } else {
-      await this.redis.set(decoratedKey, serializedValue);
+      const namespaceTtlMs =
+        this.runtimeNamespaceLifecycleService?.getKeyTtlMs();
+      if (namespaceTtlMs && namespaceTtlMs > 0) {
+        await this.redis.set(
+          decoratedKey,
+          serializedValue,
+          'PX',
+          namespaceTtlMs,
+        );
+      } else {
+        await this.redis.set(decoratedKey, serializedValue);
+      }
     }
   }
   async exists(key: string, value: any): Promise<boolean> {

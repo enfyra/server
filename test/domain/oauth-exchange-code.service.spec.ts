@@ -3,10 +3,19 @@ import { OAuthExchangeCodeService } from '../../src/domain/auth';
 
 function createHarness() {
   const store = new Map<string, any>();
+  const pipeline = {
+    zadd: vi.fn(() => pipeline),
+    pexpire: vi.fn(() => pipeline),
+    exec: vi.fn(async () => []),
+  };
   const redis = {
     zadd: vi.fn(async () => 1),
     zrangebyscore: vi.fn(async () => [] as string[]),
     zrem: vi.fn(async () => 1),
+    zcard: vi.fn(async () => 0),
+    pexpire: vi.fn(async () => 1),
+    del: vi.fn(async () => 1),
+    pipeline: vi.fn(() => pipeline),
   };
   const cacheService = {
     get: vi.fn(async (key: string) => store.get(key) ?? null),
@@ -30,12 +39,12 @@ function createHarness() {
     envService: envService as any,
   });
 
-  return { service, redis, cacheService, queryBuilderService, store };
+  return { service, redis, pipeline, cacheService, queryBuilderService, store };
 }
 
 describe('OAuthExchangeCodeService', () => {
   it('stores exchange tokens behind a temporary code', async () => {
-    const { service, redis, cacheService } = createHarness();
+    const { service, pipeline, cacheService } = createHarness();
     const code = await service.createCodeForTokens({
       accessToken: 'access',
       refreshToken: 'refresh',
@@ -47,14 +56,27 @@ describe('OAuthExchangeCodeService', () => {
     expect(code).toEqual(expect.any(String));
     expect(cacheService.set).toHaveBeenCalledWith(
       `auth:oauth-exchange:code:${code}`,
-      expect.objectContaining({ accessToken: 'access', sessionId: 'session-1' }),
+      expect.objectContaining({
+        accessToken: 'access',
+        sessionId: 'session-1',
+      }),
       600000,
     );
-    expect(redis.zadd).toHaveBeenCalledWith(
+    expect(cacheService.set).toHaveBeenCalledWith(
+      `auth:oauth-exchange:pending:${code}`,
+      expect.objectContaining({ sessionId: 'session-1' }),
+      1200000,
+    );
+    expect(pipeline.zadd).toHaveBeenCalledWith(
       'auth:oauth-exchange:pending-index',
       expect.any(Number),
       code,
     );
+    expect(pipeline.pexpire).toHaveBeenCalledWith(
+      'auth:oauth-exchange:pending-index',
+      1200000,
+    );
+    expect(pipeline.exec).toHaveBeenCalledTimes(1);
   });
 
   it('deletes the temporary code when exchange succeeds', async () => {
@@ -94,5 +116,6 @@ describe('OAuthExchangeCodeService', () => {
       'session-1',
     );
     expect(store.has('auth:oauth-exchange:pending:expired-code')).toBe(false);
+    expect(redis.del).toHaveBeenCalledWith('auth:oauth-exchange:pending-index');
   });
 });

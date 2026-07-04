@@ -2,13 +2,11 @@ import { randomUUID } from 'crypto';
 import { Worker, type Job, type Queue } from 'bullmq';
 import type { Db } from 'mongodb';
 import { Logger } from '../../../shared/logger';
-import {
-  DatabaseConfigService,
-  EnvService,
-} from '../../../shared/services';
+import { DatabaseConfigService, EnvService } from '../../../shared/services';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { MongoService } from './mongo.service';
+import type { RuntimeNamespaceLifecycleService } from '../../cache/services/runtime-namespace-lifecycle.service';
 
 type MongoPhysicalMigrationStatus =
   | 'pending'
@@ -50,6 +48,7 @@ export class MongoPhysicalMigrationService {
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly envService: EnvService;
   private readonly queue: Queue;
+  private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
   private worker?: Worker;
   private activeRenameCache = new Map<
     string,
@@ -61,11 +60,14 @@ export class MongoPhysicalMigrationService {
     databaseConfigService: DatabaseConfigService;
     envService: EnvService;
     mongoPhysicalMigrationQueue: Queue;
+    runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
   }) {
     this.mongoService = deps.mongoService;
     this.databaseConfigService = deps.databaseConfigService;
     this.envService = deps.envService;
     this.queue = deps.mongoPhysicalMigrationQueue;
+    this.runtimeNamespaceLifecycleService =
+      deps.runtimeNamespaceLifecycleService;
   }
 
   async init(): Promise<void> {
@@ -116,7 +118,11 @@ export class MongoPhysicalMigrationService {
 
     const collection = this.collection();
     for (const rename of renames) {
-      if (!rename.oldName || !rename.newName || rename.oldName === rename.newName) {
+      if (
+        !rename.oldName ||
+        !rename.newName ||
+        rename.oldName === rename.newName
+      ) {
         continue;
       }
       const now = new Date().toISOString();
@@ -156,6 +162,9 @@ export class MongoPhysicalMigrationService {
           removeOnComplete: true,
           removeOnFail: 100,
         },
+      );
+      await this.runtimeNamespaceLifecycleService?.renewSystemQueueKeys(
+        SYSTEM_QUEUES.MONGO_PHYSICAL_MIGRATION,
       );
     }
     this.invalidateActiveRenameCache(tableName);
@@ -240,7 +249,10 @@ export class MongoPhysicalMigrationService {
     for (const row of rows) {
       if (!row || typeof row !== 'object') continue;
       for (const rename of renames) {
-        if (row[rename.newName] === undefined && row[rename.oldName] !== undefined) {
+        if (
+          row[rename.newName] === undefined &&
+          row[rename.oldName] !== undefined
+        ) {
           row[rename.newName] = row[rename.oldName];
         }
         if (hidden.has(rename.oldName) || row[rename.newName] !== undefined) {
@@ -296,7 +308,9 @@ export class MongoPhysicalMigrationService {
   private async renameFieldInBatches(
     migration: MongoFieldRenameMigration,
   ): Promise<{ processed: number; conflictCount: number }> {
-    const collection = this.mongoService.getDb().collection(migration.tableName);
+    const collection = this.mongoService
+      .getDb()
+      .collection(migration.tableName);
     let processed = migration.processed || 0;
     let conflictCount = migration.conflictCount || 0;
     let lastId: any;

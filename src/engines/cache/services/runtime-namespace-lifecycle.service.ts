@@ -120,6 +120,28 @@ export class RuntimeNamespaceLifecycleService {
     await pipeline.exec();
   }
 
+  async renewKeysByPattern(
+    pattern: string,
+    ttlMs = this.keyTtlMs,
+  ): Promise<void> {
+    if (!this.enabled || ttlMs <= 0 || !pattern) return;
+    try {
+      await this.expireByPattern(pattern, ttlMs);
+    } catch (error) {
+      this.logger.warn(
+        `Runtime namespace pattern renew failed for ${pattern}: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  async renewSystemQueueKeys(queueName: string): Promise<void> {
+    if (!this.enabled || !queueName) return;
+    await this.renewKeysByPattern(
+      `${this.nodeName}:${queueName}:*`,
+      this.keyTtlMs,
+    );
+  }
+
   async renewCurrentNamespaceKeys(): Promise<void> {
     if (!this.enabled || this.renewing) return;
     this.renewing = true;
