@@ -133,6 +133,7 @@ function createService(redis: FakeRedis, nodeName = 'app-a') {
         if (key === 'REDIS_NAMESPACE_RENEW_INTERVAL_MS') return 1000000;
         if (key === 'REDIS_NAMESPACE_JANITOR_INTERVAL_MS') return 1000000;
         if (key === 'REDIS_NAMESPACE_STALE_GRACE_MS') return 5000;
+        if (key === 'NODE_ENV') return 'test';
         return undefined;
       },
     } as any,
@@ -140,7 +141,7 @@ function createService(redis: FakeRedis, nodeName = 'app-a') {
 }
 
 describe('RuntimeNamespaceLifecycleService', () => {
-  it('renews TTL for Enfyra-owned keys in the current namespace', async () => {
+  it('renews TTL for safe runtime keys in the current namespace', async () => {
     const redis = new FakeRedis();
     redis.values.set('app-a:runtime_cache:metadata', 'cache');
     redis.values.set('app-a:sys_flow-execution:completed', 'queue');

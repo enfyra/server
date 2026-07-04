@@ -10,6 +10,7 @@ const DEFAULT_LEASE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_RENEW_INTERVAL_MS = 60 * 1000;
 const DEFAULT_JANITOR_INTERVAL_MS = 5 * 60 * 1000;
 const DEFAULT_STALE_GRACE_MS = 24 * 60 * 60 * 1000;
+const MIN_KEY_TTL_MS = 24 * 60 * 60 * 1000;
 const SCAN_COUNT = 250;
 
 export interface RuntimeNamespaceCleanupResult {
@@ -51,14 +52,21 @@ export class RuntimeNamespaceLifecycleService {
     this.keyTtlMs = this.readPositiveNumber(
       'REDIS_NAMESPACE_KEY_TTL_MS',
       DEFAULT_KEY_TTL_MS,
+      MIN_KEY_TTL_MS,
     );
     this.leaseTtlMs = this.readPositiveNumber(
       'REDIS_NAMESPACE_LEASE_TTL_MS',
       DEFAULT_LEASE_TTL_MS,
     );
-    this.renewIntervalMs = this.readPositiveNumber(
-      'REDIS_NAMESPACE_RENEW_INTERVAL_MS',
-      Math.min(DEFAULT_RENEW_INTERVAL_MS, Math.max(1000, this.leaseTtlMs / 3)),
+    this.renewIntervalMs = Math.min(
+      this.readPositiveNumber(
+        'REDIS_NAMESPACE_RENEW_INTERVAL_MS',
+        Math.min(
+          DEFAULT_RENEW_INTERVAL_MS,
+          Math.max(1000, this.leaseTtlMs / 3),
+        ),
+      ),
+      Math.max(1000, Math.floor(this.keyTtlMs / 3)),
     );
     this.janitorIntervalMs = this.readPositiveNumber(
       'REDIS_NAMESPACE_JANITOR_INTERVAL_MS',
@@ -117,7 +125,7 @@ export class RuntimeNamespaceLifecycleService {
     this.renewing = true;
     try {
       await this.heartbeat();
-      for (const pattern of this.namespacePatterns(this.nodeName)) {
+      for (const pattern of this.renewableNamespacePatterns(this.nodeName)) {
         await this.expireByPattern(pattern, this.keyTtlMs);
       }
     } catch (error) {
@@ -164,7 +172,7 @@ export class RuntimeNamespaceLifecycleService {
   async cleanupNamespace(namespace: string): Promise<number> {
     if (!this.enabled || !namespace || namespace === this.nodeName) return 0;
     let deleted = 0;
-    for (const pattern of this.namespacePatterns(namespace)) {
+    for (const pattern of this.cleanupNamespacePatterns(namespace)) {
       deleted += await this.unlinkByPattern(pattern);
     }
     return deleted;
@@ -251,7 +259,7 @@ export class RuntimeNamespaceLifecycleService {
     return this.redis.del(...keys);
   }
 
-  private namespacePatterns(namespace: string): string[] {
+  private renewableNamespacePatterns(namespace: string): string[] {
     return [
       `${namespace}:runtime_lifecycle:*`,
       `${namespace}:runtime_cache:*`,
@@ -264,6 +272,10 @@ export class RuntimeNamespaceLifecycleService {
       `${namespace}:coord:sql:*`,
       ...Object.values(SYSTEM_QUEUES).map((queue) => `${namespace}:${queue}:*`),
     ];
+  }
+
+  private cleanupNamespacePatterns(namespace: string): string[] {
+    return this.renewableNamespacePatterns(namespace);
   }
 
   private registryKey(): string {
@@ -281,8 +293,11 @@ export class RuntimeNamespaceLifecycleService {
   private readPositiveNumber(
     key: Parameters<EnvService['get']>[0],
     fallback: number,
+    minValue = 1,
   ): number {
     const value = Number(this.envService.get(key));
-    return Number.isFinite(value) && value > 0 ? value : fallback;
+    if (!Number.isFinite(value) || value <= 0) return fallback;
+    if (this.envService.get('NODE_ENV') === 'test') return value;
+    return Math.max(value, minValue);
   }
 }
