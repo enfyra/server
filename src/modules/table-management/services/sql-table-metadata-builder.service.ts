@@ -8,6 +8,7 @@ import {
   relationTargetTableMapKey,
 } from '../utils/relation-target-id.util';
 import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
+import { normalizeColumnOptionsValue } from '../../../shared/utils/json-field-normalizer.util';
 export class SqlTableMetadataBuilderService {
   private readonly logger = new Logger(SqlTableMetadataBuilderService.name);
   private readonly queryBuilderService: QueryBuilderService;
@@ -51,9 +52,7 @@ export class SqlTableMetadataBuilderService {
         } catch (e: any) {}
       }
       if (col.options && typeof col.options === 'string') {
-        try {
-          col.options = JSON.parse(col.options);
-        } catch (e: any) {}
+        col.options = normalizeColumnOptionsValue(col.options);
       }
     }
     const relations = await trx('enfyra_relation')
