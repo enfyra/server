@@ -147,6 +147,10 @@ function makeService(limitMb: number, maxValueBytes = 0) {
           return undefined;
         },
       } as any,
+      runtimeNamespaceLifecycleService: {
+        getKeyTtlMs: () => 5000,
+        touchKeys: async () => undefined,
+      } as any,
     }),
   };
 }

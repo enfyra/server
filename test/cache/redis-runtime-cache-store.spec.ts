@@ -43,10 +43,7 @@ class MemoryRedis {
 
   async scan(_cursor: string, _match: string, pattern: string) {
     const prefix = pattern.endsWith('*') ? pattern.slice(0, -1) : pattern;
-    return [
-      '0',
-      [...this.data.keys()].filter((key) => key.startsWith(prefix)),
-    ];
+    return ['0', [...this.data.keys()].filter((key) => key.startsWith(prefix))];
   }
 
   async del(...keys: string[]) {
@@ -68,19 +65,6 @@ function createStore(redis = new MemoryRedis()) {
         return undefined;
       },
     } as any,
-  });
-}
-
-function createStoreWithLifecycle(redis = new MemoryRedis()) {
-  return new RedisRuntimeCacheStore({
-    redis: redis as any,
-    envService: {
-      get: (key: string) => {
-        if (key === 'NODE_NAME') return 'shared-node';
-        if (key === 'REDIS_RUNTIME_CACHE') return true;
-        return undefined;
-      },
-    } as any,
     runtimeNamespaceLifecycleService: {
       getKeyTtlMs: () => 5000,
       touchKey: async (key: string) => {
@@ -88,6 +72,10 @@ function createStoreWithLifecycle(redis = new MemoryRedis()) {
       },
     } as any,
   });
+}
+
+function createStoreWithLifecycle(redis = new MemoryRedis()) {
+  return createStore(redis);
 }
 
 class SharedTestCache extends BaseCacheService<Map<string, Set<string>>> {
