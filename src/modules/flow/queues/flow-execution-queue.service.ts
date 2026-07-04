@@ -696,6 +696,10 @@ export class FlowExecutionQueueService {
         sourceFlowId: flow.id,
         sourceFlowName: flow.name,
         sourceStepKey,
+      }, {
+        attempts: 1,
+        removeOnComplete: { count: 200, age: 3600 * 24 },
+        removeOnFail: { count: 500, age: 3600 * 24 * 7 },
       });
       return {
         triggered: true,
@@ -948,6 +952,10 @@ export class FlowExecutionQueueService {
         sourceFlowId: (ctx as any).$flow?.$meta?.flowId,
         sourceFlowName: (ctx as any).$flow?.$meta?.flowName,
         sourceStepKey: step.key,
+      }, {
+        attempts: 1,
+        removeOnComplete: { count: 200, age: 3600 * 24 },
+        removeOnFail: { count: 500, age: 3600 * 24 * 7 },
       });
       return {
         triggered: true,

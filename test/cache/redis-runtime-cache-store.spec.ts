@@ -9,6 +9,7 @@ import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants
 
 class MemoryRedis {
   data = new Map<string, string | Buffer>();
+  expiries = new Map<string, number>();
 
   async get(key: string) {
     const value = this.data.get(key);
@@ -22,9 +23,13 @@ class MemoryRedis {
     return Buffer.isBuffer(value) ? value : Buffer.from(value);
   }
 
-  async set(key: string, value: string | Buffer, ...args: string[]) {
+  async set(key: string, value: string | Buffer, ...args: any[]) {
     if (args.includes('NX') && this.data.has(key)) return null;
     this.data.set(key, value);
+    const pxIndex = args.indexOf('PX');
+    if (pxIndex >= 0 && typeof args[pxIndex + 1] === 'number') {
+      this.expiries.set(key, args[pxIndex + 1]);
+    }
     return 'OK';
   }
 
@@ -61,6 +66,25 @@ function createStore(redis = new MemoryRedis()) {
         if (key === 'NODE_NAME') return 'shared-node';
         if (key === 'REDIS_RUNTIME_CACHE') return true;
         return undefined;
+      },
+    } as any,
+  });
+}
+
+function createStoreWithLifecycle(redis = new MemoryRedis()) {
+  return new RedisRuntimeCacheStore({
+    redis: redis as any,
+    envService: {
+      get: (key: string) => {
+        if (key === 'NODE_NAME') return 'shared-node';
+        if (key === 'REDIS_RUNTIME_CACHE') return true;
+        return undefined;
+      },
+    } as any,
+    runtimeNamespaceLifecycleService: {
+      getKeyTtlMs: () => 5000,
+      touchKey: async (key: string) => {
+        redis.expiries.set(key, 5000);
       },
     } as any,
   });
@@ -113,6 +137,15 @@ describe('Redis runtime cache mode', () => {
     expect(snapshot?.data.get('alpha')).toEqual(new Set(['one', 'two']));
     expect(() => cache.getRawCache()).toThrow(/Redis-backed/);
     expect(redis.data.has('shared-node:runtime_cache:setting')).toBe(true);
+  });
+
+  it('stores runtime snapshots with namespace lifecycle TTL when available', async () => {
+    const redis = new MemoryRedis();
+    const store = createStoreWithLifecycle(redis);
+
+    await store.setSnapshot(CACHE_IDENTIFIERS.SETTING, { ok: true });
+
+    expect(redis.expiries.get('shared-node:runtime_cache:setting')).toBe(5000);
   });
 
   it('round-trips structured cache values through JSON snapshots', async () => {

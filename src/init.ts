@@ -45,6 +45,9 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
   await runInitStep('redisPubSubService.init', () =>
     c.redisPubSubService?.init?.(),
   );
+  await runInitStep('runtimeNamespaceLifecycleService.init', () =>
+    c.runtimeNamespaceLifecycleService?.init?.(),
+  );
 
   try {
     await runInitStep('mongoSagaCoordinator.init', () =>
@@ -186,6 +189,9 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
       c.mongoPhysicalMigrationService?.init?.(),
     ),
   ]);
+  await runInitStep('runtimeNamespaceLifecycleService.renewReadyNamespace', () =>
+    c.runtimeNamespaceLifecycleService?.renewCurrentNamespaceKeys?.(),
+  );
 
   c.eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
   logger.log('Init event emitted: SYSTEM_READY');

@@ -44,7 +44,13 @@ export class SessionCleanupService {
     await this.cleanupQueue.upsertJobScheduler(
       'session-cleanup-daily',
       { pattern: '0 2 * * *' },
-      { name: 'cleanup-expired-sessions' },
+      {
+        name: 'cleanup-expired-sessions',
+        opts: {
+          removeOnComplete: { count: 30, age: 3600 * 24 * 7 },
+          removeOnFail: { count: 30, age: 3600 * 24 * 30 },
+        },
+      },
     );
   }
 

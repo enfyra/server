@@ -296,6 +296,7 @@ export function registerAdminRoutes(
         cursor: req.query?.cursor,
         pattern: req.query?.pattern,
         count: req.query?.count,
+        filter: req.query?.filter,
       }),
     });
   });
