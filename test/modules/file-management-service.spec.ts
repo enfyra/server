@@ -12,6 +12,7 @@ function makeMp4Buffer() {
 
 function makeService(overrides: Record<string, any> = {}) {
   const runtimeRegistryService = {
+    getDefaultStorageConfig: vi.fn(() => null),
     getStorageConfigByType: vi.fn(() => ({
       id: 'local',
       type: 'Local Storage',
@@ -76,6 +77,49 @@ describe('FileManagementService file replacement', () => {
       'application/gzip',
       expect.objectContaining({ id: 'local' }),
     );
+  });
+
+  it('uses the default storage config when upload omits storageConfig', async () => {
+    const runtimeRegistryService = {
+      getDefaultStorageConfig: vi.fn(() => ({
+        id: 'r2-default',
+        type: 'Cloudflare R2',
+        isEnabled: true,
+        isDefault: true,
+        bucket: 'default-bucket',
+      })),
+      getStorageConfigByType: vi.fn(),
+      getStorageConfigById: vi.fn(),
+    };
+    const { service, storageService } = makeService({ runtimeRegistryService });
+    const fileRepo = {
+      create: vi.fn(async ({ data }) => ({ data: [data] })),
+    };
+
+    await service.uploadFileAndCreateRecord(
+      {
+        filename: 'report.pdf',
+        mimetype: 'application/pdf',
+        stream: Readable.from('pdf'),
+        size: 3,
+      },
+      {},
+      fileRepo,
+    );
+
+    expect(runtimeRegistryService.getDefaultStorageConfig).toHaveBeenCalled();
+    expect(runtimeRegistryService.getStorageConfigByType).not.toHaveBeenCalled();
+    expect(storageService.upload).toHaveBeenCalledWith(
+      expect.any(Readable),
+      expect.stringMatching(/^uploads\/report_/),
+      'application/pdf',
+      expect.objectContaining({ id: 'r2-default' }),
+    );
+    expect(fileRepo.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        storageConfig: { id: 'r2-default' },
+      }),
+    });
   });
 
   it('normalizes replacement MIME metadata and updates the record to the new blob location', async () => {

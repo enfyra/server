@@ -279,6 +279,53 @@ describe('MetadataMigrationService core table overlap', () => {
     });
   });
 
+  it('dedupes SQL core child metadata against raw canonical table ids', async () => {
+    const sql = makeSqlKnex({
+      tables: {
+        table_definition: [
+          { id: 3, name: 'relation_definition' },
+          { id: 4, name: 'table_definition' },
+        ],
+        enfyra_table: [
+          { id: 2, name: 'enfyra_relation' },
+          { id: 3, name: 'enfyra_table' },
+        ],
+        column_definition: [{ id: 21, tableId: 4, name: 'id' }],
+        enfyra_column: [{ id: 25, tableId: 3, name: 'id' }],
+      },
+      schemas: {
+        table_definition: ['id', 'name'],
+        enfyra_table: ['id', 'name'],
+        column_definition: ['id', 'tableId', 'name'],
+        enfyra_column: ['id', 'tableId', 'name'],
+      },
+    });
+
+    const service = new MetadataMigrationService({
+      queryBuilderService: {
+        isMongoDb: jest.fn(() => false),
+        getKnex: jest.fn(() => sql.knex),
+      } as any,
+      systemCoreTableResolver: {
+        getTableName: jest.fn(async () => 'enfyra_table'),
+      } as any,
+    });
+
+    await (service as any).runSqlCoreTableRenames([
+      { from: 'table_definition', to: 'enfyra_table' },
+      { from: 'column_definition', to: 'enfyra_column' },
+    ]);
+
+    expect(
+      sql.inserts.filter((insert) => insert.table === 'enfyra_column'),
+    ).toHaveLength(0);
+    expect(
+      sql.tables.enfyra_column.filter(
+        (row) => row.tableId === 3 && row.name === 'id',
+      ),
+    ).toHaveLength(1);
+  });
+
   it('remaps SQL relation metadata through conflicting legacy source and target table ids', async () => {
     const sql = makeSqlKnex({
       tables: {
@@ -353,6 +400,80 @@ describe('MetadataMigrationService core table overlap', () => {
         },
       ],
     });
+  });
+
+  it('dedupes SQL core relation metadata by mappedById', async () => {
+    const sql = makeSqlKnex({
+      tables: {
+        table_definition: [
+          { id: 10, name: 'route_definition' },
+          { id: 14, name: 'route_handler_definition' },
+        ],
+        enfyra_table: [
+          { id: 10, name: 'enfyra_route' },
+          { id: 13, name: 'enfyra_method' },
+          { id: 408, name: 'route_handler_definition' },
+        ],
+        relation_definition: [
+          {
+            id: 66,
+            sourceTableId: 10,
+            targetTableId: 14,
+            propertyName: 'handlers',
+            mappedById: 17,
+          },
+        ],
+        enfyra_relation: [
+          {
+            id: 136,
+            sourceTableId: 13,
+            targetTableId: 9,
+            propertyName: 'handlers',
+            mappedById: 17,
+          },
+        ],
+      },
+      schemas: {
+        table_definition: ['id', 'name'],
+        enfyra_table: ['id', 'name'],
+        relation_definition: [
+          'id',
+          'sourceTableId',
+          'targetTableId',
+          'propertyName',
+          'mappedById',
+        ],
+        enfyra_relation: [
+          'id',
+          'sourceTableId',
+          'targetTableId',
+          'propertyName',
+          'mappedById',
+        ],
+      },
+    });
+
+    const service = new MetadataMigrationService({
+      queryBuilderService: {
+        isMongoDb: jest.fn(() => false),
+        getKnex: jest.fn(() => sql.knex),
+      } as any,
+      systemCoreTableResolver: {
+        getTableName: jest.fn(async () => 'enfyra_table'),
+      } as any,
+    });
+
+    await (service as any).runSqlCoreTableRenames([
+      { from: 'table_definition', to: 'enfyra_table' },
+      { from: 'relation_definition', to: 'enfyra_relation' },
+    ]);
+
+    expect(
+      sql.inserts.filter((insert) => insert.table === 'enfyra_relation'),
+    ).toHaveLength(0);
+    expect(
+      sql.tables.enfyra_relation.filter((row) => row.mappedById === 17),
+    ).toHaveLength(1);
   });
 
   it('keeps SQL core overlap healing idempotent across repeated runs', async () => {

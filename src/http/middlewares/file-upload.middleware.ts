@@ -3,6 +3,11 @@ import multer from 'multer';
 import os from 'os';
 import crypto from 'crypto';
 import type { RuntimeRegistryService } from '../../engines/cache/services/runtime-registry.service';
+import type { DynamicWebSocketGateway } from '../../modules/websocket/gateway/dynamic-websocket.gateway';
+import type { FileUploadProgressEvent } from '../../shared/types';
+
+export const UPLOAD_PROGRESS_EVENT = '$system:upload:progress';
+const UPLOAD_PROGRESS_EMIT_INTERVAL_MS = 2_000;
 
 export function resolveUploadFileSizeLimitBytes(
   globalLimitBytes: number,
@@ -30,6 +35,7 @@ const diskStorage = multer.diskStorage({
 
 export function fileUploadMiddleware(
   runtimeRegistryService: RuntimeRegistryService,
+  dynamicWebSocketGateway?: DynamicWebSocketGateway,
 ) {
   return async (req: any, res: Response, next: NextFunction) => {
     const isPostOrPatch = ['POST', 'PATCH'].includes(req.method);
@@ -39,6 +45,7 @@ export function fileUploadMiddleware(
     if (!isPostOrPatch || !isMultipartContent) {
       return next();
     }
+    setupUploadProgress(req, dynamicWebSocketGateway);
     const upload = multer({
       storage: diskStorage,
       limits: {
@@ -50,6 +57,12 @@ export function fileUploadMiddleware(
     });
     upload.single('file')(req, res, (error: any) => {
       if (error) {
+        emitUploadProgress(req, dynamicWebSocketGateway, {
+          phase: 'failed',
+          loaded: req.uploadProgressLoaded || 0,
+          total: req.uploadProgressTotal || 0,
+          percent: 0,
+        });
         return next(error);
       }
       if (req.file && req.file.originalname) {
@@ -126,9 +139,93 @@ export function fileUploadMiddleware(
           };
         }
       }
+      if (req.file) {
+        emitUploadProgress(req, dynamicWebSocketGateway, {
+          phase: 'completed',
+          loaded: req.uploadProgressTotal || req.file.size || 0,
+          total: req.uploadProgressTotal || req.file.size || 0,
+          percent: 100,
+          fileName: req.file.originalname,
+        });
+      }
       next();
     });
   };
+}
+
+function normalizeUploadId(value: unknown): string | null {
+  const uploadId = Array.isArray(value) ? value[0] : value;
+  if (typeof uploadId !== 'string') return null;
+  const trimmed = uploadId.trim();
+  if (!trimmed || trimmed.length > 128) return null;
+  return trimmed;
+}
+
+function setupUploadProgress(
+  req: any,
+  dynamicWebSocketGateway?: DynamicWebSocketGateway,
+) {
+  const uploadId = normalizeUploadId(req.headers['x-enfyra-upload-id']);
+  if (!uploadId || !req.user?.id) return;
+
+  req.uploadProgressId = uploadId;
+  req.uploadProgressTotal = Number(req.headers['content-length']) || 0;
+  req.uploadProgressLoaded = 0;
+  req.uploadProgressLastEmit = 0;
+
+  emitUploadProgress(req, dynamicWebSocketGateway, {
+    phase: 'receiving',
+    loaded: 0,
+    total: req.uploadProgressTotal || 0,
+    percent: 0,
+  });
+
+  req.on('data', (chunk: Buffer) => {
+    req.uploadProgressLoaded += chunk.length;
+    const now = Date.now();
+    if (now - req.uploadProgressLastEmit < UPLOAD_PROGRESS_EMIT_INTERVAL_MS) {
+      return;
+    }
+    req.uploadProgressLastEmit = now;
+    const total = req.uploadProgressTotal || 0;
+    emitUploadProgress(req, dynamicWebSocketGateway, {
+      phase: 'receiving',
+      loaded: req.uploadProgressLoaded,
+      total,
+      percent: total
+        ? Math.min(99, Math.floor((req.uploadProgressLoaded / total) * 100))
+        : 0,
+    });
+  });
+
+  req.on('end', () => {
+    emitUploadProgress(req, dynamicWebSocketGateway, {
+      phase: 'receiving',
+      loaded: req.uploadProgressLoaded,
+      total: req.uploadProgressTotal || 0,
+      percent: 100,
+    });
+  });
+}
+
+export function emitUploadProgress(
+  req: any,
+  dynamicWebSocketGateway: DynamicWebSocketGateway | undefined,
+  event: Omit<FileUploadProgressEvent, 'uploadId'>,
+) {
+  const uploadId = req.uploadProgressId;
+  const userId = req.user?.id;
+  if (!uploadId || !userId || !dynamicWebSocketGateway) return;
+
+  try {
+    dynamicWebSocketGateway.emitToUser(userId, UPLOAD_PROGRESS_EVENT, {
+      ...event,
+      uploadId,
+      percent: Math.min(100, Math.max(0, Math.round(event.percent))),
+      route: req.routeData?.path || req.path,
+      method: req.method,
+    });
+  } catch {}
 }
 
 function detectEncodingCorruption(str: string): boolean {

@@ -157,6 +157,52 @@ describe('UploadFileHelper', () => {
     );
   });
 
+  it('rejects $upload onProgress because multipart progress is system-owned', async () => {
+    const fileManagementService = {
+      uploadFileAndCreateRecord: vi.fn(),
+    };
+    const helper = new UploadFileHelper({
+      fileManagementService: fileManagementService as any,
+    });
+
+    await expect(
+      helper.createStorageHelper(makeContext()).$upload({
+        filename: 'generated.txt',
+        mimetype: 'text/plain',
+        buffer: Buffer.from('generated file'),
+        onProgress: vi.fn(),
+      }),
+    ).rejects.toThrow(
+      '$storage.$upload does not support onProgress. Send x-enfyra-upload-id and listen for $system:upload:progress instead.',
+    );
+    expect(
+      fileManagementService.uploadFileAndCreateRecord,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('rejects $update onProgress before touching file records', async () => {
+    const fileRepo = { find: vi.fn() };
+    const fileManagementService = {
+      replaceFileAndUpdateRecord: vi.fn(),
+      updateFileMetadataRecord: vi.fn(),
+    };
+    const helper = new UploadFileHelper({
+      fileManagementService: fileManagementService as any,
+    });
+    const context = makeContext();
+    context.$repos = { enfyra_file: fileRepo as any };
+
+    await expect(
+      helper.createStorageHelper(context).$update('file-1', {
+        title: 'Updated title',
+        onProgress: vi.fn(),
+      }),
+    ).rejects.toThrow(
+      '$storage.$update does not support onProgress. Send x-enfyra-upload-id and listen for $system:upload:progress instead.',
+    );
+    expect(fileRepo.find).not.toHaveBeenCalled();
+  });
+
   it('rejects ambiguous uploads that pass both a request file and a buffer', async () => {
     const helper = new UploadFileHelper({
       fileManagementService: {

@@ -595,11 +595,14 @@ export class FileManagementService {
     if (storageConfigId) {
       config = await this.getStorageConfigById(storageConfigId);
     } else {
-      config =
-        this.runtimeRegistryService.getStorageConfigByType('Local Storage');
+      config = this.runtimeRegistryService.getDefaultStorageConfig();
+      if (!config) {
+        config =
+          this.runtimeRegistryService.getStorageConfigByType('Local Storage');
+      }
 
       if (!config) {
-        throw new BadRequestException('No local storage configured');
+        throw new BadRequestException('No default or local storage configured');
       }
     }
 

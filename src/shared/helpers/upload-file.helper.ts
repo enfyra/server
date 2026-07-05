@@ -91,6 +91,7 @@ export class UploadFileHelper {
   private createUploadInput(options: any): UploadFileInput {
     const uploadedFile = this.normalizeUploadedFile(options.file);
     const hasBuffer = options.buffer !== undefined && options.buffer !== null;
+    this.assertNoStorageProgressCallback(options, '$storage.$upload');
 
     if (uploadedFile && hasBuffer) {
       throw new Error(
@@ -140,6 +141,13 @@ export class UploadFileHelper {
       signatureBuffer: buffer,
       size: options.size || buffer.length,
     };
+  }
+
+  private assertNoStorageProgressCallback(options: any, helperName: string) {
+    if (options?.onProgress === undefined) return;
+    throw new Error(
+      `${helperName} does not support onProgress. Send x-enfyra-upload-id and listen for $system:upload:progress instead.`,
+    );
   }
 
   private createRegisterFileInput(options: any): RegisterFileInput {
@@ -233,6 +241,7 @@ export class UploadFileHelper {
     return async (fileId: string | number, options: any) => {
       try {
         this.assertNotAborted();
+        this.assertNoStorageProgressCallback(options, '$storage.$update');
         const fileRepo = this.getFileRepo(context);
 
         const files = await fileRepo.find({ filter: { id: { _eq: fileId } } });
