@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { OAuthService } from '../../src/domain/auth';
+import { DatabaseConfigService } from '../../src/shared/services';
 
 function makeService(): OAuthService {
   return new OAuthService({
@@ -27,6 +28,7 @@ describe('OAuthService.fetchUserInfo — provider mapping', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    DatabaseConfigService.resetForTesting();
   });
 
   function mockJsonResponse(body: any) {
@@ -237,5 +239,80 @@ describe('OAuthService.fetchUserInfo — provider mapping', () => {
         scriptLanguage: 'typescript',
       }),
     ).rejects.toThrow(/must return an object/);
+  });
+
+  it('uses the relation user id when an existing SQL OAuth account is loaded', async () => {
+    DatabaseConfigService.overrideForTesting('postgres');
+    const findOne = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: 7,
+        provider: 'google',
+        providerUserId: 'google-user-1',
+        user: { id: 'user-1', email: 'user@example.com' },
+      })
+      .mockResolvedValueOnce({ id: 'user-1', email: 'user@example.com' });
+    service = new OAuthService({
+      queryBuilderService: {
+        isMongoDb: vi.fn().mockReturnValue(false),
+        findOne,
+      } as any,
+      runtimeRegistryService: {} as any,
+      envService: {} as any,
+      cacheService: {} as any,
+      executorEngineService: {} as any,
+      dynamicContextFactory: {} as any,
+      repoRegistryService: {} as any,
+    });
+
+    await expect(
+      (service as any).findOrCreateUser(
+        'google',
+        {
+          id: 'google-user-1',
+          email: 'user@example.com',
+        },
+        null,
+      ),
+    ).resolves.toEqual({ id: 'user-1', email: 'user@example.com' });
+
+    expect(findOne).toHaveBeenNthCalledWith(2, {
+      table: 'enfyra_user',
+      where: { id: 'user-1' },
+    });
+  });
+
+  it('fails clearly when an existing OAuth account has no linked user id', async () => {
+    DatabaseConfigService.overrideForTesting('postgres');
+    const findOne = vi.fn().mockResolvedValueOnce({
+      id: 7,
+      provider: 'google',
+      providerUserId: 'google-user-1',
+    });
+    service = new OAuthService({
+      queryBuilderService: {
+        isMongoDb: vi.fn().mockReturnValue(false),
+        findOne,
+      } as any,
+      runtimeRegistryService: {} as any,
+      envService: {} as any,
+      cacheService: {} as any,
+      executorEngineService: {} as any,
+      dynamicContextFactory: {} as any,
+      repoRegistryService: {} as any,
+    });
+
+    await expect(
+      (service as any).findOrCreateUser(
+        'google',
+        {
+          id: 'google-user-1',
+          email: 'user@example.com',
+        },
+        null,
+      ),
+    ).rejects.toThrow(/missing user relation/);
+
+    expect(findOne).toHaveBeenCalledTimes(1);
   });
 });
