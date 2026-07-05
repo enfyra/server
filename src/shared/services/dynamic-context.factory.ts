@@ -14,6 +14,8 @@ import {
   WebsocketContextFactory,
 } from '../../modules/websocket';
 
+type JwtExpiresIn = jwt.SignOptions['expiresIn'];
+
 type DynamicContextOptions = {
   body?: any;
   data?: any;
@@ -169,7 +171,7 @@ export class DynamicContextFactory {
       helpers: {
         $jwt: (payload: any, exp: string) =>
           jwt.sign(payload, this.envService.get('SECRET_KEY'), {
-            expiresIn: exp as import('ms').StringValue,
+            expiresIn: exp as JwtExpiresIn,
           }),
         $bcrypt: {
           hash: async (plain: string) => await this.bcryptService.hash(plain),
@@ -219,7 +221,7 @@ export class DynamicContextFactory {
   }) {
     const signJwt = (payload: any, exp: string) =>
       jwt.sign(payload, this.envService.get('SECRET_KEY'), {
-        expiresIn: exp as import('ms').StringValue,
+        expiresIn: exp as JwtExpiresIn,
       });
     const ctx = this.createBase({
       body: options.body || {},
