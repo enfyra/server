@@ -17,6 +17,7 @@ import type { OAuthExchangeTokenPayload } from '../types/oauth-exchange-code.typ
 import type { OAuthConfig } from '../../../engines/cache/services/oauth-config-cache-builder.service';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 
+type JwtExpiresIn = jwt.SignOptions['expiresIn'];
 type OAuthProvider = 'google' | 'facebook' | 'github';
 
 interface OAuthUserInfo {
@@ -401,7 +402,7 @@ export class OAuthService {
       { id: userId, loginProvider },
       this.envService.get('SECRET_KEY'),
       {
-        expiresIn: this.envService.get('ACCESS_TOKEN_EXP') as StringValue,
+        expiresIn: this.envService.get('ACCESS_TOKEN_EXP') as JwtExpiresIn,
       },
     );
 
@@ -411,7 +412,7 @@ export class OAuthService {
       {
         expiresIn: this.envService.get(
           'REFRESH_TOKEN_REMEMBER_EXP',
-        ) as StringValue,
+        ) as JwtExpiresIn,
       },
     );
 
