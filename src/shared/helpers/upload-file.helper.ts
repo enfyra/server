@@ -1,5 +1,9 @@
 import { FileManagementService } from '../../modules/file-management';
-import type { TDynamicContext, UploadedFileInfo } from '../types';
+import type {
+  FileUploadProgressHandler,
+  TDynamicContext,
+  UploadedFileInfo,
+} from '../types';
 import { getIoAbortSignal } from '@enfyra/kernel';
 import { Readable } from 'stream';
 import { createReadStream } from 'fs';
@@ -10,6 +14,7 @@ type UploadFileInput = {
   stream: Readable;
   signatureBuffer?: Buffer;
   size: number;
+  onProgress?: FileUploadProgressHandler;
 };
 
 type RegisterFileInput = {
@@ -91,6 +96,10 @@ export class UploadFileHelper {
   private createUploadInput(options: any): UploadFileInput {
     const uploadedFile = this.normalizeUploadedFile(options.file);
     const hasBuffer = options.buffer !== undefined && options.buffer !== null;
+    const onProgress =
+      typeof options.onProgress === 'function'
+        ? (options.onProgress as FileUploadProgressHandler)
+        : undefined;
 
     if (uploadedFile && hasBuffer) {
       throw new Error(
@@ -112,6 +121,7 @@ export class UploadFileHelper {
         mimetype: options.mimetype || uploadedFile.mimetype,
         stream: createReadStream(filePath),
         size: options.size || uploadedFile.size,
+        onProgress,
       };
     }
 
@@ -139,6 +149,7 @@ export class UploadFileHelper {
       stream: Readable.from(buffer),
       signatureBuffer: buffer,
       size: options.size || buffer.length,
+      onProgress,
     };
   }
 

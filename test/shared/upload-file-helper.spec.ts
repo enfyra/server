@@ -157,6 +157,40 @@ describe('UploadFileHelper', () => {
     );
   });
 
+  it('passes upload progress callbacks to file management uploads', async () => {
+    const onProgress = vi.fn();
+    const fileManagementService = {
+      uploadFileAndCreateRecord: vi.fn(async (fileData) => {
+        await fileData.onProgress?.({
+          phase: 'storing',
+          loaded: 4,
+          total: 8,
+          percent: 50,
+          fileName: fileData.filename,
+        });
+        return { data: [{ id: 1 }] };
+      }),
+    };
+    const helper = new UploadFileHelper({
+      fileManagementService: fileManagementService as any,
+    });
+
+    await helper.createStorageHelper(makeContext()).$upload({
+      filename: 'generated.txt',
+      mimetype: 'text/plain',
+      buffer: Buffer.from('generated file'),
+      onProgress,
+    });
+
+    expect(onProgress).toHaveBeenCalledWith({
+      phase: 'storing',
+      loaded: 4,
+      total: 8,
+      percent: 50,
+      fileName: 'generated.txt',
+    });
+  });
+
   it('rejects ambiguous uploads that pass both a request file and a buffer', async () => {
     const helper = new UploadFileHelper({
       fileManagementService: {

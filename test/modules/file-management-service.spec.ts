@@ -78,6 +78,48 @@ describe('FileManagementService file replacement', () => {
     );
   });
 
+  it('reports raw storage progress from 0 to 100 while streaming', async () => {
+    const { service } = makeService();
+    const fileRepo = {
+      create: vi.fn(async ({ data }) => ({ data: [data] })),
+    };
+    const progress: any[] = [];
+
+    await service.uploadFileAndCreateRecord(
+      {
+        filename: 'progress.txt',
+        mimetype: 'text/plain',
+        stream: Readable.from([Buffer.from('abcd'), Buffer.from('efgh')]),
+        size: 8,
+        onProgress: async (event) => {
+          progress.push(event);
+        },
+      },
+      {
+        storageConfig: 'local',
+      },
+      fileRepo,
+    );
+
+    expect(progress.map((event) => event.percent)).toEqual([50, 100]);
+    expect(progress).toEqual([
+      expect.objectContaining({
+        phase: 'storing',
+        loaded: 4,
+        total: 8,
+        percent: 50,
+        fileName: 'progress.txt',
+      }),
+      expect.objectContaining({
+        phase: 'storing',
+        loaded: 8,
+        total: 8,
+        percent: 100,
+        fileName: 'progress.txt',
+      }),
+    ]);
+  });
+
   it('normalizes replacement MIME metadata and updates the record to the new blob location', async () => {
     const { service, storageService } = makeService();
     const fileRepo = {

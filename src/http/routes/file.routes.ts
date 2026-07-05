@@ -6,6 +6,18 @@ import { createReadStream } from 'fs';
 import os from 'os';
 import path from 'path';
 import { FileUploadException } from '../../domain/exceptions';
+import { emitUploadProgress } from '../middlewares/file-upload.middleware';
+import type { FileUploadProgressEvent } from '../../shared/types';
+
+function mapStorageProgressForHttpUpload(
+  event: FileUploadProgressEvent,
+): FileUploadProgressEvent {
+  if (event.phase !== 'storing') return event;
+  return {
+    ...event,
+    percent: Math.min(99, 80 + Math.floor((event.percent / 100) * 19)),
+  };
+}
 
 export function resolveUploadedTempFilePath(file: any): string {
   if (!file?.path) {
@@ -42,6 +54,9 @@ export function registerFileRoutes(
     const fileManagementService =
       req.scope?.cradle?.fileManagementService ??
       container.cradle.fileManagementService;
+    const dynamicWebSocketGateway =
+      req.scope?.cradle?.dynamicWebSocketGateway ??
+      container.cradle.dynamicWebSocketGateway;
     const file = req.file;
 
     if (!file) {
@@ -65,6 +80,11 @@ export function registerFileRoutes(
           mimetype: file.mimetype,
           stream: createReadStream(resolveUploadedTempFilePath(file)),
           size: file.size,
+          onProgress: (event: FileUploadProgressEvent) =>
+            emitUploadProgress(req, dynamicWebSocketGateway, {
+              ...mapStorageProgressForHttpUpload(event),
+              uploadId: req.uploadProgressId,
+            }),
         },
         {
           folder: body.folder,
@@ -75,7 +95,23 @@ export function registerFileRoutes(
         },
         fileRepo,
       );
+      emitUploadProgress(req, dynamicWebSocketGateway, {
+        phase: 'completed',
+        loaded: file.size,
+        total: file.size,
+        percent: 100,
+        fileName: file.originalname,
+      });
       return res.json(result);
+    } catch (error) {
+      emitUploadProgress(req, dynamicWebSocketGateway, {
+        phase: 'failed',
+        loaded: file.size || 0,
+        total: file.size || 0,
+        percent: 0,
+        fileName: file.originalname,
+      });
+      throw error;
     } finally {
       await cleanupUploadedTempFile(file);
     }
@@ -100,6 +136,9 @@ export function registerFileRoutes(
     const fileManagementService =
       req.scope?.cradle?.fileManagementService ??
       container.cradle.fileManagementService;
+    const dynamicWebSocketGateway =
+      req.scope?.cradle?.dynamicWebSocketGateway ??
+      container.cradle.dynamicWebSocketGateway;
     const file = req.file;
     const id = req.params.id;
     const body = req.body;
@@ -132,6 +171,11 @@ export function registerFileRoutes(
             mimetype: file.mimetype,
             stream: createReadStream(resolveUploadedTempFilePath(file)),
             size: file.size,
+            onProgress: (event: FileUploadProgressEvent) =>
+              emitUploadProgress(req, dynamicWebSocketGateway, {
+                ...mapStorageProgressForHttpUpload(event),
+                uploadId: req.uploadProgressId,
+              }),
           },
           {
             folder: body.folder,
@@ -142,7 +186,23 @@ export function registerFileRoutes(
             isPublic: body.isPublic,
           },
         );
+        emitUploadProgress(req, dynamicWebSocketGateway, {
+          phase: 'completed',
+          loaded: file.size,
+          total: file.size,
+          percent: 100,
+          fileName: file.originalname,
+        });
         return res.json(result);
+      } catch (error) {
+        emitUploadProgress(req, dynamicWebSocketGateway, {
+          phase: 'failed',
+          loaded: file.size || 0,
+          total: file.size || 0,
+          percent: 0,
+          fileName: file.originalname,
+        });
+        throw error;
       } finally {
         await cleanupUploadedTempFile(file);
       }

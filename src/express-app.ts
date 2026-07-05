@@ -158,7 +158,12 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
       c.guardEvaluatorService,
     ),
   );
-  app.use(fileUploadMiddleware(c.runtimeRegistryService));
+  app.use(
+    fileUploadMiddleware(
+      c.runtimeRegistryService,
+      c.dynamicWebSocketGateway,
+    ),
+  );
   app.use(requestLoggingBegin);
   app.use(bodyValidationMiddleware(container));
   app.use(dynamicInterceptorBegin(c.executorEngineService));
