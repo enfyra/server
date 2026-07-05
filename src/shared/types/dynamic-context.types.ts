@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { UploadedFileInfo } from './file-management.types';
+import type { UploadedFileInfo } from './file-management.types';
 import type { CryptoHelper } from '../helpers/crypto.helper';
 import type { FetchHelper } from '../helpers/fetch.helper';
 

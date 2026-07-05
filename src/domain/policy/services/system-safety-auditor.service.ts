@@ -447,6 +447,7 @@ export class SystemSafetyAuditorService {
       if (operation === 'update' && isSystem) {
         const allowed = this.schemaMigrationValidatorService.getAllowedFields([
           'description',
+          'isDefault',
         ]);
         const disallowed = changedFields.filter((k) => !allowed.includes(k));
         if (disallowed.length > 0) {
