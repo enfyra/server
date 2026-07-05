@@ -12,6 +12,13 @@ function makeService(tableColumns: any[] = [{ name: 'isSystem' }]) {
             columns: tableColumns,
           },
         ],
+        [
+          'enfyra_storage_config',
+          {
+            name: 'enfyra_storage_config',
+            columns: tableColumns,
+          },
+        ],
       ]),
     }),
   };
@@ -107,5 +114,33 @@ describe('SystemSafetyAuditorService isSystem field contract', () => {
         existing: null,
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it('allows system storage config default flag updates', async () => {
+    const { service } = makeService();
+
+    await expect(
+      service.assertSystemSafe({
+        operation: 'update',
+        tableName: 'enfyra_storage_config',
+        data: { isDefault: true },
+        existing: { id: 1, isSystem: true, isDefault: false },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('rejects system storage config credential updates', async () => {
+    const { service } = makeService();
+
+    await expect(
+      service.assertSystemSafe({
+        operation: 'update',
+        tableName: 'enfyra_storage_config',
+        data: { secretAccessKey: 'new-secret' },
+        existing: { id: 1, isSystem: true, secretAccessKey: 'old-secret' },
+      }),
+    ).rejects.toThrow(
+      'Cannot modify system storage config (only allowed: description, isDefault): secretAccessKey',
+    );
   });
 });

@@ -2,22 +2,19 @@ import type { Readable } from 'stream';
 
 export type FileUploadProgressPhase =
   | 'receiving'
-  | 'storing'
   | 'completed'
   | 'failed';
 
 export interface FileUploadProgressEvent {
-  uploadId?: string;
+  uploadId: string;
   phase: FileUploadProgressPhase;
   loaded: number;
   total: number;
   percent: number;
   fileName?: string;
+  route?: string;
+  method?: string;
 }
-
-export type FileUploadProgressHandler = (
-  event: FileUploadProgressEvent,
-) => void | Promise<void>;
 
 export interface FileUploadDto {
   filename: string;
@@ -28,7 +25,6 @@ export interface FileUploadDto {
   folder?: any; // Can be ID or object {id: ...}
   title?: string;
   description?: string;
-  onProgress?: FileUploadProgressHandler;
 }
 
 export interface ProcessedFileInfo {

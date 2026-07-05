@@ -658,6 +658,7 @@
       { "name": "name", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Storage configuration name (e.g., 'AWS S3', 'Google Cloud Storage', 'Local Storage')" },
       { "name": "type", "type": "enum", "options": ["Local Storage", "Amazon S3", "Google Cloud Storage", "Cloudflare R2"], "isNullable": false, "isSystem": true, "description": "Storage backend type" },
       { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this storage configuration is active" },
+      { "name": "isDefault", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this storage configuration is the default target for uploads when no storageConfig is provided" },
       { "name": "bucket", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Bucket name (used for S3/GCS)" },
       { "name": "region", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Storage region - Required for S3 (e.g., us-east-1, ap-southeast-1), optional for R2 (use 'auto' or leave empty), not needed for GCS/Local Storage" },
       { "name": "accessKeyId", "type": "varchar", "isNullable": true, "isSystem": true, "isPublished": false, "description": "S3/R2 access key ID" },
