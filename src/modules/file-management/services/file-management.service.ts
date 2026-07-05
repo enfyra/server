@@ -7,10 +7,11 @@ import { autoSlug } from '../../../shared/utils/auto-slug.helper';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { StorageFactoryService } from '../storage/storage-factory.service';
-import { Readable } from 'stream';
+import { Readable, Transform } from 'stream';
 import { FileSignatureHelper } from '../utils/file-signature.helper';
 import type { StorageStreamOptions } from '../storage/storage.interface';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
+import type { FileUploadProgressHandler } from '../../../shared/types';
 
 export class FileManagementService {
   private readonly logger = new Logger(FileManagementService.name);
@@ -130,6 +131,34 @@ export class FileManagementService {
     return `uploads/${filename}`;
   }
 
+  private createProgressStream(
+    stream: Readable,
+    total: number,
+    fileName: string,
+    onProgress?: FileUploadProgressHandler,
+  ): Readable {
+    if (!onProgress) return stream;
+    let loaded = 0;
+    const safeTotal = Number.isFinite(total) && total > 0 ? total : 0;
+    const progressStream = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        loaded += chunk.length;
+        Promise.resolve(onProgress({
+          phase: 'storing',
+          loaded,
+          total: safeTotal,
+          percent: safeTotal
+            ? Math.min(100, Math.floor((loaded / safeTotal) * 100))
+            : 0,
+          fileName,
+        }))
+          .then(() => callback(null, chunk))
+          .catch((error) => callback(error));
+      },
+    });
+    return stream.pipe(progressStream);
+  }
+
   async processFileUpload(
     fileData: FileUploadDto,
     storageConfigId?: number | string,
@@ -182,7 +211,12 @@ export class FileManagementService {
       }
 
       const uploadResult = await storageService.upload(
-        fileData.stream,
+        this.createProgressStream(
+          fileData.stream,
+          fileData.size,
+          normalizedFile.filename,
+          fileData.onProgress,
+        ),
         relativePath,
         normalizedFile.mimetype,
         storageConfig,
@@ -218,6 +252,7 @@ export class FileManagementService {
       stream: Readable;
       signatureBuffer?: Buffer;
       size: number;
+      onProgress?: FileUploadProgressHandler;
     },
     options: {
       folder?: number | string | { id: number | string };
@@ -248,6 +283,7 @@ export class FileManagementService {
         stream: fileData.stream,
         signatureBuffer: fileData.signatureBuffer,
         size: fileData.size,
+        onProgress: fileData.onProgress,
         folder: folderData,
         title: options.title || fileData.filename,
         description: options.description || undefined,
@@ -385,6 +421,7 @@ export class FileManagementService {
       stream: Readable;
       signatureBuffer?: Buffer;
       size: number;
+      onProgress?: FileUploadProgressHandler;
     },
     options: {
       folder?: any;
@@ -421,6 +458,7 @@ export class FileManagementService {
         stream: fileData.stream,
         signatureBuffer: fileData.signatureBuffer,
         size: fileData.size,
+        onProgress: fileData.onProgress,
         folder: nextFolder,
         title: options.title || fileData.filename,
         description: nextDescription,

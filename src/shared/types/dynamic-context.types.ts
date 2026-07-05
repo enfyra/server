@@ -1,5 +1,8 @@
 import { Request, Response } from 'express';
-import { UploadedFileInfo } from './file-management.types';
+import type {
+  FileUploadProgressEvent,
+  UploadedFileInfo,
+} from './file-management.types';
 import type { CryptoHelper } from '../helpers/crypto.helper';
 import type { FetchHelper } from '../helpers/fetch.helper';
 
@@ -66,6 +69,7 @@ export interface TDynamicContext {
       storageConfig?: number;
       title?: string;
       description?: string;
+      onProgress?: (progress: FileUploadProgressEvent) => void | Promise<void>;
     }) => Promise<any>;
     $update?: (
       fileId: string | number,
@@ -80,6 +84,9 @@ export interface TDynamicContext {
         storageConfig?: number;
         title?: string;
         description?: string;
+        onProgress?: (
+          progress: FileUploadProgressEvent,
+        ) => void | Promise<void>;
       },
     ) => Promise<any>;
     $delete?: (fileId: string | number) => Promise<any>;
