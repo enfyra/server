@@ -6,7 +6,8 @@ import type { RuntimeRegistryService } from '../../engines/cache/services/runtim
 import type { DynamicWebSocketGateway } from '../../modules/websocket/gateway/dynamic-websocket.gateway';
 import type { FileUploadProgressEvent } from '../../shared/types';
 
-const FILE_UPLOAD_PROGRESS_EVENT = '$system:file-upload:progress';
+export const UPLOAD_PROGRESS_EVENT = '$system:upload:progress';
+const UPLOAD_PROGRESS_EMIT_INTERVAL_MS = 2_000;
 
 export function resolveUploadFileSizeLimitBytes(
   globalLimitBytes: number,
@@ -138,6 +139,15 @@ export function fileUploadMiddleware(
           };
         }
       }
+      if (req.file) {
+        emitUploadProgress(req, dynamicWebSocketGateway, {
+          phase: 'completed',
+          loaded: req.uploadProgressTotal || req.file.size || 0,
+          total: req.uploadProgressTotal || req.file.size || 0,
+          percent: 100,
+          fileName: req.file.originalname,
+        });
+      }
       next();
     });
   };
@@ -163,10 +173,19 @@ function setupUploadProgress(
   req.uploadProgressLoaded = 0;
   req.uploadProgressLastEmit = 0;
 
+  emitUploadProgress(req, dynamicWebSocketGateway, {
+    phase: 'receiving',
+    loaded: 0,
+    total: req.uploadProgressTotal || 0,
+    percent: 0,
+  });
+
   req.on('data', (chunk: Buffer) => {
     req.uploadProgressLoaded += chunk.length;
     const now = Date.now();
-    if (now - req.uploadProgressLastEmit < 100) return;
+    if (now - req.uploadProgressLastEmit < UPLOAD_PROGRESS_EMIT_INTERVAL_MS) {
+      return;
+    }
     req.uploadProgressLastEmit = now;
     const total = req.uploadProgressTotal || 0;
     emitUploadProgress(req, dynamicWebSocketGateway, {
@@ -174,7 +193,7 @@ function setupUploadProgress(
       loaded: req.uploadProgressLoaded,
       total,
       percent: total
-        ? Math.min(80, Math.floor((req.uploadProgressLoaded / total) * 80))
+        ? Math.min(99, Math.floor((req.uploadProgressLoaded / total) * 100))
         : 0,
     });
   });
@@ -184,7 +203,7 @@ function setupUploadProgress(
       phase: 'receiving',
       loaded: req.uploadProgressLoaded,
       total: req.uploadProgressTotal || 0,
-      percent: 80,
+      percent: 100,
     });
   });
 }
@@ -192,17 +211,19 @@ function setupUploadProgress(
 export function emitUploadProgress(
   req: any,
   dynamicWebSocketGateway: DynamicWebSocketGateway | undefined,
-  event: Omit<FileUploadProgressEvent, 'uploadId'> & { uploadId?: string },
+  event: Omit<FileUploadProgressEvent, 'uploadId'>,
 ) {
-  const uploadId = event.uploadId || req.uploadProgressId;
+  const uploadId = req.uploadProgressId;
   const userId = req.user?.id;
   if (!uploadId || !userId || !dynamicWebSocketGateway) return;
 
   try {
-    dynamicWebSocketGateway.emitToUser(userId, FILE_UPLOAD_PROGRESS_EVENT, {
+    dynamicWebSocketGateway.emitToUser(userId, UPLOAD_PROGRESS_EVENT, {
       ...event,
       uploadId,
       percent: Math.min(100, Math.max(0, Math.round(event.percent))),
+      route: req.routeData?.path || req.path,
+      method: req.method,
     });
   } catch {}
 }

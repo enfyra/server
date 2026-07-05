@@ -300,6 +300,21 @@ export class RuntimeRegistryService {
     return null;
   }
 
+  getDefaultStorageConfig(): any | null {
+    const cache = this.requireActiveData<Map<string | number, any>>(
+      CACHE_IDENTIFIERS.STORAGE,
+    );
+    const seenIds = new Set<string>();
+    for (const config of cache.values()) {
+      const id = config?.id ?? config?._id;
+      const key = id == null ? JSON.stringify(config) : String(id);
+      if (seenIds.has(key)) continue;
+      seenIds.add(key);
+      if (config.isEnabled && config.isDefault === true) return config;
+    }
+    return null;
+  }
+
   getOauthConfigByProvider(provider: string): OAuthConfig | null {
     const cache = this.requireActiveData<Map<string, OAuthConfig>>(
       CACHE_IDENTIFIERS.OAUTH_CONFIG,

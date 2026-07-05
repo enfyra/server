@@ -224,6 +224,33 @@ export class DynamicRepository {
     return item?._id ?? item?.id ?? null;
   }
 
+  private async clearOtherDefaultStorageConfigs(currentId?: string | number) {
+    if (this.tableName !== 'enfyra_storage_config') return;
+
+    const idField = this.getIdField();
+    const result = await this.queryBuilderService.find({
+      table: this.tableName,
+      filter: { isDefault: { _eq: true } },
+      fields: [idField],
+      limit: -1,
+    });
+
+    for (const row of result.data || []) {
+      const rowId = row?.[idField] ?? row?.id ?? row?._id;
+      if (rowId === null || rowId === undefined) continue;
+      if (
+        currentId !== undefined &&
+        currentId !== null &&
+        String(rowId) === String(currentId)
+      ) {
+        continue;
+      }
+      await this.queryBuilderService.update(this.tableName, rowId, {
+        isDefault: false,
+      });
+    }
+  }
+
   private stripNonUpdatableColumns(data: any, tableMetadata: any): any {
     if (!data || typeof data !== 'object' || !tableMetadata?.columns) {
       return data;
@@ -892,6 +919,9 @@ export class DynamicRepository {
         durationMs: Date.now() - startedAt,
       });
       const createdId = inserted.id || inserted._id || body.id;
+      if (this.tableName === 'enfyra_storage_config' && body.isDefault === true) {
+        await this.clearOtherDefaultStorageConfigs(createdId);
+      }
       try {
         const result = await this.find({
           filter: { [this.getIdField()]: { _eq: createdId } },
@@ -1159,6 +1189,9 @@ export class DynamicRepository {
           () => this.queryBuilderService.update(this.tableName, id, body),
         ),
       );
+      if (this.tableName === 'enfyra_storage_config' && body.isDefault === true) {
+        await this.clearOtherDefaultStorageConfigs(id);
+      }
       logMemory(this.logger, 'dynamic update persisted', {
         ...writeMeta,
         durationMs: Date.now() - startedAt,

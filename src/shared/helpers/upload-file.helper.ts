@@ -1,9 +1,5 @@
 import { FileManagementService } from '../../modules/file-management';
-import type {
-  FileUploadProgressHandler,
-  TDynamicContext,
-  UploadedFileInfo,
-} from '../types';
+import type { TDynamicContext, UploadedFileInfo } from '../types';
 import { getIoAbortSignal } from '@enfyra/kernel';
 import { Readable } from 'stream';
 import { createReadStream } from 'fs';
@@ -14,7 +10,6 @@ type UploadFileInput = {
   stream: Readable;
   signatureBuffer?: Buffer;
   size: number;
-  onProgress?: FileUploadProgressHandler;
 };
 
 type RegisterFileInput = {
@@ -96,10 +91,7 @@ export class UploadFileHelper {
   private createUploadInput(options: any): UploadFileInput {
     const uploadedFile = this.normalizeUploadedFile(options.file);
     const hasBuffer = options.buffer !== undefined && options.buffer !== null;
-    const onProgress =
-      typeof options.onProgress === 'function'
-        ? (options.onProgress as FileUploadProgressHandler)
-        : undefined;
+    this.assertNoStorageProgressCallback(options, '$storage.$upload');
 
     if (uploadedFile && hasBuffer) {
       throw new Error(
@@ -121,7 +113,6 @@ export class UploadFileHelper {
         mimetype: options.mimetype || uploadedFile.mimetype,
         stream: createReadStream(filePath),
         size: options.size || uploadedFile.size,
-        onProgress,
       };
     }
 
@@ -149,8 +140,14 @@ export class UploadFileHelper {
       stream: Readable.from(buffer),
       signatureBuffer: buffer,
       size: options.size || buffer.length,
-      onProgress,
     };
+  }
+
+  private assertNoStorageProgressCallback(options: any, helperName: string) {
+    if (options?.onProgress === undefined) return;
+    throw new Error(
+      `${helperName} does not support onProgress. Send x-enfyra-upload-id and listen for $system:upload:progress instead.`,
+    );
   }
 
   private createRegisterFileInput(options: any): RegisterFileInput {
@@ -244,6 +241,7 @@ export class UploadFileHelper {
     return async (fileId: string | number, options: any) => {
       try {
         this.assertNotAborted();
+        this.assertNoStorageProgressCallback(options, '$storage.$update');
         const fileRepo = this.getFileRepo(context);
 
         const files = await fileRepo.find({ filter: { id: { _eq: fileId } } });

@@ -341,7 +341,9 @@ export class MetadataMigrationService {
   private getCoreMetadataRowKey(
     rename: TableRenameDef,
     row: any,
+    options: { remapOwnerIds?: boolean } = {},
   ): string | null {
+    const remapOwnerIds = options.remapOwnerIds !== false;
     const tableName = rename.to || rename.from;
     if (tableName === SYSTEM_TABLES.table || tableName === 'table_definition') {
       return row?.name
@@ -353,7 +355,9 @@ export class MetadataMigrationService {
       tableName === SYSTEM_TABLES.column ||
       tableName === 'column_definition'
     ) {
-      const owner = this.remapCoreTableId(rename, row?.tableId ?? row?.table);
+      const owner = remapOwnerIds
+        ? this.remapCoreTableId(rename, row?.tableId ?? row?.table)
+        : (row?.tableId ?? row?.table);
       const name = row?.name;
       return owner !== undefined && owner !== null && name
         ? `column:${String(owner)}:${name}`
@@ -364,10 +368,12 @@ export class MetadataMigrationService {
       tableName === SYSTEM_TABLES.relation ||
       tableName === 'relation_definition'
     ) {
-      const owner = this.remapCoreTableId(
-        rename,
-        row?.sourceTableId ?? row?.sourceTable,
-      );
+      const owner = remapOwnerIds
+        ? this.remapCoreTableId(
+            rename,
+            row?.sourceTableId ?? row?.sourceTable,
+          )
+        : (row?.sourceTableId ?? row?.sourceTable);
       const propertyName = row?.propertyName;
       return owner !== undefined && owner !== null && propertyName
         ? `relation:${String(owner)}:${propertyName}`
@@ -484,8 +490,11 @@ export class MetadataMigrationService {
     rename: TableRenameDef,
     row: any,
     columns: string[],
+    options: { remapCoreOwnerIds?: boolean } = {},
   ): string | null {
-    const logicalKey = this.getCoreMetadataRowKey(rename, row);
+    const logicalKey = this.getCoreMetadataRowKey(rename, row, {
+      remapOwnerIds: options.remapCoreOwnerIds,
+    });
     if (logicalKey) return logicalKey;
 
     if ('id' in row && columns.includes('id') && row.id != null)
@@ -538,7 +547,12 @@ export class MetadataMigrationService {
     columns: string[],
   ): any | null {
     return (
-      rows.find((row) => this.getOverlapRowKey(rename, row, columns) === key) ??
+      rows.find(
+        (row) =>
+          this.getOverlapRowKey(rename, row, columns, {
+            remapCoreOwnerIds: false,
+          }) === key,
+      ) ??
       null
     );
   }
@@ -640,6 +654,25 @@ export class MetadataMigrationService {
     return (
       tableName === SYSTEM_TABLES.table || tableName === 'table_definition'
     );
+  }
+
+  private isCoreRelationMetadataStore(rename: TableRenameDef): boolean {
+    const tableName = rename.to || rename.from;
+    return (
+      tableName === SYSTEM_TABLES.relation ||
+      tableName === 'relation_definition'
+    );
+  }
+
+  private getRelationMappedByKey(
+    rename: TableRenameDef,
+    row: any,
+  ): string | null {
+    if (!this.isCoreRelationMetadataStore(rename)) return null;
+    const mappedById = row?.mappedById ?? row?.mappedBy;
+    return mappedById !== undefined && mappedById !== null
+      ? `mappedBy:${String(mappedById)}`
+      : null;
   }
 
   private trackCanonicalCoreTableId(rename: TableRenameDef, row: any): void {
@@ -746,10 +779,15 @@ export class MetadataMigrationService {
     ]);
 
     const canonicalKeys = new Set<string>();
+    const canonicalMappedByKeys = new Set<string>();
     for (const row of canonicalRows) {
       this.trackCanonicalCoreTableId(rename, row);
-      const key = this.getOverlapRowKey(rename, row, columns);
+      const key = this.getOverlapRowKey(rename, row, columns, {
+        remapCoreOwnerIds: false,
+      });
       if (key !== null && key !== undefined) canonicalKeys.add(key);
+      const mappedByKey = this.getRelationMappedByKey(rename, row);
+      if (mappedByKey) canonicalMappedByKeys.add(mappedByKey);
     }
     const occupiedIds = new Set(
       canonicalRows
@@ -762,6 +800,10 @@ export class MetadataMigrationService {
       if (key === null || key === undefined) return false;
       if (canonicalKeys.has(key)) {
         this.trackExistingCoreRowRemap(rename, row, canonicalRows);
+        return false;
+      }
+      const mappedByKey = this.getRelationMappedByKey(rename, row);
+      if (mappedByKey && canonicalMappedByKeys.has(mappedByKey)) {
         return false;
       }
       return true;
@@ -780,6 +822,8 @@ export class MetadataMigrationService {
       await knex(rename.to).insert(projected);
       insertedCount += 1;
       await this.trackInsertedSqlCoreRowRemap(rename, row, projected);
+      const mappedByKey = this.getRelationMappedByKey(rename, projected);
+      if (mappedByKey) canonicalMappedByKeys.add(mappedByKey);
       const insertedId =
         projected?.id ??
         (projected?.name
@@ -808,9 +852,14 @@ export class MetadataMigrationService {
     ]);
     const canonicalKeys = new Set<string>();
     const occupiedIds = new Set<string>();
+    const canonicalMappedByKeys = new Set<string>();
     for (const row of canonicalRows) {
-      const key = this.getOverlapRowKey(rename, row, columns);
+      const key = this.getOverlapRowKey(rename, row, columns, {
+        remapCoreOwnerIds: false,
+      });
       if (key) canonicalKeys.add(key);
+      const mappedByKey = this.getRelationMappedByKey(rename, row);
+      if (mappedByKey) canonicalMappedByKeys.add(mappedByKey);
       if (row?.id !== undefined && row.id !== null) {
         occupiedIds.add(String(row.id));
       }
@@ -851,6 +900,11 @@ export class MetadataMigrationService {
         }
         continue;
       }
+      const mappedByKey = this.getRelationMappedByKey(rename, row);
+      if (mappedByKey && canonicalMappedByKeys.has(mappedByKey)) {
+        conflictCount += 1;
+        continue;
+      }
       const projected = this.projectRowToColumns(row, columns);
       if (
         projected?.id !== undefined &&
@@ -862,6 +916,11 @@ export class MetadataMigrationService {
       await knex(rename.to).insert(projected);
       insertedCount += 1;
       canonicalKeys.add(key);
+      const insertedMappedByKey = this.getRelationMappedByKey(
+        rename,
+        projected,
+      );
+      if (insertedMappedByKey) canonicalMappedByKeys.add(insertedMappedByKey);
       if (projected?.id !== undefined && projected.id !== null) {
         occupiedIds.add(String(projected.id));
       }
@@ -881,16 +940,25 @@ export class MetadataMigrationService {
     ]);
 
     const canonicalKeys = new Set<string>();
+    const canonicalMappedByKeys = new Set<string>();
     for (const row of canonicalRows) {
       this.trackCanonicalCoreTableId(rename, row);
-      const key = this.getCoreMetadataRowKey(rename, row);
+      const key = this.getCoreMetadataRowKey(rename, row, {
+        remapOwnerIds: false,
+      });
       if (key !== null && key !== undefined) canonicalKeys.add(key);
+      const mappedByKey = this.getRelationMappedByKey(rename, row);
+      if (mappedByKey) canonicalMappedByKeys.add(mappedByKey);
     }
     const rowsToInsert = legacyRows.filter((row) => {
       const key = this.getCoreMetadataRowKey(rename, row);
       if (key === null || key === undefined) return false;
       if (canonicalKeys.has(key)) {
         this.trackExistingCoreRowRemap(rename, row, canonicalRows);
+        return false;
+      }
+      const mappedByKey = this.getRelationMappedByKey(rename, row);
+      if (mappedByKey && canonicalMappedByKeys.has(mappedByKey)) {
         return false;
       }
       return true;
@@ -916,6 +984,11 @@ export class MetadataMigrationService {
           rowsToInsert[index],
           projectedRows[index],
         );
+        const mappedByKey = this.getRelationMappedByKey(
+          rename,
+          projectedRows[index],
+        );
+        if (mappedByKey) canonicalMappedByKeys.add(mappedByKey);
       }
       this.verbose(
         `  Copied ${projectedRows.length} missing core metadata row(s) from ${rename.from} to ${rename.to}`,
@@ -939,9 +1012,14 @@ export class MetadataMigrationService {
     ];
     const canonicalKeys = new Set<string>();
     const occupiedIds = new Set<string>();
+    const canonicalMappedByKeys = new Set<string>();
     for (const row of canonicalRows) {
-      const key = this.getOverlapRowKey(rename, row, columns);
+      const key = this.getOverlapRowKey(rename, row, columns, {
+        remapCoreOwnerIds: false,
+      });
       if (key) canonicalKeys.add(key);
+      const mappedByKey = this.getRelationMappedByKey(rename, row);
+      if (mappedByKey) canonicalMappedByKeys.add(mappedByKey);
       if (row?._id !== undefined && row._id !== null) {
         occupiedIds.add(String(row._id));
       }
@@ -984,6 +1062,11 @@ export class MetadataMigrationService {
         }
         continue;
       }
+      const mappedByKey = this.getRelationMappedByKey(rename, row);
+      if (mappedByKey && canonicalMappedByKeys.has(mappedByKey)) {
+        conflictCount += 1;
+        continue;
+      }
       const projected = this.projectRowToColumns(row, columns);
       if (
         projected?._id !== undefined &&
@@ -994,6 +1077,11 @@ export class MetadataMigrationService {
       }
       rowsToInsert.push(projected);
       canonicalKeys.add(key);
+      const projectedMappedByKey = this.getRelationMappedByKey(
+        rename,
+        projected,
+      );
+      if (projectedMappedByKey) canonicalMappedByKeys.add(projectedMappedByKey);
       if (projected?._id !== undefined && projected._id !== null) {
         occupiedIds.add(String(projected._id));
       }

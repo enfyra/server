@@ -12,6 +12,7 @@ function makeMp4Buffer() {
 
 function makeService(overrides: Record<string, any> = {}) {
   const runtimeRegistryService = {
+    getDefaultStorageConfig: vi.fn(() => null),
     getStorageConfigByType: vi.fn(() => ({
       id: 'local',
       type: 'Local Storage',
@@ -78,46 +79,47 @@ describe('FileManagementService file replacement', () => {
     );
   });
 
-  it('reports raw storage progress from 0 to 100 while streaming', async () => {
-    const { service } = makeService();
+  it('uses the default storage config when upload omits storageConfig', async () => {
+    const runtimeRegistryService = {
+      getDefaultStorageConfig: vi.fn(() => ({
+        id: 'r2-default',
+        type: 'Cloudflare R2',
+        isEnabled: true,
+        isDefault: true,
+        bucket: 'default-bucket',
+      })),
+      getStorageConfigByType: vi.fn(),
+      getStorageConfigById: vi.fn(),
+    };
+    const { service, storageService } = makeService({ runtimeRegistryService });
     const fileRepo = {
       create: vi.fn(async ({ data }) => ({ data: [data] })),
     };
-    const progress: any[] = [];
 
     await service.uploadFileAndCreateRecord(
       {
-        filename: 'progress.txt',
-        mimetype: 'text/plain',
-        stream: Readable.from([Buffer.from('abcd'), Buffer.from('efgh')]),
-        size: 8,
-        onProgress: async (event) => {
-          progress.push(event);
-        },
+        filename: 'report.pdf',
+        mimetype: 'application/pdf',
+        stream: Readable.from('pdf'),
+        size: 3,
       },
-      {
-        storageConfig: 'local',
-      },
+      {},
       fileRepo,
     );
 
-    expect(progress.map((event) => event.percent)).toEqual([50, 100]);
-    expect(progress).toEqual([
-      expect.objectContaining({
-        phase: 'storing',
-        loaded: 4,
-        total: 8,
-        percent: 50,
-        fileName: 'progress.txt',
+    expect(runtimeRegistryService.getDefaultStorageConfig).toHaveBeenCalled();
+    expect(runtimeRegistryService.getStorageConfigByType).not.toHaveBeenCalled();
+    expect(storageService.upload).toHaveBeenCalledWith(
+      expect.any(Readable),
+      expect.stringMatching(/^uploads\/report_/),
+      'application/pdf',
+      expect.objectContaining({ id: 'r2-default' }),
+    );
+    expect(fileRepo.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        storageConfig: { id: 'r2-default' },
       }),
-      expect.objectContaining({
-        phase: 'storing',
-        loaded: 8,
-        total: 8,
-        percent: 100,
-        fileName: 'progress.txt',
-      }),
-    ]);
+    });
   });
 
   it('normalizes replacement MIME metadata and updates the record to the new blob location', async () => {
