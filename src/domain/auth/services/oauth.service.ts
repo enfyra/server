@@ -255,9 +255,12 @@ export class OAuthService {
     });
 
     if (existingAccount) {
-      const userId = isMongoDB
-        ? existingAccount.user?._id || existingAccount.user
-        : existingAccount.userId;
+      const userId = this.getLinkedOAuthUserId(existingAccount);
+      if (userId === undefined || userId === null || userId === '') {
+        throw new BadRequestException(
+          'Linked OAuth account is missing user relation',
+        );
+      }
 
       const user = await this.queryBuilderService.findOne({
         table: 'enfyra_user',
@@ -330,6 +333,15 @@ export class OAuthService {
     }
 
     return user;
+  }
+
+  private getLinkedOAuthUserId(existingAccount: any): any {
+    const linkedUser = existingAccount?.user;
+    if (linkedUser && typeof linkedUser === 'object') {
+      return linkedUser.id ?? linkedUser._id ?? linkedUser;
+    }
+
+    return linkedUser ?? existingAccount?.userId;
   }
 
   private async runUserProvisioningScript(
