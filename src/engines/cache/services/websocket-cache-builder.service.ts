@@ -24,6 +24,7 @@ export interface WebSocketEvent {
   name: string;
   eventName?: string;
   sourceCode?: string | null;
+  scriptLanguage?: string | null;
   compiledCode?: string | null;
   handlerScript?: string | null;
   gatewayId: number;
@@ -34,6 +35,10 @@ export interface WebSocketGateway {
   id: number;
   path: string;
   isEnabled: boolean;
+  sourceCode?: string | null;
+  scriptLanguage?: string | null;
+  compiledCode?: string | null;
+  connectionHandlerScript?: string | null;
   events: WebSocketEvent[];
 }
 

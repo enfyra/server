@@ -1,6 +1,6 @@
 {
   "name": "enfyra-server",
-  "version": "2.2.9",
+  "version": "2.2.10",
   "description": "Dynamic backend platform that auto-generates REST and GraphQL APIs from database schemas",
   "author": "dothinh115 <dothinh115@gmail.com>",
   "license": "SEE LICENSE IN LICENSE",
@@ -40,6 +40,7 @@
     "test:e2e:metadata-reload": "node test/metadata-reload.e2e.js",
     "test:e2e:flow-engine": "node test/flow-engine.e2e.js",
     "test:e2e:query-builder": "node test/query-builder.e2e.js",
+    "test:e2e:compiled-code-db": "tsx test/compiled-code-db.e2e.ts",
     "test:e2e:realtime-chat-load": "tsx test/realtime-chat-app.e2e.ts",
     "test:e2e:mock": "yarn test:e2e:cache-load && yarn test:e2e:metadata-reload && yarn test:e2e:flow-engine",
     "test:e2e": "yarn test:e2e:mock && yarn test:e2e:query-builder"
@@ -47,7 +48,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1024.0",
     "@aws-sdk/lib-storage": "3.1024.0",
-    "@enfyra/kernel": "1.1.26",
+    "@enfyra/kernel": "1.1.30",
     "@envelop/core": "^5.5.1",
     "@envelop/depth-limit": "^7.1.1",
     "@google-cloud/storage": "^7.19.0",

@@ -13,6 +13,8 @@ export interface ConnectionJobData {
   gatewayId: number | string;
   gatewayPath: string;
   script: string;
+  sourceCode?: string | null;
+  scriptLanguage?: string | null;
   timeout: number;
 }
 
@@ -65,8 +67,16 @@ export class ConnectionQueueService {
   }
 
   async process(job: Job<ConnectionJobData>): Promise<any> {
-    const { socketId, userId, clientInfo, gatewayPath, script, timeout } =
-      job.data;
+    const {
+      socketId,
+      userId,
+      clientInfo,
+      gatewayPath,
+      script,
+      sourceCode,
+      scriptLanguage,
+      timeout,
+    } = job.data;
 
     this.logger.debug(
       `Processing connection script for socket ${socketId} on ${gatewayPath}`,
@@ -86,7 +96,10 @@ export class ConnectionQueueService {
         userId ? { id: userId } : null,
       );
 
-    const result = await this.executorEngineService.run(script, ctx, timeout);
+    const result = await this.executorEngineService.run(script, ctx, timeout, {
+      sourceCode: sourceCode ?? script,
+      scriptLanguage: scriptLanguage ?? 'typescript',
+    });
 
     return { success: true, result };
   }

@@ -99,6 +99,7 @@ export interface StepExecOptions {
   ctx: TDynamicContext;
   executorEngineService: ExecutorEngineService;
   shouldTransformCode?: boolean;
+  onCompiledCodeRepair?: (compiledCode: string) => void | Promise<void>;
 }
 
 export function getExecutableStepConfig(step: {
@@ -123,6 +124,7 @@ export async function executeStepCore(opts: StepExecOptions): Promise<any> {
     ctx,
     executorEngineService,
     shouldTransformCode,
+    onCompiledCodeRepair,
   } = opts;
 
   switch (type) {
@@ -133,7 +135,11 @@ export async function executeStepCore(opts: StepExecOptions): Promise<any> {
         (shouldTransformCode
           ? compileScriptSource(sourceCode, config.scriptLanguage)
           : config.code || '');
-      return executorEngineService.run(code, ctx, timeout);
+      return (executorEngineService.run as any)(code, ctx, timeout, {
+        sourceCode,
+        scriptLanguage: config.scriptLanguage ?? 'typescript',
+        onCompiledCodeRepair,
+      });
     }
 
     case 'condition': {
@@ -143,7 +149,11 @@ export async function executeStepCore(opts: StepExecOptions): Promise<any> {
         (shouldTransformCode
           ? compileScriptSource(sourceCode, config.scriptLanguage)
           : config.code || 'return false;');
-      return executorEngineService.run(code, ctx, timeout);
+      return (executorEngineService.run as any)(code, ctx, timeout, {
+        sourceCode,
+        scriptLanguage: config.scriptLanguage ?? 'typescript',
+        onCompiledCodeRepair,
+      });
     }
 
     case 'query':
