@@ -13,6 +13,7 @@ import {
 import { ExecutorEngineService } from '@enfyra/kernel';
 import { RequestWithRouteData } from '../../../shared/types';
 import { Readable } from 'stream';
+import { RuntimeScriptRepairService } from '../../../engines/cache';
 
 export function attachStreamResponseHelper(res: any): void {
   if (!res || res.stream) return;
@@ -76,13 +77,32 @@ export class DynamicService {
   private readonly logger = new Logger(DynamicService.name);
   private readonly executorEngineService: ExecutorEngineService;
   private readonly loggingService: LoggingService;
+  private readonly runtimeScriptRepairService?: RuntimeScriptRepairService;
 
   constructor(deps: {
     executorEngineService: ExecutorEngineService;
     loggingService: LoggingService;
+    runtimeScriptRepairService?: RuntimeScriptRepairService;
   }) {
     this.executorEngineService = deps.executorEngineService;
     this.loggingService = deps.loggingService;
+    this.runtimeScriptRepairService = deps.runtimeScriptRepairService;
+  }
+
+  private repairCompiledCode(tableName: string, record: any) {
+    if (!this.runtimeScriptRepairService) return undefined;
+    return async () => {
+      try {
+        await this.runtimeScriptRepairService?.repairScriptRecord(
+          tableName,
+          record,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Failed to repair ${tableName} compiledCode after executor retry: ${getErrorMessage(error)}`,
+        );
+      }
+    };
   }
 
   async runHandler(req: RequestWithRouteData) {
@@ -109,8 +129,14 @@ export class DynamicService {
 
       this.executorEngineService.register(req, {
         code: handler,
+        sourceCode: routeData.handlerRecord?.sourceCode ?? handler,
+        scriptLanguage: routeData.handlerRecord?.scriptLanguage ?? 'typescript',
+        onCompiledCodeRepair: this.repairCompiledCode(
+          'enfyra_route_handler',
+          routeData.handlerRecord,
+        ),
         type: 'handler',
-      });
+      } as any);
 
       const postHooks = routeData.postHooks;
       if (postHooks?.length) {
@@ -118,8 +144,14 @@ export class DynamicService {
           if (!hook.code) continue;
           this.executorEngineService.register(req, {
             code: hook.code,
+            sourceCode: hook.sourceCode ?? hook.code,
+            scriptLanguage: hook.scriptLanguage ?? 'typescript',
+            onCompiledCodeRepair: this.repairCompiledCode(
+              'enfyra_post_hook',
+              hook,
+            ),
             type: 'postHook',
-          });
+          } as any);
         }
       }
 

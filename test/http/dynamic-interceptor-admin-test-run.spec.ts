@@ -93,6 +93,9 @@ describe('dynamicInterceptorBegin admin test run isolation', () => {
     expect(next).toHaveBeenCalledTimes(1);
     expect(executorEngineService.register).toHaveBeenCalledWith(req, {
       code: '@DATA = { statusCode: @STATUS, ...@DATA }',
+      sourceCode: '@DATA = { statusCode: @STATUS, ...@DATA }',
+      scriptLanguage: 'typescript',
+      onCompiledCodeRepair: undefined,
       type: 'postHook',
     });
     expect(json).toHaveBeenCalledWith({ statusCode: 200, data: [] });

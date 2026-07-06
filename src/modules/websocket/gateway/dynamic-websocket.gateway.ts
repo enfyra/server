@@ -297,6 +297,9 @@ export class DynamicWebSocketGateway {
             );
             const freshEvent: any = event;
             const script = builtInScript ?? event.handlerScript;
+            const sourceCode = builtInScript ?? event.sourceCode ?? script;
+            const scriptLanguage = event.scriptLanguage ?? 'typescript';
+            const scriptRecord = builtInScript ? null : event;
 
             if (script) {
               if (typeof ack === 'function') {
@@ -310,6 +313,9 @@ export class DynamicWebSocketGateway {
                 payload,
                 gatewayPath: gatewayData.path,
                 script,
+                sourceCode,
+                scriptLanguage,
+                scriptRecord,
                 timeout: freshEvent?.timeout ?? event.timeout,
                 socketReceivedAt,
                 ackSentAt,
@@ -385,15 +391,23 @@ export class DynamicWebSocketGateway {
             );
           }
         }
+        const builtInConnectionScript =
+          this.builtInRegistry.getConnectionScript(path);
         const connectionScript =
-          this.builtInRegistry.getConnectionScript(path) ??
-          gatewayData.connectionHandlerScript;
+          builtInConnectionScript ?? gatewayData.connectionHandlerScript;
         if (connectionScript) {
+          const connectionSourceCode =
+            builtInConnectionScript ?? gatewayData.sourceCode ?? connectionScript;
+          const connectionScriptRecord = builtInConnectionScript
+            ? null
+            : gatewayData;
           try {
             await this.runConnectionScript(
               socket,
               gatewayData,
               connectionScript,
+              connectionSourceCode,
+              connectionScriptRecord,
             );
           } catch (error) {
             this.logger.error(
@@ -417,6 +431,8 @@ export class DynamicWebSocketGateway {
     socket: SocketData,
     gatewayData: any,
     script: string,
+    sourceCode: string,
+    scriptRecord: any,
   ) {
     const user = this.getSocketUser(socket);
     const ctx = this.lazyRef.dynamicContextFactory.createWebsocketConnection({
@@ -438,6 +454,17 @@ export class DynamicWebSocketGateway {
       script,
       ctx,
       gatewayData.connectionHandlerTimeout,
+      {
+        sourceCode,
+        scriptLanguage: gatewayData.scriptLanguage ?? 'typescript',
+        onCompiledCodeRepair: scriptRecord
+          ? () =>
+              this.lazyRef.runtimeScriptRepairService?.repairScriptRecord(
+                'enfyra_websocket',
+                scriptRecord,
+              )
+          : undefined,
+      },
     );
   }
 
@@ -448,6 +475,9 @@ export class DynamicWebSocketGateway {
     payload: any;
     gatewayPath: string;
     script: string;
+    sourceCode?: string | null;
+    scriptLanguage?: string | null;
+    scriptRecord?: any;
     timeout: number;
     socketReceivedAt: number;
     ackSentAt: number | null;
@@ -460,6 +490,9 @@ export class DynamicWebSocketGateway {
       payload,
       gatewayPath,
       script,
+      sourceCode,
+      scriptLanguage,
+      scriptRecord,
       timeout,
       socketReceivedAt,
       ackSentAt,
@@ -481,6 +514,17 @@ export class DynamicWebSocketGateway {
         script,
         ctx,
         timeout,
+        {
+          sourceCode: sourceCode ?? script,
+          scriptLanguage: scriptLanguage ?? 'typescript',
+          onCompiledCodeRepair: scriptRecord
+            ? () =>
+                this.lazyRef.runtimeScriptRepairService?.repairScriptRecord(
+                  'enfyra_websocket_event',
+                  scriptRecord,
+                )
+            : undefined,
+        },
       );
       ctx.$socket?.reply?.('ws:result', {
         requestId,

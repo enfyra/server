@@ -153,13 +153,15 @@ export function routeDetectMiddleware(
       const filteredPreHooks = filterHooks(route.preHooks);
       const filteredPostHooks = filterHooks(route.postHooks);
       const routeHandlers = Array.isArray(route.handlers) ? route.handlers : [];
-      const handler =
-        routeHandlers.find((handler: any) => handler.method?.name === method)
-          ?.logic ?? null;
+      const handlerRecord =
+        routeHandlers.find((handler: any) => handler.method?.name === method) ??
+        null;
+      const handler = handlerRecord?.logic ?? null;
 
       req.routeData = {
         ...route,
         handlers: routeHandlers,
+        handlerRecord,
         handler,
         params,
         preHooks: filteredPreHooks,
