@@ -22,6 +22,7 @@ export * from './runtime-registry.service';
 export * from './runtime-reload-audit.service';
 export * from './runtime-namespace-lifecycle.service';
 export * from './runtime-script-repair.service';
+export * from './runtime-script-executor.service';
 export * from './setting-cache.service';
 export * from './storage-config-cache-builder.service';
 export * from './user-cache.service';

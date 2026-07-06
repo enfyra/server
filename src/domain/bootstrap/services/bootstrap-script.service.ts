@@ -196,6 +196,18 @@ export class BootstrapScriptService {
       script.logic,
       ctx,
       timeoutMs,
+      {
+        sourceCode: script.sourceCode ?? script.logic,
+        scriptLanguage: script.scriptLanguage ?? 'typescript',
+        onCompiledCodeRepair: async (compiledCode: string) => {
+          const id = DatabaseConfigService.getRecordId(script);
+          if (id == null) return;
+          script.compiledCode = compiledCode;
+          await this.queryBuilderService.update('enfyra_bootstrap_script', id, {
+            compiledCode,
+          });
+        },
+      },
     );
     return executionResult;
   }

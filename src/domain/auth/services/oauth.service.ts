@@ -11,7 +11,10 @@ import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { ICache } from '../../shared/interfaces/cache.interface';
 import { ExecutorEngineService } from '@enfyra/kernel';
 import { resolveExecutableScript } from '../../../shared/utils/script-code.util';
-import { RepoRegistryService } from '../../../engines/cache';
+import {
+  RepoRegistryService,
+  type RuntimeScriptRepairService,
+} from '../../../engines/cache';
 import { primeCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
 import type { OAuthExchangeTokenPayload } from '../types/oauth-exchange-code.types';
 import type { OAuthConfig } from '../../../engines/cache/services/oauth-config-cache-builder.service';
@@ -35,6 +38,7 @@ export class OAuthService {
   private readonly executorEngineService: ExecutorEngineService;
   private readonly dynamicContextFactory: DynamicContextFactory;
   private readonly repoRegistryService: RepoRegistryService;
+  private readonly runtimeScriptRepairService?: RuntimeScriptRepairService;
 
   private readonly providerUrls: Record<
     OAuthProvider,
@@ -69,6 +73,7 @@ export class OAuthService {
     executorEngineService: ExecutorEngineService;
     dynamicContextFactory: DynamicContextFactory;
     repoRegistryService: RepoRegistryService;
+    runtimeScriptRepairService?: RuntimeScriptRepairService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.runtimeRegistryService = deps.runtimeRegistryService;
@@ -77,6 +82,7 @@ export class OAuthService {
     this.executorEngineService = deps.executorEngineService;
     this.dynamicContextFactory = deps.dynamicContextFactory;
     this.repoRegistryService = deps.repoRegistryService;
+    this.runtimeScriptRepairService = deps.runtimeScriptRepairService;
   }
 
   async getAuthorizationUrl(
@@ -362,7 +368,20 @@ export class OAuthService {
     });
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx, 'enfyra_user');
 
-    const result = await this.executorEngineService.run(executable, ctx);
+    const result = await (this.executorEngineService.run as any)(
+      executable,
+      ctx,
+      30000,
+      {
+        sourceCode: config.sourceCode,
+        scriptLanguage: (config as any).scriptLanguage ?? 'typescript',
+        onCompiledCodeRepair: () =>
+          this.runtimeScriptRepairService?.repairScriptRecord(
+            'enfyra_oauth_config',
+            config,
+          ),
+      },
+    );
     if (!isPlainObject(result)) {
       throw new BadRequestException(
         'OAuth user provisioning script must return an object',

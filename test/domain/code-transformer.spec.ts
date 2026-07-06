@@ -1,4 +1,5 @@
 import * as kernel from '@enfyra/kernel';
+import { compileScriptSource } from '../../src/shared/utils/script-code.util';
 import { transformTemplateSyntax as transformCode } from '../../src/shared/utils/template-syntax.util';
 
 describe('transformCode', () => {
@@ -89,8 +90,11 @@ describe('transformCode', () => {
     ).toBe('return await $ctx.$repos.secure.projects.find({ limit: 1 });');
   });
 
-  it('keeps template syntax behavior outside the kernel package', () => {
+  it('keeps runtime transform ownership in ESV instead of the kernel', () => {
     expect((kernel as any).transformCode).toBeUndefined();
+    expect(compileScriptSource('return @BODY.name;', 'javascript')).toBe(
+      'return $ctx.$body.name;',
+    );
     expect(() =>
       kernel.compileScriptSource('return @BODY.name;', 'javascript'),
     ).toThrow();

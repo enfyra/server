@@ -1,5 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { ExecutorEngineService } from '@enfyra/kernel';
+import { RuntimeScriptRepairService } from '../../engines/cache';
+import { getErrorMessage } from '../../shared/utils/error.util';
 
 function isAdminTestRunRequest(req: any): boolean {
   const path = String(
@@ -18,6 +20,7 @@ function isErrorResponse(res: Response, data: any): boolean {
 
 export function dynamicInterceptorBegin(
   executorEngineService: ExecutorEngineService,
+  runtimeScriptRepairService?: RuntimeScriptRepairService,
 ) {
   return async (req: any, res: Response, next: NextFunction) => {
     if (!req.routeData) {
@@ -30,6 +33,21 @@ export function dynamicInterceptorBegin(
     const appendLogs = (data: any) => {
       const logs = req.routeData?.context?.$share?.$logs;
       return logs?.length ? { ...data, logs } : data;
+    };
+    const repairCompiledCode = (tableName: string, record: any) => {
+      if (!runtimeScriptRepairService) return undefined;
+      return async () => {
+        try {
+          await runtimeScriptRepairService.repairScriptRecord(
+            tableName,
+            record,
+          );
+        } catch (error) {
+          console.warn(
+            `Failed to repair ${tableName} compiledCode after executor retry: ${getErrorMessage(error)}`,
+          );
+        }
+      };
     };
 
     if (!req.routeData.__jsonWrappedForHooks) {
@@ -52,8 +70,14 @@ export function dynamicInterceptorBegin(
                 if (!hook.code) continue;
                 executorEngineService.register(req, {
                   code: hook.code,
+                  sourceCode: hook.sourceCode ?? hook.code,
+                  scriptLanguage: hook.scriptLanguage ?? 'typescript',
+                  onCompiledCodeRepair: repairCompiledCode(
+                    'enfyra_post_hook',
+                    hook,
+                  ),
                   type: 'postHook',
-                });
+                } as any);
               }
               await executorEngineService.runBatch(req);
               req.routeData.__codeBlocks = [];
@@ -78,8 +102,11 @@ export function dynamicInterceptorBegin(
         if (!hook.code) continue;
         executorEngineService.register(req, {
           code: hook.code,
+          sourceCode: hook.sourceCode ?? hook.code,
+          scriptLanguage: hook.scriptLanguage ?? 'typescript',
+          onCompiledCodeRepair: repairCompiledCode('enfyra_pre_hook', hook),
           type: 'preHook',
-        });
+        } as any);
       }
       try {
         const result = await executorEngineService.runBatch(req);

@@ -14,6 +14,7 @@ import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants'
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 import type { RuntimeNamespaceLifecycleService } from '../../../engines/cache/services/runtime-namespace-lifecycle.service';
+import type { RuntimeScriptRepairService } from '../../../engines/cache';
 import type {
   FlowDefinition,
   FlowStep,
@@ -41,6 +42,7 @@ export class FlowService {
   private readonly repoRegistryService: RepoRegistryService;
   private readonly dynamicContextFactory: DynamicContextFactory;
   private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
+  private readonly runtimeScriptRepairService?: RuntimeScriptRepairService;
 
   constructor(deps: {
     flowQueue: Queue;
@@ -49,6 +51,7 @@ export class FlowService {
     repoRegistryService: RepoRegistryService;
     dynamicContextFactory: DynamicContextFactory;
     runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
+    runtimeScriptRepairService?: RuntimeScriptRepairService;
   }) {
     this.flowQueue = deps.flowQueue;
     this.runtimeRegistryService = deps.runtimeRegistryService;
@@ -57,6 +60,12 @@ export class FlowService {
     this.dynamicContextFactory = deps.dynamicContextFactory;
     this.runtimeNamespaceLifecycleService =
       deps.runtimeNamespaceLifecycleService;
+    this.runtimeScriptRepairService = deps.runtimeScriptRepairService;
+  }
+
+  private flowStepRepairCallback(step: any) {
+    if (!this.runtimeScriptRepairService) return undefined;
+    return () => this.runtimeScriptRepairService?.repairFlowStepScriptRecord(step);
   }
 
   async trigger(
@@ -188,6 +197,7 @@ export class FlowService {
           ctx,
           executorEngineService: this.executorEngineService,
           shouldTransformCode: true,
+          onCompiledCodeRepair: this.flowStepRepairCallback(targetStep),
         });
       }
 
@@ -407,6 +417,7 @@ export class FlowService {
       ctx,
       executorEngineService: this.executorEngineService,
       shouldTransformCode: true,
+      onCompiledCodeRepair: this.flowStepRepairCallback(step),
     });
   }
 }

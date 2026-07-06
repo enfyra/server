@@ -17,6 +17,8 @@ export interface EventJobData {
   gatewayPath: string;
   eventId: number | string;
   script: string;
+  sourceCode?: string | null;
+  scriptLanguage?: string | null;
   timeout: number;
   socketReceivedAt?: number;
   ackSentAt?: number | null;
@@ -88,6 +90,8 @@ export class EventQueueService {
       payload,
       gatewayPath,
       script,
+      sourceCode,
+      scriptLanguage,
       timeout,
       socketReceivedAt,
       ackSentAt,
@@ -114,7 +118,10 @@ export class EventQueueService {
       );
 
     try {
-      const result = await this.executorEngineService.run(script, ctx, timeout);
+      const result = await this.executorEngineService.run(script, ctx, timeout, {
+        sourceCode: sourceCode ?? script,
+        scriptLanguage: scriptLanguage ?? 'typescript',
+      });
       ctx.$socket?.reply?.('ws:result', {
         requestId,
         eventName,

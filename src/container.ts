@@ -132,6 +132,7 @@ import {
   RuntimeNamespaceLifecycleService,
   RuntimeRegistryService,
   RuntimeReloadAuditService,
+  RuntimeScriptExecutorService,
   RuntimeScriptRepairService,
   SettingCacheService,
   StorageConfigCacheBuilder,
@@ -145,7 +146,7 @@ import {
 } from './modules/dynamic-api';
 
 import {
-  ExecutorEngineService,
+  ExecutorEngineService as KernelExecutorEngineService,
   IsolatedExecutorService,
   createEnfyraKernel,
   type EnfyraKernel,
@@ -299,7 +300,8 @@ export interface Cradle {
   queryBuilderService: QueryBuilderService;
 
   isolatedExecutorService: IsolatedExecutorService;
-  executorEngineService: ExecutorEngineService;
+  kernelExecutorEngineService: KernelExecutorEngineService;
+  executorEngineService: RuntimeScriptExecutorService;
 
   cacheService: CacheService;
   userCacheService: UserCacheService;
@@ -572,9 +574,10 @@ export function buildContainer(): AwilixContainer<Cradle> {
     )
       .singleton()
       .disposer((service) => service.onDestroy()),
-    executorEngineService: asFunction(
+    kernelExecutorEngineService: asFunction(
       (cradle) => cradle.enfyraKernel.executorEngineService,
     ).singleton(),
+    executorEngineService: asClass(RuntimeScriptExecutorService).singleton(),
 
     cacheService: asClass(CacheService).singleton(),
     userCacheService: asClass(UserCacheService).singleton(),

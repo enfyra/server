@@ -160,6 +160,11 @@ describe('DynamicWebSocketGateway event script execution — real socket E2E', (
         },
       }),
       undefined,
+      expect.objectContaining({
+        sourceCode:
+          'return await $ctx.$socket.reply("profile:accepted", { id: $ctx.$data.userId, name: $ctx.$data.displayName });',
+        scriptLanguage: 'typescript',
+      }),
     );
   });
 
