@@ -494,6 +494,10 @@ async function runTest(body: any, cradle: any, currentUser: any = null) {
         transformed || '',
         ctx,
         timeoutMs,
+        {
+          sourceCode: script,
+          scriptLanguage: resolved.scriptLanguage ?? body?.scriptLanguage,
+        },
       );
       return {
         success: true,
@@ -549,6 +553,10 @@ async function runTest(body: any, cradle: any, currentUser: any = null) {
         transformed || '',
         ctx,
         timeoutMs,
+        {
+          sourceCode: script,
+          scriptLanguage: resolved.scriptLanguage ?? body?.scriptLanguage,
+        },
       );
       return {
         success: true,
@@ -608,6 +616,10 @@ async function runTest(body: any, cradle: any, currentUser: any = null) {
         transformed || '',
         ctx,
         timeoutMs,
+        {
+          sourceCode: script,
+          scriptLanguage: resolved.scriptLanguage ?? body?.scriptLanguage,
+        },
       );
       return {
         success: true,

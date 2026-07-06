@@ -33,6 +33,7 @@ import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 import type { RuntimeNamespaceLifecycleService } from '../../../engines/cache/services/runtime-namespace-lifecycle.service';
+import type { RuntimeScriptRepairService } from '../../../engines/cache';
 
 export type { FlowJobData } from '../../../shared/types/flow.types';
 
@@ -71,6 +72,7 @@ export class FlowExecutionQueueService {
   private readonly isolatedExecutorService: IsolatedExecutorService;
   private readonly runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
   private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
+  private readonly runtimeScriptRepairService?: RuntimeScriptRepairService;
   private readonly flowQueue: Queue;
   private readonly traceFile?: string;
   private readonly flowWorkerEventLoopDelay = monitorEventLoopDelay({
@@ -93,6 +95,7 @@ export class FlowExecutionQueueService {
     isolatedExecutorService: IsolatedExecutorService;
     runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
     runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
+    runtimeScriptRepairService?: RuntimeScriptRepairService;
     flowQueue: Queue;
   }) {
     this.executorEngineService = deps.executorEngineService;
@@ -106,6 +109,7 @@ export class FlowExecutionQueueService {
     this.runtimeMetricsCollectorService = deps.runtimeMetricsCollectorService;
     this.runtimeNamespaceLifecycleService =
       deps.runtimeNamespaceLifecycleService;
+    this.runtimeScriptRepairService = deps.runtimeScriptRepairService;
     this.flowQueue = deps.flowQueue;
     const traceFile = this.envService.get('FLOW_WORKER_TRACE_FILE');
     this.traceFile =
@@ -985,6 +989,8 @@ export class FlowExecutionQueueService {
       timeout,
       ctx,
       executorEngineService: this.executorEngineService,
+      onCompiledCodeRepair: () =>
+        this.runtimeScriptRepairService?.repairFlowStepScriptRecord(step),
     });
   }
 

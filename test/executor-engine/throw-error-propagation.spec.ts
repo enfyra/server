@@ -3,6 +3,11 @@ import {
   executeSingle,
   CodeBlock,
 } from '../helpers/spawn-worker';
+import {
+  ExecutorEngineService,
+  IsolatedExecutorService,
+} from '@enfyra/kernel';
+import { RuntimeScriptExecutorService } from '../../src/engines/cache';
 
 function baseSnapshot(overrides: Record<string, any> = {}) {
   return {
@@ -46,6 +51,49 @@ async function single(code: string, ctx: Record<string, any> = {}) {
     snapshot: baseSnapshot(fullCtx),
     ctx: fullCtx,
   });
+}
+
+async function singleWithSource(
+  code: string,
+  sourceCode: string,
+  ctx: Record<string, any> = {},
+) {
+  const fullCtx: Record<string, any> = {
+    $body: ctx.$body ?? {},
+    $query: ctx.$query ?? {},
+    $params: ctx.$params ?? {},
+    $user: ctx.$user ?? null,
+    $share: ctx.$share ?? { $logs: [] },
+    ...ctx,
+  };
+  return executeSingle({
+    code,
+    sourceCode,
+    snapshot: baseSnapshot(fullCtx),
+    ctx: fullCtx,
+  });
+}
+
+function createIsolatedExecutorService() {
+  return new IsolatedExecutorService({
+    packageCacheService: {
+      getPackages: async () => [],
+    } as any,
+    packageCdnLoaderService: {
+      getPackageSources: () => [],
+    } as any,
+  });
+}
+
+function createRuntimeScriptExecutorService() {
+  const isolatedExecutorService = createIsolatedExecutorService();
+  const kernelExecutorEngineService = new ExecutorEngineService({
+    isolatedExecutorService,
+  });
+  const service = new RuntimeScriptExecutorService({
+    kernelExecutorEngineService,
+  });
+  return { isolatedExecutorService, service };
 }
 
 describe('Runtime error line location in error response', () => {
@@ -120,6 +168,138 @@ describe('Runtime error line location in error response', () => {
       expect(err.details.line).toBe(1);
       expect(err.details.phase).toBe('handler');
       expect(err.details.column).toBeGreaterThan(0);
+    }
+  });
+
+  it('renders code frame from sourceCode instead of compiled template syntax', async () => {
+    try {
+      await singleWithSource(
+        'const value = $ctx.$body.missing.name;\nreturn value;',
+        'const value = @BODY.missing.name;\nreturn value;',
+      );
+      fail('should have thrown');
+    } catch (err: any) {
+      expect(err.details.codeFrame).toContain('@BODY.missing.name');
+      expect(err.details.codeFrame).not.toContain('$ctx.$body.missing.name');
+    }
+  });
+
+  it('renders batch handler code frame from sourceCode instead of compiled template syntax', async () => {
+    try {
+      await batch([
+        {
+          code: 'const value = $ctx.$body.missing.name;\nreturn value;',
+          sourceCode: 'const value = @BODY.missing.name;\nreturn value;',
+          scriptLanguage: 'typescript',
+          type: 'handler',
+        },
+      ]);
+      fail('should have thrown');
+    } catch (err: any) {
+      expect(err.details.phase).toBe('handler');
+      expect(err.details.codeFrame).toContain('@BODY.missing.name');
+      expect(err.details.codeFrame).not.toContain('$ctx.$body.missing.name');
+    }
+  });
+
+  it('recompiles stale single compiledCode from sourceCode in the ESV guard and schedules repair', async () => {
+    const { isolatedExecutorService, service } =
+      createRuntimeScriptExecutorService();
+    let repairedCode = '';
+    try {
+      const result = await service.run(
+        'const value: string = $ctx.$body.name;\nreturn value;',
+        {
+          $body: { name: 'Enfyra' },
+          $query: {},
+          $params: {},
+          $user: null,
+          $share: { $logs: [] },
+        },
+        5000,
+        {
+          sourceCode: 'const value: string = @BODY.name;\nreturn value;',
+          scriptLanguage: 'typescript',
+          onCompiledCodeRepair: (compiledCode: string) => {
+            repairedCode = compiledCode;
+          },
+        },
+      );
+
+      expect(result).toBe('Enfyra');
+      expect(repairedCode).toContain('$ctx.$body.name');
+      expect(repairedCode).not.toContain(': string');
+    } finally {
+      await isolatedExecutorService.onDestroy();
+    }
+  });
+
+  it('recompiles stale batch compiledCode from sourceCode in the ESV guard and schedules repair', async () => {
+    const { isolatedExecutorService, service } =
+      createRuntimeScriptExecutorService();
+    let repairedCode = '';
+    try {
+      const req = {
+        routeData: {
+          context: {
+            $body: { name: 'Enfyra' },
+            $query: {},
+            $params: {},
+            $user: null,
+            $share: { $logs: [] },
+          },
+          __codeBlocks: [
+            {
+              code: 'const value: string = $ctx.$body.name;\nreturn value;',
+              sourceCode: 'const value: string = @BODY.name;\nreturn value;',
+              scriptLanguage: 'typescript',
+              onCompiledCodeRepair: (compiledCode: string) => {
+                repairedCode = compiledCode;
+              },
+              type: 'handler',
+            },
+          ],
+        },
+      };
+      const result = await service.runBatch(req, 5000);
+
+      expect(result.value).toBe('Enfyra');
+      expect(repairedCode).toContain('$ctx.$body.name');
+      expect(repairedCode).not.toContain(': string');
+    } finally {
+      await isolatedExecutorService.onDestroy();
+    }
+  });
+
+  it('does not recompile runtime errors even when their message looks like syntax', async () => {
+    const { isolatedExecutorService, service } =
+      createRuntimeScriptExecutorService();
+    let repairCalled = false;
+    try {
+      await service.run(
+        "throw new Error('Unexpected token in payload');",
+        {
+          $body: { name: 'Enfyra' },
+          $query: {},
+          $params: {},
+          $user: null,
+          $share: { $logs: [] },
+        },
+        5000,
+        {
+          sourceCode: 'const broken: string = ; return broken;',
+          scriptLanguage: 'typescript',
+          onCompiledCodeRepair: () => {
+            repairCalled = true;
+          },
+        },
+      );
+      fail('should have thrown');
+    } catch (err: any) {
+      expect(err.message).toContain('Unexpected token in payload');
+      expect(repairCalled).toBe(false);
+    } finally {
+      await isolatedExecutorService.onDestroy();
     }
   });
 

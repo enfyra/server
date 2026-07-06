@@ -166,7 +166,12 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   );
   app.use(requestLoggingBegin);
   app.use(bodyValidationMiddleware(container));
-  app.use(dynamicInterceptorBegin(c.executorEngineService));
+  app.use(
+    dynamicInterceptorBegin(
+      c.executorEngineService,
+      c.runtimeScriptRepairService,
+    ),
+  );
 
   registerAuthRoutes(app, container);
   registerOAuthRoutes(app, container);

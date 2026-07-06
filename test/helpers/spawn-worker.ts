@@ -1,9 +1,13 @@
 import { Worker } from 'worker_threads';
 
-const WORKER_SCRIPT = require.resolve('@enfyra/kernel/execution/worker.js');
+const WORKER_SCRIPT =
+  process.env.ENFYRA_KERNEL_WORKER_SCRIPT ||
+  require.resolve('@enfyra/kernel/execution/worker.js');
 
 export interface CodeBlock {
   code: string;
+  sourceCode?: string | null;
+  scriptLanguage?: string | null;
   type: 'preHook' | 'handler' | 'postHook';
 }
 
@@ -44,6 +48,7 @@ export function executeBatch(opts: {
 
 export function executeSingle(opts: {
   code: string;
+  sourceCode?: string | null;
   pkgSources?: any[];
   snapshot: Record<string, any>;
   timeoutMs?: number;
@@ -55,6 +60,7 @@ export function executeSingle(opts: {
     'execute',
     {
       code: opts.code,
+      sourceCode: opts.sourceCode,
       pkgSources: opts.pkgSources ?? [],
       snapshot: opts.snapshot,
       timeoutMs: opts.timeoutMs ?? 10000,

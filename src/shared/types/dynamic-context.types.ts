@@ -181,6 +181,7 @@ export interface RequestWithRouteData extends Request {
     context: TDynamicContext;
     params: any;
     handler: string;
+    handlerRecord?: any;
     handlers?: any[];
     preHooks: any[];
     postHooks: any[];
