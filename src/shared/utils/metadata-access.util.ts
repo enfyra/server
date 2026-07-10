@@ -18,6 +18,11 @@ type ProjectionDeps = MetadataAccessDeps & {
 
 type MetadataFieldAction = 'read' | 'create' | 'update';
 
+const TIMESTAMP_FIELDS = [
+  { name: 'createdAt', type: 'timestamp' },
+  { name: 'updatedAt', type: 'timestamp' },
+];
+
 function getRouteTableName(route: any): string | null {
   const mainTable = route?.mainTable;
   if (typeof mainTable === 'string') return mainTable;
@@ -193,6 +198,52 @@ function hasAnyAccess(access: Record<MetadataFieldAction, boolean>) {
   return access.read || access.create || access.update;
 }
 
+function buildTableDefinition(columns: any[], relations: any[]) {
+  const foreignKeyColumns = new Set(
+    relations
+      .filter(
+        (relation) =>
+          relation?.isInverse !== true &&
+          !relation?.mappedBy &&
+          !relation?.mappedById,
+      )
+      .map((relation) => relation.foreignKeyColumn)
+      .filter((name): name is string => typeof name === 'string' && !!name),
+  );
+
+  const definition = columns
+    .filter(
+      (column) =>
+        column?.name && !foreignKeyColumns.has(String(column.name)),
+    )
+    .map((column) => ({ ...column, fieldType: 'column' }));
+
+  for (const field of TIMESTAMP_FIELDS) {
+    if (definition.some((item) => item.name === field.name)) continue;
+    definition.push({
+      ...field,
+      isNullable: false,
+      isSystem: true,
+      isUpdatable: false,
+      isHidden: false,
+      fieldType: 'column',
+      isVirtual: true,
+    });
+  }
+
+  for (const relation of relations) {
+    if (!relation?.propertyName) continue;
+    definition.push({
+      ...relation,
+      name: relation.propertyName,
+      fieldType: 'relation',
+      relationType: relation.type,
+    });
+  }
+
+  return definition;
+}
+
 async function projectTable(
   table: any,
   user: any,
@@ -244,6 +295,7 @@ async function projectTable(
     },
     columns,
     relations,
+    definition: buildTableDefinition(columns, relations),
   };
 }
 
@@ -257,7 +309,16 @@ export async function projectMetadataForUser({
 }: ProjectionDeps): Promise<any[] | any | null> {
   if (!metadata) return tableName ? null : [];
   if (user?.isRootAdmin) {
-    if (tableName) return metadata.tables?.get?.(tableName) ?? null;
+    if (tableName) {
+      const table = metadata.tables?.get?.(tableName) ?? null;
+      if (!table) return null;
+      return projectTable(
+        table,
+        user,
+        new Set<MetadataFieldAction>(['read', 'create', 'update']),
+        fieldPermissionPolicyReader,
+      );
+    }
     return metadata.tablesList ?? [];
   }
 

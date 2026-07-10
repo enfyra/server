@@ -698,7 +698,7 @@
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:database",
-      "description": "Get all table metadata from cache",
+      "description": "Get database and Enfyra runtime metadata context",
       "skipRoleGuardMethods": [
         "GET"
       ],
