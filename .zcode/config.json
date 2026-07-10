@@ -1,0 +1,22 @@
+{
+  "mcp": {
+    "servers": {
+      "enfyra": {
+        "command": "npx",
+        "args": ["-y", "@enfyra/mcp-server@latest"],
+        "env": {
+          "ENFYRA_API_URL": "http://localhost:3000/api",
+          "ENFYRA_API_TOKEN": "efy_pat_mieZ8Bot38JDTuL07L1f05pkMovBz7VlkX1hoMtEOgE"
+        }
+      },
+      "hetzner": {
+        "command": "npx",
+        "args": ["-y", "@lazyants/hetzner-mcp-server"],
+        "cwd": "/Users/thinhdo/Documents/enfyra/cloud",
+        "env": {
+          "HETZNER_API_TOKEN": "VjysbnRpFyprKcQOu8FvieBCrN8QbY5i1hFmyaeCpWegmjififk1t4t5UqGK8vh0"
+        }
+      }
+    }
+  }
+}

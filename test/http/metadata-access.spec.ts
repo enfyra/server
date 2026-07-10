@@ -116,6 +116,56 @@ describe('metadata access projection', () => {
     expect(data).toEqual(meta.tablesList);
   });
 
+  it('returns a form-ready definition for a single root-admin table request', async () => {
+    const meta = metadata([
+      table(
+        'post_definition',
+        [col('id'), col('authorId'), col('title')],
+        [
+          rel('author', {
+            type: 'many-to-one',
+            foreignKeyColumn: 'authorId',
+            targetTableName: 'enfyra_user',
+          }),
+          rel('comments', {
+            type: 'one-to-many',
+            foreignKeyColumn: 'title',
+            targetTableName: 'comment_definition',
+            isInverse: true,
+          }),
+        ],
+      ),
+    ]);
+
+    const data = await projectMetadataForUser({
+      metadata: meta,
+      user: { id: 1, isRootAdmin: true },
+      policyService: policyService(),
+      routeCacheService: routeCacheService([]),
+      fieldPermissionPolicyReader: fieldPermissionPolicyReader([]),
+      tableName: 'post_definition',
+    } as any);
+
+    expect(data.definition.map((item: any) => item.name)).toEqual([
+      'id',
+      'title',
+      'createdAt',
+      'updatedAt',
+      'author',
+      'comments',
+    ]);
+    expect(data.definition.at(-2)).toMatchObject({
+      fieldType: 'relation',
+      relationType: 'many-to-one',
+      targetTableName: 'enfyra_user',
+    });
+    expect(data.definition.at(-1)).toMatchObject({
+      fieldType: 'relation',
+      relationType: 'one-to-many',
+      targetTableName: 'comment_definition',
+    });
+  });
+
   it('allows anonymous users to see only metadata for public routes', async () => {
     const meta = metadata([
       table('public_post_definition', [col('title')]),
