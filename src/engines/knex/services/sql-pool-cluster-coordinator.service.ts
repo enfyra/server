@@ -90,16 +90,6 @@ export class SqlPoolClusterCoordinatorService {
     return id.startsWith(`${this.getNodeName()}:`);
   }
 
-  private toMonitorInstanceId(id: string): string {
-    if (this.isCurrentAppInstance(id)) {
-      return id;
-    }
-    return `external:${createHash('sha256')
-      .update(id)
-      .digest('hex')
-      .slice(0, 12)}`;
-  }
-
   async init(): Promise<void> {
     if (this.databaseConfigService.isMongoDb()) {
       return;
@@ -170,18 +160,10 @@ export class SqlPoolClusterCoordinatorService {
 
   async getClusterStats(): Promise<{
     enabled: boolean;
-    key: string;
-    instanceId: string;
-    activeCount: number;
+    currentAppActiveCount: number;
     staleAfterMs: number;
     heartbeatIntervalMs: number;
     reconcileIntervalMs: number;
-    instances: Array<{
-      id: string;
-      lastSeenAt: string;
-      ageMs: number;
-      isCurrentApp: boolean;
-    }>;
     serverMaxConnections: number | null;
     reserveConnections: number | null;
     targetPoolMax: number | null;
@@ -190,20 +172,10 @@ export class SqlPoolClusterCoordinatorService {
     if (this.databaseConfigService.isMongoDb() || !this.redis) {
       return {
         enabled: false,
-        key: this.zsetKey,
-        instanceId: this.instanceId,
-        activeCount: 1,
+        currentAppActiveCount: 1,
         staleAfterMs: SQL_COORD_STALE_MS,
         heartbeatIntervalMs: SQL_COORD_HEARTBEAT_MS,
         reconcileIntervalMs: SQL_COORD_RECONCILE_INTERVAL_MS,
-        instances: [
-          {
-            id: this.instanceId,
-            lastSeenAt: new Date().toISOString(),
-            ageMs: 0,
-            isCurrentApp: true,
-          },
-        ],
         serverMaxConnections: null,
         reserveConnections: null,
         targetPoolMax: null,
@@ -219,34 +191,20 @@ export class SqlPoolClusterCoordinatorService {
     );
     await this.redis.pexpire(this.zsetKey, this.coordinationKeyTtlMs);
     const rows = await this.redis.zrange(this.zsetKey, 0, -1, 'WITHSCORES');
-    const instances: Array<{
-      id: string;
-      lastSeenAt: string;
-      ageMs: number;
-      isCurrentApp: boolean;
-    }> = [];
+    let currentAppActiveCount = 0;
     for (let i = 0; i < rows.length; i += 2) {
       const id = rows[i];
       const score = Number(rows[i + 1]);
       if (!id || !Number.isFinite(score)) continue;
-      const isCurrentApp = this.isCurrentAppInstance(id);
-      instances.push({
-        id: this.toMonitorInstanceId(id),
-        lastSeenAt: new Date(score).toISOString(),
-        ageMs: Math.max(0, now - score),
-        isCurrentApp,
-      });
+      if (this.isCurrentAppInstance(id)) currentAppActiveCount++;
     }
 
     return {
       enabled: true,
-      key: this.zsetKey,
-      instanceId: this.instanceId,
-      activeCount: Math.max(1, instances.length),
+      currentAppActiveCount: Math.max(1, currentAppActiveCount),
       staleAfterMs: SQL_COORD_STALE_MS,
       heartbeatIntervalMs: SQL_COORD_HEARTBEAT_MS,
       reconcileIntervalMs: SQL_COORD_RECONCILE_INTERVAL_MS,
-      instances,
       serverMaxConnections: this.lastServerMaxConnections,
       reserveConnections: this.lastReserveConnections,
       targetPoolMax:
