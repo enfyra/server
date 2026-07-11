@@ -132,50 +132,21 @@ describe('SqlPoolClusterCoordinatorService', () => {
 
     await expect(appA.getClusterStats()).resolves.toEqual(
       expect.objectContaining({
-        activeCount: 2,
-        instances: expect.arrayContaining([
-          expect.objectContaining({
-            id: 'app-a:same-instance',
-            isCurrentApp: true,
-          }),
-          expect.objectContaining({
-            id: expect.stringMatching(/^external:[a-f0-9]{12}$/),
-            isCurrentApp: false,
-          }),
-        ]),
-        key: expect.stringMatching(/^coord:sql:pool:/),
+        currentAppActiveCount: 1,
       }),
     );
     const appAStats = await appA.getClusterStats();
-    expect(redis.expiries.get(appAStats.key)).toBeGreaterThan(0);
-    expect(appAStats.instances).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: 'app-b:same-instance' }),
-      ]),
-    );
+    expect(appAStats).not.toHaveProperty('instances');
+    expect(appAStats).not.toHaveProperty('key');
 
     await expect(appB.getClusterStats()).resolves.toEqual(
       expect.objectContaining({
-        activeCount: 2,
-        instances: expect.arrayContaining([
-          expect.objectContaining({
-            id: expect.stringMatching(/^external:[a-f0-9]{12}$/),
-            isCurrentApp: false,
-          }),
-          expect.objectContaining({
-            id: 'app-b:same-instance',
-            isCurrentApp: true,
-          }),
-        ]),
-        key: expect.stringMatching(/^coord:sql:pool:/),
+        currentAppActiveCount: 1,
       }),
     );
     const appBStats = await appB.getClusterStats();
-    expect(appBStats.instances).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: 'app-a:same-instance' }),
-      ]),
-    );
+    expect(appBStats).not.toHaveProperty('instances');
+    expect(appBStats).not.toHaveProperty('key');
 
     await appA.onDestroy();
     await appB.onDestroy();

@@ -48,31 +48,6 @@ export interface RedisAdminOverview {
   keyCount: number;
   scanned: number;
   scanComplete: boolean;
-  server: {
-    redisVersion?: string;
-    mode?: string;
-    role?: string;
-    os?: string;
-    archBits?: number;
-    processId?: number;
-    tcpPort?: number;
-    configuredHz?: number;
-    uptimeSeconds?: number;
-    usedMemoryHuman?: string;
-    usedMemoryBytes?: number;
-    maxMemoryHuman?: string;
-    maxMemoryBytes?: number;
-    totalSystemMemoryHuman?: string;
-    totalSystemMemoryBytes?: number;
-    allocator?: string;
-    memFragmentationRatio?: number;
-    connectedClients?: number;
-    usedCpuSys?: number;
-    usedCpuUser?: number;
-    usedCpuSysChildren?: number;
-    usedCpuUserChildren?: number;
-  };
-  keyspace: Record<string, string>;
   userCache: {
     usedBytes: number;
     limitBytes: number;
