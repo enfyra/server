@@ -526,10 +526,18 @@ export class MetadataProvisionMongoService {
         inverseRelationRecord.junctionTargetColumn =
           owningDoc?.junctionSourceColumn || junction.junctionSourceColumn;
       }
-      const existing = await relationColl.findOne({
+      const inverseLegacyPropertyName =
+        relationRenameMap[tableName]?.[rel.inversePropertyName];
+      let existing = await relationColl.findOne({
         [sourceTableFieldName]: tableId,
         propertyName: rel.inversePropertyName,
       });
+      if (!existing && inverseLegacyPropertyName) {
+        existing = await relationColl.findOne({
+          [sourceTableFieldName]: tableId,
+          propertyName: inverseLegacyPropertyName,
+        });
+      }
       if (existing) {
         const mappedByValue = isGeneratedManyToOne
           ? null
@@ -552,6 +560,7 @@ export class MetadataProvisionMongoService {
             owningDoc?.junctionSourceColumn || junction.junctionSourceColumn;
         }
         const needsUpdate =
+          existing.propertyName !== rel.inversePropertyName ||
           existing.mappedBy?.toString() !== mappedByValue?.toString() ||
           existing.type !== inverseType ||
           (inverseType === 'many-to-many' && !existing.junctionSourceColumn);
@@ -560,6 +569,7 @@ export class MetadataProvisionMongoService {
             { _id: existing._id },
             {
               $set: {
+                propertyName: rel.inversePropertyName,
                 mappedBy: mappedByValue,
                 type: inverseType,
                 ...inverseJunctionUpdate,

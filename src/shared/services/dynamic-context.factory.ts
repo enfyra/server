@@ -1,17 +1,20 @@
 import * as jwt from 'jsonwebtoken';
 import { getIoAbortSignal } from '@enfyra/kernel';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { TDynamicContext } from '../types';
-import { BcryptService } from '../../domain/auth';
-import { UserCacheService } from '../../engines/cache';
+import type { TDynamicContext } from '../types';
+import type { BcryptService } from '../../domain/auth';
+import type { UserCacheService } from '../../engines/cache';
 import { createCryptoHelper, createFetchHelper } from '../helpers';
-import { UploadFileHelper } from '../helpers/upload-file.helper';
+import type { UploadFileHelper } from '../helpers/upload-file.helper';
 import { autoSlug } from '../utils/auto-slug.helper';
 import { ScriptErrorFactory } from '../utils/script-error-factory';
-import { EnvService } from './env.service';
+import type { EnvService } from './env.service';
+import type { DatabaseConfigService } from './database-config.service';
+import type { KnexService } from '../../engines/knex/knex.service';
+import type { MongoService } from '../../engines/mongo/services/mongo.service';
 import {
   SocketEmitCapture,
-  WebsocketContextFactory,
+  type WebsocketContextFactory,
 } from '../../modules/websocket';
 
 type JwtExpiresIn = jwt.SignOptions['expiresIn'];
@@ -46,6 +49,9 @@ export class DynamicContextFactory {
   private readonly bcryptService: BcryptService;
   private readonly userCacheService: UserCacheService;
   private readonly envService: EnvService;
+  private readonly databaseConfigService: DatabaseConfigService;
+  private readonly knexService: KnexService;
+  private readonly mongoService: MongoService;
   private readonly websocketContextFactory: WebsocketContextFactory;
   private readonly uploadFileHelper?: UploadFileHelper;
 
@@ -53,12 +59,18 @@ export class DynamicContextFactory {
     bcryptService: BcryptService;
     userCacheService: UserCacheService;
     envService: EnvService;
+    databaseConfigService: DatabaseConfigService;
+    knexService: KnexService;
+    mongoService: MongoService;
     websocketContextFactory: WebsocketContextFactory;
     uploadFileHelper?: UploadFileHelper;
   }) {
     this.bcryptService = deps.bcryptService;
     this.userCacheService = deps.userCacheService;
     this.envService = deps.envService;
+    this.databaseConfigService = deps.databaseConfigService;
+    this.knexService = deps.knexService;
+    this.mongoService = deps.mongoService;
     this.websocketContextFactory = deps.websocketContextFactory;
     this.uploadFileHelper = deps.uploadFileHelper;
   }
@@ -74,6 +86,7 @@ export class DynamicContextFactory {
       $throw: ScriptErrorFactory.createThrowHandlers(),
       $helpers: this.createHelpers(options.helpers),
       $cache: cache,
+      $transaction: undefined as never,
       $params: options.params ?? {},
       $query: options.query ?? {},
       $env: this.createEnvSnapshot(),
@@ -91,6 +104,8 @@ export class DynamicContextFactory {
       ctx.$storage = this.uploadFileHelper.createStorageHelper(ctx);
     }
 
+    ctx.$transaction = this.createTransactionFacade(ctx);
+
     ctx.$logs = (...args: any[]) => {
       if (!ctx.$share) ctx.$share = { $logs: [] };
       if (!ctx.$share.$logs) ctx.$share.$logs = [];
@@ -98,6 +113,106 @@ export class DynamicContextFactory {
     };
 
     return ctx;
+  }
+
+  private createTransactionFacade(
+    ctx: TDynamicContext,
+  ): TDynamicContext['$transaction'] {
+    let active = false;
+    return {
+      run: async <T>(callback: () => Promise<T>): Promise<T> => {
+        if (typeof callback !== 'function') {
+          throw new Error('$transaction.run requires a callback');
+        }
+        if (active) {
+          return await callback();
+        }
+
+        active = true;
+        try {
+          if (this.databaseConfigService.isMongoDb()) {
+            const result = await this.mongoService.runInSaga((scope) =>
+              this.runWithTransactionRepos(ctx, callback, (work) =>
+                this.mongoService.runWithTransactionScope(scope, work),
+              ),
+            );
+            return result.data as T;
+          }
+
+          return await this.knexService.transaction((trx) =>
+            this.runWithTransactionRepos(ctx, callback, (work) =>
+              this.knexService.runWithTransaction(trx, work),
+            ),
+          );
+        } finally {
+          active = false;
+        }
+      },
+    };
+  }
+
+  private async runWithTransactionRepos<T>(
+    ctx: TDynamicContext,
+    callback: () => Promise<T>,
+    runInTransaction: <R>(work: () => Promise<R>) => Promise<R>,
+  ): Promise<T> {
+    const originalRepos = ctx.$repos;
+    const wrapped = new WeakMap<object, object>();
+    const wrap = (target: any): any => {
+      if (
+        !target ||
+        (typeof target !== 'object' && typeof target !== 'function')
+      ) {
+        return target;
+      }
+      const existing = wrapped.get(target);
+      if (existing) return existing;
+      const proxy = new Proxy(target, {
+        get: (value, property, receiver) => {
+          const member = Reflect.get(value, property, receiver);
+          if (typeof member === 'function') {
+            return (...args: any[]) =>
+              runInTransaction(() => member.apply(value, args));
+          }
+          return wrap(member);
+        },
+      });
+      wrapped.set(target, proxy);
+      return proxy;
+    };
+
+    ctx.$repos = wrap(originalRepos);
+    try {
+      return await this.runWithAbort(callback);
+    } finally {
+      ctx.$repos = originalRepos;
+    }
+  }
+
+  private async runWithAbort<T>(callback: () => Promise<T>): Promise<T> {
+    const signal = getIoAbortSignal();
+    if (!signal) return await callback();
+    if (signal.aborted) throw new Error('Operation aborted');
+
+    return await new Promise<T>((resolve, reject) => {
+      const onAbort = () => {
+        cleanup();
+        reject(new Error('Operation aborted'));
+      };
+      const cleanup = () => signal.removeEventListener('abort', onAbort);
+
+      signal.addEventListener('abort', onAbort, { once: true });
+      callback().then(
+        (value) => {
+          cleanup();
+          resolve(value);
+        },
+        (error) => {
+          cleanup();
+          reject(error);
+        },
+      );
+    });
   }
 
   private createEnvSnapshot(): TDynamicContext['$env'] {
@@ -131,7 +246,8 @@ export class DynamicContextFactory {
             signal ? { signal } : undefined,
           );
         } catch (error: any) {
-          if (error?.name === 'AbortError') throw new Error('Operation aborted');
+          if (error?.name === 'AbortError')
+            throw new Error('Operation aborted');
           throw error;
         }
       },
