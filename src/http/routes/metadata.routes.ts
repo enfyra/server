@@ -29,9 +29,6 @@ export function registerMetadataRoutes(
       (container.cradle.runtimeRegistryService as RuntimeRegistryService);
     const policyService =
       req.scope?.cradle?.policyService ?? container.cradle.policyService;
-    const databaseConfigService =
-      req.scope?.cradle?.databaseConfigService ??
-      container.cradle.databaseConfigService;
     const metadata = runtimeRegistryService.getMetadata();
     if (!metadata) {
       throw new ServiceUnavailableException('Metadata');
@@ -48,14 +45,6 @@ export function registerMetadataRoutes(
     if (!table) {
       throw new NotFoundException(`Table '${req.params.name}' not found`);
     }
-    res.json(
-      JSON.parse(
-        JSON.stringify({
-          data: table,
-          dbType: databaseConfigService.getDbType(),
-          enfyraVersion: getEnfyraVersion(),
-        }),
-      ),
-    );
+    res.json(JSON.parse(JSON.stringify({ data: table })));
   });
 }
