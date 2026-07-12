@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  isCustomException,
 } from '../../../domain/exceptions';
 import { EventEmitter2 } from 'eventemitter2';
 import { Logger } from '../../../shared/logger';
@@ -957,10 +958,7 @@ export class DynamicRepository {
         throw error;
       }
     } catch (error: any) {
-      if (
-        error instanceof ForbiddenException ||
-        error instanceof ConflictException
-      ) {
+      if (isCustomException(error)) {
         throw error;
       }
       if (error.errInfo) {
@@ -1219,10 +1217,7 @@ export class DynamicRepository {
       }
       return result;
     } catch (error: any) {
-      if (
-        error instanceof ForbiddenException ||
-        error instanceof ConflictException
-      ) {
+      if (isCustomException(error)) {
         throw error;
       }
       throw new BadRequestException(error.message);
@@ -1387,6 +1382,9 @@ export class DynamicRepository {
       }
       return { message: 'Delete successfully!', statusCode: 200 };
     } catch (error: any) {
+      if (isCustomException(error)) {
+        throw error;
+      }
       throw new BadRequestException(error.message);
     }
   }

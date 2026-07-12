@@ -40,6 +40,7 @@ export class SchemaMigrationValidatorService {
         message:
           'Invalid table schema: indexes must not include fields that are already covered by unique constraints. Unique constraints already create indexed lookups.',
         details: {
+          code: 'SCHEMA_INDEX_OVER_UNIQUE_FIELD',
           tableName,
           conflicts: indexesOverUniqueFields,
           guidance:
@@ -333,17 +334,35 @@ export class SchemaMigrationValidatorService {
 
   private findIndexesReferencingUniqueFields(
     metadata: any,
-  ): Array<{ index: string[]; uniqueFields: string[] }> {
+  ): Array<{
+    index: string[];
+    uniqueFields: string[];
+    uniqueConstraints: Array<{
+      fields: string[];
+      matchingFields: string[];
+    }>;
+  }> {
     if (!metadata || typeof metadata !== 'object') return [];
-    const uniqueFields = new Set(
-      this.parseConstraintGroups(metadata.uniques).flat(),
-    );
-    if (uniqueFields.size === 0) return [];
+    const uniqueGroups = this.parseConstraintGroups(metadata.uniques);
+    if (uniqueGroups.length === 0) return [];
     return this.parseConstraintGroups(metadata.indexes)
-      .map((group) => ({
-        index: group,
-        uniqueFields: group.filter((field) => uniqueFields.has(field)),
-      }))
+      .map((index) => {
+        const uniqueConstraints = uniqueGroups
+          .map((fields) => ({
+            fields,
+            matchingFields: index.filter((field) => fields.includes(field)),
+          }))
+          .filter(({ matchingFields }) => matchingFields.length > 0);
+        return {
+          index,
+          uniqueFields: [
+            ...new Set(
+              uniqueConstraints.flatMap(({ matchingFields }) => matchingFields),
+            ),
+          ],
+          uniqueConstraints,
+        };
+      })
       .filter((conflict) => conflict.uniqueFields.length > 0);
   }
 

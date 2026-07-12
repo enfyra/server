@@ -31,7 +31,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
       currentUser: context?.$user,
     });
     if (isPolicyDeny(decision)) {
-      throw new ValidationException(decision.message);
+      throw new ValidationException(decision.message, decision.details);
     }
     const affectedTableNames = new Set<string>();
     return await this.runWithSchemaLock(

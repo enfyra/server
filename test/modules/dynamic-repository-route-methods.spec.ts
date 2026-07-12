@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { ValidationException } from '../../src/domain/exceptions';
 import { DynamicRepository } from '../../src/modules/dynamic-api';
 
 function makeRepo(
@@ -45,6 +46,43 @@ function makeRepo(
 }
 
 describe('DynamicRepository route method relations', () => {
+  it('preserves schema validation details from table updates', async () => {
+    const details = {
+      code: 'SCHEMA_INDEX_OVER_UNIQUE_FIELD',
+      conflicts: [
+        {
+          index: ['host'],
+          uniqueConstraints: [{ fields: ['host', 'db_name'] }],
+        },
+      ],
+    };
+    const repo = makeRepo({
+      tableName: 'enfyra_table',
+      tableHandlerService: {
+        updateTable: vi.fn().mockRejectedValue(
+          new ValidationException('Invalid table schema', details),
+        ),
+      } as any,
+      tableValidationService: {
+        assertTableValid: vi.fn().mockResolvedValue(undefined),
+      } as any,
+      policyService: {
+        checkMutationSafety: vi.fn().mockResolvedValue({ allowed: true }),
+      } as any,
+    });
+    vi.spyOn(repo as any, 'ensureInit').mockResolvedValue(undefined);
+    vi.spyOn(repo as any, 'find').mockResolvedValue({
+      data: [{ id: 93 }],
+      count: 1,
+    });
+    (repo as any).tableMetadata = { columns: [] };
+
+    await expect(repo.update({ id: 93, data: {} })).rejects.toMatchObject({
+      message: 'Invalid table schema',
+      details,
+    });
+  });
+
   it('keeps Mongo string/ObjectId-like publicMethods when they are available', () => {
     const repo = makeRepo();
     const getId = '507f1f77bcf86cd799439011';
