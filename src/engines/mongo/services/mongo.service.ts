@@ -31,6 +31,13 @@ import {
   encryptRecordFields,
 } from '../../../shared/utils/encrypted-field.util';
 
+export type MongoTransactionScope =
+  | {
+      kind: 'native';
+      bundle: { session: ClientSession; logicalTxId: string };
+    }
+  | { kind: 'saga'; session: MongoSagaSession };
+
 export class MongoService {
   private client!: MongoClient;
   private db!: Db;
@@ -440,7 +447,7 @@ export class MongoService {
   }
 
   async runInSaga<T>(
-    fn: () => Promise<T>,
+    fn: (scope: MongoTransactionScope) => Promise<T>,
     options?: { throwOnFailure?: boolean },
   ): Promise<{
     success: boolean;
@@ -457,9 +464,9 @@ export class MongoService {
       try {
         let dataOut: T | undefined;
         await session.withTransaction(async () => {
-          dataOut = await this.nativeTxBundleAls.run(
-            { session, logicalTxId },
-            fn,
+          const bundle = { session, logicalTxId };
+          dataOut = await this.nativeTxBundleAls.run(bundle, () =>
+            fn({ kind: 'native', bundle }),
           );
         });
         return { success: true, data: dataOut as T, txId: logicalTxId };
@@ -479,7 +486,7 @@ export class MongoService {
       );
     }
     const execResult = await sagaCoordinator.execute((tx) =>
-      this.appTxSessionAls.run(tx, fn),
+      this.appTxSessionAls.run(tx, () => fn({ kind: 'saga', session: tx })),
     );
     if (throwOnFailure && !execResult.success) {
       const err = execResult.error;
@@ -499,6 +506,16 @@ export class MongoService {
       rollbackResult: execResult.rollbackResult,
       stats: execResult.stats,
     };
+  }
+
+  async runWithTransactionScope<T>(
+    scope: MongoTransactionScope,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    if (scope.kind === 'native') {
+      return await this.nativeTxBundleAls.run(scope.bundle, callback);
+    }
+    return await this.appTxSessionAls.run(scope.session, callback);
   }
 
   private async refreshNativeTransactionCapability(): Promise<void> {

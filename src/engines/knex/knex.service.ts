@@ -1,5 +1,5 @@
 import { Logger } from '../../shared/logger';
-import { Knex, knex } from 'knex';
+import { knex, type Knex } from 'knex';
 import { AsyncLocalStorage } from 'async_hooks';
 import type { Cradle } from '../../container';
 import {
@@ -364,7 +364,7 @@ export class KnexService implements LifecycleAware {
       throw new Error('Knex instance not initialized. Call init first.');
     }
 
-    const baseKnex = this.knexInstance;
+    const baseKnex = this.knexContext.getStore() || this.knexInstance;
     const getKnexForRead = () => this.getKnexForRead();
     const getKnexForWrite = () => this.getKnexForWrite();
     const wrapQueryBuilder = (qb: any, knexInstance: any) =>
@@ -412,14 +412,18 @@ export class KnexService implements LifecycleAware {
     }) as ExtendedKnex;
   }
 
-  private getKnexForRead(): Knex {
+  private getKnexForRead(): Knex | Knex.Transaction {
+    const activeTransaction = this.knexContext.getStore();
+    if (activeTransaction) return activeTransaction;
     if (this.replicationManager) {
       return this.replicationManager.getReplicaKnex();
     }
     return this.knexInstance;
   }
 
-  private getKnexForWrite(): Knex {
+  private getKnexForWrite(): Knex | Knex.Transaction {
+    const activeTransaction = this.knexContext.getStore();
+    if (activeTransaction) return activeTransaction;
     if (this.replicationManager) {
       return this.replicationManager.getMasterKnex();
     }
@@ -492,6 +496,13 @@ export class KnexService implements LifecycleAware {
     return await knexInstance.transaction(async (trx) => {
       return this.knexContext.run(trx, async () => callback(trx));
     });
+  }
+
+  async runWithTransaction<T>(
+    trx: Knex.Transaction,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    return await this.knexContext.run(trx, callback);
   }
 
   async parseResult(
