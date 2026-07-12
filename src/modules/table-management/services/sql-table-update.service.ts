@@ -1,6 +1,7 @@
 import { getIoAbortSignal } from '@enfyra/kernel';
 import type { Knex } from 'knex';
 import {
+  CustomException,
   DatabaseException,
   ResourceNotFoundException,
   ValidationException,
@@ -512,6 +513,7 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
         tableId: id,
         tableName: body?.name,
       });
+      if (error instanceof CustomException) throw error;
       throw new DatabaseException(`Failed to update table: ${error.message}`, {
         tableId: id,
         operation: 'update',

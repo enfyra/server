@@ -135,8 +135,15 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
     expect(decision.allow).toBe(false);
     expect(decision.statusCode).toBe(422);
     expect(decision.code).toBe('SCHEMA_INDEX_OVER_UNIQUE_FIELD');
+    expect(decision.details.code).toBe('SCHEMA_INDEX_OVER_UNIQUE_FIELD');
     expect(decision.details.conflicts).toEqual([
-      { index: ['version'], uniqueFields: ['version'] },
+      {
+        index: ['version'],
+        uniqueFields: ['version'],
+        uniqueConstraints: [
+          { fields: ['version'], matchingFields: ['version'] },
+        ],
+      },
     ]);
   });
 
@@ -160,9 +167,39 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
     expect(decision.statusCode).toBe(422);
     expect(decision.code).toBe('SCHEMA_INDEX_OVER_UNIQUE_FIELD');
     expect(decision.details.conflicts).toEqual([
-      { index: ['version', 'is_active'], uniqueFields: ['version'] },
+      {
+        index: ['version', 'is_active'],
+        uniqueFields: ['version'],
+        uniqueConstraints: [
+          { fields: ['version'], matchingFields: ['version'] },
+        ],
+      },
     ]);
     expect(decision.details.guidance).toMatch(/Remove unique fields/);
+  });
+
+  it('lists every unique constraint that conflicts with an index', async () => {
+    const v = makeValidator();
+    const decision = await v.checkSchemaMigration({
+      operation: 'create',
+      tableName: 'cloud_host_databases',
+      data: {
+        uniques: [['host', 'db_name'], ['host', 'db_user']],
+        indexes: [['host']],
+      },
+      requestContext: { $query: {} },
+    });
+
+    expect(decision.details.conflicts).toEqual([
+      {
+        index: ['host'],
+        uniqueFields: ['host'],
+        uniqueConstraints: [
+          { fields: ['host', 'db_name'], matchingFields: ['host'] },
+          { fields: ['host', 'db_user'], matchingFields: ['host'] },
+        ],
+      },
+    ]);
   });
 
   it('hash differs when adding different column (not just id)', async () => {
