@@ -206,8 +206,9 @@ export class RuntimeMonitorService {
     this.sampling = true;
     try {
       const snapshot = await this.getSnapshot();
-      this.dynamicWebSocketGateway.emitToNamespace(
+      this.dynamicWebSocketGateway.emitToNamespaceRoom(
         ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+        ENFYRA_ADMIN_ROOT_WEBSOCKET_ROOM,
         '$system:runtime:metrics',
         snapshot,
       );

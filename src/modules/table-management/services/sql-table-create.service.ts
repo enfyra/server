@@ -28,7 +28,7 @@ export class SqlTableCreateService extends SqlTableHandlerService {
       currentUser: context?.$user,
     });
     if (isPolicyDeny(decision)) {
-      throw new ValidationException(decision.message);
+      throw new ValidationException(decision.message, decision.details);
     }
     return await this.runWithSchemaLock(
       `table:create:${body?.name || 'unknown'}`,

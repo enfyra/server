@@ -73,12 +73,7 @@ describe('KnexHookManagerService select query wrapping', () => {
       return result;
     });
 
-    expect(events).toEqual([
-      'before-start',
-      'before-end',
-      'after',
-      'result:1',
-    ]);
+    expect(events).toEqual(['before-start', 'before-end', 'after', 'result:1']);
     expect(queryBuilder.originalThen).toHaveBeenCalledTimes(1);
   });
 
@@ -123,5 +118,32 @@ describe('KnexHookManagerService select query wrapping', () => {
 
     await expect(wrapped.then()).resolves.toEqual([{ id: 1 }]);
     expect(afterSelect).not.toHaveBeenCalled();
+  });
+
+  it('reuses the active transaction for cascade-aware writes', async () => {
+    const service = createService();
+    const queryBuilder = createQueryBuilder([]);
+    const context = new AsyncLocalStorage<any>();
+    const transaction = {
+      commit: vi.fn(),
+      transaction: vi.fn(),
+    };
+    const insert = vi.fn().mockResolvedValue([1]);
+    queryBuilder.insert = insert;
+
+    const wrapped = service.wrapQueryBuilder(
+      queryBuilder,
+      {} as any,
+      () => ({}) as any,
+      context,
+      new AsyncLocalStorage(),
+    );
+
+    await context.run(transaction, async () => {
+      await wrapped.insert({ name: 'nested-write' });
+    });
+
+    expect(insert).toHaveBeenCalledWith({ name: 'nested-write' });
+    expect(transaction.transaction).not.toHaveBeenCalled();
   });
 });

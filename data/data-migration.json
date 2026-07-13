@@ -537,6 +537,7 @@
           "_eq": "/metadata"
         }
       },
+      "description": "Get database and Enfyra runtime metadata context",
       "publicMethods": [],
       "skipRoleGuardMethods": [
         "GET"

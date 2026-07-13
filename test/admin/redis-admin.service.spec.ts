@@ -268,28 +268,13 @@ function makeService(redis = new FakeRedis()) {
 }
 
 describe('RedisAdminService', () => {
-  it('returns Redis server and hardware details in overview', async () => {
+  it('returns an overview limited to the current namespace', async () => {
     const { redis, service } = makeService();
     redis.setSync('app-a:user:key', 'value');
+    redis.setSync('app-b:user:key', 'external');
 
     const overview = await service.getOverview();
 
-    expect(overview.server).toEqual(
-      expect.objectContaining({
-        redisVersion: '7.2.0',
-        mode: 'standalone',
-        role: 'master',
-        os: 'Darwin 24.0 arm64',
-        archBits: 64,
-        tcpPort: 6379,
-        usedMemoryBytes: 1048576,
-        maxMemoryBytes: 2097152,
-        totalSystemMemoryBytes: 17179869184,
-        allocator: 'libc',
-        connectedClients: 3,
-        usedCpuSys: 1.5,
-      }),
-    );
     expect(overview.health).toEqual({
       severity: 'ok',
       warnings: [],
@@ -304,6 +289,9 @@ describe('RedisAdminService', () => {
       }),
     );
     expect(overview.keyCount).toBe(1);
+    expect(overview.scanned).toBe(1);
+    expect(overview).not.toHaveProperty('server');
+    expect(overview).not.toHaveProperty('keyspace');
     expect(overview.groups[0]).toEqual(
       expect.objectContaining({
         name: 'current namespace',
@@ -348,7 +336,7 @@ describe('RedisAdminService', () => {
 
     expect(overview.health).toEqual({
       severity: 'warning',
-      warnings: ['Redis memory fragmentation ratio is 2.4.'],
+      warnings: ['Shared Redis memory fragmentation is elevated.'],
     });
   });
 
@@ -365,7 +353,7 @@ describe('RedisAdminService', () => {
 
     expect(overview.health).toEqual({
       severity: 'error',
-      warnings: ['Redis memory usage is 96% of configured maxmemory.'],
+      warnings: ['Shared Redis memory pressure is 96% of configured maxmemory.'],
     });
   });
 

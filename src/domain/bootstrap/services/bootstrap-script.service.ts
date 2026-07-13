@@ -4,13 +4,11 @@ import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { IExecutorEngine } from '../../shared/interfaces/executor-engine.interface';
 import { ICache } from '../../shared/interfaces/cache.interface';
 import { IRepoRegistry } from '../../shared/interfaces/repo-registry.interface';
-import { TDynamicContext } from '../../../shared/types';
-import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import {
-  InstanceService,
   DatabaseConfigService,
+  type DynamicContextFactory,
+  type InstanceService,
 } from '../../../shared/services';
-import { createFetchHelper } from '../../../shared/helpers';
 import {
   BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
   REDIS_TTL,
@@ -28,6 +26,7 @@ export class BootstrapScriptService {
   private readonly userCacheService: ICache;
   private readonly repoRegistryService: IRepoRegistry;
   private readonly instanceService: InstanceService;
+  private readonly dynamicContextFactory: DynamicContextFactory;
   private readonly eventEmitter: EventEmitter2;
 
   constructor(deps: {
@@ -37,6 +36,7 @@ export class BootstrapScriptService {
     userCacheService?: ICache;
     repoRegistryService: IRepoRegistry;
     instanceService: InstanceService;
+    dynamicContextFactory: DynamicContextFactory;
     eventEmitter: EventEmitter2;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
@@ -45,6 +45,7 @@ export class BootstrapScriptService {
     this.userCacheService = deps.userCacheService ?? deps.cacheService;
     this.repoRegistryService = deps.repoRegistryService;
     this.instanceService = deps.instanceService;
+    this.dynamicContextFactory = deps.dynamicContextFactory;
     this.eventEmitter = deps.eventEmitter;
   }
 
@@ -106,9 +107,7 @@ export class BootstrapScriptService {
           if (collections.length > 0) return;
         } else {
           const knex = this.queryBuilderService.getKnex();
-          const exists = await knex.schema.hasTable(
-            'enfyra_bootstrap_script',
-          );
+          const exists = await knex.schema.hasTable('enfyra_bootstrap_script');
           if (exists) return;
         }
       } catch (error) {
@@ -148,13 +147,9 @@ export class BootstrapScriptService {
         script.compiledCode = resolved.compiledCode;
         const id = DatabaseConfigService.getRecordId(script);
         if (id != null) {
-          await this.queryBuilderService.update(
-            'enfyra_bootstrap_script',
-            id,
-            {
-              compiledCode: resolved.compiledCode,
-            },
-          );
+          await this.queryBuilderService.update('enfyra_bootstrap_script', id, {
+            compiledCode: resolved.compiledCode,
+          });
         }
       }
       scripts[i] = script;
@@ -175,21 +170,15 @@ export class BootstrapScriptService {
   }
 
   private async executeScript(script: any) {
-    const ctx: TDynamicContext = {
-      $throw: ScriptErrorFactory.createThrowHandlers(),
-      $logs: (...args: any[]) => {
-        this.logger.log(`[${script.name}] ${args.join(' ')}`);
-      },
-      $helpers: {
+    const ctx = this.dynamicContextFactory.createBase({
+      helpers: {
         autoSlug: (text: string) => text.toLowerCase().replace(/\s+/g, '-'),
       },
-      $cache: this.userCacheService,
-      $repos: {} as any,
-      $share: {
-        $logs: [],
-      },
+      cache: this.userCacheService,
+    });
+    ctx.$logs = (...args: any[]) => {
+      this.logger.log(`[${script.name}] ${args.join(' ')}`);
     };
-    ctx.$helpers.$fetch = createFetchHelper();
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     const timeoutMs = script.timeout || 30000;
     const executionResult = await this.executorEngineService.run(

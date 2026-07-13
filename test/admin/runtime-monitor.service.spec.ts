@@ -29,6 +29,27 @@ function makeService(deps: Partial<any> = {}) {
 }
 
 describe('RuntimeMonitorService', () => {
+  it('emits runtime metrics only to root admin sockets', async () => {
+    const dynamicWebSocketGateway = {
+      emitToNamespaceRoom: vi.fn(),
+    };
+    const service = makeService({
+      dynamicWebSocketGateway,
+      runtimeProcessMetricsService: { resetEventLoop: vi.fn() },
+    });
+    vi.spyOn(service, 'getSnapshot').mockResolvedValue({ sampledAt: 'now' });
+    vi.spyOn(service, 'emitRedisOverview').mockResolvedValue();
+
+    await (service as any).emitSample();
+
+    expect(dynamicWebSocketGateway.emitToNamespaceRoom).toHaveBeenCalledWith(
+      '/enfyra-admin',
+      '$system:root-admin',
+      '$system:runtime:metrics',
+      { sampledAt: 'now' },
+    );
+  });
+
   it('captures app telemetry through ClusterTelemetryService', async () => {
     const clusterTelemetryService = {
       publish: vi.fn().mockResolvedValue(undefined),

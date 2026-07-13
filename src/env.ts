@@ -4,6 +4,8 @@ import { getEnfyraVersion } from './shared/utils/enfyra-version.util';
 
 process.env.ENFYRA_VERSION = getEnfyraVersion();
 
+const NODE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
 const EnvSchema = z.object({
   DB_URI: z.string(),
   DB_REPLICA_URIS: z.string().optional(),
@@ -57,7 +59,14 @@ const EnvSchema = z.object({
     .optional()
     .default(5000),
   DEFAULT_TTL: z.coerce.number().int().positive().optional().default(5),
-  NODE_NAME: z.string().optional().default('enfyra'),
+  NODE_NAME: z
+    .string()
+    .trim()
+    .regex(
+      NODE_NAME_PATTERN,
+      'NODE_NAME must use only letters, numbers, dots, underscores, or hyphens',
+    )
+    .optional(),
   ENFYRA_VERSION: z.string(),
   PORT: z.coerce.number().int().positive().default(1105),
   SECRET_KEY: z.string().min(1),
@@ -124,7 +133,21 @@ const EnvSchema = z.object({
     .default(5),
   DYNAMIC_CREATE_BATCH_TRACE_FILE: z.string().optional(),
   JEST_WORKER_ID: z.string().optional(),
-});
+})
+  .superRefine((value, context) => {
+    if (value.NODE_ENV !== 'test' && !value.NODE_NAME) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['NODE_NAME'],
+        message:
+          'NODE_NAME is required outside tests and must identify this Enfyra app namespace',
+      });
+    }
+  })
+  .transform((value) => ({
+    ...value,
+    NODE_NAME: value.NODE_NAME ?? 'enfyra-test',
+  }));
 
 export type Env = z.infer<typeof EnvSchema>;
 

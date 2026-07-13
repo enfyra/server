@@ -31,6 +31,12 @@ const REDIS_MEMORY_ERROR_RATIO = 0.95;
 const REDIS_FRAGMENTATION_WARNING_RATIO = 2;
 const REDIS_FRAGMENTATION_WARNING_MIN_USED_BYTES = 64 * 1024 * 1024;
 
+type RedisServerHealth = {
+  usedMemoryBytes?: number;
+  maxMemoryBytes?: number;
+  memFragmentationRatio?: number;
+};
+
 export class RedisAdminService {
   private readonly redis: Redis;
   private readonly nodeName: string;
@@ -60,9 +66,8 @@ export class RedisAdminService {
   }
 
   async getOverview(): Promise<RedisAdminOverview> {
-    const [info, keyspace, keys] = await Promise.all([
+    const [info, keys] = await Promise.all([
       this.readInfo(),
-      this.readInfo('keyspace'),
       this.scanForOverview(),
     ]);
     const groups = new Map<
@@ -113,8 +118,6 @@ export class RedisAdminService {
       keyCount: browserSummaries.length,
       scanned: keys.scanned,
       scanComplete: keys.complete,
-      server,
-      keyspace: this.parseInfoSection(keyspace),
       userCache: await this.getUserCacheQuota(),
       groups: [...groups.values()].sort((a, b) => b.count - a.count),
       topKeys: browserSummaries
@@ -597,54 +600,21 @@ export class RedisAdminService {
     return out;
   }
 
-  private parseServerInfo(info: string): RedisAdminOverview['server'] {
+  private parseServerInfo(info: string): RedisServerHealth {
     const parsed = this.parseInfoSection(info);
     return {
-      redisVersion: parsed.redis_version,
-      mode: parsed.redis_mode,
-      role: parsed.role,
-      os: parsed.os,
-      archBits: parsed.arch_bits ? Number(parsed.arch_bits) : undefined,
-      processId: parsed.process_id ? Number(parsed.process_id) : undefined,
-      tcpPort: parsed.tcp_port ? Number(parsed.tcp_port) : undefined,
-      configuredHz: parsed.configured_hz
-        ? Number(parsed.configured_hz)
-        : undefined,
-      uptimeSeconds: parsed.uptime_in_seconds
-        ? Number(parsed.uptime_in_seconds)
-        : undefined,
-      usedMemoryHuman: parsed.used_memory_human,
       usedMemoryBytes: parsed.used_memory
         ? Number(parsed.used_memory)
         : undefined,
-      maxMemoryHuman: parsed.maxmemory_human,
       maxMemoryBytes: parsed.maxmemory ? Number(parsed.maxmemory) : undefined,
-      totalSystemMemoryHuman: parsed.total_system_memory_human,
-      totalSystemMemoryBytes: parsed.total_system_memory
-        ? Number(parsed.total_system_memory)
-        : undefined,
-      allocator: parsed.mem_allocator,
       memFragmentationRatio: parsed.mem_fragmentation_ratio
         ? Number(parsed.mem_fragmentation_ratio)
-        : undefined,
-      connectedClients: parsed.connected_clients
-        ? Number(parsed.connected_clients)
-        : undefined,
-      usedCpuSys: parsed.used_cpu_sys ? Number(parsed.used_cpu_sys) : undefined,
-      usedCpuUser: parsed.used_cpu_user
-        ? Number(parsed.used_cpu_user)
-        : undefined,
-      usedCpuSysChildren: parsed.used_cpu_sys_children
-        ? Number(parsed.used_cpu_sys_children)
-        : undefined,
-      usedCpuUserChildren: parsed.used_cpu_user_children
-        ? Number(parsed.used_cpu_user_children)
         : undefined,
     };
   }
 
   private evaluateHealth(
-    server: RedisAdminOverview['server'],
+    server: RedisServerHealth,
   ): RedisAdminOverview['health'] {
     const warnings: string[] = [];
     let severity: RedisAdminSeverity = 'ok';
@@ -655,12 +625,12 @@ export class RedisAdminService {
       if (ratio >= REDIS_MEMORY_ERROR_RATIO) {
         severity = 'error';
         warnings.push(
-          `Redis memory usage is ${this.formatPercent(ratio)} of configured maxmemory.`,
+          `Shared Redis memory pressure is ${this.formatPercent(ratio)} of configured maxmemory.`,
         );
       } else if (ratio >= REDIS_MEMORY_WARNING_RATIO) {
         severity = 'warning';
         warnings.push(
-          `Redis memory usage is ${this.formatPercent(ratio)} of configured maxmemory.`,
+          `Shared Redis memory pressure is ${this.formatPercent(ratio)} of configured maxmemory.`,
         );
       }
     }
@@ -671,7 +641,7 @@ export class RedisAdminService {
       used >= REDIS_FRAGMENTATION_WARNING_MIN_USED_BYTES
     ) {
       severity = this.maxSeverity(severity, 'warning');
-      warnings.push(`Redis memory fragmentation ratio is ${fragmentation}.`);
+      warnings.push('Shared Redis memory fragmentation is elevated.');
     }
 
     return { severity, warnings };
@@ -698,6 +668,8 @@ export class RedisAdminService {
     do {
       const [nextCursor, rows] = await this.redis.scan(
         cursor,
+        'MATCH',
+        `${this.nodeName}:*`,
         'COUNT',
         OVERVIEW_SCAN_COUNT,
       );

@@ -28,6 +28,10 @@ export interface RateLimitHelper {
   status: (key: string, options: RateLimitOptions) => Promise<RateLimitResult>;
 }
 
+export interface DynamicTransaction {
+  run: <T>(callback: () => Promise<T>) => Promise<T>;
+}
+
 export type EnvSnapshot = Record<string, string | undefined>;
 
 export type DynamicRequestContext = Request & {
@@ -107,6 +111,7 @@ export interface TDynamicContext {
     deleteKey?: (key: string) => Promise<void>;
     setNoExpire?: (key: string, value: any) => Promise<void>;
   };
+  $transaction: DynamicTransaction;
   $params?: any;
   $query?: any;
   $env?: EnvSnapshot;

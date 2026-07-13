@@ -1,5 +1,6 @@
 import { ObjectId } from 'mongodb';
 import {
+  CustomException,
   DatabaseException,
   ResourceNotFoundException,
   ValidationException,
@@ -857,6 +858,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
           tableId: id,
           collectionName: body?.name,
         });
+        if (error instanceof CustomException) throw error;
         throw new DatabaseException(
           `Failed to update collection: ${error.message}`,
           {
