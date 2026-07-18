@@ -392,6 +392,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     const auditStartedAt = Date.now();
     let auditSteps: CacheReloadStepMetric[] = [];
     let elapsed = 0;
+    let reloadFailed = false;
     const runReload = async () => {
       const start = Date.now();
       const startedAt = new Date(start).toISOString();
@@ -545,6 +546,7 @@ export class CacheOrchestratorService implements LifecycleAware {
           steps: auditSteps,
         });
       } catch (error) {
+        reloadFailed = true;
         await this.runtimeReloadAuditService?.markFailed({
           reloadId,
           durationMs: Date.now() - auditStartedAt,
@@ -553,10 +555,15 @@ export class CacheOrchestratorService implements LifecycleAware {
         });
         throw error;
       } finally {
-        if (elapsed < 500) {
+        if (!reloadFailed && elapsed < 500) {
           await new Promise((r) => setTimeout(r, 500 - elapsed));
         }
-        this.notifyClients('done', flow, chain, reloadId);
+        this.notifyClients(
+          reloadFailed ? 'failed' : 'done',
+          flow,
+          chain,
+          reloadId,
+        );
       }
     });
   }
@@ -609,7 +616,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   }
 
   private notifyClients(
-    status: 'pending' | 'done',
+    status: 'pending' | 'done' | 'failed',
     flow: string,
     steps?: string[],
     reloadId?: string,
@@ -966,6 +973,7 @@ export class CacheOrchestratorService implements LifecycleAware {
         });
       } catch (error) {
         reloadError = error;
+        this.logger.error(`${input.logLabel} failed:`, error);
         await this.runtimeReloadAuditService?.markFailed({
           reloadId,
           durationMs: tracker.elapsed(),
@@ -975,7 +983,12 @@ export class CacheOrchestratorService implements LifecycleAware {
         throw error;
       } finally {
         tracker.finish(reloadError);
-        this.notifyClients('done', input.flow, input.steps, reloadId);
+        this.notifyClients(
+          reloadError ? 'failed' : 'done',
+          input.flow,
+          input.steps,
+          reloadId,
+        );
       }
       this.logger.log(`${input.logLabel}: ${tracker.elapsed()}ms`);
     };
@@ -1255,15 +1268,9 @@ export class CacheOrchestratorService implements LifecycleAware {
           durationMs: Date.now() - start,
           steps: stepMetrics,
         });
-        if (notify) {
-          const elapsed = Date.now() - start;
-          if (elapsed < 200) {
-            await new Promise((r) => setTimeout(r, 200 - elapsed));
-          }
-          this.notifyClients('done', 'all', steps, reloadId);
-        }
       } catch (error) {
         reloadError = error;
+        this.logger.error('Admin reload ALL failed:', error);
         await this.runtimeReloadAuditService?.markFailed({
           reloadId,
           durationMs: Date.now() - start,
@@ -1272,6 +1279,20 @@ export class CacheOrchestratorService implements LifecycleAware {
         });
         throw error;
       } finally {
+        if (notify) {
+          if (!reloadError) {
+            const elapsed = Date.now() - start;
+            if (elapsed < 200) {
+              await new Promise((r) => setTimeout(r, 200 - elapsed));
+            }
+          }
+          this.notifyClients(
+            reloadError ? 'failed' : 'done',
+            'all',
+            steps,
+            reloadId,
+          );
+        }
         this.runtimeMetricsCollectorService?.recordCacheReload({
           reloadId,
           flow: 'all',

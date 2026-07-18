@@ -50,7 +50,50 @@ function createOrchestrator(overrides: Record<string, any> = {}) {
 }
 
 describe('CacheOrchestratorService reload notifications', () => {
-  it('emits done after package reload failure so admin reload UI cannot hang', async () => {
+  it('keeps invalidation fire-and-forget when cache activation fails', async () => {
+    const { orchestrator, emitted } = createOrchestrator({
+      packageCacheService: cacheMock({
+        reload: async () => {
+          throw new Error('package reload failed');
+        },
+      }) as any,
+    });
+
+    await expect(
+      (orchestrator as any).handleInvalidation({
+        table: 'enfyra_package',
+        action: 'reload',
+        scope: 'full',
+        timestamp: Date.now(),
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(emitted.map(({ data }) => data.status)).toEqual([
+      'pending',
+      'failed',
+    ]);
+  });
+
+  it('emits failed after an admin full reload fails', async () => {
+    const { orchestrator, emitted } = createOrchestrator({
+      metadataCacheService: cacheMock({
+        reload: async () => {
+          throw new Error('metadata reload failed');
+        },
+      }) as any,
+    });
+
+    await expect(
+      (orchestrator as any).reloadAllLocal(true, false),
+    ).rejects.toThrow('metadata reload failed');
+
+    expect(emitted.map(({ data }) => data.status)).toEqual([
+      'pending',
+      'failed',
+    ]);
+  });
+
+  it('emits failed after package reload failure so admin reload UI can surface it', async () => {
     const runtimeRegistryService = {
       publishFromCache: vi.fn(async () => undefined),
     };
@@ -90,7 +133,7 @@ describe('CacheOrchestratorService reload notifications', () => {
         event: '$system:reload',
         data: expect.objectContaining({
           flow: 'package',
-          status: 'done',
+          status: 'failed',
           steps: ['package'],
           instanceId: 'test-instance',
           reloadId: expect.any(String),
@@ -566,7 +609,7 @@ describe('CacheOrchestratorService reload notifications', () => {
     }
   });
 
-  it('records failed cache reload metrics for granular admin reloads', async () => {
+  it('records failed cache reload metrics and notifies clients for granular admin reloads', async () => {
     const runtimeMetricsCollectorService = {
       recordCacheReload: vi.fn(),
       runWithQueryContext: vi.fn(
@@ -618,7 +661,7 @@ describe('CacheOrchestratorService reload notifications', () => {
         event: '$system:reload',
         data: expect.objectContaining({
           flow: 'route',
-          status: 'done',
+          status: 'failed',
           steps: ['route'],
           instanceId: 'test-instance',
           reloadId: expect.any(String),
