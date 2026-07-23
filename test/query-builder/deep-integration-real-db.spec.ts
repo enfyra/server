@@ -412,10 +412,14 @@ for (const cfg of DBS) {
       expect(entry!.meta?.rowsTransferred).toBe(1);
     });
 
-    test('debug trace emits per-parent-c16 strategy with roundtrips = parent count', async () => {
+    test('limited o2m uses one partitioned query for multiple parents', async () => {
       if (!available) return;
       const rows = await fetchPosts([1, 2]);
       const trace = new TestTrace();
+      let queryCount = 0;
+      const countQuery = () => {
+        queryCount += 1;
+      };
       const desc: BatchFetchDescriptor = {
         relationName: 'comments',
         type: 'one-to-many',
@@ -427,14 +431,20 @@ for (const cfg of DBS) {
         userLimit: 2,
         userSort: '-seq',
       };
-      await run(rows, [desc], trace);
+      db.on('query', countQuery);
+      try {
+        await run(rows, [desc], trace);
+      } finally {
+        db.removeListener('query', countQuery);
+      }
       const entry = trace.find('comments');
       expect(entry).toBeDefined();
-      expect(entry!.meta?.strategy).toBe('per-parent-c16');
-      expect(entry!.meta?.roundtrips).toBe(2);
+      expect(entry!.meta?.strategy).toBe('partitioned-top-k');
+      expect(entry!.meta?.roundtrips).toBe(1);
+      expect(queryCount).toBe(1);
     });
 
-    test('debug trace emits default to-many limit when limit is omitted', async () => {
+    test('default to-many limit uses one partitioned query', async () => {
       if (!available) return;
       const rows = await fetchPosts([1, 2]);
       const trace = new TestTrace();
@@ -449,9 +459,125 @@ for (const cfg of DBS) {
       };
       await run(rows, [desc], trace);
       const entry = trace.find('comments');
-      expect(entry!.meta?.strategy).toBe('per-parent-c16');
-      expect(entry!.meta?.roundtrips).toBe(2);
+      expect(entry!.meta?.strategy).toBe('partitioned-top-k');
+      expect(entry!.meta?.roundtrips).toBe(1);
       expect(entry!.meta?.userLimit).toBe(10);
+    });
+
+    test('limited m2m selects partitioned edges then batch-loads unique targets', async () => {
+      if (!available) return;
+      const rows = await fetchPosts([1, 2]);
+      const trace = new TestTrace();
+      let queryCount = 0;
+      const countQuery = () => {
+        queryCount += 1;
+      };
+      const desc: BatchFetchDescriptor = {
+        relationName: 'tags',
+        type: 'many-to-many',
+        targetTable: T.tags,
+        fields: ['id', 'label', 'priority'],
+        isInverse: false,
+        junctionTableName: T.junction,
+        junctionSourceColumn: 'postId',
+        junctionTargetColumn: 'tagId',
+        userSort: '-priority',
+        userLimit: 2,
+      };
+
+      db.on('query', countQuery);
+      try {
+        await run(rows, [desc], trace);
+      } finally {
+        db.removeListener('query', countQuery);
+      }
+
+      expect(rows[0].tags.map((tag: any) => tag.label)).toEqual([
+        'alpha',
+        'gamma',
+      ]);
+      expect(rows[1].tags.map((tag: any) => tag.label)).toEqual(['alpha']);
+      expect(rows[0].tags[0]).toBe(rows[1].tags[0]);
+      const entry = trace.find('tags');
+      expect(entry!.meta?.strategy).toBe('m2m-partitioned-edge-loader');
+      expect(entry!.meta?.roundtrips).toBe(2);
+      expect(entry!.meta?.rowsTransferred).toBe(5);
+      expect(queryCount).toBe(2);
+    });
+
+    test('unbounded m2m batch-loads unique targets after junction edges', async () => {
+      if (!available) return;
+      const rows = await fetchPosts([1, 2]);
+      const trace = new TestTrace();
+      let queryCount = 0;
+      const countQuery = () => {
+        queryCount += 1;
+      };
+      const desc: BatchFetchDescriptor = {
+        relationName: 'tags',
+        type: 'many-to-many',
+        targetTable: T.tags,
+        fields: ['id', 'label', 'priority'],
+        isInverse: false,
+        junctionTableName: T.junction,
+        junctionSourceColumn: 'postId',
+        junctionTargetColumn: 'tagId',
+        userSort: 'priority',
+        userLimit: 0,
+      };
+
+      db.on('query', countQuery);
+      try {
+        await run(rows, [desc], trace);
+      } finally {
+        db.removeListener('query', countQuery);
+      }
+
+      expect(rows[0].tags.map((tag: any) => tag.label)).toEqual([
+        'beta',
+        'gamma',
+        'alpha',
+      ]);
+      expect(rows[1].tags.map((tag: any) => tag.label)).toEqual(['alpha']);
+      expect(rows[0].tags[2]).toBe(rows[1].tags[0]);
+      const entry = trace.find('tags');
+      expect(entry!.meta?.strategy).toBe('m2m-edge-loader');
+      expect(entry!.meta?.roundtrips).toBe(2);
+      expect(entry!.meta?.rowsTransferred).toBe(7);
+      expect(queryCount).toBe(2);
+    });
+
+    test('m2m target-id sort selects edges without joining target rows', async () => {
+      if (!available) return;
+      const rows = await fetchPosts([1, 2]);
+      const statements: string[] = [];
+      const collectQuery = (query: { sql: string }) => {
+        statements.push(query.sql);
+      };
+      const desc: BatchFetchDescriptor = {
+        relationName: 'tags',
+        type: 'many-to-many',
+        targetTable: T.tags,
+        fields: ['id', 'label'],
+        isInverse: false,
+        junctionTableName: T.junction,
+        junctionSourceColumn: 'postId',
+        junctionTargetColumn: 'tagId',
+        userSort: '-id',
+        userLimit: 2,
+      };
+
+      db.on('query', collectQuery);
+      try {
+        await run(rows, [desc]);
+      } finally {
+        db.removeListener('query', collectQuery);
+      }
+
+      expect(rows[0].tags.map((tag: any) => tag.id)).toEqual([3, 2]);
+      expect(rows[1].tags.map((tag: any) => tag.id)).toEqual([1]);
+      expect(statements).toHaveLength(2);
+      expect(statements[0].toLowerCase()).not.toContain(' join ');
     });
   });
 }

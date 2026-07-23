@@ -449,16 +449,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@enfyra/kernel@npm:1.1.30":
-  version: 1.1.30
-  resolution: "@enfyra/kernel@npm:1.1.30"
+"@enfyra/kernel@npm:1.1.31":
+  version: 1.1.31
+  resolution: "@enfyra/kernel@npm:1.1.31"
   dependencies:
     "@types/node": "npm:^24.12.2"
     isolated-vm: "npm:^6.1.2"
     knex: "npm:^3.2.9"
     mongodb: "npm:^7.1.1"
     typescript: "npm:^5.1.3"
-  checksum: 10c0/47087632f0ee2f7a7d141746f9f5d19641a8c0fc181f3cb8ea85b3deff46ca760d23ce41b7be99ba3ab4f2e77c3e8e1b67da404e77a108fb24c821938de1d4e8
+  checksum: 10c0/24751c00338959a401f2dbb6e772a279a242a5a01e99055d9a4d6a3c840ca6c92148a44b90b43348c8fc9db5cbfc4ebe088f0365271b50f88434dfa6a0fb260b
   languageName: node
   linkType: hard
 
@@ -3316,7 +3316,7 @@ __metadata:
   dependencies:
     "@aws-sdk/client-s3": "npm:^3.1024.0"
     "@aws-sdk/lib-storage": "npm:3.1024.0"
-    "@enfyra/kernel": "npm:1.1.30"
+    "@enfyra/kernel": "npm:1.1.31"
     "@envelop/core": "npm:^5.5.1"
     "@envelop/depth-limit": "npm:^7.1.1"
     "@eslint/eslintrc": "npm:^3.3.5"
