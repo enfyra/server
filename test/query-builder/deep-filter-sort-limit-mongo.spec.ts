@@ -2,6 +2,7 @@ import { MongoClient, Db, ObjectId } from 'mongodb';
 import {
   executeMongoBatchFetches,
   getJunctionTableName,
+  MongoQueryExecutor,
   MongoBatchFetchDescriptor,
 } from '@enfyra/kernel';
 
@@ -98,7 +99,8 @@ const metadataGetter = async (table: string) =>
   META[table] ? { ...META[table] } : null;
 
 beforeAll(async () => {
-  client = await MongoClient.connect(MONGO_URI);
+  client = new MongoClient(MONGO_URI, { monitorCommands: true });
+  await client.connect();
   db = client.db(DB_NAME);
 
   await db.collection('users').insertMany([
@@ -399,21 +401,36 @@ describe('deep limit on o2m (Mongo)', () => {
       userLimit: 2,
       userSort: 'seq',
     };
-    await executeMongoBatchFetches(
-      db,
-      rows,
-      [desc],
-      metadataGetter,
-      3,
-      0,
-      'posts',
-      metadata,
-    );
+    let aggregateCount = 0;
+    const countAggregate = (event: any) => {
+      if (
+        event.commandName === 'aggregate' &&
+        event.command?.aggregate === 'comments'
+      ) {
+        aggregateCount += 1;
+      }
+    };
+    client.on('commandStarted', countAggregate);
+    try {
+      await executeMongoBatchFetches(
+        db,
+        rows,
+        [desc],
+        metadataGetter,
+        3,
+        0,
+        'posts',
+        metadata,
+      );
+    } finally {
+      client.removeListener('commandStarted', countAggregate);
+    }
 
     expect(rows[0].comments.length).toBe(2);
     expect(rows[1].comments.length).toBe(2);
     expect(rows[2].comments.length).toBe(1);
     expect(rows[0].comments.map((c: any) => c.seq)).toEqual([1, 2]);
+    expect(aggregateCount).toBe(1);
   });
 
   test('limit 1 with sort DESC picks last', async () => {
@@ -545,16 +562,37 @@ describe('deep limit on m2m (Mongo)', () => {
       userLimit: 0,
       userSort: 'priority',
     };
-    await executeMongoBatchFetches(
-      db,
-      rows,
-      [desc],
-      metadataGetter,
-      3,
-      0,
-      'posts',
-      metadata,
-    );
+    let relationReadCount = 0;
+    let loadedTargetCount = 0;
+    const countRelationRead = (event: any) => {
+      const collection =
+        event.commandName === 'aggregate'
+          ? event.command?.aggregate
+          : event.commandName === 'find'
+            ? event.command?.find
+            : undefined;
+      if (collection === junctionName || collection === 'tags') {
+        relationReadCount += 1;
+      }
+      if (event.commandName === 'find' && collection === 'tags') {
+        loadedTargetCount = event.command?.filter?._id?.$in?.length ?? 0;
+      }
+    };
+    client.on('commandStarted', countRelationRead);
+    try {
+      await executeMongoBatchFetches(
+        db,
+        rows,
+        [desc],
+        metadataGetter,
+        3,
+        0,
+        'posts',
+        metadata,
+      );
+    } finally {
+      client.removeListener('commandStarted', countRelationRead);
+    }
 
     expect(rows[0].tags.map((tag: any) => tag.label)).toEqual([
       'beta',
@@ -565,6 +603,9 @@ describe('deep limit on m2m (Mongo)', () => {
       'beta',
       'delta',
     ]);
+    expect(rows[0].tags[0]).toBe(rows[1].tags[0]);
+    expect(relationReadCount).toBe(2);
+    expect(loadedTargetCount).toBe(4);
   });
 
   test('limit 2 on tags per post', async () => {
@@ -582,22 +623,46 @@ describe('deep limit on m2m (Mongo)', () => {
       userLimit: 2,
       userSort: 'priority',
     };
-    await executeMongoBatchFetches(
-      db,
-      rows,
-      [desc],
-      metadataGetter,
-      3,
-      0,
-      'posts',
-      metadata,
-    );
+    let relationReadCount = 0;
+    let loadedTargetCount = 0;
+    const countRelationRead = (event: any) => {
+      const collection =
+        event.commandName === 'aggregate'
+          ? event.command?.aggregate
+          : event.commandName === 'find'
+            ? event.command?.find
+            : undefined;
+      if (collection === junctionName || collection === 'tags') {
+        relationReadCount += 1;
+      }
+      if (event.commandName === 'find' && collection === 'tags') {
+        loadedTargetCount = event.command?.filter?._id?.$in?.length ?? 0;
+      }
+    };
+    client.on('commandStarted', countRelationRead);
+    try {
+      await executeMongoBatchFetches(
+        db,
+        rows,
+        [desc],
+        metadataGetter,
+        3,
+        0,
+        'posts',
+        metadata,
+      );
+    } finally {
+      client.removeListener('commandStarted', countRelationRead);
+    }
 
     const post0Tags = rows[0].tags;
     const post1Tags = rows[1].tags;
     expect(post0Tags.map((tag: any) => tag.label)).toEqual(['beta', 'gamma']);
     expect(post1Tags.map((tag: any) => tag.label)).toEqual(['beta', 'delta']);
+    expect(post0Tags[0]).toBe(post1Tags[0]);
     expect(post0Tags[0].priority).toBeUndefined();
+    expect(relationReadCount).toBe(2);
+    expect(loadedTargetCount).toBe(3);
   });
 });
 
@@ -736,7 +801,50 @@ describe('debug trace (Mongo)', () => {
       e.stage.startsWith('batch_fetch_L0_comments'),
     );
     expect(traceEntry).toBeDefined();
-    expect(traceEntry.meta.strategy).toBe('per-parent-c16');
+    expect(traceEntry.meta.strategy).toBe('partitioned-top-k');
+    expect(traceEntry.meta.roundtrips).toBe(1);
     expect(traceEntry.meta.userLimit).toBe(2);
+  });
+
+  test('MongoQueryExecutor propagates debug trace into batch fetches', async () => {
+    const traceEntries: Array<{ stage: string; meta?: Record<string, any> }> =
+      [];
+    const executor = new MongoQueryExecutor({
+      getDb: () => db,
+      collection: (name: string) => db.collection(name),
+    });
+
+    await executor.execute({
+      tableName: 'posts',
+      fields: ['_id'],
+      filter: { _id: { _eq: postIds[0] } },
+      limit: 1,
+      deep: {
+        comments: {
+          fields: ['_id', 'seq'],
+          limit: 2,
+          sort: 'seq',
+        },
+      },
+      metadata,
+      dbType: 'mongodb',
+      debugTrace: {
+        dur(stage: string, _startTs: number, meta?: Record<string, unknown>) {
+          traceEntries.push({ stage, meta });
+          return 0;
+        },
+      },
+    });
+
+    expect(traceEntries.some((entry) => entry.stage === 'db_execute')).toBe(
+      true,
+    );
+    expect(
+      traceEntries.some(
+        (entry) =>
+          entry.stage.includes('batch_fetch') &&
+          entry.meta?.strategy === 'partitioned-top-k',
+      ),
+    ).toBe(true);
   });
 });
