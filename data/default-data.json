@@ -408,6 +408,9 @@
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:puzzle",
+      "skipRoleGuardMethods": [
+        "GET"
+      ],
       "availableMethods": [
         "GET",
         "POST",

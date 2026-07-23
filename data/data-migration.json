@@ -466,10 +466,29 @@
     {
       "_unique": {
         "path": {
+          "_eq": "/enfyra_cors_origin"
+        }
+      },
+      "publicMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
           "_eq": "/auth/login"
         }
       },
       "publicMethods": [
+        "POST"
+      ],
+      "availableMethods": [
         "POST"
       ]
     },
@@ -481,6 +500,9 @@
       },
       "publicMethods": [
         "POST"
+      ],
+      "availableMethods": [
+        "POST"
       ]
     },
     {
@@ -491,6 +513,76 @@
       },
       "publicMethods": [
         "POST"
+      ],
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/auth/api-tokens"
+        }
+      },
+      "skipRoleGuardMethods": [
+        "GET",
+        "POST"
+      ],
+      "availableMethods": [
+        "GET",
+        "POST"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/auth/api-tokens/:id"
+        }
+      },
+      "skipRoleGuardMethods": [
+        "DELETE"
+      ],
+      "availableMethods": [
+        "DELETE"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/auth/token/exchange"
+        }
+      },
+      "publicMethods": [
+        "POST"
+      ],
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/auth/oauth/exchange"
+        }
+      },
+      "publicMethods": [
+        "POST"
+      ],
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/auth/set-cookies"
+        }
+      },
+      "publicMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET"
       ]
     },
     {
@@ -512,11 +604,41 @@
     {
       "_unique": {
         "path": {
+          "_eq": "/auth/:provider"
+        }
+      },
+      "publicMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/auth/:provider/callback"
+        }
+      },
+      "publicMethods": [
+        "GET"
+      ],
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
           "_eq": "/me"
         }
       },
       "publicMethods": [],
       "skipRoleGuardMethods": [
+        "GET",
+        "PATCH"
+      ],
+      "availableMethods": [
         "GET",
         "PATCH"
       ]
@@ -528,6 +650,9 @@
         }
       },
       "publicMethods": [
+        "GET"
+      ],
+      "availableMethods": [
         "GET"
       ]
     },
@@ -541,6 +666,9 @@
       "publicMethods": [],
       "skipRoleGuardMethods": [
         "GET"
+      ],
+      "availableMethods": [
+        "GET"
       ]
     },
     {
@@ -552,6 +680,9 @@
       "publicMethods": [],
       "skipRoleGuardMethods": [
         "GET"
+      ],
+      "availableMethods": [
+        "GET"
       ]
     },
     {
@@ -562,6 +693,9 @@
       },
       "publicMethods": [],
       "skipRoleGuardMethods": [
+        "GET"
+      ],
+      "availableMethods": [
         "GET"
       ]
     },
@@ -599,6 +733,12 @@
       "publicMethods": [],
       "skipRoleGuardMethods": [
         "GET"
+      ],
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
       ]
     },
     {
@@ -610,6 +750,9 @@
       "publicMethods": [],
       "skipRoleGuardMethods": [
         "GET"
+      ],
+      "availableMethods": [
+        "GET"
       ]
     },
     {
@@ -620,6 +763,9 @@
       },
       "publicMethods": [],
       "skipRoleGuardMethods": [
+        "GET"
+      ],
+      "availableMethods": [
         "GET"
       ]
     },
@@ -712,6 +858,9 @@
         }
       },
       "publicMethods": [],
+      "skipRoleGuardMethods": [
+        "GET"
+      ],
       "availableMethods": [
         "GET",
         "POST",
