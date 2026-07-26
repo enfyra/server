@@ -18,6 +18,7 @@ import { addColumnToTable } from '../../knex/utils/migration/column-operations';
 import { SystemCoreTableResolver } from './system-core-table-resolver.service';
 import { BootstrapDefinitionService } from './bootstrap-definition.service';
 import { repairSqlSystemPhysicalTarget } from '../utils/sql-system-physical-healing.util';
+import { buildExpectedRelations } from '../utils/metadata-comparison.util';
 
 export class SchemaHealingService {
   private readonly logger = new Logger(SchemaHealingService.name);
@@ -486,6 +487,18 @@ export class SchemaHealingService {
     if (!(await knex.schema.hasTable(coreNames.column))) return 0;
     if (!(await knex.schema.hasTable(coreNames.relation))) return 0;
 
+    const expectedRelations = buildExpectedRelations(snapshot);
+    const expectedByTable = new Map<string, Map<string, Record<string, any>>>();
+    for (const [key, relation] of expectedRelations) {
+      const dot = key.indexOf('.');
+      const tableName = key.slice(0, dot);
+      const propertyName = key.slice(dot + 1);
+      if (!expectedByTable.has(tableName)) {
+        expectedByTable.set(tableName, new Map());
+      }
+      expectedByTable.get(tableName)!.set(propertyName, relation);
+    }
+
     let repaired = 0;
     for (const tableDef of Object.values(snapshot)) {
       if (!tableDef?.isSystem || !tableDef?.name) continue;
@@ -529,19 +542,19 @@ export class SchemaHealingService {
 
       const relations = await knex(coreNames.relation)
         .where({ sourceTableId: tableRecord.id })
-        .select('id', 'propertyName', 'description');
+        .select('id', 'propertyName', 'description', 'isSystem', 'isUpdatable', 'isPublished');
       const relationsByProperty = new Map<string, any>(
         relations.map((relation: any) => [relation.propertyName, relation]),
       );
-      for (const targetRelation of tableDef.relations ?? []) {
-        const currentRelation = relationsByProperty.get(
-          targetRelation.propertyName,
-        );
+      const tableExpectedRelations = expectedByTable.get(tableDef.name);
+      if (!tableExpectedRelations) continue;
+      for (const [propertyName, targetRelation] of tableExpectedRelations) {
+        const currentRelation = relationsByProperty.get(propertyName);
         if (!currentRelation?.id) continue;
         const relationUpdate = this.buildDisplayMetadataUpdate(
           currentRelation,
           targetRelation,
-          ['description'],
+          ['description', 'isSystem', 'isUpdatable', 'isPublished'],
         );
         if (Object.keys(relationUpdate).length === 0) continue;
         await knex(coreNames.relation)
@@ -562,6 +575,18 @@ export class SchemaHealingService {
     const tableCollection = db.collection(coreNames.table);
     const columnCollection = db.collection(coreNames.column);
     const relationCollection = db.collection(coreNames.relation);
+
+    const expectedRelations = buildExpectedRelations(snapshot);
+    const expectedByTable = new Map<string, Map<string, Record<string, any>>>();
+    for (const [key, relation] of expectedRelations) {
+      const dot = key.indexOf('.');
+      const tableName = key.slice(0, dot);
+      const propertyName = key.slice(dot + 1);
+      if (!expectedByTable.has(tableName)) {
+        expectedByTable.set(tableName, new Map());
+      }
+      expectedByTable.get(tableName)!.set(propertyName, relation);
+    }
 
     let repaired = 0;
     for (const tableDef of Object.values(snapshot)) {
@@ -612,15 +637,15 @@ export class SchemaHealingService {
       const relationsByProperty = new Map<string, any>(
         relations.map((relation: any) => [relation.propertyName, relation]),
       );
-      for (const targetRelation of tableDef.relations ?? []) {
-        const currentRelation = relationsByProperty.get(
-          targetRelation.propertyName,
-        );
+      const tableExpectedRelations = expectedByTable.get(tableDef.name);
+      if (!tableExpectedRelations) continue;
+      for (const [propertyName, targetRelation] of tableExpectedRelations) {
+        const currentRelation = relationsByProperty.get(propertyName);
         if (!currentRelation?._id) continue;
         const relationUpdate = this.buildDisplayMetadataUpdate(
           currentRelation,
           targetRelation,
-          ['description'],
+          ['description', 'isSystem', 'isUpdatable', 'isPublished'],
         );
         if (Object.keys(relationUpdate).length === 0) continue;
         await relationCollection.updateOne(

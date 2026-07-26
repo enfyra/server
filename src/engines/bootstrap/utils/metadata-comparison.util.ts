@@ -85,7 +85,12 @@ export const COLUMN_HEALABLE_FIELDS = new Set(['description', 'placeholder']);
 
 export const TABLE_HEALABLE_FIELDS = new Set(['description']);
 
-export const RELATION_HEALABLE_FIELDS = new Set(['description']);
+export const RELATION_HEALABLE_FIELDS = new Set([
+  'description',
+  'isSystem',
+  'isUpdatable',
+  'isPublished',
+]);
 
 export const TABLE_DEFAULTS: Record<string, any> = {
   isSystem: false,

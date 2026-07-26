@@ -257,9 +257,6 @@ const relationFieldCases: Array<[string, any, any]> = [
   ['targetTable', 'authors', 'legacy_authors'],
   ['inversePropertyName', 'posts', 'writtenPosts'],
   ['isNullable', false, true],
-  ['isSystem', true, false],
-  ['isUpdatable', true, false],
-  ['isPublished', true, false],
   ['onDelete', 'CASCADE', 'SET NULL'],
 ];
 
@@ -751,6 +748,9 @@ describe.each<DatabaseKind>(['postgres', 'mysql', 'mongodb'])(
           entry.sourceTableName === 'posts' && entry.propertyName === 'author',
       )!;
       relation.description = 'Legacy author';
+      relation.isSystem = false;
+      relation.isUpdatable = false;
+      relation.isPublished = false;
 
       expect(() =>
         validateSnapshotMigrationCoverage(snapshot, null, state),
