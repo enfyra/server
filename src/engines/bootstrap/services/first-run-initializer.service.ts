@@ -89,27 +89,40 @@ export class FirstRunInitializer {
     if (!(await this.isNeeded())) return;
 
     const start = Date.now();
+    const waitDeadline = start + REDIS_TTL.PROVISION_LOCK_TTL;
     const lockValue = this.instanceService.getInstanceId();
     const mode = await this.getInitMode();
     this.logProgress(mode, 0, 'starting');
-    const acquired = await this.cacheService.acquire(
-      PROVISION_LOCK_KEY,
-      lockValue,
-      REDIS_TTL.PROVISION_LOCK_TTL,
-    );
+    let acquired = false;
+    while (!acquired) {
+      acquired = await this.cacheService.acquire(
+        PROVISION_LOCK_KEY,
+        lockValue,
+        REDIS_TTL.PROVISION_LOCK_TTL,
+      );
+      if (acquired) break;
 
-    if (!acquired) {
       this.logProgress(mode, 0, 'another instance is running, waiting');
-      await this.waitUntilDone();
-      this.logProgress(mode, 100, `ready in ${Date.now() - start}ms`);
-      return;
+      const remainingWaitMs = waitDeadline - Date.now();
+      if (remainingWaitMs <= 0) {
+        throw new Error(
+          `Timed out waiting for snapshot initialization after ${REDIS_TTL.PROVISION_LOCK_TTL}ms`,
+        );
+      }
+      const waitResult = await this.waitUntilDone(remainingWaitMs);
+      if (waitResult === 'initialized') {
+        this.logProgress(mode, 100, `ready in ${Date.now() - start}ms`);
+        return;
+      }
     }
 
     const lease = this.startProvisionLease(lockValue);
     try {
       const coreT0 = Date.now();
       this.logProgress(mode, 3, 'migrating core metadata tables');
-      await this.metadataMigrationService.runCoreTableRenamesBeforeMetadataSync();
+      await this.runOwnedStep(lease, () =>
+        this.metadataMigrationService.runCoreTableRenamesBeforeMetadataSync(),
+      );
       this.logVerbose(`Core system table migration: ${Date.now() - coreT0}ms`);
 
       if (!(await this.isNeeded())) {
@@ -125,54 +138,85 @@ export class FirstRunInitializer {
 
       const t0 = Date.now();
       this.logProgress(mode, 8, 'preparing system schema');
-      await this.metadataMigrationService.runTableRenamesBeforeMetadataSync();
-      await this.metadataMigrationService.prepareMigrationExecutionPlan();
-      await this.metadataMigrationService.runPhysicalTableRenamesAndDropsAfterCoverage();
-      await this.metadataMigrationService.runPhysicalMigrationsBeforeMetadataSync();
+      await this.runOwnedStep(lease, () =>
+        this.metadataMigrationService.runTableRenamesBeforeMetadataSync(),
+      );
+      await this.runOwnedStep(lease, () =>
+        this.metadataMigrationService.prepareMigrationExecutionPlan(),
+      );
+      await this.runOwnedStep(lease, () =>
+        this.metadataMigrationService.runPhysicalTableRenamesAndDropsAfterCoverage(),
+      );
+      await this.runOwnedStep(lease, () =>
+        this.metadataMigrationService.runPhysicalMigrationsBeforeMetadataSync(),
+      );
       if (this.metadataMigrationService.hasMigrations()) {
         const t2 = Date.now();
         this.logProgress(mode, 10, 'applying metadata migrations');
-        await this.metadataMigrationService.runMigrations();
-        await this.metadataCacheService.clearMetadataCache();
+        await this.runOwnedStep(lease, () =>
+          this.metadataMigrationService.runMigrations(),
+        );
+        await this.runOwnedStep(lease, () =>
+          this.metadataCacheService.clearMetadataCache(),
+        );
         this.logVerbose(`Metadata migrations: ${Date.now() - t2}ms`);
       }
-      await this.schemaHealingService.repairSystemPhysicalColumnsBeforeMetadataProvision();
+      await this.runOwnedStep(lease, () =>
+        this.schemaHealingService.repairSystemPhysicalColumnsBeforeMetadataProvision(),
+      );
       this.logVerbose(`System schema preflight: ${Date.now() - t0}ms`);
 
       const t1 = Date.now();
       this.logProgress(mode, 20, 'provisioning metadata');
-      await this.metadataProvisionService.createInitMetadata();
-      await this.metadataCacheService.clearMetadataCache();
+      await this.runOwnedStep(lease, () =>
+        this.metadataProvisionService.createInitMetadata(),
+      );
+      await this.runOwnedStep(lease, () =>
+        this.metadataCacheService.clearMetadataCache(),
+      );
       this.logVerbose(`createInitMetadata: ${Date.now() - t1}ms`);
 
       const t2b = Date.now();
       this.logProgress(mode, 45, 'healing system metadata');
-      await this.schemaHealingService.repairSystemMetadataFromSnapshot();
-      await this.metadataCacheService.clearMetadataCache();
+      await this.runOwnedStep(lease, () =>
+        this.schemaHealingService.repairSystemMetadataFromSnapshot(),
+      );
+      await this.runOwnedStep(lease, () =>
+        this.metadataCacheService.clearMetadataCache(),
+      );
       this.logVerbose(`System metadata healing: ${Date.now() - t2b}ms`);
 
       const t3 = Date.now();
       this.logProgress(mode, 50, 'repairing derived schema contracts');
-      await this.schemaHealingService.repairDerivedContracts();
+      await this.runOwnedStep(lease, () =>
+        this.schemaHealingService.repairDerivedContracts(),
+      );
       this.logProgress(mode, 55, 'applying explicit schema repairs');
-      await this.schemaHealingService.runExplicitRepairsIfNeeded();
+      await this.runOwnedStep(lease, () =>
+        this.schemaHealingService.runExplicitRepairsIfNeeded(),
+      );
       this.logVerbose(`Schema repair: ${Date.now() - t3}ms`);
 
       const t4 = Date.now();
       this.logProgress(mode, 60, 'warming metadata cache');
-      await this.metadataCacheService.reload();
-      await lease.assertOwned();
-      await this.snapshotTargetVerifierService.assertSchemaTargetState();
+      await this.runOwnedStep(lease, () => this.metadataCacheService.reload());
+      await this.runOwnedStep(lease, () =>
+        this.snapshotTargetVerifierService.assertSchemaTargetState(),
+      );
       this.logVerbose(`Metadata cache warmed: ${Date.now() - t4}ms`);
 
       const t5 = Date.now();
       this.logProgress(mode, 65, 'seeding default data');
-      await this.dataProvisionService.insertAllDefaultRecords();
+      await this.runOwnedStep(lease, () =>
+        this.dataProvisionService.insertAllDefaultRecords(),
+      );
       this.logVerbose(`Default records: ${Date.now() - t5}ms`);
 
       try {
         this.logProgress(mode, 80, 'ensuring route handlers');
-        await this.routeDefinitionProcessor.ensureMissingHandlers();
+        await this.runOwnedStep(lease, () =>
+          this.routeDefinitionProcessor.ensureMissingHandlers(),
+        );
       } catch (error) {
         this.logger.error(
           `Error ensuring route handlers: ${(error as Error).message}`,
@@ -183,13 +227,19 @@ export class FirstRunInitializer {
       if (this.dataMigrationService.hasMigrations()) {
         const t6 = Date.now();
         this.logProgress(mode, 90, 'applying data migrations');
-        await this.dataMigrationService.runMigrations();
+        await this.runOwnedStep(lease, () =>
+          this.dataMigrationService.runMigrations(),
+        );
         this.logVerbose(`Data migrations: ${Date.now() - t6}ms`);
       }
 
       this.logProgress(mode, 96, 'attesting data target state');
-      await this.snapshotTargetVerifierService.assertSchemaTargetState();
-      await this.snapshotTargetVerifierService.assertDataTargetState();
+      await this.runOwnedStep(lease, () =>
+        this.snapshotTargetVerifierService.assertSchemaTargetState(),
+      );
+      await this.runOwnedStep(lease, () =>
+        this.snapshotTargetVerifierService.assertDataTargetState(),
+      );
 
       this.logProgress(mode, 98, 'finalizing');
       await lease.assertOwned();
@@ -204,6 +254,16 @@ export class FirstRunInitializer {
       await lease.stop();
       await this.cacheService.release(PROVISION_LOCK_KEY, lockValue);
     }
+  }
+
+  private async runOwnedStep<T>(
+    lease: { assertOwned: () => Promise<void> },
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    await lease.assertOwned();
+    const result = await operation();
+    await lease.assertOwned();
+    return result;
   }
 
   private startProvisionLease(lockValue: string): {
@@ -364,13 +424,20 @@ export class FirstRunInitializer {
     }
   }
 
-  private async waitUntilDone(maxWaitMs = 120000): Promise<void> {
-    const interval = 2000;
+  private async waitUntilDone(
+    maxWaitMs: number = REDIS_TTL.PROVISION_LOCK_TTL,
+  ): Promise<'initialized' | 'unlocked'> {
+    const interval = Math.min(2000, Math.max(1, maxWaitMs));
     const maxAttempts = Math.ceil(maxWaitMs / interval);
     for (let i = 0; i < maxAttempts; i++) {
       await this.commonService.delay(interval);
       try {
-        if ((await this.findFirstSetting())?.isInit) return;
+        if ((await this.findFirstSetting())?.isInit) return 'initialized';
+      } catch {}
+      try {
+        if ((await this.cacheService.get(PROVISION_LOCK_KEY)) === null) {
+          return 'unlocked';
+        }
       } catch {}
     }
     throw new Error(

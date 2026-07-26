@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { knex, type Knex } from 'knex';
 import { MongoClient } from 'mongodb';
+import { Redis } from 'ioredis';
 import {
   getForeignKeyColumnName,
   getJunctionColumnNames,
@@ -14,6 +15,7 @@ import {
 } from '../../src/shared/utils/provision-schema-migration';
 import type { SchemaMigrationDef } from '../../src/shared/types/schema-migration.types';
 import { MetadataMigrationService } from '../../src/engines/bootstrap/services/metadata-migration.service';
+import { PROVISION_LOCK_KEY } from '../../src/shared/utils/constant';
 
 type SqlDatabase = 'postgres' | 'mysql';
 
@@ -65,11 +67,11 @@ function buildDatabaseUri(
 }
 
 async function stopServer(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null) return;
-  child.kill('SIGTERM');
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  killServerProcess(child, 'SIGTERM');
   await new Promise<void>((resolve) => {
     const timeout = setTimeout(() => {
-      if (child.exitCode === null) child.kill('SIGKILL');
+      if (child.exitCode === null) killServerProcess(child, 'SIGKILL');
     }, 10_000);
     child.once('exit', () => {
       clearTimeout(timeout);
@@ -78,30 +80,67 @@ async function stopServer(child: ChildProcess): Promise<void> {
   });
 }
 
-async function bootServer(dbUri: string, port: number): Promise<ChildProcess> {
-  const child = spawn('yarn', ['tsx', 'src/main.ts'], {
+function killServerProcess(child: ChildProcess, signal: NodeJS.Signals): void {
+  try {
+    if (process.platform !== 'win32' && child.pid) {
+      process.kill(-child.pid, signal);
+      return;
+    }
+  } catch {}
+  child.kill(signal);
+}
+
+type ServerBootOptions = {
+  adminPassword?: string;
+  nodeName?: string;
+  secretKey?: string;
+};
+
+function serverEnvironment(
+  dbUri: string,
+  port: number,
+  options: ServerBootOptions = {},
+): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    DB_URI: dbUri,
+    REDIS_URI: process.env.MATRIX_REDIS_URI || 'redis://127.0.0.1:6379/14',
+    PORT: String(port),
+    SECRET_KEY: options.secretKey || `snapshot-migration-e2e-${randomUUID()}`,
+    ADMIN_EMAIL: 'snapshot-migration-e2e@localhost.test',
+    ADMIN_PASSWORD: options.adminPassword || `e2e-${randomUUID()}`,
+    NODE_ENV: 'test',
+    NODE_NAME: options.nodeName || `snapshot-migration-e2e-${port}`,
+    BOOTSTRAP_VERBOSE: '0',
+    MONGO_FORCE_APP_TRANSACTION: '0',
+    ISOLATED_EXECUTOR_FILE_LOG: '0',
+  };
+}
+
+function spawnServer(
+  dbUri: string,
+  port: number,
+  options: ServerBootOptions = {},
+): ChildProcess {
+  return spawn('yarn', ['tsx', 'src/main.ts'], {
     cwd: process.cwd(),
-    env: {
-      ...process.env,
-      DB_URI: dbUri,
-      REDIS_URI: process.env.MATRIX_REDIS_URI || 'redis://127.0.0.1:6379/14',
-      PORT: String(port),
-      SECRET_KEY: `snapshot-migration-e2e-${randomUUID()}`,
-      ADMIN_EMAIL: 'snapshot-migration-e2e@localhost.test',
-      ADMIN_PASSWORD: `e2e-${randomUUID()}`,
-      NODE_ENV: 'test',
-      NODE_NAME: `snapshot-migration-e2e-${port}`,
-      BOOTSTRAP_VERBOSE: '0',
-      MONGO_FORCE_APP_TRANSACTION: '0',
-      ISOLATED_EXECUTOR_FILE_LOG: '0',
-    },
+    detached: process.platform !== 'win32',
+    env: serverEnvironment(dbUri, port, options),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+}
+
+async function bootServer(
+  dbUri: string,
+  port: number,
+  options: ServerBootOptions = {},
+): Promise<ChildProcess> {
+  const child = spawnServer(dbUri, port, options);
   let output = '';
 
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => {
-      child.kill('SIGKILL');
+      killServerProcess(child, 'SIGKILL');
       reject(
         new Error(
           `Server boot timed out on port ${port}: ${output.slice(-4000)}`,
@@ -128,6 +167,76 @@ async function bootServer(dbUri: string, port: number): Promise<ChildProcess> {
 
   return child;
 }
+
+async function crashServerAtProgress(
+  dbUri: string,
+  port: number,
+  progressMessage: string,
+  options: ServerBootOptions,
+): Promise<void> {
+  const child = spawnServer(dbUri, port, options);
+  let output = '';
+  let matched = false;
+
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      killServerProcess(child, 'SIGKILL');
+      reject(
+        new Error(
+          `Server did not reach "${progressMessage}" on port ${port}: ${output.slice(-4000)}`,
+        ),
+      );
+    }, 90_000);
+    const onData = (chunk: Buffer) => {
+      output += chunk.toString();
+      if (matched || !output.includes(progressMessage)) return;
+      matched = true;
+      killServerProcess(child, 'SIGKILL');
+    };
+    child.stdout?.on('data', onData);
+    child.stderr?.on('data', onData);
+    child.once('exit', (code, signal) => {
+      clearTimeout(timeout);
+      if (matched && signal === 'SIGKILL') {
+        resolve();
+        return;
+      }
+      reject(
+        new Error(
+          `Server exited before crash checkpoint "${progressMessage}" with code ${code} and signal ${signal}: ${output.slice(-4000)}`,
+        ),
+      );
+    });
+  });
+}
+
+async function clearProvisionLock(nodeName: string): Promise<void> {
+  const redis = new Redis(
+    process.env.MATRIX_REDIS_URI || 'redis://127.0.0.1:6379/14',
+    { maxRetriesPerRequest: 1 },
+  );
+  try {
+    await redis.del(`${nodeName}:${PROVISION_LOCK_KEY}`);
+  } finally {
+    await redis.quit();
+  }
+}
+
+const BOOTSTRAP_CRASH_CHECKPOINTS = [
+  'migrating core metadata tables',
+  'preparing system schema',
+  'applying metadata migrations',
+  'provisioning metadata',
+  'healing system metadata',
+  'repairing derived schema contracts',
+  'applying explicit schema repairs',
+  'warming metadata cache',
+  'seeding default data',
+  'ensuring route handlers',
+  'applying data migrations',
+  'attesting data target state',
+  'finalizing',
+];
 
 function migrationDefinition(): SchemaMigrationDef {
   return {
@@ -915,24 +1024,33 @@ async function runSqlBoot(database: SqlDatabase, port: number): Promise<void> {
   const admin = createKnex(database);
   let target: Knex | null = null;
   let server: ChildProcess | null = null;
+  let peerServer: ChildProcess | null = null;
 
   try {
     await admin.raw('CREATE DATABASE ??', [databaseName]);
     const connection = sqlConnection(database, databaseName);
-    target = createKnex(database, databaseName);
-    server = await bootServer(
-      buildDatabaseUri(
-        database === 'postgres' ? 'postgresql' : 'mysql',
-        connection,
-      ),
-      port,
+    const databaseUri = buildDatabaseUri(
+      database === 'postgres' ? 'postgresql' : 'mysql',
+      connection,
     );
+    const clusterOptions = {
+      adminPassword: `e2e-${randomUUID()}`,
+      nodeName: `snapshot-migration-cluster-${database}-${suffix}`,
+      secretKey: `snapshot-migration-cluster-${randomUUID()}`,
+    };
+    target = createKnex(database, databaseName);
+    [server, peerServer] = await Promise.all([
+      bootServer(databaseUri, port, clusterOptions),
+      bootServer(databaseUri, port + 20, clusterOptions),
+    ]);
     const setting = await target('enfyra_setting').first();
     assert.equal(
       setting.isInit === true || setting.isInit === 1,
       true,
       `${database} server did not finish initialization`,
     );
+    await stopServer(peerServer);
+    peerServer = null;
     await stopServer(server);
     server = null;
 
@@ -968,13 +1086,7 @@ async function runSqlBoot(database: SqlDatabase, port: number): Promise<void> {
       userExtensionField: 'preserved',
     });
 
-    server = await bootServer(
-      buildDatabaseUri(
-        database === 'postgres' ? 'postgresql' : 'mysql',
-        connection,
-      ),
-      port,
-    );
+    server = await bootServer(databaseUri, port);
     const retriedSetting = await target('enfyra_setting').first();
     assert.equal(
       retriedSetting.isInit === true || retriedSetting.isInit === 1,
@@ -1016,6 +1128,27 @@ async function runSqlBoot(database: SqlDatabase, port: number): Promise<void> {
     await stopServer(server);
     server = null;
 
+    const crashOptions = {
+      adminPassword: `e2e-${randomUUID()}`,
+      nodeName: `snapshot-migration-crash-${database}-${suffix}`,
+      secretKey: `snapshot-migration-crash-${randomUUID()}`,
+    };
+    for (const checkpoint of BOOTSTRAP_CRASH_CHECKPOINTS) {
+      await target('enfyra_setting').update({ isInit: false });
+      await crashServerAtProgress(databaseUri, port, checkpoint, crashOptions);
+      await clearProvisionLock(crashOptions.nodeName);
+      server = await bootServer(databaseUri, port, crashOptions);
+      const resumedSetting = await target('enfyra_setting').first();
+      assert.equal(
+        resumedSetting.isInit === true || resumedSetting.isInit === 1,
+        true,
+        `${database} did not converge after crashing at "${checkpoint}"`,
+      );
+      assert.equal(resumedSetting.userExtensionField, 'preserved');
+      await stopServer(server);
+      server = null;
+    }
+
     await target('enfyra_file')
       .whereNull('description')
       .update({ description: '' });
@@ -1024,13 +1157,7 @@ async function runSqlBoot(database: SqlDatabase, port: number): Promise<void> {
     });
     await target('enfyra_setting').update({ isInit: false });
     await assert.rejects(
-      bootServer(
-        buildDatabaseUri(
-          database === 'postgres' ? 'postgresql' : 'mysql',
-          connection,
-        ),
-        port,
-      ),
+      bootServer(databaseUri, port),
       /physical column enfyra_file\.description differs on nullable|target attestation/i,
     );
     const failedSetting = await target('enfyra_setting').first();
@@ -1039,6 +1166,7 @@ async function runSqlBoot(database: SqlDatabase, port: number): Promise<void> {
       true,
     );
   } finally {
+    if (peerServer) await stopServer(peerServer);
     if (server) await stopServer(server);
     await target?.destroy();
     if (database === 'postgres') {
@@ -1362,26 +1490,35 @@ async function runMongoBoot(port: number): Promise<void> {
     ),
   );
   let server: ChildProcess | null = null;
+  let peerServer: ChildProcess | null = null;
 
   try {
     await client.connect();
     const db = client.db(databaseName);
-    server = await bootServer(
-      buildDatabaseUri(
-        'mongodb',
-        {
-          host: mongoHost,
-          port: mongoPort,
-          user: mongoUser,
-          password: mongoPassword,
-          database: databaseName,
-        },
-        mongoAuthDatabase,
-      ),
-      port,
+    const databaseUri = buildDatabaseUri(
+      'mongodb',
+      {
+        host: mongoHost,
+        port: mongoPort,
+        user: mongoUser,
+        password: mongoPassword,
+        database: databaseName,
+      },
+      mongoAuthDatabase,
     );
+    const clusterOptions = {
+      adminPassword: `e2e-${randomUUID()}`,
+      nodeName: `snapshot-migration-cluster-mongo-${databaseName}`,
+      secretKey: `snapshot-migration-cluster-${randomUUID()}`,
+    };
+    [server, peerServer] = await Promise.all([
+      bootServer(databaseUri, port, clusterOptions),
+      bootServer(databaseUri, port + 20, clusterOptions),
+    ]);
     const setting = await db.collection('enfyra_setting').findOne({});
     assert.equal(setting?.isInit, true);
+    await stopServer(peerServer);
+    peerServer = null;
     await stopServer(server);
     server = null;
 
@@ -1437,20 +1574,7 @@ async function runMongoBoot(port: number): Promise<void> {
       },
     );
 
-    server = await bootServer(
-      buildDatabaseUri(
-        'mongodb',
-        {
-          host: mongoHost,
-          port: mongoPort,
-          user: mongoUser,
-          password: mongoPassword,
-          database: databaseName,
-        },
-        mongoAuthDatabase,
-      ),
-      port,
-    );
+    server = await bootServer(databaseUri, port);
     const retriedSetting = await db.collection('enfyra_setting').findOne({});
     assert.equal(retriedSetting?.isInit, true);
     assert.equal(retriedSetting?.userExtensionField, 'preserved');
@@ -1478,6 +1602,29 @@ async function runMongoBoot(port: number): Promise<void> {
     await stopServer(server);
     server = null;
 
+    const crashOptions = {
+      adminPassword: `e2e-${randomUUID()}`,
+      nodeName: `snapshot-migration-crash-mongo-${databaseName}`,
+      secretKey: `snapshot-migration-crash-${randomUUID()}`,
+    };
+    for (const checkpoint of BOOTSTRAP_CRASH_CHECKPOINTS) {
+      await db
+        .collection('enfyra_setting')
+        .updateOne({}, { $set: { isInit: false } });
+      await crashServerAtProgress(databaseUri, port, checkpoint, crashOptions);
+      await clearProvisionLock(crashOptions.nodeName);
+      server = await bootServer(databaseUri, port, crashOptions);
+      const resumedSetting = await db.collection('enfyra_setting').findOne({});
+      assert.equal(
+        resumedSetting?.isInit,
+        true,
+        `mongodb did not converge after crashing at "${checkpoint}"`,
+      );
+      assert.equal(resumedSetting?.userExtensionField, 'preserved');
+      await stopServer(server);
+      server = null;
+    }
+
     const settingIndexes = await db
       .collection('enfyra_setting')
       .listIndexes()
@@ -1491,28 +1638,13 @@ async function runMongoBoot(port: number): Promise<void> {
     await db
       .collection('enfyra_setting')
       .updateOne({}, { $set: { isInit: false } });
-    await assert.rejects(
-      bootServer(
-        buildDatabaseUri(
-          'mongodb',
-          {
-            host: mongoHost,
-            port: mongoPort,
-            user: mongoUser,
-            password: mongoPassword,
-            database: databaseName,
-          },
-          mongoAuthDatabase,
-        ),
-        port,
-      ),
-      /index|conflict/i,
-    );
+    await assert.rejects(bootServer(databaseUri, port), /index|conflict/i);
     assert.equal(
       (await db.collection('enfyra_setting').findOne({}))?.isInit,
       false,
     );
   } finally {
+    if (peerServer) await stopServer(peerServer);
     if (server) await stopServer(server);
     await client.db(databaseName).dropDatabase();
     await client.close();
@@ -1520,40 +1652,60 @@ async function runMongoBoot(port: number): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  await runSql('postgres');
-  console.log('PostgreSQL snapshot migration E2E passed');
-  await runSqlRenameConflict('postgres');
-  console.log('PostgreSQL conflict and retry E2E passed');
-  await runSqlColumnContract('postgres');
-  console.log('PostgreSQL comprehensive column update E2E passed');
-  await runSqlRelationContract('postgres');
-  console.log('PostgreSQL comprehensive relation update E2E passed');
-  await runSqlFailureGuards('postgres');
-  console.log('PostgreSQL pre-mutation failure guards E2E passed');
-  await runSqlPartialJunctionResume('postgres');
-  console.log('PostgreSQL partial junction resume E2E passed');
-  await runSqlBoot('postgres', 18105);
-  console.log('PostgreSQL full bootstrap E2E passed');
-  await runSql('mysql');
-  console.log('MySQL snapshot migration E2E passed');
-  await runSqlRenameConflict('mysql');
-  console.log('MySQL conflict and retry E2E passed');
-  await runSqlColumnContract('mysql');
-  console.log('MySQL comprehensive column update E2E passed');
-  await runSqlRelationContract('mysql');
-  console.log('MySQL comprehensive relation update E2E passed');
-  await runSqlFailureGuards('mysql');
-  console.log('MySQL pre-mutation failure guards E2E passed');
-  await runSqlPartialJunctionResume('mysql');
-  console.log('MySQL partial junction resume E2E passed');
-  await runSqlBoot('mysql', 18106);
-  console.log('MySQL full bootstrap E2E passed');
-  await runMongo();
-  console.log('MongoDB snapshot migration E2E passed');
-  await runMongoRenameConflict();
-  console.log('MongoDB conflict and retry E2E passed');
-  await runMongoBoot(18107);
-  console.log('MongoDB full bootstrap E2E passed');
+  const supportedDatabases = new Set(['postgres', 'mysql', 'mongodb']);
+  const databases = new Set(
+    (process.env.MATRIX_DATABASES || 'postgres,mysql,mongodb')
+      .split(',')
+      .map((database) => database.trim()),
+  );
+  const unsupportedDatabases = [...databases].filter(
+    (database) => !supportedDatabases.has(database),
+  );
+  if (unsupportedDatabases.length > 0) {
+    throw new Error(
+      `Unsupported MATRIX_DATABASES value: ${unsupportedDatabases.join(', ')}`,
+    );
+  }
+  if (databases.has('postgres')) {
+    await runSql('postgres');
+    console.log('PostgreSQL snapshot migration E2E passed');
+    await runSqlRenameConflict('postgres');
+    console.log('PostgreSQL conflict and retry E2E passed');
+    await runSqlColumnContract('postgres');
+    console.log('PostgreSQL comprehensive column update E2E passed');
+    await runSqlRelationContract('postgres');
+    console.log('PostgreSQL comprehensive relation update E2E passed');
+    await runSqlFailureGuards('postgres');
+    console.log('PostgreSQL pre-mutation failure guards E2E passed');
+    await runSqlPartialJunctionResume('postgres');
+    console.log('PostgreSQL partial junction resume E2E passed');
+    await runSqlBoot('postgres', 18105);
+    console.log('PostgreSQL full bootstrap E2E passed');
+  }
+  if (databases.has('mysql')) {
+    await runSql('mysql');
+    console.log('MySQL snapshot migration E2E passed');
+    await runSqlRenameConflict('mysql');
+    console.log('MySQL conflict and retry E2E passed');
+    await runSqlColumnContract('mysql');
+    console.log('MySQL comprehensive column update E2E passed');
+    await runSqlRelationContract('mysql');
+    console.log('MySQL comprehensive relation update E2E passed');
+    await runSqlFailureGuards('mysql');
+    console.log('MySQL pre-mutation failure guards E2E passed');
+    await runSqlPartialJunctionResume('mysql');
+    console.log('MySQL partial junction resume E2E passed');
+    await runSqlBoot('mysql', 18106);
+    console.log('MySQL full bootstrap E2E passed');
+  }
+  if (databases.has('mongodb')) {
+    await runMongo();
+    console.log('MongoDB snapshot migration E2E passed');
+    await runMongoRenameConflict();
+    console.log('MongoDB conflict and retry E2E passed');
+    await runMongoBoot(18107);
+    console.log('MongoDB full bootstrap E2E passed');
+  }
 }
 
 main().catch((error) => {
