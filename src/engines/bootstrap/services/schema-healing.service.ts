@@ -17,6 +17,7 @@ import { buildSqlJunctionTableContract } from '../../knex/utils/sql-physical-sch
 import { addColumnToTable } from '../../knex/utils/migration/column-operations';
 import { SystemCoreTableResolver } from './system-core-table-resolver.service';
 import { BootstrapDefinitionService } from './bootstrap-definition.service';
+import { repairSqlSystemPhysicalTarget } from '../utils/sql-system-physical-healing.util';
 
 export class SchemaHealingService {
   private readonly logger = new Logger(SchemaHealingService.name);
@@ -124,11 +125,18 @@ export class SchemaHealingService {
     if (!snapshot) return;
 
     if (DatabaseConfigService.instanceIsMongoDb()) {
-      const repairedCount =
+      const columnRepairedCount =
         await this.repairMongoSystemColumnMetadataFromSnapshot(snapshot);
-      if (repairedCount > 0) {
+      const displayRepairedCount =
+        await this.repairMongoSystemDisplayMetadataFromSnapshot(snapshot);
+      if (columnRepairedCount > 0) {
         this.logger.log(
-          `Repaired Mongo system column metadata from snapshot on ${repairedCount} column(s)`,
+          `Repaired Mongo system column metadata from snapshot on ${columnRepairedCount} column(s)`,
+        );
+      }
+      if (displayRepairedCount > 0) {
+        this.logger.log(
+          `Repaired Mongo system display metadata from snapshot on ${displayRepairedCount} record(s)`,
         );
       }
       return;
@@ -138,6 +146,12 @@ export class SchemaHealingService {
       await this.repairSqlSystemPhysicalColumnsFromSnapshot(snapshot);
     const metadataRepairedCount =
       await this.repairSqlSystemColumnMetadataFromSnapshot(snapshot);
+    const displayRepairedCount =
+      await this.repairSqlSystemDisplayMetadataFromSnapshot(snapshot);
+    const physicalContractRepairedCount = await repairSqlSystemPhysicalTarget(
+      this.queryBuilderService.getKnex(),
+      snapshot,
+    );
     if (physicalRepairedCount > 0) {
       this.logger.log(
         `Repaired SQL system physical columns from snapshot on ${physicalRepairedCount} column(s)`,
@@ -146,6 +160,16 @@ export class SchemaHealingService {
     if (metadataRepairedCount > 0) {
       this.logger.log(
         `Repaired SQL system column metadata from snapshot on ${metadataRepairedCount} column(s)`,
+      );
+    }
+    if (displayRepairedCount > 0) {
+      this.logger.log(
+        `Repaired SQL system display metadata from snapshot on ${displayRepairedCount} record(s)`,
+      );
+    }
+    if (physicalContractRepairedCount > 0) {
+      this.logger.log(
+        `Repaired SQL system physical target on ${physicalContractRepairedCount} contract(s)`,
       );
     }
   }
@@ -435,6 +459,177 @@ export class SchemaHealingService {
       }
     }
 
+    return repaired;
+  }
+
+  private buildDisplayMetadataUpdate(
+    current: Record<string, any>,
+    target: Record<string, any>,
+    fields: string[],
+  ): Record<string, unknown> {
+    const update: Record<string, unknown> = {};
+    for (const field of fields) {
+      const currentValue = current[field] ?? null;
+      const targetValue = target[field] ?? null;
+      if (currentValue !== targetValue) update[field] = targetValue;
+    }
+    return update;
+  }
+
+  private async repairSqlSystemDisplayMetadataFromSnapshot(
+    snapshot: Record<string, any>,
+  ): Promise<number> {
+    const knex = this.queryBuilderService.getKnex();
+    if (!knex?.schema?.hasTable) return 0;
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    if (!(await knex.schema.hasTable(coreNames.table))) return 0;
+    if (!(await knex.schema.hasTable(coreNames.column))) return 0;
+    if (!(await knex.schema.hasTable(coreNames.relation))) return 0;
+
+    let repaired = 0;
+    for (const tableDef of Object.values(snapshot)) {
+      if (!tableDef?.isSystem || !tableDef?.name) continue;
+      const tableRecord = await knex(coreNames.table)
+        .where({ name: tableDef.name })
+        .first();
+      if (!tableRecord?.id) continue;
+
+      const tableUpdate = this.buildDisplayMetadataUpdate(
+        tableRecord,
+        tableDef,
+        ['description'],
+      );
+      if (Object.keys(tableUpdate).length > 0) {
+        await knex(coreNames.table)
+          .where({ id: tableRecord.id })
+          .update(tableUpdate);
+        repaired++;
+      }
+
+      const columns = await knex(coreNames.column)
+        .where({ tableId: tableRecord.id })
+        .select('id', 'name', 'description', 'placeholder');
+      const columnsByName = new Map<string, any>(
+        columns.map((column: any) => [column.name, column]),
+      );
+      for (const targetColumn of tableDef.columns ?? []) {
+        const currentColumn = columnsByName.get(targetColumn.name);
+        if (!currentColumn?.id) continue;
+        const columnUpdate = this.buildDisplayMetadataUpdate(
+          currentColumn,
+          targetColumn,
+          ['description', 'placeholder'],
+        );
+        if (Object.keys(columnUpdate).length === 0) continue;
+        await knex(coreNames.column)
+          .where({ id: currentColumn.id })
+          .update(columnUpdate);
+        repaired++;
+      }
+
+      const relations = await knex(coreNames.relation)
+        .where({ sourceTableId: tableRecord.id })
+        .select('id', 'propertyName', 'description');
+      const relationsByProperty = new Map<string, any>(
+        relations.map((relation: any) => [relation.propertyName, relation]),
+      );
+      for (const targetRelation of tableDef.relations ?? []) {
+        const currentRelation = relationsByProperty.get(
+          targetRelation.propertyName,
+        );
+        if (!currentRelation?.id) continue;
+        const relationUpdate = this.buildDisplayMetadataUpdate(
+          currentRelation,
+          targetRelation,
+          ['description'],
+        );
+        if (Object.keys(relationUpdate).length === 0) continue;
+        await knex(coreNames.relation)
+          .where({ id: currentRelation.id })
+          .update(relationUpdate);
+        repaired++;
+      }
+    }
+    return repaired;
+  }
+
+  private async repairMongoSystemDisplayMetadataFromSnapshot(
+    snapshot: Record<string, any>,
+  ): Promise<number> {
+    const db = this.queryBuilderService.getMongoDb?.();
+    if (!db) return 0;
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    const tableCollection = db.collection(coreNames.table);
+    const columnCollection = db.collection(coreNames.column);
+    const relationCollection = db.collection(coreNames.relation);
+
+    let repaired = 0;
+    for (const tableDef of Object.values(snapshot)) {
+      if (!tableDef?.isSystem || !tableDef?.name) continue;
+      const tableRecord = await tableCollection.findOne({
+        name: tableDef.name,
+      });
+      if (!tableRecord?._id) continue;
+
+      const tableUpdate = this.buildDisplayMetadataUpdate(
+        tableRecord,
+        tableDef,
+        ['description'],
+      );
+      if (Object.keys(tableUpdate).length > 0) {
+        await tableCollection.updateOne(
+          { _id: tableRecord._id },
+          { $set: tableUpdate },
+        );
+        repaired++;
+      }
+
+      const columns = await columnCollection
+        .find({ table: tableRecord._id })
+        .toArray();
+      const columnsByName = new Map<string, any>(
+        columns.map((column: any) => [column.name, column]),
+      );
+      for (const targetColumn of tableDef.columns ?? []) {
+        const currentColumn = columnsByName.get(targetColumn.name);
+        if (!currentColumn?._id) continue;
+        const columnUpdate = this.buildDisplayMetadataUpdate(
+          currentColumn,
+          targetColumn,
+          ['description', 'placeholder'],
+        );
+        if (Object.keys(columnUpdate).length === 0) continue;
+        await columnCollection.updateOne(
+          { _id: currentColumn._id },
+          { $set: columnUpdate },
+        );
+        repaired++;
+      }
+
+      const relations = await relationCollection
+        .find({ sourceTable: tableRecord._id })
+        .toArray();
+      const relationsByProperty = new Map<string, any>(
+        relations.map((relation: any) => [relation.propertyName, relation]),
+      );
+      for (const targetRelation of tableDef.relations ?? []) {
+        const currentRelation = relationsByProperty.get(
+          targetRelation.propertyName,
+        );
+        if (!currentRelation?._id) continue;
+        const relationUpdate = this.buildDisplayMetadataUpdate(
+          currentRelation,
+          targetRelation,
+          ['description'],
+        );
+        if (Object.keys(relationUpdate).length === 0) continue;
+        await relationCollection.updateOne(
+          { _id: currentRelation._id },
+          { $set: relationUpdate },
+        );
+        repaired++;
+      }
+    }
     return repaired;
   }
 

@@ -1,464 +1,464 @@
 import type { SchemaMigrationDef } from '../shared/types/schema-migration.types';
 
 const snapshotMigration = {
-  "tables": [
+  tables: [
     {
-      "_unique": {
-        "name": {
-          "_eq": "enfyra_column"
-        }
+      _unique: {
+        name: {
+          _eq: 'enfyra_column',
+        },
       },
-      "columnsToRemove": [
-        "isHidden"
-      ],
-      "columnsToModify": [
+      columnsToRemove: ['isHidden'],
+      columnsToModify: [
         {
-          "from": {
-            "name": "type",
-            "type": "varchar"
+          from: {
+            name: 'type',
+            type: 'varchar',
           },
-          "to": {
-            "name": "type",
-            "type": "enum",
-            "options": [
-              "int",
-              "varchar",
-              "text",
-              "boolean",
-              "uuid",
-              "ObjectId",
-              "bigint",
-              "date",
-              "datetime",
-              "timestamp",
-              "enum",
-              "simple-json",
-              "code",
-              "array-select",
-              "richtext",
-              "float"
-            ]
-          }
-        }
-      ]
+          to: {
+            name: 'type',
+            type: 'enum',
+            options: [
+              'int',
+              'varchar',
+              'text',
+              'boolean',
+              'uuid',
+              'ObjectId',
+              'bigint',
+              'date',
+              'datetime',
+              'timestamp',
+              'enum',
+              'simple-json',
+              'code',
+              'array-select',
+              'richtext',
+              'float',
+            ],
+          },
+        },
+      ],
     },
     {
-      "_unique": {
-        "name": {
-          "_eq": "enfyra_route"
-        }
+      _unique: {
+        name: {
+          _eq: 'enfyra_route',
+        },
       },
-      "relationsToModify": [
+      relationsToModify: [
         {
-          "from": {
-            "propertyName": "publishedMethods"
+          from: {
+            propertyName: 'publishedMethods',
           },
-          "to": {
-            "propertyName": "publicMethods"
-          }
+          to: {
+            propertyName: 'publicMethods',
+          },
         },
         {
-          "from": {
-            "propertyName": "preHook"
+          from: {
+            propertyName: 'preHook',
           },
-          "to": {
-            "propertyName": "preHooks"
-          }
+          to: {
+            propertyName: 'preHooks',
+          },
         },
         {
-          "from": {
-            "propertyName": "postHook"
+          from: {
+            propertyName: 'postHook',
           },
-          "to": {
-            "propertyName": "postHooks"
-          }
-        }
+          to: {
+            propertyName: 'postHooks',
+          },
+        },
       ],
-      "relationsToRemove": [
-        "targetTables"
-      ]
+      relationsToRemove: ['targetTables'],
     },
     {
-      "_unique": {
-        "name": {
-          "_eq": "enfyra_pre_hook"
-        }
+      _unique: {
+        name: {
+          _eq: 'enfyra_pre_hook',
+        },
       },
-      "columnsToRemove": [
-        "timeout",
-        "code"
+      columnsToRemove: ['timeout', 'code'],
+      relationsToModify: [
+        {
+          from: {
+            propertyName: 'route',
+            inversePropertyName: 'preHook',
+          },
+          to: {
+            propertyName: 'route',
+            inversePropertyName: 'preHooks',
+          },
+        },
       ],
-      "relationsToModify": [
-        {
-          "from": {
-            "propertyName": "route",
-            "inversePropertyName": "preHook"
-          },
-          "to": {
-            "propertyName": "route",
-            "inversePropertyName": "preHooks"
-          }
-        }
-      ]
     },
     {
-      "_unique": {
-        "name": {
-          "_eq": "enfyra_post_hook"
-        }
+      _unique: {
+        name: {
+          _eq: 'enfyra_post_hook',
+        },
       },
-      "columnsToRemove": [
-        "timeout",
-        "code"
+      columnsToRemove: ['timeout', 'code'],
+      relationsToModify: [
+        {
+          from: {
+            propertyName: 'route',
+            inversePropertyName: 'postHook',
+          },
+          to: {
+            propertyName: 'route',
+            inversePropertyName: 'postHooks',
+          },
+        },
       ],
-      "relationsToModify": [
-        {
-          "from": {
-            "propertyName": "route",
-            "inversePropertyName": "postHook"
-          },
-          "to": {
-            "propertyName": "route",
-            "inversePropertyName": "postHooks"
-          }
-        }
-      ]
     },
     {
-      "_unique": {
-        "name": {
-          "_eq": "enfyra_file"
-        }
+      _unique: {
+        name: {
+          _eq: 'enfyra_file',
+        },
       },
-      "columnsToModify": [
+      columnsToModify: [
         {
-          "from": {
-            "name": "isPublished"
+          from: {
+            name: 'isPublished',
           },
-          "to": {
-            "name": "isPublic",
-            "type": "boolean",
-            "isNullable": false,
-            "defaultValue": true,
-            "description": "Allow public access without authentication"
-          }
-        }
+          to: {
+            name: 'isPublic',
+            type: 'boolean',
+            isNullable: false,
+            defaultValue: true,
+            description: 'Allow public access without authentication',
+          },
+        },
       ],
-      "relationsToModify": [
+      relationsToModify: [
         {
-          "from": {
-            "propertyName": "uploaded_by"
+          from: {
+            propertyName: 'uploaded_by',
           },
-          "to": {
-            "propertyName": "uploadedBy"
-          }
-        }
-      ]
-    },
-    {
-      "_unique": {
-        "name": {
-          "_eq": "enfyra_method"
-        }
-      },
-      "relationsToModify": [
-        {
-          "from": {
-            "propertyName": "route_permissions"
+          to: {
+            propertyName: 'uploadedBy',
           },
-          "to": {
-            "propertyName": "routePermissions"
-          }
-        }
+        },
       ],
-      "columnsToModify": [
+    },
+    {
+      _unique: {
+        name: {
+          _eq: 'enfyra_method',
+        },
+      },
+      relationsToModify: [
         {
-          "from": {
-            "name": "method",
-            "type": "varchar"
+          from: {
+            propertyName: 'route_permissions',
           },
-          "to": {
-            "name": "name",
-            "type": "varchar",
-            "description": "HTTP method name (GET, POST, PATCH, DELETE, PUT, HEAD, OPTIONS)"
-          }
-        }
-      ]
-    },
-    {
-      "_unique": {
-        "name": {
-          "_eq": "enfyra_field_permission"
-        }
-      },
-      "relationsToRemove": [
-        "table"
-      ]
-    },
-    {
-      "_unique": {
-        "name": {
-          "_eq": "enfyra_package"
-        }
-      },
-      "relationsToModify": [
-        {
-          "from": {
-            "propertyName": "installedBy",
-            "isNullable": false
+          to: {
+            propertyName: 'routePermissions',
           },
-          "to": {
-            "propertyName": "installedBy",
-            "isNullable": true
-          }
-        }
-      ]
-    },
-    {
-      "_unique": {
-        "name": {
-          "_eq": "enfyra_relation"
-        }
-      },
-      "columnsToRemove": [
-        "isHidden",
-        "inversePropertyName",
-        "mappedBy"
+        },
       ],
-      "relationsToModify": [
+      columnsToModify: [
         {
-          "from": {
-            "propertyName": "targetTable",
-            "isNullable": false
+          from: {
+            name: 'method',
+            type: 'varchar',
           },
-          "to": {
-            "propertyName": "targetTable",
-            "isNullable": true
-          }
-        }
-      ]
-    },
-    {
-      "_unique": {
-        "name": {
-          "_eq": "enfyra_websocket"
-        }
-      },
-      "relationsToRemove": [
-        "targetTables"
+          to: {
+            name: 'name',
+            type: 'varchar',
+            description:
+              'HTTP method name (GET, POST, PATCH, DELETE, PUT, HEAD, OPTIONS)',
+          },
+        },
       ],
-      "columnsToRemove": [
-        "connectionHandlerScript"
-      ]
     },
     {
-      "_unique": {
-        "name": {
-          "_eq": "enfyra_setting"
-        }
+      _unique: {
+        name: {
+          _eq: 'enfyra_field_permission',
+        },
       },
-      "columnsToRemove": [
-        "corsAllowedOrigins"
-      ]
+      relationsToRemove: ['table'],
     },
     {
-      "_unique": {
-        "name": {
-          "_eq": "enfyra_route_handler"
-        }
+      _unique: {
+        name: {
+          _eq: 'enfyra_api_token',
+        },
       },
-      "columnsToRemove": [
-        "logic"
-      ]
+      relationsToModify: [
+        {
+          from: {
+            propertyName: 'user',
+            onDelete: 'SET NULL',
+          },
+          to: {
+            propertyName: 'user',
+            onDelete: 'CASCADE',
+          },
+        },
+      ],
     },
     {
-      "_unique": {
-        "name": {
-          "_eq": "enfyra_bootstrap_script"
-        }
+      _unique: {
+        name: {
+          _eq: 'enfyra_flow_execution',
+        },
       },
-      "columnsToRemove": [
-        "logic"
-      ]
+      columnsToRemove: ['context'],
     },
     {
-      "_unique": {
-        "name": {
-          "_eq": "enfyra_websocket_event"
-        }
+      _unique: {
+        name: {
+          _eq: 'enfyra_package',
+        },
       },
-      "columnsToRemove": [
-        "handlerScript",
-        "dataShape",
-        "socketAction",
-        "triggerFlow"
-      ]
-    }
+      relationsToModify: [
+        {
+          from: {
+            propertyName: 'installedBy',
+            isNullable: false,
+          },
+          to: {
+            propertyName: 'installedBy',
+            isNullable: true,
+          },
+        },
+      ],
+    },
+    {
+      _unique: {
+        name: {
+          _eq: 'enfyra_relation',
+        },
+      },
+      columnsToRemove: ['isHidden', 'inversePropertyName', 'mappedBy'],
+      relationsToModify: [
+        {
+          from: {
+            propertyName: 'targetTable',
+            isNullable: false,
+          },
+          to: {
+            propertyName: 'targetTable',
+            isNullable: true,
+          },
+        },
+      ],
+    },
+    {
+      _unique: {
+        name: {
+          _eq: 'enfyra_websocket',
+        },
+      },
+      relationsToRemove: ['targetTables'],
+      columnsToRemove: ['connectionHandlerScript'],
+    },
+    {
+      _unique: {
+        name: {
+          _eq: 'enfyra_setting',
+        },
+      },
+      columnsToRemove: ['corsAllowedOrigins'],
+    },
+    {
+      _unique: {
+        name: {
+          _eq: 'enfyra_route_handler',
+        },
+      },
+      columnsToRemove: ['logic'],
+    },
+    {
+      _unique: {
+        name: {
+          _eq: 'enfyra_bootstrap_script',
+        },
+      },
+      columnsToRemove: ['logic'],
+    },
+    {
+      _unique: {
+        name: {
+          _eq: 'enfyra_websocket_event',
+        },
+      },
+      columnsToRemove: [
+        'handlerScript',
+        'dataShape',
+        'socketAction',
+        'triggerFlow',
+      ],
+    },
   ],
-  "tablesToDrop": [
-    "schema_history"
+  tablesToDrop: ['schema_history'],
+  coreTablesToRename: [
+    {
+      from: 'table_definition',
+      to: 'enfyra_table',
+    },
+    {
+      from: 'column_definition',
+      to: 'enfyra_column',
+    },
+    {
+      from: 'relation_definition',
+      to: 'enfyra_relation',
+    },
   ],
-  "coreTablesToRename": [
+  tablesToRename: [
     {
-      "from": "table_definition",
-      "to": "enfyra_table"
+      from: 'column_rule_definition',
+      to: 'enfyra_column_rule',
     },
     {
-      "from": "column_definition",
-      "to": "enfyra_column"
+      from: 'user_definition',
+      to: 'enfyra_user',
+      mergeKeys: ['email'],
     },
     {
-      "from": "relation_definition",
-      "to": "enfyra_relation"
-    }
+      from: 'oauth_config_definition',
+      to: 'enfyra_oauth_config',
+    },
+    {
+      from: 'oauth_account_definition',
+      to: 'enfyra_oauth_account',
+    },
+    {
+      from: 'setting_definition',
+      to: 'enfyra_setting',
+    },
+    {
+      from: 'cors_origin_definition',
+      to: 'enfyra_cors_origin',
+    },
+    {
+      from: 'route_definition',
+      to: 'enfyra_route',
+    },
+    {
+      from: 'role_definition',
+      to: 'enfyra_role',
+    },
+    {
+      from: 'route_permission_definition',
+      to: 'enfyra_route_permission',
+    },
+    {
+      from: 'field_permission_definition',
+      to: 'enfyra_field_permission',
+    },
+    {
+      from: 'route_handler_definition',
+      to: 'enfyra_route_handler',
+    },
+    {
+      from: 'pre_hook_definition',
+      to: 'enfyra_pre_hook',
+    },
+    {
+      from: 'post_hook_definition',
+      to: 'enfyra_post_hook',
+    },
+    {
+      from: 'session_definition',
+      to: 'enfyra_session',
+    },
+    {
+      from: 'api_token_definition',
+      to: 'enfyra_api_token',
+    },
+    {
+      from: 'schema_migration_definition',
+      to: 'enfyra_schema_migration',
+    },
+    {
+      from: 'method_definition',
+      to: 'enfyra_method',
+    },
+    {
+      from: 'menu_definition',
+      to: 'enfyra_menu',
+    },
+    {
+      from: 'extension_definition',
+      to: 'enfyra_extension',
+    },
+    {
+      from: 'folder_definition',
+      to: 'enfyra_folder',
+    },
+    {
+      from: 'file_definition',
+      to: 'enfyra_file',
+    },
+    {
+      from: 'file_permission_definition',
+      to: 'enfyra_file_permission',
+    },
+    {
+      from: 'package_definition',
+      to: 'enfyra_package',
+    },
+    {
+      from: 'bootstrap_script_definition',
+      to: 'enfyra_bootstrap_script',
+    },
+    {
+      from: 'storage_config_definition',
+      to: 'enfyra_storage_config',
+    },
+    {
+      from: 'websocket_definition',
+      to: 'enfyra_websocket',
+    },
+    {
+      from: 'websocket_event_definition',
+      to: 'enfyra_websocket_event',
+    },
+    {
+      from: 'flow_definition',
+      to: 'enfyra_flow',
+    },
+    {
+      from: 'flow_step_definition',
+      to: 'enfyra_flow_step',
+    },
+    {
+      from: 'flow_execution_definition',
+      to: 'enfyra_flow_execution',
+    },
+    {
+      from: 'guard_definition',
+      to: 'enfyra_guard',
+    },
+    {
+      from: 'guard_rule_definition',
+      to: 'enfyra_guard_rule',
+    },
+    {
+      from: 'gql_definition',
+      to: 'enfyra_graphql',
+    },
   ],
-  "tablesToRename": [
-    {
-      "from": "column_rule_definition",
-      "to": "enfyra_column_rule"
-    },
-    {
-      "from": "user_definition",
-      "to": "enfyra_user",
-      "mergeKeys": ["email"]
-    },
-    {
-      "from": "oauth_config_definition",
-      "to": "enfyra_oauth_config"
-    },
-    {
-      "from": "oauth_account_definition",
-      "to": "enfyra_oauth_account"
-    },
-    {
-      "from": "setting_definition",
-      "to": "enfyra_setting"
-    },
-    {
-      "from": "cors_origin_definition",
-      "to": "enfyra_cors_origin"
-    },
-    {
-      "from": "route_definition",
-      "to": "enfyra_route"
-    },
-    {
-      "from": "role_definition",
-      "to": "enfyra_role"
-    },
-    {
-      "from": "route_permission_definition",
-      "to": "enfyra_route_permission"
-    },
-    {
-      "from": "field_permission_definition",
-      "to": "enfyra_field_permission"
-    },
-    {
-      "from": "route_handler_definition",
-      "to": "enfyra_route_handler"
-    },
-    {
-      "from": "pre_hook_definition",
-      "to": "enfyra_pre_hook"
-    },
-    {
-      "from": "post_hook_definition",
-      "to": "enfyra_post_hook"
-    },
-    {
-      "from": "session_definition",
-      "to": "enfyra_session"
-    },
-    {
-      "from": "api_token_definition",
-      "to": "enfyra_api_token"
-    },
-    {
-      "from": "schema_migration_definition",
-      "to": "enfyra_schema_migration"
-    },
-    {
-      "from": "method_definition",
-      "to": "enfyra_method"
-    },
-    {
-      "from": "menu_definition",
-      "to": "enfyra_menu"
-    },
-    {
-      "from": "extension_definition",
-      "to": "enfyra_extension"
-    },
-    {
-      "from": "folder_definition",
-      "to": "enfyra_folder"
-    },
-    {
-      "from": "file_definition",
-      "to": "enfyra_file"
-    },
-    {
-      "from": "file_permission_definition",
-      "to": "enfyra_file_permission"
-    },
-    {
-      "from": "package_definition",
-      "to": "enfyra_package"
-    },
-    {
-      "from": "bootstrap_script_definition",
-      "to": "enfyra_bootstrap_script"
-    },
-    {
-      "from": "storage_config_definition",
-      "to": "enfyra_storage_config"
-    },
-    {
-      "from": "websocket_definition",
-      "to": "enfyra_websocket"
-    },
-    {
-      "from": "websocket_event_definition",
-      "to": "enfyra_websocket_event"
-    },
-    {
-      "from": "flow_definition",
-      "to": "enfyra_flow"
-    },
-    {
-      "from": "flow_step_definition",
-      "to": "enfyra_flow_step"
-    },
-    {
-      "from": "flow_execution_definition",
-      "to": "enfyra_flow_execution"
-    },
-    {
-      "from": "guard_definition",
-      "to": "enfyra_guard"
-    },
-    {
-      "from": "guard_rule_definition",
-      "to": "enfyra_guard_rule"
-    },
-    {
-      "from": "gql_definition",
-      "to": "enfyra_graphql"
-    }
+  physicalTablesToDrop: [
+    'file_permission_definition_allowedUsers_user_definition',
+    'method_definition_route_permissions_route_permission_definition',
+    'route_definition_targetTables_table_definition',
+    'websocket_definition_targetTables_table_definition',
   ],
-  "physicalTablesToDrop": [
-    "file_permission_definition_allowedUsers_user_definition",
-    "method_definition_route_permissions_route_permission_definition",
-    "route_definition_targetTables_table_definition",
-    "websocket_definition_targetTables_table_definition"
-  ],
-  "physicalTablesToRename": [
+  physicalTablesToRename: [
     {
-      "from": "schema_physical_migration_definition",
-      "to": "enfyra_schema_physical_migration"
-    }
-  ]
+      from: 'schema_physical_migration_definition',
+      to: 'enfyra_schema_physical_migration',
+    },
+  ],
 } satisfies SchemaMigrationDef;
 
 export default snapshotMigration;

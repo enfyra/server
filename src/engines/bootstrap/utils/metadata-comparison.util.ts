@@ -48,6 +48,15 @@ export const RELATION_FIELDS = [
   'metadata',
 ];
 
+export const RELATION_DERIVED_FIELDS = new Set([
+  'foreignKeyColumn',
+  'referencedColumn',
+  'constraintName',
+  'junctionTableName',
+  'junctionSourceColumn',
+  'junctionTargetColumn',
+]);
+
 export const RELATION_UPDATE_FIELDS = [
   'propertyName',
   'type',
@@ -57,16 +66,12 @@ export const RELATION_UPDATE_FIELDS = [
   'isPublished',
   'onDelete',
   'description',
-  'foreignKeyColumn',
-  'referencedColumn',
-  'constraintName',
-  'junctionTableName',
-  'junctionSourceColumn',
-  'junctionTargetColumn',
   'metadata',
 ];
 
 export const RELATION_EXPLICIT_TARGET_FIELDS = new Set([
+  'mappedBy',
+  'inversePropertyName',
   'foreignKeyColumn',
   'referencedColumn',
   'constraintName',
@@ -75,6 +80,12 @@ export const RELATION_EXPLICIT_TARGET_FIELDS = new Set([
   'junctionTargetColumn',
   'metadata',
 ]);
+
+export const COLUMN_HEALABLE_FIELDS = new Set(['description', 'placeholder']);
+
+export const TABLE_HEALABLE_FIELDS = new Set(['description']);
+
+export const RELATION_HEALABLE_FIELDS = new Set(['description']);
 
 export const TABLE_DEFAULTS: Record<string, any> = {
   isSystem: false,
@@ -193,12 +204,11 @@ export function buildExpectedRelations(
 
       const isOneToManyInverse =
         relation.type === 'one-to-many' && relation.inversePropertyName;
-      expected.set(currentKey, {
-        ...relation,
-        mappedBy: isOneToManyInverse
-          ? relation.inversePropertyName
-          : relation.mappedBy,
-      });
+      const expectedRelation = { ...relation };
+      if (isOneToManyInverse) {
+        expectedRelation.mappedBy = relation.inversePropertyName;
+      }
+      expected.set(currentKey, expectedRelation);
       if (!relation.inversePropertyName) continue;
 
       const inverseKey = `${relation.targetTable}.${relation.inversePropertyName}`;

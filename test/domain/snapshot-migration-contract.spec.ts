@@ -7,6 +7,7 @@ import type {
   SchemaMigrationDef,
   SnapshotMigrationMetadataState,
 } from '../../src/shared/types/schema-migration.types';
+import snapshotMigration from '../../src/data/snapshot-migration';
 
 type DatabaseKind = 'postgres' | 'mysql' | 'mongodb';
 
@@ -232,7 +233,6 @@ const tableFieldCases: Array<[string, any, any]> = [
   ['uniques', [], [['legacyTitle']]],
   ['indexes', [['title']], [['legacyTitle']]],
   ['alias', null, 'Legacy posts'],
-  ['description', null, 'Legacy description'],
   ['metadata', null, { source: 'legacy' }],
   ['validateBody', true, false],
 ];
@@ -249,22 +249,18 @@ const columnFieldCases: Array<[string, any, any]> = [
   ['isEncrypted', false, true],
   ['defaultValue', null, 'legacy'],
   ['options', null, ['legacy']],
-  ['description', null, 'Legacy description'],
-  ['placeholder', null, 'Legacy placeholder'],
 ];
 
 const relationFieldCases: Array<[string, any, any]> = [
   ['propertyName', 'author', 'writer'],
   ['type', 'many-to-one', 'one-to-one'],
   ['targetTable', 'authors', 'legacy_authors'],
-  ['mappedBy', null, 'legacyOwner'],
   ['inversePropertyName', 'posts', 'writtenPosts'],
   ['isNullable', false, true],
   ['isSystem', true, false],
   ['isUpdatable', true, false],
   ['isPublished', true, false],
   ['onDelete', 'CASCADE', 'SET NULL'],
-  ['description', null, 'Legacy description'],
 ];
 
 function persistedValue(
@@ -561,7 +557,7 @@ describe.each<DatabaseKind>(['postgres', 'mysql', 'mongodb'])(
       );
     });
 
-    it('requires explicit physical relation mapping and metadata updates', () => {
+    it('requires metadata declarations while deriving physical relation mappings', () => {
       const physicalSnapshot = structuredClone(snapshot);
       Object.assign(physicalSnapshot.posts.relations[0], {
         foreignKeyColumn: 'author_id',
@@ -582,9 +578,7 @@ describe.each<DatabaseKind>(['postgres', 'mysql', 'mongodb'])(
 
       expect(() =>
         validateSnapshotMigrationCoverage(physicalSnapshot, null, state),
-      ).toThrow(
-        /updates foreignKeyColumn, referencedColumn, constraintName, metadata without migration/,
-      );
+      ).toThrow(/updates metadata without migration/);
 
       const migration: SchemaMigrationDef = {
         tables: [
@@ -594,16 +588,10 @@ describe.each<DatabaseKind>(['postgres', 'mysql', 'mongodb'])(
               {
                 from: {
                   propertyName: 'author',
-                  foreignKeyColumn: 'legacy_author_id',
-                  referencedColumn: 'id',
-                  constraintName: 'fk_posts_legacy_author',
                   metadata: { source: 'legacy' },
                 },
                 to: {
                   propertyName: 'author',
-                  foreignKeyColumn: 'author_id',
-                  referencedColumn: 'author_key',
-                  constraintName: 'fk_posts_author',
                   metadata: { source: 'snapshot' },
                 },
               },
@@ -749,10 +737,66 @@ describe.each<DatabaseKind>(['postgres', 'mysql', 'mongodb'])(
         ).not.toThrow();
       },
     );
+
+    it('allows display metadata drift for snapshot healing', () => {
+      const state = convergedState(database);
+      state.tables[1].description = 'Legacy posts';
+      const column = state.columns.find(
+        (entry) => entry.tableName === 'posts' && entry.name === 'title',
+      )!;
+      column.description = 'Legacy title';
+      column.placeholder = 'Legacy placeholder';
+      const relation = state.relations.find(
+        (entry) =>
+          entry.sourceTableName === 'posts' && entry.propertyName === 'author',
+      )!;
+      relation.description = 'Legacy author';
+
+      expect(() =>
+        validateSnapshotMigrationCoverage(snapshot, null, state),
+      ).not.toThrow();
+    });
   },
 );
 
 describe('snapshot migration declaration validation', () => {
+  it('never removes SQL auto-managed timestamp columns', () => {
+    for (const table of snapshotMigration.tables) {
+      expect(table.columnsToRemove ?? []).not.toContain('createdAt');
+      expect(table.columnsToRemove ?? []).not.toContain('updatedAt');
+    }
+  });
+
+  it('rejects declarations that remove auto-managed timestamp columns', () => {
+    const migration = completeMigration();
+    migration.tables[0].columnsToRemove = ['obsolete', 'createdAt'];
+
+    expect(() =>
+      validateSnapshotMigrationCoverage(
+        snapshot,
+        migration,
+        metadataState('postgres'),
+      ),
+    ).toThrow(
+      /column removal posts\.createdAt targets an auto-managed physical timestamp/,
+    );
+  });
+
+  it('ignores derived relation hints omitted by the target snapshot', () => {
+    const target = structuredClone(snapshot);
+    delete target.posts.relations[0].inversePropertyName;
+    const state = convergedState('postgres');
+    state.relations = state.relations.filter(
+      (relation) => relation.sourceTableName === 'posts',
+    );
+    state.relations[0].inversePropertyName = 'legacyPosts';
+    state.relations[0].mappedBy = 'legacyOwner';
+
+    expect(() =>
+      validateSnapshotMigrationCoverage(target, null, state),
+    ).not.toThrow();
+  });
+
   it('rejects duplicate table migration blocks', () => {
     const migration = completeMigration();
     migration.tables.push({

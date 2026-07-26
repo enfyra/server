@@ -38,7 +38,7 @@ describe('metadata migration update contract', () => {
     expect(buildColumnMetadataUpdate(migration)).toEqual(migration.to);
   });
 
-  it('copies every declared target relation property into the metadata update', () => {
+  it('copies logical relation properties without overwriting persisted physical mappings', () => {
     const migration = {
       from: {
         propertyName: 'owner',
@@ -61,7 +61,16 @@ describe('metadata migration update contract', () => {
     };
 
     expect(hasRelationMetadataChanges(migration)).toBe(true);
-    expect(buildRelationMetadataUpdate(migration)).toEqual(migration.to);
+    expect(buildRelationMetadataUpdate(migration)).toEqual({
+      propertyName: 'author',
+      type: 'many-to-one',
+      isNullable: false,
+      isSystem: true,
+      isUpdatable: false,
+      isPublished: false,
+      onDelete: 'CASCADE',
+      description: 'Owning author',
+    });
   });
 
   it('copies every declared target table property into the metadata update', () => {
@@ -97,5 +106,48 @@ describe('metadata migration update contract', () => {
         },
       ),
     ).toThrow(/target missing does not exist in snapshot\.ts/);
+  });
+
+  it('rejects derived relation physical fields in migration declarations', () => {
+    expect(() =>
+      validateSnapshotMigrationDefinition(
+        {
+          posts: {
+            name: 'posts',
+            columns: [],
+            relations: [
+              {
+                propertyName: 'tags',
+                type: 'many-to-many',
+                targetTable: 'tags',
+                junctionTableName: 'j_target',
+                junctionSourceColumn: 'sourceId',
+                junctionTargetColumn: 'targetId',
+              },
+            ],
+          },
+          tags: { name: 'tags', columns: [], relations: [] },
+        },
+        {
+          tables: [
+            {
+              _unique: { name: { _eq: 'posts' } },
+              relationsToModify: [
+                {
+                  from: {
+                    propertyName: 'tags',
+                    junctionTableName: 'j_legacy',
+                  },
+                  to: {
+                    propertyName: 'tags',
+                    junctionTableName: 'j_target',
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ),
+    ).toThrow(/must not declare derived physical fields: junctionTableName/);
   });
 });

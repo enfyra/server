@@ -2,6 +2,8 @@ import knex, { type Knex } from 'knex';
 import { MongoClient, type Db } from 'mongodb';
 import { MetadataMigrationService } from '../../src/engines/bootstrap/services/metadata-migration.service';
 import { MetadataPhysicalMigrationHelper } from '../../src/engines/bootstrap/utils/metadata-physical-migration.util';
+import { repairSqlSystemPhysicalTarget } from '../../src/engines/bootstrap/utils/sql-system-physical-healing.util';
+import { getCurrentDatabaseSchema } from '../../src/engines/knex/utils/provision/schema-comparison';
 
 const SQL_DBS = [
   {
@@ -92,7 +94,7 @@ async function makeIsolatedSqlDb(config: (typeof SQL_DBS)[number]) {
     const db = knex({
       client: config.client,
       connection: config.connection,
-      searchPath: [schema],
+      searchPath: [schema, 'public'],
     });
     return {
       db,
@@ -221,6 +223,8 @@ describe('MetadataMigrationService real DB self-healing stress', () => {
 
         await (service as any).runSqlCoreTableRenames(renames);
         await (service as any).runSqlCoreTableRenames(renames);
+        await (service as any).dropLegacyRenamedSqlTables(renames);
+        await (service as any).dropLegacyRenamedSqlTables(renames);
 
         const tables = await db(names.tableNew).select('*').orderBy('name');
         const post = tables.find((row) => row.name === 'post');
@@ -261,6 +265,143 @@ describe('MetadataMigrationService real DB self-healing stress', () => {
               row.operatorTag === 'comments-relation',
           ),
         ).toHaveLength(1);
+        for (const legacyName of [
+          names.tableOld,
+          names.columnOld,
+          names.relationOld,
+        ]) {
+          expect(await db.schema.hasTable(legacyName)).toBe(false);
+        }
+      } finally {
+        await cleanup();
+      }
+    });
+
+    test(`repairs system physical target contracts on ${config.name}`, async () => {
+      const available = await probeSql(config);
+      if (!available) {
+        console.warn(`${config.name} not available, skipping SQL stress test`);
+        return;
+      }
+
+      const { db, cleanup } = await makeIsolatedSqlDb(config);
+      try {
+        await db.schema.createTable('target_parent', (table) => {
+          table.increments('id').primary();
+          table.timestamp('createdAt').defaultTo(db.fn.now());
+          table.timestamp('updatedAt').defaultTo(db.fn.now());
+        });
+        await db.schema.createTable('target_child', (table) => {
+          table.increments('id').primary();
+          table.boolean('requiredFlag').nullable().defaultTo(false);
+          table.integer('parentId').unsigned().nullable();
+          table
+            .foreign('parentId')
+            .references('id')
+            .inTable('target_parent')
+            .onDelete('CASCADE');
+        });
+
+        await repairSqlSystemPhysicalTarget(db, {
+          target_parent: {
+            name: 'target_parent',
+            isSystem: true,
+            columns: [
+              {
+                name: 'id',
+                type: 'int',
+                isPrimary: true,
+                isGenerated: true,
+                isNullable: false,
+              },
+            ],
+            relations: [],
+          },
+          target_child: {
+            name: 'target_child',
+            isSystem: true,
+            columns: [
+              {
+                name: 'id',
+                type: 'int',
+                isPrimary: true,
+                isGenerated: true,
+                isNullable: false,
+              },
+              {
+                name: 'requiredFlag',
+                type: 'boolean',
+                isNullable: false,
+                defaultValue: false,
+              },
+            ],
+            relations: [
+              {
+                propertyName: 'parent',
+                type: 'many-to-one',
+                targetTable: 'target_parent',
+                foreignKeyColumn: 'parentId',
+                isNullable: false,
+                onDelete: 'CASCADE',
+              },
+            ],
+          },
+        });
+        await repairSqlSystemPhysicalTarget(db, {
+          target_parent: {
+            name: 'target_parent',
+            isSystem: true,
+            columns: [],
+            relations: [],
+          },
+          target_child: {
+            name: 'target_child',
+            isSystem: true,
+            columns: [
+              {
+                name: 'requiredFlag',
+                type: 'boolean',
+                isNullable: false,
+              },
+            ],
+            relations: [
+              {
+                propertyName: 'parent',
+                type: 'many-to-one',
+                targetTable: 'target_parent',
+                foreignKeyColumn: 'parentId',
+                isNullable: false,
+                onDelete: 'CASCADE',
+              },
+            ],
+          },
+        });
+
+        expect(await db.schema.hasColumn('target_child', 'createdAt')).toBe(
+          true,
+        );
+        expect(await db.schema.hasColumn('target_child', 'updatedAt')).toBe(
+          true,
+        );
+        const current = await getCurrentDatabaseSchema(db, 'target_child');
+        expect(
+          current.columns.find((column) => column.name === 'requiredFlag')
+            ?.isNullable,
+        ).toBe(false);
+        expect(
+          current.columns.find((column) => column.name === 'parentId')
+            ?.isNullable,
+        ).toBe(false);
+        expect(
+          current.indexes.some(
+            (index) => index.columns.join('|') === 'createdAt|id',
+          ),
+        ).toBe(true);
+        expect(
+          current.indexes.some(
+            (index) => index.columns.join('|') === 'updatedAt|id',
+          ),
+        ).toBe(true);
       } finally {
         await cleanup();
       }
@@ -473,6 +614,8 @@ describe('MetadataMigrationService real DB self-healing stress', () => {
 
       await (service as any).runMongoCoreTableRenames(renames);
       await (service as any).runMongoCoreTableRenames(renames);
+      await (service as any).dropLegacyRenamedMongoCollections(renames);
+      await (service as any).dropLegacyRenamedMongoCollections(renames);
 
       const tables = await db.collection(names.tableNew).find({}).toArray();
       const post = tables.find((row) => row.name === 'post');
@@ -514,6 +657,15 @@ describe('MetadataMigrationService real DB self-healing stress', () => {
             row.operatorTag === 'comments-relation',
         ),
       ).toHaveLength(1);
+      for (const legacyName of [
+        names.tableOld,
+        names.columnOld,
+        names.relationOld,
+      ]) {
+        expect(await db.listCollections({ name: legacyName }).hasNext()).toBe(
+          false,
+        );
+      }
     } finally {
       if (db) await db.dropDatabase();
       await client.close();

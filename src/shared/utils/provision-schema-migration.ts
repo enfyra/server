@@ -1031,7 +1031,7 @@ async function assertSqlRelationTargetValuesExist(
   }
 }
 
-async function setSqlRelationColumnNullable(
+export async function setSqlColumnNullable(
   knex: Knex,
   tableName: string,
   columnName: string,
@@ -1043,7 +1043,7 @@ async function setSqlRelationColumnNullable(
       .count<{ count: string }[]>({ count: '*' });
     if (Number(result[0]?.count ?? 0) > 0) {
       throw new Error(
-        `Cannot make relation ${tableName}.${columnName} non-nullable while null values exist`,
+        `Cannot make physical column ${tableName}.${columnName} non-nullable while null values exist`,
       );
     }
   }
@@ -1155,7 +1155,7 @@ async function applySqlRelationForeignKeyContract(
     hasOwn(mod.to, 'isNullable') &&
     mod.from.isNullable !== mod.to.isNullable
   ) {
-    await setSqlRelationColumnNullable(
+    await setSqlColumnNullable(
       knex,
       tableName,
       foreignKeyColumn,

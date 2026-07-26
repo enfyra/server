@@ -5,6 +5,7 @@ import type {
 import {
   COLUMN_DEFAULTS,
   COLUMN_FIELDS,
+  RELATION_DERIVED_FIELDS,
   RELATION_DEFAULTS,
   RELATION_FIELDS,
   TABLE_DEFAULTS,
@@ -193,6 +194,11 @@ export function validateMigrationDefinition(
       errors.push(`duplicate column removal ${tableName}.${columnName}`);
     }
     for (const columnName of columnsToRemove) {
+      if (columnName === 'createdAt' || columnName === 'updatedAt') {
+        errors.push(
+          `column removal ${tableName}.${columnName} targets an auto-managed physical timestamp`,
+        );
+      }
       if (targetColumns.has(columnName)) {
         errors.push(
           `column removal ${tableName}.${columnName} still exists in snapshot.ts`,
@@ -283,6 +289,15 @@ export function validateMigrationDefinition(
       );
     }
     for (const modification of relationModifications) {
+      const derivedFields = [
+        ...Object.keys(modification.from),
+        ...Object.keys(modification.to),
+      ].filter((field) => RELATION_DERIVED_FIELDS.has(field));
+      if (derivedFields.length > 0) {
+        errors.push(
+          `relation ${tableName}.${modification.to.propertyName} migration must not declare derived physical fields: ${[...new Set(derivedFields)].join(', ')}`,
+        );
+      }
       const targetRelation = expectedRelations.get(
         `${tableName}.${modification.to.propertyName}`,
       );

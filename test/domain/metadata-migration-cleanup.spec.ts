@@ -53,7 +53,172 @@ function makeMongoDb(collections: Record<string, any[]>) {
   return { db, collections };
 }
 
+function makeSqlKnex(tables: Record<string, any[]>) {
+  const knex: any = (tableName: string) => {
+    const filters: Array<(row: any) => boolean> = [];
+    const query: any = {
+      where(field: string | Record<string, any>, value?: any) {
+        if (typeof field === 'string') {
+          filters.push((row) => String(row[field]) === String(value));
+        } else {
+          filters.push((row) => matches(row, field));
+        }
+        return query;
+      },
+      async first() {
+        return (tables[tableName] ?? []).find((row) =>
+          filters.every((filter) => filter(row)),
+        );
+      },
+      async select() {
+        return (tables[tableName] ?? []).filter((row) =>
+          filters.every((filter) => filter(row)),
+        );
+      },
+      async update(payload: Record<string, any>) {
+        let updated = 0;
+        tables[tableName] = (tables[tableName] ?? []).map((row) => {
+          if (!filters.every((filter) => filter(row))) return row;
+          updated++;
+          return { ...row, ...payload };
+        });
+        return updated;
+      },
+      async delete() {
+        const before = tables[tableName]?.length ?? 0;
+        tables[tableName] = (tables[tableName] ?? []).filter(
+          (row) => !filters.every((filter) => filter(row)),
+        );
+        return before - tables[tableName].length;
+      },
+    };
+    return query;
+  };
+  knex.schema = {
+    hasTable: vi.fn(async (tableName: string) => tableName in tables),
+  };
+  return knex;
+}
+
 describe('MetadataMigrationService destructive cleanup', () => {
+  it('reconciles an already-created SQL relation rename target on retry', async () => {
+    const tables = {
+      enfyra_relation: [
+        {
+          id: 1,
+          sourceTableId: 10,
+          targetTableId: 20,
+          propertyName: 'preHook',
+          type: 'one-to-many',
+        },
+        {
+          id: 2,
+          sourceTableId: 10,
+          targetTableId: 20,
+          propertyName: 'preHooks',
+          type: 'one-to-many',
+        },
+      ],
+      enfyra_field_permission: [{ id: 3, relationId: 1 }],
+    };
+    const knex = makeSqlKnex(tables);
+    const service = new MetadataMigrationService({
+      queryBuilderService: {
+        isMongoDb: vi.fn(() => false),
+        getKnex: vi.fn(() => knex),
+      } as any,
+      systemCoreTableResolver: {
+        getNames: vi.fn(async () => ({
+          table: 'enfyra_table',
+          column: 'enfyra_column',
+          relation: 'enfyra_relation',
+        })),
+      } as any,
+    });
+
+    await (service as any).modifyRelationMetadata(10, false, [
+      {
+        from: { propertyName: 'preHook' },
+        to: { propertyName: 'preHooks' },
+      },
+    ]);
+
+    expect(tables.enfyra_relation).toEqual([
+      {
+        id: 2,
+        sourceTableId: 10,
+        targetTableId: 20,
+        propertyName: 'preHooks',
+        type: 'one-to-many',
+      },
+    ]);
+    expect(tables.enfyra_field_permission).toEqual([{ id: 3, relationId: 2 }]);
+  });
+
+  it('reconciles and removes an overlapping legacy Mongo table metadata row', async () => {
+    const mongo = makeMongoDb({
+      enfyra_table: [
+        { _id: 'legacy-table-id', name: 'post_definition' },
+        { _id: 'target-table-id', name: 'enfyra_post' },
+      ],
+      enfyra_column: [
+        {
+          _id: 'custom-column-id',
+          table: 'legacy-table-id',
+          name: 'operatorNote',
+        },
+      ],
+      enfyra_relation: [
+        {
+          _id: 'custom-relation-id',
+          sourceTable: 'legacy-table-id',
+          targetTable: 'target-table-id',
+          propertyName: 'operatorOwner',
+        },
+      ],
+    });
+    const service = new MetadataMigrationService({
+      queryBuilderService: {
+        isMongoDb: vi.fn(() => true),
+        getMongoDb: vi.fn(() => mongo.db),
+      } as any,
+      systemCoreTableResolver: {
+        getNames: vi.fn(async () => ({
+          table: 'enfyra_table',
+          column: 'enfyra_column',
+          relation: 'enfyra_relation',
+        })),
+      } as any,
+    });
+
+    await (service as any).renameMongoTableMetadataRow(
+      'enfyra_table',
+      { from: 'post_definition', to: 'enfyra_post' },
+      'legacy-table-id',
+    );
+
+    expect(mongo.collections.enfyra_table).toEqual([
+      { _id: 'target-table-id', name: 'enfyra_post' },
+    ]);
+    expect(mongo.collections.enfyra_column).toEqual([
+      {
+        _id: 'custom-column-id',
+        table: 'target-table-id',
+        name: 'operatorNote',
+        updatedAt: expect.any(Date),
+      },
+    ]);
+    expect(mongo.collections.enfyra_relation).toEqual([
+      {
+        _id: 'custom-relation-id',
+        sourceTable: 'target-table-id',
+        targetTable: 'target-table-id',
+        propertyName: 'operatorOwner',
+        updatedAt: expect.any(Date),
+      },
+    ]);
+  });
+
   it('removes the owning relation, mapped inverse, and dependent field permissions on Mongo', async () => {
     const mongo = makeMongoDb({
       enfyra_table: [

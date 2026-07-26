@@ -322,6 +322,183 @@ describe('SchemaHealingService.runIfNeeded', () => {
     });
   });
 
+  it('repairs SQL system display metadata from the snapshot', async () => {
+    const updates = {
+      table: vi.fn().mockResolvedValue(1),
+      column: vi.fn().mockResolvedValue(1),
+      relation: vi.fn().mockResolvedValue(1),
+    };
+    const knex: any = vi.fn((tableName: string) => ({
+      where: vi.fn((criteria: Record<string, unknown>) => ({
+        first: vi
+          .fn()
+          .mockResolvedValue(
+            tableName === 'enfyra_table' && criteria.name === 'enfyra_post'
+              ? { id: 1, name: 'enfyra_post', description: null }
+              : undefined,
+          ),
+        select: vi.fn().mockResolvedValue(
+          tableName === 'enfyra_column'
+            ? [
+                {
+                  id: 2,
+                  name: 'title',
+                  description: null,
+                  placeholder: null,
+                },
+              ]
+            : tableName === 'enfyra_relation'
+              ? [{ id: 3, propertyName: 'author', description: null }]
+              : [],
+        ),
+        update: (payload: Record<string, unknown>) =>
+          updates[
+            tableName === 'enfyra_table'
+              ? 'table'
+              : tableName === 'enfyra_column'
+                ? 'column'
+                : 'relation'
+          ](criteria, payload),
+      })),
+    }));
+    knex.schema = {
+      hasTable: vi.fn().mockResolvedValue(true),
+    };
+    const svc = makeService(
+      { getKnex: vi.fn().mockReturnValue(knex) },
+      makeCache([]),
+    );
+
+    const repaired = await (
+      svc as unknown as {
+        repairSqlSystemDisplayMetadataFromSnapshot(
+          snapshot: Record<string, any>,
+        ): Promise<number>;
+      }
+    ).repairSqlSystemDisplayMetadataFromSnapshot({
+      enfyra_post: {
+        name: 'enfyra_post',
+        isSystem: true,
+        description: 'Posts',
+        columns: [
+          {
+            name: 'title',
+            description: 'Post title',
+            placeholder: 'Enter a title',
+          },
+        ],
+        relations: [{ propertyName: 'author', description: 'Post author' }],
+      },
+    });
+
+    expect(repaired).toBe(3);
+    expect(updates.table).toHaveBeenCalledWith(
+      { id: 1 },
+      { description: 'Posts' },
+    );
+    expect(updates.column).toHaveBeenCalledWith(
+      { id: 2 },
+      { description: 'Post title', placeholder: 'Enter a title' },
+    );
+    expect(updates.relation).toHaveBeenCalledWith(
+      { id: 3 },
+      { description: 'Post author' },
+    );
+  });
+
+  it('repairs Mongo system display metadata from the snapshot', async () => {
+    DatabaseConfigService.overrideForTesting?.('mongodb');
+    const updates = {
+      table: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
+      column: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
+      relation: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
+    };
+    const collections: Record<string, any> = {
+      enfyra_table: {
+        findOne: vi.fn().mockResolvedValue({
+          _id: 'table-id',
+          name: 'enfyra_post',
+          description: null,
+        }),
+        updateOne: updates.table,
+      },
+      enfyra_column: {
+        find: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            {
+              _id: 'column-id',
+              name: 'title',
+              description: null,
+              placeholder: null,
+            },
+          ]),
+        }),
+        updateOne: updates.column,
+      },
+      enfyra_relation: {
+        find: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            {
+              _id: 'relation-id',
+              propertyName: 'author',
+              description: null,
+            },
+          ]),
+        }),
+        updateOne: updates.relation,
+      },
+    };
+    const svc = makeService(
+      {
+        getMongoDb: vi.fn().mockReturnValue({
+          collection: vi.fn((name: string) => collections[name]),
+        }),
+      },
+      makeCache([]),
+    );
+
+    const repaired = await (
+      svc as unknown as {
+        repairMongoSystemDisplayMetadataFromSnapshot(
+          snapshot: Record<string, any>,
+        ): Promise<number>;
+      }
+    ).repairMongoSystemDisplayMetadataFromSnapshot({
+      enfyra_post: {
+        name: 'enfyra_post',
+        isSystem: true,
+        description: 'Posts',
+        columns: [
+          {
+            name: 'title',
+            description: 'Post title',
+            placeholder: 'Enter a title',
+          },
+        ],
+        relations: [{ propertyName: 'author', description: 'Post author' }],
+      },
+    });
+
+    expect(repaired).toBe(3);
+    expect(updates.table).toHaveBeenCalledWith(
+      { _id: 'table-id' },
+      { $set: { description: 'Posts' } },
+    );
+    expect(updates.column).toHaveBeenCalledWith(
+      { _id: 'column-id' },
+      {
+        $set: {
+          description: 'Post title',
+          placeholder: 'Enter a title',
+        },
+      },
+    );
+    expect(updates.relation).toHaveBeenCalledWith(
+      { _id: 'relation-id' },
+      { $set: { description: 'Post author' } },
+    );
+  });
+
   it('skips system tables', async () => {
     const update = vi.fn().mockResolvedValue(undefined);
     const qb = makeQb(() => ({ data: [makeSetting(false)] }), update);

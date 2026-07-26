@@ -5,9 +5,13 @@ import type {
 import {
   COLUMN_DEFAULTS,
   COLUMN_FIELDS,
+  COLUMN_HEALABLE_FIELDS,
+  RELATION_DERIVED_FIELDS,
   RELATION_DEFAULTS,
+  RELATION_HEALABLE_FIELDS,
   TABLE_DEFAULTS,
   TABLE_FIELDS,
+  TABLE_HEALABLE_FIELDS,
   buildExpectedRelations,
   changedFields,
   relationFieldsForTarget,
@@ -15,6 +19,18 @@ import {
   validateModificationTarget,
 } from './metadata-comparison.util';
 import { validateMigrationDefinition } from './metadata-migration-validation.util';
+
+function excludeHealable(changed: string[], healable: Set<string>): string[] {
+  return changed.filter((field) => !healable.has(field));
+}
+
+function excludeRelationNonDeclarativeFields(changed: string[]): string[] {
+  return changed.filter(
+    (field) =>
+      !RELATION_HEALABLE_FIELDS.has(field) &&
+      !RELATION_DERIVED_FIELDS.has(field),
+  );
+}
 
 export function validateSnapshotMigrationCoverage(
   snapshot: Record<string, any>,
@@ -28,6 +44,10 @@ export function validateSnapshotMigrationCoverage(
     (migration?.tables ?? []).map((entry) => [entry._unique.name._eq, entry]),
   );
   const droppedTables = new Set(migration?.tablesToDrop ?? []);
+  const renamedSources = new Set([
+    ...(migration?.coreTablesToRename ?? []).map((r) => r.from),
+    ...(migration?.tablesToRename ?? []).map((r) => r.from),
+  ]);
   const systemTableNames = new Set(Object.keys(snapshot));
 
   for (const currentTable of state.tables) {
@@ -35,7 +55,8 @@ export function validateSnapshotMigrationCoverage(
     if (!targetTable) {
       if (
         (currentTable.isSystem === true || currentTable.isSystem === 1) &&
-        !droppedTables.has(currentTable.name)
+        !droppedTables.has(currentTable.name) &&
+        !renamedSources.has(currentTable.name)
       ) {
         errors.push(
           `table ${currentTable.name} is removed without tablesToDrop`,
@@ -44,17 +65,18 @@ export function validateSnapshotMigrationCoverage(
       continue;
     }
 
-    const changed = changedFields(
-      currentTable,
-      targetTable,
-      TABLE_FIELDS,
-      TABLE_DEFAULTS,
+    const changed = excludeHealable(
+      changedFields(currentTable, targetTable, TABLE_FIELDS, TABLE_DEFAULTS),
+      TABLE_HEALABLE_FIELDS,
     );
-    const dataTargetChanged = changedFields(
-      currentTable,
-      dataTargetSnapshot[currentTable.name] ?? targetTable,
-      TABLE_FIELDS,
-      TABLE_DEFAULTS,
+    const dataTargetChanged = excludeHealable(
+      changedFields(
+        currentTable,
+        dataTargetSnapshot[currentTable.name] ?? targetTable,
+        TABLE_FIELDS,
+        TABLE_DEFAULTS,
+      ),
+      TABLE_HEALABLE_FIELDS,
     );
     if (changed.length > 0 && dataTargetChanged.length > 0) {
       validateModificationSource(
@@ -127,19 +149,25 @@ export function validateSnapshotMigrationCoverage(
         continue;
       }
 
-      const changed = changedFields(
-        currentColumn,
-        targetColumn,
-        COLUMN_FIELDS,
-        COLUMN_DEFAULTS,
+      const changed = excludeHealable(
+        changedFields(
+          currentColumn,
+          targetColumn,
+          COLUMN_FIELDS,
+          COLUMN_DEFAULTS,
+        ),
+        COLUMN_HEALABLE_FIELDS,
       );
       const dataTargetColumn =
         dataTargetColumns.get(targetColumn.name) ?? targetColumn;
-      const dataTargetChanged = changedFields(
-        currentColumn,
-        dataTargetColumn,
-        COLUMN_FIELDS,
-        COLUMN_DEFAULTS,
+      const dataTargetChanged = excludeHealable(
+        changedFields(
+          currentColumn,
+          dataTargetColumn,
+          COLUMN_FIELDS,
+          COLUMN_DEFAULTS,
+        ),
+        COLUMN_HEALABLE_FIELDS,
       );
       if (changed.length > 0 && dataTargetChanged.length > 0) {
         validateModificationSource(
@@ -227,18 +255,22 @@ export function validateSnapshotMigrationCoverage(
       continue;
     }
 
-    const changed = changedFields(
-      currentRelation,
-      targetRelation,
-      relationFieldsForTarget(targetRelation),
-      RELATION_DEFAULTS,
+    const changed = excludeRelationNonDeclarativeFields(
+      changedFields(
+        currentRelation,
+        targetRelation,
+        relationFieldsForTarget(targetRelation),
+        RELATION_DEFAULTS,
+      ),
     );
     const dataTargetRelation = dataTargetRelations.get(key) ?? targetRelation;
-    const dataTargetChanged = changedFields(
-      currentRelation,
-      dataTargetRelation,
-      relationFieldsForTarget(dataTargetRelation),
-      RELATION_DEFAULTS,
+    const dataTargetChanged = excludeRelationNonDeclarativeFields(
+      changedFields(
+        currentRelation,
+        dataTargetRelation,
+        relationFieldsForTarget(dataTargetRelation),
+        RELATION_DEFAULTS,
+      ),
     );
     if (changed.length > 0 && dataTargetChanged.length > 0) {
       validateModificationSource(
