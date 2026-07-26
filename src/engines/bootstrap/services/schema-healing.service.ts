@@ -18,7 +18,10 @@ import { addColumnToTable } from '../../knex/utils/migration/column-operations';
 import { SystemCoreTableResolver } from './system-core-table-resolver.service';
 import { BootstrapDefinitionService } from './bootstrap-definition.service';
 import { repairSqlSystemPhysicalTarget } from '../utils/sql-system-physical-healing.util';
-import { buildExpectedRelations } from '../utils/metadata-comparison.util';
+import {
+  buildExpectedRelations,
+  RELATION_DEFAULTS,
+} from '../utils/metadata-comparison.util';
 
 export class SchemaHealingService {
   private readonly logger = new Logger(SchemaHealingService.name);
@@ -467,11 +470,12 @@ export class SchemaHealingService {
     current: Record<string, any>,
     target: Record<string, any>,
     fields: string[],
+    defaults: Record<string, any> = {},
   ): Record<string, unknown> {
     const update: Record<string, unknown> = {};
     for (const field of fields) {
-      const currentValue = current[field] ?? null;
-      const targetValue = target[field] ?? null;
+      const currentValue = current[field] ?? defaults[field] ?? null;
+      const targetValue = target[field] ?? defaults[field] ?? null;
       if (currentValue !== targetValue) update[field] = targetValue;
     }
     return update;
@@ -555,6 +559,7 @@ export class SchemaHealingService {
           currentRelation,
           targetRelation,
           ['description', 'isSystem', 'isUpdatable', 'isPublished'],
+          RELATION_DEFAULTS,
         );
         if (Object.keys(relationUpdate).length === 0) continue;
         await knex(coreNames.relation)
@@ -646,6 +651,7 @@ export class SchemaHealingService {
           currentRelation,
           targetRelation,
           ['description', 'isSystem', 'isUpdatable', 'isPublished'],
+          RELATION_DEFAULTS,
         );
         if (Object.keys(relationUpdate).length === 0) continue;
         await relationCollection.updateOne(
