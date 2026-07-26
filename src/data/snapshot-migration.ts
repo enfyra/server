@@ -296,6 +296,25 @@ const snapshotMigration = {
         'triggerFlow',
       ],
     },
+    {
+      _unique: {
+        name: {
+          _eq: 'enfyra_user',
+        },
+      },
+      relationsToModify: [
+        {
+          from: {
+            propertyName: 'role',
+            isSystem: false,
+          },
+          to: {
+            propertyName: 'role',
+            isSystem: true,
+          },
+        },
+      ],
+    },
   ],
   tablesToDrop: ['schema_history'],
   coreTablesToRename: [
