@@ -1,8 +1,6 @@
 import { DatabaseConfigService } from '../../../shared/services';
 import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '@enfyra/kernel';
-import * as fs from 'fs';
-import * as path from 'path';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { ObjectId } from 'mongodb';
 import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
@@ -10,6 +8,7 @@ import { getSqlJunctionMetadata } from '../../../domain/bootstrap/utils/sql-junc
 import { replaceSqlJunctionRows } from '../../../domain/bootstrap/utils/sql-junction-writer.util';
 import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';
 import { isCanonicalTableRoutePath } from '../../../domain/bootstrap/utils/canonical-table-route.util';
+import { BootstrapDefinitionService } from './bootstrap-definition.service';
 
 interface InitOld {
   [tableName: string]: any | any[];
@@ -28,29 +27,20 @@ export class DataMigrationService {
   private readonly queryBuilderService: QueryBuilderService;
   private initOld: InitOld | null = null;
 
-  constructor(deps: { queryBuilderService: QueryBuilderService }) {
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    bootstrapDefinitionService?: BootstrapDefinitionService;
+  }) {
     this.queryBuilderService = deps.queryBuilderService;
-    this.loadInitOld();
-  }
-
-  private loadInitOld(): void {
-    try {
-      const filePath = path.join(process.cwd(), 'data/data-migration.json');
-      if (fs.existsSync(filePath)) {
-        const content = fs.readFileSync(filePath, 'utf8');
-        const parsed = JSON.parse(content);
-        if (parsed && Object.keys(parsed).length > 0) {
-          this.initOld = parsed;
-          this.verbose(
-            `Loaded data-migration.json with ${Object.keys(parsed).length} table(s) to migrate`,
-          );
-        }
-      }
-    } catch (error) {
-      this.logger.warn(
-        `Failed to load data-migration.json: ${getErrorMessage(error)}`,
+    const bootstrapDefinitionService =
+      deps.bootstrapDefinitionService ??
+      new BootstrapDefinitionService({ bootstrapDataRoot: process.cwd() });
+    const dataMigration = bootstrapDefinitionService.getDataMigration();
+    if (Object.keys(dataMigration).length > 0) {
+      this.initOld = dataMigration;
+      this.verbose(
+        `Loaded data-migration.json with ${Object.keys(dataMigration).length} table(s) to migrate`,
       );
-      this.initOld = null;
     }
   }
 
@@ -79,6 +69,44 @@ export class DataMigrationService {
       return;
     }
     await this.runMigrationBatch();
+  }
+
+  async assertTargetState(): Promise<void> {
+    if (!this.hasMigrations()) return;
+
+    for (const tableName of this.initOld!._deletedTables ?? []) {
+      const count = await this.countRawRecords(tableName, {});
+      if (count > 0) {
+        throw new Error(
+          `Data migration target mismatch: ${tableName} still contains ${count} record(s)`,
+        );
+      }
+    }
+
+    for (const { table, filter } of this.initOld!._deletedRecords ?? []) {
+      const exactWhere = this.toExactDeleteWhere(filter);
+      if (!exactWhere || Object.keys(exactWhere).length === 0) {
+        throw new Error(
+          `Data migration target mismatch: ${table} has an unsupported delete filter`,
+        );
+      }
+      const count = await this.countRawRecords(table, exactWhere);
+      if (count > 0) {
+        throw new Error(
+          `Data migration target mismatch: ${table} still contains ${count} deleted record(s)`,
+        );
+      }
+    }
+
+    for (const [tableName, records] of Object.entries(this.initOld!)) {
+      if (tableName.startsWith('_')) continue;
+      const recordsArray = Array.isArray(records) ? records : [records];
+      for (const migrationRecord of recordsArray) {
+        await this.assertRecordTarget(tableName, migrationRecord);
+      }
+    }
+
+    await this.assertCustomRouteMainTablesCleared();
   }
 
   private async runMigrationBatch(): Promise<void> {
@@ -119,7 +147,7 @@ export class DataMigrationService {
         await this.queryBuilderService.delete(tableName, { where: [] });
         this.verbose(`Deleted all data from ${tableName}`);
       } catch (error) {
-        this.logger.warn(
+        throw new Error(
           `Failed to delete data from ${tableName}: ${getErrorMessage(error)}`,
         );
       }
@@ -156,7 +184,7 @@ export class DataMigrationService {
           this.verbose(`Deleted ${count} record(s) from ${table}`);
         }
       } catch (error) {
-        this.logger.warn(
+        throw new Error(
           `Failed to delete records from ${table}: ${getErrorMessage(error)}`,
         );
       }
@@ -250,7 +278,7 @@ export class DataMigrationService {
         migratedCount++;
         this.logger.debug(`Migrated record in ${tableName}`);
       } catch (error) {
-        this.logger.warn(
+        throw new Error(
           `Failed to migrate record in ${tableName}: ${getErrorMessage(error)}`,
         );
       }
@@ -261,6 +289,173 @@ export class DataMigrationService {
     }
 
     return migratedCount;
+  }
+
+  private async assertRecordTarget(
+    tableName: string,
+    migrationRecord: any,
+  ): Promise<void> {
+    const uniqueFilter = this.getUniqueFilter(tableName, migrationRecord);
+    if (!uniqueFilter) {
+      throw new Error(
+        `Data migration target mismatch: ${tableName} record has no unique identifier`,
+      );
+    }
+    const idField = DatabaseConfigService.getPkField();
+    const existing = await this.queryBuilderService.find({
+      table: tableName,
+      filter: uniqueFilter,
+      limit: 1,
+      fields: ['*'],
+    });
+    const current = existing.data?.[0];
+    if (!current) return;
+
+    const { newRecord, relationUpdates } = this.transformRecord(
+      tableName,
+      migrationRecord,
+    );
+    await this.normalizeRouteMainTable(tableName, newRecord);
+    const mismatchedFields = Object.entries(newRecord)
+      .filter(
+        ([field, expected]) => !this.valuesEquivalent(expected, current[field]),
+      )
+      .map(([field]) => field);
+    if (mismatchedFields.length > 0) {
+      throw new Error(
+        `Data migration target mismatch: ${tableName} differs on ${mismatchedFields.join(', ')}`,
+      );
+    }
+
+    if (
+      tableName === 'enfyra_route' &&
+      Object.keys(relationUpdates).length > 0
+    ) {
+      await this.assertRouteMethodRelationTargets(
+        current[idField],
+        relationUpdates,
+      );
+    }
+  }
+
+  private async assertRouteMethodRelationTargets(
+    routeId: any,
+    relationUpdates: Record<string, string[]>,
+  ): Promise<void> {
+    for (const [field, methodNames] of Object.entries(relationUpdates)) {
+      if (!RELATION_FIELD_PREFIXES.includes(field)) continue;
+      const expectedIds = (await this.resolveMethodIds(methodNames)).map(
+        String,
+      );
+      let currentIds: string[];
+      if (DatabaseConfigService.instanceIsMongoDb()) {
+        const { junctionTable, sourceColumn, targetColumn } =
+          await this.getMongoJunctionMetadata(field);
+        const rows = await this.queryBuilderService
+          .getMongoDb()
+          .collection(junctionTable)
+          .find({ [sourceColumn]: this.toObjectId(routeId) })
+          .project({ [targetColumn]: 1 })
+          .toArray();
+        currentIds = rows.map((row: any) => String(row[targetColumn]));
+      } else {
+        const { junctionTable, sourceColumn, targetColumn } =
+          await getSqlJunctionMetadata(this.queryBuilderService as any, {
+            sourceTable: 'enfyra_route',
+            propertyName: field,
+            targetTable: 'enfyra_method',
+          });
+        const rows = await this.queryBuilderService
+          .getKnex()(junctionTable)
+          .where(sourceColumn, routeId)
+          .select(targetColumn);
+        currentIds = rows.map((row: any) => String(row[targetColumn]));
+      }
+      if (this.idSetKey(currentIds) !== this.idSetKey(expectedIds)) {
+        throw new Error(
+          `Data migration target mismatch: enfyra_route.${field} differs from target`,
+        );
+      }
+    }
+  }
+
+  private async countRawRecords(
+    tableName: string,
+    where: Record<string, any>,
+  ): Promise<number> {
+    if (DatabaseConfigService.instanceIsMongoDb()) {
+      return this.queryBuilderService
+        .getMongoDb()
+        .collection(tableName)
+        .countDocuments(where);
+    }
+    const result = await this.queryBuilderService
+      .getKnex()(tableName)
+      .where(where)
+      .count({ count: '*' });
+    return Number(result[0]?.count ?? 0);
+  }
+
+  private async assertCustomRouteMainTablesCleared(): Promise<void> {
+    const idField = DatabaseConfigService.getPkField();
+    const routes = await this.queryBuilderService.find({
+      table: 'enfyra_route',
+      filter: {},
+      limit: -1,
+      fields: [idField, 'path', 'mainTable.name'],
+    });
+    const mismatches = (routes.data || []).filter((route: any) => {
+      const tableName = route.mainTable?.name;
+      return tableName && !isCanonicalTableRoutePath(route.path, tableName);
+    });
+    if (mismatches.length > 0) {
+      throw new Error(
+        `Data migration target mismatch: ${mismatches.length} custom route(s) still reference mainTable`,
+      );
+    }
+  }
+
+  private valuesEquivalent(expected: any, current: any): boolean {
+    if (typeof expected === 'boolean') {
+      return (
+        expected ===
+        (current === true ||
+          current === 1 ||
+          String(current).toLowerCase() === 'true' ||
+          String(current) === '1')
+      );
+    }
+    if (typeof expected === 'number') {
+      return Number(current) === expected;
+    }
+    return this.canonical(expected) === this.canonical(current);
+  }
+
+  private canonical(value: any): string {
+    if (value instanceof ObjectId) return JSON.stringify(value.toHexString());
+    if (Array.isArray(value)) {
+      return `[${value.map((entry) => this.canonical(entry)).join(',')}]`;
+    }
+    if (value && typeof value === 'object') {
+      return `{${Object.keys(value)
+        .sort()
+        .map((key) => `${JSON.stringify(key)}:${this.canonical(value[key])}`)
+        .join(',')}}`;
+    }
+    if (
+      typeof value === 'string' &&
+      ((value.startsWith('{') && value.endsWith('}')) ||
+        (value.startsWith('[') && value.endsWith(']')))
+    ) {
+      try {
+        return this.canonical(JSON.parse(value));
+      } catch {}
+    }
+    return JSON.stringify(value ?? null);
+  }
+
+  private idSetKey(values: string[]): string {
+    return [...new Set(values)].sort().join('|');
   }
 
   private transformRecord(
@@ -274,6 +469,14 @@ export class DataMigrationService {
       if (Array.isArray(data[field])) {
         relationUpdates[field] = data[field];
         delete data[field];
+      }
+    }
+
+    if (!DatabaseConfigService.instanceIsMongoDb()) {
+      for (const [field, value] of Object.entries(data)) {
+        if (value && typeof value === 'object') {
+          data[field] = JSON.stringify(value);
+        }
       }
     }
 
@@ -373,10 +576,9 @@ export class DataMigrationService {
       }
       return cleared;
     } catch (error) {
-      this.logger.warn(
+      throw new Error(
         `Failed to clear custom route mainTable links: ${getErrorMessage(error)}`,
       );
-      return 0;
     }
   }
 

@@ -37,6 +37,15 @@ export interface RelationModifyDef {
   };
 }
 
+export interface TableModifyDef {
+  from: {
+    [key: string]: any;
+  };
+  to: {
+    [key: string]: any;
+  };
+}
+
 export interface TableRenameDef {
   from: string;
   to: string;
@@ -55,6 +64,8 @@ export interface TableMigrationDef {
       _eq: string;
     };
   };
+
+  tableToModify?: TableModifyDef;
 
   /**
    * Modify columns (rename, change properties)
@@ -75,6 +86,19 @@ export interface TableMigrationDef {
    * Remove relations
    */
   relationsToRemove?: string[];
+}
+
+export interface SnapshotMigrationMetadataState {
+  tables: Array<Record<string, any>>;
+  columns: Array<Record<string, any> & { tableName: string }>;
+  relations: Array<
+    Record<string, any> & {
+      sourceTableName: string;
+      targetTableName?: string;
+      mappedByPropertyName?: string;
+      inversePropertyName?: string;
+    }
+  >;
 }
 
 /**
@@ -110,4 +134,8 @@ export interface SchemaMigrationDef {
    * Tables to drop completely (WARNING: data loss)
    */
   tablesToDrop?: string[];
+}
+
+export interface MongoPhysicalMigrationOptions {
+  preserveFieldsByCollection?: Record<string, string[]>;
 }

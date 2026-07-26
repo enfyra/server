@@ -51,12 +51,16 @@ Define your database schema (tables, columns, relations):
 
 Run schema migration:
 ```bash
-npx ts-node scripts/init-db.ts
+yarn tsx scripts/init-db.ts
 ```
 
 ### Schema Migration (`data/snapshot-migration.json`)
 
-For dangerous operations (remove, modify/rename). Adding is handled automatically by `snapshot.json`.
+`snapshot-migration.json` records non-additive schema changes between versions. New tables, columns, and relations require only their target definitions in `snapshot.json`. Updating, renaming, or deleting an existing table, column, relation, or physical schema contract must be declared manually in `snapshot-migration.json`.
+
+`snapshot.json` is the complete system target for the current version. Migration does not infer non-additive changes from live database differences: live state is used only to validate the manual declaration, detect conflicts, resume idempotently, and attest the target. Undeclared user metadata is preserved.
+
+Snapshot migrations are forward-only. Updates synchronize the complete declared metadata and physical contract across supported databases. Deletions remove all affected metadata and physical state, including fields, foreign keys, constraints, indexes, junction storage, and tables or collections. After a database completes a migration for a newer Enfyra version, running an older Enfyra version against that database is unsupported.
 
 ```json
 {
@@ -88,9 +92,10 @@ For dangerous operations (remove, modify/rename). Adding is handled automaticall
 | `tablesToDrop` | Drop entire tables | **HIGH** |
 
 **Flow:**
-1. Physical DB changes (init-db script or app bootstrap)
-2. Metadata updates (provision service)
-3. Both read from same `snapshot-migration.json` → consistent
+1. Bootstrap artifacts are loaded and validated into one immutable definition.
+2. Live metadata is inspected and an execution plan is prepared.
+3. The production coordinator applies physical and metadata operations.
+4. Healing and final attestation use the same compiled definition.
 
 #### Usage Examples
 
@@ -193,29 +198,9 @@ Result: Tables completely removed from database.
 
 #### How It Works
 
-```
-┌─────────────────────────────────────┐
-│     snapshot-migration.json         │
-│         (single source)             │
-└──────────────┬──────────────────────┘
-               │
-       ┌───────┴───────┐
-       ▼               ▼
-┌──────────────┐ ┌──────────────────┐
-│  init-db.ts  │ │  provision service│
-│              │ │  (app bootstrap)  │
-│ Physical DB  │ │   Metadata DB     │
-│  (tables,    │ │  (table_def,      │
-│   columns,   │ │   column_def,     │
-│   FKs)       │ │   relation_def)   │
-└──────────────┘ └──────────────────┘
-       │               │
-       └───────┬───────┘
-               ▼
-         ✅ Consistent
-```
-
-Both physical DB and metadata are updated from the same source, ensuring consistency.
+`scripts/init-db.ts`, `scripts/init-db-sql.ts`, and `scripts/init-db-mongo.ts`
+delegate to the same production initialization coordinator. They do not run a
+separate physical diff or schema-sync pipeline.
 
 ### Destructive schema changes via API (confirm-hash)
 
@@ -285,15 +270,20 @@ Use `_deletedRecords` when you need to remove a small set of rows (e.g. remove a
 
 ### Migration Flow
 
-1. **First Init** (`isInit = false`):
-   - Schema is created from `snapshot.json`
-   - Default data is inserted from `default-data.json`
-   - System sets `isInit = true`
+1. **Bootstrap or Upgrade** (`enfyra_setting` is absent or `isInit = false`):
+   - Snapshot, migration, default data, and data migration files are loaded once into an immutable bootstrap definition and validated before schema mutation.
+   - Live metadata is checked against every manual non-additive declaration and converted into an execution plan.
+   - Manual non-additive schema migrations run from `snapshot-migration.json`.
+   - Missing additive schema is provisioned from `snapshot.json`.
+   - Additive target repair, derived-contract repair, and explicit one-time repair run as separate phases while preserving undeclared user metadata.
+   - Default data is provisioned from `default-data.json`.
+   - Intentional record updates/deletes run from `data-migration.json` and their target values are attested.
+   - Final schema and data attestation run after every write.
+   - The system sets `isInit = true` only after the full bootstrap path completes.
 
-2. **Subsequent Starts** (`isInit = true`):
-   - Schema is synced from `snapshot.json` (auto-add new columns/relations)
-   - Schema migrations run from `snapshot-migration.json` (remove/modify)
-   - Data migrations run from `data-migration.json`
+2. **Normal Start** (`isInit = true`):
+   - Snapshot sync, metadata/data migrations, default-data provision, and schema healing are skipped.
+   - To apply bootstrap data changes to an existing database, the owning upgrade or provision workflow must set `isInit = false` before the server starts.
 
 ### Supported Databases
 

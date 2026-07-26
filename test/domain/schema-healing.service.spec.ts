@@ -64,6 +64,7 @@ function makeCache(tables: any[]) {
   return {
     getAllTablesMetadata: vi.fn().mockResolvedValue(tables),
     clearMetadataCache: vi.fn().mockResolvedValue(undefined),
+    reload: vi.fn().mockResolvedValue(undefined),
     getMetadata: vi
       .fn()
       .mockResolvedValue({ tables: new Map(), tablesList: tables }),
@@ -261,6 +262,64 @@ describe('SchemaHealingService.runIfNeeded', () => {
       { _id: columnId },
       { $set: { name: '_id', type: 'ObjectId' } },
     );
+  });
+
+  it('normalizes snapshot primary keys before healing Mongo column metadata', async () => {
+    DatabaseConfigService.overrideForTesting?.('mongodb');
+    const insertOne = vi.fn().mockResolvedValue({ insertedId: 'column-id' });
+    const collections: Record<string, any> = {
+      enfyra_table: {
+        findOne: vi.fn().mockResolvedValue({ _id: 'table-id' }),
+      },
+      enfyra_column: {
+        find: vi
+          .fn()
+          .mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) }),
+        insertOne,
+      },
+    };
+    const qb = {
+      getMongoDb: vi.fn().mockReturnValue({
+        collection: vi.fn((name: string) => collections[name]),
+      }),
+    };
+    const svc = makeService(qb, makeCache([]));
+
+    const repaired = await (
+      svc as unknown as {
+        repairMongoSystemColumnMetadataFromSnapshot(
+          snapshot: Record<string, any>,
+        ): Promise<number>;
+      }
+    ).repairMongoSystemColumnMetadataFromSnapshot({
+      enfyra_test: {
+        name: 'enfyra_test',
+        isSystem: true,
+        columns: [
+          {
+            name: 'id',
+            type: 'uuid',
+            isPrimary: true,
+            isGenerated: true,
+            isNullable: false,
+          },
+          { name: 'label', type: 'string' },
+        ],
+      },
+    });
+
+    expect(repaired).toBe(2);
+    expect(insertOne).toHaveBeenCalledTimes(2);
+    expect(insertOne.mock.calls.map(([column]) => column.name)).toEqual([
+      '_id',
+      'label',
+    ]);
+    expect(insertOne.mock.calls[0][0]).toMatchObject({
+      name: '_id',
+      type: 'ObjectId',
+      isPrimary: true,
+      table: 'table-id',
+    });
   });
 
   it('skips system tables', async () => {

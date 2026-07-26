@@ -5,36 +5,27 @@ import {
   TableMigrationDef,
   ColumnModifyDef,
   RelationModifyDef,
+  type MongoPhysicalMigrationOptions,
 } from '../types/schema-migration.types';
 import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
 } from '@enfyra/kernel';
+import { dropForeignKeyIfExists } from '../../engines/knex/utils/migration/foreign-key-operations';
+import {
+  generateColumnDefinition,
+  supportsSqlColumnDefault,
+} from '../../engines/knex/utils/migration/sql-generator';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getErrorMessage } from './error.util';
 
 export function loadSchemaMigration(): SchemaMigrationDef | null {
-  try {
-    const filePath = path.join(process.cwd(), 'data/snapshot-migration.json');
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, 'utf8');
-      const parsed = JSON.parse(content);
-      if (
-        parsed &&
-        (parsed.tables?.length > 0 || parsed.tablesToDrop?.length > 0)
-      ) {
-        return parsed;
-      }
-    }
-    return null;
-  } catch (error) {
-    console.warn(
-      `⚠️ Failed to load snapshot-migration.json: ${getErrorMessage(error)}`,
-    );
-    return null;
-  }
+  const filePath = path.join(process.cwd(), 'data/snapshot-migration.json');
+  if (!fs.existsSync(filePath)) return null;
+
+  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  return hasSchemaMigrations(parsed) ? parsed : null;
 }
 
 export function hasSchemaMigrations(
@@ -42,6 +33,10 @@ export function hasSchemaMigrations(
 ): boolean {
   if (!migration) return false;
   return (
+    (migration.coreTablesToRename?.length ?? 0) > 0 ||
+    (migration.tablesToRename?.length ?? 0) > 0 ||
+    (migration.physicalTablesToRename?.length ?? 0) > 0 ||
+    (migration.physicalTablesToDrop?.length ?? 0) > 0 ||
     (migration.tables?.length ?? 0) > 0 ||
     (migration.tablesToDrop?.length ?? 0) > 0
   );
@@ -56,10 +51,10 @@ export async function applySqlSchemaMigrations(
 ): Promise<void> {
   const dbType = knex.client.config.client;
 
-  // Drop tables
   if (migration.tablesToDrop && migration.tablesToDrop.length > 0) {
     console.log(`🗑️ Dropping ${migration.tablesToDrop.length} table(s)...`);
     for (const tableName of migration.tablesToDrop) {
+      await cleanupSqlTableDependencies(knex, tableName);
       const exists = await knex.schema.hasTable(tableName);
       if (exists) {
         if (
@@ -86,7 +81,6 @@ export async function applySqlSchemaMigrations(
     }
   }
 
-  // Apply table migrations
   const BATCH = 5;
   const tables = migration.tables || [];
   for (let i = 0; i < tables.length; i += BATCH) {
@@ -96,6 +90,134 @@ export async function applySqlSchemaMigrations(
         .map((t) => applySqlTableMigration(knex, t, dbType)),
     );
   }
+}
+
+function normalizeSqlMigrationDbType(knex: Knex): 'mysql' | 'postgres' {
+  const dbType = String(knex.client.config.client || '').toLowerCase();
+  return dbType.includes('pg') || dbType.includes('postgres')
+    ? 'postgres'
+    : 'mysql';
+}
+
+async function getSqlMigrationMetadata(knex: Knex): Promise<{
+  tables: any[];
+  relations: any[];
+  tableById: Map<string, any>;
+}> {
+  const [hasTableStore, hasRelationStore] = await Promise.all([
+    knex.schema.hasTable('enfyra_table'),
+    knex.schema.hasTable('enfyra_relation'),
+  ]);
+  const tables = hasTableStore ? await knex('enfyra_table').select('*') : [];
+  const relations = hasRelationStore
+    ? await knex('enfyra_relation').select('*')
+    : [];
+  return {
+    tables,
+    relations,
+    tableById: new Map(tables.map((table) => [String(table.id), table])),
+  };
+}
+
+async function dropSqlPhysicalColumn(
+  knex: Knex,
+  tableName: string,
+  columnName: string,
+): Promise<void> {
+  if (!(await knex.schema.hasTable(tableName))) return;
+  if (!(await knex.schema.hasColumn(tableName, columnName))) return;
+  await dropForeignKeyIfExists(
+    knex,
+    tableName,
+    columnName,
+    normalizeSqlMigrationDbType(knex),
+  );
+  await knex.schema.alterTable(tableName, (table) => {
+    table.dropColumn(columnName);
+  });
+}
+
+async function cleanupSqlRelationPhysical(
+  knex: Knex,
+  relation: any,
+  tableById: Map<string, any>,
+  droppedJunctions: Set<string>,
+): Promise<void> {
+  const sourceTable = tableById.get(String(relation.sourceTableId));
+  if (!sourceTable?.name) return;
+
+  if (relation.type === 'many-to-many') {
+    const junctionName = relation.junctionTableName;
+    if (
+      junctionName &&
+      !droppedJunctions.has(junctionName) &&
+      (await knex.schema.hasTable(junctionName))
+    ) {
+      await knex.schema.dropTableIfExists(junctionName);
+      droppedJunctions.add(junctionName);
+    }
+    return;
+  }
+
+  const isOwning =
+    !relation.mappedById &&
+    (relation.type === 'many-to-one' || relation.type === 'one-to-one');
+  if (!isOwning) return;
+
+  await dropSqlPhysicalColumn(
+    knex,
+    sourceTable.name,
+    relation.foreignKeyColumn || getForeignKeyColumnName(relation.propertyName),
+  );
+}
+
+async function cleanupSqlTableDependencies(
+  knex: Knex,
+  tableName: string,
+): Promise<void> {
+  const metadata = await getSqlMigrationMetadata(knex);
+  const table = metadata.tables.find((item) => item.name === tableName);
+  if (!table) return;
+
+  const droppedJunctions = new Set<string>();
+  for (const relation of metadata.relations) {
+    if (
+      String(relation.sourceTableId) !== String(table.id) &&
+      String(relation.targetTableId) !== String(table.id)
+    ) {
+      continue;
+    }
+    await cleanupSqlRelationPhysical(
+      knex,
+      relation,
+      metadata.tableById,
+      droppedJunctions,
+    );
+  }
+}
+
+async function cleanupSqlRemovedRelation(
+  knex: Knex,
+  tableName: string,
+  propertyName: string,
+): Promise<boolean> {
+  const metadata = await getSqlMigrationMetadata(knex);
+  const table = metadata.tables.find((item) => item.name === tableName);
+  const relation = table
+    ? metadata.relations.find(
+        (item) =>
+          String(item.sourceTableId) === String(table.id) &&
+          item.propertyName === propertyName,
+      )
+    : null;
+  if (!relation) return false;
+  await cleanupSqlRelationPhysical(
+    knex,
+    relation,
+    metadata.tableById,
+    new Set<string>(),
+  );
+  return true;
 }
 
 /**
@@ -177,43 +299,43 @@ async function migrateFilePermissionAllowedUsersToJunction(
   );
 
   const exists = await knex.schema.hasTable(junctionTableName);
-  if (exists) {
+  if (!exists) {
     console.log(
-      `  ⏩ Junction ${junctionTableName} already exists, skipping data migration`,
+      `  📦 Migrating enfyra_file_permission.allowedUsers to junction ${junctionTableName}`,
     );
-    return;
+    const pkType = await getPrimaryKeyType(knex, tableName);
+    const targetPkType = await getPrimaryKeyType(knex, 'enfyra_user');
+
+    await knex.schema.createTable(junctionTableName, (table) => {
+      if (pkType === 'uuid') {
+        table.uuid(sourceColumn).notNullable();
+      } else {
+        table.integer(sourceColumn).unsigned().notNullable();
+      }
+      if (targetPkType === 'uuid') {
+        table.uuid(targetColumn).notNullable();
+      } else {
+        table.integer(targetColumn).unsigned().notNullable();
+      }
+      table.primary([sourceColumn, targetColumn]);
+      table.foreign(sourceColumn).references('id').inTable(tableName);
+      table.foreign(targetColumn).references('id').inTable('enfyra_user');
+    });
   }
-
-  console.log(
-    `  📦 Migrating enfyra_file_permission.allowedUsers to junction ${junctionTableName}`,
-  );
-  const pkType = await getPrimaryKeyType(knex, tableName);
-  const targetPkType = await getPrimaryKeyType(knex, 'enfyra_user');
-
-  await knex.schema.createTable(junctionTableName, (table) => {
-    if (pkType === 'uuid') {
-      table.uuid(sourceColumn).notNullable();
-    } else {
-      table.integer(sourceColumn).unsigned().notNullable();
-    }
-    if (targetPkType === 'uuid') {
-      table.uuid(targetColumn).notNullable();
-    } else {
-      table.integer(targetColumn).unsigned().notNullable();
-    }
-    table.primary([sourceColumn, targetColumn]);
-    table.foreign(sourceColumn).references('id').inTable(tableName);
-    table.foreign(targetColumn).references('id').inTable('enfyra_user');
-  });
 
   const rows = await knex(tableName)
     .select('id', fkColumn)
     .whereNotNull(fkColumn);
-  for (const row of rows) {
-    await knex(junctionTableName).insert({
-      [sourceColumn]: row.id,
-      [targetColumn]: row[fkColumn],
-    });
+  if (rows.length > 0) {
+    await knex(junctionTableName)
+      .insert(
+        rows.map((row) => ({
+          [sourceColumn]: row.id,
+          [targetColumn]: row[fkColumn],
+        })),
+      )
+      .onConflict([sourceColumn, targetColumn])
+      .ignore();
   }
   console.log(
     `  ✅ Created junction and migrated ${rows.length} row(s): ${junctionTableName}`,
@@ -246,52 +368,494 @@ async function getPrimaryKeyType(
  * Check if column modification has actual changes
  */
 function hasColumnChanges(mod: ColumnModifyDef): boolean {
-  // Check name change
-  if (mod.from.name !== mod.to.name) return true;
-
-  // Check type change
-  if (mod.from.type !== undefined && mod.to.type !== undefined) {
-    if (mod.from.type !== mod.to.type) return true;
-  }
-
-  // Check options change (for enum types)
-  if (mod.from.options !== undefined && mod.to.options !== undefined) {
-    const fromOptions = Array.isArray(mod.from.options) ? mod.from.options : [];
-    const toOptions = Array.isArray(mod.to.options) ? mod.to.options : [];
-    if (
-      fromOptions.length !== toOptions.length ||
-      !fromOptions.every((v, i) => v === toOptions[i])
-    ) {
-      return true;
-    }
-  }
-
-  // Check nullable change
-  if (mod.from.isNullable !== undefined && mod.to.isNullable !== undefined) {
-    if (mod.from.isNullable !== mod.to.isNullable) return true;
-  }
-
-  // Check other property changes
-  if (mod.from.isUpdatable !== undefined && mod.to.isUpdatable !== undefined) {
-    if (mod.from.isUpdatable !== mod.to.isUpdatable) return true;
-  }
-
-  return false;
+  return [
+    'name',
+    'type',
+    'options',
+    'isNullable',
+    'defaultValue',
+    'isPrimary',
+    'isGenerated',
+  ].some(
+    (field) =>
+      field in mod.to &&
+      JSON.stringify(mod.from[field]) !== JSON.stringify(mod.to[field]),
+  );
 }
 
 /**
  * Check if relation modification has actual changes
  */
 function hasRelationChanges(mod: RelationModifyDef): boolean {
-  // Check propertyName change
-  if (mod.from.propertyName !== mod.to.propertyName) return true;
+  return [
+    'propertyName',
+    'type',
+    'targetTable',
+    'mappedBy',
+    'isNullable',
+    'onDelete',
+    'foreignKeyColumn',
+    'referencedColumn',
+    'constraintName',
+    'junctionTableName',
+    'junctionSourceColumn',
+    'junctionTargetColumn',
+  ].some(
+    (field) =>
+      field in mod.to &&
+      JSON.stringify(mod.from[field]) !== JSON.stringify(mod.to[field]),
+  );
+}
 
-  // Check other property changes
-  if (mod.from.isNullable !== undefined && mod.to.isNullable !== undefined) {
-    if (mod.from.isNullable !== mod.to.isNullable) return true;
+function readSqlMigrationCount(result: any, dbType: string): number {
+  const row =
+    dbType === 'pg' || dbType === 'postgres' || dbType === 'postgresql'
+      ? result?.rows?.[0]
+      : result?.[0]?.[0];
+  return Number(row?.count ?? row?.COUNT ?? 0);
+}
+
+async function migrateSqlRenamedColumn(
+  knex: Knex,
+  tableName: string,
+  oldName: string,
+  newName: string,
+  dbType: string,
+): Promise<'none' | 'renamed' | 'merged'> {
+  const hasOldColumn = await knex.schema.hasColumn(tableName, oldName);
+  if (!hasOldColumn) return 'none';
+
+  const hasNewColumn = await knex.schema.hasColumn(tableName, newName);
+  if (!hasNewColumn) {
+    await knex.schema.alterTable(tableName, (table) => {
+      table.renameColumn(oldName, newName);
+    });
+    return 'renamed';
   }
 
-  return false;
+  const conflictResult = await knex.raw(
+    'SELECT COUNT(*) AS count FROM ?? WHERE ?? IS NOT NULL AND ?? IS NOT NULL AND ?? <> ??',
+    [tableName, oldName, newName, oldName, newName],
+  );
+  const conflictCount = readSqlMigrationCount(conflictResult, dbType);
+  if (conflictCount > 0) {
+    throw new Error(
+      `Cannot rename ${tableName}.${oldName} to ${newName}: ${conflictCount} conflicting row(s)`,
+    );
+  }
+  await knex.raw('UPDATE ?? SET ?? = ?? WHERE ?? IS NULL', [
+    tableName,
+    newName,
+    oldName,
+    newName,
+  ]);
+
+  await dropForeignKeyIfExists(
+    knex,
+    tableName,
+    oldName,
+    normalizeSqlMigrationDbType(knex),
+  );
+  await knex.schema.alterTable(tableName, (table) => {
+    table.dropColumn(oldName);
+  });
+  return 'merged';
+}
+
+function hasOwn(record: Record<string, any>, field: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, field);
+}
+
+function getSqlColumnTypeDefinition(
+  column: Record<string, any>,
+  dbType: 'mysql' | 'postgres',
+): string {
+  return generateColumnDefinition(
+    {
+      ...column,
+      isPrimary: false,
+      isNullable: true,
+      defaultValue: null,
+    },
+    dbType,
+  );
+}
+
+function getSqlDefaultLiteral(
+  value: any,
+  type: string | undefined,
+  dbType: 'mysql' | 'postgres',
+): string {
+  if (typeof value === 'boolean' || type === 'boolean') {
+    const enabled =
+      value === true ||
+      value === 1 ||
+      String(value).toLowerCase() === 'true' ||
+      String(value) === '1';
+    return dbType === 'postgres'
+      ? enabled
+        ? 'true'
+        : 'false'
+      : enabled
+        ? '1'
+        : '0';
+  }
+  if (typeof value === 'number') return String(value);
+  if (
+    typeof value === 'string' &&
+    /^(?:CURRENT_TIMESTAMP(?:\(\))?|CURRENT_DATE|CURRENT_TIME|now\(\))$/i.test(
+      value,
+    )
+  ) {
+    return value;
+  }
+  const normalized =
+    typeof value === 'object' ? JSON.stringify(value) : String(value);
+  return `'${normalized.replace(/'/g, "''")}'`;
+}
+
+async function requireDeclaredDefaultForSqlNulls(
+  knex: Knex,
+  tableName: string,
+  columnName: string,
+  mod: ColumnModifyDef,
+): Promise<boolean> {
+  const result = await knex(tableName)
+    .whereNull(columnName)
+    .count<{ count: string | number }[]>({ count: '*' });
+  if (Number(result[0]?.count ?? 0) === 0) {
+    return false;
+  }
+  if (
+    !hasOwn(mod.to, 'defaultValue') ||
+    mod.to.defaultValue === null ||
+    mod.to.defaultValue === undefined
+  ) {
+    throw new Error(
+      `Cannot make ${tableName}.${columnName} non-nullable while null values exist and no target default is declared`,
+    );
+  }
+  return true;
+}
+
+async function backfillSqlNullsWithDeclaredDefault(
+  knex: Knex,
+  tableName: string,
+  columnName: string,
+  mod: ColumnModifyDef,
+  dbType: 'mysql' | 'postgres',
+): Promise<void> {
+  const literal = getSqlDefaultLiteral(
+    mod.to.defaultValue,
+    mod.to.type,
+    dbType,
+  );
+  await knex.raw(`UPDATE ?? SET ?? = ${literal} WHERE ?? IS NULL`, [
+    tableName,
+    columnName,
+    columnName,
+  ]);
+}
+
+async function getPostgresColumnContract(
+  knex: Knex,
+  tableName: string,
+  columnName: string,
+): Promise<any> {
+  const result = await knex.raw(
+    `
+      SELECT data_type, udt_name, is_nullable, column_default
+      FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND table_name = ?
+        AND column_name = ?
+    `,
+    [tableName, columnName],
+  );
+  return result.rows?.[0];
+}
+
+async function applyPostgresEnumContract(
+  knex: Knex,
+  tableName: string,
+  columnName: string,
+  options: string[],
+  currentUdtName: string | undefined,
+): Promise<void> {
+  const unsupportedValues = (
+    await knex(tableName).distinct(columnName).whereNotNull(columnName)
+  )
+    .map((row: any) => String(row[columnName]))
+    .filter((value: string) => !options.includes(value));
+  if (unsupportedValues.length > 0) {
+    throw new Error(
+      `Cannot update ${tableName}.${columnName} enum: unsupported persisted values ${unsupportedValues.join(', ')}`,
+    );
+  }
+
+  const enumType = `${tableName}_${columnName}_enum`;
+  let currentOptions: string[] = [];
+  if (currentUdtName) {
+    const result = await knex.raw(
+      `
+        SELECT e.enumlabel
+        FROM pg_enum e
+        JOIN pg_type t ON e.enumtypid = t.oid
+        WHERE t.typname = ?
+        ORDER BY e.enumsortorder
+      `,
+      [currentUdtName],
+    );
+    currentOptions = result.rows.map((row: any) => row.enumlabel);
+  }
+  if (
+    currentUdtName === enumType &&
+    JSON.stringify(currentOptions) === JSON.stringify(options)
+  ) {
+    return;
+  }
+
+  const checkConstraints = await knex.raw(
+    `
+      SELECT constraint_def.conname AS constraint_name
+      FROM pg_constraint constraint_def
+      JOIN pg_class relation
+        ON relation.oid = constraint_def.conrelid
+      JOIN pg_namespace namespace
+        ON namespace.oid = relation.relnamespace
+      JOIN pg_attribute attribute
+        ON attribute.attrelid = relation.oid
+       AND attribute.attnum = ANY(constraint_def.conkey)
+      WHERE constraint_def.contype = 'c'
+        AND namespace.nspname = current_schema()
+        AND relation.relname = ?
+        AND attribute.attname = ?
+    `,
+    [tableName, columnName],
+  );
+  for (const constraint of checkConstraints.rows ?? []) {
+    await knex.raw('ALTER TABLE ?? DROP CONSTRAINT ??', [
+      tableName,
+      constraint.constraint_name,
+    ]);
+  }
+  await knex.raw('ALTER TABLE ?? ALTER COLUMN ?? TYPE text USING ??::text', [
+    tableName,
+    columnName,
+    columnName,
+  ]);
+  await knex.raw('DROP TYPE IF EXISTS ??', [enumType]);
+  const values = options
+    .map((value) => `'${value.replace(/'/g, "''")}'`)
+    .join(', ');
+  await knex.raw(`CREATE TYPE ?? AS ENUM (${values})`, [enumType]);
+  await knex.raw('ALTER TABLE ?? ALTER COLUMN ?? TYPE ?? USING ??::text::??', [
+    tableName,
+    columnName,
+    enumType,
+    columnName,
+    enumType,
+  ]);
+}
+
+async function applyPostgresColumnContract(
+  knex: Knex,
+  tableName: string,
+  columnName: string,
+  mod: ColumnModifyDef,
+): Promise<void> {
+  const current = await getPostgresColumnContract(knex, tableName, columnName);
+  if (!current) {
+    throw new Error(`Column ${tableName}.${columnName} does not exist`);
+  }
+
+  const typeChanged =
+    (hasOwn(mod.to, 'type') &&
+      JSON.stringify(mod.from.type) !== JSON.stringify(mod.to.type)) ||
+    (hasOwn(mod.to, 'options') &&
+      JSON.stringify(mod.from.options) !== JSON.stringify(mod.to.options));
+  const nullableChanged =
+    hasOwn(mod.to, 'isNullable') &&
+    JSON.stringify(mod.from.isNullable) !== JSON.stringify(mod.to.isNullable);
+  const defaultChanged =
+    hasOwn(mod.to, 'defaultValue') &&
+    JSON.stringify(mod.from.defaultValue) !==
+      JSON.stringify(mod.to.defaultValue);
+  const shouldBackfillNulls =
+    nullableChanged && mod.to.isNullable === false
+      ? await requireDeclaredDefaultForSqlNulls(
+          knex,
+          tableName,
+          columnName,
+          mod,
+        )
+      : false;
+
+  if (typeChanged && current.column_default !== null) {
+    await knex.raw('ALTER TABLE ?? ALTER COLUMN ?? DROP DEFAULT', [
+      tableName,
+      columnName,
+    ]);
+  }
+
+  if (typeChanged) {
+    if (mod.to.type === 'enum' && Array.isArray(mod.to.options)) {
+      await applyPostgresEnumContract(
+        knex,
+        tableName,
+        columnName,
+        mod.to.options,
+        current.udt_name,
+      );
+    } else {
+      const targetType = getSqlColumnTypeDefinition(mod.to, 'postgres');
+      if (mod.to.type === 'boolean') {
+        await knex.raw(
+          `ALTER TABLE ?? ALTER COLUMN ?? TYPE ${targetType} USING (LOWER(??::text) IN ('true', '1', 't', 'yes'))`,
+          [tableName, columnName, columnName],
+        );
+      } else {
+        await knex.raw(
+          `ALTER TABLE ?? ALTER COLUMN ?? TYPE ${targetType} USING ??::text::${targetType}`,
+          [tableName, columnName, columnName],
+        );
+      }
+    }
+  }
+
+  if (shouldBackfillNulls) {
+    await backfillSqlNullsWithDeclaredDefault(
+      knex,
+      tableName,
+      columnName,
+      mod,
+      'postgres',
+    );
+  }
+
+  if (defaultChanged || (typeChanged && current.column_default !== null)) {
+    if (hasOwn(mod.to, 'defaultValue')) {
+      if (mod.to.defaultValue === null || mod.to.defaultValue === undefined) {
+        await knex.raw('ALTER TABLE ?? ALTER COLUMN ?? DROP DEFAULT', [
+          tableName,
+          columnName,
+        ]);
+      } else if (supportsSqlColumnDefault(mod.to, 'postgres')) {
+        const literal = getSqlDefaultLiteral(
+          mod.to.defaultValue,
+          mod.to.type,
+          'postgres',
+        );
+        await knex.raw(
+          `ALTER TABLE ?? ALTER COLUMN ?? SET DEFAULT ${literal}`,
+          [tableName, columnName],
+        );
+      }
+    } else {
+      await knex.raw(
+        `ALTER TABLE ?? ALTER COLUMN ?? SET DEFAULT ${current.column_default}`,
+        [tableName, columnName],
+      );
+    }
+  }
+
+  if (nullableChanged) {
+    await knex.raw(
+      `ALTER TABLE ?? ALTER COLUMN ?? ${
+        mod.to.isNullable === false ? 'SET NOT NULL' : 'DROP NOT NULL'
+      }`,
+      [tableName, columnName],
+    );
+  }
+}
+
+async function applyMySqlColumnContract(
+  knex: Knex,
+  tableName: string,
+  columnName: string,
+  mod: ColumnModifyDef,
+): Promise<void> {
+  const result = await knex.raw(
+    `
+      SELECT COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?
+    `,
+    [tableName, columnName],
+  );
+  const current = result[0]?.[0];
+  if (!current) {
+    throw new Error(`Column ${tableName}.${columnName} does not exist`);
+  }
+
+  const targetType =
+    hasOwn(mod.to, 'type') || hasOwn(mod.to, 'options')
+      ? getSqlColumnTypeDefinition(mod.to, 'mysql')
+      : current.COLUMN_TYPE;
+  const nullable = hasOwn(mod.to, 'isNullable')
+    ? mod.to.isNullable !== false
+    : current.IS_NULLABLE === 'YES';
+  const targetDefault = hasOwn(mod.to, 'defaultValue')
+    ? mod.to.defaultValue
+    : current.COLUMN_DEFAULT;
+  const defaultClause =
+    targetDefault === null ||
+    targetDefault === undefined ||
+    !supportsSqlColumnDefault(mod.to, 'mysql')
+      ? ''
+      : ` DEFAULT ${getSqlDefaultLiteral(targetDefault, mod.to.type, 'mysql')}`;
+  const extra = String(current.EXTRA || '').includes('auto_increment')
+    ? ' AUTO_INCREMENT'
+    : '';
+  const shouldBackfillNulls =
+    hasOwn(mod.to, 'isNullable') && mod.to.isNullable === false
+      ? await requireDeclaredDefaultForSqlNulls(
+          knex,
+          tableName,
+          columnName,
+          mod,
+        )
+      : false;
+
+  if (shouldBackfillNulls) {
+    await knex.raw(
+      `ALTER TABLE ?? MODIFY COLUMN ?? ${targetType} NULL${defaultClause}${extra}`,
+      [tableName, columnName],
+    );
+    await backfillSqlNullsWithDeclaredDefault(
+      knex,
+      tableName,
+      columnName,
+      mod,
+      'mysql',
+    );
+  }
+
+  await knex.raw(
+    `ALTER TABLE ?? MODIFY COLUMN ?? ${targetType} ${
+      nullable ? 'NULL' : 'NOT NULL'
+    }${defaultClause}${extra}`,
+    [tableName, columnName],
+  );
+}
+
+function assertSupportedSqlColumnContract(
+  tableName: string,
+  mod: ColumnModifyDef,
+): void {
+  for (const field of ['isPrimary', 'isGenerated']) {
+    if (
+      hasOwn(mod.from, field) &&
+      hasOwn(mod.to, field) &&
+      mod.from[field] !== mod.to[field]
+    ) {
+      throw new Error(
+        `Physical migration for ${tableName}.${mod.to.name} cannot modify ${field}`,
+      );
+    }
+  }
 }
 
 /**
@@ -304,202 +868,36 @@ async function applySqlColumnModifications(
   dbType: string,
 ): Promise<void> {
   for (const mod of modifications) {
-    // Skip if no actual changes detected
     if (!hasColumnChanges(mod)) {
       continue;
     }
 
+    assertSupportedSqlColumnContract(tableName, mod);
     const oldName = mod.from.name;
     const newName = mod.to.name;
 
-    // Check if rename is needed
     if (oldName !== newName) {
-      const hasOldColumn = await knex.schema.hasColumn(tableName, oldName);
-      const hasNewColumn = await knex.schema.hasColumn(tableName, newName);
-
-      if (hasOldColumn && !hasNewColumn) {
-        await knex.schema.alterTable(tableName, (table) => {
-          table.renameColumn(oldName, newName);
-        });
+      const result = await migrateSqlRenamedColumn(
+        knex,
+        tableName,
+        oldName,
+        newName,
+        dbType,
+      );
+      if (result === 'renamed') {
         console.log(`  ✏️  Renamed column: ${oldName} → ${newName}`);
+      } else if (result === 'merged') {
+        console.log(`  ✏️  Merged duplicate column: ${oldName} → ${newName}`);
       }
-      // Silently skip if already renamed or old column doesn't exist
     }
 
-    // Handle other property changes
-    const targetColumn = newName;
-    const hasColumn = await knex.schema.hasColumn(tableName, targetColumn);
-
-    if (hasColumn) {
-      // Handle type change (including varchar/text to enum conversion)
-      if (
-        mod.from.type !== undefined &&
-        mod.to.type !== undefined &&
-        mod.from.type !== mod.to.type
-      ) {
-        if (mod.to.type === 'enum' && Array.isArray(mod.to.options)) {
-          // Check actual current type in database
-          const isPg =
-            dbType === 'pg' || dbType === 'postgres' || dbType === 'postgresql';
-          const currentTypeResult = isPg
-            ? await knex.raw(
-                `SELECT data_type, udt_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? AND column_name = ?`,
-                [tableName, targetColumn],
-              )
-            : await knex.raw(
-                `SELECT DATA_TYPE as data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
-                [tableName, targetColumn],
-              );
-          const row = isPg
-            ? currentTypeResult.rows?.[0]
-            : currentTypeResult[0]?.[0];
-          const currentDbType = isPg
-            ? row?.udt_name || row?.data_type
-            : row?.data_type;
-
-          // Skip if already an ENUM type (migration already applied)
-          if (currentDbType && currentDbType.endsWith('_enum')) {
-            console.log(
-              `  ⏩ Column ${targetColumn} is already ENUM (${currentDbType}), skipping migration`,
-            );
-          } else {
-            console.log(
-              `  ✏️  Converting column type: ${targetColumn} from ${currentDbType || mod.from.type} to ENUM...`,
-            );
-            const enumValues = mod.to.options
-              .map((val: string) => `'${val.replace(/'/g, "''")}'`)
-              .join(', ');
-            const newEnumType = `${tableName}_${targetColumn}_enum`;
-
-            if (dbType === 'pg') {
-              try {
-                // Get current default if exists
-                const defaultResult = await knex.raw(
-                  `
-                  SELECT column_default, is_nullable
-                  FROM information_schema.columns
-                  WHERE table_schema = 'public'
-                    AND table_name = ?
-                    AND column_name = ?
-                `,
-                  [tableName, targetColumn],
-                );
-                const currentDefault = defaultResult.rows[0]?.column_default;
-                const isNullable = defaultResult.rows[0]?.is_nullable === 'YES';
-
-                // Drop default if exists
-                if (currentDefault) {
-                  await knex.raw(
-                    `ALTER TABLE "${tableName}" ALTER COLUMN "${targetColumn}" DROP DEFAULT`,
-                  );
-                }
-
-                // Convert to text first if not already
-                if (currentDbType !== 'text') {
-                  await knex.raw(
-                    `ALTER TABLE "${tableName}" ALTER COLUMN "${targetColumn}" TYPE text USING "${targetColumn}"::text`,
-                  );
-                }
-
-                // Create ENUM type and apply
-                await knex.raw(`DROP TYPE IF EXISTS "${newEnumType}" CASCADE`);
-                await knex.raw(
-                  `CREATE TYPE "${newEnumType}" AS ENUM (${enumValues})`,
-                );
-                await knex.raw(
-                  `ALTER TABLE "${tableName}" ALTER COLUMN "${targetColumn}" TYPE "${newEnumType}" USING "${targetColumn}"::"${newEnumType}"`,
-                );
-
-                // Restore default if needed
-                if (currentDefault) {
-                  let defaultVal = currentDefault;
-                  if (defaultVal && defaultVal.includes('::')) {
-                    defaultVal = defaultVal.split('::')[0];
-                  }
-                  defaultVal = defaultVal?.replace(/^'|'$/g, '');
-                  if (defaultVal && mod.to.options.includes(defaultVal)) {
-                    await knex.raw(
-                      `ALTER TABLE "${tableName}" ALTER COLUMN "${targetColumn}" SET DEFAULT '${defaultVal.replace(/'/g, "''")}'`,
-                    );
-                  }
-                }
-
-                // Set nullable if needed
-                if (mod.to.isNullable === false) {
-                  await knex.raw(
-                    `ALTER TABLE "${tableName}" ALTER COLUMN "${targetColumn}" SET NOT NULL`,
-                  );
-                } else if (isNullable && mod.from.isNullable === false) {
-                  await knex.raw(
-                    `ALTER TABLE "${tableName}" ALTER COLUMN "${targetColumn}" DROP NOT NULL`,
-                  );
-                }
-
-                console.log(
-                  `  ✅ Converted ${targetColumn} to ENUM(${mod.to.options.join(', ')})`,
-                );
-              } catch (error) {
-                console.log(
-                  `  ⚠️  Failed to convert ${targetColumn} to ENUM: ${getErrorMessage(error)}`,
-                );
-              }
-            } else {
-              // MySQL
-              try {
-                const nullable =
-                  mod.to.isNullable === false ? 'NOT NULL' : 'NULL';
-                const defaultValue = mod.to.defaultValue
-                  ? `DEFAULT '${mod.to.defaultValue}'`
-                  : '';
-                await knex.raw(
-                  `ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${targetColumn}\` ENUM(${enumValues}) ${nullable} ${defaultValue}`.trim(),
-                );
-                console.log(
-                  `  ✅ Converted ${targetColumn} to ENUM(${mod.to.options.join(', ')})`,
-                );
-              } catch (error) {
-                console.log(
-                  `  ⚠️  Failed to convert ${targetColumn} to ENUM: ${getErrorMessage(error)}`,
-                );
-              }
-            }
-          }
-        } else {
-          // Other type conversions
-          console.log(
-            `  ✏️  Type change detected: ${mod.from.type} → ${mod.to.type} for ${targetColumn}`,
-          );
-        }
-      }
-
-      // Handle nullable change
-      if (
-        mod.from.isNullable !== undefined &&
-        mod.to.isNullable !== undefined
-      ) {
-        if (mod.from.isNullable !== mod.to.isNullable) {
-          try {
-            if (dbType === 'pg') {
-              if (mod.to.isNullable === false) {
-                await knex.raw(
-                  `ALTER TABLE "${tableName}" ALTER COLUMN "${targetColumn}" SET NOT NULL`,
-                );
-              } else {
-                await knex.raw(
-                  `ALTER TABLE "${tableName}" ALTER COLUMN "${targetColumn}" DROP NOT NULL`,
-                );
-              }
-              console.log(`  ✏️  Modified column nullable: ${targetColumn}`);
-            } else {
-              console.log(
-                `  ✏️  Modified column nullable: ${targetColumn} (MySQL requires full column definition)`,
-              );
-            }
-          } catch {
-            // Silently skip if modification fails (column may have been modified already)
-          }
-        }
-      }
+    if (!(await knex.schema.hasColumn(tableName, newName))) {
+      throw new Error(`Column ${tableName}.${newName} does not exist`);
+    }
+    if (normalizeSqlMigrationDbType(knex) === 'postgres') {
+      await applyPostgresColumnContract(knex, tableName, newName, mod);
+    } else {
+      await applyMySqlColumnContract(knex, tableName, newName, mod);
     }
   }
 }
@@ -524,6 +922,263 @@ async function applySqlColumnRemovals(
   }
 }
 
+interface SqlForeignKeyMigrationContract {
+  constraintName: string;
+  targetTable: string;
+  targetColumn: string;
+  onDelete: string;
+}
+
+async function getSqlForeignKeyMigrationContract(
+  knex: Knex,
+  tableName: string,
+  columnName: string,
+): Promise<SqlForeignKeyMigrationContract | null> {
+  if (normalizeSqlMigrationDbType(knex) === 'postgres') {
+    const result = await knex.raw(
+      `
+        SELECT tc.constraint_name,
+               ccu.table_name AS target_table,
+               ccu.column_name AS target_column,
+               rc.delete_rule
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+         AND tc.constraint_schema = kcu.constraint_schema
+        JOIN information_schema.referential_constraints rc
+          ON tc.constraint_name = rc.constraint_name
+         AND tc.constraint_schema = rc.constraint_schema
+        JOIN information_schema.constraint_column_usage ccu
+          ON rc.unique_constraint_name = ccu.constraint_name
+         AND rc.unique_constraint_schema = ccu.constraint_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+          AND tc.table_schema = current_schema()
+          AND tc.table_name = ?
+          AND kcu.column_name = ?
+        LIMIT 1
+      `,
+      [tableName, columnName],
+    );
+    const row = result.rows?.[0];
+    return row
+      ? {
+          constraintName: row.constraint_name,
+          targetTable: row.target_table,
+          targetColumn: row.target_column,
+          onDelete: row.delete_rule,
+        }
+      : null;
+  }
+
+  const result = await knex.raw(
+    `
+      SELECT kcu.CONSTRAINT_NAME,
+             kcu.REFERENCED_TABLE_NAME,
+             kcu.REFERENCED_COLUMN_NAME,
+             rc.DELETE_RULE
+      FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+      JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+        ON kcu.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA
+       AND kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+      WHERE kcu.TABLE_SCHEMA = DATABASE()
+        AND kcu.TABLE_NAME = ?
+        AND kcu.COLUMN_NAME = ?
+        AND kcu.REFERENCED_TABLE_NAME IS NOT NULL
+      LIMIT 1
+    `,
+    [tableName, columnName],
+  );
+  const row = result[0]?.[0];
+  return row
+    ? {
+        constraintName: row.CONSTRAINT_NAME,
+        targetTable: row.REFERENCED_TABLE_NAME,
+        targetColumn: row.REFERENCED_COLUMN_NAME,
+        onDelete: row.DELETE_RULE,
+      }
+    : null;
+}
+
+async function assertSqlRelationTargetValuesExist(
+  knex: Knex,
+  tableName: string,
+  foreignKeyColumn: string,
+  targetTable: string,
+  targetColumn: string,
+): Promise<void> {
+  if (!(await knex.schema.hasTable(targetTable))) {
+    throw new Error(
+      `Relation target table ${targetTable} does not exist for ${tableName}.${foreignKeyColumn}`,
+    );
+  }
+  const result = await knex.raw(
+    `
+      SELECT COUNT(*) AS count
+      FROM ?? source
+      LEFT JOIN ?? target
+        ON source.?? = target.??
+      WHERE source.?? IS NOT NULL
+        AND target.?? IS NULL
+    `,
+    [
+      tableName,
+      targetTable,
+      foreignKeyColumn,
+      targetColumn,
+      foreignKeyColumn,
+      targetColumn,
+    ],
+  );
+  if (readSqlMigrationCount(result, knex.client.config.client) > 0) {
+    throw new Error(
+      `Cannot retarget ${tableName}.${foreignKeyColumn} to ${targetTable}.${targetColumn}: orphan values exist`,
+    );
+  }
+}
+
+async function setSqlRelationColumnNullable(
+  knex: Knex,
+  tableName: string,
+  columnName: string,
+  isNullable: boolean,
+): Promise<void> {
+  if (!isNullable) {
+    const result = await knex(tableName)
+      .whereNull(columnName)
+      .count<{ count: string }[]>({ count: '*' });
+    if (Number(result[0]?.count ?? 0) > 0) {
+      throw new Error(
+        `Cannot make relation ${tableName}.${columnName} non-nullable while null values exist`,
+      );
+    }
+  }
+  if (normalizeSqlMigrationDbType(knex) === 'postgres') {
+    await knex.raw(
+      `ALTER TABLE ?? ALTER COLUMN ?? ${
+        isNullable ? 'DROP NOT NULL' : 'SET NOT NULL'
+      }`,
+      [tableName, columnName],
+    );
+    return;
+  }
+  await applyMySqlColumnContract(knex, tableName, columnName, {
+    from: { name: columnName, isNullable: !isNullable },
+    to: { name: columnName, isNullable },
+  });
+}
+
+async function dropSqlForeignKeyContract(
+  knex: Knex,
+  tableName: string,
+  constraintName: string,
+): Promise<void> {
+  if (normalizeSqlMigrationDbType(knex) === 'postgres') {
+    await knex.raw('ALTER TABLE ?? DROP CONSTRAINT ??', [
+      tableName,
+      constraintName,
+    ]);
+    return;
+  }
+  await knex.raw('ALTER TABLE ?? DROP FOREIGN KEY ??', [
+    tableName,
+    constraintName,
+  ]);
+}
+
+async function applySqlRelationForeignKeyContract(
+  knex: Knex,
+  tableName: string,
+  foreignKeyColumn: string,
+  mod: RelationModifyDef,
+): Promise<void> {
+  const sourceType = mod.from.type;
+  const targetType = mod.to.type ?? sourceType;
+  const owningTypes = new Set(['many-to-one', 'one-to-one']);
+  if (targetType && !owningTypes.has(targetType)) {
+    if (
+      sourceType &&
+      owningTypes.has(sourceType) &&
+      sourceType !== targetType
+    ) {
+      throw new Error(
+        `Physical relation migration ${tableName}.${mod.to.propertyName} from ${sourceType} to ${targetType} requires explicit remove and recreate`,
+      );
+    }
+    return;
+  }
+  if (
+    sourceType &&
+    targetType &&
+    sourceType !== targetType &&
+    (!owningTypes.has(sourceType) || !owningTypes.has(targetType))
+  ) {
+    throw new Error(
+      `Unsupported physical relation type migration ${tableName}.${mod.to.propertyName}: ${sourceType} to ${targetType}`,
+    );
+  }
+  if (!(await knex.schema.hasColumn(tableName, foreignKeyColumn))) return;
+
+  const current = await getSqlForeignKeyMigrationContract(
+    knex,
+    tableName,
+    foreignKeyColumn,
+  );
+  if (!targetType && !current) return;
+
+  const targetTable = mod.to.targetTable ?? current?.targetTable;
+  const targetColumn = mod.to.referencedColumn ?? current?.targetColumn ?? 'id';
+  const onDelete = String(mod.to.onDelete ?? current?.onDelete ?? 'SET NULL');
+  if (!targetTable) {
+    throw new Error(
+      `Relation migration ${tableName}.${mod.to.propertyName} must declare targetTable`,
+    );
+  }
+  await assertSqlRelationTargetValuesExist(
+    knex,
+    tableName,
+    foreignKeyColumn,
+    targetTable,
+    targetColumn,
+  );
+
+  const constraintName =
+    mod.to.constraintName ??
+    current?.constraintName ??
+    `${tableName}_${foreignKeyColumn}_foreign`;
+  const foreignKeyChanged =
+    !current ||
+    current.targetTable !== targetTable ||
+    current.targetColumn !== targetColumn ||
+    current.onDelete.toUpperCase() !== onDelete.toUpperCase() ||
+    (hasOwn(mod.to, 'constraintName') &&
+      current.constraintName !== constraintName);
+  if (current && foreignKeyChanged) {
+    await dropSqlForeignKeyContract(knex, tableName, current.constraintName);
+  }
+
+  if (
+    hasOwn(mod.to, 'isNullable') &&
+    mod.from.isNullable !== mod.to.isNullable
+  ) {
+    await setSqlRelationColumnNullable(
+      knex,
+      tableName,
+      foreignKeyColumn,
+      mod.to.isNullable !== false,
+    );
+  }
+
+  if (!foreignKeyChanged) return;
+
+  await knex.schema.alterTable(tableName, (table) => {
+    table
+      .foreign(foreignKeyColumn, constraintName)
+      .references(targetColumn)
+      .inTable(targetTable)
+      .onDelete(onDelete);
+  });
+}
+
 /**
  * Apply SQL relation modifications (FK columns)
  */
@@ -534,76 +1189,57 @@ async function applySqlRelationModifications(
   dbType: string,
 ): Promise<void> {
   for (const mod of modifications) {
-    // Skip if no actual changes detected
     if (!hasRelationChanges(mod)) {
       continue;
     }
 
     const oldName = mod.from.propertyName;
     const newName = mod.to.propertyName;
+    const oldFkColumn =
+      mod.from.foreignKeyColumn || getForeignKeyColumnName(oldName);
+    const newFkColumn =
+      mod.to.foreignKeyColumn || getForeignKeyColumnName(newName);
+    const oldColumnExists = await knex.schema.hasColumn(tableName, oldFkColumn);
 
-    // Check if rename is needed
-    if (oldName !== newName) {
-      const oldFkColumn = getForeignKeyColumnName(oldName);
-      const newFkColumn = getForeignKeyColumnName(newName);
+    if (oldColumnExists && mod.to.targetTable) {
+      await assertSqlRelationTargetValuesExist(
+        knex,
+        tableName,
+        oldFkColumn,
+        mod.to.targetTable,
+        mod.to.referencedColumn || mod.from.referencedColumn || 'id',
+      );
+    }
+    if (
+      oldColumnExists &&
+      mod.to.isNullable === false &&
+      mod.from.isNullable !== false
+    ) {
+      const result = await knex(tableName)
+        .whereNull(oldFkColumn)
+        .count<{ count: string }[]>({ count: '*' });
+      if (Number(result[0]?.count ?? 0) > 0) {
+        throw new Error(
+          `Cannot make relation ${tableName}.${newFkColumn} non-nullable while null values exist`,
+        );
+      }
+    }
 
-      const hasOldColumn = await knex.schema.hasColumn(tableName, oldFkColumn);
-      const hasNewColumn = await knex.schema.hasColumn(tableName, newFkColumn);
-
-      if (hasOldColumn && !hasNewColumn) {
-        // Drop FK constraint first
-        try {
-          if (dbType === 'pg') {
-            const fkConstraints = await knex.raw(
-              `
-              SELECT tc.constraint_name
-              FROM information_schema.table_constraints tc
-              JOIN information_schema.key_column_usage kcu
-                ON tc.constraint_name = kcu.constraint_name
-              WHERE tc.table_schema = 'public'
-                AND tc.table_name = ?
-                AND kcu.column_name = ?
-                AND tc.constraint_type = 'FOREIGN KEY'
-            `,
-              [tableName, oldFkColumn],
-            );
-            if (fkConstraints.rows?.length > 0) {
-              await knex.raw(
-                `ALTER TABLE "${tableName}" DROP CONSTRAINT "${fkConstraints.rows[0].constraint_name}"`,
-              );
-            }
-          } else {
-            const fkConstraints = await knex.raw(
-              `
-              SELECT CONSTRAINT_NAME
-              FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-              WHERE TABLE_SCHEMA = DATABASE()
-                AND TABLE_NAME = ?
-                AND COLUMN_NAME = ?
-                AND REFERENCED_TABLE_NAME IS NOT NULL
-            `,
-              [tableName, oldFkColumn],
-            );
-            if (fkConstraints[0]?.length > 0) {
-              await knex.raw(
-                `ALTER TABLE \`${tableName}\` DROP FOREIGN KEY \`${fkConstraints[0][0].CONSTRAINT_NAME}\``,
-              );
-            }
-          }
-        } catch {
-          // FK might not exist, continue silently
-        }
-
-        // Rename column
-        await knex.schema.alterTable(tableName, (table) => {
-          table.renameColumn(oldFkColumn, newFkColumn);
-        });
+    if (oldFkColumn !== newFkColumn) {
+      const result = await migrateSqlRenamedColumn(
+        knex,
+        tableName,
+        oldFkColumn,
+        newFkColumn,
+        dbType,
+      );
+      if (result !== 'none') {
         console.log(
           `  ✏️  Renamed relation FK: ${oldFkColumn} → ${newFkColumn}`,
         );
       }
-      // Silently skip if already renamed or old column doesn't exist
     }
+    await applySqlRelationForeignKeyContract(knex, tableName, newFkColumn, mod);
   }
 }
 
@@ -618,15 +1254,16 @@ async function applySqlRelationRemovals(
   const dbType = knex.client.config.client;
 
   for (const relName of relations) {
+    if (await cleanupSqlRemovedRelation(knex, tableName, relName)) {
+      continue;
+    }
     const fkColumn = getForeignKeyColumnName(relName);
     const hasColumn = await knex.schema.hasColumn(tableName, fkColumn);
 
     if (hasColumn) {
-      // Drop FK constraint first
-      try {
-        if (dbType === 'pg') {
-          const fkConstraints = await knex.raw(
-            `
+      if (dbType === 'pg') {
+        const fkConstraints = await knex.raw(
+          `
             SELECT tc.constraint_name
             FROM information_schema.table_constraints tc
             JOIN information_schema.key_column_usage kcu
@@ -636,16 +1273,16 @@ async function applySqlRelationRemovals(
               AND kcu.column_name = ?
               AND tc.constraint_type = 'FOREIGN KEY'
           `,
-            [tableName, fkColumn],
+          [tableName, fkColumn],
+        );
+        if (fkConstraints.rows?.length > 0) {
+          await knex.raw(
+            `ALTER TABLE "${tableName}" DROP CONSTRAINT "${fkConstraints.rows[0].constraint_name}"`,
           );
-          if (fkConstraints.rows?.length > 0) {
-            await knex.raw(
-              `ALTER TABLE "${tableName}" DROP CONSTRAINT "${fkConstraints.rows[0].constraint_name}"`,
-            );
-          }
-        } else {
-          const fkConstraints = await knex.raw(
-            `
+        }
+      } else {
+        const fkConstraints = await knex.raw(
+          `
             SELECT CONSTRAINT_NAME
             FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
             WHERE TABLE_SCHEMA = DATABASE()
@@ -653,19 +1290,15 @@ async function applySqlRelationRemovals(
               AND COLUMN_NAME = ?
               AND REFERENCED_TABLE_NAME IS NOT NULL
           `,
-            [tableName, fkColumn],
+          [tableName, fkColumn],
+        );
+        if (fkConstraints[0]?.length > 0) {
+          await knex.raw(
+            `ALTER TABLE \`${tableName}\` DROP FOREIGN KEY \`${fkConstraints[0][0].CONSTRAINT_NAME}\``,
           );
-          if (fkConstraints[0]?.length > 0) {
-            await knex.raw(
-              `ALTER TABLE \`${tableName}\` DROP FOREIGN KEY \`${fkConstraints[0][0].CONSTRAINT_NAME}\``,
-            );
-          }
         }
-      } catch {
-        // FK might not exist, continue silently
       }
 
-      // Drop column
       await knex.schema.alterTable(tableName, (table) => {
         table.dropColumn(fkColumn);
       });
@@ -681,13 +1314,14 @@ async function applySqlRelationRemovals(
 export async function applyMongoSchemaMigrations(
   db: Db,
   migration: SchemaMigrationDef,
+  options: MongoPhysicalMigrationOptions = {},
 ): Promise<void> {
-  // Drop collections
   if (migration.tablesToDrop && migration.tablesToDrop.length > 0) {
     console.log(
       `🗑️ Dropping ${migration.tablesToDrop.length} collection(s)...`,
     );
     for (const collectionName of migration.tablesToDrop) {
+      await cleanupMongoTableDependencies(db, collectionName);
       const collections = await db
         .listCollections({ name: collectionName })
         .toArray();
@@ -695,14 +1329,293 @@ export async function applyMongoSchemaMigrations(
         await db.dropCollection(collectionName);
         console.log(`  ✅ Dropped collection: ${collectionName}`);
       }
-      // Silently skip if collection doesn't exist
     }
   }
 
-  // Apply collection migrations
   for (const tableMigration of migration.tables || []) {
-    await applyMongoCollectionMigration(db, tableMigration);
+    await applyMongoCollectionMigration(db, tableMigration, options);
   }
+}
+
+function sameMongoId(left: any, right: any): boolean {
+  if (
+    left === undefined ||
+    left === null ||
+    right === undefined ||
+    right === null
+  )
+    return false;
+  return String(left) === String(right);
+}
+
+async function getMongoMigrationMetadata(db: Db): Promise<{
+  tables: any[];
+  relations: any[];
+  tableById: Map<string, any>;
+}> {
+  const [tableStore, relationStore] = await Promise.all([
+    db.listCollections({ name: 'enfyra_table' }).toArray(),
+    db.listCollections({ name: 'enfyra_relation' }).toArray(),
+  ]);
+  const tables =
+    tableStore.length > 0
+      ? await db.collection('enfyra_table').find({}).toArray()
+      : [];
+  const relations =
+    relationStore.length > 0
+      ? await db.collection('enfyra_relation').find({}).toArray()
+      : [];
+  return {
+    tables,
+    relations,
+    tableById: new Map(tables.map((table) => [String(table._id), table])),
+  };
+}
+
+async function dropMongoIndexesContainingField(
+  db: Db,
+  collectionName: string,
+  fieldName: string,
+): Promise<void> {
+  const collections = await db
+    .listCollections({ name: collectionName })
+    .toArray();
+  if (collections.length === 0) return;
+
+  let indexes: any[] = [];
+  try {
+    indexes = await db.collection(collectionName).listIndexes().toArray();
+  } catch (error: any) {
+    if (error?.code === 26 || error?.codeName === 'NamespaceNotFound') return;
+    throw error;
+  }
+  for (const index of indexes) {
+    if (index.name === '_id_' || !index.key || !(fieldName in index.key))
+      continue;
+    await db.collection(collectionName).dropIndex(index.name);
+  }
+}
+
+function renameMongoIndexObjectKeys(
+  value: any,
+  oldFieldName: string,
+  newFieldName: string,
+): any {
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      renameMongoIndexObjectKeys(item, oldFieldName, newFieldName),
+    );
+  }
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key === oldFieldName ? newFieldName : key,
+      renameMongoIndexObjectKeys(item, oldFieldName, newFieldName),
+    ]),
+  );
+}
+
+async function renameMongoIndexesContainingField(
+  db: Db,
+  collectionName: string,
+  oldFieldName: string,
+  newFieldName: string,
+): Promise<void> {
+  const collections = await db
+    .listCollections({ name: collectionName })
+    .toArray();
+  if (collections.length === 0) return;
+
+  const indexes = await db.collection(collectionName).listIndexes().toArray();
+  for (const index of indexes) {
+    if (index.name === '_id_' || !index.key || !(oldFieldName in index.key)) {
+      continue;
+    }
+    const options = Object.fromEntries(
+      [
+        'unique',
+        'sparse',
+        'expireAfterSeconds',
+        'partialFilterExpression',
+        'collation',
+        'hidden',
+        'weights',
+        'default_language',
+        'language_override',
+      ]
+        .filter((key) => index[key] !== undefined)
+        .map((key) => [
+          key,
+          renameMongoIndexObjectKeys(index[key], oldFieldName, newFieldName),
+        ]),
+    );
+    const newIndexName = String(index.name).replaceAll(
+      oldFieldName,
+      newFieldName,
+    );
+    await db.collection(collectionName).dropIndex(index.name);
+    await db
+      .collection(collectionName)
+      .createIndex(
+        renameMongoIndexObjectKeys(index.key, oldFieldName, newFieldName),
+        {
+          ...options,
+          name:
+            newIndexName === index.name
+              ? `${index.name}_${newFieldName}`
+              : newIndexName,
+        },
+      );
+  }
+}
+
+async function migrateMongoRenamedField(
+  db: Db,
+  collectionName: string,
+  oldFieldName: string,
+  newFieldName: string,
+): Promise<number> {
+  const collection = db.collection(collectionName);
+  const conflictCount = await collection.countDocuments({
+    [oldFieldName]: { $exists: true },
+    [newFieldName]: { $exists: true },
+    $expr: { $ne: [`$${oldFieldName}`, `$${newFieldName}`] },
+  });
+  if (conflictCount > 0) {
+    throw new Error(
+      `Cannot rename ${collectionName}.${oldFieldName} to ${newFieldName}: ${conflictCount} conflicting document(s)`,
+    );
+  }
+  const copied = await collection.updateMany(
+    {
+      [oldFieldName]: { $exists: true },
+      [newFieldName]: { $exists: false },
+    },
+    [{ $set: { [newFieldName]: `$${oldFieldName}` } }],
+  );
+
+  await collection.updateMany(
+    { [oldFieldName]: { $exists: true } },
+    { $unset: { [oldFieldName]: '' } },
+  );
+  await renameMongoIndexesContainingField(
+    db,
+    collectionName,
+    oldFieldName,
+    newFieldName,
+  );
+  return copied.modifiedCount;
+}
+
+async function unsetMongoPhysicalField(
+  db: Db,
+  collectionName: string,
+  fieldName: string,
+): Promise<void> {
+  const collections = await db
+    .listCollections({ name: collectionName })
+    .toArray();
+  if (collections.length === 0) return;
+  await dropMongoIndexesContainingField(db, collectionName, fieldName);
+  await db
+    .collection(collectionName)
+    .updateMany(
+      { [fieldName]: { $exists: true } },
+      { $unset: { [fieldName]: '' } },
+    );
+}
+
+async function dropMongoCollectionIfExists(
+  db: Db,
+  collectionName: string,
+): Promise<void> {
+  const collections = await db
+    .listCollections({ name: collectionName })
+    .toArray();
+  if (collections.length === 0) return;
+  await db.dropCollection(collectionName);
+}
+
+async function cleanupMongoRelationPhysical(
+  db: Db,
+  relation: any,
+  tableById: Map<string, any>,
+  droppedJunctions: Set<string>,
+): Promise<void> {
+  const sourceTable = tableById.get(String(relation.sourceTable));
+  if (!sourceTable?.name) return;
+
+  if (relation.type === 'many-to-many') {
+    const junctionName = relation.junctionTableName;
+    if (junctionName && !droppedJunctions.has(junctionName)) {
+      await dropMongoCollectionIfExists(db, junctionName);
+      droppedJunctions.add(junctionName);
+    }
+    await unsetMongoPhysicalField(db, sourceTable.name, relation.propertyName);
+    return;
+  }
+
+  const isOwning =
+    !relation.mappedBy &&
+    (relation.type === 'many-to-one' || relation.type === 'one-to-one');
+  if (!isOwning) return;
+
+  await unsetMongoPhysicalField(
+    db,
+    sourceTable.name,
+    relation.foreignKeyColumn || relation.propertyName,
+  );
+}
+
+async function cleanupMongoTableDependencies(
+  db: Db,
+  tableName: string,
+): Promise<void> {
+  const metadata = await getMongoMigrationMetadata(db);
+  const table = metadata.tables.find((item) => item.name === tableName);
+  if (!table) return;
+
+  const droppedJunctions = new Set<string>();
+  for (const relation of metadata.relations) {
+    if (
+      !sameMongoId(relation.sourceTable, table._id) &&
+      !sameMongoId(relation.targetTable, table._id)
+    ) {
+      continue;
+    }
+    await cleanupMongoRelationPhysical(
+      db,
+      relation,
+      metadata.tableById,
+      droppedJunctions,
+    );
+  }
+}
+
+async function cleanupMongoRemovedRelation(
+  db: Db,
+  tableName: string,
+  propertyName: string,
+): Promise<void> {
+  const metadata = await getMongoMigrationMetadata(db);
+  const table = metadata.tables.find((item) => item.name === tableName);
+  const relation = table
+    ? metadata.relations.find(
+        (item) =>
+          sameMongoId(item.sourceTable, table._id) &&
+          item.propertyName === propertyName,
+      )
+    : null;
+  if (!relation) {
+    await unsetMongoPhysicalField(db, tableName, propertyName);
+    return;
+  }
+  await cleanupMongoRelationPhysical(
+    db,
+    relation,
+    metadata.tableById,
+    new Set<string>(),
+  );
 }
 
 /**
@@ -711,8 +1624,12 @@ export async function applyMongoSchemaMigrations(
 async function applyMongoCollectionMigration(
   db: Db,
   migration: TableMigrationDef,
+  options: MongoPhysicalMigrationOptions,
 ): Promise<void> {
   const collectionName = migration._unique.name._eq;
+  const preservedFields = new Set(
+    options.preserveFieldsByCollection?.[collectionName] ?? [],
+  );
   const collections = await db
     .listCollections({ name: collectionName })
     .toArray();
@@ -736,19 +1653,17 @@ async function applyMongoCollectionMigration(
       const oldName = mod.from.name;
       const newName = mod.to.name;
 
-      if (oldName !== newName) {
-        try {
-          const result = await collection.updateMany(
-            { [oldName]: { $exists: true } },
-            { $rename: { [oldName]: newName } },
+      if (oldName !== newName && !preservedFields.has(oldName)) {
+        const modifiedCount = await migrateMongoRenamedField(
+          db,
+          collectionName,
+          oldName,
+          newName,
+        );
+        if (modifiedCount > 0) {
+          console.log(
+            `  ✏️  Renamed field: ${oldName} → ${newName} (${modifiedCount} documents)`,
           );
-          if (result.modifiedCount > 0) {
-            console.log(
-              `  ✏️  Renamed field: ${oldName} → ${newName} (${result.modifiedCount} documents)`,
-            );
-          }
-        } catch {
-          // Silently skip if rename fails (field may not exist)
         }
       }
     }
@@ -757,19 +1672,9 @@ async function applyMongoCollectionMigration(
   // Handle column removals
   if (migration.columnsToRemove && migration.columnsToRemove.length > 0) {
     for (const fieldName of migration.columnsToRemove) {
-      try {
-        const result = await collection.updateMany(
-          { [fieldName]: { $exists: true } },
-          { $unset: { [fieldName]: '' } },
-        );
-        if (result.modifiedCount > 0) {
-          console.log(
-            `  ❌ Removed field: ${fieldName} (${result.modifiedCount} documents)`,
-          );
-        }
-      } catch {
-        // Silently skip if removal fails
-      }
+      if (preservedFields.has(fieldName)) continue;
+      await unsetMongoPhysicalField(db, collectionName, fieldName);
+      console.log(`  ❌ Removed field: ${fieldName}`);
     }
   }
 
@@ -784,72 +1689,56 @@ async function applyMongoCollectionMigration(
       const oldName = mod.from.propertyName;
       const newName = mod.to.propertyName;
 
-      if (oldName !== newName) {
-        try {
-          const result = await collection.updateMany(
-            { [oldName]: { $exists: true } },
-            { $rename: { [oldName]: newName } },
+      if (oldName !== newName && !preservedFields.has(oldName)) {
+        const modifiedCount = await migrateMongoRenamedField(
+          db,
+          collectionName,
+          oldName,
+          newName,
+        );
+        if (modifiedCount > 0) {
+          console.log(
+            `  ✏️  Renamed relation field: ${oldName} → ${newName} (${modifiedCount} documents)`,
           );
-          if (result.modifiedCount > 0) {
-            console.log(
-              `  ✏️  Renamed relation field: ${oldName} → ${newName} (${result.modifiedCount} documents)`,
-            );
-          }
-        } catch {
-          // Silently skip if rename fails
         }
       }
     }
   }
 
   if (migration.relationsToRemove && migration.relationsToRemove.length > 0) {
-    const toRemove = [...migration.relationsToRemove];
+    const toRemove = migration.relationsToRemove.filter(
+      (field) => !preservedFields.has(field),
+    );
     if (
       collectionName === 'enfyra_file_permission' &&
       toRemove.includes('allowedUsers')
     ) {
-      try {
-        const cursor = collection.find({
-          allowedUsers: { $exists: true, $not: { $type: 'array' } },
-        });
-        let count = 0;
-        for await (const doc of cursor) {
-          await collection.updateOne(
-            { _id: doc._id },
-            {
-              $set: {
-                allowedUsers: Array.isArray(doc.allowedUsers)
-                  ? doc.allowedUsers
-                  : [doc.allowedUsers],
-              },
+      const cursor = collection.find({
+        allowedUsers: { $exists: true, $not: { $type: 'array' } },
+      });
+      let count = 0;
+      for await (const doc of cursor) {
+        await collection.updateOne(
+          { _id: doc._id },
+          {
+            $set: {
+              allowedUsers: Array.isArray(doc.allowedUsers)
+                ? doc.allowedUsers
+                : [doc.allowedUsers],
             },
-          );
-          count++;
-        }
-        if (count > 0) {
-          console.log(
-            `  📦 Converted allowedUsers to array (${count} documents)`,
-          );
-        }
-        toRemove.splice(toRemove.indexOf('allowedUsers'), 1);
-      } catch {
-        toRemove.splice(toRemove.indexOf('allowedUsers'), 1);
+          },
+        );
+        count++;
       }
+      if (count > 0) {
+        console.log(
+          `  📦 Converted allowedUsers to array (${count} documents)`,
+        );
+      }
+      toRemove.splice(toRemove.indexOf('allowedUsers'), 1);
     }
     for (const relName of toRemove) {
-      try {
-        const result = await collection.updateMany(
-          { [relName]: { $exists: true } },
-          { $unset: { [relName]: '' } },
-        );
-        if (result.modifiedCount > 0) {
-          console.log(
-            `  ❌ Removed relation field: ${relName} (${result.modifiedCount} documents)`,
-          );
-        }
-      } catch {
-        // Silently skip if removal fails
-      }
+      await cleanupMongoRemovedRelation(db, collectionName, relName);
     }
   }
 }

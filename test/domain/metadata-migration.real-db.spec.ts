@@ -60,10 +60,15 @@ function normalizeSqlBooleans<T extends Record<string, any>>(rows: T[]): T[] {
   return rows.map((row) => ({
     ...row,
     ...(Object.prototype.hasOwnProperty.call(row, 'isPublished')
-      ? { isPublished: Boolean(row.isPublished) }
+      ? {
+          isPublished:
+            row.isPublished === null ? null : Boolean(row.isPublished),
+        }
       : {}),
     ...(Object.prototype.hasOwnProperty.call(row, 'isPublic')
-      ? { isPublic: Boolean(row.isPublic) }
+      ? {
+          isPublic: row.isPublic === null ? null : Boolean(row.isPublic),
+        }
       : {}),
   }));
 }
@@ -340,7 +345,7 @@ describe('MetadataMigrationService real DB self-healing stress', () => {
       }
     });
 
-    test(`preserves conflicting physical rename data on ${config.name}`, async () => {
+    test(`rejects conflicting physical rename atomically on ${config.name}`, async () => {
       const available = await probeSql(config);
       if (!available) {
         console.warn(`${config.name} not available, skipping SQL stress test`);
@@ -366,18 +371,20 @@ describe('MetadataMigrationService real DB self-healing stress', () => {
           } as any,
           verbose: () => undefined,
         });
-        await helper.renameSqlPhysicalColumnIfNeeded(
-          'enfyra_file',
-          'isPublished',
-          'isPublic',
-        );
+        await expect(
+          helper.renameSqlPhysicalColumnIfNeeded(
+            'enfyra_file',
+            'isPublished',
+            'isPublic',
+          ),
+        ).rejects.toThrow(/conflicting row/);
 
         const rows = normalizeSqlBooleans(
           await db('enfyra_file').select('*').orderBy('id'),
         );
         expect(rows).toEqual([
           { id: 1, isPublished: true, isPublic: false },
-          { id: 2, isPublished: true, isPublic: true },
+          { id: 2, isPublished: true, isPublic: null },
         ]);
         expect(await db.schema.hasColumn('enfyra_file', 'isPublished')).toBe(
           true,
@@ -585,7 +592,7 @@ describe('MetadataMigrationService real DB self-healing stress', () => {
     }
   });
 
-  test('preserves conflicting physical rename data on MongoDB', async () => {
+  test('rejects conflicting physical rename atomically on MongoDB', async () => {
     const available = await probeMongo();
     if (!available) {
       console.warn('MongoDB not available, skipping Mongo stress test');
@@ -612,11 +619,13 @@ describe('MetadataMigrationService real DB self-healing stress', () => {
         } as any,
         verbose: () => undefined,
       });
-      await helper.renameMongoDocumentFieldIfNeeded(
-        'enfyra_file',
-        'isPublished',
-        'isPublic',
-      );
+      await expect(
+        helper.renameMongoDocumentFieldIfNeeded(
+          'enfyra_file',
+          'isPublished',
+          'isPublic',
+        ),
+      ).rejects.toThrow(/conflicting document/);
 
       const rows = await db
         .collection('enfyra_file')
@@ -625,7 +634,7 @@ describe('MetadataMigrationService real DB self-healing stress', () => {
         .toArray();
       expect(rows).toEqual([
         { _id: 'file-1', isPublished: true, isPublic: false },
-        { _id: 'file-2', isPublished: true, isPublic: true },
+        { _id: 'file-2', isPublished: true },
       ]);
     } finally {
       if (db) await db.dropDatabase();

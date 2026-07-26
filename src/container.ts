@@ -89,6 +89,7 @@ import {
 } from './domain/bootstrap';
 
 import {
+  BootstrapDefinitionService,
   DataMigrationService,
   DataProvisionService,
   FirstRunInitializer,
@@ -98,6 +99,7 @@ import {
   MetadataProvisionService,
   ProvisionService,
   SchemaHealingService,
+  SnapshotTargetVerifierService,
   SystemCoreTableResolver,
 } from './engines/bootstrap';
 
@@ -394,6 +396,9 @@ export interface Cradle {
   dataProvisionService: DataProvisionService;
   dataMigrationService: DataMigrationService;
   metadataMigrationService: MetadataMigrationService;
+  snapshotTargetVerifierService: SnapshotTargetVerifierService;
+  bootstrapDefinitionService: BootstrapDefinitionService;
+  bootstrapDataRoot: string;
   bootstrapScriptService: BootstrapScriptService;
 
   userDefinitionProcessor: UserDefinitionProcessor;
@@ -433,6 +438,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
   });
 
   container.register({
+    bootstrapDataRoot: asValue(process.cwd()),
     envService: asClass(EnvService).singleton(),
     configService: asValue({
       get: (key: string, defaultValue?: any) =>
@@ -710,6 +716,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     websocketContextFactory: asClass(WebsocketContextFactory).singleton(),
 
     provisionService: asClass(ProvisionService).singleton(),
+    bootstrapDefinitionService: asClass(BootstrapDefinitionService).singleton(),
     firstRunInitializer: asClass(FirstRunInitializer).singleton(),
     schemaHealingService: asClass(SchemaHealingService).singleton(),
     systemCoreTableResolver: asClass(SystemCoreTableResolver).singleton(),
@@ -723,6 +730,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     dataProvisionService: asClass(DataProvisionService).singleton(),
     dataMigrationService: asClass(DataMigrationService).singleton(),
     metadataMigrationService: asClass(MetadataMigrationService).singleton(),
+    snapshotTargetVerifierService: asClass(
+      SnapshotTargetVerifierService,
+    ).singleton(),
     bootstrapScriptService: asClass(BootstrapScriptService).singleton(),
 
     userDefinitionProcessor: asClass(UserDefinitionProcessor).singleton(),

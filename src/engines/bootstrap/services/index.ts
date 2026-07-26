@@ -1,3 +1,4 @@
+export * from './bootstrap-definition.service';
 export * from './data-migration.service';
 export * from './data-provision.service';
 export * from './first-run-initializer.service';
@@ -6,5 +7,6 @@ export * from './metadata-provision-mongo.service';
 export * from './metadata-provision-sql.service';
 export * from './metadata-provision.service';
 export * from './schema-healing.service';
+export * from './snapshot-target-verifier.service';
 export * from './provision.service';
 export * from './system-core-table-resolver.service';

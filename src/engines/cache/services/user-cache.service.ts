@@ -50,6 +50,32 @@ export class UserCacheService implements ICache {
     return true;
   }
 
+  async renew(key: string, value: any, ttlMs: number): Promise<boolean> {
+    const decoratedKey = this.decorateKey(key);
+    const lua = `
+      if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("pexpire", KEYS[1], ARGV[2])
+      else
+        return 0
+      end`;
+    try {
+      const renewed = await this.redis.eval(
+        lua,
+        1,
+        decoratedKey,
+        this.serialize(value),
+        ttlMs,
+      );
+      if (renewed === 1) {
+        await this.touch(decoratedKey);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
   async release(key: string, value: any): Promise<boolean> {
     const decoratedKey = this.decorateKey(key);
     const serializedValue = this.serialize(value);

@@ -61,23 +61,22 @@ export class MetadataPhysicalMigrationHelper {
       : null;
     if (!db) return;
 
-    await db
-      .collection(tableName)
-      .updateMany(
-        { [oldName]: { $exists: true }, [newName]: { $exists: false } },
-        [{ $set: { [newName]: `$${oldName}` } }],
-      );
     const conflictCount = await db.collection(tableName).countDocuments({
       [oldName]: { $exists: true },
       [newName]: { $exists: true },
       $expr: { $ne: [`$${oldName}`, `$${newName}`] },
     });
     if (conflictCount > 0) {
-      this.verbose(
-        `  Preserved legacy document field ${tableName}.${oldName}; ${conflictCount} document(s) conflict with ${newName}`,
+      throw new Error(
+        `Cannot rename ${tableName}.${oldName} to ${newName}: ${conflictCount} conflicting document(s)`,
       );
-      return;
     }
+    await db
+      .collection(tableName)
+      .updateMany(
+        { [oldName]: { $exists: true }, [newName]: { $exists: false } },
+        [{ $set: { [newName]: `$${oldName}` } }],
+      );
     await db
       .collection(tableName)
       .updateMany(
@@ -103,23 +102,22 @@ export class MetadataPhysicalMigrationHelper {
     if (!oldExists) return;
 
     if (newExists) {
-      await knex.raw('UPDATE ?? SET ?? = ?? WHERE ?? IS NULL', [
-        tableName,
-        newName,
-        oldName,
-        newName,
-      ]);
       const conflictResult = await knex.raw(
         'SELECT COUNT(*) AS count FROM ?? WHERE ?? IS NOT NULL AND ?? IS NOT NULL AND ?? <> ??',
         [tableName, oldName, newName, oldName, newName],
       );
       const conflictCount = this.readSqlCount(conflictResult);
       if (conflictCount > 0) {
-        this.verbose(
-          `  Preserved legacy physical column ${tableName}.${oldName}; ${conflictCount} row(s) conflict with ${newName}`,
+        throw new Error(
+          `Cannot rename ${tableName}.${oldName} to ${newName}: ${conflictCount} conflicting row(s)`,
         );
-        return;
       }
+      await knex.raw('UPDATE ?? SET ?? = ?? WHERE ?? IS NULL', [
+        tableName,
+        newName,
+        oldName,
+        newName,
+      ]);
       await knex.schema.alterTable(tableName, (table: any) => {
         table.dropColumn(oldName);
       });

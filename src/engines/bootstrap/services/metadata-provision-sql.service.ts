@@ -13,7 +13,6 @@ import {
   createAllTables,
   supportsSqlColumnDefault,
 } from '../../knex';
-import { loadRelationRenameMap } from '../../../domain/bootstrap';
 import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
 import { SystemCoreTableResolver } from './system-core-table-resolver.service';
 
@@ -69,6 +68,7 @@ export class MetadataProvisionSqlService {
             table.string('alias').nullable().unique();
             table.text('description').nullable();
             table.json('metadata').nullable();
+            table.boolean('validateBody').notNullable().defaultTo(true);
             table.timestamp('createdAt').defaultTo(qb.fn.now());
             table.timestamp('updatedAt').defaultTo(qb.fn.now());
           });
@@ -144,12 +144,30 @@ export class MetadataProvisionSqlService {
             table.timestamp('updatedAt').defaultTo(qb.fn.now());
           });
         }
+      } else if (tableName === coreNames.table) {
+        await this.ensureTableDefinitionPhysicalColumns(qb, coreNames.table);
       } else if (tableName === coreNames.relation) {
         await this.ensureRelationDefinitionPhysicalColumns(
           qb,
           coreNames.relation,
         );
       }
+    }
+  }
+
+  private async ensureTableDefinitionPhysicalColumns(
+    qb: any,
+    tableName: string,
+  ): Promise<void> {
+    if (!(await qb.schema.hasColumn(tableName, 'metadata'))) {
+      await qb.schema.alterTable(tableName, (table: any) => {
+        table.json('metadata').nullable();
+      });
+    }
+    if (!(await qb.schema.hasColumn(tableName, 'validateBody'))) {
+      await qb.schema.alterTable(tableName, (table: any) => {
+        table.boolean('validateBody').notNullable().defaultTo(true);
+      });
     }
   }
 
@@ -203,19 +221,6 @@ export class MetadataProvisionSqlService {
         const exist = existingTableMap.get(def.name);
         if (exist) {
           tableNameToId[name] = exist.id;
-          const { columns: _c, relations: _r, ...rest } = def;
-          if (this.detectTableChanges(rest, exist)) {
-            await trx(coreNames.table)
-              .where('id', exist.id)
-              .update({
-                isSystem: rest.isSystem,
-                isSingleRecord: rest.isSingleRecord || false,
-                alias: rest.alias,
-                description: rest.description,
-                uniques: JSON.stringify(rest.uniques || []),
-                indexes: JSON.stringify(rest.indexes || []),
-              });
-          }
         } else {
           const { columns: _c, relations: _r, ...rest } = def;
           if (!rest.name) {
@@ -232,6 +237,8 @@ export class MetadataProvisionSqlService {
             description: rest.description,
             uniques: JSON.stringify(rest.uniques || []),
             indexes: JSON.stringify(rest.indexes || []),
+            metadata: JSON.stringify(rest.metadata ?? null),
+            validateBody: rest.validateBody ?? true,
           });
           tableNameToId[name] = insertedId;
         }
@@ -277,20 +284,6 @@ export class MetadataProvisionSqlService {
               placeholder: snapshotCol.placeholder,
               tableId,
             });
-          } else if (this.detectColumnChanges(snapshotCol, existingCol)) {
-            await trx(coreNames.column)
-              .where('id', existingCol.id)
-              .update({
-                type: snapshotCol.type,
-                isNullable: snapshotCol.isNullable ?? true,
-                isPrimary: snapshotCol.isPrimary || false,
-                isGenerated: snapshotCol.isGenerated || false,
-                defaultValue: JSON.stringify(snapshotCol.defaultValue ?? null),
-                options: JSON.stringify(snapshotCol.options || null),
-                isUpdatable: snapshotCol.isUpdatable ?? true,
-                isPublished: snapshotCol.isPublished ?? true,
-                isEncrypted: snapshotCol.isEncrypted ?? false,
-              });
           }
         }
       }
@@ -311,7 +304,6 @@ export class MetadataProvisionSqlService {
           relationsBySourceTable.set(rel.sourceTableId, []);
         relationsBySourceTable.get(rel.sourceTableId)!.push(rel);
       }
-      const relationRenameMap = loadRelationRenameMap();
       const relationIdMap = new Map<string, number>();
 
       const owningRelations: Array<{
@@ -323,6 +315,7 @@ export class MetadataProvisionSqlService {
         tableName: string;
         tableId: number;
         relation: any;
+        sourceRelation: any;
         owningTableName: string;
         owningPropertyName: string;
       }> = [];
@@ -347,13 +340,20 @@ export class MetadataProvisionSqlService {
             let inverseType = rel.type;
             if (rel.type === 'many-to-one') inverseType = 'one-to-many';
             else if (rel.type === 'one-to-many') inverseType = 'many-to-one';
+            const declaredInverse = (
+              (snapshot[rel.targetTable] as any)?.relations || []
+            ).find(
+              (candidate: any) =>
+                candidate.propertyName === rel.inversePropertyName,
+            );
             const inverseRelation: any = {
-              propertyName: rel.inversePropertyName,
-              type: inverseType,
-              targetTable: name,
               isSystem: rel.isSystem,
               isNullable: rel.isNullable,
               isUpdatable: rel.isUpdatable,
+              ...declaredInverse,
+              propertyName: rel.inversePropertyName,
+              type: inverseType,
+              targetTable: name,
             };
             if (inverseType === 'many-to-many') {
               inverseRelation.junctionTableName = getJunctionTableName(
@@ -366,6 +366,7 @@ export class MetadataProvisionSqlService {
               tableName: rel.targetTable,
               tableId: targetId,
               relation: inverseRelation,
+              sourceRelation: rel,
               owningTableName: name,
               owningPropertyName: rel.propertyName,
             });
@@ -385,91 +386,10 @@ export class MetadataProvisionSqlService {
         const targetId = tableNameToId[rel.targetTable];
         if (!targetId) return;
         const existingRels = relationsBySourceTable.get(tableId) || [];
-        let existingRel = existingRels.find(
+        const existingRel = existingRels.find(
           (r: any) => r.propertyName === rel.propertyName,
         );
-        if (!existingRel && relationRenameMap[tableName]?.[rel.propertyName]) {
-          const oldName = relationRenameMap[tableName][rel.propertyName];
-          existingRel = existingRels.find(
-            (r: any) => r.propertyName === oldName,
-          );
-        }
         if (existingRel) {
-          const inferredForeignKeyColumn =
-            rel.type === 'many-to-one' || rel.type === 'one-to-one'
-              ? rel.foreignKeyColumn ||
-                existingRel.foreignKeyColumn ||
-                getForeignKeyColumnName(rel.propertyName)
-              : null;
-          const inferredReferencedColumn =
-            rel.type === 'many-to-one' || rel.type === 'one-to-one'
-              ? rel.referencedColumn || existingRel.referencedColumn || 'id'
-              : null;
-          const junctionChanged =
-            rel.type === 'many-to-many' &&
-            ((rel.junctionSourceColumn &&
-              rel.junctionSourceColumn !== existingRel.junctionSourceColumn) ||
-              (rel.junctionTargetColumn &&
-                rel.junctionTargetColumn !== existingRel.junctionTargetColumn));
-          const physicalMappingChanged =
-            (rel.type === 'many-to-one' || rel.type === 'one-to-one') &&
-            (inferredForeignKeyColumn !== existingRel.foreignKeyColumn ||
-              inferredReferencedColumn !== existingRel.referencedColumn ||
-              (rel.constraintName &&
-                rel.constraintName !== existingRel.constraintName));
-          const needsUpdate =
-            rel.propertyName !== existingRel.propertyName ||
-            (rel.isNullable !== undefined &&
-              rel.isNullable !== existingRel.isNullable) ||
-            mappedById !== existingRel.mappedById ||
-            (rel.type !== undefined && rel.type !== existingRel.type) ||
-            (targetId !== undefined &&
-              targetId !== existingRel.targetTableId) ||
-            (rel.isUpdatable !== undefined &&
-              rel.isUpdatable !== existingRel.isUpdatable) ||
-            junctionChanged ||
-            physicalMappingChanged;
-          if (needsUpdate) {
-            const updateData: any = {
-              propertyName: rel.propertyName,
-              mappedById,
-            };
-            if (rel.isNullable !== undefined)
-              updateData.isNullable = rel.isNullable;
-            if (rel.isSystem !== undefined) updateData.isSystem = rel.isSystem;
-            if (rel.isUpdatable !== undefined)
-              updateData.isUpdatable = rel.isUpdatable;
-            if (rel.type !== undefined) updateData.type = rel.type;
-            if (targetId !== undefined) updateData.targetTableId = targetId;
-            if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-              updateData.foreignKeyColumn = inferredForeignKeyColumn;
-              updateData.referencedColumn = inferredReferencedColumn;
-              if (rel.constraintName) {
-                updateData.constraintName = rel.constraintName;
-              }
-            }
-            if (rel.type === 'many-to-many') {
-              updateData.junctionTableName =
-                rel.junctionTableName ||
-                existingRel.junctionTableName ||
-                getJunctionTableName(
-                  tableName,
-                  rel.propertyName,
-                  rel.targetTable,
-                );
-              updateData.junctionSourceColumn =
-                rel.junctionSourceColumn ||
-                existingRel.junctionSourceColumn ||
-                getForeignKeyColumnName(tableName);
-              updateData.junctionTargetColumn =
-                rel.junctionTargetColumn ||
-                existingRel.junctionTargetColumn ||
-                getForeignKeyColumnName(rel.targetTable);
-            }
-            await trx(coreNames.relation)
-              .where('id', existingRel.id)
-              .update(updateData);
-          }
           return existingRel.id;
         } else {
           const insertData: any = {
@@ -479,7 +399,9 @@ export class MetadataProvisionSqlService {
             isNullable: rel.isNullable !== false,
             isSystem: rel.isSystem || false,
             isUpdatable: rel.isUpdatable !== false,
-            description: rel.description,
+            isPublished: rel.isPublished !== false,
+            onDelete: rel.onDelete || 'SET NULL',
+            description: rel.description ?? null,
             sourceTableId: tableId,
             targetTableId: targetId,
           };
@@ -526,6 +448,7 @@ export class MetadataProvisionSqlService {
         tableName,
         tableId,
         relation: rel,
+        sourceRelation,
         owningTableName,
         owningPropertyName,
       } of inverseRelations) {
@@ -562,6 +485,7 @@ export class MetadataProvisionSqlService {
                 owningTableName,
                 tableNameToId[owningTableName]!,
                 {
+                  ...sourceRelation,
                   propertyName: owningPropertyName,
                   type: reverseRelType,
                   targetTable: tableName,
@@ -607,7 +531,7 @@ export class MetadataProvisionSqlService {
     await createAllTables(qb, physicalSchemas, this.dbType);
 
     for (const schema of physicalSchemas) {
-      await syncTable(qb, schema, physicalSchemas);
+      await syncTable(qb, schema, physicalSchemas, { additiveOnly: true });
     }
 
     if (!options.skipJunctionTables) {
@@ -715,58 +639,6 @@ export class MetadataProvisionSqlService {
     };
     return typeMap[col.type] || col.type;
   }
-  private detectTableChanges(snapshotTable: any, existingTable: any): boolean {
-    const parseJson = (val: any) => {
-      if (typeof val === 'string') {
-        try {
-          return JSON.parse(val);
-        } catch {
-          return val;
-        }
-      }
-      return val;
-    };
-    const snapshotIsSingleRecord = snapshotTable.isSingleRecord || false;
-    if (snapshotIsSingleRecord !== (existingTable.isSingleRecord || false)) {
-      return true;
-    }
-    const hasChanges =
-      snapshotTable.isSystem !== existingTable.isSystem ||
-      snapshotTable.alias !== existingTable.alias ||
-      snapshotTable.description !== existingTable.description ||
-      JSON.stringify(snapshotTable.uniques) !==
-        JSON.stringify(parseJson(existingTable.uniques)) ||
-      JSON.stringify(snapshotTable.indexes) !==
-        JSON.stringify(parseJson(existingTable.indexes));
-    return hasChanges;
-  }
-  private detectColumnChanges(snapshotCol: any, existingCol: any): boolean {
-    const parseJson = (val: any) => {
-      if (typeof val === 'string') {
-        try {
-          return JSON.parse(val);
-        } catch {
-          return val;
-        }
-      }
-      return val;
-    };
-    const hasChanges =
-      snapshotCol.type !== existingCol.type ||
-      snapshotCol.isNullable !== existingCol.isNullable ||
-      snapshotCol.isPrimary !== existingCol.isPrimary ||
-      snapshotCol.isGenerated !== existingCol.isGenerated ||
-      JSON.stringify(snapshotCol.defaultValue) !==
-        JSON.stringify(parseJson(existingCol.defaultValue)) ||
-      JSON.stringify(snapshotCol.options) !==
-        JSON.stringify(parseJson(existingCol.options)) ||
-      snapshotCol.isUpdatable !== existingCol.isUpdatable ||
-      (snapshotCol.isPublished ?? true) !== (existingCol.isPublished ?? true) ||
-      (snapshotCol.isEncrypted ?? false) !==
-        (existingCol.isEncrypted === true || existingCol.isEncrypted === 1);
-    return hasChanges;
-  }
-
   private verbose(message: string): void {
     bootstrapVerboseLog(this.logger, message);
   }

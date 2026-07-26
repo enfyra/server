@@ -4,6 +4,10 @@ import type { FkRelationInfo } from '../types';
 
 let cachedSnapshot: Record<string, any> | null = null;
 
+export function setBootstrapSnapshot(snapshot: Record<string, any>): void {
+  cachedSnapshot = snapshot;
+}
+
 export function getSnapshot(): Record<string, any> {
   if (cachedSnapshot) return cachedSnapshot;
   const filePath = path.join(process.cwd(), 'data/snapshot.json');

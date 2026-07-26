@@ -3,8 +3,6 @@ import { QueryBuilderService } from '@enfyra/kernel';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { DatabaseConfigService } from '../../../shared/services';
 import { BcryptService } from '../../../domain/auth';
-import * as fs from 'fs';
-import * as path from 'path';
 
 import {
   BaseTableProcessor,
@@ -32,9 +30,7 @@ import {
 } from '../../../domain/bootstrap';
 import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
 import { SYSTEM_TABLES } from '../../../shared/utils/system-tables.constants';
-const initJson = JSON.parse(
-  fs.readFileSync(path.join(process.cwd(), 'data/default-data.json'), 'utf8'),
-);
+import { BootstrapDefinitionService } from './bootstrap-definition.service';
 
 export class DataProvisionService {
   private readonly logger = new Logger(DataProvisionService.name);
@@ -62,6 +58,7 @@ export class DataProvisionService {
   private readonly flowExecutionDefinitionProcessor: FlowExecutionDefinitionProcessor;
   private readonly graphqlDefinitionProcessor: GraphQLDefinitionProcessor;
   private readonly dbType: string;
+  private readonly initJson: Record<string, any>;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
@@ -86,6 +83,7 @@ export class DataProvisionService {
     flowStepDefinitionProcessor: FlowStepDefinitionProcessor;
     flowExecutionDefinitionProcessor: FlowExecutionDefinitionProcessor;
     graphqlDefinitionProcessor: GraphQLDefinitionProcessor;
+    bootstrapDefinitionService?: BootstrapDefinitionService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.databaseConfigService = deps.databaseConfigService;
@@ -114,6 +112,10 @@ export class DataProvisionService {
     this.flowExecutionDefinitionProcessor =
       deps.flowExecutionDefinitionProcessor;
     this.graphqlDefinitionProcessor = deps.graphqlDefinitionProcessor;
+    this.initJson = (
+      deps.bootstrapDefinitionService ??
+      new BootstrapDefinitionService({ bootstrapDataRoot: process.cwd() })
+    ).getDefaultData();
     this.dbType = this.databaseConfigService.getDbType();
     this.initializeProcessors();
   }
@@ -169,7 +171,7 @@ export class DataProvisionService {
     );
     this.processors.set(SYSTEM_TABLES.graphql, this.graphqlDefinitionProcessor);
 
-    const allTables = Object.keys(initJson);
+    const allTables = Object.keys(this.initJson);
     const registeredTables = Array.from(this.processors.keys());
 
     for (const tableName of allTables) {
@@ -210,7 +212,7 @@ export class DataProvisionService {
       }
     }
 
-    for (const [tableName, rawRecords] of Object.entries(initJson)) {
+    for (const [tableName, rawRecords] of Object.entries(this.initJson)) {
       const processor = this.processors.get(tableName);
       if (!processor) {
         this.logger.warn(`No processor found for '${tableName}', skipping.`);
@@ -255,23 +257,10 @@ export class DataProvisionService {
     this.verbose(
       `Default data upsert completed! Total: ${totalCreated} created, ${totalSkipped} skipped`,
     );
-
-    if (this.routeDefinitionProcessor) {
-      this.verbose('Ensuring missing route handlers...');
-      try {
-        await this.routeDefinitionProcessor.ensureMissingHandlers();
-      } catch (error) {
-        this.logger.error(
-          `Error ensuring route handlers: ${getErrorMessage(error)}`,
-        );
-        this.logger.debug(getErrorMessage(error));
-        throw error;
-      }
-    }
   }
 
   async insertTableRecords(tableName: string): Promise<UpsertResult> {
-    const rawRecords = initJson[tableName];
+    const rawRecords = this.initJson[tableName];
     if (!rawRecords) {
       this.logger.warn(`No data found in default-data.json for '${tableName}'`);
       return { created: 0, skipped: 0 };

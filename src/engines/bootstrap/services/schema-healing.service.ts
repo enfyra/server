@@ -1,6 +1,4 @@
 import { Logger } from '../../../shared/logger';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import {
   QueryBuilderService,
   getForeignKeyColumnName,
@@ -12,32 +10,41 @@ import { DatabaseConfigService } from '../../../shared/services';
 import {
   MONGO_PRIMARY_KEY_NAME,
   MONGO_PRIMARY_KEY_TYPE,
+  normalizeMongoPrimaryKeyColumn,
 } from '../../../modules/table-management/utils/mongo-primary-key.util';
 import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';
 import { buildSqlJunctionTableContract } from '../../knex/utils/sql-physical-schema-contract';
 import { addColumnToTable } from '../../knex/utils/migration/column-operations';
 import { SystemCoreTableResolver } from './system-core-table-resolver.service';
+import { BootstrapDefinitionService } from './bootstrap-definition.service';
 
 export class SchemaHealingService {
   private readonly logger = new Logger(SchemaHealingService.name);
   private readonly queryBuilderService: QueryBuilderService;
   private readonly metadataCacheService: MetadataCacheService;
   private readonly systemCoreTableResolver: SystemCoreTableResolver;
+  private readonly bootstrapDefinitionService: BootstrapDefinitionService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     metadataCacheService: MetadataCacheService;
     systemCoreTableResolver: SystemCoreTableResolver;
+    bootstrapDefinitionService?: BootstrapDefinitionService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.metadataCacheService = deps.metadataCacheService;
     this.systemCoreTableResolver = deps.systemCoreTableResolver;
+    this.bootstrapDefinitionService =
+      deps.bootstrapDefinitionService ??
+      new BootstrapDefinitionService({ bootstrapDataRoot: process.cwd() });
   }
 
   async runIfNeeded(): Promise<void> {
-    const setting = await this.loadSetting();
-    if (!setting) return;
+    await this.repairDerivedContracts();
+    await this.runExplicitRepairsIfNeeded();
+  }
 
+  async repairDerivedContracts(): Promise<void> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
 
     const relationPhysicalMappingRepairCount =
@@ -84,8 +91,12 @@ export class SchemaHealingService {
         `Repaired Mongo primary key metadata on ${mongoPrimaryKeyRepairCount} table(s)`,
       );
     }
+  }
 
-    if (setting.uniquesIndexesRepaired !== true) {
+  async runExplicitRepairsIfNeeded(): Promise<void> {
+    const setting = await this.loadSetting();
+    if (setting && setting.uniquesIndexesRepaired !== true) {
+      await this.metadataCacheService.reload();
       const repairedCount = await this.repairUserTables();
       await this.markRepaired(setting);
 
@@ -142,14 +153,50 @@ export class SchemaHealingService {
 
   private loadSnapshot(): Record<
     string,
-    { name?: string; isSystem?: boolean; columns?: any[] }
-  > | null {
-    const snapshotPath = path.resolve(process.cwd(), 'data/snapshot.json');
-    if (!fs.existsSync(snapshotPath)) return null;
-    return JSON.parse(fs.readFileSync(snapshotPath, 'utf8')) as Record<
+    {
+      name?: string;
+      isSystem?: boolean;
+      columns?: any[];
+      relations?: any[];
+    }
+  > {
+    return this.bootstrapDefinitionService.getSnapshot() as Record<
       string,
-      { name?: string; isSystem?: boolean; columns?: any[] }
+      {
+        name?: string;
+        isSystem?: boolean;
+        columns?: any[];
+        relations?: any[];
+      }
     >;
+  }
+
+  private getTargetJunctionContract(
+    snapshot: ReturnType<SchemaHealingService['loadSnapshot']>,
+    input: {
+      sourceTable: string;
+      propertyName: string;
+      targetTable: string;
+    },
+  ): {
+    junctionTableName: string;
+    junctionSourceColumn: string;
+    junctionTargetColumn: string;
+  } {
+    const standard = getSqlJunctionPhysicalNames(input);
+    const relation = snapshot?.[input.sourceTable]?.relations?.find(
+      (entry: any) =>
+        entry.propertyName === input.propertyName &&
+        entry.targetTable === input.targetTable,
+    );
+    return {
+      junctionTableName:
+        relation?.junctionTableName || standard.junctionTableName,
+      junctionSourceColumn:
+        relation?.junctionSourceColumn || standard.junctionSourceColumn,
+      junctionTargetColumn:
+        relation?.junctionTargetColumn || standard.junctionTargetColumn,
+    };
   }
 
   private async repairRelationPhysicalMappings(
@@ -363,7 +410,8 @@ export class SchemaHealingService {
         existingColumns.map((column: any) => column.name),
       );
 
-      for (const column of tableDef.columns) {
+      for (const snapshotColumn of tableDef.columns) {
+        const column = normalizeMongoPrimaryKeyColumn(snapshotColumn);
         if (!column?.name || existingNames.has(column.name)) continue;
         await columnCollection.insertOne({
           name: column.name,
@@ -383,6 +431,7 @@ export class SchemaHealingService {
           createdAt: new Date(),
           updatedAt: new Date(),
         });
+        existingNames.add(column.name);
         repaired++;
       }
     }
@@ -393,6 +442,7 @@ export class SchemaHealingService {
   private async healSqlJunctionContracts(): Promise<number> {
     const knex = this.queryBuilderService.getKnex();
     const coreNames = await this.systemCoreTableResolver.getNames();
+    const snapshot = this.loadSnapshot();
     const rows = await knex(`${coreNames.relation} as r`)
       .leftJoin(
         `${coreNames.table} as sourceTable`,
@@ -425,7 +475,7 @@ export class SchemaHealingService {
         continue;
       }
 
-      const standard = getSqlJunctionPhysicalNames({
+      const target = this.getTargetJunctionContract(snapshot, {
         sourceTable: rel.sourceTableName,
         propertyName: rel.propertyName,
         targetTable: rel.targetTableName,
@@ -438,12 +488,12 @@ export class SchemaHealingService {
         sourceTable: rel.sourceTableName,
         targetTable: rel.targetTableName,
         sourcePropertyName: rel.propertyName,
-        junctionTableName: standard.junctionTableName,
-        junctionSourceColumn: standard.junctionSourceColumn,
-        junctionTargetColumn: standard.junctionTargetColumn,
+        junctionTableName: target.junctionTableName,
+        junctionSourceColumn: target.junctionSourceColumn,
+        junctionTargetColumn: target.junctionTargetColumn,
       });
 
-      const owningUpdate = this.diffJunctionMetadata(rel, standard);
+      const owningUpdate = this.diffJunctionMetadata(rel, target);
       if (Object.keys(owningUpdate).length > 0) {
         await knex(coreNames.relation)
           .where({ id: rel.id })
@@ -453,9 +503,9 @@ export class SchemaHealingService {
 
       for (const inverseRel of byMappedById.get(String(rel.id)) || []) {
         const inverseStandard = {
-          junctionTableName: standard.junctionTableName,
-          junctionSourceColumn: standard.junctionTargetColumn,
-          junctionTargetColumn: standard.junctionSourceColumn,
+          junctionTableName: target.junctionTableName,
+          junctionSourceColumn: target.junctionTargetColumn,
+          junctionTargetColumn: target.junctionSourceColumn,
         };
         const inverseUpdate = this.diffJunctionMetadata(
           inverseRel,
@@ -748,6 +798,7 @@ export class SchemaHealingService {
   private async healMongoJunctionContracts(): Promise<number> {
     const db = this.queryBuilderService.getMongoDb();
     const coreNames = await this.systemCoreTableResolver.getNames();
+    const snapshot = this.loadSnapshot();
     const relations = await db
       .collection(coreNames.relation)
       .find({})
@@ -774,7 +825,7 @@ export class SchemaHealingService {
         continue;
       }
 
-      const standard = getSqlJunctionPhysicalNames({
+      const target = this.getTargetJunctionContract(snapshot, {
         sourceTable: sourceTable.name,
         propertyName: rel.propertyName,
         targetTable: targetTable.name,
@@ -787,9 +838,9 @@ export class SchemaHealingService {
         oldJunctionTableName: rel.junctionTableName || null,
         oldJunctionSourceColumn: rel.junctionSourceColumn || null,
         oldJunctionTargetColumn: rel.junctionTargetColumn || null,
-        junctionTableName: standard.junctionTableName,
-        junctionSourceColumn: standard.junctionSourceColumn,
-        junctionTargetColumn: standard.junctionTargetColumn,
+        junctionTableName: target.junctionTableName,
+        junctionSourceColumn: target.junctionSourceColumn,
+        junctionTargetColumn: target.junctionTargetColumn,
         legacyJunctions: [
           {
             tableName: this.getLegacyJunctionTableName(
@@ -803,7 +854,7 @@ export class SchemaHealingService {
         ],
       });
 
-      const owningUpdate = this.diffJunctionMetadata(rel, standard);
+      const owningUpdate = this.diffJunctionMetadata(rel, target);
       if (Object.keys(owningUpdate).length > 0) {
         await db
           .collection(coreNames.relation)
@@ -813,9 +864,9 @@ export class SchemaHealingService {
 
       for (const inverseRel of byMappedBy.get(String(rel._id)) || []) {
         const inverseUpdate = this.diffJunctionMetadata(inverseRel, {
-          junctionTableName: standard.junctionTableName,
-          junctionSourceColumn: standard.junctionTargetColumn,
-          junctionTargetColumn: standard.junctionSourceColumn,
+          junctionTableName: target.junctionTableName,
+          junctionSourceColumn: target.junctionTargetColumn,
+          junctionTargetColumn: target.junctionSourceColumn,
         });
         if (Object.keys(inverseUpdate).length === 0) continue;
         await db
@@ -833,6 +884,7 @@ export class SchemaHealingService {
   private async cleanupMongoLegacyJunctionCollections(): Promise<number> {
     const db = this.queryBuilderService.getMongoDb();
     const coreNames = await this.systemCoreTableResolver.getNames();
+    const snapshot = this.loadSnapshot();
     const relations = await db
       .collection(coreNames.relation)
       .find({})
@@ -851,7 +903,7 @@ export class SchemaHealingService {
         continue;
       }
 
-      const standard = getSqlJunctionPhysicalNames({
+      const target = this.getTargetJunctionContract(snapshot, {
         sourceTable: sourceTable.name,
         propertyName: rel.propertyName,
         targetTable: targetTable.name,
@@ -866,9 +918,9 @@ export class SchemaHealingService {
         targetTable.name,
       );
       if (
-        legacyTable === standard.junctionTableName ||
+        legacyTable === target.junctionTableName ||
         !(await this.mongoCollectionExists(db, legacyTable)) ||
-        !(await this.mongoCollectionExists(db, standard.junctionTableName))
+        !(await this.mongoCollectionExists(db, target.junctionTableName))
       ) {
         continue;
       }
@@ -877,14 +929,14 @@ export class SchemaHealingService {
         oldJunctionTableName: legacyTable,
         oldJunctionSourceColumn: legacyColumns.sourceColumn,
         oldJunctionTargetColumn: legacyColumns.targetColumn,
-        junctionTableName: standard.junctionTableName,
-        junctionSourceColumn: standard.junctionSourceColumn,
-        junctionTargetColumn: standard.junctionTargetColumn,
+        junctionTableName: target.junctionTableName,
+        junctionSourceColumn: target.junctionSourceColumn,
+        junctionTargetColumn: target.junctionTargetColumn,
       });
       await db.collection(legacyTable).drop();
       repaired++;
       this.logger.log(
-        `Removed orphan legacy junction collection '${legacyTable}' after merging into '${standard.junctionTableName}'`,
+        `Removed orphan legacy junction collection '${legacyTable}' after merging into '${target.junctionTableName}'`,
       );
     }
 
