@@ -5,7 +5,7 @@
  * - Remove: columns, relations, tables
  * - Modify: rename or change properties
  *
- * Adding is handled automatically by snapshot.json diff
+ * Adding is handled automatically by the snapshot target
  */
 
 /**

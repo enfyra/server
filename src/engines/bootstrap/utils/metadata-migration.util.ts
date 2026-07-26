@@ -1,5 +1,3 @@
-import * as fs from 'fs';
-import * as path from 'path';
 import type {
   ColumnModifyDef,
   RelationModifyDef,
@@ -22,16 +20,6 @@ export function hasSchemaMigrations(
     (migrations.tables?.length ?? 0) > 0 ||
     (migrations.tablesToDrop?.length ?? 0) > 0
   );
-}
-
-export function loadSnapshotMigrationFile(
-  cwd = process.cwd(),
-): SchemaMigrationDef | null {
-  const filePath = path.join(cwd, 'data/snapshot-migration.json');
-  if (!fs.existsSync(filePath)) return null;
-
-  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  return hasSchemaMigrations(parsed) ? parsed : null;
 }
 
 export function getValidTableRenames(
@@ -457,14 +445,10 @@ function validateRenameDefinitions(
       errors.push(`${label} ${rename.from} cannot rename a table to itself`);
     }
     if (requireSnapshotTarget && snapshot[rename.from]) {
-      errors.push(
-        `${label} source ${rename.from} still exists in snapshot.json`,
-      );
+      errors.push(`${label} source ${rename.from} still exists in snapshot.ts`);
     }
     if (requireSnapshotTarget && !snapshot[rename.to]) {
-      errors.push(
-        `${label} target ${rename.to} does not exist in snapshot.json`,
-      );
+      errors.push(`${label} target ${rename.to} does not exist in snapshot.ts`);
     }
     for (const mergeKey of duplicateValues(rename.mergeKeys ?? [])) {
       errors.push(`duplicate ${label} merge key ${rename.from}.${mergeKey}`);
@@ -518,13 +502,13 @@ function validateMigrationDefinition(
   }
   for (const tableName of migration.tablesToDrop ?? []) {
     if (snapshot[tableName]) {
-      errors.push(`tablesToDrop ${tableName} still exists in snapshot.json`);
+      errors.push(`tablesToDrop ${tableName} still exists in snapshot.ts`);
     }
   }
   for (const tableName of migration.physicalTablesToDrop ?? []) {
     if (snapshot[tableName]) {
       errors.push(
-        `physicalTablesToDrop ${tableName} still exists in snapshot.json`,
+        `physicalTablesToDrop ${tableName} still exists in snapshot.ts`,
       );
     }
   }
@@ -546,9 +530,7 @@ function validateMigrationDefinition(
     const tableName = tableMigration._unique.name._eq;
     const targetTable = snapshot[tableName];
     if (!targetTable) {
-      errors.push(
-        `table migration ${tableName} does not exist in snapshot.json`,
-      );
+      errors.push(`table migration ${tableName} does not exist in snapshot.ts`);
       continue;
     }
 
@@ -570,7 +552,7 @@ function validateMigrationDefinition(
       );
       if (mismatched.length > 0) {
         errors.push(
-          `table ${tableName} migration target disagrees with snapshot.json on ${mismatched.join(', ')}`,
+          `table ${tableName} migration target disagrees with snapshot.ts on ${mismatched.join(', ')}`,
         );
       }
     }
@@ -589,7 +571,7 @@ function validateMigrationDefinition(
     for (const columnName of columnsToRemove) {
       if (targetColumns.has(columnName)) {
         errors.push(
-          `column removal ${tableName}.${columnName} still exists in snapshot.json`,
+          `column removal ${tableName}.${columnName} still exists in snapshot.ts`,
         );
       }
       if (
@@ -623,7 +605,7 @@ function validateMigrationDefinition(
         | undefined;
       if (!targetColumn) {
         errors.push(
-          `column ${tableName}.${modification.to.name} does not exist in snapshot.json`,
+          `column ${tableName}.${modification.to.name} does not exist in snapshot.ts`,
         );
         continue;
       }
@@ -639,7 +621,7 @@ function validateMigrationDefinition(
       );
       if (mismatched.length > 0) {
         errors.push(
-          `column ${tableName}.${modification.to.name} migration target disagrees with snapshot.json on ${mismatched.join(', ')}`,
+          `column ${tableName}.${modification.to.name} migration target disagrees with snapshot.ts on ${mismatched.join(', ')}`,
         );
       }
     }
@@ -682,7 +664,7 @@ function validateMigrationDefinition(
       );
       if (!targetRelation) {
         errors.push(
-          `relation ${tableName}.${modification.to.propertyName} does not exist in snapshot.json`,
+          `relation ${tableName}.${modification.to.propertyName} does not exist in snapshot.ts`,
         );
         continue;
       }
@@ -698,7 +680,7 @@ function validateMigrationDefinition(
       );
       if (mismatched.length > 0) {
         errors.push(
-          `relation ${tableName}.${modification.to.propertyName} migration target disagrees with snapshot.json on ${mismatched.join(', ')}`,
+          `relation ${tableName}.${modification.to.propertyName} migration target disagrees with snapshot.ts on ${mismatched.join(', ')}`,
         );
       }
     }
@@ -969,7 +951,7 @@ export function validateSnapshotMigrationCoverage(
 
   if (errors.length > 0) {
     throw new Error(
-      `snapshot-migration.json is missing non-additive declarations:\n- ${errors.join('\n- ')}`,
+      `snapshot-migration.ts is missing non-additive declarations:\n- ${errors.join('\n- ')}`,
     );
   }
 }

@@ -1,8 +1,15 @@
 import type { SchemaMigrationDef } from '../../../shared/types/schema-migration.types';
 
 export type BootstrapSnapshot = Record<string, any>;
-export type BootstrapDefaultData = Record<string, any[]>;
+export type BootstrapDefaultData = Record<string, any>;
 export type BootstrapDataMigration = Record<string, any>;
+
+export interface BootstrapSourceArtifacts {
+  snapshot: BootstrapSnapshot;
+  migration: SchemaMigrationDef | null;
+  defaultData: BootstrapDefaultData;
+  dataMigration: BootstrapDataMigration;
+}
 
 export interface BootstrapDefinition {
   snapshot: BootstrapSnapshot;

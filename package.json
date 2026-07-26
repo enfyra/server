@@ -24,7 +24,7 @@
     "pretest:ui": "node scripts/check-node-version.js",
     "pretest:e2e": "node scripts/check-node-version.js",
     "generate:mongo-fold": "tsx scripts/generate-mongo-fold-text-search.ts",
-    "build": "tsc && yarn generate:mongo-fold && cp -r data dist/",
+    "build": "node scripts/clean-dist.js && tsc && yarn generate:mongo-fold",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "NODE_OPTIONS=\"--no-node-snapshot${NODE_OPTIONS:+ $NODE_OPTIONS}\" node dist/main",
     "dev": "DEV_WATCH=1 NODE_OPTIONS=\"--no-node-snapshot${NODE_OPTIONS:+ $NODE_OPTIONS}\" tsx watch --ignore 'dist/**' --ignore 'logs/**' --ignore '/tmp/enfyra-pkg-cache/**' --ignore '/var/folders/**/T/enfyra-pkg-cache/**' --ignore '/private/var/folders/**/T/enfyra-pkg-cache/**' --ignore 'test/**' --ignore 'src/**/*.spec.ts' src/main.ts",

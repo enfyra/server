@@ -343,7 +343,7 @@ describe.each<DatabaseKind>(['postgres', 'mysql', 'mongodb'])(
       ).toThrow(/does not fully declare target fields: type/);
     });
 
-    it('rejects a declaration whose target disagrees with snapshot.json', () => {
+    it('rejects a declaration whose target disagrees with snapshot.ts', () => {
       const migration = completeMigration();
       migration.tables[0].relationsToModify![0].to.onDelete = 'RESTRICT';
 
@@ -356,7 +356,7 @@ describe.each<DatabaseKind>(['postgres', 'mysql', 'mongodb'])(
       ).toThrow(/does not fully declare target fields: onDelete/);
     });
 
-    it('rejects a column rename whose target is absent from snapshot.json', () => {
+    it('rejects a column rename whose target is absent from snapshot.ts', () => {
       const migration = completeMigration();
       migration.tables[0].columnsToModify![0].to.name = 'headline';
 
@@ -366,10 +366,10 @@ describe.each<DatabaseKind>(['postgres', 'mysql', 'mongodb'])(
           migration,
           metadataState(database),
         ),
-      ).toThrow(/column posts\.headline does not exist in snapshot\.json/);
+      ).toThrow(/column posts\.headline does not exist in snapshot\.ts/);
     });
 
-    it('rejects a relation rename whose target is absent from snapshot.json', () => {
+    it('rejects a relation rename whose target is absent from snapshot.ts', () => {
       const migration = completeMigration();
       migration.tables[0].relationsToModify![0].to.propertyName = 'editor';
 
@@ -379,7 +379,7 @@ describe.each<DatabaseKind>(['postgres', 'mysql', 'mongodb'])(
           migration,
           metadataState(database),
         ),
-      ).toThrow(/relation posts\.editor does not exist in snapshot\.json/);
+      ).toThrow(/relation posts\.editor does not exist in snapshot\.ts/);
     });
 
     it('rejects a migration whose declared source does not match the old state', () => {
@@ -782,7 +782,7 @@ describe('snapshot migration declaration validation', () => {
         migration,
         metadataState('postgres'),
       ),
-    ).toThrow(/table migration legacy_posts does not exist in snapshot\.json/);
+    ).toThrow(/table migration legacy_posts does not exist in snapshot\.ts/);
   });
 
   it('rejects tablesToDrop entries that still exist in the target snapshot', () => {
@@ -795,7 +795,7 @@ describe('snapshot migration declaration validation', () => {
         migration,
         metadataState('postgres'),
       ),
-    ).toThrow(/tablesToDrop authors still exists in snapshot\.json/);
+    ).toThrow(/tablesToDrop authors still exists in snapshot\.ts/);
   });
 
   it('rejects stale table targets even when the database already converged', () => {
@@ -808,7 +808,7 @@ describe('snapshot migration declaration validation', () => {
         migration,
         convergedState('postgres'),
       ),
-    ).toThrow(/table posts migration target disagrees with snapshot\.json/);
+    ).toThrow(/table posts migration target disagrees with snapshot\.ts/);
   });
 
   it('rejects duplicate destructive declarations', () => {
@@ -858,7 +858,7 @@ describe('snapshot migration declaration validation', () => {
         migration,
         metadataState('postgres'),
       ),
-    ).toThrow(/column removal posts\.title still exists in snapshot\.json/);
+    ).toThrow(/column removal posts\.title still exists in snapshot\.ts/);
   });
 
   it('rejects a column declared for both update and removal', () => {
@@ -941,7 +941,7 @@ describe('snapshot migration declaration validation', () => {
         migration,
         metadataState('postgres'),
       ),
-    ).toThrow(/tablesToRename source authors still exists in snapshot\.json/);
+    ).toThrow(/tablesToRename source authors still exists in snapshot\.ts/);
     expect(() =>
       validateSnapshotMigrationCoverage(
         snapshot,
@@ -949,7 +949,7 @@ describe('snapshot migration declaration validation', () => {
         metadataState('postgres'),
       ),
     ).toThrow(
-      /tablesToRename target missing_target does not exist in snapshot\.json/,
+      /tablesToRename target missing_target does not exist in snapshot\.ts/,
     );
   });
 

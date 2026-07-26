@@ -1,26 +1,18 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import { dataMigration, defaultData, snapshot } from '../../src/data';
 import { validateBootstrapDataFiles } from '../../src/domain/bootstrap/utils/bootstrap-data-validator.util';
-
-const ROOT = path.resolve(__dirname, '../../data');
-
-function loadJson(file: string) {
-  return JSON.parse(fs.readFileSync(path.join(ROOT, file), 'utf8'));
-}
 
 describe('validateBootstrapDataFiles', () => {
   it('accepts current bootstrap route metadata', () => {
     const issues = validateBootstrapDataFiles({
-      snapshot: loadJson('snapshot.json'),
-      defaultData: loadJson('default-data.json'),
-      dataMigration: loadJson('data-migration.json'),
+      snapshot,
+      defaultData,
+      dataMigration,
     });
 
     expect(issues).toEqual([]);
   });
 
   it('migrates static admin routes into route metadata', () => {
-    const dataMigration = loadJson('data-migration.json');
     const routes = dataMigration.enfyra_route ?? [];
     const paths = new Set(
       routes.map((route: any) => route._unique?.path?._eq ?? route.path),
@@ -129,8 +121,8 @@ describe('validateBootstrapDataFiles', () => {
     expect(
       issues.map((issue) => [issue.file, issue.table, issue.field]),
     ).toEqual([
-      ['snapshot.json', 'demo', 'columns'],
-      ['snapshot.json', 'demo', 'columns'],
+      ['snapshot.ts', 'demo', 'columns'],
+      ['snapshot.ts', 'demo', 'columns'],
     ]);
   });
 });

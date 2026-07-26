@@ -29,36 +29,40 @@ Enfyra is a self-hosted and locally developed, easy-to-install. Cloud coming soo
 
 ## Database Migrations
 
-Enfyra supports schema and data migrations through JSON configuration files.
+Enfyra defines the current system schema in TypeScript and keeps manual schema
+and data migrations in JSON.
 
-### Schema Migration (`data/snapshot.json`)
+### Schema Target (`src/data/snapshot.ts`)
 
 Define your database schema (tables, columns, relations):
 
-```json
-{
-  "my_table": {
-    "name": "my_table",
-    "description": "My custom table",
-    "columns": [
-      { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true },
-      { "name": "name", "type": "varchar", "isNullable": false }
-    ],
-    "relations": []
-  }
-}
+```ts
+snapshot
+  .table('my_table', { description: 'My custom table' })
+  .columns({
+    id: col.int().primary().generated().notNull(),
+    name: col.varchar().notNull(),
+  })
+  .relations({});
 ```
 
-Run schema migration:
+`tsc` compiles this source to `dist/data/snapshot.js`. Run schema migration:
+
 ```bash
 yarn tsx scripts/init-db.ts
 ```
 
-### Schema Migration (`data/snapshot-migration.json`)
+### Schema Migration (`src/data/snapshot-migration.ts`)
 
-`snapshot-migration.json` records non-additive schema changes between versions. New tables, columns, and relations require only their target definitions in `snapshot.json`. Updating, renaming, or deleting an existing table, column, relation, or physical schema contract must be declared manually in `snapshot-migration.json`.
+`snapshot-migration.ts` records non-additive schema changes. New tables,
+columns, and relations require only their target definitions in `snapshot.ts`.
+Updating, renaming, or deleting an existing table, column, relation, or physical
+schema contract must be declared manually in `snapshot-migration.ts`.
 
-`snapshot.json` is the complete system target for the current version. Migration does not infer non-additive changes from live database differences: live state is used only to validate the manual declaration, detect conflicts, resume idempotently, and attest the target. Undeclared user metadata is preserved.
+`snapshot.ts` is the complete current system target. Migration does not infer
+non-additive changes from live database differences: live state is used only to
+validate the manual declaration, detect conflicts, resume idempotently, and
+attest the target. Undeclared user metadata is preserved.
 
 Snapshot migrations are forward-only. Updates synchronize the complete declared metadata and physical contract across supported databases. Deletions remove all affected metadata and physical state, including fields, foreign keys, constraints, indexes, junction storage, and tables or collections. After a database completes a migration for a newer Enfyra version, running an older Enfyra version against that database is unsupported.
 
@@ -187,14 +191,14 @@ Result: Tables completely removed from database.
 
 | Scenario | File to Modify |
 |----------|---------------|
-| Add new table | `snapshot.json` |
-| Add new column | `snapshot.json` |
-| Add new relation | `snapshot.json` |
-| Rename column | `snapshot-migration.json` |
-| Remove column | `snapshot-migration.json` |
-| Rename relation | `snapshot-migration.json` |
-| Remove relation | `snapshot-migration.json` |
-| Drop table | `snapshot-migration.json` |
+| Add new table | `src/data/snapshot.ts` |
+| Add new column | `src/data/snapshot.ts` |
+| Add new relation | `src/data/snapshot.ts` |
+| Rename column | `src/data/snapshot-migration.ts` |
+| Remove column | `src/data/snapshot-migration.ts` |
+| Rename relation | `src/data/snapshot-migration.ts` |
+| Remove relation | `src/data/snapshot-migration.ts` |
+| Drop table | `src/data/snapshot-migration.ts` |
 
 #### How It Works
 
@@ -234,7 +238,7 @@ curl -X PATCH "http://localhost:1105/api/enfyra_table/<id>" \
 
 For a limited transition period, the legacy `schemaConfirm` phrase may also be accepted, but the UI uses confirm-hash by default.
 
-### Data Migration (`data/data-migration.json`)
+### Data Migration (`src/data/data-migration.ts`)
 
 Migrate existing data when the system is already initialized:
 
@@ -271,13 +275,13 @@ Use `_deletedRecords` when you need to remove a small set of rows (e.g. remove a
 ### Migration Flow
 
 1. **Bootstrap or Upgrade** (`enfyra_setting` is absent or `isInit = false`):
-   - Snapshot, migration, default data, and data migration files are loaded once into an immutable bootstrap definition and validated before schema mutation.
+   - The compiled snapshot module, migration, default data, and data migration files are loaded once into an immutable bootstrap definition and validated before schema mutation.
    - Live metadata is checked against every manual non-additive declaration and converted into an execution plan.
-   - Manual non-additive schema migrations run from `snapshot-migration.json`.
-   - Missing additive schema is provisioned from `snapshot.json`.
+   - Manual non-additive schema migrations run from `snapshot-migration.ts`.
+   - Missing additive schema is provisioned from `snapshot.ts`.
    - Additive target repair, derived-contract repair, and explicit one-time repair run as separate phases while preserving undeclared user metadata.
-   - Default data is provisioned from `default-data.json`.
-   - Intentional record updates/deletes run from `data-migration.json` and their target values are attested.
+   - Default data is provisioned from `default-data.ts`.
+   - Intentional record updates/deletes run from `data-migration.ts` and their target values are attested.
    - Final schema and data attestation run after every write.
    - The system sets `isInit = true` only after the full bootstrap path completes.
 

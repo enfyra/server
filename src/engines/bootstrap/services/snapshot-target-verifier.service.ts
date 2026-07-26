@@ -41,8 +41,7 @@ export class SnapshotTargetVerifierService {
     this.metadataMigrationService = deps.metadataMigrationService;
     this.dataMigrationService = deps.dataMigrationService;
     this.bootstrapDefinitionService =
-      deps.bootstrapDefinitionService ??
-      new BootstrapDefinitionService({ bootstrapDataRoot: process.cwd() });
+      deps.bootstrapDefinitionService ?? new BootstrapDefinitionService();
   }
 
   async assertSchemaTargetState(): Promise<void> {

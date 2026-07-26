@@ -398,7 +398,6 @@ export interface Cradle {
   metadataMigrationService: MetadataMigrationService;
   snapshotTargetVerifierService: SnapshotTargetVerifierService;
   bootstrapDefinitionService: BootstrapDefinitionService;
-  bootstrapDataRoot: string;
   bootstrapScriptService: BootstrapScriptService;
 
   userDefinitionProcessor: UserDefinitionProcessor;
@@ -438,7 +437,6 @@ export function buildContainer(): AwilixContainer<Cradle> {
   });
 
   container.register({
-    bootstrapDataRoot: asValue(process.cwd()),
     envService: asClass(EnvService).singleton(),
     configService: asValue({
       get: (key: string, defaultValue?: any) =>

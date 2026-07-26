@@ -1,14 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import {
   buildColumnMetadataUpdate,
   buildRelationMetadataUpdate,
   buildTableMetadataUpdate,
   hasColumnMetadataChanges,
   hasRelationMetadataChanges,
-  loadSnapshotMigrationFile,
+  validateSnapshotMigrationDefinition,
 } from '../../src/engines/bootstrap/utils/metadata-migration.util';
 
 describe('metadata migration update contract', () => {
@@ -88,22 +85,17 @@ describe('metadata migration update contract', () => {
     expect(buildTableMetadataUpdate(migration)).toEqual(migration.to);
   });
 
-  it('fails fast when snapshot-migration.json is malformed', () => {
-    const directory = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'snapshot-migration-invalid-'),
-    );
-    fs.mkdirSync(path.join(directory, 'data'));
-    fs.writeFileSync(
-      path.join(directory, 'data/snapshot-migration.json'),
-      '{"tables": [',
-    );
-
-    try {
-      expect(() => loadSnapshotMigrationFile(directory)).toThrow(
-        /Unexpected end of JSON input/,
-      );
-    } finally {
-      fs.rmSync(directory, { recursive: true });
-    }
+  it('fails fast when snapshot migration targets are invalid', () => {
+    expect(() =>
+      validateSnapshotMigrationDefinition(
+        {
+          current: { name: 'current', columns: [], relations: [] },
+        },
+        {
+          tables: [],
+          tablesToRename: [{ from: 'legacy', to: 'missing' }],
+        },
+      ),
+    ).toThrow(/target missing does not exist in snapshot\.ts/);
   });
 });

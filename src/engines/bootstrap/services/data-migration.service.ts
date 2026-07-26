@@ -33,13 +33,12 @@ export class DataMigrationService {
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     const bootstrapDefinitionService =
-      deps.bootstrapDefinitionService ??
-      new BootstrapDefinitionService({ bootstrapDataRoot: process.cwd() });
+      deps.bootstrapDefinitionService ?? new BootstrapDefinitionService();
     const dataMigration = bootstrapDefinitionService.getDataMigration();
     if (Object.keys(dataMigration).length > 0) {
       this.initOld = dataMigration;
       this.verbose(
-        `Loaded data-migration.json with ${Object.keys(dataMigration).length} table(s) to migrate`,
+        `Loaded data-migration.ts with ${Object.keys(dataMigration).length} table(s) to migrate`,
       );
     }
   }
@@ -110,7 +109,7 @@ export class DataMigrationService {
   }
 
   private async runMigrationBatch(): Promise<void> {
-    this.verbose('Running data migrations from data-migration.json...');
+    this.verbose('Running data migrations from data-migration.ts...');
 
     if (
       this.initOld!._deletedTables &&

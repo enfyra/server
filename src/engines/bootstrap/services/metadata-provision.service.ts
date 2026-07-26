@@ -26,8 +26,7 @@ export class MetadataProvisionService {
     this.metadataProvisionSqlService = deps.metadataProvisionSqlService;
     this.metadataProvisionMongoService = deps.metadataProvisionMongoService;
     this.bootstrapDefinitionService =
-      deps.bootstrapDefinitionService ??
-      new BootstrapDefinitionService({ bootstrapDataRoot: process.cwd() });
+      deps.bootstrapDefinitionService ?? new BootstrapDefinitionService();
     this.dbType = this.databaseConfigService.getDbType();
   }
 

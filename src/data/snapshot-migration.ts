@@ -1,4 +1,6 @@
-{
+import type { SchemaMigrationDef } from '../shared/types/schema-migration.types';
+
+const snapshotMigration = {
   "tables": [
     {
       "_unique": {
@@ -457,4 +459,6 @@
       "to": "enfyra_schema_physical_migration"
     }
   ]
-}
+} satisfies SchemaMigrationDef;
+
+export default snapshotMigration;

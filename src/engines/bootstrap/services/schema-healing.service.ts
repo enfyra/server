@@ -35,8 +35,7 @@ export class SchemaHealingService {
     this.metadataCacheService = deps.metadataCacheService;
     this.systemCoreTableResolver = deps.systemCoreTableResolver;
     this.bootstrapDefinitionService =
-      deps.bootstrapDefinitionService ??
-      new BootstrapDefinitionService({ bootstrapDataRoot: process.cwd() });
+      deps.bootstrapDefinitionService ?? new BootstrapDefinitionService();
   }
 
   async runIfNeeded(): Promise<void> {

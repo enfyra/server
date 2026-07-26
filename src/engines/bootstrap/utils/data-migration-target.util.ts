@@ -1,5 +1,4 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import dataMigrationSource from '../../../data/data-migration';
 
 function collectExactSelectors(
   value: unknown,
@@ -96,10 +95,7 @@ export function applyDataMigrationMetadataTargets(
 
 export function loadDataMigrationMetadataTargets(
   snapshot: Record<string, any>,
-  cwd = process.cwd(),
+  dataMigration: Record<string, any> = dataMigrationSource,
 ): Record<string, any> {
-  const filePath = path.join(cwd, 'data/data-migration.json');
-  if (!fs.existsSync(filePath)) return structuredClone(snapshot);
-  const dataMigration = JSON.parse(fs.readFileSync(filePath, 'utf8'));
   return applyDataMigrationMetadataTargets(snapshot, dataMigration);
 }

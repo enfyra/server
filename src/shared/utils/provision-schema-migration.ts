@@ -1,3 +1,4 @@
+import snapshotMigration from '../../data/snapshot-migration';
 import { Knex } from 'knex';
 import { Db } from 'mongodb';
 import {
@@ -17,15 +18,9 @@ import {
   generateColumnDefinition,
   supportsSqlColumnDefault,
 } from '../../engines/knex/utils/migration/sql-generator';
-import * as fs from 'fs';
-import * as path from 'path';
 
 export function loadSchemaMigration(): SchemaMigrationDef | null {
-  const filePath = path.join(process.cwd(), 'data/snapshot-migration.json');
-  if (!fs.existsSync(filePath)) return null;
-
-  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  return hasSchemaMigrations(parsed) ? parsed : null;
+  return hasSchemaMigrations(snapshotMigration) ? snapshotMigration : null;
 }
 
 export function hasSchemaMigrations(

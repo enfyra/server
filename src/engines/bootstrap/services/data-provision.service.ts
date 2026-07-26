@@ -113,8 +113,7 @@ export class DataProvisionService {
       deps.flowExecutionDefinitionProcessor;
     this.graphqlDefinitionProcessor = deps.graphqlDefinitionProcessor;
     this.initJson = (
-      deps.bootstrapDefinitionService ??
-      new BootstrapDefinitionService({ bootstrapDataRoot: process.cwd() })
+      deps.bootstrapDefinitionService ?? new BootstrapDefinitionService()
     ).getDefaultData();
     this.dbType = this.databaseConfigService.getDbType();
     this.initializeProcessors();
@@ -262,7 +261,7 @@ export class DataProvisionService {
   async insertTableRecords(tableName: string): Promise<UpsertResult> {
     const rawRecords = this.initJson[tableName];
     if (!rawRecords) {
-      this.logger.warn(`No data found in default-data.json for '${tableName}'`);
+      this.logger.warn(`No data found in default-data.ts for '${tableName}'`);
       return { created: 0, skipped: 0 };
     }
 

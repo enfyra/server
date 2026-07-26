@@ -57,8 +57,7 @@ export class MetadataMigrationService {
     this.queryBuilderService = deps.queryBuilderService;
     this.systemCoreTableResolver = deps.systemCoreTableResolver;
     this.bootstrapDefinitionService =
-      deps.bootstrapDefinitionService ??
-      new BootstrapDefinitionService({ bootstrapDataRoot: process.cwd() });
+      deps.bootstrapDefinitionService ?? new BootstrapDefinitionService();
     this.physicalMigration = new MetadataPhysicalMigrationHelper({
       queryBuilderService: this.queryBuilderService,
       verbose: (message) => this.verbose(message),
@@ -66,7 +65,7 @@ export class MetadataMigrationService {
     this.migrations = this.bootstrapDefinitionService.getMigration();
     if (this.migrations) {
       this.verbose(
-        `Loaded snapshot-migration.json with ${this.migrations.tables?.length || 0} table migration(s)`,
+        `Loaded snapshot-migration.ts with ${this.migrations.tables?.length || 0} table migration(s)`,
       );
     }
   }
@@ -93,7 +92,7 @@ export class MetadataMigrationService {
     }
     this.getExecutionPlan();
 
-    this.verbose('Running metadata migrations from snapshot-migration.json...');
+    this.verbose('Running metadata migrations from snapshot-migration.ts...');
 
     const isMongoDB = this.queryBuilderService.isMongoDb();
 

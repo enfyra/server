@@ -1,7 +1,5 @@
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { dataMigration, defaultData } from '../../src/data';
 import {
   BootstrapDefinitionService,
   MetadataMigrationService,
@@ -9,9 +7,7 @@ import {
 
 describe('BootstrapDefinitionService', () => {
   it('loads and freezes the current bootstrap target once', () => {
-    const service = new BootstrapDefinitionService({
-      bootstrapDataRoot: process.cwd(),
-    });
+    const service = new BootstrapDefinitionService();
     const definition = service.getDefinition();
 
     expect(definition.snapshot.enfyra_setting.name).toBe('enfyra_setting');
@@ -24,44 +20,24 @@ describe('BootstrapDefinitionService', () => {
   });
 
   it('fails before runtime mutation when a migration target is invalid', () => {
-    const root = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'enfyra-bootstrap-definition-'),
-    );
-    fs.mkdirSync(path.join(root, 'data'));
-    fs.writeFileSync(
-      path.join(root, 'data', 'snapshot.json'),
-      JSON.stringify({
-        current: { name: 'current', columns: [], relations: [] },
-      }),
-    );
-    fs.writeFileSync(
-      path.join(root, 'data', 'snapshot-migration.json'),
-      JSON.stringify({
-        tables: [],
-        tablesToRename: [{ from: 'legacy', to: 'missing' }],
-      }),
-    );
-    fs.writeFileSync(
-      path.join(root, 'data', 'default-data.json'),
-      JSON.stringify({}),
-    );
-    fs.writeFileSync(
-      path.join(root, 'data', 'data-migration.json'),
-      JSON.stringify({}),
-    );
-
     expect(
       () =>
-        new BootstrapDefinitionService({
-          bootstrapDataRoot: root,
+        new BootstrapDefinitionService(undefined, {
+          snapshot: {
+            current: { name: 'current', columns: [], relations: [] },
+          },
+          migration: {
+            tables: [],
+            tablesToRename: [{ from: 'legacy', to: 'missing' }],
+          },
+          defaultData,
+          dataMigration,
         }),
-    ).toThrow(/target missing does not exist in snapshot\.json/);
+    ).toThrow(/target missing does not exist in snapshot\.ts/);
   });
 
   it('builds an immutable install plan before migration execution', async () => {
-    const bootstrapDefinitionService = new BootstrapDefinitionService({
-      bootstrapDataRoot: process.cwd(),
-    });
+    const bootstrapDefinitionService = new BootstrapDefinitionService();
     const service = new MetadataMigrationService({
       bootstrapDefinitionService,
       queryBuilderService: {

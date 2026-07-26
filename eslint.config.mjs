@@ -40,4 +40,10 @@ export default [
       ],
     },
   }),
+  {
+    files: ['src/data/*.ts'],
+    rules: {
+      'prettier/prettier': 'off',
+    },
+  },
 ];

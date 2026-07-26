@@ -1,4 +1,6 @@
-{
+import type { BootstrapDefaultData } from '../engines/bootstrap/types';
+
+const defaultData = {
   "enfyra_role": {
     "name": "Admin"
   },
@@ -1543,4 +1545,6 @@
       }
     }
   ]
-}
+} satisfies BootstrapDefaultData;
+
+export default defaultData;
