@@ -213,16 +213,27 @@ export class MongoMigrationJournalService {
       pending = await this.getCollection()
         .find({ status: { $in: ['pending', 'running'] } })
         .toArray();
-    } catch {
-      this.logger.warn(
-        `${this.collectionName} collection not found, skipping recovery`,
+    } catch (error: any) {
+      const msg = String(error?.message ?? '');
+      const isNsNotFound =
+        msg.includes('ns not found') ||
+        msg.includes('NamespaceNotFound') ||
+        error?.code === 26;
+      if (isNsNotFound) {
+        this.logger.warn(
+          `${this.collectionName} collection not found, skipping recovery`,
+        );
+        return;
+      }
+      throw new Error(
+        `Mongo migration journal recovery query failed: ${msg}`,
       );
-      return;
     }
     if (pending.length === 0) return;
     this.logger.warn(
       `Found ${pending.length} pending/running migration(s), rolling back...`,
     );
+    const failures: string[] = [];
     for (const entry of pending) {
       this.logger.warn(
         `Recovering ${entry.uuid} [${entry.operation}] ${entry.tableName}`,
@@ -233,7 +244,13 @@ export class MongoMigrationJournalService {
         this.logger.error(
           `Recovery failed for ${entry.uuid}: ${getErrorMessage(error)}`,
         );
+        failures.push(`${entry.uuid}: ${getErrorMessage(error)}`);
       }
+    }
+    if (failures.length > 0) {
+      throw new Error(
+        `Mongo migration recovery failed for ${failures.length} entr${failures.length === 1 ? 'y' : 'ies'}: ${failures.join('; ')}`,
+      );
     }
   }
 }

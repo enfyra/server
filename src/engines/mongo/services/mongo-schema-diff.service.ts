@@ -413,9 +413,11 @@ export class MongoSchemaDiffService {
         try {
           await collection.dropIndex(indexName);
         } catch (error: any) {
-          this.logger.warn(
-            `Failed to drop index ${indexName}: ${error.message}`,
-          );
+          if (error?.code === 27) {
+            this.logger.log(`Index ${indexName} already absent, skipping drop`);
+          } else {
+            throw new Error(`Failed to drop index ${indexName}: ${error.message}`);
+          }
         }
       }
     }
@@ -435,7 +437,7 @@ export class MongoSchemaDiffService {
           validationAction: 'error',
         });
       } catch (error: any) {
-        this.logger.warn(
+        throw new Error(
           `Failed to update validation for ${collectionName}: ${error.message}`,
         );
       }
@@ -448,9 +450,11 @@ export class MongoSchemaDiffService {
         try {
           await collection.createIndex(spec.keys, spec.options);
         } catch (error: any) {
-          this.logger.warn(
-            `Failed to create index ${spec.name}: ${error.message}`,
-          );
+          if (error?.code === 85 || error?.code === 86) {
+            this.logger.log(`Index ${spec.name} already exists, skipping create`);
+          } else {
+            throw new Error(`Failed to create index ${spec.name}: ${error.message}`);
+          }
         }
       }
     }

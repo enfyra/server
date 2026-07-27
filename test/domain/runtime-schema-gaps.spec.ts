@@ -56,7 +56,7 @@ function makeExecutor(deps: Record<string, unknown> = {}) {
     run: vi.fn((cb: any) => cb()),
   }) as any;
   const runtimeRegistryService = (deps.runtimeRegistryService ?? {
-    getMetadata: () => null,
+    getMetadata: () => ({ tables: new Map([['post', baseBefore]]) }),
   }) as any;
   return {
     executor: new RuntimeSchemaExecutorService({

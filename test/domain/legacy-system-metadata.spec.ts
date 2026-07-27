@@ -67,7 +67,7 @@ describe('LegacyAssessmentService', () => {
       entries.push(entry({ coreKey, kind: 'legacy', storeName: `${coreKey}_definition`, rowCount: 5 }));
     }
     const report = assessment.assess(inventory(entries));
-    expect(report.hasBlockingFindings).toBe(false);
+    expect(report.hasBlockingFindings).toBe(true);
     expect(report.findings.every((f) => f.outcome === 'legacy_only')).toBe(true);
   });
 

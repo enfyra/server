@@ -154,11 +154,21 @@ export class MigrationJournalService {
       pending = await knex('enfyra_schema_migration')
         .whereIn('status', ['pending', 'running'])
         .select('*');
-    } catch {
-      this.logger.warn(
-        'enfyra_schema_migration table not found, skipping recovery',
-      );
-      return;
+    } catch (error: any) {
+      const msg = String(error?.message ?? error?.code ?? '');
+      const isMissingTable =
+        msg.includes('does not exist') ||
+        msg.includes("doesn't exist") ||
+        msg.includes('no such table') ||
+        error?.code === '42P01' ||
+        error?.errno === 1146;
+      if (isMissingTable) {
+        this.logger.warn(
+          'enfyra_schema_migration table not found, skipping recovery',
+        );
+        return;
+      }
+      throw error;
     }
 
     if (pending.length === 0) return;

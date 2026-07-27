@@ -108,7 +108,7 @@ export class RuntimeSchemaExecutorService {
         outputs: new Map(),
         affectedTables: [],
         preview: result.preview,
-      } as any;
+      };
     }
 
     stage('db_committed');
@@ -136,6 +136,16 @@ export class RuntimeSchemaExecutorService {
         `Schema mutation contract hash integrity check failed for ${contract.mutationId}`,
       );
     }
+    const activeBackend = this.databaseConfigService.isMongoDb()
+      ? 'mongodb'
+      : this.databaseConfigService.getDbType();
+    const normalizeBackend = (b: string) =>
+      b === 'postgres' ? 'postgresql' : b;
+    if (contract.backend && normalizeBackend(contract.backend) !== normalizeBackend(activeBackend)) {
+      throw new Error(
+        `Schema mutation contract backend mismatch: contract=${contract.backend}, active=${activeBackend}`,
+      );
+    }
     const contractTableId = contract.context.tableId;
     if (contractTableId != null && String(contractTableId) !== String(ownerTableId)) {
       throw new Error(
@@ -154,23 +164,28 @@ export class RuntimeSchemaExecutorService {
     const expectedRevision = contract.context.sourceRevision;
     if (!expectedRevision) return;
     const tableName = contract.context.tableName;
-    try {
-      const metadata = this.runtimeRegistryService.getMetadata();
-      if (!metadata) return;
-      const tableMeta = metadata.tables.get(tableName);
-      if (!tableMeta) return;
-      const normalized = normalizeRuntimeTableSchema(tableMeta);
-      if (!normalized) return;
-      const currentRevision = hashCanonical(normalized.contract);
-      if (currentRevision !== expectedRevision) {
-        throw new Error(
-          `Schema mutation source revision stale: expected=${expectedRevision}, current=${currentRevision}. Re-compile the contract.`,
-        );
-      }
-    } catch (error: any) {
-      if (error.message?.includes('source revision stale')) throw error;
-      this.logger.warn(
-        `[${contract.mutationId}] source attestation skipped: ${error.message}`,
+    const metadata = this.runtimeRegistryService.getMetadata();
+    if (!metadata) {
+      throw new Error(
+        `[${contract.mutationId}] source attestation failed: metadata not loaded`,
+      );
+    }
+    const tableMeta = metadata.tables.get(tableName);
+    if (!tableMeta) {
+      throw new Error(
+        `[${contract.mutationId}] source attestation failed: table '${tableName}' not found in metadata`,
+      );
+    }
+    const normalized = normalizeRuntimeTableSchema(tableMeta);
+    if (!normalized) {
+      throw new Error(
+        `[${contract.mutationId}] source attestation failed: could not normalize table '${tableName}'`,
+      );
+    }
+    const currentRevision = hashCanonical(normalized.contract);
+    if (currentRevision !== expectedRevision) {
+      throw new Error(
+        `Schema mutation source revision stale: expected=${expectedRevision}, current=${currentRevision}. Re-compile the contract.`,
       );
     }
   }

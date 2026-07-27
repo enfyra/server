@@ -57,8 +57,9 @@ export class LegacyAssessmentService {
         return this.finding(coreKey, 'malformed', canonical, legacy,
           `Legacy store ${legacy!.storeName} has no detectable primary identity.`, true);
       }
+      const hasData = (legacy!.rowCount ?? 0) > 0;
       return this.finding(coreKey, 'legacy_only', canonical, legacy,
-        `Only legacy store ${legacy!.storeName} present with ${legacy!.rowCount} rows; declared rename required.`, false);
+        `Only legacy store ${legacy!.storeName} present with ${legacy!.rowCount} rows; declared rename required.`, hasData);
     }
 
     if (canonical!.fingerprint === legacy!.fingerprint) {
@@ -86,8 +87,12 @@ export class LegacyAssessmentService {
         `Legacy store has columns [${onlyInLegacy.join(', ')}] absent from canonical with ${legacy!.rowCount} rows at risk.`, true);
     }
 
+    const legacyHasData = (legacy!.rowCount ?? 0) > 0;
     return this.finding(coreKey, 'safe_merge', canonical, legacy,
-      'Legacy columns are a subset of canonical; safe to merge missing values.', false);
+      legacyHasData
+        ? `Legacy store has ${legacy!.rowCount} rows with subset columns; record-level equality not proven.`
+        : 'Legacy columns are a subset of canonical; safe to merge missing values.',
+      legacyHasData);
   }
 
   private findEntry(

@@ -5,7 +5,7 @@ import {
   ResourceNotFoundException,
   ValidationException,
 } from '../../../domain/exceptions';
-import { isPolicyDeny } from '../../../domain/policy';
+import { isPolicyDeny, isPolicyPreview } from '../../../domain/policy';
 import { TDynamicContext } from '../../../shared/types';
 import { SqlTableHandlerService } from './sql-table-handler-base.service';
 
@@ -50,6 +50,9 @@ export class SqlTableDeleteService extends SqlTableHandlerService {
         });
         if (isPolicyDeny(decision)) {
           throw new ValidationException(decision.message, decision.details);
+        }
+        if (isPolicyPreview(decision)) {
+          return { _preview: true, ...decision.details };
         }
         const allRelations = await trx('enfyra_relation')
           .where({ sourceTableId: id })

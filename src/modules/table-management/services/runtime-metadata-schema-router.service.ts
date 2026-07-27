@@ -38,6 +38,7 @@ export class RuntimeMetadataSchemaRouterService {
     const list = this.getBodyList(body, input.tableName);
     const child = this.normalizeChild(input.tableName, input.data ?? {});
     list.push(child);
+    await this.resolveRelationTargetNames(body);
     const { contract, requiredConfirmHash } =
       await this.deps.runtimeSchemaContractCompilerService.compile({
         operation: 'update',
@@ -62,6 +63,9 @@ export class RuntimeMetadataSchemaRouterService {
       body,
       context: input.context,
     });
+    if (execResult.preview) {
+      return { preview: execResult.preview, ownerTableId };
+    }
     if (execResult.affectedTables.length === 0 && contract.context.diff.schemaChanged === false) {
       return { ownerTableId, affectedTables: [] };
     }
@@ -103,6 +107,7 @@ export class RuntimeMetadataSchemaRouterService {
       ...input.data,
       [this.getPkField()]: input.recordId,
     });
+    await this.resolveRelationTargetNames(body);
     const { contract, requiredConfirmHash } =
       await this.deps.runtimeSchemaContractCompilerService.compile({
         operation: 'update',
@@ -128,6 +133,9 @@ export class RuntimeMetadataSchemaRouterService {
       body,
       context: input.context,
     });
+    if (execResult.preview) {
+      return { preview: execResult.preview, ownerTableId, recordId: input.recordId };
+    }
     return {
       recordId: input.recordId,
       ownerTableId,
@@ -158,6 +166,7 @@ export class RuntimeMetadataSchemaRouterService {
     }
     if (input.tableName === 'enfyra_column') body.columns = next;
     else body.relations = next;
+    await this.resolveRelationTargetNames(body);
     const { contract, requiredConfirmHash } =
       await this.deps.runtimeSchemaContractCompilerService.compile({
         operation: 'update',
@@ -345,6 +354,27 @@ export class RuntimeMetadataSchemaRouterService {
       context?.$query?.schemaConfirmHash ??
       context?.$query?.confirmHash ??
       undefined
+    );
+  }
+
+  private async resolveRelationTargetNames(body: TCreateTableBody): Promise<void> {
+    if (!body.relations?.length) return;
+    const unresolved = body.relations.filter(
+      (rel: any) => rel.targetTable != null && !rel.targetTableName,
+    );
+    if (!unresolved.length) return;
+    await Promise.all(
+      unresolved.map(async (rel: any) => {
+        const targetId = rel.targetTable;
+        const target = await this.deps.queryBuilderService.findOne({
+          table: 'enfyra_table',
+          where: { [this.getPkField()]: targetId },
+          fields: ['name'],
+        });
+        if (target?.name) {
+          rel.targetTableName = target.name;
+        }
+      }),
     );
   }
 }

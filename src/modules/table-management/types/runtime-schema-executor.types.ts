@@ -34,6 +34,7 @@ export interface RuntimeSchemaExecutionResult {
   outputs: SchemaMutationNodeOutputs;
   affectedTables: readonly string[];
   recordId?: string | number;
+  preview?: Record<string, unknown>;
 }
 
 export interface RuntimeSchemaCommandAdapterContext {
