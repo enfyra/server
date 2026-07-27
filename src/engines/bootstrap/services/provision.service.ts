@@ -9,6 +9,7 @@ import {
 } from '../../mongo';
 import { DatabaseConfigService } from '../../../shared/services';
 import { MySqlBootstrapSnapshotService } from './mysql-bootstrap-snapshot.service';
+import type { RuntimeSchemaJournalService } from '../../../modules/table-management/services/runtime-schema-journal.service';
 
 export class ProvisionService {
   private readonly logger = new Logger(ProvisionService.name);
@@ -21,6 +22,7 @@ export class ProvisionService {
   private readonly mongoSchemaMigrationService: MongoSchemaMigrationService;
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly mySqlBootstrapSnapshotService: MySqlBootstrapSnapshotService;
+  private readonly runtimeSchemaJournalService: RuntimeSchemaJournalService;
 
   constructor(deps: {
     commonService: CommonService;
@@ -31,6 +33,7 @@ export class ProvisionService {
     mongoSchemaMigrationService: MongoSchemaMigrationService;
     databaseConfigService: DatabaseConfigService;
     mySqlBootstrapSnapshotService: MySqlBootstrapSnapshotService;
+    runtimeSchemaJournalService: RuntimeSchemaJournalService;
   }) {
     this.commonService = deps.commonService;
     this.queryBuilderService = deps.queryBuilderService;
@@ -40,6 +43,7 @@ export class ProvisionService {
     this.mongoSchemaMigrationService = deps.mongoSchemaMigrationService;
     this.databaseConfigService = deps.databaseConfigService;
     this.mySqlBootstrapSnapshotService = deps.mySqlBootstrapSnapshotService;
+    this.runtimeSchemaJournalService = deps.runtimeSchemaJournalService;
   }
 
   async waitForDatabase(maxRetries = 10, delayMs = 1000): Promise<void> {
@@ -58,6 +62,9 @@ export class ProvisionService {
   }
 
   async recoverJournals(): Promise<void> {
+    await this.runJournalStep('Runtime schema journal recovery', () =>
+      this.runtimeSchemaJournalService.recoverUnresolved(),
+    );
     if (!this.queryBuilderService.isMongoDb()) {
       if (this.databaseConfigService.getDbType() === 'mysql') {
         await this.runJournalStep('MySQL bootstrap recovery', () =>

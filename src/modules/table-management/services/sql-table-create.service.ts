@@ -92,21 +92,16 @@ export class SqlTableCreateService extends SqlTableHandlerService {
         throw new DuplicateResourceException('enfyra_table', 'name', body.name);
       }
       if (hasTable && !existing) {
-        this.logger.warn(
-          `Mismatch detected: Physical table "${body.name}" exists but no metadata found. Dropping physical table...`,
+        await trx.rollback();
+        throw new ValidationException(
+          `Physical table "${body.name}" exists but has no metadata. ` +
+            `Refusing to drop it automatically. Resolve the orphan through an explicit assessed contract or manual intervention.`,
+          {
+            tableName: body.name,
+            reason: 'orphan_physical_table',
+            operation: 'create',
+          },
         );
-        try {
-          await this.schemaMigrationService.dropTable(body.name, [], trx);
-        } catch (dropError: any) {
-          await trx.rollback();
-          this.logger.error(
-            `Failed to drop physical table "${body.name}": ${dropError.message}`,
-          );
-          throw new DatabaseException(
-            `Failed to drop existing physical table "${body.name}": ${dropError.message}`,
-            { tableName: body.name, operation: 'drop_existing_table' },
-          );
-        }
       }
       const idCol = body.columns.find(
         (col: any) => col.name === 'id' && col.isPrimary,

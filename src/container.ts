@@ -225,6 +225,7 @@ import {
   RuntimeMetadataSchemaRouterService,
   RuntimeSchemaExecutorService,
   RuntimeSchemaUnitOfWorkService,
+  RuntimeSchemaJournalService,
   SqlTableCreateService,
   SqlTableDeleteService,
   SqlTableHandlerService,
@@ -284,6 +285,7 @@ export interface Cradle {
   runtimeMetadataSchemaRouterService: RuntimeMetadataSchemaRouterService;
   runtimeSchemaExecutorService: RuntimeSchemaExecutorService;
   runtimeSchemaUnitOfWorkService: RuntimeSchemaUnitOfWorkService;
+  runtimeSchemaJournalService: RuntimeSchemaJournalService;
   systemSafetyAuditorService: SystemSafetyAuditorService;
 
   mongoService: MongoService;
@@ -526,6 +528,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     ).singleton(),
     runtimeSchemaUnitOfWorkService: asClass(
       RuntimeSchemaUnitOfWorkService,
+    ).singleton(),
+    runtimeSchemaJournalService: asClass(
+      RuntimeSchemaJournalService,
     ).singleton(),
     systemSafetyAuditorService: asClass(SystemSafetyAuditorService).singleton(),
 

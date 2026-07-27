@@ -14,6 +14,10 @@ function createService(overrides: Partial<any> = {}) {
     },
     mongoMigrationJournalService: { cleanup: vi.fn() },
     mongoSchemaMigrationService: { recoverPendingMigrationSagas: vi.fn() },
+    runtimeSchemaJournalService: {
+      recoverUnresolved: vi.fn().mockResolvedValue(undefined),
+      cleanup: vi.fn().mockResolvedValue(undefined),
+    },
     ...overrides,
   } as any);
 }

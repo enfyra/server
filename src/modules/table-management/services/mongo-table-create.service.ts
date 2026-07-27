@@ -76,24 +76,15 @@ export class MongoTableCreateService extends MongoTableHandlerService {
             );
           }
           if (hasCollection && !existing) {
-            this.assertNotAborted();
-            this.logger.warn(
-              `Mismatch detected: Physical collection "${body.name}" exists but no metadata found. Dropping physical collection...`,
+            throw new ValidationException(
+              `Physical collection "${body.name}" exists but has no metadata. ` +
+                `Refusing to drop it automatically. Resolve the orphan through an explicit assessed contract or manual intervention.`,
+              {
+                collectionName: body.name,
+                reason: 'orphan_physical_collection',
+                operation: 'create',
+              },
             );
-            try {
-              await db.collection(body.name).drop();
-            } catch (dropError: any) {
-              this.logger.error(
-                `Failed to drop physical collection "${body.name}": ${dropError.message}`,
-              );
-              throw new DatabaseException(
-                `Failed to drop existing physical collection "${body.name}": ${dropError.message}`,
-                {
-                  collectionName: body.name,
-                  operation: 'drop_existing_collection',
-                },
-              );
-            }
           }
           body.columns = (body.columns || []).map((col: any) =>
             normalizeMongoPrimaryKeyColumn(col),
