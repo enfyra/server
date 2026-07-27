@@ -1,6 +1,9 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { DynamicRepository } from './dynamic.repository';
-import { TableHandlerService } from '../../table-management';
+import {
+  RuntimeMetadataSchemaRouterService,
+  TableHandlerService,
+} from '../../table-management';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { PolicyService } from '../../../domain/policy';
 import { DynamicApiTableValidationService } from '../services/table-validation.service';
@@ -11,6 +14,7 @@ import type { RuntimeRegistryService } from '../../../engines/cache/services/run
 
 export class DynamicRepositoryFactory {
   private readonly tableHandlerService: TableHandlerService;
+  private readonly runtimeMetadataSchemaRouterService: RuntimeMetadataSchemaRouterService;
   private readonly queryBuilderService: QueryBuilderService;
   private readonly policyService: PolicyService;
   private readonly tableValidationService: DynamicApiTableValidationService;
@@ -21,6 +25,7 @@ export class DynamicRepositoryFactory {
 
   constructor(deps: {
     tableHandlerService: TableHandlerService;
+    runtimeMetadataSchemaRouterService: RuntimeMetadataSchemaRouterService;
     queryBuilderService: QueryBuilderService;
     policyService: PolicyService;
     tableValidationService: DynamicApiTableValidationService;
@@ -30,6 +35,8 @@ export class DynamicRepositoryFactory {
     eventEmitter: EventEmitter2;
   }) {
     this.tableHandlerService = deps.tableHandlerService;
+    this.runtimeMetadataSchemaRouterService =
+      deps.runtimeMetadataSchemaRouterService;
     this.queryBuilderService = deps.queryBuilderService;
     this.policyService = deps.policyService;
     this.tableValidationService = deps.tableValidationService;
@@ -49,6 +56,8 @@ export class DynamicRepositoryFactory {
       context,
       enforceFieldPermission,
       tableHandlerService: this.tableHandlerService,
+      runtimeMetadataSchemaRouterService:
+        this.runtimeMetadataSchemaRouterService,
       queryBuilderService: this.queryBuilderService,
       policyService: this.policyService,
       tableValidationService: this.tableValidationService,

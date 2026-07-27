@@ -12,7 +12,10 @@ import {
   rewriteFilterDenyingFields,
   rewriteSortDroppingDenied,
 } from '@enfyra/kernel';
-import { TableHandlerService } from '../../table-management';
+import {
+  RuntimeMetadataSchemaRouterService,
+  TableHandlerService,
+} from '../../table-management';
 import { PolicyService, isPolicyDeny } from '../../../domain/policy';
 import { DynamicApiTableValidationService } from '../services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
@@ -49,6 +52,7 @@ export class DynamicRepository {
   private tableName: string;
   private queryBuilderService: QueryBuilderService;
   private tableHandlerService: TableHandlerService;
+  private runtimeMetadataSchemaRouterService: RuntimeMetadataSchemaRouterService;
   private policyService: PolicyService;
   private tableValidationService: DynamicApiTableValidationService;
   private eventEmitter: EventEmitter2;
@@ -63,6 +67,7 @@ export class DynamicRepository {
     tableName,
     queryBuilderService,
     tableHandlerService,
+    runtimeMetadataSchemaRouterService,
     policyService,
     tableValidationService,
     eventEmitter,
@@ -75,6 +80,7 @@ export class DynamicRepository {
     tableName: string;
     queryBuilderService: QueryBuilderService;
     tableHandlerService: TableHandlerService;
+    runtimeMetadataSchemaRouterService: RuntimeMetadataSchemaRouterService;
     policyService: PolicyService;
     tableValidationService: DynamicApiTableValidationService;
     eventEmitter: EventEmitter2;
@@ -88,6 +94,8 @@ export class DynamicRepository {
     this.tableName = tableName;
     this.queryBuilderService = queryBuilderService;
     this.tableHandlerService = tableHandlerService;
+    this.runtimeMetadataSchemaRouterService =
+      runtimeMetadataSchemaRouterService;
     this.policyService = policyService;
     this.tableValidationService = tableValidationService;
     this.eventEmitter = eventEmitter;
@@ -914,13 +922,34 @@ export class DynamicRepository {
         });
         return result;
       }
+      if (this.runtimeMetadataSchemaRouterService.handles(this.tableName)) {
+        const mutation = await this.runtimeMetadataSchemaRouterService.create({
+          tableName: this.tableName,
+          data: body,
+          context: this.context,
+        });
+        if (mutation.preview) return { data: [mutation.preview] };
+        await this.reload({
+          ids: mutation.recordId == null ? undefined : [mutation.recordId],
+          affectedTables: mutation.affectedTables,
+        });
+        return this.find({
+          filter: {
+            [this.getIdField()]: { _eq: mutation.recordId },
+          },
+          fields,
+        });
+      }
       const inserted = await this.executeCreateBody(body);
       logMemory(this.logger, 'dynamic create persisted', {
         ...writeMeta,
         durationMs: Date.now() - startedAt,
       });
       const createdId = inserted.id || inserted._id || body.id;
-      if (this.tableName === 'enfyra_storage_config' && body.isDefault === true) {
+      if (
+        this.tableName === 'enfyra_storage_config' &&
+        body.isDefault === true
+      ) {
         await this.clearOtherDefaultStorageConfigs(createdId);
       }
       try {
@@ -1181,13 +1210,34 @@ export class DynamicRepository {
         });
         return result;
       }
+      if (this.runtimeMetadataSchemaRouterService.handles(this.tableName)) {
+        const mutation = await this.runtimeMetadataSchemaRouterService.update({
+          tableName: this.tableName,
+          recordId: id,
+          data: body,
+          existing: exists,
+          context: this.context,
+        });
+        if (mutation.preview) return { data: [mutation.preview] };
+        await this.reload({
+          ids: [id],
+          affectedTables: mutation.affectedTables,
+        });
+        return this.find({
+          filter: { [this.getIdField()]: { _eq: id } },
+          fields,
+        });
+      }
       await this.wrapWithFieldPermissionCheck(() =>
         this.queryBuilderService.runWithPolicy(
           (tbl, op, d) => this.cascadePolicyCheck(tbl, op, d),
           () => this.queryBuilderService.update(this.tableName, id, body),
         ),
       );
-      if (this.tableName === 'enfyra_storage_config' && body.isDefault === true) {
+      if (
+        this.tableName === 'enfyra_storage_config' &&
+        body.isDefault === true
+      ) {
         await this.clearOtherDefaultStorageConfigs(id);
       }
       logMemory(this.logger, 'dynamic update persisted', {
@@ -1275,90 +1325,17 @@ export class DynamicRepository {
         });
         return { message: 'Success', statusCode: 200 };
       }
-      if (this.tableName === 'enfyra_relation') {
-        const relRow: any = await this.queryBuilderService.findOne({
-          table: 'enfyra_relation',
-          where: { id },
-          fields: ['*', 'sourceTable.id', 'sourceTable.name'],
+      if (this.runtimeMetadataSchemaRouterService.handles(this.tableName)) {
+        const mutation = await this.runtimeMetadataSchemaRouterService.delete({
+          tableName: this.tableName,
+          recordId: id,
+          existing: exists,
+          context: this.context,
         });
-        const sourceTableId = relRow?.sourceTable?.id;
-        if (!sourceTableId) {
-          throw new BadRequestException(
-            `enfyra_relation ${id}: sourceTable not found`,
-          );
-        }
-        const tableRow: any = await this.queryBuilderService.findOne({
-          table: 'enfyra_table',
-          where: { id: sourceTableId },
-          fields: [
-            '*',
-            'columns.*',
-            'relations.*',
-            'relations.sourceTable.id',
-            'relations.sourceTable.name',
-            'relations.targetTable.id',
-            'relations.targetTable.name',
-          ],
-        });
-        if (!tableRow) {
-          throw new BadRequestException(
-            `enfyra_relation ${id}: source enfyra_table ${sourceTableId} not found`,
-          );
-        }
-        const remainingRelations = (tableRow.relations || []).filter(
-          (r: any) => String(r.id) !== String(id),
-        );
-        const updateBody: any = {
-          name: tableRow.name,
-          columns: (tableRow.columns || []).map((c: any) => ({
-            id: c.id,
-            name: c.name,
-            type: c.type,
-            isPrimary: !!c.isPrimary,
-            isGenerated: !!c.isGenerated,
-            isNullable: !!c.isNullable,
-            isSystem: !!c.isSystem,
-            isUpdatable: c.isUpdatable ?? true,
-            isPublished: c.isPublished ?? true,
-            isEncrypted: c.isEncrypted ?? false,
-            defaultValue: c.defaultValue,
-          })),
-          relations: remainingRelations.map((r: any) => ({
-            id: r.id,
-            propertyName: r.propertyName,
-            type: r.type,
-            isNullable: !!r.isNullable,
-            onDelete: r.onDelete,
-            mappedBy: r.mappedBy,
-            targetTable: r.targetTable?.id,
-          })),
-        };
-        const innerContext: any = {
-          ...this.context,
-          $query: { ...(this.context?.$query || {}) },
-        };
-        const previewResult: any = await this.tableHandlerService.updateTable(
-          sourceTableId,
-          updateBody,
-          innerContext,
-        );
-        if (previewResult?._preview) {
-          const confirmHash =
-            previewResult.requiredConfirmHash ||
-            previewResult.schemaConfirmHash;
-          if (confirmHash) {
-            innerContext.$query.schemaConfirmHash = confirmHash;
-            await this.tableHandlerService.updateTable(
-              sourceTableId,
-              updateBody,
-              innerContext,
-            );
-          }
-        }
-        await this.reload({ ids: [sourceTableId] });
-        logMemory(this.logger, 'dynamic delete relation done', {
-          ...writeMeta,
-          durationMs: Date.now() - startedAt,
+        if (mutation.preview) return { data: [mutation.preview] };
+        await this.reload({
+          ids: [id],
+          affectedTables: mutation.affectedTables,
         });
         return { message: 'Success', statusCode: 200 };
       }
