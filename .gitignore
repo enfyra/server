@@ -75,3 +75,4 @@ docs/
 .yarn/
 .zcode/
 .claude/
+scripts/e2e-parallel.sh
