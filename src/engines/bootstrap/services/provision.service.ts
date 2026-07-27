@@ -64,15 +64,9 @@ export class ProvisionService {
           this.mySqlBootstrapSnapshotService.recoverPending(),
         );
       }
-      try {
-        await this.runJournalStep('SQL migration journal recovery', () =>
-          this.migrationJournalService.recoverPending(),
-        );
-      } catch (error) {
-        this.logger.warn(
-          `SQL migration journal recovery failed (non-fatal): ${(error as Error).message}`,
-        );
-      }
+      await this.runJournalStep('SQL migration journal recovery', () =>
+        this.migrationJournalService.recoverPending(),
+      );
       try {
         await this.runJournalStep('SQL journal cleanup', () =>
           this.migrationJournalService.cleanup(),
@@ -85,15 +79,9 @@ export class ProvisionService {
       return;
     }
 
-    try {
-      await this.runJournalStep('Mongo migration saga recovery', () =>
-        this.mongoSchemaMigrationService.recoverPendingMigrationSagas(),
-      );
-    } catch (error) {
-      this.logger.warn(
-        `Mongo migration saga recovery failed (non-fatal): ${(error as Error).message}`,
-      );
-    }
+    await this.runJournalStep('Mongo migration saga recovery', () =>
+      this.mongoSchemaMigrationService.recoverPendingMigrationSagas(),
+    );
     try {
       await this.runJournalStep('Mongo journal cleanup', () =>
         this.mongoMigrationJournalService.cleanup(),
@@ -121,20 +109,23 @@ export class ProvisionService {
   ): Promise<void> {
     const start = Date.now();
     this.logger.log(`${label} started`);
-    await Promise.race([
-      callback(),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              new Error(
-                `${label} timed out after ${this.journalRecoveryTimeoutMs}ms`,
-              ),
+    let timer: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `${label} timed out after ${this.journalRecoveryTimeoutMs}ms`,
             ),
-          this.journalRecoveryTimeoutMs,
-        ),
-      ),
-    ]);
+          ),
+        this.journalRecoveryTimeoutMs,
+      );
+    });
+    try {
+      await Promise.race([callback(), timeout]);
+    } finally {
+      clearTimeout(timer!);
+    }
     this.logger.log(`${label} completed (${Date.now() - start}ms)`);
   }
 }

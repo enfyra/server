@@ -124,18 +124,25 @@ export class MigrationJournalService {
       `Executing rollback for ${uuid}: ${statements.length} statement(s)`,
     );
 
+    const failures: string[] = [];
     for (let i = statements.length - 1; i >= 0; i--) {
       const stmt = statements[i];
       try {
         await knex.raw(stmt);
         this.logger.log(`  Rollback [${i + 1}]: ${stmt.substring(0, 80)}`);
       } catch (error: any) {
+        failures.push(`[${i + 1}] ${stmt.substring(0, 80)}: ${error.message}`);
         this.logger.warn(
           `  Rollback failed [${i + 1}]: ${stmt.substring(0, 80)} — ${error.message}`,
         );
       }
     }
 
+    if (failures.length > 0) {
+      throw new Error(
+        `Rollback for ${uuid} had ${failures.length} failed statement(s): ${failures.join('; ')}`,
+      );
+    }
     await this.markRolledBack(uuid);
   }
 
@@ -160,6 +167,7 @@ export class MigrationJournalService {
       `Found ${pending.length} pending/running migration(s), rolling back...`,
     );
 
+    const unrecovered: string[] = [];
     for (const entry of pending) {
       this.logger.warn(
         `Recovering ${entry.uuid} [${entry.operation}] ${entry.tableName}`,
@@ -170,6 +178,7 @@ export class MigrationJournalService {
           `Recovery completed for ${entry.uuid} — DDL rolled back, metadata was not changed (DDL-first pattern)`,
         );
       } catch (error: any) {
+        unrecovered.push(`${entry.uuid}: ${error.message}`);
         this.logger.error(
           `Recovery failed for ${entry.uuid}: ${error.message}`,
         );
@@ -177,6 +186,12 @@ export class MigrationJournalService {
     }
 
     await this.cleanupStalePending();
+
+    if (unrecovered.length > 0) {
+      throw new Error(
+        `Schema migration recovery failed for ${unrecovered.length} journal(s), boot cannot continue: ${unrecovered.join('; ')}`,
+      );
+    }
   }
 
   async cleanupStalePending(): Promise<void> {

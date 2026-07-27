@@ -628,8 +628,8 @@ export class SqlSchemaMigrationService {
       });
       await this.migrationJournalService.markRunning(journalUuid);
     } catch (journalErr: any) {
-      this.logger.warn(
-        `Journal record failed (non-fatal): ${journalErr.message}`,
+      throw new Error(
+        `Schema migration journal record failed, aborting unsafe mutation: ${journalErr.message}`,
       );
     }
 

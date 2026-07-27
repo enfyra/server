@@ -19,13 +19,16 @@ function createService(overrides: Partial<any> = {}) {
 }
 
 describe('ProvisionService', () => {
-  it('does not let non-fatal SQL journal recovery block boot forever', async () => {
+  it('fails boot when SQL journal recovery times out', async () => {
     vi.useFakeTimers();
+    let rejectDangling: (err: Error) => void;
+    const dangling = new Promise<void>((_, reject) => {
+      rejectDangling = reject;
+    });
+    dangling.catch(() => undefined);
     const service = createService({
       migrationJournalService: {
-        recoverPending: vi.fn(
-          () => new Promise<void>(() => undefined),
-        ),
+        recoverPending: vi.fn(() => dangling),
         cleanup: vi.fn().mockResolvedValue(undefined),
       },
     });
@@ -34,7 +37,23 @@ describe('ProvisionService', () => {
     const promise = service.recoverJournals();
     await vi.advanceTimersByTimeAsync(5);
 
-    await expect(promise).resolves.toBeUndefined();
+    await expect(promise).rejects.toThrow('timed out');
+    rejectDangling!(new Error('cleanup'));
     vi.useRealTimers();
+  });
+
+  it('fails boot when SQL journal recovery throws', async () => {
+    const service = createService({
+      migrationJournalService: {
+        recoverPending: vi.fn().mockRejectedValue(
+          new Error('unresolved journals'),
+        ),
+        cleanup: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+
+    await expect(service.recoverJournals()).rejects.toThrow(
+      'unresolved journals',
+    );
   });
 });
