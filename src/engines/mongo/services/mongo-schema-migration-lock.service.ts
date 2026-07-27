@@ -135,7 +135,11 @@ export class MongoSchemaMigrationLockService {
       lockToken: handle.token,
       isLocked: true,
     });
-    return doc != null;
+    if (!doc) return false;
+    if (doc.lockExpiresAt && new Date(doc.lockExpiresAt).getTime() <= Date.now()) {
+      return false;
+    }
+    return true;
   }
 
   private async getCollection(): Promise<

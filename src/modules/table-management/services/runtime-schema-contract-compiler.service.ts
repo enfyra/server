@@ -140,6 +140,7 @@ export class RuntimeSchemaContractCompilerService {
       junctionTableName: string;
       isNullable: boolean;
       onDelete: string;
+      inversePropertyName: string;
     }[],
     afterRelations: readonly {
       propertyName: string;
@@ -150,6 +151,7 @@ export class RuntimeSchemaContractCompilerService {
       junctionTableName: string;
       isNullable: boolean;
       onDelete: string;
+      inversePropertyName: string;
     }[],
   ): Promise<RuntimeSchemaCascadeWarning[]> {
     if (!rawBefore || typeof rawBefore !== 'object') return [];

@@ -45,7 +45,17 @@ export class SchemaMigrationLockService {
     const row = await knex(this.tableName)
       .where({ id: 1, lockToken: handle.token, isLocked: true })
       .first();
-    return row != null;
+    if (!row) return false;
+    const now = Date.now();
+    const heartbeatMs = row.heartbeatAt ? new Date(row.heartbeatAt).getTime() : 0;
+    if (heartbeatMs > 0 && now - heartbeatMs > SchemaMigrationLockService.STALE_HEARTBEAT_THRESHOLD_MS) {
+      return false;
+    }
+    const lockedAtMs = row.lockedAt ? new Date(row.lockedAt).getTime() : 0;
+    if (!heartbeatMs && lockedAtMs > 0 && now - lockedAtMs > SchemaMigrationLockService.STALE_LOCK_THRESHOLD_MS) {
+      return false;
+    }
+    return true;
   }
 
   private static readonly STALE_LOCK_THRESHOLD_MS = 120_000;

@@ -23,6 +23,7 @@ export interface RuntimeSchemaRelationContract {
   junctionTableName: string;
   isNullable: boolean;
   onDelete: string;
+  inversePropertyName: string;
 }
 
 export interface RuntimeTableSchemaContract {

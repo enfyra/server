@@ -179,7 +179,8 @@ describe('RuntimeMetadataSchemaRouterService', () => {
       expect.objectContaining({
         _id: 'relation-author',
         propertyName: 'writer',
-        targetTable: 'target-mongo',
+        targetTable: { _id: 'target-mongo' },
+        targetTableName: 'post',
       }),
     );
     expect(body.relations[0]).not.toHaveProperty('sourceTable');

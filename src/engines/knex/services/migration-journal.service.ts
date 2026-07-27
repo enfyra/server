@@ -155,15 +155,9 @@ export class MigrationJournalService {
         .whereIn('status', ['pending', 'running'])
         .select('*');
     } catch (error: any) {
-      const msg = String(error?.message ?? error?.code ?? '');
       const isMissingTable =
         error?.code === '42P01' ||
-        error?.errno === 1146 ||
-        (msg.includes('enfyra_schema_migration') && (
-          msg.includes('does not exist') ||
-          msg.includes("doesn't exist") ||
-          msg.includes('no such table')
-        ));
+        error?.errno === 1146;
       if (isMissingTable) {
         this.logger.warn(
           'enfyra_schema_migration table not found, skipping recovery',

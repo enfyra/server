@@ -57,7 +57,7 @@ export function normalizeRuntimeSchemaRelations(
 export function runtimeRelationDiffKey(
   relation: RuntimeSchemaRelationContract,
 ): string {
-  return `${relation.propertyName}|${relation.type}|${relation.targetTableName}|${relation.mappedBy}|${relation.foreignKeyColumn}|${relation.junctionTableName}`;
+  return `${relation.propertyName}|${relation.type}|${relation.targetTableName}|${relation.mappedBy}|${relation.foreignKeyColumn}|${relation.junctionTableName}|${relation.inversePropertyName}`;
 }
 
 export function findRuntimeSchemaConstraintConflicts(
@@ -105,6 +105,7 @@ function normalizeRelations(
       junctionTableName: stringValue(relation?.junctionTableName),
       isNullable: relation?.isNullable ?? true,
       onDelete: stringValue(relation?.onDelete) || 'SET NULL',
+      inversePropertyName: stringValue(relation?.inversePropertyName),
     }))
     .sort((left, right) =>
       runtimeRelationDiffKey(left).localeCompare(runtimeRelationDiffKey(right)),

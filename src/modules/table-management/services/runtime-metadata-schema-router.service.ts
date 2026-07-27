@@ -1,4 +1,5 @@
 import type { QueryBuilderService } from '@enfyra/kernel';
+import { ObjectId } from 'mongodb';
 import {
   ResourceNotFoundException,
   ValidationException,
@@ -286,7 +287,15 @@ export class RuntimeMetadataSchemaRouterService {
         target && typeof target === 'object'
           ? target.name
           : value.targetTableName;
-      normalized.targetTable = targetId;
+      if (this.deps.databaseConfigService.isMongoDb() && targetId != null) {
+        normalized.targetTable = {
+          _id: typeof targetId === 'string' && ObjectId.isValid(targetId)
+            ? new ObjectId(targetId)
+            : targetId,
+        };
+      } else {
+        normalized.targetTable = targetId;
+      }
       if (targetName) {
         normalized.targetTableName = targetName;
       }
