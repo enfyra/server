@@ -37,6 +37,53 @@ export class SchemaMigrationValidatorService {
       };
     }
 
+    const precompiled = ctx.requestContext?.$schemaContract;
+    if (precompiled?.contract && precompiled?.requiredConfirmHash) {
+      const { contract, requiredConfirmHash } = precompiled;
+      const diff = contract.context.diff;
+      const details = {
+        tableName: diff.tableName,
+        operation: diff.operation,
+        schemaChanged: diff.schemaChanged,
+        isDestructive: diff.isDestructive,
+        removedColumns: diff.removedColumns,
+        addedColumns: diff.addedColumns,
+        renamedColumns: diff.renamedColumns,
+        changedColumns: diff.changedColumns,
+        removedRelationsCount: diff.removedRelations.length,
+        addedRelationsCount: diff.addedRelations.length,
+        removedUniques: diff.removedUniques,
+        addedUniques: diff.addedUniques,
+        removedIndexes: diff.removedIndexes,
+        addedIndexes: diff.addedIndexes,
+        requiredConfirmHash,
+        owningSideInverseCascadeWarnings:
+          diff.owningSideInverseCascadeWarnings,
+        contractHash: contract.contractHash,
+        schemaMutationContract: contract,
+      };
+      if (ctx.operation === 'create' || ctx.operation === 'delete') {
+        return { allow: true, details };
+      }
+      if (!diff.schemaChanged) {
+        return { allow: true, details: { ...details, isDestructive: false } };
+      }
+      const clientHash = getClientHash(ctx.requestContext);
+      if (!clientHash) {
+        return { allow: false, preview: true as const, details };
+      }
+      if (clientHash !== requiredConfirmHash) {
+        return {
+          allow: false,
+          statusCode: 422 as const,
+          code: 'SCHEMA_CONFIRM_HASH_MISMATCH',
+          message: 'Schema confirm hash does not match.',
+          details,
+        };
+      }
+      return { allow: true, details };
+    }
+
     if (
       ctx.operation === 'update' &&
       (!ctx.beforeMetadata || !ctx.afterMetadata)

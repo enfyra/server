@@ -59,10 +59,18 @@ export class RuntimeSchemaExecutorService {
         stage('executing');
         await this.journal.advanceStage(mutationId, 'executing');
 
+        const executionContext: any = {
+          ...(context ?? {}),
+          $schemaContract: {
+            contract,
+            requiredConfirmHash: contract.context.confirmationDigest,
+          },
+        };
+
         const tableResult: any = await this.tableHandlerService.updateTable(
           ownerTableId,
           body,
-          context,
+          executionContext,
         );
 
         if (tableResult?._preview) {
