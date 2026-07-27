@@ -4,6 +4,7 @@ import { SnapshotTargetVerifierService } from '../../src/engines/bootstrap/servi
 function makeService(queryBuilderService: any) {
   const metadataMigrationService = {
     assertSnapshotTargetStateAfterHealing: vi.fn(async () => undefined),
+    getExecutionPlan: vi.fn(() => ({ operations: [] })),
   };
   const dataMigrationService = {
     assertTargetState: vi.fn(async () => undefined),
@@ -44,8 +45,6 @@ describe('SnapshotTargetVerifierService', () => {
         },
       }),
     });
-    (service as any).loadMigration = () => null;
-
     await expect(service.assertSchemaTargetState()).rejects.toThrow(
       /physical table authors is missing/,
     );
@@ -74,20 +73,21 @@ describe('SnapshotTargetVerifierService', () => {
         ),
       })),
     };
-    const { service } = makeService({
+    const { service, metadataMigrationService } = makeService({
       isMongoDb: () => true,
       getMongoDb: () => db,
     });
-    (service as any).loadMigration = () => ({
-      tables: [
+    metadataMigrationService.getExecutionPlan.mockReturnValue({
+      operations: [
         {
-          _unique: { name: { _eq: 'authors' } },
-          columnsToModify: [
-            {
-              from: { name: 'name', type: 'varchar' },
-              to: { name: 'displayName', type: 'varchar' },
-            },
-          ],
+          id: 'schema:modify-column:authors.name',
+          label: 'modify column authors.name',
+          kind: 'modify-column',
+          tableName: 'authors',
+          modification: {
+            from: { name: 'name', type: 'varchar' },
+            to: { name: 'displayName', type: 'varchar' },
+          },
         },
       ],
     });
@@ -127,14 +127,15 @@ describe('SnapshotTargetVerifierService', () => {
           ],
         },
       },
-      {
-        tables: [
-          {
-            _unique: { name: { _eq: 'relations' } },
-            columnsToRemove: ['mappedBy'],
-          },
-        ],
-      },
+      [
+        {
+          id: 'schema:remove-column:relations.mappedBy',
+          label: 'remove column relations.mappedBy',
+          kind: 'remove-column',
+          tableName: 'relations',
+          columnName: 'mappedBy',
+        },
+      ],
       errors,
     );
 
@@ -168,8 +169,6 @@ describe('SnapshotTargetVerifierService', () => {
         isMongoDb: () => true,
         getMongoDb: () => db,
       });
-    (service as any).loadMigration = () => null;
-
     await service.assertSchemaTargetState();
 
     expect(

@@ -58,7 +58,7 @@ export class MetadataCacheService implements IMetadataCache {
     });
   }
 
-  async reload(): Promise<void> {
+  async reload(publish = true): Promise<void> {
     if (this.isLoading && this.loadingPromise) {
       return this.loadingPromise;
     }
@@ -67,11 +67,13 @@ export class MetadataCacheService implements IMetadataCache {
     this.loadingPromise = (async () => {
       try {
         logMemory(this.logger, 'metadata reload start');
-        const metadata = await this.loadFreshMetadataForReload();
+        const metadata = publish
+          ? await this.loadFreshMetadataForReload()
+          : await this.loadMetadataFromDb();
         logMemory(this.logger, 'metadata reload data loaded', {
           tables: metadata.tablesList.length,
         });
-        await this.setLoadedMetadata(metadata);
+        await this.setLoadedMetadata(metadata, publish);
 
         this.logger.log(
           `Loaded ${metadata.tablesList.length} table definitions`,
@@ -685,11 +687,9 @@ export class MetadataCacheService implements IMetadataCache {
   private async loadMetadataFromDb(): Promise<EnfyraMetadata> {
     const isMongoDB = this.dbType === 'mongodb';
 
-    const [tables, allColumns, allRelations] = await Promise.all([
-      this.loadAllTables(),
-      this.loadAllColumns(isMongoDB),
-      this.loadAllRelations(isMongoDB),
-    ]);
+    const tables = await this.loadAllTables();
+    const allColumns = await this.loadAllColumns(isMongoDB);
+    const allRelations = await this.loadAllRelations(isMongoDB);
 
     const relationIdMap = new Map<string, any>();
     for (const rel of allRelations) {
@@ -839,9 +839,12 @@ export class MetadataCacheService implements IMetadataCache {
     this.inMemoryCache = this.normalizeMetadataSnapshot(snapshot.data);
   }
 
-  private async setLoadedMetadata(metadata: EnfyraMetadata): Promise<void> {
+  private async setLoadedMetadata(
+    metadata: EnfyraMetadata,
+    publish = true,
+  ): Promise<void> {
     metadata = this.normalizeMetadataSnapshot(metadata);
-    if (this.usesSharedRuntimeCache()) {
+    if (publish && this.usesSharedRuntimeCache()) {
       await this.redisRuntimeCacheStore!.setSnapshot('metadata', metadata);
       this.sharedCacheLoaded = true;
       this.inMemoryCache = metadata;
@@ -849,6 +852,7 @@ export class MetadataCacheService implements IMetadataCache {
       return;
     }
     this.inMemoryCache = metadata;
+    this.sharedCacheLoaded = true;
   }
 
   private normalizeMetadataSnapshot(metadata: EnfyraMetadata): EnfyraMetadata {

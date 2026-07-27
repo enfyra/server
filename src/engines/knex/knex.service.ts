@@ -596,7 +596,8 @@ export class KnexService implements LifecycleAware {
 
     const promise = (async () => {
       try {
-        const tableDef = await this.knexInstance('enfyra_table')
+        const connection = this.getActiveKnex();
+        const tableDef = await connection('enfyra_table')
           .where('name', tableName)
           .first();
 
@@ -604,7 +605,7 @@ export class KnexService implements LifecycleAware {
           return;
         }
 
-        const columns = await this.knexInstance('enfyra_column')
+        const columns = await connection('enfyra_column')
           .where('tableId', tableDef.id)
           .select('name', 'type');
 
@@ -615,6 +616,7 @@ export class KnexService implements LifecycleAware {
 
         this.columnTypesMap.set(tableName, columnTypes);
       } catch (error) {
+        if (this.knexContext.getStore()) throw error;
         this.logger.error(
           `[loadColumnTypesForTable] Error loading columnTypes for ${tableName}:`,
           error,

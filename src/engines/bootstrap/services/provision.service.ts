@@ -7,6 +7,8 @@ import {
   MongoMigrationJournalService,
   MongoSchemaMigrationService,
 } from '../../mongo';
+import { DatabaseConfigService } from '../../../shared/services';
+import { MySqlBootstrapSnapshotService } from './mysql-bootstrap-snapshot.service';
 
 export class ProvisionService {
   private readonly logger = new Logger(ProvisionService.name);
@@ -17,6 +19,8 @@ export class ProvisionService {
   private readonly migrationJournalService: MigrationJournalService;
   private readonly mongoMigrationJournalService: MongoMigrationJournalService;
   private readonly mongoSchemaMigrationService: MongoSchemaMigrationService;
+  private readonly databaseConfigService: DatabaseConfigService;
+  private readonly mySqlBootstrapSnapshotService: MySqlBootstrapSnapshotService;
 
   constructor(deps: {
     commonService: CommonService;
@@ -25,6 +29,8 @@ export class ProvisionService {
     migrationJournalService: MigrationJournalService;
     mongoMigrationJournalService: MongoMigrationJournalService;
     mongoSchemaMigrationService: MongoSchemaMigrationService;
+    databaseConfigService: DatabaseConfigService;
+    mySqlBootstrapSnapshotService: MySqlBootstrapSnapshotService;
   }) {
     this.commonService = deps.commonService;
     this.queryBuilderService = deps.queryBuilderService;
@@ -32,6 +38,8 @@ export class ProvisionService {
     this.migrationJournalService = deps.migrationJournalService;
     this.mongoMigrationJournalService = deps.mongoMigrationJournalService;
     this.mongoSchemaMigrationService = deps.mongoSchemaMigrationService;
+    this.databaseConfigService = deps.databaseConfigService;
+    this.mySqlBootstrapSnapshotService = deps.mySqlBootstrapSnapshotService;
   }
 
   async waitForDatabase(maxRetries = 10, delayMs = 1000): Promise<void> {
@@ -51,10 +59,14 @@ export class ProvisionService {
 
   async recoverJournals(): Promise<void> {
     if (!this.queryBuilderService.isMongoDb()) {
+      if (this.databaseConfigService.getDbType() === 'mysql') {
+        await this.runJournalStep('MySQL bootstrap recovery', () =>
+          this.mySqlBootstrapSnapshotService.recoverPending(),
+        );
+      }
       try {
-        await this.runJournalStep(
-          'SQL migration journal recovery',
-          () => this.migrationJournalService.recoverPending(),
+        await this.runJournalStep('SQL migration journal recovery', () =>
+          this.migrationJournalService.recoverPending(),
         );
       } catch (error) {
         this.logger.warn(

@@ -1,8 +1,5 @@
 import { ObjectId } from 'mongodb';
-import {
-  SagaCollection,
-  MongoService,
-} from '../../src/engines/mongo';
+import { SagaCollection, MongoService } from '../../src/engines/mongo';
 
 describe('SagaCollection (app-level saga)', () => {
   const rawColl = {
@@ -64,12 +61,12 @@ describe('SagaCollection (app-level saga)', () => {
     );
   });
 
-  it('bulkWrite asserts duration then uses raw collection', () => {
+  it('bulkWrite stays inside the saga session', () => {
     const c = new SagaCollection('items', mongo);
     c.bulkWrite([]);
     expect(txApi.assertWithinMaxDuration).toHaveBeenCalled();
-    expect(mongo.getDb).toHaveBeenCalled();
-    expect(rawColl.bulkWrite).toHaveBeenCalledWith([], undefined);
+    expect(mongo.getDb).not.toHaveBeenCalled();
+    expect(rawColl.bulkWrite).not.toHaveBeenCalled();
   });
 
   it('insertOne routes through saga session', async () => {

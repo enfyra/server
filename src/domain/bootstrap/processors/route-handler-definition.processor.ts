@@ -2,6 +2,7 @@ import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { DatabaseConfigService } from '../../../shared/services';
 import { normalizeScriptRecord } from '../../../shared/utils/script-code.util';
+import { mapSequentially } from '../utils/map-sequentially.util';
 
 export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;
@@ -11,11 +12,13 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
   }
   async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
-    const transformedRecords = await Promise.all(
-      records.map(async (handler) => {
+    const transformedRecords = await mapSequentially(
+      records,
+      async (handler) => {
         if (handler.route && typeof handler.route === 'string') {
           const route = await this.queryBuilderService.findOne({
             table: 'enfyra_route',
+            fields: isMongoDB ? ['_id', 'path'] : ['id', 'path'],
             where: {
               path: handler.route,
             },
@@ -36,6 +39,7 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
         if (handler.method && typeof handler.method === 'string') {
           const method = await this.queryBuilderService.findOne({
             table: 'enfyra_method',
+            fields: isMongoDB ? ['_id', 'name'] : ['id', 'name'],
             where: {
               name: handler.method,
             },
@@ -60,7 +64,7 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
           if (!handler.updatedAt) handler.updatedAt = now;
         }
         return normalizeScriptRecord('enfyra_route_handler', handler);
-      }),
+      },
     );
     return transformedRecords.filter(Boolean);
   }
@@ -71,7 +75,14 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
     };
   }
   protected getCompareFields(): string[] {
-    return ['name', 'sourceCode', 'scriptLanguage', 'compiledCode', 'timeout', 'isEnabled'];
+    return [
+      'name',
+      'sourceCode',
+      'scriptLanguage',
+      'compiledCode',
+      'timeout',
+      'isEnabled',
+    ];
   }
   protected getRecordIdentifier(record: any): string {
     return `[RouteHandler] ${record.name}`;

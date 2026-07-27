@@ -8,6 +8,7 @@ import {
   REDIS_TTL,
 } from '../../../shared/utils/constant';
 import { getErrorMessage } from '../../../shared/utils/error.util';
+import { getMongoRawDb } from './mongo-raw-db.util';
 
 export type MongoMigrationStatus =
   | 'pending'
@@ -34,7 +35,7 @@ export class MongoMigrationJournalService {
   }
 
   private getCollection() {
-    return this.mongoService.getDb().collection(this.collectionName);
+    return getMongoRawDb(this.mongoService).collection(this.collectionName);
   }
   async record(params: {
     tableName: string;

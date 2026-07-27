@@ -90,10 +90,12 @@ import {
 
 import {
   BootstrapDefinitionService,
+  BootstrapUnitOfWorkService,
   DataMigrationService,
   DataProvisionService,
   FirstRunInitializer,
   MetadataMigrationService,
+  MySqlBootstrapSnapshotService,
   MetadataProvisionMongoService,
   MetadataProvisionSqlService,
   MetadataProvisionService,
@@ -398,6 +400,8 @@ export interface Cradle {
   metadataMigrationService: MetadataMigrationService;
   snapshotTargetVerifierService: SnapshotTargetVerifierService;
   bootstrapDefinitionService: BootstrapDefinitionService;
+  bootstrapUnitOfWorkService: BootstrapUnitOfWorkService;
+  mySqlBootstrapSnapshotService: MySqlBootstrapSnapshotService;
   bootstrapScriptService: BootstrapScriptService;
 
   userDefinitionProcessor: UserDefinitionProcessor;
@@ -715,6 +719,10 @@ export function buildContainer(): AwilixContainer<Cradle> {
 
     provisionService: asClass(ProvisionService).singleton(),
     bootstrapDefinitionService: asClass(BootstrapDefinitionService).singleton(),
+    bootstrapUnitOfWorkService: asClass(BootstrapUnitOfWorkService).singleton(),
+    mySqlBootstrapSnapshotService: asClass(
+      MySqlBootstrapSnapshotService,
+    ).singleton(),
     firstRunInitializer: asClass(FirstRunInitializer).singleton(),
     schemaHealingService: asClass(SchemaHealingService).singleton(),
     systemCoreTableResolver: asClass(SystemCoreTableResolver).singleton(),

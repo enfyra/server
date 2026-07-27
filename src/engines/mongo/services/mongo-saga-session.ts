@@ -45,19 +45,224 @@ export class MongoSagaSession {
     this.checkDuration();
   }
 
+  async createCollection(
+    collectionName: string,
+    options?: Record<string, unknown>,
+  ): Promise<any> {
+    this.checkDuration();
+    await this.lockCollectionResources([collectionName]);
+    const snapshot = await this.snapshotService.createSnapshot(
+      this.txId,
+      'collection_create',
+      collectionName,
+      collectionName,
+      null,
+      { options: options ?? {} },
+    );
+    this.trackSnapshot(snapshot);
+    try {
+      const collection = await this.mongoService
+        .getRawDb()
+        .createCollection(collectionName, options);
+      await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
+      return collection;
+    } catch (error) {
+      await this.snapshotService.markSnapshotFailed(
+        snapshot.snapshotId,
+        getErrorMessage(error),
+      );
+      throw error;
+    }
+  }
+
+  async dropCollection(collectionName: string): Promise<boolean> {
+    this.checkDuration();
+    const db = this.mongoService.getRawDb();
+    const definition = await db
+      .listCollections({ name: collectionName })
+      .next();
+    if (!definition) return false;
+
+    await this.lockCollectionResources([collectionName]);
+    const documents = await db.collection(collectionName).find({}).toArray();
+    const documentSnapshots = await this.snapshotService.createSnapshotsBatch(
+      this.txId,
+      documents.map((document) => ({
+        op: 'delete' as const,
+        collection: collectionName,
+        documentId: document._id,
+        before: document,
+        afterPatch: null,
+      })),
+    );
+    const indexes = await db.collection(collectionName).listIndexes().toArray();
+    const structureSnapshot = await this.snapshotService.createSnapshot(
+      this.txId,
+      'collection_drop',
+      collectionName,
+      collectionName,
+      {
+        options: (definition as any).options ?? {},
+        indexes,
+      },
+      null,
+    );
+    this.context.snapshots.push(...documentSnapshots, structureSnapshot);
+
+    try {
+      const dropped = await db.dropCollection(collectionName);
+      await this.snapshotService.markSnapshotsBatchCompleted(
+        documentSnapshots.map((snapshot) => snapshot.snapshotId),
+      );
+      await this.snapshotService.markSnapshotCompleted(
+        structureSnapshot.snapshotId,
+      );
+      return dropped;
+    } catch (error) {
+      const message = getErrorMessage(error);
+      await this.snapshotService.markSnapshotsBatchFailed(
+        documentSnapshots.map((snapshot) => snapshot.snapshotId),
+        message,
+      );
+      await this.snapshotService.markSnapshotFailed(
+        structureSnapshot.snapshotId,
+        message,
+      );
+      throw error;
+    }
+  }
+
+  async renameCollection(from: string, to: string): Promise<any> {
+    this.checkDuration();
+    await this.lockCollectionResources([from, to]);
+    const snapshot = await this.snapshotService.createSnapshot(
+      this.txId,
+      'collection_rename',
+      from,
+      from,
+      { from },
+      { to },
+    );
+    this.trackSnapshot(snapshot);
+    try {
+      const renamed = await this.mongoService
+        .getRawDb()
+        .collection(from)
+        .rename(to);
+      await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
+      return renamed;
+    } catch (error) {
+      await this.snapshotService.markSnapshotFailed(
+        snapshot.snapshotId,
+        getErrorMessage(error),
+      );
+      throw error;
+    }
+  }
+
+  async createIndex(
+    collectionName: string,
+    keys: Record<string, unknown>,
+    options?: Record<string, unknown>,
+  ): Promise<string> {
+    this.checkDuration();
+    await this.lockCollectionResources([collectionName]);
+    const db = this.mongoService.getRawDb();
+    if (!(await db.listCollections({ name: collectionName }).hasNext())) {
+      await this.createCollection(collectionName);
+    }
+    const collection = db.collection(collectionName);
+    const name = String(
+      options?.name ??
+        Object.entries(keys)
+          .map(([field, direction]) => `${field}_${direction}`)
+          .join('_'),
+    );
+    const existing = await collection.indexExists(name);
+    if (existing) return name;
+    const snapshot = await this.snapshotService.createSnapshot(
+      this.txId,
+      'index_create',
+      collectionName,
+      name,
+      null,
+      { name, keys, options: options ?? {} },
+    );
+    this.trackSnapshot(snapshot);
+    try {
+      const createdName = await collection.createIndex(keys as any, options);
+      snapshot.afterPatch.name = createdName;
+      await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
+      return createdName;
+    } catch (error) {
+      await this.snapshotService.markSnapshotFailed(
+        snapshot.snapshotId,
+        getErrorMessage(error),
+      );
+      throw error;
+    }
+  }
+
+  async dropIndex(collectionName: string, indexName: string): Promise<void> {
+    this.checkDuration();
+    await this.lockCollectionResources([collectionName]);
+    const collection = this.mongoService.getRawDb().collection(collectionName);
+    const index = (await collection.listIndexes().toArray()).find(
+      (candidate) => candidate.name === indexName,
+    );
+    if (!index) return;
+    const snapshot = await this.snapshotService.createSnapshot(
+      this.txId,
+      'index_drop',
+      collectionName,
+      indexName,
+      index,
+      null,
+    );
+    this.trackSnapshot(snapshot);
+    try {
+      await collection.dropIndex(indexName);
+      await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
+    } catch (error) {
+      await this.snapshotService.markSnapshotFailed(
+        snapshot.snapshotId,
+        getErrorMessage(error),
+      );
+      throw error;
+    }
+  }
+
+  private async lockCollectionResources(names: string[]): Promise<void> {
+    const result = await this.lockService.acquireLocks(
+      this.txId,
+      names.map((name) => ({
+        type: '__collection__',
+        id: name,
+        mode: 'write' as const,
+      })),
+    );
+    if (!result.success) {
+      throw new DatabaseException('Cannot acquire collection migration lock', {
+        txId: this.txId,
+        collections: names,
+        failedLocks: result.failedLocks,
+      });
+    }
+  }
+
   aggregate(
     collectionName: string,
     pipeline: any[],
     options?: Record<string, unknown>,
   ): AggregationCursor {
     this.checkDuration();
-    const collection = this.mongoService.getDb().collection(collectionName);
+    const collection = this.mongoService.getRawDb().collection(collectionName);
     return collection.aggregate(pipeline, options);
   }
 
   async countDocuments(collectionName: string, filter?: any): Promise<number> {
     this.checkDuration();
-    const collection = this.mongoService.getDb().collection(collectionName);
+    const collection = this.mongoService.getRawDb().collection(collectionName);
     return collection.countDocuments(filter || {});
   }
 
@@ -114,7 +319,9 @@ export class MongoSagaSession {
     }
 
     try {
-      const collection = this.mongoService.getDb().collection(collectionName);
+      const collection = this.mongoService
+        .getRawDb()
+        .collection(collectionName);
       await collection.insertOne({
         ...data,
         _id: predictedId,
@@ -167,7 +374,7 @@ export class MongoSagaSession {
       );
     }
 
-    const collection = this.mongoService.getDb().collection(collectionName);
+    const collection = this.mongoService.getRawDb().collection(collectionName);
     const oldDoc = await collection.findOne({ _id: objectId });
 
     if (!oldDoc) {
@@ -221,7 +428,7 @@ export class MongoSagaSession {
   ): Promise<any> {
     this.checkDuration();
 
-    const collection = this.mongoService.getDb().collection(collectionName);
+    const collection = this.mongoService.getRawDb().collection(collectionName);
     const oldDoc = await collection.findOne(filter);
     if (!oldDoc) {
       return {
@@ -259,7 +466,9 @@ export class MongoSagaSession {
     }
     try {
       let payload: any;
-      if (!update || typeof update !== 'object' || Array.isArray(update)) {
+      if (Array.isArray(update)) {
+        payload = update;
+      } else if (!update || typeof update !== 'object') {
         payload = {};
       } else {
         const keys = Object.keys(update);
@@ -296,7 +505,7 @@ export class MongoSagaSession {
   ): Promise<any> {
     this.checkDuration();
 
-    const collection = this.mongoService.getDb().collection(collectionName);
+    const collection = this.mongoService.getRawDb().collection(collectionName);
     const cursor = collection.find(filter || {});
     let modified = 0;
     let matched = 0;
@@ -344,7 +553,7 @@ export class MongoSagaSession {
       );
     }
 
-    const collection = this.mongoService.getDb().collection(collectionName);
+    const collection = this.mongoService.getRawDb().collection(collectionName);
     const oldDoc = await collection.findOne({ _id: objectId });
 
     if (!oldDoc) {
@@ -384,12 +593,85 @@ export class MongoSagaSession {
     }
   }
 
+  async replaceOneByFilter(
+    collectionName: string,
+    filter: any,
+    replacement: any,
+    options?: { upsert?: boolean; skipLogging?: boolean },
+  ): Promise<any> {
+    this.checkDuration();
+    const collection = this.mongoService.getRawDb().collection(collectionName);
+    const oldDoc = await collection.findOne(filter);
+    if (!oldDoc) {
+      if (!options?.upsert) {
+        return {
+          acknowledged: true,
+          matchedCount: 0,
+          modifiedCount: 0,
+          upsertedCount: 0,
+        };
+      }
+      const inserted = await this.insertOne(collectionName, replacement, {
+        skipLogging: options.skipLogging,
+      });
+      return {
+        acknowledged: true,
+        matchedCount: 0,
+        modifiedCount: 0,
+        upsertedCount: 1,
+        upsertedId: inserted._id,
+      };
+    }
+
+    const idString = oldDoc._id.toString();
+    const lockResult = await this.lockService.acquireLocks(this.txId, [
+      { type: collectionName, id: idString, mode: 'write' },
+    ]);
+    if (!lockResult.success) {
+      throw new DatabaseException(
+        `Cannot acquire lock for replace on ${collectionName}:${idString}`,
+        { txId: this.txId, failedLocks: lockResult.failedLocks },
+      );
+    }
+
+    let snapshot: ISagaSnapshot | undefined;
+    if (!options?.skipLogging) {
+      snapshot = await this.snapshotService.createSnapshot(
+        this.txId,
+        'update',
+        collectionName,
+        oldDoc._id,
+        oldDoc,
+        replacement,
+      );
+      this.trackSnapshot(snapshot);
+    }
+    try {
+      const result = await collection.replaceOne(
+        { _id: oldDoc._id },
+        { ...replacement, _id: oldDoc._id },
+      );
+      if (snapshot) {
+        await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
+      }
+      return result;
+    } catch (error) {
+      if (snapshot) {
+        await this.snapshotService.markSnapshotFailed(
+          snapshot.snapshotId,
+          getErrorMessage(error),
+        );
+      }
+      throw error;
+    }
+  }
+
   async findOne(
     collectionName: string,
     filter: any,
     options?: { useConsistentRead?: boolean },
   ): Promise<any> {
-    const collection = this.mongoService.getDb().collection(collectionName);
+    const collection = this.mongoService.getRawDb().collection(collectionName);
 
     if (options?.useConsistentRead && filter._id) {
       const id =
@@ -415,11 +697,19 @@ export class MongoSagaSession {
   async find(
     collectionName: string,
     filter?: any,
-    options?: { limit?: number; skip?: number; useConsistentRead?: boolean },
+    options?: {
+      limit?: number;
+      skip?: number;
+      sort?: any;
+      projection?: any;
+      useConsistentRead?: boolean;
+    },
   ): Promise<any[]> {
-    const collection = this.mongoService.getDb().collection(collectionName);
+    const collection = this.mongoService.getRawDb().collection(collectionName);
 
     let cursor = collection.find(filter || {});
+    if (options?.sort) cursor = cursor.sort(options.sort);
+    if (options?.projection) cursor = cursor.project(options.projection);
     if (options?.skip) cursor = cursor.skip(options.skip);
     if (options?.limit) cursor = cursor.limit(options.limit);
 
@@ -542,7 +832,9 @@ export class MongoSagaSession {
     }
 
     try {
-      const collection = this.mongoService.getDb().collection(collectionName);
+      const collection = this.mongoService
+        .getRawDb()
+        .collection(collectionName);
       const insertStart = performance.now();
       await collection.insertMany(docsWithIds, {
         ordered: options?.ordered ?? true,
@@ -598,7 +890,7 @@ export class MongoSagaSession {
       );
     }
 
-    const collection = this.mongoService.getDb().collection(collectionName);
+    const collection = this.mongoService.getRawDb().collection(collectionName);
 
     const oldDocs = await collection
       .find({ _id: { $in: objectIds } })
@@ -695,7 +987,7 @@ export class MongoSagaSession {
       );
     }
 
-    const collection = this.mongoService.getDb().collection(collectionName);
+    const collection = this.mongoService.getRawDb().collection(collectionName);
     const oldDocs = await collection
       .find({ _id: { $in: objectIds } })
       .toArray();
@@ -762,7 +1054,7 @@ export class MongoSagaSession {
   ): Promise<any[]> {
     const promises = reads.map((read) =>
       this.mongoService
-        .getDb()
+        .getRawDb()
         .collection(read.collection)
         .findOne(read.filter, {
           projection: read.projection,

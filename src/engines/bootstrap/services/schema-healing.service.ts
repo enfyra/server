@@ -100,7 +100,7 @@ export class SchemaHealingService {
   async runExplicitRepairsIfNeeded(): Promise<void> {
     const setting = await this.loadSetting();
     if (setting && setting.uniquesIndexesRepaired !== true) {
-      await this.metadataCacheService.reload();
+      await this.metadataCacheService.reload(false);
       const repairedCount = await this.repairUserTables();
       await this.markRepaired(setting);
 

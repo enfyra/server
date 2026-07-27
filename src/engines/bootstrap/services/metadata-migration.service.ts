@@ -1,7 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { Db } from 'mongodb';
-import {
+import type {
   SchemaMigrationDef,
   SnapshotMigrationMetadataState,
   TableMigrationDef,
@@ -10,6 +10,7 @@ import {
   TableRenameDef,
 } from '../../../shared/types/schema-migration.types';
 import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
+import { compileMetadataMigrationExecutionPlan } from '../utils/metadata-migration-plan.util';
 import { SystemCoreTableResolver } from './system-core-table-resolver.service';
 import {
   buildColumnMetadataUpdate,
@@ -19,7 +20,6 @@ import {
   getValidTableRenames,
   hasColumnMetadataChanges,
   hasRelationMetadataChanges,
-  hasSchemaMigrations,
   hasTableMetadataChanges,
   validateSnapshotMigrationCoverage,
   validateSnapshotTargetState,
@@ -36,7 +36,11 @@ import {
 } from '../../../shared/utils/provision-schema-migration';
 import { normalizeMongoPrimaryKeyColumn } from '../../../modules/table-management/utils/mongo-primary-key.util';
 import { BootstrapDefinitionService } from './bootstrap-definition.service';
-import type { BootstrapSchemaExecutionPlan } from '../types';
+import type {
+  BootstrapSchemaExecutionPlan,
+  BootstrapSchemaOperation,
+  BootstrapSchemaOperationCompleted,
+} from '../types';
 
 export class MetadataMigrationService {
   private readonly logger = new Logger(MetadataMigrationService.name);
@@ -46,6 +50,7 @@ export class MetadataMigrationService {
   private readonly physicalMigration: MetadataPhysicalMigrationHelper;
   private migrations: SchemaMigrationDef | null = null;
   private executionPlan: BootstrapSchemaExecutionPlan | null = null;
+  private readonly executedPlanNodeIds = new Set<string>();
   private readonly sqlCoreTableIdRemap = new Map<string, any>();
   private readonly mongoCoreTableIdRemap = new Map<string, any>();
 
@@ -70,55 +75,9 @@ export class MetadataMigrationService {
     }
   }
 
-  hasMigrations(): boolean {
-    return hasSchemaMigrations(this.migrations);
-  }
-
   private getMongoDb(): Db | null {
     if (!this.queryBuilderService.isMongoDb()) return null;
     return this.queryBuilderService.getMongoDb();
-  }
-
-  async runMigrations(): Promise<void> {
-    if (!this.hasMigrations()) {
-      this.verbose('No metadata migrations to run');
-      return;
-    }
-    if (!(await this.hasMetadataStore())) {
-      this.verbose(
-        'Metadata store does not exist yet; skipping legacy metadata migrations',
-      );
-      return;
-    }
-    this.getExecutionPlan();
-
-    this.verbose('Running metadata migrations from snapshot-migration.ts...');
-
-    const isMongoDB = this.queryBuilderService.isMongoDb();
-
-    const migrations = this.migrations!;
-    await this.runTableRenames(migrations.tablesToRename ?? [], isMongoDB);
-
-    const tablesToDrop = migrations.tablesToDrop ?? [];
-    if (tablesToDrop.length > 0) {
-      await this.dropTableMetadata(tablesToDrop, isMongoDB);
-    }
-
-    for (const tableMigration of migrations.tables || []) {
-      await this.migrateTableMetadata(tableMigration, isMongoDB);
-    }
-
-    const renamedTables = [
-      ...(migrations.coreTablesToRename ?? []),
-      ...(migrations.tablesToRename ?? []),
-    ];
-    if (isMongoDB) {
-      await this.dropLegacyRenamedMongoCollections(renamedTables);
-    } else {
-      await this.dropLegacyRenamedSqlTables(renamedTables);
-    }
-
-    this.verbose('Metadata migrations completed');
   }
 
   private async dropLegacyRenamedSqlTables(
@@ -194,41 +153,6 @@ export class MetadataMigrationService {
     return this.queryBuilderService.getKnex().schema.hasTable(coreNames.table);
   }
 
-  async runCoreTableRenamesBeforeMetadataSync(): Promise<void> {
-    if (!this.migrations?.coreTablesToRename?.length) return;
-
-    const isMongoDB = this.queryBuilderService.isMongoDb();
-    if (isMongoDB) {
-      await this.runMongoCoreTableRenames(this.migrations.coreTablesToRename);
-      return;
-    }
-
-    await this.runSqlCoreTableRenames(this.migrations.coreTablesToRename);
-  }
-
-  async runTableRenamesBeforeMetadataSync(): Promise<void> {
-    if (!this.migrations?.tablesToRename?.length) return;
-
-    await this.runTableRenames(
-      this.migrations.tablesToRename,
-      this.queryBuilderService.isMongoDb(),
-    );
-  }
-
-  async runPhysicalTableRenamesAndDropsAfterCoverage(): Promise<void> {
-    if (!this.hasMigrations()) return;
-    this.getExecutionPlan();
-    await this.physicalMigration.runPhysicalTableRenames(
-      this.migrations!.physicalTablesToRename ?? [],
-      this.queryBuilderService.isMongoDb(),
-    );
-
-    await this.physicalMigration.dropPhysicalTables(
-      this.migrations!.physicalTablesToDrop ?? [],
-      this.queryBuilderService.isMongoDb(),
-    );
-  }
-
   async prepareMigrationExecutionPlan(): Promise<BootstrapSchemaExecutionPlan> {
     const hasMetadataStore = await this.hasMetadataStore();
     let observedMetadata = { tables: 0, columns: 0, relations: 0 };
@@ -248,36 +172,16 @@ export class MetadataMigrationService {
       };
     }
 
-    const migration = this.migrations;
-    const plan: BootstrapSchemaExecutionPlan = {
+    const plan = compileMetadataMigrationExecutionPlan(this.migrations, {
       mode: hasMetadataStore ? 'upgrade' : 'install',
-      database: this.queryBuilderService.isMongoDb() ? 'mongodb' : 'sql',
+      database: this.getPlanDatabase(),
       targetTableCount: Object.keys(
         this.bootstrapDefinitionService.getSnapshot(),
       ).length,
       observedMetadata,
-      operations: {
-        tableRenames: (migration?.tablesToRename ?? []).map(
-          (entry) => `${entry.from}->${entry.to}`,
-        ),
-        physicalTableRenames: (migration?.physicalTablesToRename ?? []).map(
-          (entry) => `${entry.from}->${entry.to}`,
-        ),
-        physicalTableDrops: [...(migration?.physicalTablesToDrop ?? [])],
-        tableMigrations: (migration?.tables ?? []).map(
-          (entry) => entry._unique.name._eq,
-        ),
-        tableDrops: [...(migration?.tablesToDrop ?? [])],
-      },
-    };
-    Object.freeze(plan.operations.tableRenames);
-    Object.freeze(plan.operations.physicalTableRenames);
-    Object.freeze(plan.operations.physicalTableDrops);
-    Object.freeze(plan.operations.tableMigrations);
-    Object.freeze(plan.operations.tableDrops);
-    Object.freeze(plan.operations);
-    Object.freeze(plan.observedMetadata);
-    this.executionPlan = Object.freeze(plan);
+    });
+    this.executionPlan = plan;
+    this.executedPlanNodeIds.clear();
     return this.executionPlan;
   }
 
@@ -292,6 +196,192 @@ export class MetadataMigrationService {
       );
     }
     return this.executionPlan;
+  }
+
+  private getPlanDatabase(): BootstrapSchemaExecutionPlan['database'] {
+    if (this.queryBuilderService.isMongoDb()) return 'mongodb';
+    const client = String(
+      this.queryBuilderService.getKnex().client?.config?.client ?? '',
+    ).toLowerCase();
+    return client.includes('pg') || client.includes('postgres')
+      ? 'postgresql'
+      : 'mysql';
+  }
+
+  async executeCoreMigrationPlan(
+    onOperationCompleted?: BootstrapSchemaOperationCompleted,
+  ): Promise<void> {
+    await this.executePlanCheckpoint('core', onOperationCompleted);
+  }
+
+  async executeRemainingMigrationPlan(
+    onOperationCompleted?: BootstrapSchemaOperationCompleted,
+  ): Promise<void> {
+    await this.executePlanCheckpoint('remaining', onOperationCompleted);
+  }
+
+  private async executePlanCheckpoint(
+    checkpoint: 'core' | 'remaining',
+    onOperationCompleted?: BootstrapSchemaOperationCompleted,
+  ): Promise<void> {
+    const plan = this.getExecutionPlan();
+    for (const phase of plan.phases) {
+      const nodes = phase.nodes.filter(
+        (node) =>
+          node.checkpoint === checkpoint &&
+          !this.executedPlanNodeIds.has(node.id),
+      );
+      if (nodes.length === 0) continue;
+      this.verbose(`Executing migration phase ${phase.index}`);
+      for (const node of nodes) {
+        if (node.command.backend !== plan.database) {
+          throw new Error(
+            `Bootstrap migration node ${node.id} targets ${node.command.backend}, not ${plan.database}.`,
+          );
+        }
+        const missingDependency = node.dependsOn.find(
+          (dependencyId) => !this.executedPlanNodeIds.has(dependencyId),
+        );
+        if (missingDependency) {
+          throw new Error(
+            `Bootstrap migration node ${node.id} cannot run before ${missingDependency}.`,
+          );
+        }
+        await this.executePlanCommand(node.command);
+        this.executedPlanNodeIds.add(node.id);
+        if (node.completesChange) {
+          await onOperationCompleted?.(node.command.operation);
+        }
+      }
+    }
+  }
+
+  private async executePlanCommand(
+    command: BootstrapSchemaExecutionPlan['phases'][number]['nodes'][number]['command'],
+  ): Promise<void> {
+    const isMongoDB = this.queryBuilderService.isMongoDb();
+    const operation = command.operation;
+    switch (command.kind) {
+      case 'rename-core-table':
+        if (operation.kind !== 'rename-core-table') {
+          throw new Error(`Invalid command payload for ${command.kind}.`);
+        }
+        if (isMongoDB) {
+          await this.runMongoCoreTableRenames([operation.rename]);
+        } else {
+          await this.runSqlCoreTableRenames([operation.rename]);
+        }
+        return;
+      case 'rename-table':
+        if (operation.kind !== 'rename-table') {
+          throw new Error(`Invalid command payload for ${command.kind}.`);
+        }
+        await this.runTableRenames([operation.rename], isMongoDB);
+        return;
+      case 'rename-physical-table':
+        if (operation.kind !== 'rename-physical-table') {
+          throw new Error(`Invalid command payload for ${command.kind}.`);
+        }
+        await this.physicalMigration.runPhysicalTableRenames(
+          [operation.rename],
+          isMongoDB,
+        );
+        return;
+      case 'drop-physical-table':
+        if (operation.kind !== 'drop-physical-table') {
+          throw new Error(`Invalid command payload for ${command.kind}.`);
+        }
+        await this.physicalMigration.dropPhysicalTables(
+          [operation.tableName],
+          isMongoDB,
+        );
+        return;
+      case 'apply-physical-change':
+        await this.executePhysicalOperation(operation);
+        return;
+      case 'apply-metadata-change':
+        if (operation.kind === 'drop-table') {
+          await this.dropTableMetadata([operation.tableName], isMongoDB);
+          return;
+        }
+        const tableMigration = this.toTableMigration(operation);
+        if (!tableMigration) {
+          throw new Error(`Invalid command payload for ${command.kind}.`);
+        }
+        await this.migrateTableMetadata(tableMigration, isMongoDB);
+        return;
+      case 'cleanup-renamed-table':
+        if (
+          operation.kind !== 'rename-core-table' &&
+          operation.kind !== 'rename-table'
+        ) {
+          throw new Error(`Invalid command payload for ${command.kind}.`);
+        }
+        if (isMongoDB) {
+          await this.dropLegacyRenamedMongoCollections([operation.rename]);
+        } else {
+          await this.dropLegacyRenamedSqlTables([operation.rename]);
+        }
+    }
+  }
+
+  private async executePhysicalOperation(
+    operation: BootstrapSchemaOperation,
+  ): Promise<void> {
+    const tableMigration = this.toTableMigration(operation);
+    const migration: SchemaMigrationDef = {
+      tables: tableMigration ? [tableMigration] : [],
+      tablesToDrop:
+        operation.kind === 'drop-table' ? [operation.tableName] : [],
+    };
+    if (this.queryBuilderService.isMongoDb()) {
+      const snapshot = this.bootstrapDefinitionService.getSnapshot();
+      const preserveFieldsByCollection = Object.fromEntries(
+        Object.entries(snapshot).map(
+          ([tableName, definition]: [string, any]) => [
+            tableName,
+            [
+              ...(definition.columns ?? []).map((column: any) => column.name),
+              ...(definition.relations ?? []).map(
+                (relation: any) => relation.propertyName,
+              ),
+            ],
+          ],
+        ),
+      );
+      await applyMongoSchemaMigrations(
+        this.queryBuilderService.getMongoDb(),
+        migration,
+        { preserveFieldsByCollection },
+      );
+      return;
+    }
+    await applySqlSchemaMigrations(
+      this.queryBuilderService.getKnex(),
+      migration,
+    );
+  }
+
+  private toTableMigration(
+    operation: BootstrapSchemaOperation,
+  ): TableMigrationDef | null {
+    const _unique = {
+      name: { _eq: 'tableName' in operation ? operation.tableName : '' },
+    };
+    switch (operation.kind) {
+      case 'modify-table':
+        return { _unique, tableToModify: operation.modification };
+      case 'modify-column':
+        return { _unique, columnsToModify: [operation.modification] };
+      case 'remove-column':
+        return { _unique, columnsToRemove: [operation.columnName] };
+      case 'modify-relation':
+        return { _unique, relationsToModify: [operation.modification] };
+      case 'remove-relation':
+        return { _unique, relationsToRemove: [operation.propertyName] };
+      default:
+        return null;
+    }
   }
 
   async assertSnapshotTargetStateAfterHealing(): Promise<void> {
@@ -409,73 +499,6 @@ export class MetadataMigrationService {
     };
 
     return { snapshot, dataTargetSnapshot, state };
-  }
-
-  async runPhysicalMigrationsBeforeMetadataSync(): Promise<void> {
-    if (!this.hasMigrations()) return;
-    this.getExecutionPlan();
-
-    const migrations = this.migrations!;
-    for (const tableMigration of migrations.tables || []) {
-      const tableName = tableMigration._unique.name._eq;
-      for (const columnMigration of tableMigration.columnsToModify || []) {
-        if (columnMigration.from.name === columnMigration.to.name) continue;
-        if (this.queryBuilderService.isMongoDb()) {
-          await this.physicalMigration.renameMongoDocumentFieldIfNeeded(
-            tableName,
-            columnMigration.from.name,
-            columnMigration.to.name,
-          );
-        } else {
-          await this.physicalMigration.renameSqlPhysicalColumnIfNeeded(
-            tableName,
-            columnMigration.from.name,
-            columnMigration.to.name,
-          );
-        }
-      }
-      if (!this.queryBuilderService.isMongoDb()) continue;
-      for (const relationMigration of tableMigration.relationsToModify || []) {
-        if (
-          relationMigration.from.propertyName ===
-          relationMigration.to.propertyName
-        )
-          continue;
-        await this.physicalMigration.renameMongoDocumentFieldIfNeeded(
-          tableName,
-          relationMigration.from.propertyName,
-          relationMigration.to.propertyName,
-        );
-      }
-    }
-
-    if (this.queryBuilderService.isMongoDb()) {
-      const snapshot = this.bootstrapDefinitionService.getSnapshot();
-      const preserveFieldsByCollection = Object.fromEntries(
-        Object.entries(snapshot).map(
-          ([tableName, definition]: [string, any]) => [
-            tableName,
-            [
-              ...(definition.columns ?? []).map((column: any) => column.name),
-              ...(definition.relations ?? []).map(
-                (relation: any) => relation.propertyName,
-              ),
-            ],
-          ],
-        ),
-      );
-      await applyMongoSchemaMigrations(
-        this.queryBuilderService.getMongoDb(),
-        migrations,
-        { preserveFieldsByCollection },
-      );
-      return;
-    }
-
-    await applySqlSchemaMigrations(
-      this.queryBuilderService.getKnex(),
-      migrations,
-    );
   }
 
   private async runTableRenames(

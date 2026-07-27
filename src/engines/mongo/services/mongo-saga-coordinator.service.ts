@@ -65,7 +65,7 @@ export class MongoSagaCoordinator {
 
   async init(): Promise<void> {
     try {
-      this.mongoService.getDb();
+      this.mongoService.getRawDb();
     } catch {
       return;
     }

@@ -10,6 +10,11 @@ import {
   resolveSqlRelationOnDelete,
 } from '../sql-physical-schema-contract';
 
+function rethrowPostgresTransactionError(knex: Knex, error: unknown): void {
+  const client = String(knex.client.config.client ?? '').toLowerCase();
+  if (client.includes('pg') || client.includes('postgres')) throw error;
+}
+
 /**
  * Apply ALTER COLUMN type change for the supported subset of knex column types.
  * Throws explicitly on unsupported types so the schema migration fails loudly
@@ -295,7 +300,9 @@ export async function applyColumnMigrations(
               await knex.raw(
                 `ALTER TABLE "${tableName}" DROP CONSTRAINT IF EXISTS "${tableName}_${col.name}_check"`,
               );
-            } catch (e) {}
+            } catch (error) {
+              rethrowPostgresTransactionError(knex, error);
+            }
 
             if (currentType !== 'text') {
               await knex.raw(
@@ -344,6 +351,7 @@ export async function applyColumnMigrations(
               `    ✅ Converted ${col.name} to ENUM(${col.options.join(', ')})`,
             );
           } catch (error) {
+            rethrowPostgresTransactionError(knex, error);
             console.log(
               `    ⚠️  Failed to convert ${col.name} to ENUM: ${getErrorMessage(error)}`,
             );
@@ -424,7 +432,9 @@ export async function applyColumnMigrations(
               await knex.raw(
                 `ALTER TABLE "${tableName}" DROP CONSTRAINT IF EXISTS "${tableName}_${col.name}_check"`,
               );
-            } catch (e) {}
+            } catch (error) {
+              rethrowPostgresTransactionError(knex, error);
+            }
             const enumValues = newEnumValues
               .map((val: string) => `'${val.replace(/'/g, "''")}'`)
               .join(', ');
@@ -459,7 +469,9 @@ export async function applyColumnMigrations(
             if (oldEnumType !== newEnumType) {
               try {
                 await knex.raw(`DROP TYPE IF EXISTS "${oldEnumType}" CASCADE`);
-              } catch (e) {}
+              } catch (error) {
+                rethrowPostgresTransactionError(knex, error);
+              }
             }
             continue;
           }
@@ -505,7 +517,9 @@ export async function applyColumnMigrations(
                 `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT ${col.defaultValue}`,
               );
             }
-          } catch (e) {}
+          } catch (error) {
+            rethrowPostgresTransactionError(knex, error);
+          }
         }
         if (changes.includes('type')) {
           const knexType = getKnexColumnType(col);
@@ -624,6 +638,7 @@ export async function applyRelationMigrations(
             table.index([fkColumn, 'id'], `idx_${tableName}_${fkColumn}`);
           });
         } catch (error) {
+          rethrowPostgresTransactionError(knex, error);
           const msg = getErrorMessage(error).toLowerCase();
           if (msg.includes('already exists') || msg.includes('duplicate')) {
             console.log(
@@ -673,6 +688,7 @@ export async function applyIndexAndUniqueMigrations(
         });
         console.log(`    - Dropped UNIQUE (${colsArr.join(', ')})`);
       } catch (err: any) {
+        rethrowPostgresTransactionError(knex, err);
         console.log(
           `    ⚠️  Failed to drop UNIQUE (${colsArr.join(', ')}): ${err?.message}`,
         );
@@ -692,6 +708,7 @@ export async function applyIndexAndUniqueMigrations(
         });
         console.log(`    - Dropped INDEX (${colsArr.join(', ')})`);
       } catch (err: any) {
+        rethrowPostgresTransactionError(knex, err);
         console.log(
           `    ⚠️  Failed to drop INDEX (${colsArr.join(', ')}): ${err?.message}`,
         );
@@ -707,6 +724,7 @@ export async function applyIndexAndUniqueMigrations(
         });
         console.log(`    + Added UNIQUE (${colsArr.join(', ')})`);
       } catch (err: any) {
+        rethrowPostgresTransactionError(knex, err);
         console.log(
           `    ⚠️  Failed to add UNIQUE (${colsArr.join(', ')}): ${err?.message}`,
         );
@@ -722,6 +740,7 @@ export async function applyIndexAndUniqueMigrations(
         });
         console.log(`    + Added INDEX (${colsArr.join(', ')})`);
       } catch (err: any) {
+        rethrowPostgresTransactionError(knex, err);
         console.log(
           `    ⚠️  Failed to add INDEX (${colsArr.join(', ')}): ${err?.message}`,
         );

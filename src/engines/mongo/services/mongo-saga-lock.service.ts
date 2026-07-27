@@ -82,7 +82,7 @@ export class MongoSagaLockService {
       return;
     }
 
-    const db = this.mongoService.getDb();
+    const db = this.mongoService.getRawDb();
 
     const collections = await db.listCollections().toArray();
     const collectionNames = new Set(collections.map((c) => c.name));
@@ -168,13 +168,13 @@ export class MongoSagaLockService {
 
   private getLocksCollection(): Collection<IResourceLock> {
     return this.mongoService
-      .getDb()
+      .getRawDb()
       .collection<IResourceLock>(this.locksCollectionName);
   }
 
   private getMetaCollection(): Collection<ITransactionMetadata> {
     return this.mongoService
-      .getDb()
+      .getRawDb()
       .collection<ITransactionMetadata>(this.sessionCollectionName);
   }
 

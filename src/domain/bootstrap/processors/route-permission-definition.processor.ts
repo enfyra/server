@@ -1,6 +1,7 @@
 import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { DatabaseConfigService } from '../../../shared/services';
+import { mapSequentially } from '../utils/map-sequentially.util';
 
 export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;
@@ -11,8 +12,9 @@ export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
 
   async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
-    const transformedRecords = await Promise.all(
-      records.map(async (record) => {
+    const transformedRecords = await mapSequentially(
+      records,
+      async (record) => {
         const transformed = { ...record };
         if (transformed.isEnabled === undefined) transformed.isEnabled = true;
         if (isMongoDB) {
@@ -30,7 +32,7 @@ export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
         if (!result.route && !result.routeId) return null;
         if (!result.methods || result.methods.length === 0) return null;
         return result;
-      }),
+      },
     );
     return transformedRecords.filter(Boolean);
   }

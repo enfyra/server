@@ -190,6 +190,7 @@ export async function createAllTables(
       try {
         await createTable(knex, schema, dbType, schemas);
       } catch (error) {
+        if (dbType === 'postgres') throw error;
         const nowExists = await knex.schema.hasTable(schema.tableName);
         if (nowExists) {
           console.log(

@@ -3,6 +3,9 @@ import { BcryptService } from '../../auth';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { DatabaseConfigService } from '../../../shared/services';
 import { getErrorMessage } from '../../../shared/utils/error.util';
+import { mapSequentially } from '../utils/map-sequentially.util';
+import type { Knex } from 'knex';
+import type { Db } from 'mongodb';
 
 export class UserDefinitionProcessor extends BaseTableProcessor {
   private readonly bcryptService: BcryptService;
@@ -19,8 +22,9 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
 
   async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
-    const transformedRecords = await Promise.all(
-      records.map(async (record) => {
+    const transformedRecords = await mapSequentially(
+      records,
+      async (record) => {
         const transformed = {
           ...record,
           _plainPassword: record.password,
@@ -40,7 +44,7 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
           this.queryBuilderService,
         );
         return result;
-      }),
+      },
     );
     return transformedRecords;
   }
@@ -117,6 +121,83 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
     return { created: createdCount, skipped: skippedCount };
   }
 
+  async processSql(
+    _records: any[],
+    knex: Knex,
+    tableName: string,
+    context?: any,
+  ): Promise<UpsertResult> {
+    const existingRootAdmin = await knex(tableName)
+      .where({ isRootAdmin: true })
+      .first();
+    if (existingRootAdmin) {
+      this.logger.log(
+        `   RootAdmin already exists: ${existingRootAdmin.email}`,
+      );
+      return { created: 0, skipped: 0 };
+    }
+
+    const record = await this.prepareAdminRecord(context);
+    if (!record) return { created: 0, skipped: 0 };
+    if (await knex(tableName).where(this.getUniqueIdentifier(record)).first()) {
+      return { created: 0, skipped: 1 };
+    }
+
+    const insertData = await this.hashPassword(record);
+    const cleanedRecord = this.cleanRecordForKnex(
+      this.prepareSqlInsertRecord(insertData, tableName),
+    );
+    const [inserted] =
+      context?.dbType === 'postgres'
+        ? await knex(tableName).insert(cleanedRecord, ['id'])
+        : await knex(tableName).insert(cleanedRecord);
+    if (this.afterUpsert) {
+      await this.afterUpsert(
+        { ...record, id: inserted?.id ?? inserted },
+        true,
+        context,
+      );
+    }
+    this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
+    return { created: 1, skipped: 0 };
+  }
+
+  async processMongo(
+    _records: any[],
+    db: Db,
+    collectionName: string,
+    context?: any,
+  ): Promise<UpsertResult> {
+    const collection = db.collection(collectionName);
+    const existingRootAdmin = await collection.findOne({ isRootAdmin: true });
+    if (existingRootAdmin) {
+      this.logger.log(
+        `   RootAdmin already exists: ${existingRootAdmin.email}`,
+      );
+      return { created: 0, skipped: 0 };
+    }
+
+    const record = await this.prepareAdminRecord(context);
+    if (!record) return { created: 0, skipped: 0 };
+    if (await collection.findOne(this.getUniqueIdentifier(record))) {
+      return { created: 0, skipped: 1 };
+    }
+
+    const insertData = await this.hashPassword(record);
+    const result = await collection.insertOne(
+      this.cleanRecordForMongo(insertData),
+    );
+    if (this.afterUpsert) {
+      await this.afterUpsert(
+        { ...record, _id: result.insertedId },
+        true,
+        context,
+      );
+    }
+    this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
+    return { created: 1, skipped: 0 };
+  }
+
   getUniqueIdentifier(record: any): object {
     return { email: record.email };
   }
@@ -137,5 +218,28 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
       isRootAdmin: true,
       isSystem: true,
     };
+  }
+
+  private async prepareAdminRecord(context?: any): Promise<any | null> {
+    const adminUser = await this.getAdminUserFromEnv();
+    if (!adminUser) {
+      this.logger.warn(
+        `   No ADMIN_EMAIL/ADMIN_PASSWORD in .env, skipping rootAdmin creation`,
+      );
+      return null;
+    }
+    const [record] = await this.transformRecords([adminUser], context);
+    return record ?? null;
+  }
+
+  private async hashPassword(record: any): Promise<any> {
+    const insertData = { ...record };
+    if (insertData._plainPassword) {
+      insertData.password = await this.bcryptService.hash(
+        insertData._plainPassword,
+      );
+      delete insertData._plainPassword;
+    }
+    return insertData;
   }
 }

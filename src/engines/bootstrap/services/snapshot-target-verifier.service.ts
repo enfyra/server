@@ -1,7 +1,7 @@
 import type { QueryBuilderService } from '@enfyra/kernel';
 import type { Knex } from 'knex';
 import type { Db } from 'mongodb';
-import type { SchemaMigrationDef } from '../../../shared/types/schema-migration.types';
+import type { BootstrapSchemaOperation } from '../types';
 import { buildMongoFullIndexSpecs } from '../../mongo';
 import {
   buildSqlForeignKeyContracts,
@@ -48,10 +48,11 @@ export class SnapshotTargetVerifierService {
     await this.metadataMigrationService.assertSnapshotTargetStateAfterHealing();
 
     const snapshot = this.loadSnapshot();
-    const migration = this.loadMigration();
+    const operations =
+      this.metadataMigrationService.getExecutionPlan().operations;
     const errors = this.queryBuilderService.isMongoDb()
-      ? await this.collectMongoErrors(snapshot, migration)
-      : await this.collectSqlErrors(snapshot, migration);
+      ? await this.collectMongoErrors(snapshot, operations)
+      : await this.collectSqlErrors(snapshot, operations);
 
     if (errors.length > 0) {
       throw new Error(
@@ -68,13 +69,9 @@ export class SnapshotTargetVerifierService {
     return this.bootstrapDefinitionService.getSnapshot();
   }
 
-  private loadMigration(): SchemaMigrationDef | null {
-    return this.bootstrapDefinitionService.getMigration();
-  }
-
   private async collectSqlErrors(
     snapshot: Record<string, any>,
-    migration: SchemaMigrationDef | null,
+    operations: readonly BootstrapSchemaOperation[],
   ): Promise<string[]> {
     const knex = this.queryBuilderService.getKnex();
     const errors: string[] = [];
@@ -128,7 +125,7 @@ export class SnapshotTargetVerifierService {
     }
 
     await this.collectSqlJunctionErrors(knex, snapshot, errors);
-    await this.collectSqlLegacyErrors(knex, migration, errors);
+    await this.collectSqlLegacyErrors(knex, operations, errors);
     return errors;
   }
 
@@ -284,33 +281,41 @@ export class SnapshotTargetVerifierService {
 
   private async collectSqlLegacyErrors(
     knex: Knex,
-    migration: SchemaMigrationDef | null,
+    operations: readonly BootstrapSchemaOperation[],
     errors: string[],
   ): Promise<void> {
-    if (!migration) return;
-    const legacyTables = new Set<string>([
-      ...(migration.tablesToDrop ?? []),
-      ...(migration.physicalTablesToDrop ?? []),
-      ...(migration.coreTablesToRename ?? []).map((entry) => entry.from),
-      ...(migration.tablesToRename ?? []).map((entry) => entry.from),
-      ...(migration.physicalTablesToRename ?? []).map((entry) => entry.from),
-    ]);
+    const legacyTables = new Set<string>();
+    for (const operation of operations) {
+      if (
+        operation.kind === 'drop-table' ||
+        operation.kind === 'drop-physical-table'
+      ) {
+        legacyTables.add(operation.tableName);
+      } else if (
+        operation.kind === 'rename-core-table' ||
+        operation.kind === 'rename-table' ||
+        operation.kind === 'rename-physical-table'
+      ) {
+        legacyTables.add(operation.rename.from);
+      }
+    }
     for (const tableName of legacyTables) {
       if (tableName && (await knex.schema.hasTable(tableName))) {
         errors.push(`legacy physical table ${tableName} still exists`);
       }
     }
 
-    for (const tableMigration of migration.tables ?? []) {
-      const tableName = tableMigration._unique.name._eq;
-      for (const columnName of tableMigration.columnsToRemove ?? []) {
-        if (await knex.schema.hasColumn(tableName, columnName)) {
+    for (const operation of operations) {
+      if (operation.kind === 'remove-column') {
+        if (
+          await knex.schema.hasColumn(operation.tableName, operation.columnName)
+        ) {
           errors.push(
-            `legacy physical column ${tableName}.${columnName} still exists`,
+            `legacy physical column ${operation.tableName}.${operation.columnName} still exists`,
           );
         }
-      }
-      for (const modification of tableMigration.columnsToModify ?? []) {
+      } else if (operation.kind === 'modify-column') {
+        const { tableName, modification } = operation;
         if (
           modification.from.name !== modification.to.name &&
           (await knex.schema.hasColumn(tableName, modification.from.name))
@@ -319,16 +324,15 @@ export class SnapshotTargetVerifierService {
             `legacy physical column ${tableName}.${modification.from.name} still exists`,
           );
         }
-      }
-      for (const propertyName of tableMigration.relationsToRemove ?? []) {
-        const field = `${propertyName}Id`;
-        if (await knex.schema.hasColumn(tableName, field)) {
+      } else if (operation.kind === 'remove-relation') {
+        const field = `${operation.propertyName}Id`;
+        if (await knex.schema.hasColumn(operation.tableName, field)) {
           errors.push(
-            `legacy relation column ${tableName}.${field} still exists`,
+            `legacy relation column ${operation.tableName}.${field} still exists`,
           );
         }
-      }
-      for (const modification of tableMigration.relationsToModify ?? []) {
+      } else if (operation.kind === 'modify-relation') {
+        const { tableName, modification } = operation;
         const oldField =
           modification.from.foreignKeyColumn ??
           `${modification.from.propertyName}Id`;
@@ -360,7 +364,7 @@ export class SnapshotTargetVerifierService {
 
   private async collectMongoErrors(
     snapshot: Record<string, any>,
-    migration: SchemaMigrationDef | null,
+    operations: readonly BootstrapSchemaOperation[],
   ): Promise<string[]> {
     const db = this.queryBuilderService.getMongoDb();
     const errors: string[] = [];
@@ -385,7 +389,7 @@ export class SnapshotTargetVerifierService {
     }
 
     await this.collectMongoJunctionErrors(db, snapshot, errors);
-    await this.collectMongoLegacyErrors(db, snapshot, migration, errors);
+    await this.collectMongoLegacyErrors(db, snapshot, operations, errors);
     return errors;
   }
 
@@ -494,17 +498,24 @@ export class SnapshotTargetVerifierService {
   private async collectMongoLegacyErrors(
     db: Db,
     snapshot: Record<string, any>,
-    migration: SchemaMigrationDef | null,
+    operations: readonly BootstrapSchemaOperation[],
     errors: string[],
   ): Promise<void> {
-    if (!migration) return;
-    const legacyCollections = new Set<string>([
-      ...(migration.tablesToDrop ?? []),
-      ...(migration.physicalTablesToDrop ?? []),
-      ...(migration.coreTablesToRename ?? []).map((entry) => entry.from),
-      ...(migration.tablesToRename ?? []).map((entry) => entry.from),
-      ...(migration.physicalTablesToRename ?? []).map((entry) => entry.from),
-    ]);
+    const legacyCollections = new Set<string>();
+    for (const operation of operations) {
+      if (
+        operation.kind === 'drop-table' ||
+        operation.kind === 'drop-physical-table'
+      ) {
+        legacyCollections.add(operation.tableName);
+      } else if (
+        operation.kind === 'rename-core-table' ||
+        operation.kind === 'rename-table' ||
+        operation.kind === 'rename-physical-table'
+      ) {
+        legacyCollections.add(operation.rename.from);
+      }
+    }
     for (const collectionName of legacyCollections) {
       if (
         collectionName &&
@@ -516,8 +527,16 @@ export class SnapshotTargetVerifierService {
       }
     }
 
-    for (const tableMigration of migration.tables ?? []) {
-      const collectionName = tableMigration._unique.name._eq;
+    for (const operation of operations) {
+      if (
+        operation.kind !== 'remove-column' &&
+        operation.kind !== 'modify-column' &&
+        operation.kind !== 'remove-relation' &&
+        operation.kind !== 'modify-relation'
+      ) {
+        continue;
+      }
+      const collectionName = operation.tableName;
       if (!(await this.mongoCollectionExists(db, collectionName))) continue;
       const currentFields = new Set<string>([
         ...((snapshot[collectionName]?.columns ?? []).map(
@@ -527,39 +546,38 @@ export class SnapshotTargetVerifierService {
           (relation: any) => relation.propertyName,
         ) as string[]),
       ]);
-      const fields = new Set<string>(
-        (tableMigration.columnsToRemove ?? []).filter(
-          (field) => !currentFields.has(field),
-        ),
-      );
-      for (const modification of tableMigration.columnsToModify ?? []) {
+      let field: string | null = null;
+      if (operation.kind === 'remove-column') {
+        field = operation.columnName;
+      } else if (operation.kind === 'modify-column') {
+        const { modification } = operation;
         if (
           modification.from.name !== modification.to.name &&
           !currentFields.has(modification.from.name)
         ) {
-          fields.add(modification.from.name);
+          field = modification.from.name;
         }
-      }
-      for (const propertyName of tableMigration.relationsToRemove ?? []) {
-        if (!currentFields.has(propertyName)) fields.add(propertyName);
-      }
-      for (const modification of tableMigration.relationsToModify ?? []) {
+      } else if (operation.kind === 'remove-relation') {
+        if (!currentFields.has(operation.propertyName)) {
+          field = operation.propertyName;
+        }
+      } else if (operation.kind === 'modify-relation') {
+        const { modification } = operation;
         if (
           modification.from.propertyName !== modification.to.propertyName &&
           !currentFields.has(modification.from.propertyName)
         ) {
-          fields.add(modification.from.propertyName);
+          field = modification.from.propertyName;
         }
       }
-      for (const field of fields) {
-        const count = await db
-          .collection(collectionName)
-          .countDocuments({ [field]: { $exists: true } });
-        if (count > 0) {
-          errors.push(
-            `legacy field ${collectionName}.${field} still exists in ${count} document(s)`,
-          );
-        }
+      if (!field || currentFields.has(field)) continue;
+      const count = await db
+        .collection(collectionName)
+        .countDocuments({ [field]: { $exists: true } });
+      if (count > 0) {
+        errors.push(
+          `legacy field ${collectionName}.${field} still exists in ${count} document(s)`,
+        );
       }
     }
   }

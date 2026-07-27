@@ -4,6 +4,7 @@ import { ObjectId } from 'mongodb';
 import { DatabaseConfigService } from '../../../shared/services';
 import { normalizeScriptRecord } from '../../../shared/utils/script-code.util';
 import { getSqlJunctionMetadata } from '../utils/sql-junction-metadata.util';
+import { mapSequentially } from '../utils/map-sequentially.util';
 
 export class PostHookDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;
@@ -13,108 +14,105 @@ export class PostHookDefinitionProcessor extends BaseTableProcessor {
   }
   async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
-    const transformedRecords = await Promise.all(
-      records.map(async (hook) => {
-        const transformedHook = { ...hook };
-        if (transformedHook.priority === undefined) {
-          transformedHook.priority = 0;
+    const transformedRecords = await mapSequentially(records, async (hook) => {
+      const transformedHook = { ...hook };
+      if (transformedHook.priority === undefined) {
+        transformedHook.priority = 0;
+      }
+      if (transformedHook.isEnabled === undefined) {
+        transformedHook.isEnabled = false;
+      }
+      if (transformedHook.isGlobal === undefined) {
+        transformedHook.isGlobal = false;
+      }
+      if (transformedHook.isSystem === undefined) {
+        transformedHook.isSystem = false;
+      }
+      if (transformedHook.code === undefined) {
+        transformedHook.code = null;
+      }
+      if (transformedHook.sourceCode === undefined) {
+        transformedHook.sourceCode = transformedHook.code;
+      }
+      if (transformedHook.description === undefined) {
+        transformedHook.description = null;
+      }
+      if (isMongoDB) {
+        const now = new Date();
+        if (!transformedHook.createdAt) {
+          transformedHook.createdAt = now;
         }
-        if (transformedHook.isEnabled === undefined) {
-          transformedHook.isEnabled = false;
+        if (!transformedHook.updatedAt) {
+          transformedHook.updatedAt = now;
         }
-        if (transformedHook.isGlobal === undefined) {
-          transformedHook.isGlobal = false;
+      }
+      if (hook.route && typeof hook.route === 'string') {
+        const rawPath = hook.route;
+        const pathsToTry = [
+          rawPath,
+          rawPath.startsWith('/') ? rawPath.slice(1) : '/' + rawPath,
+        ];
+        let route = null;
+        for (const path of pathsToTry) {
+          route = await this.queryBuilderService.findOne({
+            table: 'enfyra_route',
+            fields: isMongoDB ? ['_id', 'path'] : ['id', 'path'],
+            where: {
+              path,
+            },
+          });
+          if (route) break;
         }
-        if (transformedHook.isSystem === undefined) {
-          transformedHook.isSystem = false;
-        }
-        if (transformedHook.code === undefined) {
-          transformedHook.code = null;
-        }
-        if (transformedHook.sourceCode === undefined) {
-          transformedHook.sourceCode = transformedHook.code;
-        }
-        if (transformedHook.description === undefined) {
-          transformedHook.description = null;
+        if (!route) {
+          this.logger.warn(
+            `Route '${hook.route}' not found for post-hook ${hook.name}, skipping.`,
+          );
+          return null;
         }
         if (isMongoDB) {
-          const now = new Date();
-          if (!transformedHook.createdAt) {
-            transformedHook.createdAt = now;
-          }
-          if (!transformedHook.updatedAt) {
-            transformedHook.updatedAt = now;
-          }
-        }
-        if (hook.route && typeof hook.route === 'string') {
-          const rawPath = hook.route;
-          const pathsToTry = [
-            rawPath,
-            rawPath.startsWith('/') ? rawPath.slice(1) : '/' + rawPath,
-          ];
-          let route = null;
-          for (const path of pathsToTry) {
-            route = await this.queryBuilderService.findOne({
-              table: 'enfyra_route',
-              where: {
-                path,
-              },
-            });
-            if (route) break;
-          }
-          if (!route) {
-            this.logger.warn(
-              `Route '${hook.route}' not found for post-hook ${hook.name}, skipping.`,
-            );
-            return null;
-          }
-          if (isMongoDB) {
-            transformedHook.route =
-              typeof route._id === 'string'
-                ? new ObjectId(route._id)
-                : route._id;
-          } else {
-            transformedHook.routeId = route.id;
-            delete transformedHook.route;
-          }
+          transformedHook.route =
+            typeof route._id === 'string' ? new ObjectId(route._id) : route._id;
         } else {
-          if (isMongoDB) {
-            transformedHook.route = null;
-          } else {
-            transformedHook.routeId = null;
-            delete transformedHook.route;
-          }
+          transformedHook.routeId = route.id;
+          delete transformedHook.route;
         }
-        if (
-          hook.methods &&
-          Array.isArray(hook.methods) &&
-          hook.methods.length > 0
-        ) {
-          if (isMongoDB) {
-            const result = await this.queryBuilderService.find({
-              table: 'enfyra_method',
-              filter: { name: { _in: hook.methods } },
-              fields: ['_id', 'name'],
-            });
-            const methods = result.data;
-            transformedHook.methods = methods.map((m: any) =>
-              typeof m._id === 'string' ? new ObjectId(m._id) : m._id,
-            );
-          } else {
-            transformedHook._methods = hook.methods;
-            delete transformedHook.methods;
-          }
+      } else {
+        if (isMongoDB) {
+          transformedHook.route = null;
         } else {
-          if (isMongoDB) {
-            transformedHook.methods = [];
-          } else {
-            transformedHook._methods = [];
-            delete transformedHook.methods;
-          }
+          transformedHook.routeId = null;
+          delete transformedHook.route;
         }
-        return normalizeScriptRecord('enfyra_post_hook', transformedHook);
-      }),
-    );
+      }
+      if (
+        hook.methods &&
+        Array.isArray(hook.methods) &&
+        hook.methods.length > 0
+      ) {
+        if (isMongoDB) {
+          const result = await this.queryBuilderService.find({
+            table: 'enfyra_method',
+            filter: { name: { _in: hook.methods } },
+            fields: ['_id', 'name'],
+          });
+          const methods = result.data;
+          transformedHook.methods = methods.map((m: any) =>
+            typeof m._id === 'string' ? new ObjectId(m._id) : m._id,
+          );
+        } else {
+          transformedHook._methods = hook.methods;
+          delete transformedHook.methods;
+        }
+      } else {
+        if (isMongoDB) {
+          transformedHook.methods = [];
+        } else {
+          transformedHook._methods = [];
+          delete transformedHook.methods;
+        }
+      }
+      return normalizeScriptRecord('enfyra_post_hook', transformedHook);
+    });
     return transformedRecords.filter(Boolean);
   }
   async afterUpsert(
@@ -151,7 +149,9 @@ export class PostHookDefinitionProcessor extends BaseTableProcessor {
           });
         if (!junctionTable || !sourceColumn || !targetColumn) return;
         const knex = this.queryBuilderService.getKnex();
-        await knex(junctionTable).where({ [sourceColumn]: hookId }).delete();
+        await knex(junctionTable)
+          .where({ [sourceColumn]: hookId })
+          .delete();
         for (const methodId of methodIds) {
           if (methodId === undefined || methodId === null) continue;
           await knex(junctionTable).insert({

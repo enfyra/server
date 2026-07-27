@@ -5,6 +5,8 @@ function createService(overrides: Partial<any> = {}) {
   return new ProvisionService({
     commonService: { delay: vi.fn() },
     queryBuilderService: { isMongoDb: () => false },
+    databaseConfigService: { getDbType: () => 'postgres' },
+    mySqlBootstrapSnapshotService: { recoverPending: vi.fn() },
     routeDefinitionProcessor: { ensureMissingHandlers: vi.fn() },
     migrationJournalService: {
       recoverPending: vi.fn().mockResolvedValue(undefined),

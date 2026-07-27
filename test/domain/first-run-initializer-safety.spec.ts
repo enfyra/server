@@ -26,6 +26,9 @@ function createSafetyFixture(options: SafetyFixtureOptions = {}) {
     ...options.cacheService,
   };
   const initializer = new FirstRunInitializer({
+    bootstrapUnitOfWorkService: {
+      run: jest.fn(async (callback: () => Promise<unknown>) => callback()),
+    },
     commonService: {
       delay: jest.fn(async () => undefined),
       ...options.commonService,
@@ -43,23 +46,15 @@ function createSafetyFixture(options: SafetyFixtureOptions = {}) {
       createInitMetadata: jest.fn(async () => runPhase('createInitMetadata')),
     },
     metadataMigrationService: {
-      runCoreTableRenamesBeforeMetadataSync: jest.fn(async () =>
-        runPhase('runCoreTableRenamesBeforeMetadataSync'),
-      ),
-      runTableRenamesBeforeMetadataSync: jest.fn(async () =>
-        runPhase('runTableRenamesBeforeMetadataSync'),
+      executeCoreMigrationPlan: jest.fn(async () =>
+        runPhase('executeCoreMigrationPlan'),
       ),
       prepareMigrationExecutionPlan: jest.fn(async () =>
         runPhase('prepareMigrationExecutionPlan'),
       ),
-      runPhysicalTableRenamesAndDropsAfterCoverage: jest.fn(async () =>
-        runPhase('runPhysicalTableRenamesAndDropsAfterCoverage'),
+      executeRemainingMigrationPlan: jest.fn(async () =>
+        runPhase('executeRemainingMigrationPlan'),
       ),
-      runPhysicalMigrationsBeforeMetadataSync: jest.fn(async () =>
-        runPhase('runPhysicalMigrationsBeforeMetadataSync'),
-      ),
-      hasMigrations: jest.fn(() => true),
-      runMigrations: jest.fn(async () => runPhase('runMetadataMigrations')),
     },
     dataProvisionService: {
       insertAllDefaultRecords: jest.fn(async () =>
@@ -160,7 +155,7 @@ describe('FirstRunInitializer safety', () => {
         renew: jest.fn(async () => leaseOwned),
       },
       onPhase: (phase) => {
-        if (phase === 'runCoreTableRenamesBeforeMetadataSync') {
+        if (phase === 'executeCoreMigrationPlan') {
           leaseOwned = false;
         }
       },
@@ -170,7 +165,11 @@ describe('FirstRunInitializer safety', () => {
       (fixture.initializer as any).runWithProgress(),
     ).rejects.toThrow(/provision lease/);
 
-    expect(fixture.calls).toEqual(['runCoreTableRenamesBeforeMetadataSync']);
+    expect(fixture.calls).toEqual([
+      'prepareMigrationExecutionPlan',
+      'executeCoreMigrationPlan',
+      'clearMetadataCache',
+    ]);
     expect(fixture.isInitialized()).toBe(false);
   });
 
@@ -207,7 +206,7 @@ describe('FirstRunInitializer safety', () => {
       instanceId: 'owner',
       state,
       onPhase: async (phase) => {
-        if (phase !== 'runCoreTableRenamesBeforeMetadataSync') return;
+        if (phase !== 'executeCoreMigrationPlan') return;
         announceFirstPhase?.();
         await firstPhaseGate;
       },
@@ -245,15 +244,9 @@ describe('FirstRunInitializer safety', () => {
 
   it('converges after a crash following every mutation boundary', async () => {
     const mutationPhases = [
-      { phase: 'runCoreTableRenamesBeforeMetadataSync', occurrence: 1 },
-      { phase: 'runTableRenamesBeforeMetadataSync', occurrence: 1 },
       { phase: 'prepareMigrationExecutionPlan', occurrence: 1 },
-      {
-        phase: 'runPhysicalTableRenamesAndDropsAfterCoverage',
-        occurrence: 1,
-      },
-      { phase: 'runPhysicalMigrationsBeforeMetadataSync', occurrence: 1 },
-      { phase: 'runMetadataMigrations', occurrence: 1 },
+      { phase: 'executeCoreMigrationPlan', occurrence: 1 },
+      { phase: 'executeRemainingMigrationPlan', occurrence: 1 },
       { phase: 'clearMetadataCache', occurrence: 1 },
       {
         phase: 'repairSystemPhysicalColumnsBeforeMetadataProvision',

@@ -2,6 +2,7 @@ import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { DatabaseConfigService } from '../../../shared/services';
 import { normalizeScriptRecord } from '../../../shared/utils/script-code.util';
+import { mapSequentially } from '../utils/map-sequentially.util';
 
 export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;
@@ -13,8 +14,9 @@ export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
 
-    const transformedRecords = await Promise.all(
-      records.map(async (record) => {
+    const transformedRecords = await mapSequentially(
+      records,
+      async (record) => {
         const transformed = { ...record };
 
         if (transformed.description === undefined)
@@ -40,7 +42,7 @@ export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
         );
         if (!result.gateway && !result.gatewayId) return null;
         return normalizeScriptRecord('enfyra_websocket_event', result);
-      }),
+      },
     );
 
     return transformedRecords.filter(Boolean);

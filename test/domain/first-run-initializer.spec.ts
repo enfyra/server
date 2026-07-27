@@ -3,6 +3,9 @@ import { DatabaseConfigService } from '../../src/shared/services';
 
 describe('FirstRunInitializer', () => {
   const originalLogDisableConsole = process.env.LOG_DISABLE_CONSOLE;
+  const bootstrapUnitOfWorkService = {
+    run: jest.fn(async (callback: () => Promise<unknown>) => callback()),
+  };
 
   beforeEach(() => {
     process.env.LOG_DISABLE_CONSOLE = '1';
@@ -17,9 +20,46 @@ describe('FirstRunInitializer', () => {
     }
   });
 
+  it('renders bootstrap progress as a filled terminal bar', () => {
+    delete process.env.LOG_DISABLE_CONSOLE;
+    const write = jest
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
+    const initializer = new FirstRunInitializer({} as any);
+
+    (initializer as any).logProgress(
+      'Installing',
+      45,
+      'healing system metadata',
+    );
+
+    const line = String(write.mock.calls[0][0]);
+    const bar = line.match(/\[([█░]+)\]/)?.[1];
+    expect(line).toContain('Installing');
+    expect(line).toContain('45% healing system metadata');
+    expect(bar).toHaveLength(30);
+    expect(bar?.match(/█/g)).toHaveLength(14);
+    expect(bar?.match(/░/g)).toHaveLength(16);
+  });
+
+  it('derives each percentage point from one of 100 planned changes', () => {
+    delete process.env.LOG_DISABLE_CONSOLE;
+    const write = jest
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
+    const initializer = new FirstRunInitializer({} as any);
+    (initializer as any).progressTotal = 100;
+    (initializer as any).progressCompleted = 1;
+
+    (initializer as any).logPlannedProgress('Installing', 'first change');
+
+    expect(String(write.mock.calls[0][0])).toContain('1% first change (1/100)');
+  });
+
   it('runs snapshot physical migrations before schema healing preflight', async () => {
     const calls: string[] = [];
     const initializer = new FirstRunInitializer({
+      bootstrapUnitOfWorkService,
       commonService: { delay: jest.fn() },
       queryBuilderService: {},
       cacheService: {
@@ -39,22 +79,14 @@ describe('FirstRunInitializer', () => {
         }),
       },
       metadataMigrationService: {
-        runCoreTableRenamesBeforeMetadataSync: jest.fn(async () => {
+        executeCoreMigrationPlan: jest.fn(async () => {
           calls.push('core-migrate');
         }),
-        runTableRenamesBeforeMetadataSync: jest.fn(async () => undefined),
         prepareMigrationExecutionPlan: jest.fn(async () => {
           calls.push('validate-migration');
         }),
-        runPhysicalTableRenamesAndDropsAfterCoverage: jest.fn(async () => {
-          calls.push('physical-table-migrate');
-        }),
-        runPhysicalMigrationsBeforeMetadataSync: jest.fn(async () => {
-          calls.push('migrate');
-        }),
-        hasMigrations: jest.fn(() => true),
-        runMigrations: jest.fn(async () => {
-          calls.push('metadata-migrate');
+        executeRemainingMigrationPlan: jest.fn(async () => {
+          calls.push('migration-plan');
         }),
         assertSnapshotTargetStateAfterHealing: jest.fn(async () => undefined),
       },
@@ -98,12 +130,10 @@ describe('FirstRunInitializer', () => {
 
     await (initializer as any).runWithProgress();
 
-    expect(calls.slice(0, 8)).toEqual([
-      'core-migrate',
+    expect(calls.slice(0, 6)).toEqual([
       'validate-migration',
-      'physical-table-migrate',
-      'migrate',
-      'metadata-migrate',
+      'core-migrate',
+      'migration-plan',
       'heal-preflight',
       'provision',
       'metadata-heal',
@@ -116,6 +146,7 @@ describe('FirstRunInitializer', () => {
     const acquire = jest.fn(async () => true);
     const migrate = jest.fn(async () => undefined);
     const initializer = new FirstRunInitializer({
+      bootstrapUnitOfWorkService,
       commonService: { delay: jest.fn() },
       queryBuilderService: {},
       cacheService: {
@@ -126,7 +157,7 @@ describe('FirstRunInitializer', () => {
       metadataCacheService: {},
       metadataProvisionService: {},
       metadataMigrationService: {
-        runCoreTableRenamesBeforeMetadataSync: migrate,
+        executeCoreMigrationPlan: migrate,
       },
       dataProvisionService: {},
       dataMigrationService: {},
@@ -146,6 +177,7 @@ describe('FirstRunInitializer', () => {
 
   it('fails boot when another instance never finishes initialization', async () => {
     const initializer = new FirstRunInitializer({
+      bootstrapUnitOfWorkService,
       commonService: { delay: jest.fn(async () => undefined) },
       queryBuilderService: {},
       cacheService: {},
@@ -172,6 +204,7 @@ describe('FirstRunInitializer', () => {
     const release = jest.fn(async () => undefined);
     const markInitialized = jest.fn(async () => undefined);
     const initializer = new FirstRunInitializer({
+      bootstrapUnitOfWorkService,
       commonService: { delay: jest.fn() },
       queryBuilderService: {},
       cacheService: {
@@ -189,14 +222,9 @@ describe('FirstRunInitializer', () => {
         createInitMetadata: jest.fn(async () => undefined),
       },
       metadataMigrationService: {
-        runCoreTableRenamesBeforeMetadataSync: jest.fn(async () => undefined),
-        runTableRenamesBeforeMetadataSync: jest.fn(async () => undefined),
+        executeCoreMigrationPlan: jest.fn(async () => undefined),
         prepareMigrationExecutionPlan: jest.fn(async () => undefined),
-        runPhysicalTableRenamesAndDropsAfterCoverage: jest.fn(
-          async () => undefined,
-        ),
-        runPhysicalMigrationsBeforeMetadataSync: jest.fn(async () => undefined),
-        hasMigrations: jest.fn(() => false),
+        executeRemainingMigrationPlan: jest.fn(async () => undefined),
         assertSnapshotTargetStateAfterHealing: jest.fn(async () => undefined),
       },
       dataProvisionService: {
@@ -240,6 +268,7 @@ describe('FirstRunInitializer', () => {
     const assertSchemaTargetState = jest.fn(async () => undefined);
     const markInitialized = jest.fn(async () => undefined);
     const initializer = new FirstRunInitializer({
+      bootstrapUnitOfWorkService,
       commonService: { delay: jest.fn() },
       queryBuilderService: {},
       cacheService: {
@@ -256,14 +285,9 @@ describe('FirstRunInitializer', () => {
         createInitMetadata: jest.fn(async () => undefined),
       },
       metadataMigrationService: {
-        runCoreTableRenamesBeforeMetadataSync: jest.fn(async () => undefined),
-        runTableRenamesBeforeMetadataSync: jest.fn(async () => undefined),
+        executeCoreMigrationPlan: jest.fn(async () => undefined),
         prepareMigrationExecutionPlan: jest.fn(async () => undefined),
-        runPhysicalTableRenamesAndDropsAfterCoverage: jest.fn(
-          async () => undefined,
-        ),
-        runPhysicalMigrationsBeforeMetadataSync: jest.fn(async () => undefined),
-        hasMigrations: jest.fn(() => false),
+        executeRemainingMigrationPlan: jest.fn(async () => undefined),
       },
       dataProvisionService: {
         insertAllDefaultRecords: jest.fn(async () => undefined),
@@ -306,6 +330,7 @@ describe('FirstRunInitializer', () => {
     where.mockReturnValue({ update });
     const knex = jest.fn(() => ({ where }));
     const initializer = new FirstRunInitializer({
+      bootstrapUnitOfWorkService,
       commonService: {},
       queryBuilderService: { getKnex: jest.fn(() => knex) },
       cacheService: {},
@@ -339,6 +364,7 @@ describe('FirstRunInitializer', () => {
       modifiedCount: 0,
     }));
     const initializer = new FirstRunInitializer({
+      bootstrapUnitOfWorkService,
       commonService: {},
       queryBuilderService: {
         getMongoDb: jest.fn(() => ({
