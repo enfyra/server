@@ -108,17 +108,11 @@ export class MongoSchemaDiffService {
 
     const mergedIndexes = [...userDefinedIndexes, ...newIndexes];
 
-    try {
-      await this.queryBuilderService.update(
-        'enfyra_table',
-        { where: [{ field: 'name', operator: '=', value: collectionName }] },
-        { indexes: mergedIndexes },
-      );
-    } catch (error) {
-      this.logger.error(
-        `  Failed to update indexes metadata for ${collectionName}: ${getErrorMessage(error)}`,
-      );
-    }
+    await this.queryBuilderService.update(
+      'enfyra_table',
+      { where: [{ field: 'name', operator: '=', value: collectionName }] },
+      { indexes: mergedIndexes },
+    );
   }
 
   updateConstraintColumns(

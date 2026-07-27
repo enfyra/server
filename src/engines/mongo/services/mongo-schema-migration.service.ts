@@ -302,25 +302,19 @@ export class MongoSchemaMigrationService {
     collectionName: string,
     updates: any,
   ): Promise<void> {
-    try {
-      const updateData: any = {};
-      if (updates.uniques !== undefined) {
-        updateData.uniques = updates.uniques;
-      }
-      if (updates.indexes !== undefined) {
-        updateData.indexes = updates.indexes;
-      }
-      if (Object.keys(updateData).length === 0) return;
-      await this.queryBuilderService.update(
-        'enfyra_table',
-        { where: [{ field: 'name', operator: '=', value: collectionName }] },
-        updateData,
-      );
-    } catch (error) {
-      this.logger.error(
-        `  Failed to update metadata for ${collectionName}: ${getErrorMessage(error)}`,
-      );
+    const updateData: any = {};
+    if (updates.uniques !== undefined) {
+      updateData.uniques = updates.uniques;
     }
+    if (updates.indexes !== undefined) {
+      updateData.indexes = updates.indexes;
+    }
+    if (Object.keys(updateData).length === 0) return;
+    await this.queryBuilderService.update(
+      'enfyra_table',
+      { where: [{ field: 'name', operator: '=', value: collectionName }] },
+      updateData,
+    );
   }
   async dropCollection(collectionName: string): Promise<void> {
     const db = this.mongoService.getDb();

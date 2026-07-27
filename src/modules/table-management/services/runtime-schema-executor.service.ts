@@ -54,7 +54,6 @@ export class RuntimeSchemaExecutorService {
     };
 
     this.verifyContractIntegrity(contract, ownerTableId, body);
-    this.attestSourceRevision(contract);
 
     await this.journal.create({
       mutationId,
@@ -66,6 +65,7 @@ export class RuntimeSchemaExecutorService {
     let result: any;
     try {
       result = await this.unitOfWork.run(async () => {
+        this.attestSourceRevision(contract);
         stage('executing');
         await this.journal.advanceStage(mutationId, 'executing');
 

@@ -185,9 +185,26 @@ export class MongoMigrationJournalService {
         REDIS_TTL.MONGO_MIGRATION_SAGA_RECOVERY_LOCK_TTL,
       );
       if (!acquired) {
-        this.logger.debug(
-          `Mongo migration saga recovery skipped: another instance holds ${MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY}`,
+        this.logger.log(
+          `Mongo migration saga recovery: waiting for lock owner to finish`,
         );
+        const deadline = Date.now() + REDIS_TTL.MONGO_MIGRATION_SAGA_RECOVERY_LOCK_TTL;
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 2000));
+          const lockValue2 = await this.cacheService.get(
+            MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
+          );
+          if (!lockValue2) break;
+        }
+        const pending = await this.getCollection()
+          .find({ status: { $in: ['pending', 'running'] } })
+          .toArray()
+          .catch(() => []);
+        if (pending.length > 0) {
+          throw new Error(
+            `Mongo migration recovery incomplete: ${pending.length} unresolved journal(s) remain after lock owner finished`,
+          );
+        }
         return;
       }
       try {
