@@ -11,6 +11,8 @@ import type {
   RuntimeSchemaMetadataTable,
 } from '../types/runtime-metadata-schema-router.types';
 import type { TableHandlerService } from './table-handler.service';
+import type { RuntimeSchemaContractCompilerService } from './runtime-schema-contract-compiler.service';
+import type { RuntimeSchemaExecutorService } from './runtime-schema-executor.service';
 
 export class RuntimeMetadataSchemaRouterService {
   constructor(
@@ -18,6 +20,8 @@ export class RuntimeMetadataSchemaRouterService {
       queryBuilderService: QueryBuilderService;
       tableHandlerService: TableHandlerService;
       databaseConfigService: DatabaseConfigService;
+      runtimeSchemaContractCompilerService: RuntimeSchemaContractCompilerService;
+      runtimeSchemaExecutorService: RuntimeSchemaExecutorService;
     },
   ) {}
 
@@ -34,13 +38,32 @@ export class RuntimeMetadataSchemaRouterService {
     const list = this.getBodyList(body, input.tableName);
     const child = this.normalizeChild(input.tableName, input.data ?? {});
     list.push(child);
-    const tableResult: any = await this.deps.tableHandlerService.updateTable(
+    const { contract, requiredConfirmHash } =
+      await this.deps.runtimeSchemaContractCompilerService.compile({
+        operation: 'update',
+        tableName: String(table.name),
+        tableId: ownerTableId,
+        currentUser: input.context?.$user,
+        beforeMetadata: table,
+        afterMetadata: body,
+        data: input.data,
+        requestContext: input.context,
+      });
+    const confirmHash = this.extractConfirmHash(input.context);
+    if (contract.context.diff.isDestructive && confirmHash !== requiredConfirmHash) {
+      return {
+        preview: { _preview: true, requiredConfirmHash, schemaMutationContract: contract },
+        ownerTableId,
+      };
+    }
+    const execResult = await this.deps.runtimeSchemaExecutorService.execute({
+      contract,
       ownerTableId,
       body,
-      input.context,
-    );
-    if (tableResult?._preview) {
-      return { preview: tableResult, ownerTableId };
+      context: input.context,
+    });
+    if (execResult.affectedTables.length === 0 && contract.context.diff.schemaChanged === false) {
+      return { ownerTableId, affectedTables: [] };
     }
     const created = await this.findCreatedChild(
       input.tableName,
@@ -50,7 +73,7 @@ export class RuntimeMetadataSchemaRouterService {
     return {
       recordId: this.getRecordId(created),
       ownerTableId,
-      affectedTables: tableResult?.affectedTables,
+      affectedTables: execResult.affectedTables as string[],
     };
   }
 
@@ -80,16 +103,35 @@ export class RuntimeMetadataSchemaRouterService {
       ...input.data,
       [this.getPkField()]: input.recordId,
     });
-    const tableResult: any = await this.deps.tableHandlerService.updateTable(
+    const { contract, requiredConfirmHash } =
+      await this.deps.runtimeSchemaContractCompilerService.compile({
+        operation: 'update',
+        tableName: String(table.name),
+        tableId: ownerTableId,
+        currentUser: input.context?.$user,
+        beforeMetadata: table,
+        afterMetadata: body,
+        data: input.data,
+        requestContext: input.context,
+      });
+    const confirmHash = this.extractConfirmHash(input.context);
+    if (contract.context.diff.isDestructive && confirmHash !== requiredConfirmHash) {
+      return {
+        preview: { _preview: true, requiredConfirmHash, schemaMutationContract: contract },
+        ownerTableId,
+        recordId: input.recordId,
+      };
+    }
+    const execResult = await this.deps.runtimeSchemaExecutorService.execute({
+      contract,
       ownerTableId,
       body,
-      input.context,
-    );
+      context: input.context,
+    });
     return {
-      ...(tableResult?._preview ? { preview: tableResult } : {}),
       recordId: input.recordId,
       ownerTableId,
-      affectedTables: tableResult?.affectedTables,
+      affectedTables: execResult.affectedTables as string[],
     };
   }
 
@@ -116,16 +158,35 @@ export class RuntimeMetadataSchemaRouterService {
     }
     if (input.tableName === 'enfyra_column') body.columns = next;
     else body.relations = next;
-    const tableResult: any = await this.deps.tableHandlerService.updateTable(
+    const { contract, requiredConfirmHash } =
+      await this.deps.runtimeSchemaContractCompilerService.compile({
+        operation: 'update',
+        tableName: String(table.name),
+        tableId: ownerTableId,
+        currentUser: input.context?.$user,
+        beforeMetadata: table,
+        afterMetadata: body,
+        data: input.data,
+        requestContext: input.context,
+      });
+    const confirmHash = this.extractConfirmHash(input.context);
+    if (confirmHash !== requiredConfirmHash) {
+      return {
+        preview: { _preview: true, requiredConfirmHash, schemaMutationContract: contract },
+        ownerTableId,
+        recordId: input.recordId,
+      };
+    }
+    const execResult = await this.deps.runtimeSchemaExecutorService.execute({
+      contract,
       ownerTableId,
       body,
-      input.context,
-    );
+      context: input.context,
+    });
     return {
-      ...(tableResult?._preview ? { preview: tableResult } : {}),
       recordId: input.recordId,
       ownerTableId,
-      affectedTables: tableResult?.affectedTables,
+      affectedTables: execResult.affectedTables as string[],
     };
   }
 
@@ -271,5 +332,13 @@ export class RuntimeMetadataSchemaRouterService {
     return this.deps.databaseConfigService.isMongoDb()
       ? (record?._id ?? record?.id)
       : (record?.id ?? record?._id);
+  }
+
+  private extractConfirmHash(context: any): string | undefined {
+    return (
+      context?.$query?.schemaConfirmHash ??
+      context?.$query?.confirmHash ??
+      undefined
+    );
   }
 }
