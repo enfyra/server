@@ -15,7 +15,7 @@ import type {
 import { verifySchemaMutationContractHash } from '../../../shared/utils/schema-mutation-contract.util';
 import { normalizeRuntimeTableSchema } from '../utils/runtime-schema-normalization.util';
 import { hashCanonical } from '../../../shared/utils/schema-mutation-contract.util';
-import type { RuntimeRegistryService } from '../../../engines/cache';
+import type { QueryBuilderService } from '@enfyra/kernel';
 
 export class RuntimeSchemaExecutorService {
   private readonly logger = new Logger(RuntimeSchemaExecutorService.name);
@@ -23,20 +23,20 @@ export class RuntimeSchemaExecutorService {
   private readonly unitOfWork: RuntimeSchemaUnitOfWorkService;
   private readonly journal: RuntimeSchemaJournalService;
   private readonly databaseConfigService: DatabaseConfigService;
-  private readonly runtimeRegistryService: RuntimeRegistryService;
+  private readonly queryBuilderService: QueryBuilderService;
 
   constructor(deps: {
     tableHandlerService: TableHandlerService;
     runtimeSchemaUnitOfWorkService: RuntimeSchemaUnitOfWorkService;
     runtimeSchemaJournalService: RuntimeSchemaJournalService;
     databaseConfigService: DatabaseConfigService;
-    runtimeRegistryService: RuntimeRegistryService;
+    queryBuilderService: QueryBuilderService;
   }) {
     this.tableHandlerService = deps.tableHandlerService;
     this.unitOfWork = deps.runtimeSchemaUnitOfWorkService;
     this.journal = deps.runtimeSchemaJournalService;
     this.databaseConfigService = deps.databaseConfigService;
-    this.runtimeRegistryService = deps.runtimeRegistryService;
+    this.queryBuilderService = deps.queryBuilderService;
   }
 
   async execute(input: {
@@ -75,7 +75,7 @@ export class RuntimeSchemaExecutorService {
             requiredConfirmHash: contract.context.confirmationDigest,
           },
           $onLockAcquired: async () => {
-            this.attestSourceRevision(contract);
+            await this.attestSourceRevision(contract);
           },
         };
 
@@ -162,20 +162,22 @@ export class RuntimeSchemaExecutorService {
     }
   }
 
-  private attestSourceRevision(contract: RuntimeSchemaMutationContract): void {
+  private async attestSourceRevision(contract: RuntimeSchemaMutationContract): Promise<void> {
     const expectedRevision = contract.context.sourceRevision;
     if (!expectedRevision) return;
     const tableName = contract.context.tableName;
-    const metadata = this.runtimeRegistryService.getMetadata();
-    if (!metadata) {
-      throw new Error(
-        `[${contract.mutationId}] source attestation failed: metadata not loaded`,
-      );
-    }
-    const tableMeta = metadata.tables.get(tableName);
+    const pkField = this.databaseConfigService.isMongoDb() ? '_id' : 'id';
+    const tableId = contract.context.tableId;
+    const tableMeta = await this.queryBuilderService.findOne({
+      table: 'enfyra_table',
+      where: tableId != null
+        ? { [pkField]: tableId }
+        : { name: tableName },
+      fields: ['*', 'columns.*', 'relations.*', 'relations.targetTable.name'],
+    });
     if (!tableMeta) {
       throw new Error(
-        `[${contract.mutationId}] source attestation failed: table '${tableName}' not found in metadata`,
+        `[${contract.mutationId}] source attestation failed: table '${tableName}' not found in database`,
       );
     }
     const normalized = normalizeRuntimeTableSchema(tableMeta);

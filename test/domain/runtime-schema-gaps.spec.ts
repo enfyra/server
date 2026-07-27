@@ -58,8 +58,8 @@ function makeExecutor(deps: Record<string, unknown> = {}) {
   const unitOfWork = (deps.unitOfWork ?? {
     run: vi.fn((cb: any) => cb()),
   }) as any;
-  const runtimeRegistryService = (deps.runtimeRegistryService ?? {
-    getMetadata: () => ({ tables: new Map([['post', baseBefore]]) }),
+  const queryBuilderService = (deps.queryBuilderService ?? {
+    findOne: vi.fn().mockResolvedValue(baseBefore),
   }) as any;
   return {
     executor: new RuntimeSchemaExecutorService({
@@ -67,7 +67,7 @@ function makeExecutor(deps: Record<string, unknown> = {}) {
       runtimeSchemaUnitOfWorkService: unitOfWork,
       runtimeSchemaJournalService: journal,
       databaseConfigService: { getDbType: () => 'postgres', isMongoDb: () => false } as any,
-      runtimeRegistryService,
+      queryBuilderService,
     }),
     tableHandlerService,
     journal,
@@ -107,20 +107,16 @@ describe('C2: Executor must verify contract inputs', () => {
 describe('C3: Source revision must be attested under lock', () => {
   it('rejects stale sourceRevision when metadata has changed', async () => {
     const contract = await compileRealContract();
-    const differentMetadata = {
-      tables: new Map([
-        ['post', {
-          name: 'post',
-          columns: [
-            { id: 1, name: 'id', type: 'int', isPrimary: true, isGenerated: true, isNullable: false },
-            { id: 99, name: 'extra', type: 'text', isPrimary: false, isGenerated: false, isNullable: true },
-          ],
-          relations: [],
-        }],
-      ]),
+    const differentTable = {
+      name: 'post',
+      columns: [
+        { id: 1, name: 'id', type: 'int', isPrimary: true, isGenerated: true, isNullable: false },
+        { id: 99, name: 'extra', type: 'text', isPrimary: false, isGenerated: false, isNullable: true },
+      ],
+      relations: [],
     };
     const { executor } = makeExecutor({
-      runtimeRegistryService: { getMetadata: () => differentMetadata },
+      queryBuilderService: { findOne: vi.fn().mockResolvedValue(differentTable) },
     });
     await expect(
       executor.execute({
@@ -133,11 +129,8 @@ describe('C3: Source revision must be attested under lock', () => {
 
   it('passes when source revision matches current metadata', async () => {
     const contract = await compileRealContract();
-    const matchingMetadata = {
-      tables: new Map([['post', baseBefore]]),
-    };
     const { executor, tableHandlerService } = makeExecutor({
-      runtimeRegistryService: { getMetadata: () => matchingMetadata },
+      queryBuilderService: { findOne: vi.fn().mockResolvedValue(baseBefore) },
     });
     const result = await executor.execute({
       contract,

@@ -205,11 +205,11 @@ export class MongoMigrationJournalService {
           if (!lockValue2) break;
         }
         const pending = await this.getCollection()
-          .find({ status: { $in: ['pending', 'running'] } })
+          .find({ status: { $in: ['pending', 'running', 'failed'] } })
           .toArray();
         if (pending.length > 0) {
           throw new Error(
-            `Mongo migration recovery incomplete: ${pending.length} unresolved journal(s) remain after lock owner finished`,
+            `Mongo migration recovery incomplete: ${pending.length} unresolved journal(s) (pending/running/failed) remain after lock owner finished`,
           );
         }
         return;
@@ -235,7 +235,7 @@ export class MongoMigrationJournalService {
     let pending: any[];
     try {
       pending = await this.getCollection()
-        .find({ status: { $in: ['pending', 'running'] } })
+        .find({ status: { $in: ['pending', 'running', 'failed'] } })
         .toArray();
     } catch (error: any) {
       const msg = String(error?.message ?? '');
@@ -255,7 +255,7 @@ export class MongoMigrationJournalService {
     }
     if (pending.length === 0) return;
     this.logger.warn(
-      `Found ${pending.length} pending/running migration(s), rolling back...`,
+      `Found ${pending.length} unresolved migration(s), rolling back...`,
     );
     const failures: string[] = [];
     for (const entry of pending) {
