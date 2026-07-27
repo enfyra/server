@@ -108,6 +108,36 @@ export class MongoSchemaMigrationLockService {
     );
   }
 
+  async refreshHeartbeat(
+    handle: MongoSchemaMigrationLockHandle,
+  ): Promise<boolean> {
+    if (!handle) return false;
+    const collection = await this.getCollection();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + this.lockDurationMs);
+    const result = await collection.updateOne(
+      { _id: this.documentId, lockToken: handle.token, isLocked: true },
+      {
+        $set: { lockExpiresAt: expiresAt },
+        $currentDate: { updatedAt: true },
+      },
+    );
+    return result.modifiedCount > 0;
+  }
+
+  async isStillHeld(
+    handle: MongoSchemaMigrationLockHandle,
+  ): Promise<boolean> {
+    if (!handle) return false;
+    const collection = await this.getCollection();
+    const doc = await collection.findOne({
+      _id: this.documentId,
+      lockToken: handle.token,
+      isLocked: true,
+    });
+    return doc != null;
+  }
+
   private async getCollection(): Promise<
     Collection<SchemaMigrationLockDocument>
   > {

@@ -316,9 +316,21 @@ export class MongoTableHandlerService {
     handler: () => Promise<T>,
   ): Promise<T> {
     const lock = await this.mongoSchemaMigrationLockService.acquire(context);
+    const heartbeat = setInterval(() => {
+      this.mongoSchemaMigrationLockService.refreshHeartbeat(lock).catch(() => {});
+    }, 10_000);
     try {
-      return await handler();
+      const result = await handler();
+      const stillHeld =
+        await this.mongoSchemaMigrationLockService.isStillHeld(lock);
+      if (!stillHeld) {
+        throw new Error(
+          `Schema lock lost during "${context}", aborting to prevent conflicting writes`,
+        );
+      }
+      return result;
     } finally {
+      clearInterval(heartbeat);
       await this.mongoSchemaMigrationLockService.release(lock);
     }
   }

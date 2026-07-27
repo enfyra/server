@@ -38,6 +38,16 @@ export class SchemaMigrationLockService {
     await this.clearLockRow(knex, handle.token);
   }
 
+  async isStillHeld(handle: SchemaMigrationLockHandle): Promise<boolean> {
+    if (!handle) return false;
+    const knex = this.knexService.getKnex();
+    await this.ensureLockTable();
+    const row = await knex(this.tableName)
+      .where({ id: 1, lockToken: handle.token, isLocked: true })
+      .first();
+    return row != null;
+  }
+
   private static readonly STALE_LOCK_THRESHOLD_MS = 120_000;
   private static readonly STALE_HEARTBEAT_THRESHOLD_MS = 30_000;
 
