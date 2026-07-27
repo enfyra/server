@@ -206,18 +206,87 @@ describe('H1: Additive mutations must not become hidden previews', () => {
 });
 
 describe('Journal: must support retry after failure', () => {
-  it('same source+target must produce different mutationIds for retry', async () => {
-    const compiler = makeCompiler();
-    const input = {
-      operation: 'update' as const,
-      tableName: 'post',
-      tableId: '42',
-      beforeMetadata: baseBefore,
-      afterMetadata: baseAfter,
+  it('journal.create resets failed entry instead of throwing duplicate key', async () => {
+    const { RuntimeSchemaJournalService } = await import(
+      '../../src/modules/table-management/services/runtime-schema-journal.service'
+    );
+    const store = new Map<string, any>();
+    const queryBuilderService = {
+      isMongoDb: () => false,
+      getKnex: () => {
+        const knexFn: any = () => ({
+          insert: async (doc: any) => {
+            if (store.has(doc.mutationId)) throw new Error('duplicate key');
+            store.set(doc.mutationId, doc);
+          },
+          where: () => ({
+            first: async () => store.get('test-mutation') ?? null,
+            update: async (fields: any) => {
+              const existing = store.get('test-mutation');
+              if (existing) Object.assign(existing, fields);
+            },
+          }),
+        });
+        knexFn.schema = {
+          hasTable: async () => true,
+          createTable: async () => {},
+        };
+        return knexFn;
+      },
     };
-    const first = await compiler.compile(input);
-    const second = await compiler.compile(input);
-    expect(first.contract.mutationId).not.toBe(second.contract.mutationId);
+    const journal = new RuntimeSchemaJournalService({
+      queryBuilderService: queryBuilderService as any,
+    });
+
+    // First attempt fails
+    await journal.create({ mutationId: 'test-mutation', contractHash: 'hash1', backend: 'postgresql' });
+    await journal.markFailed('test-mutation', 'some error');
+
+    // Retry with same mutationId must succeed (reset failed entry)
+    await expect(
+      journal.create({ mutationId: 'test-mutation', contractHash: 'hash1', backend: 'postgresql' }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('journal.create rejects in-progress mutation', async () => {
+    const { RuntimeSchemaJournalService } = await import(
+      '../../src/modules/table-management/services/runtime-schema-journal.service'
+    );
+    const store = new Map<string, any>();
+    const queryBuilderService = {
+      isMongoDb: () => false,
+      getKnex: () => {
+        const knexFn: any = () => ({
+          insert: async (doc: any) => {
+            if (store.has(doc.mutationId)) throw new Error('duplicate key');
+            store.set(doc.mutationId, doc);
+          },
+          where: () => ({
+            first: async () => store.get('test-mutation-2') ?? null,
+            update: async (fields: any) => {
+              const existing = store.get('test-mutation-2');
+              if (existing) Object.assign(existing, fields);
+            },
+          }),
+        });
+        knexFn.schema = {
+          hasTable: async () => true,
+          createTable: async () => {},
+        };
+        return knexFn;
+      },
+    };
+    const journal = new RuntimeSchemaJournalService({
+      queryBuilderService: queryBuilderService as any,
+    });
+
+    await journal.create({ mutationId: 'test-mutation-2', contractHash: 'hash1', backend: 'postgresql' });
+    await journal.advanceStage('test-mutation-2', 'executing');
+
+    // In-progress mutation must be rejected
+    await expect(
+      journal.create({ mutationId: 'test-mutation-2', contractHash: 'hash1', backend: 'postgresql' }),
+    ).rejects.toThrow(/already in progress/i);
   });
 });
 

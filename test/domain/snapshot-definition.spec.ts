@@ -67,6 +67,7 @@ describe('SnapshotDefinition', () => {
             isNullable: false,
             defaultValue: 'draft',
             description: 'Title',
+            isSystem: true,
           },
         ],
         relations: [

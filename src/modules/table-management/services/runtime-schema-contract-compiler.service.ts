@@ -83,7 +83,6 @@ export class RuntimeSchemaContractCompilerService {
       tableId: stringValue(input.tableId),
       sourceRevision,
       targetRevision,
-      nonce: `${Date.now()}:${Math.random().toString(36).slice(2)}`,
     });
     const requestIdempotencyKey = getRequestIdempotencyKey(
       input.requestContext,

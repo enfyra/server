@@ -108,6 +108,21 @@ export class RuntimeSchemaJournalService {
     backend: string;
   }): Promise<void> {
     const store = await this.getStore();
+    const existing = await store.find(entry.mutationId);
+    if (existing) {
+      const stage = existing.stage as string;
+      if (stage === 'failed' || stage === 'rolled_back') {
+        await store.update(entry.mutationId, {
+          stage: 'captured' as RuntimeSchemaJournalStage,
+          contractHash: entry.contractHash,
+          error: null,
+        });
+        return;
+      }
+      throw new Error(
+        `Runtime schema mutation ${entry.mutationId} already in progress at stage=${stage}`,
+      );
+    }
     const now = new Date().toISOString();
     await store.insert({
       mutationId: entry.mutationId,
