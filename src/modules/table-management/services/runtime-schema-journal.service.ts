@@ -77,16 +77,27 @@ export class RuntimeSchemaJournalService {
     const knex = this.queryBuilderService.getKnex();
     const exists = await knex.schema.hasTable(TABLE_NAME);
     if (!exists) {
-      await knex.schema.createTable(TABLE_NAME, (table: any) => {
-        table.string('mutationId', 128).primary();
-        table.string('contractHash', 128).notNullable();
-        table.string('backend', 32).notNullable();
-        table.string('stage', 64).notNullable();
-        table.string('startedAt', 64).notNullable();
-        table.string('updatedAt', 64).notNullable();
-        table.text('completedNodeIds').nullable();
-        table.text('error').nullable();
-      });
+      try {
+        await knex.schema.createTable(TABLE_NAME, (table: any) => {
+          table.string('mutationId', 128).primary();
+          table.string('contractHash', 128).notNullable();
+          table.string('backend', 32).notNullable();
+          table.string('stage', 64).notNullable();
+          table.string('startedAt', 64).notNullable();
+          table.string('updatedAt', 64).notNullable();
+          table.text('completedNodeIds').nullable();
+          table.text('error').nullable();
+        });
+      } catch (error: any) {
+        const code = String(error?.code ?? '');
+        const msg = String(error?.message ?? '').toLowerCase();
+        const alreadyExists =
+          code === '42P07' ||
+          code === '42710' ||
+          msg.includes('already exists') ||
+          msg.includes('duplicate key');
+        if (!alreadyExists) throw error;
+      }
     }
     this.tableReady = true;
   }
