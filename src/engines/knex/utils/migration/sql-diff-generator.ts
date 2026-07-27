@@ -2,7 +2,7 @@ import { Knex } from 'knex';
 import { Logger } from '../../../../shared/logger';
 import { getErrorMessage } from '../../../../shared/utils/error.util';
 import { generateColumnDefinition } from './sql-generator';
-import { dropForeignKeyIfExists } from './foreign-key-operations';
+import { findForeignKeyConstraintName } from './foreign-key-operations';
 import {
   quoteIdentifier,
   generateRenameTableSQL,
@@ -11,6 +11,7 @@ import {
   generateAddIndexSQL,
   generateDropIndexSQL,
   generateDropColumnSQL,
+  generateDropForeignKeySQL,
 } from './sql-dialect';
 import { getPrimaryKeyTypeForTable } from './pk-type.util';
 import {
@@ -194,7 +195,17 @@ export async function generateSQLFromDiff(
   }
   for (const col of ensureArray(columnDiff.delete)) {
     if (col.isForeignKey) {
-      await dropForeignKeyIfExists(knex, tableName, col.name, dbType);
+      const constraintName = await findForeignKeyConstraintName(
+        knex,
+        tableName,
+        col.name,
+        dbType,
+      );
+      if (constraintName) {
+        sqlStatements.push(
+          generateDropForeignKeySQL(tableName, constraintName, dbType),
+        );
+      }
     }
     sqlStatements.push(generateDropColumnSQL(activeTableName, col.name, dbType));
   }
@@ -311,12 +322,21 @@ export async function generateSQLFromDiff(
         );
       }
     } else if (crossOp.operation === 'dropColumn') {
-      await dropForeignKeyIfExists(
+      const constraintName = await findForeignKeyConstraintName(
         knex,
         crossOp.targetTable,
         crossOp.columnName,
         dbType,
       );
+      if (constraintName) {
+        sqlStatements.push(
+          generateDropForeignKeySQL(
+            crossOp.targetTable,
+            constraintName,
+            dbType,
+          ),
+        );
+      }
       sqlStatements.push(
         generateDropColumnSQL(crossOp.targetTable, crossOp.columnName, dbType),
       );
@@ -456,7 +476,17 @@ export async function generateSQLFromDiff(
     } = fkRecreate;
     const fkName = `fk_${fkTableName}_${columnName}`;
     logger.log(`Recreating FK constraint ${fkName} with onDelete: ${onDelete}`);
-    await dropForeignKeyIfExists(knex, fkTableName, columnName, dbType);
+    const existingConstraint = await findForeignKeyConstraintName(
+      knex,
+      fkTableName,
+      columnName,
+      dbType,
+    );
+    if (existingConstraint) {
+      sqlStatements.push(
+        generateDropForeignKeySQL(fkTableName, existingConstraint, dbType),
+      );
+    }
     sqlStatements.push(
       `ALTER TABLE ${qt(fkTableName)} ADD CONSTRAINT ${qt(fkName)} FOREIGN KEY (${qt(columnName)}) REFERENCES ${qt(targetTable)} (${qt(targetColumn || 'id')}) ON DELETE ${onDelete} ON UPDATE CASCADE`,
     );
