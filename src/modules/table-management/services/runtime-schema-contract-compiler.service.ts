@@ -83,6 +83,7 @@ export class RuntimeSchemaContractCompilerService {
       tableId: stringValue(input.tableId),
       sourceRevision,
       targetRevision,
+      nonce: `${Date.now()}:${Math.random().toString(36).slice(2)}`,
     });
     const requestIdempotencyKey = getRequestIdempotencyKey(
       input.requestContext,
@@ -139,6 +140,7 @@ export class RuntimeSchemaContractCompilerService {
       foreignKeyColumn: string;
       junctionTableName: string;
       isNullable: boolean;
+      onDelete: string;
     }[],
     afterRelations: readonly {
       propertyName: string;
@@ -148,6 +150,7 @@ export class RuntimeSchemaContractCompilerService {
       foreignKeyColumn: string;
       junctionTableName: string;
       isNullable: boolean;
+      onDelete: string;
     }[],
   ): Promise<RuntimeSchemaCascadeWarning[]> {
     if (!rawBefore || typeof rawBefore !== 'object') return [];

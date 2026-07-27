@@ -22,6 +22,7 @@ export interface RuntimeSchemaRelationContract {
   foreignKeyColumn: string;
   junctionTableName: string;
   isNullable: boolean;
+  onDelete: string;
 }
 
 export interface RuntimeTableSchemaContract {
@@ -42,6 +43,7 @@ export type RuntimeSchemaChangeKind =
   | 'alter-column'
   | 'add-relation'
   | 'remove-relation'
+  | 'alter-relation'
   | 'add-unique'
   | 'remove-unique'
   | 'add-index'

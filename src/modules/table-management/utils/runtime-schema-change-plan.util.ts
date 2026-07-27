@@ -187,6 +187,22 @@ export function buildRuntimeSchemaChangePlan(input: {
       relation,
     );
   }
+  const commonRelationKeys = [...beforeRelationByKey.keys()].filter((key) =>
+    afterRelationByKey.has(key),
+  );
+  for (const key of commonRelationKeys) {
+    const beforeRel = beforeRelationByKey.get(key)!;
+    const afterRel = afterRelationByKey.get(key)!;
+    if (!isDeepStrictEqual(beforeRel, afterRel)) {
+      addChange(
+        'alter-relation',
+        key,
+        `alter relation ${afterRel.propertyName}`,
+        beforeRel,
+        afterRel,
+      );
+    }
+  }
 
   const constraintDiffs = [
     ['unique', before.contract.uniques, after.contract.uniques],

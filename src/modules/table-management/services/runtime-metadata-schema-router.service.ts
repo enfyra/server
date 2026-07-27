@@ -270,9 +270,15 @@ export class RuntimeMetadataSchemaRouterService {
         target && typeof target === 'object'
           ? this.getReferenceId(target)
           : (target ?? value.targetTableId);
+      const targetName =
+        target && typeof target === 'object'
+          ? target.name
+          : value.targetTableName;
       normalized.targetTable = targetId;
+      if (targetName) {
+        normalized.targetTableName = targetName;
+      }
       delete normalized.targetTableId;
-      delete normalized.targetTableName;
     }
     return normalized;
   }

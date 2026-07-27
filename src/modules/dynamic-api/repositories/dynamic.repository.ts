@@ -1012,6 +1012,11 @@ export class DynamicRepository {
     if (this.tableName === 'enfyra_table') {
       throw new BadRequestException('Batch create is not supported for tables');
     }
+    if (this.runtimeMetadataSchemaRouterService.handles(this.tableName)) {
+      throw new BadRequestException(
+        `Batch create is not supported for ${this.tableName}. Use single-record operations.`,
+      );
+    }
 
     const rows = Array.isArray(data) ? data : [data];
     if (rows.length === 0) {

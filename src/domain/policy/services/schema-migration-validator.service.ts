@@ -62,7 +62,23 @@ export class SchemaMigrationValidatorService {
         contractHash: contract.contractHash,
         schemaMutationContract: contract,
       };
-      if (ctx.operation === 'create' || ctx.operation === 'delete') {
+      if (ctx.operation === 'create') {
+        return { allow: true, details };
+      }
+      if (ctx.operation === 'delete') {
+        const clientHash = getClientHash(ctx.requestContext);
+        if (!clientHash) {
+          return { allow: false, preview: true as const, details };
+        }
+        if (clientHash !== requiredConfirmHash) {
+          return {
+            allow: false,
+            statusCode: 422 as const,
+            code: 'SCHEMA_CONFIRM_HASH_MISMATCH',
+            message: 'Schema confirm hash does not match.',
+            details,
+          };
+        }
         return { allow: true, details };
       }
       if (!diff.schemaChanged) {
@@ -134,7 +150,23 @@ export class SchemaMigrationValidatorService {
       schemaMutationContract: contract,
     };
 
-    if (ctx.operation === 'create' || ctx.operation === 'delete') {
+    if (ctx.operation === 'create') {
+      return { allow: true, details };
+    }
+    if (ctx.operation === 'delete') {
+      const clientHash = getClientHash(ctx.requestContext);
+      if (!clientHash) {
+        return { allow: false, preview: true as const, details };
+      }
+      if (clientHash !== requiredConfirmHash) {
+        return {
+          allow: false,
+          statusCode: 422 as const,
+          code: 'SCHEMA_CONFIRM_HASH_MISMATCH',
+          message: 'Schema confirm hash does not match.',
+          details,
+        };
+      }
       return { allow: true, details };
     }
     if (!diff.schemaChanged) {

@@ -104,6 +104,7 @@ function normalizeRelations(
       foreignKeyColumn: stringValue(relation?.foreignKeyColumn),
       junctionTableName: stringValue(relation?.junctionTableName),
       isNullable: relation?.isNullable ?? true,
+      onDelete: stringValue(relation?.onDelete) || 'SET NULL',
     }))
     .sort((left, right) =>
       runtimeRelationDiffKey(left).localeCompare(runtimeRelationDiffKey(right)),
