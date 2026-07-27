@@ -314,12 +314,14 @@ export class MongoTableHandlerService {
   protected async runWithSchemaLock<T>(
     context: string,
     handler: () => Promise<T>,
+    onAcquired?: () => Promise<void>,
   ): Promise<T> {
     const lock = await this.mongoSchemaMigrationLockService.acquire(context);
     const heartbeat = setInterval(() => {
       this.mongoSchemaMigrationLockService.refreshHeartbeat(lock).catch(() => {});
     }, 10_000);
     try {
+      if (onAcquired) await onAcquired();
       const result = await handler();
       const stillHeld =
         await this.mongoSchemaMigrationLockService.isStillHeld(lock);

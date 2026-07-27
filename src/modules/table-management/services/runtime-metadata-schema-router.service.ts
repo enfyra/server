@@ -377,7 +377,11 @@ export class RuntimeMetadataSchemaRouterService {
     if (!toResolve.length) return;
     await Promise.all(
       toResolve.map(async (rel: any) => {
-        const targetId = rel.targetTable;
+        const raw = rel.targetTable;
+        const targetId =
+          raw && typeof raw === 'object'
+            ? (raw._id ?? raw.id)
+            : raw;
         const target = await this.deps.queryBuilderService.findOne({
           table: 'enfyra_table',
           where: { [this.getPkField()]: targetId },

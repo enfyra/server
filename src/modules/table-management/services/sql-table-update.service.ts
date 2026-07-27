@@ -68,7 +68,7 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
         waitMs: Date.now() - t0,
       });
       return this.updateTableInternal(id, body, context);
-    });
+    }, (context as any)?.$onLockAcquired);
     this.logger.log(`[updateTable:${id}] STEP DONE total=${Date.now() - t0}ms`);
     logMemory(this.logger, 'sql updateTable done', {
       tableId: id,

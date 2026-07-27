@@ -44,7 +44,10 @@ async function compileRealContract(overrides: Record<string, unknown> = {}) {
 
 function makeExecutor(deps: Record<string, unknown> = {}) {
   const tableHandlerService = (deps.tableHandlerService ?? {
-    updateTable: vi.fn().mockResolvedValue({ id: 42, affectedTables: ['post'] }),
+    updateTable: vi.fn(async (_id: any, _body: any, ctx: any) => {
+      if (ctx?.$onLockAcquired) await ctx.$onLockAcquired();
+      return { id: 42, affectedTables: ['post'] };
+    }),
   }) as any;
   const journal = (deps.journal ?? {
     create: vi.fn().mockResolvedValue(undefined),

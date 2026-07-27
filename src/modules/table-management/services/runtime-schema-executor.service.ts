@@ -65,7 +65,6 @@ export class RuntimeSchemaExecutorService {
     let result: any;
     try {
       result = await this.unitOfWork.run(async () => {
-        this.attestSourceRevision(contract);
         stage('executing');
         await this.journal.advanceStage(mutationId, 'executing');
 
@@ -74,6 +73,9 @@ export class RuntimeSchemaExecutorService {
           $schemaContract: {
             contract,
             requiredConfirmHash: contract.context.confirmationDigest,
+          },
+          $onLockAcquired: async () => {
+            this.attestSourceRevision(contract);
           },
         };
 

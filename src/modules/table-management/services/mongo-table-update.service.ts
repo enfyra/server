@@ -885,7 +885,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
           },
         );
       }
-    });
+    }, (context as any)?.$onLockAcquired);
     stepLog(`STEP DONE total=${Date.now() - t0}ms`);
     logMemory(this.logger, 'mongo updateTable done', {
       tableId: id,

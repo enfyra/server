@@ -143,21 +143,29 @@ export class MongoMigrationJournalService {
       return;
     }
     this.logger.warn(`Executing rollback for ${uuid}`);
+    const errors: string[] = [];
     try {
       await executeDiff(entry.downDiff, entry);
-      if (restoreMetadataFn) {
+    } catch (error: any) {
+      errors.push(`physical rolldown: ${getErrorMessage(error)}`);
+    }
+    if (restoreMetadataFn) {
+      try {
         await restoreMetadataFn(entry);
         this.logger.warn(
           `Metadata restored for ${entry.uuid} from rawBeforeSnapshot`,
         );
+      } catch (error: any) {
+        errors.push(`metadata restore: ${getErrorMessage(error)}`);
       }
-      await this.markRolledBack(uuid);
-    } catch (error: any) {
-      const message = getErrorMessage(error);
+    }
+    if (errors.length > 0) {
+      const message = errors.join('; ');
       this.logger.error(`Rollback failed for ${uuid}: ${message}`);
       await this.markFailed(uuid, `Rollback failed: ${message}`);
-      throw error;
+      throw new Error(`Rollback failed for ${uuid}: ${message}`);
     }
+    await this.markRolledBack(uuid);
   }
   async cleanup(maxAgeDays = 7): Promise<void> {
     const cutoff = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);
@@ -188,7 +196,7 @@ export class MongoMigrationJournalService {
         this.logger.log(
           `Mongo migration saga recovery: waiting for lock owner to finish`,
         );
-        const deadline = Date.now() + REDIS_TTL.MONGO_MIGRATION_SAGA_RECOVERY_LOCK_TTL;
+        const deadline = Date.now() + 25_000;
         while (Date.now() < deadline) {
           await new Promise((r) => setTimeout(r, 2000));
           const lockValue2 = await this.cacheService.get(
@@ -198,8 +206,7 @@ export class MongoMigrationJournalService {
         }
         const pending = await this.getCollection()
           .find({ status: { $in: ['pending', 'running'] } })
-          .toArray()
-          .catch(() => []);
+          .toArray();
         if (pending.length > 0) {
           throw new Error(
             `Mongo migration recovery incomplete: ${pending.length} unresolved journal(s) remain after lock owner finished`,
