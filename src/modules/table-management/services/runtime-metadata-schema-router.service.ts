@@ -192,6 +192,9 @@ export class RuntimeMetadataSchemaRouterService {
       body,
       context: input.context,
     });
+    if (execResult.preview) {
+      return { preview: execResult.preview, ownerTableId, recordId: input.recordId };
+    }
     return {
       recordId: input.recordId,
       ownerTableId,
@@ -359,12 +362,12 @@ export class RuntimeMetadataSchemaRouterService {
 
   private async resolveRelationTargetNames(body: TCreateTableBody): Promise<void> {
     if (!body.relations?.length) return;
-    const unresolved = body.relations.filter(
-      (rel: any) => rel.targetTable != null && !rel.targetTableName,
+    const toResolve = body.relations.filter(
+      (rel: any) => rel.targetTable != null,
     );
-    if (!unresolved.length) return;
+    if (!toResolve.length) return;
     await Promise.all(
-      unresolved.map(async (rel: any) => {
+      toResolve.map(async (rel: any) => {
         const targetId = rel.targetTable;
         const target = await this.deps.queryBuilderService.findOne({
           table: 'enfyra_table',
@@ -373,6 +376,10 @@ export class RuntimeMetadataSchemaRouterService {
         });
         if (target?.name) {
           rel.targetTableName = target.name;
+        } else {
+          throw new Error(
+            `Relation target table not found for id=${String(targetId)}`,
+          );
         }
       }),
     );

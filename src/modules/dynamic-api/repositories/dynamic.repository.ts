@@ -1332,6 +1332,9 @@ export class DynamicRepository {
           id,
           this.context,
         );
+        if (deleted?._preview) {
+          return { data: [deleted] };
+        }
         await this.reload({
           ids: [id],
           affectedTables: deleted?.affectedTables,

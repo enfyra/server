@@ -450,11 +450,7 @@ export class MongoSchemaDiffService {
         try {
           await collection.createIndex(spec.keys, spec.options);
         } catch (error: any) {
-          if (error?.code === 85 || error?.code === 86) {
-            this.logger.log(`Index ${spec.name} already exists, skipping create`);
-          } else {
-            throw new Error(`Failed to create index ${spec.name}: ${error.message}`);
-          }
+          throw new Error(`Failed to create index ${spec.name}: ${error.message}`);
         }
       }
     }
@@ -492,7 +488,10 @@ export class MongoSchemaDiffService {
       if (existing.length === 0) return;
       await db.collection(junctionName).drop();
     } catch (error: any) {
-      this.logger.warn(
+      if (error?.code === 26 || String(error?.message ?? '').includes('ns not found')) {
+        return;
+      }
+      throw new Error(
         `Failed to drop junction collection ${junctionName}: ${error.message}`,
       );
     }
@@ -524,7 +523,7 @@ export class MongoSchemaDiffService {
         { unique: true, name: `${junctionName}_src_tgt_uq` },
       );
     } catch (error: any) {
-      if (error.code !== 85 && error.code !== 86) throw error;
+      throw new Error(`Failed to create junction index ${junctionName}_src_tgt_uq: ${error.message}`);
     }
 
     try {
@@ -533,7 +532,7 @@ export class MongoSchemaDiffService {
         { name: `${junctionName}_tgt_idx` },
       );
     } catch (error: any) {
-      if (error.code !== 85 && error.code !== 86) throw error;
+      throw new Error(`Failed to create junction index ${junctionName}_tgt_idx: ${error.message}`);
     }
   }
 }
