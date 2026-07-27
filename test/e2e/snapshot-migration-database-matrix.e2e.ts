@@ -14,7 +14,8 @@ import {
   applySqlSchemaMigrations,
 } from '../../src/shared/utils/provision-schema-migration';
 import type { SchemaMigrationDef } from '../../src/shared/types/schema-migration.types';
-import { MetadataMigrationService } from '../../src/engines/bootstrap/services/metadata-migration.service';
+import { MetadataTableMigrationService } from '../../src/engines/bootstrap/services/metadata-migration/metadata-table-migration.service';
+import { MetadataPhysicalMigrationHelper } from '../../src/engines/bootstrap/utils/metadata-physical-migration.util';
 import { PROVISION_LOCK_KEY } from '../../src/shared/utils/constant';
 
 type SqlDatabase = 'postgres' | 'mysql';
@@ -396,20 +397,26 @@ async function runSql(database: SqlDatabase): Promise<void> {
       (await target('posts').where({ id: 1 }).first()).title,
       'preserved',
     );
-    const metadataMigration = new MetadataMigrationService({
-      queryBuilderService: {
-        isMongoDb: () => false,
-        getKnex: () => target,
-      } as any,
-      systemCoreTableResolver: {
-        getNames: async () => ({
-          table: 'enfyra_table',
-          column: 'enfyra_column',
-          relation: 'enfyra_relation',
-        }),
-      } as any,
+    const queryBuilderService = {
+      isMongoDb: () => false,
+      getKnex: () => target,
+    } as any;
+    const systemCoreTableResolver = {
+      getNames: async () => ({
+        table: 'enfyra_table',
+        column: 'enfyra_column',
+        relation: 'enfyra_relation',
+      }),
+    } as any;
+    const metadataMigration = new MetadataTableMigrationService({
+      queryBuilderService,
+      systemCoreTableResolver,
+      physicalMigration: new MetadataPhysicalMigrationHelper({
+        queryBuilderService,
+      }),
+      verbose: () => undefined,
     });
-    await (metadataMigration as any).dropTableMetadata(['authors'], false);
+    await metadataMigration.dropTableMetadata(['authors'], false);
     assert.deepEqual(
       (await target('enfyra_table').orderBy('id')).map((row) => row.name),
       ['posts', 'tags'],
@@ -1304,20 +1311,26 @@ async function runMongo(): Promise<void> {
       ),
       ['_id_', 'idx_title'],
     );
-    const metadataMigration = new MetadataMigrationService({
-      queryBuilderService: {
-        isMongoDb: () => true,
-        getMongoDb: () => db,
-      } as any,
-      systemCoreTableResolver: {
-        getNames: async () => ({
-          table: 'enfyra_table',
-          column: 'enfyra_column',
-          relation: 'enfyra_relation',
-        }),
-      } as any,
+    const queryBuilderService = {
+      isMongoDb: () => true,
+      getMongoDb: () => db,
+    } as any;
+    const systemCoreTableResolver = {
+      getNames: async () => ({
+        table: 'enfyra_table',
+        column: 'enfyra_column',
+        relation: 'enfyra_relation',
+      }),
+    } as any;
+    const metadataMigration = new MetadataTableMigrationService({
+      queryBuilderService,
+      systemCoreTableResolver,
+      physicalMigration: new MetadataPhysicalMigrationHelper({
+        queryBuilderService,
+      }),
+      verbose: () => undefined,
     });
-    await (metadataMigration as any).dropTableMetadata(['authors'], true);
+    await metadataMigration.dropTableMetadata(['authors'], true);
     assert.deepEqual(
       (await db.collection('enfyra_table').find({}).sort({ _id: 1 }).toArray())
         .map((row) => row.name)

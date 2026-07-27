@@ -1,5 +1,35 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MetadataMigrationService } from '../../src/engines/bootstrap/services/metadata-migration.service';
+import { MetadataColumnMigrationService } from '../../src/engines/bootstrap/services/metadata-migration/metadata-column-migration.service';
+import { MetadataRelationMigrationService } from '../../src/engines/bootstrap/services/metadata-migration/metadata-relation-migration.service';
+import { MetadataTableMigrationService } from '../../src/engines/bootstrap/services/metadata-migration/metadata-table-migration.service';
+import { MetadataTableRenameService } from '../../src/engines/bootstrap/services/metadata-migration/metadata-table-rename.service';
+import { MetadataPhysicalMigrationHelper } from '../../src/engines/bootstrap/utils/metadata-physical-migration.util';
+
+function makeMigrationDeps(
+  queryBuilderService: any,
+  systemCoreTableResolver: any,
+) {
+  return {
+    queryBuilderService,
+    systemCoreTableResolver,
+    physicalMigration: new MetadataPhysicalMigrationHelper({
+      queryBuilderService,
+    }),
+    verbose: () => undefined,
+  };
+}
+
+function makeMigrationService<T>(
+  Service: new (deps: ReturnType<typeof makeMigrationDeps>) => T,
+  deps: {
+    queryBuilderService: any;
+    systemCoreTableResolver: any;
+  },
+): T {
+  return new Service(
+    makeMigrationDeps(deps.queryBuilderService, deps.systemCoreTableResolver),
+  );
+}
 
 function matches(row: any, filter: Record<string, any>): boolean {
   return Object.entries(filter).every(([key, value]) => {
@@ -122,12 +152,13 @@ describe('MetadataMigrationService destructive cleanup', () => {
       enfyra_field_permission: [{ id: 3, relationId: 1 }],
     };
     const knex = makeSqlKnex(tables);
-    const service = new MetadataMigrationService({
+    const service = makeMigrationService(MetadataRelationMigrationService, {
       queryBuilderService: {
         isMongoDb: vi.fn(() => false),
         getKnex: vi.fn(() => knex),
       } as any,
       systemCoreTableResolver: {
+        getTableName: vi.fn(async () => 'enfyra_table'),
         getNames: vi.fn(async () => ({
           table: 'enfyra_table',
           column: 'enfyra_column',
@@ -136,7 +167,7 @@ describe('MetadataMigrationService destructive cleanup', () => {
       } as any,
     });
 
-    await (service as any).modifyRelationMetadata(10, false, [
+    await service.modifyRelationMetadata(10, false, [
       {
         from: { propertyName: 'preHook' },
         to: { propertyName: 'preHooks' },
@@ -177,12 +208,13 @@ describe('MetadataMigrationService destructive cleanup', () => {
         },
       ],
     });
-    const service = new MetadataMigrationService({
+    const service = makeMigrationService(MetadataTableRenameService, {
       queryBuilderService: {
         isMongoDb: vi.fn(() => true),
         getMongoDb: vi.fn(() => mongo.db),
       } as any,
       systemCoreTableResolver: {
+        getTableName: vi.fn(async () => 'enfyra_table'),
         getNames: vi.fn(async () => ({
           table: 'enfyra_table',
           column: 'enfyra_column',
@@ -191,11 +223,10 @@ describe('MetadataMigrationService destructive cleanup', () => {
       } as any,
     });
 
-    await (service as any).renameMongoTableMetadataRow(
-      'enfyra_table',
-      { from: 'post_definition', to: 'enfyra_post' },
-      'legacy-table-id',
-    );
+    await service.renameMongoTable({
+      from: 'post_definition',
+      to: 'enfyra_post',
+    });
 
     expect(mongo.collections.enfyra_table).toEqual([
       { _id: 'target-table-id', name: 'enfyra_post' },
@@ -248,7 +279,7 @@ describe('MetadataMigrationService destructive cleanup', () => {
         { _id: 'permission-2', relation: 'inverse-id' },
       ],
     });
-    const service = new MetadataMigrationService({
+    const service = makeMigrationService(MetadataRelationMigrationService, {
       queryBuilderService: {
         isMongoDb: vi.fn(() => true),
         getMongoDb: vi.fn(() => mongo.db),
@@ -262,7 +293,7 @@ describe('MetadataMigrationService destructive cleanup', () => {
       } as any,
     });
 
-    await (service as any).removeRelationMetadata('posts-id', true, ['tags']);
+    await service.removeRelationMetadata('posts-id', true, ['tags']);
 
     expect(mongo.collections.enfyra_relation).toEqual([]);
     expect(mongo.collections.enfyra_field_permission).toEqual([]);
@@ -283,7 +314,7 @@ describe('MetadataMigrationService destructive cleanup', () => {
       enfyra_field_permission: [{ _id: 'permission-id', column: 'column-id' }],
       posts: [{ _id: 'post-id', legacy: 'value' }],
     });
-    const service = new MetadataMigrationService({
+    const service = makeMigrationService(MetadataColumnMigrationService, {
       queryBuilderService: {
         isMongoDb: vi.fn(() => true),
         getMongoDb: vi.fn(() => mongo.db),
@@ -297,7 +328,7 @@ describe('MetadataMigrationService destructive cleanup', () => {
       } as any,
     });
 
-    await (service as any).removeColumnMetadata(
+    await service.removeColumnMetadata(
       'posts',
       'posts-id',
       'table',
@@ -333,7 +364,7 @@ describe('MetadataMigrationService destructive cleanup', () => {
       enfyra_route: [{ _id: 'route-id', mainTable: 'authors-id' }],
       enfyra_graphql: [{ _id: 'graphql-id', table: 'authors-id' }],
     });
-    const service = new MetadataMigrationService({
+    const service = makeMigrationService(MetadataTableMigrationService, {
       queryBuilderService: {
         isMongoDb: vi.fn(() => true),
         getMongoDb: vi.fn(() => mongo.db),
@@ -347,7 +378,7 @@ describe('MetadataMigrationService destructive cleanup', () => {
       } as any,
     });
 
-    await (service as any).dropTableMetadata(['authors'], true);
+    await service.dropTableMetadata(['authors'], true);
 
     expect(mongo.collections.enfyra_table).toEqual([
       { _id: 'posts-id', name: 'posts' },
@@ -381,7 +412,7 @@ describe('MetadataMigrationService destructive cleanup', () => {
         },
       ],
     });
-    const service = new MetadataMigrationService({
+    const service = makeMigrationService(MetadataRelationMigrationService, {
       queryBuilderService: {
         isMongoDb: vi.fn(() => true),
         getMongoDb: vi.fn(() => mongo.db),
@@ -395,7 +426,7 @@ describe('MetadataMigrationService destructive cleanup', () => {
       } as any,
     });
 
-    await (service as any).modifyRelationMetadata('posts-id', true, [
+    await service.modifyRelationMetadata('posts-id', true, [
       {
         from: {
           propertyName: 'tags',
