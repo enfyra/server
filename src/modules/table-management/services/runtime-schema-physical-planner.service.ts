@@ -16,6 +16,8 @@ export interface PhysicalPlanSql {
   upBatch: string;
   downStatements: readonly string[];
   downBatch: string;
+  metadataUpdate: unknown;
+  activeTableName: string;
 }
 
 export interface PhysicalPlanMongo {
@@ -95,6 +97,8 @@ export class RuntimeSchemaPhysicalPlannerService {
       upBatch: generateBatchSQL(upStatements),
       downStatements,
       downBatch: generateBatchSQL(downStatements),
+      metadataUpdate: upDiff.metadataUpdate ?? null,
+      activeTableName: upDiff.table?.update?.newName || input.tableName,
     };
   }
 

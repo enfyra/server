@@ -28,6 +28,8 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
     upBatch: string;
     downStatements: readonly string[];
     downBatch: string;
+    metadataUpdate: unknown;
+    activeTableName: string;
   } | undefined {
     const contract = (context as any)?.$schemaContract?.contract;
     if (!contract?.phases) return undefined;
@@ -40,6 +42,8 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
             upBatch: plan.upBatch ?? '',
             downStatements: plan.downStatements ?? [],
             downBatch: plan.downBatch ?? '',
+            metadataUpdate: plan.metadataUpdate ?? null,
+            activeTableName: plan.activeTableName ?? '',
           };
         }
       }

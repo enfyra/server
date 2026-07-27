@@ -278,6 +278,8 @@ function buildRuntimeCommandNodes(
             upBatch: (physicalPlan as any).upBatch,
             downStatements: (physicalPlan as any).downStatements,
             downBatch: (physicalPlan as any).downBatch,
+            metadataUpdate: (physicalPlan as any).metadataUpdate ?? null,
+            activeTableName: (physicalPlan as any).activeTableName,
           }
       : undefined;
   for (const change of changes) {

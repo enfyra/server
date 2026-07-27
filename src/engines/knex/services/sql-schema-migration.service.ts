@@ -585,6 +585,8 @@ export class SqlSchemaMigrationService {
       upBatch: string;
       downStatements: readonly string[];
       downBatch: string;
+      metadataUpdate: unknown;
+      activeTableName: string;
     },
   ): Promise<{
     pendingMetadataUpdate?: { tableName: string; diff: any };
@@ -603,10 +605,12 @@ export class SqlSchemaMigrationService {
     if (precompiled) {
       upScript = precompiled.upBatch;
       downScript = precompiled.downBatch;
-      schemaDiff = await this.schemaDiffService.generateSchemaDiff(
-        oldMetadata,
-        newMetadata,
-      );
+      schemaDiff = {
+        table: precompiled.activeTableName !== tableName
+          ? { update: { oldName: tableName, newName: precompiled.activeTableName } }
+          : {},
+        metadataUpdate: precompiled.metadataUpdate ?? undefined,
+      };
     } else {
       schemaDiff = await this.schemaDiffService.generateSchemaDiff(
         oldMetadata,

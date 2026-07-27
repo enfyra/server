@@ -122,6 +122,8 @@ export interface RuntimeSchemaPhysicalPlanPayload {
   downBatch?: string;
   upDiff?: unknown;
   downDiff?: unknown;
+  metadataUpdate?: unknown;
+  activeTableName?: string;
 }
 
 export interface RuntimeSchemaMutationCommand {
