@@ -64,6 +64,20 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
     c.provisionService.recoverJournals(),
   );
 
+  await runInitStep('legacyStoreAssessment', async () => {
+    const inventory = await c.legacyStoreInventoryService.inventory();
+    const report = c.legacyAssessmentService.assess(inventory);
+    if (report.hasBlockingFindings) {
+      const details = report.findings
+        .filter((f: any) => f.blocking)
+        .map((f: any) => `[${f.coreKey}] ${f.outcome}: ${f.detail}`)
+        .join('; ');
+      throw new Error(
+        `Legacy system metadata assessment found blocking issues, boot cannot continue: ${details}`,
+      );
+    }
+  });
+
   await runInitStep('firstRunInitializer', async () => {
     if (await c.firstRunInitializer.isNeeded()) {
       await c.firstRunInitializer.run();

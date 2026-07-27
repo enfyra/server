@@ -103,6 +103,8 @@ import {
   SchemaHealingService,
   SnapshotTargetVerifierService,
   SystemCoreTableResolver,
+  LegacyStoreInventoryService,
+  LegacyAssessmentService,
 } from './engines/bootstrap';
 
 import { LoggingService } from './domain/exceptions';
@@ -402,6 +404,8 @@ export interface Cradle {
   firstRunInitializer: FirstRunInitializer;
   schemaHealingService: SchemaHealingService;
   systemCoreTableResolver: SystemCoreTableResolver;
+  legacyStoreInventoryService: LegacyStoreInventoryService;
+  legacyAssessmentService: LegacyAssessmentService;
   metadataProvisionService: MetadataProvisionService;
   metadataProvisionSqlService: MetadataProvisionSqlService;
   metadataProvisionMongoService: MetadataProvisionMongoService;
@@ -751,6 +755,8 @@ export function buildContainer(): AwilixContainer<Cradle> {
     firstRunInitializer: asClass(FirstRunInitializer).singleton(),
     schemaHealingService: asClass(SchemaHealingService).singleton(),
     systemCoreTableResolver: asClass(SystemCoreTableResolver).singleton(),
+    legacyStoreInventoryService: asClass(LegacyStoreInventoryService).singleton(),
+    legacyAssessmentService: asClass(LegacyAssessmentService).singleton(),
     metadataProvisionService: asClass(MetadataProvisionService).singleton(),
     metadataProvisionSqlService: asClass(
       MetadataProvisionSqlService,
