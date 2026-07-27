@@ -929,10 +929,16 @@ export class DynamicRepository {
           context: this.context,
         });
         if (mutation.preview) return { data: [mutation.preview] };
-        await this.reload({
-          ids: mutation.recordId == null ? undefined : [mutation.recordId],
-          affectedTables: mutation.affectedTables,
-        });
+        try {
+          await this.reload({
+            ids: mutation.recordId == null ? undefined : [mutation.recordId],
+            affectedTables: mutation.affectedTables,
+          });
+        } catch (reloadError: any) {
+          this.logger.warn(
+            `Cache reload failed after schema mutation (db_committed_pending_activation): ${reloadError.message}`,
+          );
+        }
         return this.find({
           filter: {
             [this.getIdField()]: { _eq: mutation.recordId },
@@ -1219,10 +1225,16 @@ export class DynamicRepository {
           context: this.context,
         });
         if (mutation.preview) return { data: [mutation.preview] };
-        await this.reload({
-          ids: [id],
-          affectedTables: mutation.affectedTables,
-        });
+        try {
+          await this.reload({
+            ids: [id],
+            affectedTables: mutation.affectedTables,
+          });
+        } catch (reloadError: any) {
+          this.logger.warn(
+            `Cache reload failed after schema mutation (db_committed_pending_activation): ${reloadError.message}`,
+          );
+        }
         return this.find({
           filter: { [this.getIdField()]: { _eq: id } },
           fields,
@@ -1333,10 +1345,16 @@ export class DynamicRepository {
           context: this.context,
         });
         if (mutation.preview) return { data: [mutation.preview] };
-        await this.reload({
-          ids: [id],
-          affectedTables: mutation.affectedTables,
-        });
+        try {
+          await this.reload({
+            ids: [id],
+            affectedTables: mutation.affectedTables,
+          });
+        } catch (reloadError: any) {
+          this.logger.warn(
+            `Cache reload failed after schema mutation (db_committed_pending_activation): ${reloadError.message}`,
+          );
+        }
         return { message: 'Success', statusCode: 200 };
       }
       await this.queryBuilderService.runWithPolicy(
