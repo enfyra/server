@@ -23,6 +23,30 @@ import {
 } from './table-post-migration.service';
 
 export class SqlTableUpdateService extends SqlTableHandlerService {
+  private extractPrecompiledPlan(context?: TDynamicContext): {
+    upStatements: readonly string[];
+    upBatch: string;
+    downStatements: readonly string[];
+    downBatch: string;
+  } | undefined {
+    const contract = (context as any)?.$schemaContract?.contract;
+    if (!contract?.phases) return undefined;
+    for (const phase of contract.phases) {
+      for (const node of phase.nodes) {
+        const plan = node.command?.physicalPlan;
+        if (plan && plan.backend !== 'mongodb' && plan.upBatch !== undefined) {
+          return {
+            upStatements: plan.upStatements ?? [],
+            upBatch: plan.upBatch ?? '',
+            downStatements: plan.downStatements ?? [],
+            downBatch: plan.downBatch ?? '',
+          };
+        }
+      }
+    }
+    return undefined;
+  }
+
   async updateTable(
     id: string | number,
     body: TCreateTableBody,
@@ -247,6 +271,7 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
                 oldMetadata,
                 updatedFullMetadata,
                 trx,
+                this.extractPrecompiledPlan(context),
               ),
               new Promise<never>((_, reject) =>
                 setTimeout(
@@ -323,6 +348,8 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
                 exists.name,
                 oldMetadata,
                 afterMetadata,
+                undefined,
+                this.extractPrecompiledPlan(context),
               ),
               new Promise<never>((_, reject) =>
                 setTimeout(

@@ -15,18 +15,24 @@ import type {
   RuntimeSchemaContractCompileInput,
   RuntimeSchemaLogicalChange,
   RuntimeSchemaMutationCommand,
+  RuntimeSchemaPhysicalPlanPayload,
 } from '../types/runtime-schema-mutation.types';
 import { buildRuntimeSchemaChangePlan } from '../utils/runtime-schema-change-plan.util';
 import {
   normalizeRuntimeTableSchema,
   runtimeRelationDiffKey,
 } from '../utils/runtime-schema-normalization.util';
+import type {
+  RuntimeSchemaPhysicalPlannerService,
+  PhysicalPlan,
+} from './runtime-schema-physical-planner.service';
 
 export class RuntimeSchemaContractCompilerService {
   constructor(
     private readonly deps: {
       databaseConfigService: DatabaseConfigService;
       runtimeRegistryService: RuntimeRegistryService;
+      runtimeSchemaPhysicalPlannerService: RuntimeSchemaPhysicalPlannerService;
     },
   ) {}
 
@@ -81,8 +87,16 @@ export class RuntimeSchemaContractCompilerService {
     const requestIdempotencyKey = getRequestIdempotencyKey(
       input.requestContext,
     );
-    const nodes = buildRuntimeCommandNodes(changes);
     const backend = this.getBackend();
+    const physicalPlan =
+      await this.deps.runtimeSchemaPhysicalPlannerService.plan({
+        backend,
+        tableName: diff.tableName,
+        beforeMetadata: input.beforeMetadata ?? null,
+        afterMetadata: targetInput ?? null,
+        schemaChanged: diff.schemaChanged,
+      });
+    const nodes = buildRuntimeCommandNodes(changes, physicalPlan);
     const contract = compileSchemaMutationContract({
       contractVersion: 1,
       mutationId: `runtime-schema:${mutationSeed}`,
@@ -206,6 +220,7 @@ export class RuntimeSchemaContractCompilerService {
 
 function buildRuntimeCommandNodes(
   changes: readonly RuntimeSchemaLogicalChange[],
+  physicalPlan: PhysicalPlan,
 ): UnphasedSchemaMutationExecutionNode<RuntimeSchemaMutationCommand>[] {
   if (changes.length === 0) return [];
   const firstChangeId = changes[0].id;
@@ -218,13 +233,18 @@ function buildRuntimeCommandNodes(
     dependsOn: readonly string[],
     completesChange: boolean,
     change?: RuntimeSchemaLogicalChange,
+    physicalPlanPayload?: RuntimeSchemaPhysicalPlanPayload,
   ) => {
     nodes.push({
       id,
       changeId,
       dependsOn,
       completesChange,
-      command: { kind, ...(change ? { change } : {}) },
+      command: {
+        kind,
+        ...(change ? { change } : {}),
+        ...(physicalPlanPayload ? { physicalPlan: physicalPlanPayload } : {}),
+      },
     });
     return id;
   };
@@ -244,6 +264,22 @@ function buildRuntimeCommandNodes(
   );
   let previousPhysical = captureNode;
   const physicalByChange = new Map<string, string>();
+  const planPayload: RuntimeSchemaPhysicalPlanPayload | undefined =
+    physicalPlan
+      ? physicalPlan.backend === 'mongodb'
+        ? {
+            backend: 'mongodb',
+            upDiff: (physicalPlan as any).upDiff,
+            downDiff: (physicalPlan as any).downDiff,
+          }
+        : {
+            backend: physicalPlan.backend,
+            upStatements: (physicalPlan as any).upStatements,
+            upBatch: (physicalPlan as any).upBatch,
+            downStatements: (physicalPlan as any).downStatements,
+            downBatch: (physicalPlan as any).downBatch,
+          }
+      : undefined;
   for (const change of changes) {
     previousPhysical = add(
       `${change.id}:physical`,
@@ -252,6 +288,7 @@ function buildRuntimeCommandNodes(
       [previousPhysical],
       false,
       change,
+      planPayload,
     );
     physicalByChange.set(change.id, previousPhysical);
   }

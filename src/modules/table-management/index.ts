@@ -12,6 +12,7 @@ export * from './services/mongo-table-update.service';
 export * from './services/mongo-table-delete.service';
 export * from './services/mongo-metadata-snapshot.service';
 export * from './services/runtime-schema-contract-compiler.service';
+export * from './services/runtime-schema-physical-planner.service';
 export * from './services/runtime-metadata-schema-router.service';
 export * from './services/runtime-schema-executor.service';
 export * from './services/runtime-schema-unit-of-work.service';

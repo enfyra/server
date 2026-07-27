@@ -12,6 +12,9 @@ function createCompiler(input?: {
     runtimeRegistryService: {
       getMetadata: () => ({ tables: input?.tables ?? new Map() }),
     } as any,
+    runtimeSchemaPhysicalPlannerService: {
+      plan: async () => null,
+    } as any,
   });
 }
 

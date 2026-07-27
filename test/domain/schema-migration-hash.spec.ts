@@ -17,6 +17,9 @@ const makeValidator = () => {
     new RuntimeSchemaContractCompilerService({
       databaseConfigService: databaseConfigStub,
       runtimeRegistryService: runtimeRegistryStub,
+      runtimeSchemaPhysicalPlannerService: {
+        plan: async () => null,
+      } as any,
     });
   return new SchemaMigrationValidatorService({
     runtimeRegistryService: runtimeRegistryStub,

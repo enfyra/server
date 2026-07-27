@@ -224,6 +224,7 @@ import {
   MongoTableHandlerService,
   MongoTableUpdateService,
   RuntimeSchemaContractCompilerService,
+  RuntimeSchemaPhysicalPlannerService,
   RuntimeMetadataSchemaRouterService,
   RuntimeSchemaExecutorService,
   RuntimeSchemaUnitOfWorkService,
@@ -284,6 +285,7 @@ export interface Cradle {
   policyService: PolicyService;
   schemaMigrationValidatorService: SchemaMigrationValidatorService;
   runtimeSchemaContractCompilerService: RuntimeSchemaContractCompilerService;
+  runtimeSchemaPhysicalPlannerService: RuntimeSchemaPhysicalPlannerService;
   runtimeMetadataSchemaRouterService: RuntimeMetadataSchemaRouterService;
   runtimeSchemaExecutorService: RuntimeSchemaExecutorService;
   runtimeSchemaUnitOfWorkService: RuntimeSchemaUnitOfWorkService;
@@ -523,6 +525,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     ).singleton(),
     runtimeSchemaContractCompilerService: asClass(
       RuntimeSchemaContractCompilerService,
+    ).singleton(),
+    runtimeSchemaPhysicalPlannerService: asClass(
+      RuntimeSchemaPhysicalPlannerService,
     ).singleton(),
     runtimeMetadataSchemaRouterService: asClass(
       RuntimeMetadataSchemaRouterService,

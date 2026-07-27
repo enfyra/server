@@ -22,6 +22,23 @@ import {
 import { renameMongoAutoTableRoute } from './table-route-artifacts.service';
 
 export class MongoTableUpdateService extends MongoTableHandlerService {
+  private extractPrecompiledMongoPlan(context?: TDynamicContext): {
+    upDiff: any;
+    downDiff: any;
+  } | undefined {
+    const contract = (context as any)?.$schemaContract?.contract;
+    if (!contract?.phases) return undefined;
+    for (const phase of contract.phases) {
+      for (const node of phase.nodes) {
+        const plan = node.command?.physicalPlan;
+        if (plan && plan.backend === 'mongodb' && plan.upDiff !== undefined) {
+          return { upDiff: plan.upDiff, downDiff: plan.downDiff };
+        }
+      }
+    }
+    return undefined;
+  }
+
   async updateTable(
     id: any,
     body: TCreateTableBody,
@@ -710,6 +727,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
               oldMetadata,
               finalMetadata,
               rawSnapshot,
+              this.extractPrecompiledMongoPlan(context),
             );
             stepLog(`STEP 11 updateCollection done (+${lap()}ms)`);
           } catch (ddlError: any) {

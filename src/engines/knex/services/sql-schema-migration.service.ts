@@ -8,6 +8,7 @@ import { dropAllForeignKeysReferencingTable } from '../utils/migration/foreign-k
 import {
   generateSQLFromDiff,
   generateBatchSQL,
+  executeBatchSQL,
   JournalContext,
 } from '../utils/migration/sql-diff-generator';
 import { SqlSchemaDiffService } from './sql-schema-diff.service';
@@ -579,6 +580,12 @@ export class SqlSchemaMigrationService {
     oldMetadata: any,
     newMetadata: any,
     trx?: any,
+    precompiled?: {
+      upStatements: readonly string[];
+      upBatch: string;
+      downStatements: readonly string[];
+      downBatch: string;
+    },
   ): Promise<{
     pendingMetadataUpdate?: { tableName: string; diff: any };
     journalUuid?: string;
@@ -589,33 +596,46 @@ export class SqlSchemaMigrationService {
       await this.createTable(newMetadata);
       return {};
     }
-    const schemaDiff = await this.schemaDiffService.generateSchemaDiff(
-      oldMetadata,
-      newMetadata,
-    );
-    const dbType = this.queryBuilderService.getDatabaseType();
+    let schemaDiff: any;
+    let upScript: string;
+    let downScript: string;
 
-    const upStatements = await generateSQLFromDiff(
-      knex,
-      tableName,
-      schemaDiff,
-      dbType as 'mysql' | 'postgres',
-      this.metadataCacheService,
-    );
-    const upScript = generateBatchSQL(upStatements);
+    if (precompiled) {
+      upScript = precompiled.upBatch;
+      downScript = precompiled.downBatch;
+      schemaDiff = await this.schemaDiffService.generateSchemaDiff(
+        oldMetadata,
+        newMetadata,
+      );
+    } else {
+      schemaDiff = await this.schemaDiffService.generateSchemaDiff(
+        oldMetadata,
+        newMetadata,
+      );
+      const dbType = this.queryBuilderService.getDatabaseType();
 
-    const reverseDiff = await this.schemaDiffService.generateSchemaDiff(
-      newMetadata,
-      oldMetadata,
-    );
-    const downStatements = await generateSQLFromDiff(
-      knex,
-      tableName,
-      reverseDiff,
-      dbType as 'mysql' | 'postgres',
-      this.metadataCacheService,
-    );
-    const downScript = generateBatchSQL(downStatements);
+      const upStatements = await generateSQLFromDiff(
+        knex,
+        tableName,
+        schemaDiff,
+        dbType as 'mysql' | 'postgres',
+        this.metadataCacheService,
+      );
+      upScript = generateBatchSQL(upStatements);
+
+      const reverseDiff = await this.schemaDiffService.generateSchemaDiff(
+        newMetadata,
+        oldMetadata,
+      );
+      const downStatements = await generateSQLFromDiff(
+        knex,
+        tableName,
+        reverseDiff,
+        dbType as 'mysql' | 'postgres',
+        this.metadataCacheService,
+      );
+      downScript = generateBatchSQL(downStatements);
+    }
 
     let journalUuid: string | undefined;
     try {
@@ -645,12 +665,27 @@ export class SqlSchemaMigrationService {
 
     try {
       const activeTableName = schemaDiff.table?.update?.newName || tableName;
-      await this.schemaDiffService.executeSchemaDiff(
-        tableName,
-        schemaDiff,
-        trx,
-        journalContext,
-      );
+      if (precompiled && precompiled.upBatch.trim()) {
+        const dbType = this.queryBuilderService.getDatabaseType() as
+          | 'mysql'
+          | 'postgres';
+        await executeBatchSQL(
+          knex,
+          precompiled.upBatch,
+          dbType,
+          trx,
+          journalContext,
+        );
+      } else if (precompiled) {
+        // precompiled with empty batch = no physical DDL needed
+      } else {
+        await this.schemaDiffService.executeSchemaDiff(
+          tableName,
+          schemaDiff,
+          trx,
+          journalContext,
+        );
+      }
       await this.compareMetadataWithActualSchema(activeTableName, newMetadata);
 
       return {

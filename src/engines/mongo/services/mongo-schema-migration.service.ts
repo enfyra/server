@@ -144,6 +144,7 @@ export class MongoSchemaMigrationService {
     oldMetadata: any,
     newMetadata: any,
     rawBeforeSnapshot?: any,
+    precompiled?: { upDiff: any; downDiff: any },
   ): Promise<void> {
     try {
       if (!rawBeforeSnapshot) {
@@ -151,14 +152,18 @@ export class MongoSchemaMigrationService {
           `Mongo migration saga for ${collectionName} requires rawBeforeSnapshot`,
         );
       }
-      const diff = this.schemaDiffService.generateMongoSchemaDiff(
-        oldMetadata,
-        newMetadata,
-      );
-      const downDiff = this.schemaDiffService.generateMongoSchemaDiff(
-        newMetadata,
-        oldMetadata,
-      );
+      const diff =
+        precompiled?.upDiff ??
+        this.schemaDiffService.generateMongoSchemaDiff(
+          oldMetadata,
+          newMetadata,
+        );
+      const downDiff =
+        precompiled?.downDiff ??
+        this.schemaDiffService.generateMongoSchemaDiff(
+          newMetadata,
+          oldMetadata,
+        );
       this.logger.log(
         `Diff for ${collectionName}: ` +
           `columns(+${diff.columns.create.length}/-${diff.columns.delete.length}/~${diff.columns.update.length}/ren:${diff.columns.rename.length}), ` +

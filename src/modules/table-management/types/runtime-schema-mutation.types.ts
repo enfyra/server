@@ -114,9 +114,20 @@ export type RuntimeSchemaCommandKind =
   | 'activate-runtime'
   | 'complete-change';
 
+export interface RuntimeSchemaPhysicalPlanPayload {
+  backend: 'postgresql' | 'mysql' | 'mongodb';
+  upStatements?: readonly string[];
+  upBatch?: string;
+  downStatements?: readonly string[];
+  downBatch?: string;
+  upDiff?: unknown;
+  downDiff?: unknown;
+}
+
 export interface RuntimeSchemaMutationCommand {
   kind: RuntimeSchemaCommandKind;
   change?: RuntimeSchemaLogicalChange;
+  physicalPlan?: RuntimeSchemaPhysicalPlanPayload;
 }
 
 export type RuntimeSchemaMutationContract = SchemaMutationContract<
