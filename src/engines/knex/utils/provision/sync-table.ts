@@ -733,10 +733,21 @@ export async function syncTable(
   knex: Knex,
   schema: KnexTableSchema,
   schemas: KnexTableSchema[],
+  options: { additiveOnly?: boolean } = {},
 ): Promise<void> {
   const { tableName } = schema;
   const currentSchema = await getCurrentDatabaseSchema(knex, tableName);
-  const diff = compareSchemas(schema, currentSchema);
+  const detectedDiff = compareSchemas(schema, currentSchema);
+  const diff = options.additiveOnly
+    ? {
+        ...detectedDiff,
+        columnsToRemove: [],
+        columnsToModify: [],
+        relationsToRemove: [],
+        uniquesToRemove: [],
+        indexesToRemove: [],
+      }
+    : detectedDiff;
   const hasChanges =
     diff.columnsToAdd.length > 0 ||
     diff.columnsToRemove.length > 0 ||
@@ -755,7 +766,9 @@ export async function syncTable(
   await applyColumnMigrations(knex, tableName, diff, schemas);
   await applyRelationMigrations(knex, tableName, diff, schemas);
   await applyIndexAndUniqueMigrations(knex, tableName, diff);
-  await syncRelationOnDeleteChanges(knex, tableName, schema);
+  if (!options.additiveOnly) {
+    await syncRelationOnDeleteChanges(knex, tableName, schema);
+  }
   console.log(`✅ Synced table: ${tableName}`);
 }
 async function syncRelationOnDeleteChanges(

@@ -217,10 +217,14 @@ export abstract class BaseTableProcessor {
 
   private resolveInsertedId(inserted: any, defaultIdField: string): any {
     if (!inserted || typeof inserted !== 'object') return inserted;
-    if (inserted[defaultIdField] !== undefined && inserted[defaultIdField] !== null)
+    if (
+      inserted[defaultIdField] !== undefined &&
+      inserted[defaultIdField] !== null
+    )
       return inserted[defaultIdField];
     if (inserted.id !== undefined && inserted.id !== null) return inserted.id;
-    if (inserted._id !== undefined && inserted._id !== null) return inserted._id;
+    if (inserted._id !== undefined && inserted._id !== null)
+      return inserted._id;
     return inserted;
   }
 
@@ -416,7 +420,7 @@ export abstract class BaseTableProcessor {
         }
         if (existingRecord) {
           const hasChanges = this.detectRecordChanges(record, existingRecord);
-          if (hasChanges) {
+          if (hasChanges && context?.updateExisting !== false) {
             await this.updateRecordMongo(
               existingRecord._id,
               record,

@@ -1,17 +1,17 @@
 import * as dotenv from 'dotenv';
-import { resolveDbTypeFromEnv } from '../src/shared/utils/resolve-db-type';
 
 dotenv.config();
 
-async function initializeDatabase(): Promise<void> {
-  const dbType = resolveDbTypeFromEnv();
-
-  if (dbType === 'mongodb') {
-    const { initializeDatabaseMongo } = await import('./init-db-mongo');
-    await initializeDatabaseMongo();
-  } else {
-    const { initializeDatabaseSql } = await import('./init-db-sql');
-    await initializeDatabaseSql();
+export async function initializeDatabase(): Promise<void> {
+  const [{ buildContainer }, { init, shutdown }] = await Promise.all([
+    import('../src/container'),
+    import('../src/init'),
+  ]);
+  const container = buildContainer();
+  try {
+    await init(container);
+  } finally {
+    await shutdown(container);
   }
 }
 
@@ -26,5 +26,3 @@ if (require.main === module) {
       process.exit(1);
     });
 }
-
-export { initializeDatabase };

@@ -148,7 +148,7 @@ export async function getCurrentDatabaseSchema(
         END as enum_values
       FROM information_schema.columns c
       LEFT JOIN pg_type t ON t.typname = c.udt_name
-      WHERE c.table_schema = 'public'
+      WHERE c.table_schema = current_schema()
         AND c.table_name = ?
         AND c.column_name NOT IN ('id', 'createdAt', 'updatedAt')
       ORDER BY c.ordinal_position
@@ -164,9 +164,12 @@ export async function getCurrentDatabaseSchema(
       FROM information_schema.table_constraints tc
       JOIN information_schema.key_column_usage kcu
         ON tc.constraint_name = kcu.constraint_name
+       AND tc.constraint_schema = kcu.constraint_schema
       JOIN information_schema.constraint_column_usage ccu
         ON tc.constraint_name = ccu.constraint_name
-      WHERE tc.table_name = ?
+       AND tc.constraint_schema = ccu.constraint_schema
+      WHERE tc.table_schema = current_schema()
+        AND tc.table_name = ?
         AND tc.constraint_type = 'FOREIGN KEY'
     `,
       [tableName],
@@ -178,11 +181,13 @@ export async function getCurrentDatabaseSchema(
         ix.indisunique as is_unique,
         array_agg(a.attname ORDER BY array_position(ix.indkey, a.attnum)) as columns
       FROM pg_class t
+      JOIN pg_namespace n ON n.oid = t.relnamespace
       JOIN pg_index ix ON t.oid = ix.indrelid
       JOIN pg_class i ON i.oid = ix.indexrelid
       JOIN unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) ON true
       JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
-      WHERE t.relname = ?
+      WHERE n.nspname = current_schema()
+        AND t.relname = ?
         AND ix.indisprimary = false
       GROUP BY i.relname, ix.indisunique
     `,

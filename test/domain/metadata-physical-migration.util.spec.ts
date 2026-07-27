@@ -99,7 +99,7 @@ function makePhysicalMongo(documents: any[]) {
 }
 
 describe('MetadataPhysicalMigrationHelper conflict-safe field rename', () => {
-  it('preserves SQL legacy column when old and new values conflict', async () => {
+  it('rejects SQL rename before mutation when old and new values conflict', async () => {
     const sql = makePhysicalSql([
       { id: 1, isPublished: true, isPublic: false },
     ]);
@@ -110,11 +110,13 @@ describe('MetadataPhysicalMigrationHelper conflict-safe field rename', () => {
       verbose: jest.fn(),
     });
 
-    await helper.renameSqlPhysicalColumnIfNeeded(
-      'enfyra_file',
-      'isPublished',
-      'isPublic',
-    );
+    await expect(
+      helper.renameSqlPhysicalColumnIfNeeded(
+        'enfyra_file',
+        'isPublished',
+        'isPublic',
+      ),
+    ).rejects.toThrow(/conflicting row/);
 
     expect(sql.tables.enfyra_file).toEqual([
       { id: 1, isPublished: true, isPublic: false },
@@ -141,7 +143,7 @@ describe('MetadataPhysicalMigrationHelper conflict-safe field rename', () => {
     expect(sql.schemas.enfyra_file).not.toContain('isPublished');
   });
 
-  it('preserves Mongo legacy field when old and new values conflict', async () => {
+  it('rejects Mongo rename before mutation when old and new values conflict', async () => {
     const mongo = makePhysicalMongo([
       { _id: '1', isPublished: true, isPublic: false },
     ]);
@@ -153,11 +155,13 @@ describe('MetadataPhysicalMigrationHelper conflict-safe field rename', () => {
       verbose: jest.fn(),
     });
 
-    await helper.renameMongoDocumentFieldIfNeeded(
-      'enfyra_file',
-      'isPublished',
-      'isPublic',
-    );
+    await expect(
+      helper.renameMongoDocumentFieldIfNeeded(
+        'enfyra_file',
+        'isPublished',
+        'isPublic',
+      ),
+    ).rejects.toThrow(/conflicting document/);
 
     expect(mongo.collections.enfyra_file).toEqual([
       { _id: '1', isPublished: true, isPublic: false },

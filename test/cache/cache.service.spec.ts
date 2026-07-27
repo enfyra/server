@@ -50,4 +50,41 @@ describe('CacheService', () => {
       'NX',
     );
   });
+
+  it('renews a lock only while the caller still owns it', async () => {
+    const redis = {
+      eval: vi.fn(async () => 1),
+    };
+    const service = new CacheService({
+      redis: redis as any,
+      envService: {
+        get: (key: string) => (key === 'NODE_NAME' ? 'app-a' : null),
+      } as any,
+    });
+
+    await expect(service.renew('lock:boot', 'token', 7000)).resolves.toBe(true);
+
+    expect(redis.eval).toHaveBeenCalledWith(
+      expect.stringContaining('pexpire'),
+      1,
+      'app-a:lock:boot',
+      'token',
+      7000,
+    );
+  });
+
+  it('reports a lost lock instead of recreating it during renewal', async () => {
+    const service = new CacheService({
+      redis: {
+        eval: vi.fn(async () => 0),
+      } as any,
+      envService: {
+        get: () => null,
+      } as any,
+    });
+
+    await expect(service.renew('lock:boot', 'stale-token', 7000)).resolves.toBe(
+      false,
+    );
+  });
 });

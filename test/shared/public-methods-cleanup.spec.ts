@@ -1,11 +1,4 @@
-import * as fs from 'fs';
-import * as path from 'path';
-
-const ROOT = path.resolve(__dirname, '../../data');
-
-function loadJson(file: string) {
-  return JSON.parse(fs.readFileSync(path.join(ROOT, file), 'utf8'));
-}
+import { dataMigration, defaultData } from '../../src/data';
 
 const AUTH_PATHS = new Set([
   '/auth/login',
@@ -19,14 +12,10 @@ const AUTH_PATHS = new Set([
   '/auth/set-cookies',
 ]);
 
-const PUBLIC_NON_AUTH_PATHS = new Set([
-  '/assets/:id',
-  '/enfyra_cors_origin',
-]);
+const PUBLIC_NON_AUTH_PATHS = new Set(['/assets/:id', '/enfyra_cors_origin']);
 
-describe('default-data.json — publicMethods', () => {
-  const data = loadJson('default-data.json');
-  const routes: any[] = data.enfyra_route ?? [];
+describe('default-data.ts — publicMethods', () => {
+  const routes: any[] = defaultData.enfyra_route ?? [];
 
   it('only auth routes and explicit public routes have publicMethods set', () => {
     const nonAuthPublished = routes.filter(
@@ -47,9 +36,8 @@ describe('default-data.json — publicMethods', () => {
   });
 });
 
-describe('data-migration.json — publicMethods cleanup', () => {
-  const migration = loadJson('data-migration.json');
-  const routes: any[] = migration.enfyra_route ?? [];
+describe('data-migration.ts — publicMethods cleanup', () => {
+  const routes: any[] = dataMigration.enfyra_route ?? [];
 
   const SHOULD_BE_EMPTY = [
     '/me',
@@ -91,9 +79,6 @@ describe('data-migration.json — publicMethods cleanup', () => {
 });
 
 describe('settings menu seed cleanup', () => {
-  const defaultData = loadJson('default-data.json');
-  const migration = loadJson('data-migration.json');
-
   it('does not seed a dedicated field permissions menu', () => {
     const menus: any[] = defaultData.enfyra_menu ?? [];
     expect(
@@ -102,7 +87,7 @@ describe('settings menu seed cleanup', () => {
   });
 
   it('deletes the existing field permissions menu through data migration', () => {
-    const deletedRecords: any[] = migration._deletedRecords ?? [];
+    const deletedRecords: any[] = dataMigration._deletedRecords ?? [];
     expect(
       deletedRecords.some(
         (record) =>
@@ -120,7 +105,7 @@ describe('settings menu seed cleanup', () => {
   });
 
   it('deletes the existing cache reload menu through data migration', () => {
-    const deletedRecords: any[] = migration._deletedRecords ?? [];
+    const deletedRecords: any[] = dataMigration._deletedRecords ?? [];
     expect(
       deletedRecords.some(
         (record) =>
@@ -143,7 +128,7 @@ describe('settings menu seed cleanup', () => {
   });
 
   it('updates the existing runtime monitor menu path through data migration', () => {
-    const menus: any[] = migration.enfyra_menu ?? [];
+    const menus: any[] = dataMigration.enfyra_menu ?? [];
     expect(
       menus.find(
         (menu) => menu._unique?.path?._eq === '/settings/admin/runtime',
@@ -156,13 +141,11 @@ describe('settings menu seed cleanup', () => {
   });
 
   it('deletes the legacy routings menu instead of migrating it into the routes menu', () => {
-    const menus: any[] = migration.enfyra_menu ?? [];
-    const deletedRecords: any[] = migration._deletedRecords ?? [];
+    const menus: any[] = dataMigration.enfyra_menu ?? [];
+    const deletedRecords: any[] = dataMigration._deletedRecords ?? [];
 
     expect(
-      menus.find(
-        (menu) => menu._unique?.path?._eq === '/settings/routings',
-      ),
+      menus.find((menu) => menu._unique?.path?._eq === '/settings/routings'),
     ).toBeUndefined();
     expect(
       deletedRecords.some(

@@ -12,11 +12,11 @@ function routePath(record: any) {
   return record.path ?? record._unique?.path?._eq;
 }
 
-function methodNames(defaultData: Record<string, any[]>) {
-  return new Set(
+function methodNames(defaultData: Record<string, any>): Set<string> {
+  return new Set<string>(
     (defaultData.enfyra_method ?? [])
       .map((method: any) => method.name)
-      .filter(Boolean),
+      .filter((name: unknown): name is string => typeof name === 'string'),
   );
 }
 
@@ -139,7 +139,7 @@ function validateGqlRecord(input: {
       file: input.file,
       table: 'enfyra_graphql',
       field: 'table',
-      message: `GraphQL table "${table}" does not exist in snapshot.json.`,
+      message: `GraphQL table "${table}" does not exist in snapshot.ts.`,
     },
   ] satisfies BootstrapValidationIssue[];
 }
@@ -204,7 +204,7 @@ function validateRouteRecord(input: {
       table: 'enfyra_route',
       path,
       field: 'mainTable',
-      message: `Route mainTable "${input.record.mainTable}" does not exist in snapshot.json.`,
+      message: `Route mainTable "${input.record.mainTable}" does not exist in snapshot.ts.`,
     });
   }
 
@@ -228,7 +228,7 @@ function validateRouteRecord(input: {
           table: 'enfyra_route',
           path,
           field,
-          message: `Method "${method}" is not defined in default-data.json enfyra_method.`,
+          message: `Method "${method}" is not defined in default-data.ts enfyra_method.`,
         });
       }
     }
@@ -270,7 +270,7 @@ function validateSnapshotTables(snapshot: Record<string, any>) {
         continue;
       }
       issues.push({
-        file: 'snapshot.json',
+        file: 'snapshot.ts',
         table: tableName,
         field: 'columns',
         message: `Snapshot table "${tableName}" must not define "${column.name}" because SQL physical schema adds system timestamps automatically.`,
@@ -294,23 +294,27 @@ export function validateBootstrapDataFiles(input: BootstrapDataFiles) {
     ...(input.defaultData.enfyra_menu ?? []).map(routePath).filter(Boolean),
     ...(input.dataMigration.enfyra_menu ?? []).map(routePath).filter(Boolean),
   ]);
-  const gateways = new Set(
-    (input.defaultData.enfyra_websocket ?? []).map(recordName).filter(Boolean),
+  const gateways = new Set<string>(
+    (input.defaultData.enfyra_websocket ?? [])
+      .map(recordName)
+      .filter((name: unknown): name is string => typeof name === 'string'),
   );
-  const flows = new Set(
-    (input.defaultData.enfyra_flow ?? []).map(recordName).filter(Boolean),
+  const flows = new Set<string>(
+    (input.defaultData.enfyra_flow ?? [])
+      .map(recordName)
+      .filter((name: unknown): name is string => typeof name === 'string'),
   );
 
   issues.push(...validateSnapshotTables(input.snapshot));
-  issues.push(...validateUniqueRoutePaths('default-data.json', defaultRoutes));
+  issues.push(...validateUniqueRoutePaths('default-data.ts', defaultRoutes));
   issues.push(
-    ...validateUniqueRoutePaths('data-migration.json', migrationRoutes),
+    ...validateUniqueRoutePaths('data-migration.ts', migrationRoutes),
   );
 
   for (const record of defaultRoutes) {
     issues.push(
       ...validateRouteRecord({
-        file: 'default-data.json',
+        file: 'default-data.ts',
         record,
         methods,
         tables,
@@ -321,7 +325,7 @@ export function validateBootstrapDataFiles(input: BootstrapDataFiles) {
   for (const record of migrationRoutes) {
     issues.push(
       ...validateRouteRecord({
-        file: 'data-migration.json',
+        file: 'data-migration.ts',
         record,
         methods,
         tables,
@@ -329,9 +333,9 @@ export function validateBootstrapDataFiles(input: BootstrapDataFiles) {
     );
   }
 
-  for (const file of ['default-data.json', 'data-migration.json'] as const) {
+  for (const file of ['default-data.ts', 'data-migration.ts'] as const) {
     const source =
-      file === 'default-data.json' ? input.defaultData : input.dataMigration;
+      file === 'default-data.ts' ? input.defaultData : input.dataMigration;
 
     for (const table of [
       'enfyra_route_permission',

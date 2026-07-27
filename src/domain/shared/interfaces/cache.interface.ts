@@ -4,5 +4,6 @@ export interface ICache {
   deleteKey(key: string): Promise<void>;
   clearAll(): Promise<void>;
   acquire(key: string, value: any, ttlMs: number): Promise<boolean>;
+  renew(key: string, value: any, ttlMs: number): Promise<boolean>;
   release(key: string, value: any): Promise<boolean>;
 }

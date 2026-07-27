@@ -1,14 +1,14 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import snapshot from '../../../data/snapshot';
 import type { FkRelationInfo } from '../types';
 
-let cachedSnapshot: Record<string, any> | null = null;
+let cachedSnapshot: Record<string, any> = snapshot;
+
+export function setBootstrapSnapshot(snapshot: Record<string, any>): void {
+  cachedSnapshot = snapshot;
+}
 
 export function getSnapshot(): Record<string, any> {
-  if (cachedSnapshot) return cachedSnapshot;
-  const filePath = path.join(process.cwd(), 'data/snapshot.json');
-  cachedSnapshot = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  return cachedSnapshot!;
+  return cachedSnapshot;
 }
 
 export function getTableDef(tableName: string): any | null {

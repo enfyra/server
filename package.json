@@ -1,6 +1,6 @@
 {
   "name": "enfyra-server",
-  "version": "2.2.11-patch-3",
+  "version": "2.2.12",
   "description": "Dynamic backend platform that auto-generates REST and GraphQL APIs from database schemas",
   "author": "dothinh115 <dothinh115@gmail.com>",
   "license": "SEE LICENSE IN LICENSE",
@@ -24,7 +24,7 @@
     "pretest:ui": "node scripts/check-node-version.js",
     "pretest:e2e": "node scripts/check-node-version.js",
     "generate:mongo-fold": "tsx scripts/generate-mongo-fold-text-search.ts",
-    "build": "tsc && yarn generate:mongo-fold && cp -r data dist/",
+    "build": "node scripts/clean-dist.js && tsc && yarn generate:mongo-fold",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "NODE_OPTIONS=\"--no-node-snapshot${NODE_OPTIONS:+ $NODE_OPTIONS}\" node dist/main",
     "dev": "DEV_WATCH=1 NODE_OPTIONS=\"--no-node-snapshot${NODE_OPTIONS:+ $NODE_OPTIONS}\" tsx watch --ignore 'dist/**' --ignore 'logs/**' --ignore '/tmp/enfyra-pkg-cache/**' --ignore '/var/folders/**/T/enfyra-pkg-cache/**' --ignore '/private/var/folders/**/T/enfyra-pkg-cache/**' --ignore 'test/**' --ignore 'src/**/*.spec.ts' src/main.ts",
@@ -42,6 +42,7 @@
     "test:e2e:flow-engine": "node test/flow-engine.e2e.js",
     "test:e2e:query-builder": "node test/query-builder.e2e.js",
     "test:e2e:compiled-code-db": "tsx test/compiled-code-db.e2e.ts",
+    "test:e2e:snapshot-migration-matrix": "tsx test/e2e/snapshot-migration-database-matrix.e2e.ts",
     "test:e2e:realtime-chat-load": "tsx test/realtime-chat-app.e2e.ts",
     "test:e2e:mock": "yarn test:e2e:cache-load && yarn test:e2e:metadata-reload && yarn test:e2e:flow-engine",
     "test:e2e": "yarn test:e2e:mock && yarn test:e2e:query-builder"

@@ -3,8 +3,7 @@ import { QueryBuilderService } from '@enfyra/kernel';
 import { DatabaseConfigService } from '../../../shared/services';
 import { MetadataProvisionSqlService } from './metadata-provision-sql.service';
 import { MetadataProvisionMongoService } from './metadata-provision-mongo.service';
-import * as fs from 'fs';
-import * as path from 'path';
+import { BootstrapDefinitionService } from './bootstrap-definition.service';
 
 export class MetadataProvisionService {
   private readonly logger = new Logger(MetadataProvisionService.name);
@@ -12,6 +11,7 @@ export class MetadataProvisionService {
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly metadataProvisionSqlService: MetadataProvisionSqlService;
   private readonly metadataProvisionMongoService: MetadataProvisionMongoService;
+  private readonly bootstrapDefinitionService: BootstrapDefinitionService;
   private readonly dbType: string;
 
   constructor(deps: {
@@ -19,11 +19,14 @@ export class MetadataProvisionService {
     databaseConfigService: DatabaseConfigService;
     metadataProvisionSqlService: MetadataProvisionSqlService;
     metadataProvisionMongoService: MetadataProvisionMongoService;
+    bootstrapDefinitionService?: BootstrapDefinitionService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.databaseConfigService = deps.databaseConfigService;
     this.metadataProvisionSqlService = deps.metadataProvisionSqlService;
     this.metadataProvisionMongoService = deps.metadataProvisionMongoService;
+    this.bootstrapDefinitionService =
+      deps.bootstrapDefinitionService ?? new BootstrapDefinitionService();
     this.dbType = this.databaseConfigService.getDbType();
   }
 
@@ -48,9 +51,7 @@ export class MetadataProvisionService {
   }
 
   async createInitMetadata(): Promise<void> {
-    const snapshotPath = path.resolve('data/snapshot.json');
-    const snapshotContent = fs.readFileSync(snapshotPath, 'utf-8');
-    const snapshot = JSON.parse(snapshotContent);
+    const snapshot = this.bootstrapDefinitionService.getSnapshot();
 
     if (this.queryBuilderService.isMongoDb()) {
       return this.metadataProvisionMongoService.createInitMetadata(snapshot);

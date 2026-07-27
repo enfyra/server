@@ -1,10 +1,9 @@
-import { DatabaseConfigService } from '../../../shared/services';
 import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { Db } from 'mongodb';
-import { getErrorMessage } from '../../../shared/utils/error.util';
 import {
   SchemaMigrationDef,
+  SnapshotMigrationMetadataState,
   TableMigrationDef,
   ColumnModifyDef,
   RelationModifyDef,
@@ -14,12 +13,16 @@ import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
 import { SystemCoreTableResolver } from './system-core-table-resolver.service';
 import {
   buildColumnMetadataUpdate,
+  buildRelationMetadataUpdate,
+  buildTableMetadataUpdate,
   getLegacyScriptTargetColumn,
   getValidTableRenames,
   hasColumnMetadataChanges,
   hasRelationMetadataChanges,
   hasSchemaMigrations,
-  loadSnapshotMigrationFile,
+  hasTableMetadataChanges,
+  validateSnapshotMigrationCoverage,
+  validateSnapshotTargetState,
 } from '../utils/metadata-migration.util';
 import {
   CORE_SYSTEM_TABLES,
@@ -27,43 +30,43 @@ import {
   SYSTEM_TABLES,
 } from '../../../shared/utils/system-tables.constants';
 import { MetadataPhysicalMigrationHelper } from '../utils/metadata-physical-migration.util';
+import {
+  applyMongoSchemaMigrations,
+  applySqlSchemaMigrations,
+} from '../../../shared/utils/provision-schema-migration';
+import { normalizeMongoPrimaryKeyColumn } from '../../../modules/table-management/utils/mongo-primary-key.util';
+import { BootstrapDefinitionService } from './bootstrap-definition.service';
+import type { BootstrapSchemaExecutionPlan } from '../types';
 
 export class MetadataMigrationService {
   private readonly logger = new Logger(MetadataMigrationService.name);
   private readonly queryBuilderService: QueryBuilderService;
   private readonly systemCoreTableResolver: SystemCoreTableResolver;
+  private readonly bootstrapDefinitionService: BootstrapDefinitionService;
   private readonly physicalMigration: MetadataPhysicalMigrationHelper;
   private migrations: SchemaMigrationDef | null = null;
+  private executionPlan: BootstrapSchemaExecutionPlan | null = null;
   private readonly sqlCoreTableIdRemap = new Map<string, any>();
   private readonly mongoCoreTableIdRemap = new Map<string, any>();
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     systemCoreTableResolver: SystemCoreTableResolver;
+    bootstrapDefinitionService?: BootstrapDefinitionService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.systemCoreTableResolver = deps.systemCoreTableResolver;
+    this.bootstrapDefinitionService =
+      deps.bootstrapDefinitionService ?? new BootstrapDefinitionService();
     this.physicalMigration = new MetadataPhysicalMigrationHelper({
       queryBuilderService: this.queryBuilderService,
       verbose: (message) => this.verbose(message),
     });
-    this.loadMigrations();
-  }
-
-  private loadMigrations(): void {
-    try {
-      const migrations = loadSnapshotMigrationFile();
-      if (migrations) {
-        this.migrations = migrations;
-        this.verbose(
-          `Loaded snapshot-migration.json with ${migrations.tables?.length || 0} table migration(s)`,
-        );
-      }
-    } catch (error) {
-      this.logger.warn(
-        `Failed to load snapshot-migration.json: ${getErrorMessage(error)}`,
+    this.migrations = this.bootstrapDefinitionService.getMigration();
+    if (this.migrations) {
+      this.verbose(
+        `Loaded snapshot-migration.ts with ${this.migrations.tables?.length || 0} table migration(s)`,
       );
-      this.migrations = null;
     }
   }
 
@@ -81,8 +84,15 @@ export class MetadataMigrationService {
       this.verbose('No metadata migrations to run');
       return;
     }
+    if (!(await this.hasMetadataStore())) {
+      this.verbose(
+        'Metadata store does not exist yet; skipping legacy metadata migrations',
+      );
+      return;
+    }
+    this.getExecutionPlan();
 
-    this.verbose('Running metadata migrations from snapshot-migration.json...');
+    this.verbose('Running metadata migrations from snapshot-migration.ts...');
 
     const isMongoDB = this.queryBuilderService.isMongoDb();
 
@@ -98,7 +108,90 @@ export class MetadataMigrationService {
       await this.migrateTableMetadata(tableMigration, isMongoDB);
     }
 
+    const renamedTables = [
+      ...(migrations.coreTablesToRename ?? []),
+      ...(migrations.tablesToRename ?? []),
+    ];
+    if (isMongoDB) {
+      await this.dropLegacyRenamedMongoCollections(renamedTables);
+    } else {
+      await this.dropLegacyRenamedSqlTables(renamedTables);
+    }
+
     this.verbose('Metadata migrations completed');
+  }
+
+  private async dropLegacyRenamedSqlTables(
+    renames: TableRenameDef[],
+  ): Promise<void> {
+    const knex = this.queryBuilderService.getKnex();
+    const legacyNames = getValidTableRenames(renames)
+      .filter((rename) => rename.from !== rename.to)
+      .map((rename) => rename.from)
+      .reverse();
+    if (legacyNames.length === 0) return;
+
+    const existing: string[] = [];
+    for (const tableName of legacyNames) {
+      if (await knex.schema.hasTable(tableName)) existing.push(tableName);
+    }
+    if (existing.length === 0) return;
+
+    const client = String(knex.client.config.client).toLowerCase();
+    if (client.includes('pg') || client.includes('postgres')) {
+      for (const tableName of existing) {
+        try {
+          await knex.schema.dropTableIfExists(tableName);
+        } catch (error: any) {
+          if (error?.code !== '2BP01') throw error;
+          await knex.raw('DROP TABLE IF EXISTS ?? CASCADE', [tableName]);
+        }
+      }
+    } else {
+      await knex.transaction(async (trx: any) => {
+        await trx.raw('SET FOREIGN_KEY_CHECKS = 0');
+        try {
+          for (const tableName of existing) {
+            await trx.schema.dropTableIfExists(tableName);
+          }
+        } finally {
+          await trx.raw('SET FOREIGN_KEY_CHECKS = 1');
+        }
+      });
+    }
+
+    this.verbose(`  Removed ${existing.length} reconciled legacy SQL table(s)`);
+  }
+
+  private async dropLegacyRenamedMongoCollections(
+    renames: TableRenameDef[],
+  ): Promise<void> {
+    const db = this.getMongoDb();
+    if (!db) return;
+    let dropped = 0;
+    for (const rename of [...getValidTableRenames(renames)].reverse()) {
+      if (
+        rename.from === rename.to ||
+        !(await this.physicalMigration.mongoCollectionExists(rename.from))
+      ) {
+        continue;
+      }
+      await db.dropCollection(rename.from);
+      dropped++;
+    }
+    if (dropped > 0) {
+      this.verbose(
+        `  Removed ${dropped} reconciled legacy Mongo collection(s)`,
+      );
+    }
+  }
+
+  private async hasMetadataStore(): Promise<boolean> {
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    if (this.queryBuilderService.isMongoDb()) {
+      return this.physicalMigration.mongoCollectionExists(coreNames.table);
+    }
+    return this.queryBuilderService.getKnex().schema.hasTable(coreNames.table);
   }
 
   async runCoreTableRenamesBeforeMetadataSync(): Promise<void> {
@@ -120,20 +213,207 @@ export class MetadataMigrationService {
       this.migrations.tablesToRename,
       this.queryBuilderService.isMongoDb(),
     );
+  }
 
+  async runPhysicalTableRenamesAndDropsAfterCoverage(): Promise<void> {
+    if (!this.hasMigrations()) return;
+    this.getExecutionPlan();
     await this.physicalMigration.runPhysicalTableRenames(
-      this.migrations.physicalTablesToRename ?? [],
+      this.migrations!.physicalTablesToRename ?? [],
       this.queryBuilderService.isMongoDb(),
     );
 
     await this.physicalMigration.dropPhysicalTables(
-      this.migrations.physicalTablesToDrop ?? [],
+      this.migrations!.physicalTablesToDrop ?? [],
       this.queryBuilderService.isMongoDb(),
     );
   }
 
+  async prepareMigrationExecutionPlan(): Promise<BootstrapSchemaExecutionPlan> {
+    const hasMetadataStore = await this.hasMetadataStore();
+    let observedMetadata = { tables: 0, columns: 0, relations: 0 };
+    if (hasMetadataStore) {
+      const { snapshot, dataTargetSnapshot, state } =
+        await this.loadSnapshotMigrationState();
+      validateSnapshotMigrationCoverage(
+        snapshot,
+        this.migrations,
+        state,
+        dataTargetSnapshot,
+      );
+      observedMetadata = {
+        tables: state.tables.length,
+        columns: state.columns.length,
+        relations: state.relations.length,
+      };
+    }
+
+    const migration = this.migrations;
+    const plan: BootstrapSchemaExecutionPlan = {
+      mode: hasMetadataStore ? 'upgrade' : 'install',
+      database: this.queryBuilderService.isMongoDb() ? 'mongodb' : 'sql',
+      targetTableCount: Object.keys(
+        this.bootstrapDefinitionService.getSnapshot(),
+      ).length,
+      observedMetadata,
+      operations: {
+        tableRenames: (migration?.tablesToRename ?? []).map(
+          (entry) => `${entry.from}->${entry.to}`,
+        ),
+        physicalTableRenames: (migration?.physicalTablesToRename ?? []).map(
+          (entry) => `${entry.from}->${entry.to}`,
+        ),
+        physicalTableDrops: [...(migration?.physicalTablesToDrop ?? [])],
+        tableMigrations: (migration?.tables ?? []).map(
+          (entry) => entry._unique.name._eq,
+        ),
+        tableDrops: [...(migration?.tablesToDrop ?? [])],
+      },
+    };
+    Object.freeze(plan.operations.tableRenames);
+    Object.freeze(plan.operations.physicalTableRenames);
+    Object.freeze(plan.operations.physicalTableDrops);
+    Object.freeze(plan.operations.tableMigrations);
+    Object.freeze(plan.operations.tableDrops);
+    Object.freeze(plan.operations);
+    Object.freeze(plan.observedMetadata);
+    this.executionPlan = Object.freeze(plan);
+    return this.executionPlan;
+  }
+
+  async validateMigrationCoverageBeforeMetadataSync(): Promise<void> {
+    await this.prepareMigrationExecutionPlan();
+  }
+
+  getExecutionPlan(): BootstrapSchemaExecutionPlan {
+    if (!this.executionPlan) {
+      throw new Error(
+        'Snapshot migration execution plan has not been prepared.',
+      );
+    }
+    return this.executionPlan;
+  }
+
+  async assertSnapshotTargetStateAfterHealing(): Promise<void> {
+    const { snapshot, dataTargetSnapshot, state } =
+      await this.loadSnapshotMigrationState();
+    validateSnapshotTargetState(
+      snapshot,
+      state,
+      this.migrations,
+      dataTargetSnapshot,
+    );
+  }
+
+  private async loadSnapshotMigrationState(): Promise<{
+    snapshot: Record<string, any>;
+    dataTargetSnapshot: Record<string, any>;
+    state: SnapshotMigrationMetadataState;
+  }> {
+    let snapshot = this.bootstrapDefinitionService.getSnapshot();
+    let dataTargetSnapshot =
+      this.bootstrapDefinitionService.getDataTargetSnapshot();
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    let tables: any[];
+    let columns: any[];
+    let relations: any[];
+
+    if (this.queryBuilderService.isMongoDb()) {
+      const normalizeSnapshot = (input: Record<string, any>) =>
+        Object.fromEntries(
+          Object.entries(input).map(
+            ([tableName, definition]: [string, any]) => [
+              tableName,
+              {
+                ...definition,
+                uniques: definition.uniques ?? null,
+                indexes: definition.indexes ?? null,
+                columns: (definition.columns ?? []).map(
+                  normalizeMongoPrimaryKeyColumn,
+                ),
+              },
+            ],
+          ),
+        );
+      snapshot = normalizeSnapshot(snapshot);
+      dataTargetSnapshot = normalizeSnapshot(dataTargetSnapshot);
+      const db = this.getMongoDb()!;
+      [tables, columns, relations] = await Promise.all([
+        db.collection(coreNames.table).find({}).toArray(),
+        db.collection(coreNames.column).find({}).toArray(),
+        db.collection(coreNames.relation).find({}).toArray(),
+      ]);
+    } else {
+      const knex = this.queryBuilderService.getKnex();
+      [tables, columns, relations] = await Promise.all([
+        knex(coreNames.table).select('*'),
+        knex(coreNames.column).select('*'),
+        knex(coreNames.relation).select('*'),
+      ]);
+    }
+
+    const isMongoDB = this.queryBuilderService.isMongoDb();
+    const tableById = new Map(
+      tables.map((table) => [String(isMongoDB ? table._id : table.id), table]),
+    );
+    const relationById = new Map(
+      relations.map((relation) => [
+        String(isMongoDB ? relation._id : relation.id),
+        relation,
+      ]),
+    );
+    const state: SnapshotMigrationMetadataState = {
+      tables,
+      columns: columns.map((column) => {
+        const normalizedColumn = isMongoDB
+          ? normalizeMongoPrimaryKeyColumn(column)
+          : column;
+        return {
+          ...normalizedColumn,
+          tableName: tableById.get(
+            String(isMongoDB ? column.table : column.tableId),
+          )?.name,
+        };
+      }),
+      relations: relations.map((relation) => {
+        const relationId = isMongoDB ? relation._id : relation.id;
+        const mappedById = isMongoDB ? relation.mappedBy : relation.mappedById;
+        const counterpart = mappedById
+          ? relationById.get(String(mappedById))
+          : relations.find(
+              (candidate) =>
+                String(
+                  isMongoDB ? candidate.mappedBy : candidate.mappedById,
+                ) === String(relationId),
+            );
+        return {
+          ...relation,
+          sourceTableName: tableById.get(
+            String(isMongoDB ? relation.sourceTable : relation.sourceTableId),
+          )?.name,
+          targetTable: tableById.get(
+            String(isMongoDB ? relation.targetTable : relation.targetTableId),
+          )?.name,
+          targetTableName: tableById.get(
+            String(isMongoDB ? relation.targetTable : relation.targetTableId),
+          )?.name,
+          mappedBy: mappedById
+            ? relationById.get(String(mappedById))?.propertyName
+            : null,
+          mappedByPropertyName: mappedById
+            ? relationById.get(String(mappedById))?.propertyName
+            : undefined,
+          inversePropertyName: counterpart?.propertyName,
+        };
+      }),
+    };
+
+    return { snapshot, dataTargetSnapshot, state };
+  }
+
   async runPhysicalMigrationsBeforeMetadataSync(): Promise<void> {
     if (!this.hasMigrations()) return;
+    this.getExecutionPlan();
 
     const migrations = this.migrations!;
     for (const tableMigration of migrations.tables || []) {
@@ -168,6 +448,34 @@ export class MetadataMigrationService {
         );
       }
     }
+
+    if (this.queryBuilderService.isMongoDb()) {
+      const snapshot = this.bootstrapDefinitionService.getSnapshot();
+      const preserveFieldsByCollection = Object.fromEntries(
+        Object.entries(snapshot).map(
+          ([tableName, definition]: [string, any]) => [
+            tableName,
+            [
+              ...(definition.columns ?? []).map((column: any) => column.name),
+              ...(definition.relations ?? []).map(
+                (relation: any) => relation.propertyName,
+              ),
+            ],
+          ],
+        ),
+      );
+      await applyMongoSchemaMigrations(
+        this.queryBuilderService.getMongoDb(),
+        migrations,
+        { preserveFieldsByCollection },
+      );
+      return;
+    }
+
+    await applySqlSchemaMigrations(
+      this.queryBuilderService.getKnex(),
+      migrations,
+    );
   }
 
   private async runTableRenames(
@@ -369,10 +677,7 @@ export class MetadataMigrationService {
       tableName === 'relation_definition'
     ) {
       const owner = remapOwnerIds
-        ? this.remapCoreTableId(
-            rename,
-            row?.sourceTableId ?? row?.sourceTable,
-          )
+        ? this.remapCoreTableId(rename, row?.sourceTableId ?? row?.sourceTable)
         : (row?.sourceTableId ?? row?.sourceTable);
       const propertyName = row?.propertyName;
       return owner !== undefined && owner !== null && propertyName
@@ -552,8 +857,7 @@ export class MetadataMigrationService {
           this.getOverlapRowKey(rename, row, columns, {
             remapCoreOwnerIds: false,
           }) === key,
-      ) ??
-      null
+      ) ?? null
     );
   }
 
@@ -1094,6 +1398,386 @@ export class MetadataMigrationService {
     );
   }
 
+  private async reconcileSqlTableMetadataRows(
+    tableStore: string,
+    sourceRow: any,
+    targetRow: any,
+  ): Promise<void> {
+    const knex = this.queryBuilderService.getKnex();
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    const sourceId = sourceRow.id;
+    const targetId = targetRow.id;
+    const tableColumns = [
+      ...new Set([...Object.keys(sourceRow), ...Object.keys(targetRow)]),
+    ];
+    const tableUpdate = this.getMissingRowValues(
+      sourceRow,
+      targetRow,
+      tableColumns,
+    );
+    if (Object.keys(tableUpdate).length > 0) {
+      await knex(tableStore).where({ id: targetId }).update(tableUpdate);
+    }
+
+    if (await knex.schema.hasTable(coreNames.column)) {
+      const [sourceColumns, targetColumns] = await Promise.all([
+        knex(coreNames.column).where({ tableId: sourceId }).select('*'),
+        knex(coreNames.column).where({ tableId: targetId }).select('*'),
+      ]);
+      const targetByName = new Map<string, any>(
+        targetColumns.map((column: any) => [column.name, column]),
+      );
+      const hasColumnRule = await knex.schema.hasTable(
+        SYSTEM_TABLES.columnRule,
+      );
+      const hasFieldPermission = await knex.schema.hasTable(
+        SYSTEM_TABLES.fieldPermission,
+      );
+      for (const sourceColumn of sourceColumns) {
+        const targetColumn = targetByName.get(sourceColumn.name);
+        if (!targetColumn) {
+          await knex(coreNames.column)
+            .where({ id: sourceColumn.id })
+            .update({ tableId: targetId });
+          continue;
+        }
+        const update = this.getMissingRowValues(sourceColumn, targetColumn, [
+          ...new Set([
+            ...Object.keys(sourceColumn),
+            ...Object.keys(targetColumn),
+          ]),
+        ]);
+        if (Object.keys(update).length > 0) {
+          await knex(coreNames.column)
+            .where({ id: targetColumn.id })
+            .update(update);
+        }
+        if (hasColumnRule) {
+          await knex(SYSTEM_TABLES.columnRule)
+            .where({ columnId: sourceColumn.id })
+            .update({ columnId: targetColumn.id });
+        }
+        if (hasFieldPermission) {
+          await knex(SYSTEM_TABLES.fieldPermission)
+            .where({ columnId: sourceColumn.id })
+            .update({ columnId: targetColumn.id });
+        }
+        await knex(coreNames.column).where({ id: sourceColumn.id }).delete();
+      }
+    }
+
+    if (await knex.schema.hasTable(coreNames.relation)) {
+      await knex(coreNames.relation)
+        .where({ targetTableId: sourceId })
+        .update({ targetTableId: targetId });
+      const [sourceRelations, targetRelations] = await Promise.all([
+        knex(coreNames.relation).where({ sourceTableId: sourceId }).select('*'),
+        knex(coreNames.relation).where({ sourceTableId: targetId }).select('*'),
+      ]);
+      const targetByProperty = new Map<string, any>(
+        targetRelations.map((relation: any) => [
+          relation.propertyName,
+          relation,
+        ]),
+      );
+      const hasFieldPermission = await knex.schema.hasTable(
+        SYSTEM_TABLES.fieldPermission,
+      );
+      for (const sourceRelation of sourceRelations) {
+        const targetRelation = targetByProperty.get(
+          sourceRelation.propertyName,
+        );
+        if (!targetRelation) {
+          await knex(coreNames.relation)
+            .where({ id: sourceRelation.id })
+            .update({ sourceTableId: targetId });
+          continue;
+        }
+        const update = this.getMissingRowValues(
+          sourceRelation,
+          targetRelation,
+          [
+            ...new Set([
+              ...Object.keys(sourceRelation),
+              ...Object.keys(targetRelation),
+            ]),
+          ],
+        );
+        delete update.sourceTableId;
+        delete update.targetTableId;
+        delete update.mappedById;
+        if (Object.keys(update).length > 0) {
+          await knex(coreNames.relation)
+            .where({ id: targetRelation.id })
+            .update(update);
+        }
+        if (hasFieldPermission) {
+          await knex(SYSTEM_TABLES.fieldPermission)
+            .where({ relationId: sourceRelation.id })
+            .update({ relationId: targetRelation.id });
+        }
+        const mappedDependents = await knex(coreNames.relation)
+          .where({ mappedById: sourceRelation.id })
+          .select('*');
+        for (const dependent of mappedDependents) {
+          const canonicalDependent = await knex(coreNames.relation)
+            .where({ mappedById: targetRelation.id })
+            .where({ propertyName: dependent.propertyName })
+            .first();
+          if (canonicalDependent) {
+            if (hasFieldPermission) {
+              await knex(SYSTEM_TABLES.fieldPermission)
+                .where({ relationId: dependent.id })
+                .update({ relationId: canonicalDependent.id });
+            }
+            await knex(coreNames.relation).where({ id: dependent.id }).delete();
+          } else {
+            await knex(coreNames.relation)
+              .where({ id: dependent.id })
+              .update({ mappedById: targetRelation.id });
+          }
+        }
+        await knex(coreNames.relation)
+          .where({ id: sourceRelation.id })
+          .delete();
+      }
+    }
+
+    if (await knex.schema.hasTable(SYSTEM_TABLES.route)) {
+      await knex(SYSTEM_TABLES.route)
+        .where({ mainTableId: sourceId })
+        .update({ mainTableId: targetId });
+    }
+    if (await knex.schema.hasTable(SYSTEM_TABLES.graphql)) {
+      const sourceGraphql = await knex(SYSTEM_TABLES.graphql)
+        .where({ tableId: sourceId })
+        .first();
+      const targetGraphql = await knex(SYSTEM_TABLES.graphql)
+        .where({ tableId: targetId })
+        .first();
+      if (sourceGraphql && targetGraphql) {
+        const update = this.getMissingRowValues(sourceGraphql, targetGraphql, [
+          ...new Set([
+            ...Object.keys(sourceGraphql),
+            ...Object.keys(targetGraphql),
+          ]),
+        ]);
+        delete update.tableId;
+        if (Object.keys(update).length > 0) {
+          await knex(SYSTEM_TABLES.graphql)
+            .where({ id: targetGraphql.id })
+            .update(update);
+        }
+        await knex(SYSTEM_TABLES.graphql)
+          .where({ id: sourceGraphql.id })
+          .delete();
+      } else if (sourceGraphql) {
+        await knex(SYSTEM_TABLES.graphql)
+          .where({ id: sourceGraphql.id })
+          .update({ tableId: targetId });
+      }
+    }
+
+    await knex(tableStore).where({ id: sourceId }).delete();
+    this.verbose(
+      `  Reconciled table metadata overlap: ${sourceRow.name} → ${targetRow.name}`,
+    );
+  }
+
+  private async reconcileMongoTableMetadataRows(
+    tableStore: string,
+    sourceRow: any,
+    targetRow: any,
+  ): Promise<void> {
+    const db = this.getMongoDb()!;
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    const sourceId = sourceRow._id;
+    const targetId = targetRow._id;
+    const tableUpdate = this.getMissingRowValues(sourceRow, targetRow, [
+      ...new Set([...Object.keys(sourceRow), ...Object.keys(targetRow)]),
+    ]);
+    if (Object.keys(tableUpdate).length > 0) {
+      await db
+        .collection(tableStore)
+        .updateOne({ _id: targetId }, { $set: tableUpdate });
+    }
+
+    const columnCollection = db.collection(coreNames.column);
+    const [sourceColumns, targetColumns] = await Promise.all([
+      columnCollection.find({ table: sourceId }).toArray(),
+      columnCollection.find({ table: targetId }).toArray(),
+    ]);
+    const targetByName = new Map<string, any>(
+      targetColumns.map((column: any) => [column.name, column]),
+    );
+    const hasColumnRule = await this.physicalMigration.mongoCollectionExists(
+      SYSTEM_TABLES.columnRule,
+    );
+    const hasFieldPermission =
+      await this.physicalMigration.mongoCollectionExists(
+        SYSTEM_TABLES.fieldPermission,
+      );
+    for (const sourceColumn of sourceColumns) {
+      const targetColumn = targetByName.get(sourceColumn.name);
+      if (!targetColumn) {
+        await columnCollection.updateOne(
+          { _id: sourceColumn._id },
+          { $set: { table: targetId, updatedAt: new Date() } },
+        );
+        continue;
+      }
+      const update = this.getMissingRowValues(sourceColumn, targetColumn, [
+        ...new Set([
+          ...Object.keys(sourceColumn),
+          ...Object.keys(targetColumn),
+        ]),
+      ]);
+      if (Object.keys(update).length > 0) {
+        await columnCollection.updateOne(
+          { _id: targetColumn._id },
+          { $set: { ...update, updatedAt: new Date() } },
+        );
+      }
+      if (hasColumnRule) {
+        await db
+          .collection(SYSTEM_TABLES.columnRule)
+          .updateMany(
+            { column: sourceColumn._id },
+            { $set: { column: targetColumn._id } },
+          );
+      }
+      if (hasFieldPermission) {
+        await db
+          .collection(SYSTEM_TABLES.fieldPermission)
+          .updateMany(
+            { column: sourceColumn._id },
+            { $set: { column: targetColumn._id } },
+          );
+      }
+      await columnCollection.deleteOne({ _id: sourceColumn._id });
+    }
+
+    const relationCollection = db.collection(coreNames.relation);
+    await relationCollection.updateMany(
+      { targetTable: sourceId },
+      { $set: { targetTable: targetId, updatedAt: new Date() } },
+    );
+    const [sourceRelations, targetRelations] = await Promise.all([
+      relationCollection.find({ sourceTable: sourceId }).toArray(),
+      relationCollection.find({ sourceTable: targetId }).toArray(),
+    ]);
+    const targetByProperty = new Map<string, any>(
+      targetRelations.map((relation: any) => [relation.propertyName, relation]),
+    );
+    for (const sourceRelation of sourceRelations) {
+      const targetRelation = targetByProperty.get(sourceRelation.propertyName);
+      if (!targetRelation) {
+        await relationCollection.updateOne(
+          { _id: sourceRelation._id },
+          { $set: { sourceTable: targetId, updatedAt: new Date() } },
+        );
+        continue;
+      }
+      const update = this.getMissingRowValues(sourceRelation, targetRelation, [
+        ...new Set([
+          ...Object.keys(sourceRelation),
+          ...Object.keys(targetRelation),
+        ]),
+      ]);
+      delete update.sourceTable;
+      delete update.targetTable;
+      delete update.mappedBy;
+      if (Object.keys(update).length > 0) {
+        await relationCollection.updateOne(
+          { _id: targetRelation._id },
+          { $set: { ...update, updatedAt: new Date() } },
+        );
+      }
+      if (hasFieldPermission) {
+        await db
+          .collection(SYSTEM_TABLES.fieldPermission)
+          .updateMany(
+            { relation: sourceRelation._id },
+            { $set: { relation: targetRelation._id } },
+          );
+      }
+      const mappedDependents = await relationCollection
+        .find({ mappedBy: sourceRelation._id })
+        .toArray();
+      for (const dependent of mappedDependents) {
+        const canonicalDependent = await relationCollection.findOne({
+          mappedBy: targetRelation._id,
+          propertyName: dependent.propertyName,
+        });
+        if (canonicalDependent) {
+          if (hasFieldPermission) {
+            await db
+              .collection(SYSTEM_TABLES.fieldPermission)
+              .updateMany(
+                { relation: dependent._id },
+                { $set: { relation: canonicalDependent._id } },
+              );
+          }
+          await relationCollection.deleteOne({ _id: dependent._id });
+        } else {
+          await relationCollection.updateOne(
+            { _id: dependent._id },
+            { $set: { mappedBy: targetRelation._id, updatedAt: new Date() } },
+          );
+        }
+      }
+      await relationCollection.deleteOne({ _id: sourceRelation._id });
+    }
+
+    if (
+      await this.physicalMigration.mongoCollectionExists(SYSTEM_TABLES.route)
+    ) {
+      await db
+        .collection(SYSTEM_TABLES.route)
+        .updateMany(
+          { mainTable: sourceId },
+          { $set: { mainTable: targetId, updatedAt: new Date() } },
+        );
+    }
+    if (
+      await this.physicalMigration.mongoCollectionExists(SYSTEM_TABLES.graphql)
+    ) {
+      const graphqlCollection = db.collection(SYSTEM_TABLES.graphql);
+      const sourceGraphql = await graphqlCollection.findOne({
+        table: sourceId,
+      });
+      const targetGraphql = await graphqlCollection.findOne({
+        table: targetId,
+      });
+      if (sourceGraphql && targetGraphql) {
+        const update = this.getMissingRowValues(sourceGraphql, targetGraphql, [
+          ...new Set([
+            ...Object.keys(sourceGraphql),
+            ...Object.keys(targetGraphql),
+          ]),
+        ]);
+        delete update.table;
+        if (Object.keys(update).length > 0) {
+          await graphqlCollection.updateOne(
+            { _id: targetGraphql._id },
+            { $set: { ...update, updatedAt: new Date() } },
+          );
+        }
+        await graphqlCollection.deleteOne({ _id: sourceGraphql._id });
+      } else if (sourceGraphql) {
+        await graphqlCollection.updateOne(
+          { _id: sourceGraphql._id },
+          { $set: { table: targetId, updatedAt: new Date() } },
+        );
+      }
+    }
+
+    await db.collection(tableStore).deleteOne({ _id: sourceId });
+    this.verbose(
+      `  Reconciled table metadata overlap: ${sourceRow.name} → ${targetRow.name}`,
+    );
+  }
+
   private async renameSqlTableMetadataRow(
     tableStore: string,
     rename: TableRenameDef,
@@ -1101,8 +1785,21 @@ export class MetadataMigrationService {
   ): Promise<void> {
     const knex = this.queryBuilderService.getKnex();
     if (!(await knex.schema.hasTable(tableStore))) return;
+    const sourceRow = tableId
+      ? await knex(tableStore).where({ id: tableId }).first()
+      : await knex(tableStore).where({ name: rename.from }).first();
     const targetRow = await knex(tableStore).where({ name: rename.to }).first();
-    if (targetRow) return;
+    if (targetRow) {
+      if (sourceRow && String(sourceRow.id) !== String(targetRow.id)) {
+        await this.reconcileSqlTableMetadataRows(
+          tableStore,
+          sourceRow,
+          targetRow,
+        );
+      }
+      return;
+    }
+    if (!sourceRow) return;
     const query = tableId
       ? knex(tableStore).where({ id: tableId })
       : knex(tableStore).where({ name: rename.from });
@@ -1115,10 +1812,23 @@ export class MetadataMigrationService {
     tableId?: any,
   ): Promise<void> {
     const db = this.getMongoDb()!;
+    const sourceRow = await db
+      .collection(tableStore)
+      .findOne(tableId ? { _id: tableId } : { name: rename.from });
     const targetRow = await db
       .collection(tableStore)
       .findOne({ name: rename.to });
-    if (targetRow) return;
+    if (targetRow) {
+      if (sourceRow && String(sourceRow._id) !== String(targetRow._id)) {
+        await this.reconcileMongoTableMetadataRows(
+          tableStore,
+          sourceRow,
+          targetRow,
+        );
+      }
+      return;
+    }
+    if (!sourceRow) return;
 
     const filter = tableId ? { _id: tableId } : { name: rename.from };
     await db.collection(tableStore).updateOne(filter, {
@@ -1208,35 +1918,167 @@ export class MetadataMigrationService {
     this.verbose(`Dropping metadata for ${tableNames.length} table(s)...`);
 
     for (const tableName of tableNames) {
-      try {
-        const found = await this.findTableId(tableName, isMongoDB);
-        if (!found) continue;
+      const found = await this.findTableId(tableName, isMongoDB);
+      if (!found) continue;
 
-        const { tableId } = found;
-        const coreNames = await this.systemCoreTableResolver.getNames();
+      const { tableId } = found;
+      const coreNames = await this.systemCoreTableResolver.getNames();
 
-        if (isMongoDB) {
-          const db = this.getMongoDb()!;
+      if (isMongoDB) {
+        const db = this.getMongoDb()!;
+        const columns = await db
+          .collection(coreNames.column)
+          .find({ table: tableId })
+          .toArray();
+        const allRelations = await db
+          .collection(coreNames.relation)
+          .find({})
+          .toArray();
+        const touchingRelations = allRelations.filter(
+          (relation: any) =>
+            String(relation.sourceTable) === String(tableId) ||
+            String(relation.targetTable) === String(tableId),
+        );
+        const owningIds = touchingRelations.map(
+          (relation: any) => relation.mappedBy || relation._id,
+        );
+        const relationIds = allRelations
+          .filter(
+            (relation: any) =>
+              touchingRelations.some(
+                (touching: any) =>
+                  String(touching._id) === String(relation._id),
+              ) ||
+              owningIds.some(
+                (owningId: any) =>
+                  String(owningId) === String(relation._id) ||
+                  String(owningId) === String(relation.mappedBy),
+              ),
+          )
+          .map((relation: any) => relation._id);
+        const columnIds = columns.map((column: any) => column._id);
+
+        if (
+          columnIds.length > 0 &&
+          (await this.physicalMigration.mongoCollectionExists(
+            SYSTEM_TABLES.columnRule,
+          ))
+        ) {
+          await db
+            .collection(SYSTEM_TABLES.columnRule)
+            .deleteMany({ column: { $in: columnIds } });
+        }
+        if (
+          await this.physicalMigration.mongoCollectionExists(
+            SYSTEM_TABLES.fieldPermission,
+          )
+        ) {
+          if (columnIds.length > 0) {
+            await db
+              .collection(SYSTEM_TABLES.fieldPermission)
+              .deleteMany({ column: { $in: columnIds } });
+          }
+          if (relationIds.length > 0) {
+            await db
+              .collection(SYSTEM_TABLES.fieldPermission)
+              .deleteMany({ relation: { $in: relationIds } });
+          }
+        }
+        if (
+          await this.physicalMigration.mongoCollectionExists(
+            SYSTEM_TABLES.route,
+          )
+        ) {
+          await db
+            .collection(SYSTEM_TABLES.route)
+            .deleteMany({ mainTable: tableId });
+        }
+        if (
+          await this.physicalMigration.mongoCollectionExists(
+            SYSTEM_TABLES.graphql,
+          )
+        ) {
+          await db
+            .collection(SYSTEM_TABLES.graphql)
+            .deleteMany({ table: tableId });
+        }
+        if (relationIds.length > 0) {
           await db
             .collection(coreNames.relation)
-            .deleteMany({ sourceTable: tableId });
-          await db.collection(coreNames.column).deleteMany({ table: tableId });
-          await db.collection(coreNames.table).deleteOne({ _id: tableId });
-        } else {
-          const knex = this.queryBuilderService.getKnex();
-          await knex(coreNames.relation)
-            .where('sourceTableId', tableId)
-            .delete();
-          await knex(coreNames.column).where('tableId', tableId).delete();
-          await knex(coreNames.table).where('id', tableId).delete();
+            .deleteMany({ _id: { $in: relationIds } });
         }
-
-        this.verbose(`  Dropped metadata for table: ${tableName}`);
-      } catch (error) {
-        this.logger.error(
-          `  Failed to drop metadata for ${tableName}: ${getErrorMessage(error)}`,
+        await db.collection(coreNames.column).deleteMany({ table: tableId });
+        await db.collection(coreNames.table).deleteOne({ _id: tableId });
+      } else {
+        const knex = this.queryBuilderService.getKnex();
+        const columns = await knex(coreNames.column)
+          .where('tableId', tableId)
+          .select('id');
+        const allRelations = await knex(coreNames.relation).select(
+          'id',
+          'sourceTableId',
+          'targetTableId',
+          'mappedById',
         );
+        const touchingRelations = allRelations.filter(
+          (relation: any) =>
+            String(relation.sourceTableId) === String(tableId) ||
+            String(relation.targetTableId) === String(tableId),
+        );
+        const owningIds = touchingRelations.map(
+          (relation: any) => relation.mappedById || relation.id,
+        );
+        const relationIds = allRelations
+          .filter(
+            (relation: any) =>
+              touchingRelations.some(
+                (touching: any) => String(touching.id) === String(relation.id),
+              ) ||
+              owningIds.some(
+                (owningId: any) =>
+                  String(owningId) === String(relation.id) ||
+                  String(owningId) === String(relation.mappedById),
+              ),
+          )
+          .map((relation: any) => relation.id);
+        const columnIds = columns.map((column: any) => column.id);
+
+        if (
+          columnIds.length > 0 &&
+          (await knex.schema.hasTable(SYSTEM_TABLES.columnRule))
+        ) {
+          await knex(SYSTEM_TABLES.columnRule)
+            .whereIn('columnId', columnIds)
+            .delete();
+        }
+        if (await knex.schema.hasTable(SYSTEM_TABLES.fieldPermission)) {
+          if (columnIds.length > 0) {
+            await knex(SYSTEM_TABLES.fieldPermission)
+              .whereIn('columnId', columnIds)
+              .delete();
+          }
+          if (relationIds.length > 0) {
+            await knex(SYSTEM_TABLES.fieldPermission)
+              .whereIn('relationId', relationIds)
+              .delete();
+          }
+        }
+        if (await knex.schema.hasTable(SYSTEM_TABLES.route)) {
+          await knex(SYSTEM_TABLES.route)
+            .where('mainTableId', tableId)
+            .delete();
+        }
+        if (await knex.schema.hasTable(SYSTEM_TABLES.graphql)) {
+          await knex(SYSTEM_TABLES.graphql).where('tableId', tableId).delete();
+        }
+        if (relationIds.length > 0) {
+          await knex(coreNames.relation).whereIn('id', relationIds).delete();
+        }
+        await knex(coreNames.column).where('tableId', tableId).delete();
+        await knex(coreNames.table).where('id', tableId).delete();
       }
+
+      this.verbose(`  Dropped metadata for table: ${tableName}`);
     }
   }
 
@@ -1254,6 +2096,17 @@ export class MetadataMigrationService {
     }
 
     const { tableId, tableIdField } = found;
+
+    if (
+      migration.tableToModify &&
+      hasTableMetadataChanges(migration.tableToModify)
+    ) {
+      await this.modifyTableMetadata(
+        tableId,
+        isMongoDB,
+        migration.tableToModify,
+      );
+    }
 
     const columnsToModify = migration.columnsToModify ?? [];
     const columnsToRemove = migration.columnsToRemove ?? [];
@@ -1289,6 +2142,34 @@ export class MetadataMigrationService {
     }
   }
 
+  private async modifyTableMetadata(
+    tableId: any,
+    isMongoDB: boolean,
+    modification: NonNullable<TableMigrationDef['tableToModify']>,
+  ): Promise<void> {
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    const updateData = buildTableMetadataUpdate(modification);
+    if (Object.keys(updateData).length === 0) return;
+
+    if (isMongoDB) {
+      updateData.updatedAt = new Date();
+      await this.getMongoDb()!
+        .collection(coreNames.table)
+        .updateOne({ _id: tableId }, { $set: updateData });
+      return;
+    }
+
+    for (const field of ['uniques', 'indexes', 'metadata']) {
+      if (updateData[field] !== undefined) {
+        updateData[field] = JSON.stringify(updateData[field] ?? null);
+      }
+    }
+    await this.queryBuilderService
+      .getKnex()(coreNames.table)
+      .where('id', tableId)
+      .update(updateData);
+  }
+
   private async modifyColumnMetadata(
     tableName: string,
     tableId: any,
@@ -1302,95 +2183,94 @@ export class MetadataMigrationService {
       }
 
       const oldName = mod.from.name;
+      const coreNames = await this.systemCoreTableResolver.getNames();
+      let columnId: any;
+      let targetColumnId: any;
 
-      try {
-        const coreNames = await this.systemCoreTableResolver.getNames();
-        let columnId: any;
-        let targetColumnId: any;
+      if (isMongoDB) {
+        const db = this.getMongoDb()!;
+        const column = await db.collection(coreNames.column).findOne({
+          table: tableId,
+          name: oldName,
+        });
+        const targetColumn = await db.collection(coreNames.column).findOne({
+          table: tableId,
+          name: mod.to.name,
+        });
+        columnId = column?._id;
+        targetColumnId = targetColumn?._id;
 
-        if (isMongoDB) {
-          const db = this.getMongoDb()!;
-          const column = await db.collection(coreNames.column).findOne({
-            table: tableId,
-            name: oldName,
-          });
-          const targetColumn = await db.collection(coreNames.column).findOne({
-            table: tableId,
-            name: mod.to.name,
-          });
-          columnId = column?._id;
-          targetColumnId = targetColumn?._id;
-
-          if (mod.to.name !== mod.from.name) {
-            await this.physicalMigration.renameMongoDocumentFieldIfNeeded(
-              tableName,
-              mod.from.name,
-              mod.to.name,
-            );
-          }
-        } else {
-          const knex = this.queryBuilderService.getKnex();
-          const column = await knex(coreNames.column)
-            .where(tableIdField, tableId)
-            .where('name', oldName)
-            .first();
-          const targetColumn = await knex(coreNames.column)
-            .where(tableIdField, tableId)
-            .where('name', mod.to.name)
-            .first();
-          columnId = column?.id;
-          targetColumnId = targetColumn?.id;
-        }
-
-        if (!columnId && !targetColumnId) continue;
-
-        const updateData = buildColumnMetadataUpdate(mod);
-
-        if (mod.to.name !== mod.from.name && !isMongoDB) {
-          await this.physicalMigration.renameSqlPhysicalColumnIfNeeded(
+        if (mod.to.name !== mod.from.name) {
+          await this.physicalMigration.renameMongoDocumentFieldIfNeeded(
             tableName,
             mod.from.name,
             mod.to.name,
           );
         }
+      } else {
+        const knex = this.queryBuilderService.getKnex();
+        const column = await knex(coreNames.column)
+          .where(tableIdField, tableId)
+          .where('name', oldName)
+          .first();
+        const targetColumn = await knex(coreNames.column)
+          .where(tableIdField, tableId)
+          .where('name', mod.to.name)
+          .first();
+        columnId = column?.id;
+        targetColumnId = targetColumn?.id;
+      }
 
-        if (Object.keys(updateData).length > 0) {
-          if (isMongoDB) {
-            const db = this.getMongoDb()!;
-            updateData.updatedAt = new Date();
-            await db.collection(coreNames.column).updateOne(
-              { _id: targetColumnId ?? columnId },
-              {
-                $set: targetColumnId
-                  ? { ...updateData, name: mod.to.name }
-                  : updateData,
-              },
-            );
-          } else {
-            const knex = this.queryBuilderService.getKnex();
-            await knex(coreNames.column)
-              .where('id', targetColumnId ?? columnId)
-              .update(updateData);
-          }
-          this.verbose(
-            `  Modified column metadata: ${oldName} → ${mod.to.name}`,
-          );
-        }
+      if (!columnId && !targetColumnId) continue;
 
-        if (targetColumnId && columnId && targetColumnId !== columnId) {
-          if (isMongoDB) {
-            const db = this.getMongoDb()!;
-            await db.collection(coreNames.column).deleteOne({ _id: columnId });
-          } else {
-            const knex = this.queryBuilderService.getKnex();
-            await knex(coreNames.column).where('id', columnId).delete();
-          }
-          this.verbose(`  Removed duplicate old column metadata: ${oldName}`);
-        }
-      } catch (err) {
-        this.logger.warn(
-          `  Failed to modify column metadata: ${(err as Error).message}`,
+      const updateData = buildColumnMetadataUpdate(mod);
+
+      if (mod.to.name !== mod.from.name && !isMongoDB) {
+        await this.physicalMigration.renameSqlPhysicalColumnIfNeeded(
+          tableName,
+          mod.from.name,
+          mod.to.name,
         );
+      }
+
+      if (Object.keys(updateData).length > 0) {
+        if (isMongoDB) {
+          const db = this.getMongoDb()!;
+          updateData.updatedAt = new Date();
+          await db.collection(coreNames.column).updateOne(
+            { _id: targetColumnId ?? columnId },
+            {
+              $set: targetColumnId
+                ? { ...updateData, name: mod.to.name }
+                : updateData,
+            },
+          );
+        } else {
+          const knex = this.queryBuilderService.getKnex();
+          if (updateData.defaultValue !== undefined) {
+            updateData.defaultValue = JSON.stringify(
+              updateData.defaultValue ?? null,
+            );
+          }
+          if (updateData.options !== undefined) {
+            updateData.options = JSON.stringify(updateData.options ?? null);
+          }
+          await knex(coreNames.column)
+            .where('id', targetColumnId ?? columnId)
+            .update(updateData);
+        }
+        this.verbose(`  Modified column metadata: ${oldName} → ${mod.to.name}`);
+      }
+
+      if (targetColumnId && columnId && targetColumnId !== columnId) {
+        if (isMongoDB) {
+          const db = this.getMongoDb()!;
+          await db.collection(coreNames.column).deleteOne({ _id: columnId });
+        } else {
+          const knex = this.queryBuilderService.getKnex();
+          await knex(coreNames.column).where('id', columnId).delete();
+        }
+        this.verbose(`  Removed duplicate old column metadata: ${oldName}`);
       }
     }
   }
@@ -1403,47 +2283,68 @@ export class MetadataMigrationService {
     isMongoDB: boolean,
   ): Promise<void> {
     for (const colName of columns) {
-      try {
-        const coreNames = await this.systemCoreTableResolver.getNames();
-        await this.copyLegacyScriptColumnBeforeRemove(
+      const coreNames = await this.systemCoreTableResolver.getNames();
+      await this.copyLegacyScriptColumnBeforeRemove(
+        tableName,
+        colName,
+        isMongoDB,
+      );
+
+      if (isMongoDB) {
+        const db = this.getMongoDb()!;
+        const column = await db.collection(coreNames.column).findOne({
+          table: tableId,
+          name: colName,
+        });
+        if (column) {
+          if (
+            await this.physicalMigration.mongoCollectionExists(
+              SYSTEM_TABLES.columnRule,
+            )
+          ) {
+            await db
+              .collection(SYSTEM_TABLES.columnRule)
+              .deleteMany({ column: column._id });
+          }
+          if (
+            await this.physicalMigration.mongoCollectionExists(
+              SYSTEM_TABLES.fieldPermission,
+            )
+          ) {
+            await db
+              .collection(SYSTEM_TABLES.fieldPermission)
+              .deleteMany({ column: column._id });
+          }
+          await db.collection(coreNames.column).deleteOne({ _id: column._id });
+          this.verbose(`  Removed column metadata: ${colName}`);
+        }
+      } else {
+        const knex = this.queryBuilderService.getKnex();
+        const column = await knex(coreNames.column)
+          .where(tableIdField, tableId)
+          .where('name', colName)
+          .first();
+        if (column) {
+          if (await knex.schema.hasTable(SYSTEM_TABLES.columnRule)) {
+            await knex(SYSTEM_TABLES.columnRule)
+              .where('columnId', column.id)
+              .delete();
+          }
+          if (await knex.schema.hasTable(SYSTEM_TABLES.fieldPermission)) {
+            await knex(SYSTEM_TABLES.fieldPermission)
+              .where('columnId', column.id)
+              .delete();
+          }
+          await knex(coreNames.column).where('id', column.id).delete();
+          this.verbose(`  Removed column metadata: ${colName}`);
+        }
+      }
+
+      if (!isMongoDB || !(await this.isMongoRelationField(tableId, colName))) {
+        await this.physicalMigration.dropPhysicalColumn(
           tableName,
           colName,
           isMongoDB,
-        );
-
-        if (isMongoDB) {
-          const db = this.getMongoDb()!;
-          const result = await db
-            .collection(coreNames.column)
-            .deleteOne({ table: tableId, name: colName });
-          if (result.deletedCount > 0) {
-            this.verbose(`  Removed column metadata: ${colName}`);
-          }
-        } else {
-          const knex = this.queryBuilderService.getKnex();
-          const column = await knex(coreNames.column)
-            .where(tableIdField, tableId)
-            .where('name', colName)
-            .first();
-          if (column) {
-            await knex(coreNames.column).where('id', column.id).delete();
-            this.verbose(`  Removed column metadata: ${colName}`);
-          }
-        }
-
-        if (
-          !isMongoDB ||
-          !(await this.isMongoRelationField(tableId, colName))
-        ) {
-          await this.physicalMigration.dropPhysicalColumn(
-            tableName,
-            colName,
-            isMongoDB,
-          );
-        }
-      } catch (err) {
-        this.logger.warn(
-          `  Failed to remove column ${colName}: ${(err as Error).message}`,
         );
       }
     }
@@ -1556,99 +2457,358 @@ export class MetadataMigrationService {
       }
 
       const oldName = mod.from.propertyName;
+      const newName = mod.to.propertyName;
+      const coreNames = await this.systemCoreTableResolver.getNames();
+      let relation: any;
+      let targetRelation: any;
 
-      try {
-        const coreNames = await this.systemCoreTableResolver.getNames();
-        let relation: any;
+      if (isMongoDB) {
+        const db = this.getMongoDb()!;
+        relation = await db.collection(coreNames.relation).findOne({
+          sourceTable: tableId,
+          propertyName: oldName,
+        });
+        targetRelation =
+          oldName === newName
+            ? relation
+            : await db.collection(coreNames.relation).findOne({
+                sourceTable: tableId,
+                propertyName: newName,
+              });
+      } else {
+        const knex = this.queryBuilderService.getKnex();
+        relation = await knex(coreNames.relation)
+          .where(sourceTableField, tableId)
+          .where('propertyName', oldName)
+          .first();
+        targetRelation =
+          oldName === newName
+            ? relation
+            : await knex(coreNames.relation)
+                .where(sourceTableField, tableId)
+                .where('propertyName', newName)
+                .first();
+      }
 
-        if (isMongoDB) {
-          const db = this.getMongoDb()!;
-          relation = await db.collection(coreNames.relation).findOne({
-            sourceTable: tableId,
-            propertyName: oldName,
-          });
-        } else {
-          const knex = this.queryBuilderService.getKnex();
-          relation = await knex(coreNames.relation)
-            .where(sourceTableField, tableId)
-            .where('propertyName', oldName)
-            .first();
-        }
+      if (
+        relation &&
+        targetRelation &&
+        String(isMongoDB ? relation._id : relation.id) !==
+          String(isMongoDB ? targetRelation._id : targetRelation.id)
+      ) {
+        relation = await this.reconcileRelationMetadataOverlap(
+          relation,
+          targetRelation,
+          isMongoDB,
+        );
+      } else {
+        relation = relation ?? targetRelation;
+      }
+      if (!relation) continue;
 
-        if (!relation) {
-          continue;
-        }
-
-        const relationId = DatabaseConfigService.getRecordId(relation);
-        const updateData: any = {};
-
-        if (mod.to.propertyName !== mod.from.propertyName) {
-          updateData.propertyName = mod.to.propertyName;
-        }
-        if (
-          mod.to.mappedBy !== undefined &&
-          mod.to.mappedBy !== mod.from.mappedBy
-        ) {
-          if (mod.to.mappedBy && isMongoDB) {
-            const db = this.getMongoDb()!;
-            const targetTableId = relation.targetTable;
-            const owningRel = await db.collection(coreNames.relation).findOne({
-              sourceTable: targetTableId,
-              propertyName: mod.to.mappedBy,
-            });
-            updateData.mappedBy = owningRel?._id || null;
-          } else if (mod.to.mappedBy && !isMongoDB) {
-            const knex = this.queryBuilderService.getKnex();
-            const targetTableId = relation.targetTableId;
-            const owningRel = await knex(coreNames.relation)
-              .where('sourceTableId', targetTableId)
-              .where('propertyName', mod.to.mappedBy)
-              .first();
-            updateData.mappedById = owningRel?.id || null;
-          } else {
-            const mappedByField = isMongoDB ? 'mappedBy' : 'mappedById';
-            updateData[mappedByField] = null;
-          }
-        }
-        if (
-          mod.to.isNullable !== undefined &&
-          mod.to.isNullable !== mod.from.isNullable
-        ) {
-          updateData.isNullable = mod.to.isNullable;
-        }
-        if (
-          mod.to.isUpdatable !== undefined &&
-          mod.to.isUpdatable !== mod.from.isUpdatable
-        ) {
-          updateData.isUpdatable = mod.to.isUpdatable;
-        }
-        if (mod.to.onDelete !== undefined) {
-          updateData.onDelete = mod.to.onDelete;
-        }
-
-        if (Object.keys(updateData).length > 0) {
-          if (isMongoDB) {
-            const db = this.getMongoDb()!;
-            updateData.updatedAt = new Date();
-            await db
-              .collection(coreNames.relation)
-              .updateOne({ _id: relationId }, { $set: updateData });
-          } else {
-            const knex = this.queryBuilderService.getKnex();
-            await knex(coreNames.relation)
-              .where('id', relationId)
-              .update(updateData);
-          }
-          this.verbose(
-            `  Modified relation metadata: ${oldName} → ${mod.to.propertyName}`,
+      const relationId = isMongoDB ? relation._id : relation.id;
+      const updateData = buildRelationMetadataUpdate(mod);
+      if (
+        mod.to.targetTable !== undefined &&
+        mod.to.targetTable !== mod.from.targetTable
+      ) {
+        const targetTable = await this.findTableId(
+          mod.to.targetTable,
+          isMongoDB,
+        );
+        if (!targetTable) {
+          throw new Error(
+            `Target table ${mod.to.targetTable} was not found for relation ${oldName}`,
           );
         }
-      } catch (err) {
-        this.logger.warn(
-          `  Failed to modify relation metadata: ${(err as Error).message}`,
+        updateData[isMongoDB ? 'targetTable' : 'targetTableId'] =
+          targetTable.tableId;
+      }
+      if (
+        mod.to.mappedBy !== undefined &&
+        mod.to.mappedBy !== mod.from.mappedBy
+      ) {
+        if (mod.to.mappedBy && isMongoDB) {
+          const db = this.getMongoDb()!;
+          const targetTableId = relation.targetTable;
+          const owningRel = await db.collection(coreNames.relation).findOne({
+            sourceTable: targetTableId,
+            propertyName: mod.to.mappedBy,
+          });
+          updateData.mappedBy = owningRel?._id || null;
+        } else if (mod.to.mappedBy && !isMongoDB) {
+          const knex = this.queryBuilderService.getKnex();
+          const targetTableId = relation.targetTableId;
+          const owningRel = await knex(coreNames.relation)
+            .where('sourceTableId', targetTableId)
+            .where('propertyName', mod.to.mappedBy)
+            .first();
+          updateData.mappedById = owningRel?.id || null;
+        } else {
+          const mappedByField = isMongoDB ? 'mappedBy' : 'mappedById';
+          updateData[mappedByField] = null;
+        }
+      }
+      if (Object.keys(updateData).length > 0) {
+        if (isMongoDB) {
+          const db = this.getMongoDb()!;
+          updateData.updatedAt = new Date();
+          await db
+            .collection(coreNames.relation)
+            .updateOne({ _id: relationId }, { $set: updateData });
+        } else {
+          const knex = this.queryBuilderService.getKnex();
+          await knex(coreNames.relation)
+            .where('id', relationId)
+            .update(updateData);
+        }
+        this.verbose(
+          `  Modified relation metadata: ${oldName} → ${mod.to.propertyName}`,
         );
       }
+
+      await this.updateInverseRelationMetadata(
+        relation,
+        relationId,
+        mod,
+        isMongoDB,
+      );
     }
+  }
+
+  private async reconcileRelationMetadataOverlap(
+    sourceRelation: any,
+    targetRelation: any,
+    isMongoDB: boolean,
+  ): Promise<any> {
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    const fields = [
+      ...new Set([
+        ...Object.keys(sourceRelation),
+        ...Object.keys(targetRelation),
+      ]),
+    ];
+    const update = this.getMissingRowValues(
+      sourceRelation,
+      targetRelation,
+      fields,
+    );
+    for (const field of [
+      'propertyName',
+      'sourceTable',
+      'sourceTableId',
+      'targetTable',
+      'targetTableId',
+      'mappedBy',
+      'mappedById',
+    ]) {
+      delete update[field];
+    }
+
+    if (isMongoDB) {
+      const db = this.getMongoDb()!;
+      const sourceId = sourceRelation._id;
+      const targetId = targetRelation._id;
+      if (Object.keys(update).length > 0) {
+        await db
+          .collection(coreNames.relation)
+          .updateOne(
+            { _id: targetId },
+            { $set: { ...update, updatedAt: new Date() } },
+          );
+        Object.assign(targetRelation, update);
+      }
+      if (
+        await this.physicalMigration.mongoCollectionExists(
+          SYSTEM_TABLES.fieldPermission,
+        )
+      ) {
+        await db
+          .collection(SYSTEM_TABLES.fieldPermission)
+          .updateMany({ relation: sourceId }, { $set: { relation: targetId } });
+      }
+      const mappedDependents = await db
+        .collection(coreNames.relation)
+        .find({ mappedBy: sourceId })
+        .toArray();
+      for (const dependent of mappedDependents) {
+        const existing = await db.collection(coreNames.relation).findOne({
+          mappedBy: targetId,
+          sourceTable: dependent.sourceTable,
+          propertyName: dependent.propertyName,
+        });
+        if (existing) {
+          if (
+            await this.physicalMigration.mongoCollectionExists(
+              SYSTEM_TABLES.fieldPermission,
+            )
+          ) {
+            await db
+              .collection(SYSTEM_TABLES.fieldPermission)
+              .updateMany(
+                { relation: dependent._id },
+                { $set: { relation: existing._id } },
+              );
+          }
+          await db
+            .collection(coreNames.relation)
+            .deleteOne({ _id: dependent._id });
+        } else {
+          await db
+            .collection(coreNames.relation)
+            .updateOne(
+              { _id: dependent._id },
+              { $set: { mappedBy: targetId, updatedAt: new Date() } },
+            );
+        }
+      }
+      await db.collection(coreNames.relation).deleteOne({ _id: sourceId });
+      return targetRelation;
+    }
+
+    const knex = this.queryBuilderService.getKnex();
+    const sourceId = sourceRelation.id;
+    const targetId = targetRelation.id;
+    if (Object.keys(update).length > 0) {
+      await knex(coreNames.relation).where({ id: targetId }).update(update);
+      Object.assign(targetRelation, update);
+    }
+    const hasFieldPermission = await knex.schema.hasTable(
+      SYSTEM_TABLES.fieldPermission,
+    );
+    if (hasFieldPermission) {
+      await knex(SYSTEM_TABLES.fieldPermission)
+        .where({ relationId: sourceId })
+        .update({ relationId: targetId });
+    }
+    const mappedDependents = await knex(coreNames.relation)
+      .where({ mappedById: sourceId })
+      .select('*');
+    for (const dependent of mappedDependents) {
+      const existing = await knex(coreNames.relation)
+        .where({ mappedById: targetId })
+        .where({ sourceTableId: dependent.sourceTableId })
+        .where({ propertyName: dependent.propertyName })
+        .first();
+      if (existing) {
+        if (hasFieldPermission) {
+          await knex(SYSTEM_TABLES.fieldPermission)
+            .where({ relationId: dependent.id })
+            .update({ relationId: existing.id });
+        }
+        await knex(coreNames.relation).where({ id: dependent.id }).delete();
+      } else {
+        await knex(coreNames.relation)
+          .where({ id: dependent.id })
+          .update({ mappedById: targetId });
+      }
+    }
+    await knex(coreNames.relation).where({ id: sourceId }).delete();
+    return targetRelation;
+  }
+
+  private async updateInverseRelationMetadata(
+    relation: any,
+    relationId: any,
+    mod: RelationModifyDef,
+    isMongoDB: boolean,
+  ): Promise<void> {
+    if (
+      mod.to.inversePropertyName === undefined ||
+      mod.to.inversePropertyName === mod.from.inversePropertyName
+    ) {
+      return;
+    }
+
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    if (isMongoDB) {
+      const db = this.getMongoDb()!;
+      let counterpart: any = relation.mappedBy
+        ? await db
+            .collection(coreNames.relation)
+            .findOne({ _id: relation.mappedBy })
+        : await db
+            .collection(coreNames.relation)
+            .findOne({ mappedBy: relationId });
+      if (!counterpart) return;
+
+      if (mod.to.inversePropertyName) {
+        const targetCounterpart = await db
+          .collection(coreNames.relation)
+          .findOne({
+            sourceTable: counterpart.sourceTable,
+            propertyName: mod.to.inversePropertyName,
+          });
+        if (
+          targetCounterpart &&
+          String(targetCounterpart._id) !== String(counterpart._id)
+        ) {
+          counterpart = await this.reconcileRelationMetadataOverlap(
+            counterpart,
+            targetCounterpart,
+            true,
+          );
+        }
+        await db.collection(coreNames.relation).updateOne(
+          { _id: counterpart._id },
+          {
+            $set: {
+              propertyName: mod.to.inversePropertyName,
+              updatedAt: new Date(),
+            },
+          },
+        );
+        return;
+      }
+
+      if (
+        await this.physicalMigration.mongoCollectionExists(
+          SYSTEM_TABLES.fieldPermission,
+        )
+      ) {
+        await db
+          .collection(SYSTEM_TABLES.fieldPermission)
+          .deleteMany({ relation: counterpart._id });
+      }
+      await db
+        .collection(coreNames.relation)
+        .deleteOne({ _id: counterpart._id });
+      return;
+    }
+
+    const knex = this.queryBuilderService.getKnex();
+    let counterpart = relation.mappedById
+      ? await knex(coreNames.relation).where('id', relation.mappedById).first()
+      : await knex(coreNames.relation).where('mappedById', relationId).first();
+    if (!counterpart) return;
+
+    if (mod.to.inversePropertyName) {
+      const targetCounterpart = await knex(coreNames.relation)
+        .where('sourceTableId', counterpart.sourceTableId)
+        .where('propertyName', mod.to.inversePropertyName)
+        .first();
+      if (
+        targetCounterpart &&
+        String(targetCounterpart.id) !== String(counterpart.id)
+      ) {
+        counterpart = await this.reconcileRelationMetadataOverlap(
+          counterpart,
+          targetCounterpart,
+          false,
+        );
+      }
+      await knex(coreNames.relation)
+        .where('id', counterpart.id)
+        .update({ propertyName: mod.to.inversePropertyName });
+      return;
+    }
+
+    if (await knex.schema.hasTable(SYSTEM_TABLES.fieldPermission)) {
+      await knex(SYSTEM_TABLES.fieldPermission)
+        .where('relationId', counterpart.id)
+        .delete();
+    }
+    await knex(coreNames.relation).where('id', counterpart.id).delete();
   }
 
   private async removeRelationMetadata(
@@ -1659,32 +2819,71 @@ export class MetadataMigrationService {
     const sourceTableField = isMongoDB ? 'sourceTable' : 'sourceTableId';
 
     for (const relName of relations) {
-      try {
-        const coreNames = await this.systemCoreTableResolver.getNames();
-        if (isMongoDB) {
-          const db = this.getMongoDb()!;
-          const result = await db
-            .collection(coreNames.relation)
-            .deleteOne({ sourceTable: tableId, propertyName: relName });
-          if (result.deletedCount > 0) {
-            this.verbose(`  Removed relation metadata: ${relName}`);
-          }
-        } else {
-          const knex = this.queryBuilderService.getKnex();
-          const relation = await knex(coreNames.relation)
-            .where(sourceTableField, tableId)
-            .where('propertyName', relName)
-            .first();
-          if (relation) {
-            await knex(coreNames.relation).where('id', relation.id).delete();
-            this.verbose(`  Removed relation metadata: ${relName}`);
-          }
-        }
-      } catch (err) {
-        this.logger.warn(
-          `  Failed to remove relation ${relName}: ${(err as Error).message}`,
+      const coreNames = await this.systemCoreTableResolver.getNames();
+      if (isMongoDB) {
+        const db = this.getMongoDb()!;
+        const relation = await db.collection(coreNames.relation).findOne({
+          sourceTable: tableId,
+          propertyName: relName,
+        });
+        if (!relation) continue;
+
+        const owningId = relation.mappedBy || relation._id;
+        const relationRows = (
+          await db.collection(coreNames.relation).find({}).toArray()
+        ).filter(
+          (row: any) =>
+            String(row._id) === String(owningId) ||
+            String(row.mappedBy) === String(owningId),
         );
+        const relationIds = relationRows.map((row: any) => row._id);
+        if (
+          !relationIds.some((id: any) => String(id) === String(relation._id))
+        ) {
+          relationIds.push(relation._id);
+        }
+
+        if (
+          await this.physicalMigration.mongoCollectionExists(
+            SYSTEM_TABLES.fieldPermission,
+          )
+        ) {
+          await db
+            .collection(SYSTEM_TABLES.fieldPermission)
+            .deleteMany({ relation: { $in: relationIds } });
+        }
+        await db
+          .collection(coreNames.relation)
+          .deleteMany({ _id: { $in: relationIds } });
+        this.verbose(`  Removed relation metadata pair: ${relName}`);
+        continue;
       }
+
+      const knex = this.queryBuilderService.getKnex();
+      const relation = await knex(coreNames.relation)
+        .where(sourceTableField, tableId)
+        .where('propertyName', relName)
+        .first();
+      if (!relation) continue;
+
+      const owningId = relation.mappedById || relation.id;
+      const relationRows = (
+        await knex(coreNames.relation).select('id', 'mappedById')
+      ).filter(
+        (row: any) =>
+          String(row.id) === String(owningId) ||
+          String(row.mappedById) === String(owningId),
+      );
+      const relationIds = relationRows.map((row: any) => row.id);
+      if (!relationIds.includes(relation.id)) relationIds.push(relation.id);
+
+      if (await knex.schema.hasTable(SYSTEM_TABLES.fieldPermission)) {
+        await knex(SYSTEM_TABLES.fieldPermission)
+          .whereIn('relationId', relationIds)
+          .delete();
+      }
+      await knex(coreNames.relation).whereIn('id', relationIds).delete();
+      this.verbose(`  Removed relation metadata pair: ${relName}`);
     }
   }
 

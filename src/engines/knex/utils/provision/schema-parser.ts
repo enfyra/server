@@ -1,13 +1,19 @@
-import {
-  getJunctionTableName,
-  getForeignKeyColumnName,
-} from '@enfyra/kernel';
+import { getJunctionTableName, getForeignKeyColumnName } from '@enfyra/kernel';
 import {
   ColumnDef,
   TableDef,
   JunctionTableDef,
   KnexTableSchema,
 } from '../../../../shared/types/database-init.types';
+
+const NON_NULL_CORE_COLUMNS = new Set([
+  'enfyra_column.isGenerated',
+  'enfyra_column.isNullable',
+]);
+const NON_NULL_CORE_RELATIONS = new Set([
+  'enfyra_column.table',
+  'enfyra_relation.sourceTable',
+]);
 
 export function parseSnapshotToSchema(
   snapshot: Record<string, any>,
@@ -46,7 +52,25 @@ export function parseSnapshotToSchema(
 
     schemas.push({
       tableName,
-      definition: { ...tableDef },
+      definition: {
+        ...tableDef,
+        columns:
+          tableDef.columns?.map((column) => ({
+            ...column,
+            ...(NON_NULL_CORE_COLUMNS.has(`${tableName}.${column.name}`)
+              ? { isNullable: false }
+              : {}),
+          })) ?? [],
+        relations:
+          tableDef.relations?.map((relation) => ({
+            ...relation,
+            ...(NON_NULL_CORE_RELATIONS.has(
+              `${tableName}.${relation.propertyName}`,
+            )
+              ? { isNullable: false }
+              : {}),
+          })) ?? [],
+      },
       junctionTables: [],
     });
   }

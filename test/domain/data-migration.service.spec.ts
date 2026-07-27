@@ -401,6 +401,54 @@ describe('DataMigrationService.migrateTable — end-to-end for publicMethods cle
     expect(qb.update).toHaveBeenCalledTimes(1);
   });
 
+  it('serializes SQL JSON arrays before updating scalar fields', async () => {
+    const qb = makeQueryBuilder({
+      find: jest.fn().mockResolvedValue({ data: [{ id: 1 }] }),
+    });
+    const svc = makeService(qb);
+
+    await (svc as any).migrateTable('enfyra_column', [
+      {
+        _unique: { name: { _eq: 'type' } },
+        options: ['int', 'varchar'],
+      },
+    ]);
+
+    expect(qb.update).toHaveBeenCalledWith(
+      'enfyra_column',
+      { where: [{ field: 'id', operator: '=', value: 1 }] },
+      { options: '["int","varchar"]' },
+    );
+  });
+
+  it('fails the migration when a target record cannot be updated', async () => {
+    const qb = makeQueryBuilder({
+      find: jest.fn().mockResolvedValue({ data: [{ id: 1 }] }),
+      update: jest.fn().mockRejectedValue(new Error('write failed')),
+    });
+    const svc = makeService(qb);
+
+    await expect(
+      (svc as any).migrateTable('enfyra_route', [
+        { _unique: { path: { _eq: '/me' } }, isEnabled: true },
+      ]),
+    ).rejects.toThrow(/write failed/);
+  });
+
+  it('accepts an absent optional update target during attestation', async () => {
+    const qb = makeQueryBuilder({
+      find: jest.fn().mockResolvedValue({ data: [] }),
+    });
+    const svc = makeService(qb);
+
+    await expect(
+      (svc as any).assertRecordTarget('enfyra_field_permission', {
+        _unique: { description: { _eq: 'optional record' } },
+        isSystem: true,
+      }),
+    ).resolves.toBeUndefined();
+  });
+
   it('updates existing own-password field permission through data migration', async () => {
     const uniqueFilter = {
       _and: [

@@ -1,7 +1,4 @@
-import * as fs from 'fs';
-import * as path from 'path';
-
-const DATA_ROOT = path.resolve(__dirname, '../../data');
+import { dataMigration, defaultData } from '../../src/data';
 
 const PUBLIC_METHODS: Record<string, string[]> = {
   '/enfyra_cors_origin': ['GET'],
@@ -34,10 +31,6 @@ const AUTHENTICATED_UNSCOPED_METHODS: Record<string, string[]> = {
   '/graphql-schema': ['GET'],
 };
 
-function loadJson(file: string) {
-  return JSON.parse(fs.readFileSync(path.join(DATA_ROOT, file), 'utf8'));
-}
-
 function routePath(record: any) {
   return record.path ?? record._unique?.path?._eq;
 }
@@ -47,10 +40,9 @@ function sortedMethods(value: unknown) {
 }
 
 describe.each([
-  ['default-data.json', (record: any) => record.path],
-  ['data-migration.json', routePath],
-])('%s route access bootstrap contract', (file, getPath) => {
-  const data = loadJson(file);
+  ['default-data.ts', defaultData, (record: any) => record.path],
+  ['data-migration.ts', dataMigration, routePath],
+])('%s route access bootstrap contract', (_file, data, getPath) => {
   const routes: any[] = data.enfyra_route ?? [];
 
   it.each(Object.entries(PUBLIC_METHODS))(
@@ -62,9 +54,7 @@ describe.each([
       expect(sortedMethods(route.publicMethods)).toEqual(
         sortedMethods(methods),
       );
-      expect(route.availableMethods).toEqual(
-        expect.arrayContaining(methods),
-      );
+      expect(route.availableMethods).toEqual(expect.arrayContaining(methods));
     },
   );
 
@@ -77,9 +67,7 @@ describe.each([
       expect(sortedMethods(route.skipRoleGuardMethods)).toEqual(
         sortedMethods(methods),
       );
-      expect(route.availableMethods).toEqual(
-        expect.arrayContaining(methods),
-      );
+      expect(route.availableMethods).toEqual(expect.arrayContaining(methods));
     },
   );
 

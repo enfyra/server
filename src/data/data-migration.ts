@@ -1,4 +1,6 @@
-{
+import type { BootstrapDataMigration } from '../engines/bootstrap/types';
+
+const dataMigration = {
   "_deletedRecords": [
     {
       "table": "enfyra_route",
@@ -1268,4 +1270,6 @@
       "defaultValue": "lucide:workflow"
     }
   ]
-}
+} satisfies BootstrapDataMigration;
+
+export default dataMigration;
