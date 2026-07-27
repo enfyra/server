@@ -3,6 +3,7 @@ import type {
   BootstrapSchemaExecutionPlan,
   BootstrapSchemaOperation,
 } from '../types';
+import { assertSchemaMutationPlan } from '../../../shared/utils/schema-mutation-plan.util';
 import {
   getValidTableRenames,
   hasColumnMetadataChanges,
@@ -318,26 +319,6 @@ function compileExecutionPhases(
     }
   }
 
-  const phases = buildBootstrapExecutionPhases(nodes);
-  const completionCount = new Map<string, number>();
-  for (const phase of phases) {
-    for (const node of phase.nodes) {
-      if (!node.completesChange) continue;
-      completionCount.set(
-        node.changeId,
-        (completionCount.get(node.changeId) ?? 0) + 1,
-      );
-    }
-  }
-  const invalid = operations.filter(
-    (operation) => completionCount.get(operation.id) !== 1,
-  );
-  if (invalid.length > 0) {
-    throw new Error(
-      `Bootstrap execution plan must complete each change exactly once: ${invalid
-        .map((operation) => operation.id)
-        .join(', ')}.`,
-    );
-  }
-  return phases;
+  assertSchemaMutationPlan(operations, nodes);
+  return buildBootstrapExecutionPhases(nodes);
 }
