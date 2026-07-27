@@ -177,9 +177,13 @@ export class SnapshotTableBuilder {
   columns(
     definitions: Record<string, SnapshotColumnBuilder>,
   ): SnapshotTableBuilder {
-    this.definition.columns = Object.entries(definitions).map(
-      ([name, definition]) => definition.build(name),
-    );
+    this.definition.columns = Object.entries(definitions).map(([name, definition]) => {
+      const column = definition.build(name);
+      if (this.definition.isSystem === true && column.isSystem === undefined) {
+        column.isSystem = true;
+      }
+      return column;
+    });
     return this;
   }
 
@@ -187,7 +191,13 @@ export class SnapshotTableBuilder {
     definitions: Record<string, SnapshotRelationBuilder>,
   ): SnapshotTableBuilder {
     this.definition.relations = Object.entries(definitions).map(
-      ([propertyName, definition]) => definition.build(propertyName),
+      ([propertyName, definition]) => {
+        const relation = definition.build(propertyName);
+        if (this.definition.isSystem === true && relation.isSystem === undefined) {
+          relation.isSystem = true;
+        }
+        return relation;
+      },
     );
     return this;
   }
