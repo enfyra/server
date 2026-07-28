@@ -39,9 +39,9 @@ describe('ProvisionService', () => {
     (service as any).journalRecoveryTimeoutMs = 5;
 
     const promise = service.recoverJournals();
+    const assertion = expect(promise).rejects.toThrow('timed out');
     await vi.advanceTimersByTimeAsync(5);
-
-    await expect(promise).rejects.toThrow('timed out');
+    await assertion;
     rejectDangling!(new Error('cleanup'));
     vi.useRealTimers();
   });
