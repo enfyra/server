@@ -257,9 +257,9 @@ describe('MongoDB Migration Compensation', () => {
       };
 
       const mockCollection = {
-        find: jest.fn().mockReturnValue({
-          toArray: jest.fn().mockResolvedValue([entry]),
-        }),
+        find: jest.fn()
+          .mockReturnValueOnce({ toArray: jest.fn().mockResolvedValue([entry]) })
+          .mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
         findOne: jest.fn().mockResolvedValue(entry),
         updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
         insertOne: jest.fn(),
@@ -297,9 +297,9 @@ describe('MongoDB Migration Compensation', () => {
         },
       };
       const mockCollection = {
-        find: jest.fn().mockReturnValue({
-          toArray: jest.fn().mockResolvedValue([entry]),
-        }),
+        find: jest.fn()
+          .mockReturnValueOnce({ toArray: jest.fn().mockResolvedValue([entry]) })
+          .mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
         findOne: jest.fn().mockResolvedValue(entry),
         updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
       };
@@ -321,18 +321,19 @@ describe('MongoDB Migration Compensation', () => {
       expect(executeDiff).toHaveBeenCalledWith(entry.downDiff, entry);
     });
 
-    it('recoverPending skips when Redis lock is held by another instance', async () => {
+    it('recoverPending waits and verifies when Redis lock is held by another instance', async () => {
       const mockCollection = {
         find: jest.fn().mockReturnValue({
-          toArray: jest.fn().mockResolvedValue([{ uuid: 'mj-test' }]),
+          toArray: jest.fn().mockResolvedValue([]),
         }),
       };
       const acquire = jest.fn().mockResolvedValue(false);
+      const get = jest.fn().mockResolvedValue(null);
       const service = new MongoMigrationJournalService({
         mongoService: {
           getDb: () => ({ collection: () => mockCollection }),
         } as any,
-        cacheService: { acquire, release: jest.fn() } as any,
+        cacheService: { acquire, release: jest.fn(), get } as any,
         instanceService: { getInstanceId: () => 'instance-a' } as any,
       });
       const executeDiff = jest.fn();
@@ -340,6 +341,7 @@ describe('MongoDB Migration Compensation', () => {
       await service.recoverPending(executeDiff);
 
       expect(executeDiff).not.toHaveBeenCalled();
+      expect(get).toHaveBeenCalled();
     });
 
     it('recoverPending without restoreMetadataFn still works', async () => {
