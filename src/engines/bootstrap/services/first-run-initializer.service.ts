@@ -108,6 +108,8 @@ export class FirstRunInitializer {
   private async runWithProgress(): Promise<void> {
     if (!(await this.isNeeded())) return;
 
+    const originalNoDeprecation = process.noDeprecation;
+    process.noDeprecation = true;
     const start = Date.now();
     const waitDeadline = start + REDIS_TTL.PROVISION_LOCK_TTL;
     const lockValue = this.instanceService.getInstanceId();
@@ -320,6 +322,7 @@ export class FirstRunInitializer {
       await this.cacheService.release(PROVISION_LOCK_KEY, lockValue, {
         global: true,
       });
+      process.noDeprecation = originalNoDeprecation;
     }
   }
 
