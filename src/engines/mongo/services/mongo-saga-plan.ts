@@ -8,7 +8,7 @@ import {
 } from './mongo-saga-snapshot.service';
 import { MongoService } from './mongo.service';
 import { DatabaseException } from '../../../domain/exceptions';
-import { ISagaOptions, ISagaContext } from './mongo-saga.types';
+import { type ISagaContext, type ResolvedSagaOptions } from './mongo-saga.types';
 
 interface IPlanInsert {
   type: 'insert';
@@ -47,7 +47,7 @@ export class SagaPlan {
     private readonly lockService: MongoSagaLockService,
     private readonly snapshotService: MongoSagaSnapshotService,
     private readonly mongoService: MongoService,
-    private readonly options: Required<ISagaOptions>,
+    private readonly options: ResolvedSagaOptions,
     private readonly context: ISagaContext,
   ) {}
 

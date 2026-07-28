@@ -54,6 +54,7 @@ export class MongoMigrationJournalService {
 
     const uuid = `mj-${randomUUID()}`;
     const now = new Date();
+    const saga = this.mongoService.getActiveSagaSession();
     await this.getCollection().insertOne({
       uuid,
       tableName: params.tableName,
@@ -64,6 +65,9 @@ export class MongoMigrationJournalService {
       beforeSnapshot: params.beforeSnapshot || null,
       afterSnapshot: params.afterSnapshot || null,
       rawBeforeSnapshot: params.rawBeforeSnapshot || null,
+      sagaSessionId: saga?.txId ?? null,
+      purpose: saga?.purpose ?? null,
+      mutationId: saga?.mutationId ?? null,
       errorMessage: null,
       startedAt: null,
       completedAt: null,
@@ -190,6 +194,7 @@ export class MongoMigrationJournalService {
         MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
         lockValue,
         REDIS_TTL.MONGO_MIGRATION_SAGA_RECOVERY_LOCK_TTL,
+        { global: true },
       );
       if (!acquired) {
         this.logger.log(
@@ -200,6 +205,7 @@ export class MongoMigrationJournalService {
           await new Promise((r) => setTimeout(r, 2000));
           const lockValue2 = await this.cacheService.get(
             MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
+            { global: true },
           );
           if (!lockValue2) break;
         }
@@ -214,11 +220,35 @@ export class MongoMigrationJournalService {
         return;
       }
       try {
+        let leaseLost = false;
+        const renewal = setInterval(() => {
+          void this.cacheService!
+            .renew(
+              MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
+              lockValue,
+              REDIS_TTL.MONGO_MIGRATION_SAGA_RECOVERY_LOCK_TTL,
+              { global: true },
+            )
+            .then((renewed) => {
+              if (!renewed) leaseLost = true;
+            })
+            .catch(() => {
+              leaseLost = true;
+            });
+        }, Math.floor(REDIS_TTL.MONGO_MIGRATION_SAGA_RECOVERY_LOCK_TTL / 3));
+        try {
         await this.recoverPendingBody(executeDiff, restoreMetadataFn);
+          if (leaseLost) {
+            throw new Error('Mongo migration recovery barrier lease was lost');
+          }
+        } finally {
+          clearInterval(renewal);
+        }
       } finally {
         await this.cacheService.release(
           MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
           lockValue,
+          { global: true },
         );
       }
       return;
@@ -262,6 +292,9 @@ export class MongoMigrationJournalService {
         `Recovering ${entry.uuid} [${entry.operation}] ${entry.tableName}`,
       );
       try {
+        if (await this.reconcileCorrelatedSagaJournal(entry)) {
+          continue;
+        }
         await this.executeRolldown(entry.uuid, executeDiff, restoreMetadataFn);
       } catch (error) {
         this.logger.error(
@@ -283,5 +316,60 @@ export class MongoMigrationJournalService {
         `Mongo migration recovery incomplete: ${remaining.length} unresolved journal(s) remain after recovery`,
       );
     }
+  }
+
+  private async reconcileCorrelatedSagaJournal(entry: any): Promise<boolean> {
+    if (entry.purpose !== 'runtime-schema' || !entry.mutationId) {
+      return false;
+    }
+    const db = getMongoRawDb(this.mongoService);
+    const session = await db.collection('system_saga_sessions').findOne({
+      $or: [
+        ...(entry.sagaSessionId
+          ? [{ txId: entry.sagaSessionId }, { sessionId: entry.sagaSessionId }]
+          : []),
+        { mutationId: entry.mutationId },
+      ],
+    });
+    if (session) {
+      const leaseExpiresAt = session.expiresAt
+        ? new Date(session.expiresAt).getTime()
+        : 0;
+      const live =
+        ['active', 'committing', 'rolling_back'].includes(session.status) &&
+        leaseExpiresAt > Date.now();
+      throw new Error(
+        live
+          ? `Correlated runtime saga ${session.txId} is still live`
+          : `Correlated runtime saga ${session.txId} requires saga recovery before migration journal recovery`,
+      );
+    }
+
+    const runtimeJournal = await db
+      .collection('enfyra_runtime_schema_journal')
+      .findOne({ mutationId: entry.mutationId });
+    const stage = runtimeJournal?.stage;
+    if (['captured', 'failed', 'rolled_back'].includes(stage)) {
+      await this.markRolledBack(entry.uuid);
+      this.logger.warn(
+        `Correlated journal ${entry.uuid} already compensated by saga ${entry.sagaSessionId ?? 'unknown'}`,
+      );
+      return true;
+    }
+    if (
+      [
+        'target_attested',
+        'db_committed',
+        'activation_pending',
+        'activated',
+        'completed',
+      ].includes(stage)
+    ) {
+      await this.markCompleted(entry.uuid);
+      return true;
+    }
+    throw new Error(
+      `Cannot safely classify correlated Mongo migration ${entry.uuid}: runtime journal stage=${stage ?? 'missing'}`,
+    );
   }
 }

@@ -58,10 +58,11 @@ describe('DynamicRepository route method relations', () => {
     };
     const repo = makeRepo({
       tableName: 'enfyra_table',
-      tableHandlerService: {
+      runtimeMetadataSchemaRouterService: {
         updateTable: vi.fn().mockRejectedValue(
           new ValidationException('Invalid table schema', details),
         ),
+        markActivated: vi.fn().mockResolvedValue(undefined),
       } as any,
       tableValidationService: {
         assertTableValid: vi.fn().mockResolvedValue(undefined),

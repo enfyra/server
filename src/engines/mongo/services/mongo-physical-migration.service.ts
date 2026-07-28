@@ -170,6 +170,75 @@ export class MongoPhysicalMigrationService {
     this.invalidateActiveRenameCache(tableName);
   }
 
+  async applyRuntimeFieldChanges(
+    tableName: string,
+    renames: Array<{ oldName: string; newName: string }>,
+    removedFields: string[],
+  ): Promise<void> {
+    if (!this.databaseConfigService.isMongoDb()) return;
+    if (!this.mongoService.getActiveSagaSession()) {
+      throw new Error(
+        'Mongo runtime field migration requires an active application saga',
+      );
+    }
+
+    const collection = this.mongoService.getDb().collection(tableName);
+    const validRenames = renames.filter(
+      (rename) =>
+        rename.oldName &&
+        rename.newName &&
+        rename.oldName !== rename.newName,
+    );
+    const validRemovedFields = [
+      ...new Set(removedFields.filter((field) => field && field !== '_id')),
+    ];
+
+    for (const rename of validRenames) {
+      const conflicts = await collection.countDocuments({
+        [rename.oldName]: { $exists: true },
+        [rename.newName]: { $exists: true },
+      });
+      if (conflicts > 0) {
+        throw new Error(
+          `Mongo runtime field rename conflict for ${tableName}.${rename.oldName} -> ${rename.newName}: ${conflicts} document(s) already contain both fields`,
+        );
+      }
+    }
+
+    for (const rename of validRenames) {
+      await collection.updateMany(
+        {
+          [rename.oldName]: { $exists: true },
+          [rename.newName]: { $exists: false },
+        },
+        { $rename: { [rename.oldName]: rename.newName } },
+      );
+    }
+    for (const field of validRemovedFields) {
+      await collection.updateMany(
+        { [field]: { $exists: true } },
+        { $unset: { [field]: '' } },
+      );
+    }
+
+    const unresolvedFields = [
+      ...new Set([
+        ...validRenames.map((rename) => rename.oldName),
+        ...validRemovedFields,
+      ]),
+    ];
+    for (const field of unresolvedFields) {
+      const remaining = await collection.countDocuments({
+        [field]: { $exists: true },
+      });
+      if (remaining > 0) {
+        throw new Error(
+          `Mongo runtime field migration left ${remaining} document(s) with legacy field ${tableName}.${field}`,
+        );
+      }
+    }
+  }
+
   async getActiveFieldRenames(
     tableName: string,
   ): Promise<MongoFieldRenameMigration[]> {

@@ -52,6 +52,33 @@ function createSqlQueryBuilder(hasTableResults: boolean[]) {
 }
 
 describe('RuntimeReloadAuditService', () => {
+  it('does not write the same Mongo audit path through set and setOnInsert', async () => {
+    const updateOne = vi.fn().mockResolvedValue({ acknowledged: true });
+    const queryBuilderService = {
+      isMongoDb: () => true,
+      getMongoDb: () => ({
+        listCollections: () => ({ hasNext: vi.fn(async () => true) }),
+        collection: () => ({ updateOne }),
+      }),
+    } as any;
+    const service = new RuntimeReloadAuditService({ queryBuilderService });
+
+    await expect(
+      service.markBuilding({
+        reloadId: 'reload-mongo-1',
+        flow: 'metadata',
+        table: 'enfyra_table',
+        scope: 'full',
+        chain: ['metadata'],
+      }),
+    ).resolves.toBe(true);
+
+    const update = updateOne.mock.calls[0][1];
+    expect(Object.keys(update.$setOnInsert)).not.toContain('status');
+    expect(Object.keys(update.$setOnInsert)).not.toContain('updatedAt');
+    expect(update.$set).toMatchObject({ status: 'building' });
+  });
+
   it('rechecks availability after the audit table appears and records terminal status', async () => {
     const { rows, queryBuilderService, hasTable } = createSqlQueryBuilder([
       false,

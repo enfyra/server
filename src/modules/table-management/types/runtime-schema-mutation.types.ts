@@ -1,4 +1,5 @@
 import type {
+  SchemaMutationBackend,
   SchemaMutationContract,
   SchemaMutationLogicalChange,
 } from '../../../shared/types/schema-mutation-contract.types';
@@ -12,6 +13,16 @@ export interface RuntimeSchemaColumnContract {
   isPrimary: boolean;
   isGenerated: boolean;
   defaultValue: unknown;
+  description: string;
+  values: unknown;
+  isUnique: boolean;
+  isPublished: boolean;
+  isUpdatable: boolean;
+  isEncrypted: boolean;
+  isIndex: boolean;
+  options: unknown;
+  metadata: unknown;
+  placeholder: string;
 }
 
 export interface RuntimeSchemaRelationContract {
@@ -24,14 +35,29 @@ export interface RuntimeSchemaRelationContract {
   isNullable: boolean;
   onDelete: string;
   inversePropertyName: string;
+  description: string;
+  isEager: boolean;
+  isInverseEager: boolean;
+  isPublished: boolean;
+  isUpdatable: boolean;
 }
 
 export interface RuntimeTableSchemaContract {
   name: string;
+  description: string;
+  alias: string;
+  isSingleRecord: boolean;
+  graphqlEnabled: boolean;
+  validateBody: boolean;
   columns: readonly RuntimeSchemaColumnContract[];
   relations: readonly RuntimeSchemaRelationContract[];
   uniques: unknown;
   indexes: unknown;
+}
+
+export interface RuntimeSchemaNormalizationOptions {
+  backend?: SchemaMutationBackend;
+  mode?: 'intent' | 'persisted';
 }
 
 export type RuntimeSchemaChangeKind =
@@ -98,8 +124,10 @@ export interface RuntimeSchemaContractContext {
   tableName: string;
   sourceRevision: string | null;
   targetRevision: string | null;
+  executionBodyRevision: string | null;
   source: RuntimeTableSchemaContract | null;
   target: RuntimeTableSchemaContract | null;
+  executionTarget: RuntimeTableSchemaContract | null;
   diff: RuntimeSchemaDiff;
   confirmationDigest: string;
   affectedResources: RuntimeSchemaAffectedResources;

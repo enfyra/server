@@ -23,6 +23,7 @@ function makeService(db: Db, add = vi.fn()) {
   return new MongoPhysicalMigrationService({
     mongoService: {
       getDb: () => db,
+      getActiveSagaSession: () => ({ txId: 'runtime-schema-saga' }),
     } as any,
     databaseConfigService: {
       isMongoDb: () => true,
@@ -140,6 +141,56 @@ describe('MongoPhysicalMigrationService', () => {
       .collection('enfyra_schema_physical_migration')
       .findOne({ migrationId: migration?.migrationId });
     expect(completed?.status).toBe('completed');
+  });
+
+  runOrSkip('applies runtime field renames and removals synchronously before attestation', async () => {
+    await db.collection('runtime_posts').insertMany([
+      {
+        _id: new ObjectId(),
+        old_title: 'one',
+        removed_field: 'legacy',
+      },
+      {
+        _id: new ObjectId(),
+        old_title: 'two',
+        removed_field: 'legacy',
+      },
+    ]);
+
+    const add = vi.fn().mockResolvedValue({});
+    const service = makeService(db, add);
+    await service.applyRuntimeFieldChanges(
+      'runtime_posts',
+      [{ oldName: 'old_title', newName: 'title' }],
+      ['removed_field'],
+    );
+
+    const rows = await db.collection('runtime_posts').find().toArray();
+    expect(rows.map((row) => row.title).sort()).toEqual(['one', 'two']);
+    expect(rows.some((row) => row.old_title !== undefined)).toBe(false);
+    expect(rows.some((row) => row.removed_field !== undefined)).toBe(false);
+    expect(add).not.toHaveBeenCalled();
+  });
+
+  runOrSkip('rejects runtime field rename conflicts before changing documents', async () => {
+    await db.collection('runtime_conflicts').insertOne({
+      _id: new ObjectId(),
+      old_title: 'old',
+      title: 'new',
+    });
+
+    const service = makeService(db);
+    await expect(
+      service.applyRuntimeFieldChanges(
+        'runtime_conflicts',
+        [{ oldName: 'old_title', newName: 'title' }],
+        [],
+      ),
+    ).rejects.toThrow(/rename conflict/i);
+
+    await expect(
+      db.collection('runtime_conflicts').findOne({ old_title: 'old' }),
+    ).resolves.toMatchObject({ old_title: 'old', title: 'new' });
   });
 
   runOrSkip('query executor reads renamed field through pending migration fallback', async () => {

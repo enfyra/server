@@ -5,6 +5,7 @@ import { AuthorizationException } from '../../../domain/exceptions';
 import type { RuntimeNamespaceLifecycleService } from '../../../engines/cache/services/runtime-namespace-lifecycle.service';
 import {
   BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
+  MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
   PROVISION_LOCK_KEY,
   SAGA_ORPHAN_RECOVERY_LOCK_KEY,
   SYSTEM_QUEUES,
@@ -340,6 +341,7 @@ export class RedisAdminService {
         BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
         PROVISION_LOCK_KEY,
         SAGA_ORPHAN_RECOVERY_LOCK_KEY,
+        MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
       ].includes(key)
     ) {
       return {
@@ -789,6 +791,7 @@ export class RedisAdminService {
         BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
         PROVISION_LOCK_KEY,
         SAGA_ORPHAN_RECOVERY_LOCK_KEY,
+        MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
       ].includes(key)
     ) {
       return undefined;
@@ -810,6 +813,7 @@ export class RedisAdminService {
         BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
         PROVISION_LOCK_KEY,
         SAGA_ORPHAN_RECOVERY_LOCK_KEY,
+        MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
       ].includes(key)
     ) {
       return key;
@@ -829,6 +833,7 @@ export class RedisAdminService {
         BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
         PROVISION_LOCK_KEY,
         SAGA_ORPHAN_RECOVERY_LOCK_KEY,
+        MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
       ].includes(key)
     ) {
       return key;
@@ -892,6 +897,7 @@ export class RedisAdminService {
         BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
         PROVISION_LOCK_KEY,
         SAGA_ORPHAN_RECOVERY_LOCK_KEY,
+        MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
       ].includes(key)
     );
   }

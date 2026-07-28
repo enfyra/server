@@ -20,6 +20,7 @@ import { isBootstrapVerbose } from '../utils/bootstrap-logging.util';
 import { runWithBootstrapLogMode } from '../../../shared/bootstrap-log-context';
 import { buildBootstrapChangePlan } from '../utils/bootstrap-change-plan.util';
 import type { BootstrapChangeStage } from '../types';
+import type { MongoSagaCoordinator } from '../../mongo';
 
 const BOOTSTRAP_PROGRESS_BAR_WIDTH = 30;
 
@@ -39,6 +40,7 @@ export class FirstRunInitializer {
   private readonly routeDefinitionProcessor: RouteDefinitionProcessor;
   private readonly bootstrapUnitOfWorkService: BootstrapUnitOfWorkService;
   private readonly bootstrapDefinitionService: BootstrapDefinitionService;
+  private readonly mongoSagaCoordinator?: MongoSagaCoordinator;
   private lastProgressLineLength = 0;
   private progressTotal = 0;
   private progressCompleted = 0;
@@ -59,6 +61,7 @@ export class FirstRunInitializer {
     routeDefinitionProcessor: RouteDefinitionProcessor;
     bootstrapUnitOfWorkService: BootstrapUnitOfWorkService;
     bootstrapDefinitionService?: BootstrapDefinitionService;
+    mongoSagaCoordinator?: MongoSagaCoordinator;
   }) {
     this.commonService = deps.commonService;
     this.queryBuilderService = deps.queryBuilderService;
@@ -75,6 +78,7 @@ export class FirstRunInitializer {
     this.bootstrapUnitOfWorkService = deps.bootstrapUnitOfWorkService;
     this.bootstrapDefinitionService =
       deps.bootstrapDefinitionService ?? new BootstrapDefinitionService();
+    this.mongoSagaCoordinator = deps.mongoSagaCoordinator;
   }
 
   async isNeeded(): Promise<boolean> {
@@ -115,6 +119,7 @@ export class FirstRunInitializer {
         PROVISION_LOCK_KEY,
         lockValue,
         REDIS_TTL.PROVISION_LOCK_TTL,
+        { global: true },
       );
       if (acquired) break;
 
@@ -134,6 +139,10 @@ export class FirstRunInitializer {
 
     const lease = this.startProvisionLease(lockValue);
     try {
+      await this.mongoSagaCoordinator?.recoverOrWaitForPurpose(
+        'bootstrap',
+        REDIS_TTL.PROVISION_LOCK_TTL,
+      );
       this.logPlanning(mode, 'planning bootstrap changes');
       await lease.assertOwned();
       const preparedSchemaPlan =
@@ -162,8 +171,10 @@ export class FirstRunInitializer {
         const coreT0 = Date.now();
         this.logPlannedProgress(mode, 'migrating core metadata tables');
         await this.runOwnedStep(lease, () =>
-          this.metadataMigrationService.executeCoreMigrationPlan((operation) =>
-            this.completeProgressChange(changePlan.changes, operation.id, mode),
+          this.metadataMigrationService.executeCoreMigrationPlan(
+            (operation) =>
+              this.completeProgressChange(changePlan.changes, operation.id, mode),
+            () => lease.assertOwned(),
           ),
         );
         this.logVerbose(
@@ -191,6 +202,7 @@ export class FirstRunInitializer {
                 operation.id,
                 mode,
               ),
+            () => lease.assertOwned(),
           ),
         );
         await this.runOwnedStep(lease, () =>
@@ -305,7 +317,9 @@ export class FirstRunInitializer {
       throw error;
     } finally {
       await lease.stop();
-      await this.cacheService.release(PROVISION_LOCK_KEY, lockValue);
+      await this.cacheService.release(PROVISION_LOCK_KEY, lockValue, {
+        global: true,
+      });
     }
   }
 
@@ -330,7 +344,9 @@ export class FirstRunInitializer {
       if (stopped || lost) return Promise.resolve(false);
       if (pending) return pending;
       pending = this.cacheService
-        .renew(PROVISION_LOCK_KEY, lockValue, REDIS_TTL.PROVISION_LOCK_TTL)
+        .renew(PROVISION_LOCK_KEY, lockValue, REDIS_TTL.PROVISION_LOCK_TTL, {
+          global: true,
+        })
         .then((renewed) => {
           if (!renewed) lost = true;
           return renewed;
@@ -581,7 +597,10 @@ export class FirstRunInitializer {
         if ((await this.findFirstSetting())?.isInit) return 'initialized';
       } catch {}
       try {
-        if ((await this.cacheService.get(PROVISION_LOCK_KEY)) === null) {
+        if (
+          (await this.cacheService.get(PROVISION_LOCK_KEY, { global: true })) ===
+          null
+        ) {
           return 'unlocked';
         }
       } catch {}

@@ -33,6 +33,7 @@ export class SqlTableCreateService extends SqlTableHandlerService {
     return await this.runWithSchemaLock(
       `table:create:${body?.name || 'unknown'}`,
       () => this.createTableInternal(body),
+      (context as any)?.$onLockAcquired,
     );
   }
   private async createTableInternal(body: TCreateTableBody) {

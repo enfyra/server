@@ -11,6 +11,7 @@ describe('BootstrapUnitOfWorkService', () => {
       knexService: { transaction },
       mongoService: {},
       mySqlBootstrapSnapshotService: {},
+      mySqlRuntimeWriteBarrierService: {},
     } as any);
     const callback = jest.fn(async () => 'committed');
 
@@ -31,6 +32,7 @@ describe('BootstrapUnitOfWorkService', () => {
       knexService: {},
       mongoService: { runInSaga },
       mySqlBootstrapSnapshotService: {},
+      mySqlRuntimeWriteBarrierService: {},
     } as any);
 
     await expect(service.run(async () => 'committed')).resolves.toBe(
@@ -39,7 +41,11 @@ describe('BootstrapUnitOfWorkService', () => {
     expect(runInSaga).toHaveBeenCalledWith(expect.any(Function), {
       forceApplicationTransaction: true,
       scopeRawDbAccess: true,
-      sagaOptions: { maxDurationMs: expect.any(Number) },
+      sagaOptions: {
+        maxDurationMs: expect.any(Number),
+        purpose: 'bootstrap',
+        mutationId: expect.stringMatching(/^bootstrap:/),
+      },
     });
   });
 
@@ -53,6 +59,7 @@ describe('BootstrapUnitOfWorkService', () => {
       knexService: { transaction },
       mongoService: {},
       mySqlBootstrapSnapshotService: {},
+      mySqlRuntimeWriteBarrierService: {},
     } as any);
 
     await expect(
@@ -64,6 +71,7 @@ describe('BootstrapUnitOfWorkService', () => {
 
   it('uses durable compensation for MySQL bootstrap DDL and data', async () => {
     const run = jest.fn(async (callback) => callback());
+    const runExclusive = jest.fn(async (_context, callback) => callback());
     const service = new BootstrapUnitOfWorkService({
       databaseConfigService: {
         isMongoDb: () => false,
@@ -72,11 +80,17 @@ describe('BootstrapUnitOfWorkService', () => {
       knexService: {},
       mongoService: {},
       mySqlBootstrapSnapshotService: { run },
+      mySqlRuntimeWriteBarrierService: { runExclusive },
     } as any);
 
     await expect(service.run(async () => 'committed')).resolves.toBe(
       'committed',
     );
-    expect(run).toHaveBeenCalledTimes(1);
+    const fenceContext = runExclusive.mock.calls[0][0];
+    expect(fenceContext.mutationId).toMatch(/^bootstrap:/);
+    expect(runExclusive).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith(expect.any(Function), {
+      mutationId: fenceContext.mutationId,
+    });
   });
 });

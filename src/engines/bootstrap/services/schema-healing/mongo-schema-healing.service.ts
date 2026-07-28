@@ -157,7 +157,7 @@ export class MongoSchemaHealingService {
         continue;
       }
 
-      await this.mergeMongoJunctionCollection(db, {
+      const mergeResult = await this.mergeMongoJunctionCollection(db, {
         oldJunctionTableName: legacyTable,
         oldJunctionSourceColumn: legacyColumns.sourceColumn,
         oldJunctionTargetColumn: legacyColumns.targetColumn,
@@ -165,6 +165,12 @@ export class MongoSchemaHealingService {
         junctionSourceColumn: target.junctionSourceColumn,
         junctionTargetColumn: target.junctionTargetColumn,
       });
+      if (mergeResult.unmappable > 0) {
+        throw new Error(
+          `Junction healing blocked: ${mergeResult.unmappable} unmappable row(s) in '${legacyTable}'. ` +
+            `Legacy collection will NOT be dropped until all source rows are mappable.`,
+        );
+      }
       await db.collection(legacyTable).drop();
       repaired++;
       this.log(
@@ -226,7 +232,7 @@ export class MongoSchemaHealingService {
         if (!(await this.mongoCollectionExists(db, candidate.tableName))) {
           continue;
         }
-        await this.mergeMongoJunctionCollection(db, {
+        const mergeResult = await this.mergeMongoJunctionCollection(db, {
           oldJunctionTableName: candidate.tableName,
           oldJunctionSourceColumn: candidate.sourceColumn,
           oldJunctionTargetColumn: candidate.targetColumn,
@@ -234,6 +240,12 @@ export class MongoSchemaHealingService {
           junctionSourceColumn: input.junctionSourceColumn,
           junctionTargetColumn: input.junctionTargetColumn,
         });
+        if (mergeResult.unmappable > 0) {
+          throw new Error(
+            `Junction healing blocked: ${mergeResult.unmappable} unmappable row(s) in '${candidate.tableName}'. ` +
+              `Legacy collection will NOT be dropped until all source rows are mappable.`,
+          );
+        }
         await db.collection(candidate.tableName).drop();
         this.log(
           `Merged legacy junction collection '${candidate.tableName}' into '${input.junctionTableName}'`,
@@ -283,10 +295,12 @@ export class MongoSchemaHealingService {
       junctionSourceColumn: string;
       junctionTargetColumn: string;
     },
-  ): Promise<void> {
+  ): Promise<{ merged: number; unmappable: number }> {
     const sourceCollection = db.collection(input.oldJunctionTableName);
     const targetCollection = db.collection(input.junctionTableName);
     const cursor = sourceCollection.find({});
+    let merged = 0;
+    let unmappable = 0;
 
     while (await cursor.hasNext()) {
       const doc = await cursor.next();
@@ -297,7 +311,10 @@ export class MongoSchemaHealingService {
       const targetValue =
         doc[input.oldJunctionTargetColumn || ''] ??
         doc[input.junctionTargetColumn];
-      if (sourceValue == null || targetValue == null) continue;
+      if (sourceValue == null || targetValue == null) {
+        unmappable++;
+        continue;
+      }
 
       await targetCollection.updateOne(
         {
@@ -312,7 +329,9 @@ export class MongoSchemaHealingService {
         },
         { upsert: true },
       );
+      merged++;
     }
+    return { merged, unmappable };
   }
 
   private getLegacyJunctionTableName(

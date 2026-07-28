@@ -51,6 +51,30 @@ describe('CacheService', () => {
     );
   });
 
+  it('uses one global coordination key across runtime namespaces', async () => {
+    const redis = {
+      set: vi.fn(async () => 'OK'),
+    };
+    const service = new CacheService({
+      redis: redis as any,
+      envService: {
+        get: (key: string) => (key === 'NODE_NAME' ? 'app-a' : null),
+      } as any,
+    });
+
+    await service.acquire('sys:provision_init_lock', 'token', 7000, {
+      global: true,
+    });
+
+    expect(redis.set).toHaveBeenCalledWith(
+      'sys:provision_init_lock',
+      'token',
+      'PX',
+      7000,
+      'NX',
+    );
+  });
+
   it('renews a lock only while the caller still owns it', async () => {
     const redis = {
       eval: vi.fn(async () => 1),

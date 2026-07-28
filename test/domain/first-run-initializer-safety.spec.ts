@@ -6,6 +6,7 @@ type SafetyFixtureOptions = {
   instanceId?: string;
   onPhase?: (phase: string, occurrence: number) => Promise<void> | void;
   state?: { isInit: boolean };
+  mongoSagaCoordinator?: Record<string, unknown>;
 };
 
 function createSafetyFixture(options: SafetyFixtureOptions = {}) {
@@ -92,6 +93,7 @@ function createSafetyFixture(options: SafetyFixtureOptions = {}) {
         runPhase('assertDataTargetState'),
       ),
     },
+    mongoSagaCoordinator: options.mongoSagaCoordinator,
   } as any);
 
   (initializer as any).findFirstSetting = jest.fn(async () => ({
@@ -146,6 +148,26 @@ describe('FirstRunInitializer safety', () => {
     expect(acquire).toHaveBeenCalledTimes(2);
     expect(get).toHaveBeenCalledTimes(2);
     expect(fixture.isInitialized()).toBe(true);
+  });
+
+  it('recovers an interrupted bootstrap saga before planning new mutations', async () => {
+    let recovered = false;
+    const fixture = createSafetyFixture({
+      mongoSagaCoordinator: {
+        recoverOrWaitForPurpose: jest.fn(async () => {
+          recovered = true;
+        }),
+      },
+      onPhase: (phase) => {
+        if (phase === 'prepareMigrationExecutionPlan') {
+          expect(recovered).toBe(true);
+        }
+      },
+    });
+
+    await (fixture.initializer as any).runWithProgress();
+
+    expect(recovered).toBe(true);
   });
 
   it('stops before the next mutation when the provision lease is lost', async () => {

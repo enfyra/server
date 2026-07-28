@@ -25,6 +25,7 @@ export interface RuntimeSchemaJournalEntry {
   startedAt: string;
   updatedAt: string;
   completedNodeIds: readonly string[];
+  sagaSessionId?: string;
   error?: string;
 }
 
@@ -35,6 +36,16 @@ export interface RuntimeSchemaExecutionResult {
   affectedTables: readonly string[];
   recordId?: string | number;
   preview?: Record<string, unknown>;
+  tableRenames?: Array<{ id: string | number; oldName: string; newName: string }>;
+}
+
+export interface RuntimeSchemaUnitOfWorkContext {
+  sagaSessionId?: string;
+}
+
+export interface RuntimeSchemaJournalAdvanceOptions {
+  completedNodeIds?: string[];
+  sagaSessionId?: string;
 }
 
 export interface RuntimeSchemaCommandAdapterContext {

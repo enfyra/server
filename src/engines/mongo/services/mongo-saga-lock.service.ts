@@ -4,6 +4,7 @@ import { Collection } from 'mongodb';
 import { MongoService } from './mongo.service';
 import { DatabaseException } from '../../../domain/exceptions';
 import { getErrorMessage } from '../../../shared/utils/error.util';
+import type { ISagaOptions } from './mongo-saga.types';
 
 export interface IResourceLock {
   _id: string;
@@ -23,7 +24,15 @@ export interface ITransactionMetadata {
   _id: string;
   txId: string;
   sessionId: string;
-  status: 'active' | 'committing' | 'rolling_back' | 'completed' | 'aborted';
+  status:
+    | 'active'
+    | 'committing'
+    | 'rolling_back'
+    | 'recovery_claimed'
+    | 'rollback_decided'
+    | 'recovery_failed'
+    | 'completed'
+    | 'aborted';
   startedAt: Date;
   lastActivityAt: Date;
   expiresAt: Date;
@@ -31,6 +40,13 @@ export interface ITransactionMetadata {
   collections: string[];
   instanceId: string;
   pid: number;
+  fenceEpoch: number;
+  purpose?: string;
+  mutationId?: string;
+  recoveryToken?: string;
+  recoveredBy?: string;
+  recoveryLeaseExpiresAt?: Date;
+  recoveryError?: string;
 }
 
 export interface ILockAcquisitionResult {
@@ -149,12 +165,18 @@ export class MongoSagaLockService {
         await metaCollection.createIndex({ sessionId: 1 }, { unique: true });
       } catch {}
     }
+    const expiresAtIndex = existingMetaIndexes.find(
+      (index: any) => index.name === 'expiresAt_1',
+    );
+    if (expiresAtIndex?.expireAfterSeconds != null) {
+      try {
+        await metaCollection.dropIndex('expiresAt_1');
+        metaIndexNames.delete('expiresAt_1');
+      } catch {}
+    }
     if (!metaIndexNames.has('expiresAt_1')) {
       try {
-        await metaCollection.createIndex(
-          { expiresAt: 1 },
-          { expireAfterSeconds: 0 },
-        );
+        await metaCollection.createIndex({ expiresAt: 1 });
       } catch {}
     }
     if (!metaIndexNames.has('status_1')) {
@@ -178,7 +200,9 @@ export class MongoSagaLockService {
       .collection<ITransactionMetadata>(this.sessionCollectionName);
   }
 
-  async beginTransaction(): Promise<string> {
+  async beginTransaction(
+    correlation?: Pick<ISagaOptions, 'purpose' | 'mutationId'>,
+  ): Promise<string> {
     await this.ensureCollections();
 
     const txId = `tx-${randomUUID()}`;
@@ -197,22 +221,25 @@ export class MongoSagaLockService {
       collections: [],
       instanceId: this.instanceId,
       pid: process.pid,
+      fenceEpoch: 1,
+      purpose: correlation?.purpose,
+      mutationId: correlation?.mutationId,
     });
 
     this.logger.debug(`[${txId}] Transaction started`);
     return txId;
   }
 
-  async renewTransactionLease(txId: string): Promise<void> {
+  async renewTransactionLease(txId: string): Promise<boolean> {
     await this.ensureCollections();
     const now = new Date();
     const lockExp = new Date(now.getTime() + this.lockTimeoutMs);
     const txExp = new Date(now.getTime() + this.txTimeoutMs);
     const meta = await this.getMetaCollection().findOne({ txId });
     if (!meta || meta.status !== 'active') {
-      return;
+      return false;
     }
-    await this.getMetaCollection().updateOne(
+    const result = await this.getMetaCollection().updateOne(
       { txId, status: 'active' },
       {
         $set: {
@@ -225,6 +252,7 @@ export class MongoSagaLockService {
       { txId },
       { $set: { expiresAt: lockExp } },
     );
+    return result.matchedCount > 0;
   }
 
   async acquireLocks(
@@ -629,8 +657,8 @@ export class MongoSagaLockService {
     await this.ensureCollections();
 
     try {
-      await this.getMetaCollection().updateOne(
-        { txId },
+      const result = await this.getMetaCollection().updateOne(
+        { txId, status: 'active', expiresAt: { $gt: new Date() } },
         {
           $set: {
             status: 'completed',
@@ -638,6 +666,9 @@ export class MongoSagaLockService {
           },
         },
       );
+      if (result.modifiedCount !== 1) {
+        throw new Error('transaction ownership or lease was lost');
+      }
 
       await this.releaseLocks(txId);
       await this.getMetaCollection().deleteOne({ txId });
@@ -655,8 +686,8 @@ export class MongoSagaLockService {
     await this.ensureCollections();
 
     try {
-      await this.getMetaCollection().updateOne(
-        { txId },
+      const result = await this.getMetaCollection().updateOne(
+        { txId, status: 'active' },
         {
           $set: {
             status: 'aborted',
@@ -664,6 +695,9 @@ export class MongoSagaLockService {
           },
         },
       );
+      if (result.modifiedCount !== 1) {
+        throw new Error('transaction ownership was lost');
+      }
 
       await this.releaseLocks(txId);
       await this.getMetaCollection().deleteOne({ txId });
@@ -755,6 +789,96 @@ export class MongoSagaLockService {
       .toArray();
   }
 
+  async assertTransactionOwnership(txId: string): Promise<void> {
+    await this.ensureCollections();
+    const session = await this.getMetaCollection().findOne({
+      txId,
+      status: 'active',
+      expiresAt: { $gt: new Date() },
+    });
+    if (!session) {
+      throw new DatabaseException(
+        `Saga transaction ${txId} lost its ownership lease`,
+        { txId, reason: 'saga_lease_lost' },
+      );
+    }
+  }
+
+  async claimNextRecoverableSession(
+    recoveredBy: string,
+  ): Promise<ITransactionMetadata | null> {
+    await this.ensureCollections();
+    const now = new Date();
+    const recoveryToken = randomUUID();
+    return await this.getMetaCollection().findOneAndUpdate(
+      {
+        $or: [
+          {
+            status: { $in: ['active', 'committing', 'rolling_back'] },
+            expiresAt: { $lte: now },
+          },
+          {
+            status: { $in: ['recovery_claimed', 'recovery_failed'] },
+            recoveryLeaseExpiresAt: { $lte: now },
+          },
+        ],
+      },
+      {
+        $set: {
+          status: 'recovery_claimed',
+          recoveryToken,
+          recoveredBy,
+          recoveryLeaseExpiresAt: new Date(now.getTime() + this.txTimeoutMs),
+        },
+        $unset: { recoveryError: '' },
+        $inc: { fenceEpoch: 1 },
+        $currentDate: { lastActivityAt: true },
+      },
+      { sort: { expiresAt: 1 }, returnDocument: 'after' },
+    );
+  }
+
+  async completeRecovery(txId: string, recoveryToken: string): Promise<void> {
+    await this.ensureCollections();
+    const decided = await this.getMetaCollection().updateOne(
+      { txId, status: 'recovery_claimed', recoveryToken },
+      {
+        $set: {
+          status: 'rollback_decided',
+          lastActivityAt: new Date(),
+        },
+      },
+    );
+    if (decided.modifiedCount !== 1) {
+      throw new Error(`Recovery ownership lost for saga ${txId}`);
+    }
+    await this.releaseLocks(txId);
+    await this.getMetaCollection().deleteOne({
+      txId,
+      status: 'rollback_decided',
+      recoveryToken,
+    });
+  }
+
+  async markRecoveryFailed(
+    txId: string,
+    recoveryToken: string,
+    error: string,
+  ): Promise<void> {
+    await this.ensureCollections();
+    await this.getMetaCollection().updateOne(
+      { txId, status: 'recovery_claimed', recoveryToken },
+      {
+        $set: {
+          status: 'recovery_failed',
+          recoveryError: error,
+          recoveryLeaseExpiresAt: new Date(),
+          lastActivityAt: new Date(),
+        },
+      },
+    );
+  }
+
   async getSagaStatus(txId: string): Promise<ITransactionMetadata | null> {
     return this.getMetaCollection().findOne({ txId });
   }
@@ -808,8 +932,8 @@ export class MongoSagaLockService {
 
   private async updateTransactionActivity(txId: string): Promise<void> {
     const now = new Date();
-    await this.getMetaCollection().updateOne(
-      { txId },
+    const result = await this.getMetaCollection().updateOne(
+      { txId, status: 'active' },
       {
         $set: {
           lastActivityAt: now,
@@ -817,6 +941,12 @@ export class MongoSagaLockService {
         },
       },
     );
+    if (result.matchedCount !== 1) {
+      throw new DatabaseException(
+        `Saga transaction ${txId} lost its ownership lease`,
+        { txId, reason: 'saga_lease_lost' },
+      );
+    }
   }
 
   private delay(ms: number): Promise<void> {

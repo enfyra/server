@@ -1,6 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import type { QueryBuilderService } from '@enfyra/kernel';
 import type {
+  RuntimeSchemaJournalAdvanceOptions,
   RuntimeSchemaJournalEntry,
   RuntimeSchemaJournalStage,
 } from '../types/runtime-schema-executor.types';
@@ -11,6 +12,7 @@ export class RuntimeSchemaJournalService {
   private readonly logger = new Logger(RuntimeSchemaJournalService.name);
   private readonly queryBuilderService: QueryBuilderService;
   private tableReady = false;
+  private mongoIndexReady = false;
 
   constructor(deps: { queryBuilderService: QueryBuilderService }) {
     this.queryBuilderService = deps.queryBuilderService;
@@ -30,6 +32,10 @@ export class RuntimeSchemaJournalService {
     if (this.queryBuilderService.isMongoDb()) {
       const db = this.queryBuilderService.getMongoDb();
       const col = db.collection(TABLE_NAME);
+      if (!this.mongoIndexReady) {
+        await col.createIndex({ mutationId: 1 }, { unique: true });
+        this.mongoIndexReady = true;
+      }
       return {
         insert: async (doc) => {
           await col.insertOne(doc as any);
@@ -111,7 +117,7 @@ export class RuntimeSchemaJournalService {
     const existing = await store.find(entry.mutationId);
     if (existing) {
       const stage = existing.stage as string;
-      if (stage === 'failed' || stage === 'rolled_back') {
+      if (stage === 'failed' || stage === 'rolled_back' || stage === 'completed') {
         await store.update(entry.mutationId, {
           stage: 'captured' as RuntimeSchemaJournalStage,
           contractHash: entry.contractHash,
@@ -140,14 +146,17 @@ export class RuntimeSchemaJournalService {
   async advanceStage(
     mutationId: string,
     stage: RuntimeSchemaJournalStage,
-    completedNodeIds?: string[],
+    options?: RuntimeSchemaJournalAdvanceOptions,
   ): Promise<void> {
     const store = await this.getStore();
     const fields: Record<string, unknown> = { stage };
-    if (completedNodeIds) {
+    if (options?.completedNodeIds) {
       fields.completedNodeIds = this.queryBuilderService.isMongoDb()
-        ? completedNodeIds
-        : JSON.stringify(completedNodeIds);
+        ? options.completedNodeIds
+        : JSON.stringify(options.completedNodeIds);
+    }
+    if (options?.sagaSessionId && this.queryBuilderService.isMongoDb()) {
+      fields.sagaSessionId = options.sagaSessionId;
     }
     await store.update(mutationId, fields);
   }
@@ -167,6 +176,26 @@ export class RuntimeSchemaJournalService {
     });
   }
 
+  async markRecoveredRollbacks(mutationIds: readonly string[]): Promise<void> {
+    if (mutationIds.length === 0) return;
+    const store = await this.getStore();
+    const unresolved = new Set([
+      'captured',
+      'executing',
+      'target_attested',
+      'db_committed',
+      'activation_pending',
+    ]);
+    for (const mutationId of new Set(mutationIds)) {
+      const entry = await store.find(mutationId);
+      if (!entry || !unresolved.has(String(entry.stage))) continue;
+      await store.update(mutationId, {
+        stage: 'rolled_back' as RuntimeSchemaJournalStage,
+        error: 'recovered: MySQL durable snapshot restored the pre-mutation database state',
+      });
+    }
+  }
+
   async recoverUnresolved(): Promise<void> {
     const store = await this.getStore();
     const unresolvedStages = [
@@ -178,14 +207,79 @@ export class RuntimeSchemaJournalService {
     ];
     const unresolved = await store.findByStage(unresolvedStages);
     if (unresolved.length === 0) return;
-    const details = unresolved
-      .map(
-        (entry: any) =>
-          `${entry.mutationId} (stage=${entry.stage}, backend=${entry.backend})`,
-      )
-      .join('; ');
+
+    const dbCommittedStages = new Set(['target_attested', 'db_committed', 'activation_pending']);
+    const failures: string[] = [];
+
+    for (const entry of unresolved) {
+      const e = entry as any;
+      try {
+        await this.assertNoLiveMongoSaga(e);
+        if (dbCommittedStages.has(e.stage)) {
+          await store.update(e.mutationId, {
+            stage: 'activation_pending' as RuntimeSchemaJournalStage,
+            error: `recovered: db was committed before crash at stage=${e.stage}; waiting for boot cache activation`,
+          });
+          this.logger.warn(
+            `Recovered runtime journal ${e.mutationId}: db_committed at stage=${e.stage}, activation remains pending`,
+          );
+        } else {
+          await store.update(e.mutationId, {
+            stage: 'failed' as RuntimeSchemaJournalStage,
+            error: `recovered: crash at stage=${e.stage}, db not committed`,
+          });
+          this.logger.warn(
+            `Recovered runtime journal ${e.mutationId}: crash at stage=${e.stage}, marked failed`,
+          );
+        }
+      } catch (err: any) {
+        failures.push(`${e.mutationId}: ${err.message}`);
+      }
+    }
+
+    if (failures.length > 0) {
+      throw new Error(
+        `Runtime journal recovery failed for ${failures.length} mutation(s): ${failures.join('; ')}`,
+      );
+    }
+  }
+
+  async completeRecoveredActivations(): Promise<void> {
+    const store = await this.getStore();
+    const pending = await store.findByStage(['activation_pending']);
+    for (const entry of pending) {
+      await store.update(String(entry.mutationId), {
+        stage: 'completed' as RuntimeSchemaJournalStage,
+        error: 'recovered: boot cache activation completed',
+      });
+    }
+  }
+
+  private async assertNoLiveMongoSaga(entry: any): Promise<void> {
+    if (!this.queryBuilderService.isMongoDb()) return;
+    const db = this.queryBuilderService.getMongoDb();
+    const session = await db.collection('system_saga_sessions').findOne({
+      $or: [
+        ...(entry.sagaSessionId
+          ? [
+              { txId: entry.sagaSessionId },
+              { sessionId: entry.sagaSessionId },
+            ]
+          : []),
+        { mutationId: entry.mutationId },
+      ],
+    });
+    if (!session) return;
+    const leaseExpiresAt = session.expiresAt
+      ? new Date(session.expiresAt).getTime()
+      : 0;
+    const live =
+      ['active', 'committing', 'rolling_back'].includes(session.status) &&
+      leaseExpiresAt > Date.now();
     throw new Error(
-      `Unresolved runtime schema mutations found, boot cannot continue: ${details}`,
+      live
+        ? `Correlated runtime saga ${session.txId} is still live`
+        : `Correlated runtime saga ${session.txId} requires saga recovery before runtime journal recovery`,
     );
   }
 

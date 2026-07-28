@@ -77,10 +77,38 @@ export class MetadataMongoOverlapReconciler {
       );
       if (mappedByKey) canonicalMappedByKeys.add(mappedByKey);
     }
+    let conflictCount = 0;
+    let skippedCount = 0;
+    const columns = [
+      ...new Set([
+        ...legacyRows.flatMap((row) => Object.keys(row)),
+        ...canonicalRows.flatMap((row) => Object.keys(row)),
+      ]),
+    ];
     const rowsToInsert = legacyRows.filter((row) => {
       const key = this.overlapIdentity.getCoreMetadataRowKey(rename, row);
-      if (key === null || key === undefined) return false;
+      if (key === null || key === undefined) {
+        skippedCount += 1;
+        return false;
+      }
       if (canonicalKeys.has(key)) {
+        const canonicalRow = this.overlapIdentity.findRowByOverlapKey(
+          rename,
+          canonicalRows,
+          key,
+          columns,
+        );
+        if (
+          canonicalRow &&
+          this.overlapIdentity.coreRowsConflict(
+            rename,
+            row,
+            canonicalRow,
+            columns,
+          )
+        ) {
+          conflictCount += 1;
+        }
         this.overlapIdentity.trackExistingCoreRowRemap(
           rename,
           row,
@@ -128,6 +156,11 @@ export class MetadataMongoOverlapReconciler {
       }
       this.verbose(
         `  Copied ${projectedRows.length} missing core metadata row(s) from ${rename.from} to ${rename.to}`,
+      );
+    }
+    if (conflictCount > 0 || skippedCount > 0) {
+      throw new Error(
+        `Mongo core overlap reconciliation blocked for ${rename.from} → ${rename.to}: ${conflictCount} conflicting row(s), ${skippedCount} unidentifiable row(s)`,
       );
     }
   }
@@ -238,6 +271,13 @@ export class MetadataMongoOverlapReconciler {
     this.verbose(
       `  Mongo collection overlap reconciled for ${rename.from} → ${rename.to}: copied ${rowsToInsert.length}, updated ${updatedCount}, conflicts ${conflictCount}, skipped ${skippedCount}`,
     );
+    if (conflictCount > 0 || skippedCount > 0) {
+      throw new Error(
+        `Mongo overlap reconciliation blocked for ${rename.from} → ${rename.to}: ` +
+          `${conflictCount} conflicting row(s), ${skippedCount} unidentifiable row(s). ` +
+          `Legacy store will NOT be dropped until all rows are proven copied or equivalent.`,
+      );
+    }
   }
 
   async reconcileMongoTableMetadataRows(

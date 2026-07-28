@@ -1,6 +1,7 @@
 import { RouteDefinitionProcessor } from '../../src/domain/bootstrap';
 import { getSqlJunctionPhysicalNames } from '../../src/modules/table-management/utils/sql-junction-naming.util';
 import { DatabaseConfigService } from '../../src/shared/services';
+import { ObjectId } from 'mongodb';
 
 function routeMethodJunction(propertyName: string) {
   return getSqlJunctionPhysicalNames({
@@ -172,5 +173,90 @@ describe('RouteDefinitionProcessor SQL relation writes', () => {
         1,
       ],
     });
+  });
+});
+
+describe('RouteDefinitionProcessor Mongo handler generation', () => {
+  beforeEach(() => {
+    DatabaseConfigService.overrideForTesting('mongodb');
+  });
+
+  afterEach(() => {
+    DatabaseConfigService.resetForTesting();
+  });
+
+  it('accepts ObjectId arrays in availableMethods', async () => {
+    const routeId = new ObjectId();
+    const tableId = new ObjectId();
+    const getId = new ObjectId();
+    const postId = new ObjectId();
+    const inserted: any[] = [];
+    const methods = [
+      { _id: getId, name: 'GET' },
+      { _id: postId, name: 'POST' },
+    ];
+    const handlerCollection = {
+      deleteMany: jest.fn(async () => ({ deletedCount: 0 })),
+      findOne: jest.fn(async () => null),
+      insertOne: jest.fn(async (data: any) => {
+        inserted.push(data);
+        return { insertedId: new ObjectId() };
+      }),
+    };
+    const db = {
+      collection: jest.fn((name: string) => {
+        if (name === 'enfyra_route') {
+          return {
+            find: jest.fn(() => ({
+              toArray: jest.fn(async () => [
+                {
+                  _id: routeId,
+                  path: '/post',
+                  mainTable: tableId,
+                  isEnabled: true,
+                  availableMethods: [getId, postId],
+                },
+              ]),
+            })),
+          };
+        }
+        if (name === 'enfyra_table') {
+          return { findOne: jest.fn(async () => ({ _id: tableId, name: 'post' })) };
+        }
+        if (name === 'enfyra_method') {
+          return {
+            find: jest.fn((query: any) => {
+              const requested = query?._id?.$in ?? [];
+              const matching = methods.filter((method) =>
+                requested.some(
+                  (candidate: any) =>
+                    candidate instanceof ObjectId &&
+                    candidate.equals(method._id),
+                ),
+              );
+              const cursor: any = {
+                project: jest.fn(() => cursor),
+                toArray: jest.fn(async () => matching),
+              };
+              return cursor;
+            }),
+            findOne: jest.fn(async ({ name: methodName }: any) =>
+              methods.find((method) => method.name === methodName),
+            ),
+          };
+        }
+        if (name === 'enfyra_route_handler') return handlerCollection;
+        throw new Error(`Unexpected collection ${name}`);
+      }),
+    };
+    const processor = new RouteDefinitionProcessor({
+      queryBuilderService: { getMongoDb: () => db } as any,
+    });
+
+    await processor.ensureMissingHandlers();
+
+    expect(inserted).toHaveLength(2);
+    expect(inserted.map((handler) => handler.method)).toEqual([getId, postId]);
+    expect(inserted.every((handler) => handler.route.equals(routeId))).toBe(true);
   });
 });

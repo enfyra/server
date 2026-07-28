@@ -111,6 +111,6 @@ export class MongoTableDeleteService extends MongoTableHandlerService {
           },
         );
       }
-    });
+    }, (context as any)?.$onLockAcquired);
   }
 }

@@ -16,6 +16,7 @@ import type {
   RuntimeSchemaLogicalChange,
   RuntimeSchemaMutationCommand,
   RuntimeSchemaPhysicalPlanPayload,
+  RuntimeSchemaRelationContract,
 } from '../types/runtime-schema-mutation.types';
 import { buildRuntimeSchemaChangePlan } from '../utils/runtime-schema-change-plan.util';
 import {
@@ -39,22 +40,33 @@ export class RuntimeSchemaContractCompilerService {
   async compile(
     input: RuntimeSchemaContractCompileInput,
   ): Promise<RuntimeSchemaContractCompilation> {
-    const before = normalizeRuntimeTableSchema(input.beforeMetadata);
+    const backend = this.getBackend();
+    const before = normalizeRuntimeTableSchema(input.beforeMetadata, {
+      backend,
+      mode: 'persisted',
+    });
     const targetInput =
       input.afterMetadata ??
       (input.operation === 'create' ? input.data : undefined);
-    const after = normalizeRuntimeTableSchema(targetInput);
+    const executionTarget = normalizeRuntimeTableSchema(targetInput, {
+      backend,
+      mode: 'intent',
+    });
+    const after = normalizeRuntimeTableSchema(targetInput, {
+      backend,
+      mode: 'persisted',
+    });
     const warnings = await this.collectCascadeWarnings(
       input.beforeMetadata,
       before?.contract.relations ?? [],
-      after?.contract.relations ?? [],
+      executionTarget?.contract.relations ?? [],
     );
     const { changes, diff } = buildRuntimeSchemaChangePlan({
       operation: input.operation,
       tableName:
         after?.contract.name || before?.contract.name || input.tableName.trim(),
       before,
-      after,
+      after: executionTarget,
       owningSideInverseCascadeWarnings: warnings,
     });
     const confirmationPayload = {
@@ -62,7 +74,7 @@ export class RuntimeSchemaContractCompilerService {
       operation: input.operation,
       tableName: diff.tableName,
       before: before?.contract ?? null,
-      after: after?.contract ?? null,
+      after: executionTarget?.contract ?? null,
       removedColumns: diff.removedColumns,
       removedRelations: diff.removedRelations,
       addedColumns: diff.addedColumns,
@@ -78,16 +90,19 @@ export class RuntimeSchemaContractCompilerService {
     const confirmationDigest = hashCanonical(confirmationPayload);
     const sourceRevision = before ? hashCanonical(before.contract) : null;
     const targetRevision = after ? hashCanonical(after.contract) : null;
+    const executionBodyRevision = executionTarget
+      ? hashCanonical(executionTarget.contract)
+      : null;
     const mutationSeed = hashCanonical({
       operation: input.operation,
       tableId: stringValue(input.tableId),
       sourceRevision,
       targetRevision,
+      executionBodyRevision,
     });
     const requestIdempotencyKey = getRequestIdempotencyKey(
       input.requestContext,
     );
-    const backend = this.getBackend();
     const physicalPlan =
       await this.deps.runtimeSchemaPhysicalPlannerService.plan({
         backend,
@@ -110,8 +125,10 @@ export class RuntimeSchemaContractCompilerService {
         tableName: diff.tableName,
         sourceRevision,
         targetRevision,
+        executionBodyRevision,
         source: before?.contract ?? null,
         target: after?.contract ?? null,
+        executionTarget: executionTarget?.contract ?? null,
         diff,
         confirmationDigest,
         affectedResources: buildAffectedResources(diff.tableName, warnings),
@@ -131,28 +148,8 @@ export class RuntimeSchemaContractCompilerService {
 
   private async collectCascadeWarnings(
     rawBefore: unknown,
-    beforeRelations: readonly {
-      propertyName: string;
-      type: string;
-      targetTableName: string;
-      mappedBy: string;
-      foreignKeyColumn: string;
-      junctionTableName: string;
-      isNullable: boolean;
-      onDelete: string;
-      inversePropertyName: string;
-    }[],
-    afterRelations: readonly {
-      propertyName: string;
-      type: string;
-      targetTableName: string;
-      mappedBy: string;
-      foreignKeyColumn: string;
-      junctionTableName: string;
-      isNullable: boolean;
-      onDelete: string;
-      inversePropertyName: string;
-    }[],
+    beforeRelations: readonly RuntimeSchemaRelationContract[],
+    afterRelations: readonly RuntimeSchemaRelationContract[],
   ): Promise<RuntimeSchemaCascadeWarning[]> {
     if (!rawBefore || typeof rawBefore !== 'object') return [];
     const removedKeys = new Set(

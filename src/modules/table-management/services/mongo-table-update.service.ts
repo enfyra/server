@@ -824,10 +824,24 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
           stepLog(`STEP 12 junction collections synced (+${lap()}ms)`);
         }
 
-        if (renamedColumns.length > 0) {
+        const runtimeContract = (context as any)?.$schemaContract?.contract;
+        const removedColumns = Array.isArray(
+          runtimeContract?.context?.diff?.removedColumns,
+        )
+          ? runtimeContract.context.diff.removedColumns
+          : [];
+        if (runtimeContract && (renamedColumns.length > 0 || removedColumns.length > 0)) {
+          this.assertNotAborted();
+          await this.mongoPhysicalMigrationService.applyRuntimeFieldChanges(
+            body.name || exists.name,
+            renamedColumns,
+            removedColumns,
+          );
+          stepLog(`STEP 13 applied runtime physical field changes (+${lap()}ms)`);
+        } else if (renamedColumns.length > 0) {
           this.assertNotAborted();
           await this.mongoPhysicalMigrationService.enqueueFieldRenames(
-            exists.name,
+            body.name || exists.name,
             renamedColumns,
           );
           stepLog(`STEP 13 queued physical field rename jobs (+${lap()}ms)`);

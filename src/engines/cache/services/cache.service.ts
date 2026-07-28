@@ -1,6 +1,9 @@
 import { Redis } from 'ioredis';
 import { EnvService } from '../../../shared/services';
-import { ICache } from '../../../domain/shared/interfaces/cache.interface';
+import {
+  type CacheKeyOptions,
+  type ICache,
+} from '../../../domain/shared/interfaces/cache.interface';
 import { RuntimeNamespaceLifecycleService } from './runtime-namespace-lifecycle.service';
 
 export class CacheService implements ICache {
@@ -24,7 +27,8 @@ export class CacheService implements ICache {
     }
     this.nodeName = this.envService.get('NODE_NAME') || null;
   }
-  private decorateKey(key: string): string {
+  private decorateKey(key: string, options?: CacheKeyOptions): string {
+    if (options?.global) return key;
     if (!this.nodeName) {
       return key;
     }
@@ -42,8 +46,13 @@ export class CacheService implements ICache {
       return value;
     }
   }
-  async acquire(key: string, value: any, ttlMs: number): Promise<boolean> {
-    const decoratedKey = this.decorateKey(key);
+  async acquire(
+    key: string,
+    value: any,
+    ttlMs: number,
+    options?: CacheKeyOptions,
+  ): Promise<boolean> {
+    const decoratedKey = this.decorateKey(key, options);
     const serializedValue = this.serialize(value);
     const result = await this.redis.set(
       decoratedKey,
@@ -54,8 +63,13 @@ export class CacheService implements ICache {
     );
     return result === 'OK';
   }
-  async renew(key: string, value: any, ttlMs: number): Promise<boolean> {
-    const decoratedKey = this.decorateKey(key);
+  async renew(
+    key: string,
+    value: any,
+    ttlMs: number,
+    options?: CacheKeyOptions,
+  ): Promise<boolean> {
+    const decoratedKey = this.decorateKey(key, options);
     const lua = `
       if redis.call("get", KEYS[1]) == ARGV[1] then
         return redis.call("pexpire", KEYS[1], ARGV[2])
@@ -75,8 +89,12 @@ export class CacheService implements ICache {
       return false;
     }
   }
-  async release(key: string, value: any): Promise<boolean> {
-    const decoratedKey = this.decorateKey(key);
+  async release(
+    key: string,
+    value: any,
+    options?: CacheKeyOptions,
+  ): Promise<boolean> {
+    const decoratedKey = this.decorateKey(key, options);
     const lua = `
       if redis.call("get", KEYS[1]) == ARGV[1] then
         return redis.call("del", KEYS[1])
@@ -96,8 +114,8 @@ export class CacheService implements ICache {
       return false;
     }
   }
-  async get<T = any>(key: string): Promise<T | null> {
-    const decoratedKey = this.decorateKey(key);
+  async get<T = any>(key: string, options?: CacheKeyOptions): Promise<T | null> {
+    const decoratedKey = this.decorateKey(key, options);
     const current = await this.redis.get(decoratedKey);
     const parsed = this.deserialize(current);
     return parsed;

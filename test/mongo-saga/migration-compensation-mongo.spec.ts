@@ -189,7 +189,12 @@ describe('MongoDB Migration Compensation', () => {
       };
 
       const mockMongoService = {
-        getDb: () => ({ collection: () => mockCollection }),
+        getRawDb: () => ({ collection: () => mockCollection }),
+        getActiveSagaSession: () => ({
+          txId: 'tx-runtime-schema',
+          purpose: 'runtime-schema',
+          mutationId: 'runtime-schema:test',
+        }),
       };
 
       const service = new MongoMigrationJournalService({
@@ -219,11 +224,17 @@ describe('MongoDB Migration Compensation', () => {
         columns: [],
         relations: [],
       });
+      expect(inserted[0]).toMatchObject({
+        sagaSessionId: 'tx-runtime-schema',
+        purpose: 'runtime-schema',
+        mutationId: 'runtime-schema:test',
+      });
     });
 
     it('record requires rawBeforeSnapshot for update migration saga', async () => {
       const mockMongoService = {
-        getDb: () => ({ collection: () => ({ insertOne: jest.fn() }) }),
+        getRawDb: () => ({ collection: () => ({ insertOne: jest.fn() }) }),
+        getActiveSagaSession: () => undefined,
       };
       const service = new MongoMigrationJournalService({
         mongoService: mockMongoService as any,
@@ -267,7 +278,7 @@ describe('MongoDB Migration Compensation', () => {
       };
 
       const mockMongoService = {
-        getDb: () => ({ collection: () => mockCollection }),
+        getRawDb: () => ({ collection: () => mockCollection }),
       };
 
       const service = new MongoMigrationJournalService({
@@ -307,7 +318,7 @@ describe('MongoDB Migration Compensation', () => {
       const release = jest.fn().mockResolvedValue(true);
       const service = new MongoMigrationJournalService({
         mongoService: {
-          getDb: () => ({ collection: () => mockCollection }),
+          getRawDb: () => ({ collection: () => mockCollection }),
         } as any,
         cacheService: { acquire, release } as any,
         instanceService: { getInstanceId: () => 'instance-a' } as any,
@@ -331,7 +342,7 @@ describe('MongoDB Migration Compensation', () => {
       const get = jest.fn().mockResolvedValue(null);
       const service = new MongoMigrationJournalService({
         mongoService: {
-          getDb: () => ({ collection: () => mockCollection }),
+          getRawDb: () => ({ collection: () => mockCollection }),
         } as any,
         cacheService: { acquire, release: jest.fn(), get } as any,
         instanceService: { getInstanceId: () => 'instance-a' } as any,
@@ -352,7 +363,7 @@ describe('MongoDB Migration Compensation', () => {
       };
 
       const mockMongoService = {
-        getDb: () => ({ collection: () => mockCollection }),
+        getRawDb: () => ({ collection: () => mockCollection }),
       };
 
       const service = new MongoMigrationJournalService({

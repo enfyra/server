@@ -176,10 +176,32 @@ export class MetadataSqlOverlapReconciler {
         .filter((id: any) => id !== undefined && id !== null)
         .map((id: any) => String(id)),
     );
+    let conflictCount = 0;
+    let skippedCount = 0;
     const rowsToInsert = legacyRows.filter((row: any) => {
       const key = this.overlapIdentity.getOverlapRowKey(rename, row, columns);
-      if (key === null || key === undefined) return false;
+      if (key === null || key === undefined) {
+        skippedCount += 1;
+        return false;
+      }
       if (canonicalKeys.has(key)) {
+        const canonicalRow = this.overlapIdentity.findRowByOverlapKey(
+          rename,
+          canonicalRows,
+          key,
+          columns,
+        );
+        if (
+          canonicalRow &&
+          this.overlapIdentity.coreRowsConflict(
+            rename,
+            row,
+            canonicalRow,
+            columns,
+          )
+        ) {
+          conflictCount += 1;
+        }
         this.overlapIdentity.trackExistingCoreRowRemap(
           rename,
           row,
@@ -236,6 +258,11 @@ export class MetadataSqlOverlapReconciler {
     if (insertedCount > 0) {
       this.verbose(
         `  Copied ${insertedCount} missing core metadata row(s) from ${rename.from} to ${rename.to}`,
+      );
+    }
+    if (conflictCount > 0 || skippedCount > 0) {
+      throw new Error(
+        `SQL core overlap reconciliation blocked for ${rename.from} → ${rename.to}: ${conflictCount} conflicting row(s), ${skippedCount} unidentifiable row(s)`,
       );
     }
   }
@@ -337,6 +364,13 @@ export class MetadataSqlOverlapReconciler {
     this.verbose(
       `  SQL table overlap reconciled for ${rename.from} → ${rename.to}: copied ${insertedCount}, updated ${updatedCount}, conflicts ${conflictCount}, skipped ${skippedCount}`,
     );
+    if (conflictCount > 0 || skippedCount > 0) {
+      throw new Error(
+        `SQL overlap reconciliation blocked for ${rename.from} → ${rename.to}: ` +
+          `${conflictCount} conflicting row(s), ${skippedCount} unidentifiable row(s). ` +
+          `Legacy store will NOT be dropped until all rows are proven copied or equivalent.`,
+      );
+    }
   }
 
   async reconcileSqlTableMetadataRows(

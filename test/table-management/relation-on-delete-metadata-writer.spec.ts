@@ -199,6 +199,7 @@ describe('SqlTableMetadataWriterService relation onDelete metadata', () => {
     expect(update?.junctionTableName).toBe('course_students');
     expect(update?.junctionSourceColumn).toBe('studentId');
     expect(update?.junctionTargetColumn).toBe('courseId');
+    expect(update?.foreignKeyColumn).toBeUndefined();
   });
 
   it('copies owning FK metadata when creating an inverse relation via mappedBy', async () => {

@@ -4,6 +4,8 @@ import { RuntimeSchemaContractCompilerService } from '../../src/modules/table-ma
 import { RuntimeSchemaJournalService } from '../../src/modules/table-management/services/runtime-schema-journal.service';
 import { normalizeRuntimeTableSchema } from '../../src/modules/table-management/utils/runtime-schema-normalization.util';
 import { hashCanonical } from '../../src/shared/utils/schema-mutation-contract.util';
+import { SqlSchemaDiffService } from '../../src/engines/knex/services/sql-schema-diff.service';
+import { RuntimeSchemaTargetAttestorService } from '../../src/modules/table-management/services/runtime-schema-target-attestor.service';
 
 const baseBefore = {
   name: 'post',
@@ -21,9 +23,9 @@ const baseAfter = {
   relations: [],
 };
 
-function makeCompiler() {
+function makeCompiler(dbType = 'postgres') {
   return new RuntimeSchemaContractCompilerService({
-    databaseConfigService: { getDbType: () => 'postgres' } as any,
+    databaseConfigService: { getDbType: () => dbType } as any,
     runtimeRegistryService: { getMetadata: () => ({ tables: new Map() }) } as any,
     runtimeSchemaPhysicalPlannerService: { plan: async () => null } as any,
   });
@@ -59,7 +61,9 @@ function makeExecutor(deps: Record<string, unknown> = {}) {
     run: vi.fn((cb: any) => cb()),
   }) as any;
   const queryBuilderService = (deps.queryBuilderService ?? {
-    findOne: vi.fn().mockResolvedValue(baseBefore),
+    findOne: vi.fn()
+      .mockResolvedValueOnce(baseBefore)
+      .mockResolvedValue(baseAfter),
   }) as any;
   return {
     executor: new RuntimeSchemaExecutorService({
@@ -68,12 +72,284 @@ function makeExecutor(deps: Record<string, unknown> = {}) {
       runtimeSchemaJournalService: journal,
       databaseConfigService: { getDbType: () => 'postgres', isMongoDb: () => false } as any,
       queryBuilderService,
+      runtimeSchemaTargetAttestorService: (deps.runtimeSchemaTargetAttestorService ?? {
+        assertSource: vi.fn().mockResolvedValue(undefined),
+        assertTarget: vi.fn().mockResolvedValue(undefined),
+      }) as any,
     }),
     tableHandlerService,
     journal,
     unitOfWork,
   };
 }
+
+describe('Runtime schema normalization', () => {
+  it('treats omitted constraints and persisted empty constraints as the same contract', () => {
+    const request = normalizeRuntimeTableSchema({
+      name: 'course',
+      columns: [
+        { name: 'id', type: 'int', isPrimary: true, isGenerated: true },
+        { name: 'title', type: 'varchar', isNullable: false },
+      ],
+    });
+    const persisted = normalizeRuntimeTableSchema({
+      name: 'course',
+      columns: [
+        { name: 'id', type: 'int', isPrimary: true, isGenerated: true },
+        { name: 'title', type: 'varchar', isNullable: false },
+      ],
+      uniques: [],
+      indexes: [],
+    });
+
+    expect(hashCanonical(request!.contract)).toBe(
+      hashCanonical(persisted!.contract),
+    );
+  });
+
+  it('compiles SQL create against the effective metadata including generated indexes', async () => {
+    const compiler = makeCompiler();
+    const { contract } = await compiler.compile({
+      operation: 'create',
+      tableName: 'course',
+      beforeMetadata: null,
+      afterMetadata: {
+        name: 'course',
+        columns: [
+          { name: 'id', type: 'int', isPrimary: true, isGenerated: true },
+          { name: 'title', type: 'varchar', isNullable: false },
+        ],
+      },
+    });
+
+    expect(contract.context.target?.indexes).toEqual([
+      ['createdAt'],
+      ['updatedAt'],
+    ]);
+    expect(contract.context.targetRevision).toBe(
+      hashCanonical(
+        normalizeRuntimeTableSchema(
+          {
+            name: 'course',
+            columns: [
+              { name: 'id', type: 'int', isPrimary: true, isGenerated: true },
+              { name: 'title', type: 'varchar', isNullable: false },
+            ],
+            indexes: [['createdAt'], ['updatedAt']],
+          },
+          { backend: 'postgresql' },
+        )!.contract,
+      ),
+    );
+  });
+
+  it('compiles Mongo create against the effective metadata including generated indexes', async () => {
+    const compiler = makeCompiler('mongodb');
+    const { contract } = await compiler.compile({
+      operation: 'create',
+      tableName: 'course',
+      beforeMetadata: null,
+      afterMetadata: {
+        name: 'course',
+        columns: [
+          { name: 'id', type: 'int', isPrimary: true, isGenerated: true },
+          { name: 'title', type: 'varchar', isNullable: false },
+        ],
+      },
+    });
+
+    expect(contract.context.target?.indexes).toEqual([
+      ['createdAt'],
+      ['updatedAt'],
+    ]);
+    expect(contract.context.target?.columns[0]).toMatchObject({
+      name: '_id',
+      type: 'ObjectId',
+      isPrimary: true,
+    });
+  });
+
+  it('separates persisted M2M target state from immutable inverse creation intent', async () => {
+    const compiler = makeCompiler();
+    const { contract } = await compiler.compile({
+      operation: 'update',
+      tableName: 'course',
+      tableId: 10,
+      beforeMetadata: {
+        name: 'course',
+        columns: [{ id: 1, name: 'id', type: 'int', isPrimary: true }],
+        indexes: [['createdAt'], ['updatedAt']],
+        relations: [],
+      },
+      afterMetadata: {
+        name: 'course',
+        columns: [{ id: 1, name: 'id', type: 'int', isPrimary: true }],
+        indexes: [['createdAt'], ['updatedAt']],
+        relations: [{
+          propertyName: 'students',
+          type: 'many-to-many',
+          targetTableName: 'student',
+          inversePropertyName: 'courses',
+        }],
+      },
+    });
+
+    expect(contract.context.target?.relations[0]).toMatchObject({
+      inversePropertyName: '',
+      junctionTableName: expect.stringMatching(/^j_/),
+    });
+    expect(contract.context.executionTarget?.relations[0]).toMatchObject({
+      inversePropertyName: 'courses',
+      junctionTableName: expect.stringMatching(/^j_/),
+    });
+    expect(contract.context.executionBodyRevision).toBe(
+      hashCanonical(contract.context.executionTarget),
+    );
+  });
+});
+
+describe('SQL schema diff identity normalization', () => {
+  it('does not delete and recreate a column when a numeric id arrives as a string', () => {
+    const service = new SqlSchemaDiffService({
+      knexService: {} as any,
+      metadataCacheService: {} as any,
+      queryBuilderService: {} as any,
+    });
+    const diff = {
+      columns: { create: [], update: [], delete: [], rename: [] },
+    };
+
+    service.analyzeColumnChanges(
+      [{ id: 319, name: 'title', type: 'varchar', isNullable: false }],
+      [{ id: '319', name: 'title', type: 'varchar', isNullable: false }],
+      diff,
+    );
+
+    expect(diff.columns).toEqual({
+      create: [],
+      update: [],
+      delete: [],
+      rename: [],
+    });
+  });
+});
+
+describe('Runtime inverse metadata attestation', () => {
+  it('rejects a target when requested inverse metadata was not materialized', async () => {
+    const rows = [
+      { id: 10, name: 'course' },
+      { id: 20, name: 'student' },
+      { id: 30, sourceTableId: 10, targetTableId: 20, propertyName: 'students' },
+      undefined,
+    ];
+    const knex = vi.fn(() => ({
+      where: vi.fn().mockReturnThis(),
+      first: vi.fn(async () => rows.shift()),
+    }));
+    const service = new RuntimeSchemaTargetAttestorService({
+      queryBuilderService: { getKnex: () => knex } as any,
+      databaseConfigService: { isMongoDb: () => false } as any,
+    });
+    (service as any).assertPresent = vi.fn().mockResolvedValue(undefined);
+    (service as any).assertRemovedJunctions = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      service.assertTarget({
+        context: {
+          operation: 'update',
+          tableName: 'course',
+          source: null,
+          target: { name: 'course', relations: [] },
+          executionTarget: {
+            name: 'course',
+            relations: [{
+              propertyName: 'students',
+              type: 'many-to-many',
+              targetTableName: 'student',
+              inversePropertyName: 'courses',
+            }],
+          },
+        },
+      } as any),
+    ).rejects.toThrow(/inverse metadata.*courses/i);
+  });
+
+  it('rejects a Mongo target whose collection validator is stale', async () => {
+    const indexes = [
+      { name: '_id_', key: { _id: 1 } },
+      {
+        name: 'post_createdAt_idx',
+        key: { createdAt: -1, _id: 1 },
+      },
+      {
+        name: 'post_updatedAt_idx',
+        key: { updatedAt: -1, _id: 1 },
+      },
+    ];
+    const db = {
+      listCollections: vi.fn(() => ({
+        toArray: vi.fn(async () => [
+          {
+            name: 'post',
+            options: {
+              validator: {
+                $jsonSchema: {
+                  bsonType: 'object',
+                  properties: {
+                    title: { bsonType: 'int', description: 'title' },
+                  },
+                  required: ['title'],
+                },
+              },
+              validationLevel: 'moderate',
+              validationAction: 'error',
+            },
+          },
+        ]),
+      })),
+      collection: vi.fn(() => ({
+        listIndexes: vi.fn(() => ({
+          toArray: vi.fn(async () => indexes),
+        })),
+      })),
+    };
+    const service = new RuntimeSchemaTargetAttestorService({
+      queryBuilderService: { getMongoDb: () => db } as any,
+      databaseConfigService: { isMongoDb: () => true } as any,
+    });
+
+    await expect(
+      service.assertTarget({
+        context: {
+          operation: 'create',
+          tableName: 'post',
+          source: null,
+          target: {
+            name: 'post',
+            columns: [
+              {
+                name: '_id',
+                type: 'ObjectId',
+                isPrimary: true,
+                isGenerated: true,
+                isNullable: false,
+              },
+              {
+                name: 'title',
+                type: 'varchar',
+                isNullable: false,
+                isGenerated: false,
+              },
+            ],
+            relations: [],
+            uniques: [],
+            indexes: [['createdAt'], ['updatedAt']],
+          },
+        },
+      } as any),
+    ).rejects.toThrow(/validator/i);
+  });
+});
 
 describe('C2: Executor must verify contract inputs', () => {
   it('rejects mismatched ownerTableId', async () => {
@@ -83,7 +359,7 @@ describe('C2: Executor must verify contract inputs', () => {
       executor.execute({
         contract,
         ownerTableId: 999,
-        body: { name: 'post', columns: [] } as any,
+        body: baseAfter as any,
       }),
     ).rejects.toThrow(/tableId mismatch/i);
   });
@@ -98,13 +374,57 @@ describe('C2: Executor must verify contract inputs', () => {
       executor.execute({
         contract: tampered,
         ownerTableId: 42,
-        body: { name: 'post', columns: [] } as any,
+        body: baseAfter as any,
       }),
     ).rejects.toThrow(/hash integrity/i);
+  });
+
+  it('rejects an execution body that differs from the compiled target', async () => {
+    const contract = await compileRealContract();
+    const { executor, journal, tableHandlerService } = makeExecutor();
+
+    await expect(
+      executor.execute({
+        contract,
+        ownerTableId: 42,
+        body: {
+          ...baseAfter,
+          columns: [
+            ...baseAfter.columns,
+            { name: 'forged', type: 'text', isNullable: true },
+          ],
+        } as any,
+      }),
+    ).rejects.toThrow(/execution body.*target revision/i);
+    expect(journal.create).not.toHaveBeenCalled();
+    expect(tableHandlerService.updateTable).not.toHaveBeenCalled();
   });
 });
 
 describe('C3: Source revision must be attested under lock', () => {
+  it('rejects create when target metadata already exists under the lock', async () => {
+    const contract = await compileRealContract({
+      operation: 'create',
+      tableId: null,
+      beforeMetadata: null,
+      afterMetadata: baseAfter,
+    });
+    const tableHandlerService = {
+      createTable: vi.fn(async (_body: any, ctx: any) => {
+        if (ctx?.$onLockAcquired) await ctx.$onLockAcquired();
+        return { id: 42, affectedTables: ['post'] };
+      }),
+    };
+    const { executor } = makeExecutor({
+      tableHandlerService,
+      queryBuilderService: { findOne: vi.fn().mockResolvedValue(baseBefore) },
+    });
+
+    await expect(
+      executor.execute({ contract, body: baseAfter as any }),
+    ).rejects.toThrow(/source attestation failed.*already exists/i);
+  });
+
   it('rejects stale sourceRevision when metadata has changed', async () => {
     const contract = await compileRealContract();
     const differentTable = {
@@ -122,7 +442,7 @@ describe('C3: Source revision must be attested under lock', () => {
       executor.execute({
         contract,
         ownerTableId: 42,
-        body: { name: 'post', columns: [] } as any,
+        body: baseAfter as any,
       }),
     ).rejects.toThrow(/source revision stale/i);
   });
@@ -130,15 +450,109 @@ describe('C3: Source revision must be attested under lock', () => {
   it('passes when source revision matches current metadata', async () => {
     const contract = await compileRealContract();
     const { executor, tableHandlerService } = makeExecutor({
-      queryBuilderService: { findOne: vi.fn().mockResolvedValue(baseBefore) },
+      queryBuilderService: {
+        findOne: vi.fn()
+          .mockResolvedValueOnce(baseBefore)
+          .mockResolvedValue(baseAfter),
+      },
     });
     const result = await executor.execute({
       contract,
       ownerTableId: 42,
-      body: { name: 'post', columns: [] } as any,
+      body: baseAfter as any,
     });
     expect(result.mutationId).toBe(contract.mutationId);
     expect(tableHandlerService.updateTable).toHaveBeenCalled();
+  });
+});
+
+describe('C3b: Target revision must be attested inside the UOW', () => {
+  it('does not publish target_attested when physical target proof fails', async () => {
+    const contract = await compileRealContract();
+    const targetAttestor = {
+      assertSource: vi.fn().mockResolvedValue(undefined),
+      assertTarget: vi.fn().mockRejectedValue(
+        new Error('physical index post.idx_post_title is missing'),
+      ),
+    };
+    const { executor, journal } = makeExecutor({
+      runtimeSchemaTargetAttestorService: targetAttestor,
+    });
+
+    await expect(
+      executor.execute({
+        contract,
+        ownerTableId: 42,
+        body: baseAfter as any,
+      }),
+    ).rejects.toThrow(/physical index/i);
+    expect(journal.advanceStage).not.toHaveBeenCalledWith(
+      contract.mutationId,
+      'target_attested',
+    );
+  });
+
+  it('rejects a handler that reports success without applying the metadata target', async () => {
+    const contract = await compileRealContract();
+    const { executor, journal } = makeExecutor({
+      queryBuilderService: {
+        findOne: vi.fn().mockResolvedValue(baseBefore),
+      },
+    });
+
+    await expect(
+      executor.execute({
+        contract,
+        ownerTableId: 42,
+        body: baseAfter as any,
+      }),
+    ).rejects.toThrow(/target revision mismatch/i);
+    expect(journal.advanceStage).not.toHaveBeenCalledWith(
+      contract.mutationId,
+      'target_attested',
+    );
+  });
+
+  it('rejects create when the created aggregate cannot be reloaded', async () => {
+    const contract = await compileRealContract({
+      operation: 'create',
+      tableId: null,
+      beforeMetadata: null,
+      afterMetadata: baseAfter,
+    });
+    const tableHandlerService = {
+      createTable: vi.fn().mockResolvedValue({ id: 42, affectedTables: ['post'] }),
+    };
+    const { executor } = makeExecutor({
+      tableHandlerService,
+      queryBuilderService: { findOne: vi.fn().mockResolvedValue(null) },
+    });
+
+    await expect(
+      executor.execute({ contract, body: baseAfter as any }),
+    ).rejects.toThrow(/target attestation failed/i);
+  });
+
+  it('rejects delete when the target aggregate still exists', async () => {
+    const contract = await compileRealContract({
+      operation: 'delete',
+      beforeMetadata: baseBefore,
+      afterMetadata: null,
+    });
+    const tableHandlerService = {
+      delete: vi.fn(async (_id: any, ctx: any) => {
+        if (ctx?.$onLockAcquired) await ctx.$onLockAcquired();
+        return { id: 42, affectedTables: ['post'] };
+      }),
+    };
+    const { executor } = makeExecutor({
+      tableHandlerService,
+      queryBuilderService: { findOne: vi.fn().mockResolvedValue(baseBefore) },
+    });
+
+    await expect(
+      executor.execute({ contract, tableId: 42 }),
+    ).rejects.toThrow(/target attestation failed/i);
   });
 });
 
@@ -168,7 +582,7 @@ describe('C6: db_committed must only advance after UOW commits', () => {
     await executor.execute({
       contract,
       ownerTableId: 42,
-      body: { name: 'post', columns: [] } as any,
+      body: baseAfter as any,
     });
     expect(dbCommittedBeforeUowDone).toBe(false);
   });
@@ -194,7 +608,7 @@ describe('H1: Additive mutations must not become hidden previews', () => {
     const result = await executor.execute({
       contract,
       ownerTableId: 42,
-      body: { name: 'post', columns: [{ name: 'title', type: 'varchar' }] } as any,
+      body: baseAfter as any,
     });
     expect(journal.markCompleted).not.toHaveBeenCalled();
     expect((result as any).preview).toBeDefined();
@@ -242,6 +656,52 @@ describe('Journal: must support retry after failure', () => {
     await expect(
       journal.create({ mutationId: 'test-mutation', contractHash: 'hash1', backend: 'postgresql' }),
     ).resolves.toBeUndefined();
+  });
+
+  it('journal.create starts a new execution after a completed mutation', async () => {
+    const store = new Map<string, any>();
+    const queryBuilderService = {
+      isMongoDb: () => false,
+      getKnex: () => {
+        const knexFn: any = () => ({
+          insert: async (doc: any) => {
+            if (store.has(doc.mutationId)) throw new Error('duplicate key');
+            store.set(doc.mutationId, doc);
+          },
+          where: () => ({
+            first: async () => store.get('completed-mutation') ?? null,
+            update: async (fields: any) => {
+              const existing = store.get('completed-mutation');
+              if (existing) Object.assign(existing, fields);
+            },
+          }),
+        });
+        knexFn.schema = {
+          hasTable: async () => true,
+          createTable: async () => {},
+        };
+        return knexFn;
+      },
+    };
+    const journal = new RuntimeSchemaJournalService({
+      queryBuilderService: queryBuilderService as any,
+    });
+
+    await journal.create({
+      mutationId: 'completed-mutation',
+      contractHash: 'hash1',
+      backend: 'postgresql',
+    });
+    await journal.markCompleted('completed-mutation');
+    await journal.create({
+      mutationId: 'completed-mutation',
+      contractHash: 'hash1',
+      backend: 'postgresql',
+    });
+
+    expect(store.get('completed-mutation')).toEqual(
+      expect.objectContaining({ stage: 'captured', error: null }),
+    );
   });
 
   it('journal.create rejects in-progress mutation', async () => {

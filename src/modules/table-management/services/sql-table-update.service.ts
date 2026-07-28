@@ -268,23 +268,15 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
           const schemaChanged = decision.details?.schemaChanged === true;
           if (schemaChanged) {
             stepLog(`STEP 11 PG: running DDL inside metadata transaction...`);
-            const ddlTimeoutMs = 90 * 1000;
-            const pendingUpdate: any = await Promise.race([
-              this.schemaMigrationService.updateTable(
-                exists.name,
-                oldMetadata,
-                updatedFullMetadata,
-                trx,
-                this.extractPrecompiledPlan(context),
-              ),
-              new Promise<never>((_, reject) =>
-                setTimeout(
-                  () =>
-                    reject(new Error(`DDL timed out after ${ddlTimeoutMs}ms`)),
-                  ddlTimeoutMs,
-                ),
-              ),
-            ]);
+            await trx.raw(`SET LOCAL statement_timeout = '90s'`);
+            const pendingUpdate: any = await this.schemaMigrationService.updateTable(
+              exists.name,
+              oldMetadata,
+              updatedFullMetadata,
+              trx,
+              this.extractPrecompiledPlan(context),
+            );
+            await trx.raw(`SET LOCAL statement_timeout = '0'`);
             stepLog(`STEP 11 PG: DDL done (+${lap()}ms)`);
             if (pendingUpdate?.pendingMetadataUpdate) {
               await this.schemaMigrationService.applyPendingMetadataUpdate(
@@ -344,25 +336,15 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
         if (schemaChanged) {
           assertNotAborted();
           stepLog(`STEP 9 ${dbType}: running DDL before metadata...`);
-          const ddlTimeoutMs = 90 * 1000;
           let pendingUpdate: any;
           try {
-            pendingUpdate = await Promise.race([
-              this.schemaMigrationService.updateTable(
-                exists.name,
-                oldMetadata,
-                afterMetadata,
-                undefined,
-                this.extractPrecompiledPlan(context),
-              ),
-              new Promise<never>((_, reject) =>
-                setTimeout(
-                  () =>
-                    reject(new Error(`DDL timed out after ${ddlTimeoutMs}ms`)),
-                  ddlTimeoutMs,
-                ),
-              ),
-            ]);
+            pendingUpdate = await this.schemaMigrationService.updateTable(
+              exists.name,
+              oldMetadata,
+              afterMetadata,
+              undefined,
+              this.extractPrecompiledPlan(context),
+            );
             stepLog(`STEP 9 ${dbType}: DDL done (+${lap()}ms)`);
           } catch (ddlError: any) {
             stepLog(`STEP 9 ${dbType}: DDL FAILED, metadata not saved`);

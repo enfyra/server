@@ -2,7 +2,10 @@ import { Logger } from '../../../shared/logger';
 import { RouteDefinitionProcessor } from '../../../domain/bootstrap';
 import { CommonService } from '../../../shared/common';
 import { QueryBuilderService } from '@enfyra/kernel';
-import { MigrationJournalService } from '../../knex';
+import {
+  MigrationJournalService,
+  MySqlRuntimeWriteBarrierService,
+} from '../../knex';
 import {
   MongoMigrationJournalService,
   MongoSchemaMigrationService,
@@ -13,7 +16,7 @@ import type { RuntimeSchemaJournalService } from '../../../modules/table-managem
 
 export class ProvisionService {
   private readonly logger = new Logger(ProvisionService.name);
-  private readonly journalRecoveryTimeoutMs = 30000;
+  private readonly journalRecoveryTimeoutMs = 60000;
   private readonly commonService: CommonService;
   private readonly queryBuilderService: QueryBuilderService;
   private readonly routeDefinitionProcessor: RouteDefinitionProcessor;
@@ -23,6 +26,7 @@ export class ProvisionService {
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly mySqlBootstrapSnapshotService: MySqlBootstrapSnapshotService;
   private readonly runtimeSchemaJournalService: RuntimeSchemaJournalService;
+  private readonly mySqlRuntimeWriteBarrierService: MySqlRuntimeWriteBarrierService;
 
   constructor(deps: {
     commonService: CommonService;
@@ -34,6 +38,7 @@ export class ProvisionService {
     databaseConfigService: DatabaseConfigService;
     mySqlBootstrapSnapshotService: MySqlBootstrapSnapshotService;
     runtimeSchemaJournalService: RuntimeSchemaJournalService;
+    mySqlRuntimeWriteBarrierService: MySqlRuntimeWriteBarrierService;
   }) {
     this.commonService = deps.commonService;
     this.queryBuilderService = deps.queryBuilderService;
@@ -44,6 +49,7 @@ export class ProvisionService {
     this.databaseConfigService = deps.databaseConfigService;
     this.mySqlBootstrapSnapshotService = deps.mySqlBootstrapSnapshotService;
     this.runtimeSchemaJournalService = deps.runtimeSchemaJournalService;
+    this.mySqlRuntimeWriteBarrierService = deps.mySqlRuntimeWriteBarrierService;
   }
 
   async waitForDatabase(maxRetries = 10, delayMs = 1000): Promise<void> {
@@ -62,18 +68,30 @@ export class ProvisionService {
   }
 
   async recoverJournals(): Promise<void> {
-    await this.runJournalStep('Runtime schema journal recovery', () =>
-      this.runtimeSchemaJournalService.recoverUnresolved(),
-    );
     if (!this.queryBuilderService.isMongoDb()) {
       if (this.databaseConfigService.getDbType() === 'mysql') {
-        await this.runJournalStep('MySQL bootstrap recovery', () =>
-          this.mySqlBootstrapSnapshotService.recoverPending(),
+        await this.runJournalStep('MySQL bootstrap recovery', async () => {
+          const recovery =
+            await this.mySqlRuntimeWriteBarrierService.recoverExclusive(() =>
+              this.mySqlBootstrapSnapshotService.recoverPending(),
+            );
+          await this.runtimeSchemaJournalService.markRecoveredRollbacks(
+            recovery.rolledBackMutationIds,
+          );
+        });
+      } else {
+        await this.runJournalStep('Runtime schema journal recovery', () =>
+          this.runtimeSchemaJournalService.recoverUnresolved(),
         );
       }
       await this.runJournalStep('SQL migration journal recovery', () =>
         this.migrationJournalService.recoverPending(),
       );
+      if (this.databaseConfigService.getDbType() === 'mysql') {
+        await this.runJournalStep('Runtime schema journal recovery', () =>
+          this.runtimeSchemaJournalService.recoverUnresolved(),
+        );
+      }
       try {
         await this.runJournalStep('SQL journal cleanup', () =>
           this.migrationJournalService.cleanup(),
@@ -85,6 +103,10 @@ export class ProvisionService {
       }
       return;
     }
+
+    await this.runJournalStep('Runtime schema journal recovery', () =>
+      this.runtimeSchemaJournalService.recoverUnresolved(),
+    );
 
     await this.runJournalStep('Mongo migration saga recovery', () =>
       this.mongoSchemaMigrationService.recoverPendingMigrationSagas(),
@@ -110,13 +132,14 @@ export class ProvisionService {
     }
   }
 
-  private async runJournalStep(
+  private async runJournalStep<T>(
     label: string,
-    callback: () => Promise<void>,
-  ): Promise<void> {
+    callback: () => Promise<T>,
+  ): Promise<T> {
     const start = Date.now();
     this.logger.log(`${label} started`);
     let timer: ReturnType<typeof setTimeout>;
+    let result: T;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(
         () =>
@@ -129,10 +152,11 @@ export class ProvisionService {
       );
     });
     try {
-      await Promise.race([callback(), timeout]);
+      result = await Promise.race([callback(), timeout]);
     } finally {
       clearTimeout(timer!);
     }
     this.logger.log(`${label} completed (${Date.now() - start}ms)`);
+    return result;
   }
 }

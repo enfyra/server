@@ -11,8 +11,10 @@ import { SqlTableHandlerService } from './sql-table-handler-base.service';
 
 export class SqlTableDeleteService extends SqlTableHandlerService {
   async delete(id: string | number, context?: TDynamicContext) {
-    return await this.runWithSchemaLock(`table:delete:${id}`, () =>
-      this.deleteTableInternal(id, context),
+    return await this.runWithSchemaLock(
+      `table:delete:${id}`,
+      () => this.deleteTableInternal(id, context),
+      (context as any)?.$onLockAcquired,
     );
   }
   private async deleteTableInternal(

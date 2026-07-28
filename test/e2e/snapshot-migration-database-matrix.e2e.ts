@@ -211,13 +211,13 @@ async function crashServerAtProgress(
   });
 }
 
-async function clearProvisionLock(nodeName: string): Promise<void> {
+async function clearProvisionLock(): Promise<void> {
   const redis = new Redis(
     process.env.MATRIX_REDIS_URI || 'redis://127.0.0.1:6379/14',
     { maxRetriesPerRequest: 1 },
   );
   try {
-    await redis.del(`${nodeName}:${PROVISION_LOCK_KEY}`);
+    await redis.del(PROVISION_LOCK_KEY);
   } finally {
     await redis.quit();
   }
@@ -1039,19 +1039,23 @@ async function runSqlBoot(database: SqlDatabase, port: number): Promise<void> {
       database === 'postgres' ? 'postgresql' : 'mysql',
       connection,
     );
-    const clusterOptions = {
+    const clusterIdentity = {
       adminPassword: `e2e-${randomUUID()}`,
-      nodeName: `snapshot-migration-cluster-${database}-${suffix}`,
       secretKey: `snapshot-migration-cluster-${randomUUID()}`,
     };
-    await Promise.all([
-      clearProvisionLock(clusterOptions.nodeName),
-      clearProvisionLock(`snapshot-migration-e2e-${port}`),
-    ]);
+    const primaryOptions = {
+      ...clusterIdentity,
+      nodeName: `snapshot-migration-cluster-${database}-${suffix}-primary`,
+    };
+    const peerOptions = {
+      ...clusterIdentity,
+      nodeName: `snapshot-migration-cluster-${database}-${suffix}-peer`,
+    };
+    await clearProvisionLock();
     target = createKnex(database, databaseName);
     [server, peerServer] = await Promise.all([
-      bootServer(databaseUri, port, clusterOptions),
-      bootServer(databaseUri, port + 20, clusterOptions),
+      bootServer(databaseUri, port, primaryOptions),
+      bootServer(databaseUri, port + 20, peerOptions),
     ]);
     const setting = await target('enfyra_setting').first();
     assert.equal(
@@ -1146,7 +1150,7 @@ async function runSqlBoot(database: SqlDatabase, port: number): Promise<void> {
     for (const checkpoint of BOOTSTRAP_CRASH_CHECKPOINTS) {
       await target('enfyra_setting').update({ isInit: false });
       await crashServerAtProgress(databaseUri, port, checkpoint, crashOptions);
-      await clearProvisionLock(crashOptions.nodeName);
+      await clearProvisionLock();
       server = await bootServer(databaseUri, port, crashOptions);
       const resumedSetting = await target('enfyra_setting').first();
       assert.equal(
@@ -1525,14 +1529,22 @@ async function runMongoBoot(port: number): Promise<void> {
       },
       mongoAuthDatabase,
     );
-    const clusterOptions = {
+    const clusterIdentity = {
       adminPassword: `e2e-${randomUUID()}`,
-      nodeName: `snapshot-migration-cluster-mongo-${databaseName}`,
       secretKey: `snapshot-migration-cluster-${randomUUID()}`,
     };
+    const primaryOptions = {
+      ...clusterIdentity,
+      nodeName: `snapshot-migration-cluster-mongo-${databaseName}-primary`,
+    };
+    const peerOptions = {
+      ...clusterIdentity,
+      nodeName: `snapshot-migration-cluster-mongo-${databaseName}-peer`,
+    };
+    await clearProvisionLock();
     [server, peerServer] = await Promise.all([
-      bootServer(databaseUri, port, clusterOptions),
-      bootServer(databaseUri, port + 20, clusterOptions),
+      bootServer(databaseUri, port, primaryOptions),
+      bootServer(databaseUri, port + 20, peerOptions),
     ]);
     const setting = await db.collection('enfyra_setting').findOne({});
     assert.equal(setting?.isInit, true);
@@ -1631,7 +1643,7 @@ async function runMongoBoot(port: number): Promise<void> {
         .collection('enfyra_setting')
         .updateOne({}, { $set: { isInit: false } });
       await crashServerAtProgress(databaseUri, port, checkpoint, crashOptions);
-      await clearProvisionLock(crashOptions.nodeName);
+      await clearProvisionLock();
       server = await bootServer(databaseUri, port, crashOptions);
       const resumedSetting = await db.collection('enfyra_setting').findOne({});
       assert.equal(
@@ -1723,10 +1735,12 @@ async function main(): Promise<void> {
     console.log('MySQL full bootstrap E2E passed');
   }
   if (databases.has('mongodb')) {
-    await runMongo();
-    console.log('MongoDB snapshot migration E2E passed');
-    await runMongoRenameConflict();
-    console.log('MongoDB conflict and retry E2E passed');
+    if (!bootOnly) {
+      await runMongo();
+      console.log('MongoDB snapshot migration E2E passed');
+      await runMongoRenameConflict();
+      console.log('MongoDB conflict and retry E2E passed');
+    }
     await runMongoBoot(18107);
     console.log('MongoDB full bootstrap E2E passed');
   }

@@ -330,18 +330,7 @@ export class SqlSchemaMigrationService {
               }
               const dbType = this.queryBuilderService.getDatabaseType();
               await this.setLockTimeout(knex, dbType, 5);
-              const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(
-                  () =>
-                    reject(
-                      new Error(
-                        'FK constraint creation timeout after 10 seconds',
-                      ),
-                    ),
-                  10000,
-                );
-              });
-              const createFkPromise = knex.schema.alterTable(
+              await knex.schema.alterTable(
                 tableName,
                 (table) => {
                   const onDelete = resolveSqlRelationOnDelete(rel);
@@ -353,7 +342,6 @@ export class SqlSchemaMigrationService {
                     .onUpdate('CASCADE');
                 },
               );
-              await Promise.race([createFkPromise, timeoutPromise]);
               lastError = null;
               break;
             } catch (attemptError: any) {
@@ -749,6 +737,7 @@ export class SqlSchemaMigrationService {
         this.logger.error(
           `  Failed to update metadata fields for ${tableName}: ${getErrorMessage(error)}`,
         );
+        throw error;
       }
     }
   }

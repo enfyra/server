@@ -148,6 +148,39 @@ export class MetadataOverlapIdentityService {
     });
   }
 
+  coreRowsConflict(
+    rename: TableRenameDef,
+    legacyRow: any,
+    canonicalRow: any,
+    columns: string[],
+  ): boolean {
+    const legacy = this.projectCoreRowToColumns(
+      rename,
+      legacyRow,
+      columns,
+    );
+    const canonical = this.projectCoreRowToColumns(
+      rename,
+      canonicalRow,
+      columns,
+      { remapOwnerIds: false },
+    );
+    return columns.some((column) => {
+      if (
+        column === 'id' ||
+        column === '_id' ||
+        column === 'createdAt' ||
+        column === 'updatedAt' ||
+        legacy[column] === undefined ||
+        canonical[column] === undefined ||
+        canonical[column] === null
+      ) {
+        return false;
+      }
+      return JSON.stringify(legacy[column]) !== JSON.stringify(canonical[column]);
+    });
+  }
+
   findRowByOverlapKey(
     rename: TableRenameDef,
     rows: any[],
@@ -185,6 +218,7 @@ export class MetadataOverlapIdentityService {
     rename: TableRenameDef,
     row: any,
     columns: string[],
+    options: { remapOwnerIds?: boolean } = {},
   ): any {
     const projected = this.projectRowToColumns(row, columns);
     const tableName = rename.to || rename.from;
@@ -198,34 +232,34 @@ export class MetadataOverlapIdentityService {
       tableName === SYSTEM_TABLES.column ||
       tableName === 'column_definition'
     ) {
-      if ('tableId' in projected)
+      if (options.remapOwnerIds !== false && 'tableId' in projected)
         projected.tableId = this.remapCoreTableId(rename, projected.tableId);
-      if ('table' in projected)
+      if (options.remapOwnerIds !== false && 'table' in projected)
         projected.table = this.remapCoreTableId(rename, projected.table);
     }
     if (
       tableName === SYSTEM_TABLES.relation ||
       tableName === 'relation_definition'
     ) {
-      if ('sourceTableId' in projected) {
+      if (options.remapOwnerIds !== false && 'sourceTableId' in projected) {
         projected.sourceTableId = this.remapCoreTableId(
           rename,
           projected.sourceTableId,
         );
       }
-      if ('targetTableId' in projected) {
+      if (options.remapOwnerIds !== false && 'targetTableId' in projected) {
         projected.targetTableId = this.remapCoreTableId(
           rename,
           projected.targetTableId,
         );
       }
-      if ('sourceTable' in projected) {
+      if (options.remapOwnerIds !== false && 'sourceTable' in projected) {
         projected.sourceTable = this.remapCoreTableId(
           rename,
           projected.sourceTable,
         );
       }
-      if ('targetTable' in projected) {
+      if (options.remapOwnerIds !== false && 'targetTable' in projected) {
         projected.targetTable = this.remapCoreTableId(
           rename,
           projected.targetTable,

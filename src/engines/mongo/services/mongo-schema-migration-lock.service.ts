@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { Collection, Db } from 'mongodb';
 import { MongoService } from './mongo.service';
 import { DatabaseException } from '../../../domain/exceptions';
+import { getMongoRawDb } from './mongo-raw-db.util';
 
 interface SchemaMigrationLockDocument {
   _id: string;
@@ -12,6 +13,10 @@ interface SchemaMigrationLockDocument {
   lockToken?: string | null;
   lockedAt?: Date | null;
   lockExpiresAt?: Date | null;
+  sagaSessionId?: string | null;
+  purpose?: string | null;
+  mutationId?: string | null;
+  fenceEpoch?: number;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -24,7 +29,7 @@ export class MongoSchemaMigrationLockService {
   private readonly logger = new Logger(MongoSchemaMigrationLockService.name);
   private readonly collectionName = 'schema_migration_lock';
   private readonly documentId = 'global';
-  private readonly lockDurationMs = 5 * 60 * 1000;
+  private readonly lockDurationMs = 30_000;
   private collectionReady = false;
   private readonly mongoService: MongoService;
 
@@ -38,6 +43,7 @@ export class MongoSchemaMigrationLockService {
     const expiresAt = new Date(now.getTime() + this.lockDurationMs);
     const token = randomUUID();
     const lockedBy = this.buildInstanceId();
+    const saga = this.mongoService.getActiveSagaSession();
 
     const updatedDoc = await collection.findOneAndUpdate(
       {
@@ -45,7 +51,6 @@ export class MongoSchemaMigrationLockService {
         $or: [
           { isLocked: { $ne: true } },
           { lockExpiresAt: { $lte: now } },
-          { lockExpiresAt: null },
         ],
       },
       {
@@ -56,7 +61,11 @@ export class MongoSchemaMigrationLockService {
           lockToken: token,
           lockedAt: now,
           lockExpiresAt: expiresAt,
+          sagaSessionId: saga?.txId ?? null,
+          purpose: saga?.purpose ?? null,
+          mutationId: saga?.mutationId ?? null,
         },
+        $inc: { fenceEpoch: 1 },
         $currentDate: { updatedAt: true },
       },
       { returnDocument: 'after' },
@@ -75,6 +84,10 @@ export class MongoSchemaMigrationLockService {
         lockToken: token,
         lockedAt: now,
         lockExpiresAt: expiresAt,
+        sagaSessionId: saga?.txId ?? null,
+        purpose: saga?.purpose ?? null,
+        mutationId: saga?.mutationId ?? null,
+        fenceEpoch: 1,
         createdAt: now,
         updatedAt: now,
       });
@@ -84,6 +97,23 @@ export class MongoSchemaMigrationLockService {
         throw await this.buildLockedError(collection);
       }
       throw error;
+    }
+  }
+
+  async acquireForRecovery(
+    context: string,
+    maxWaitMs = 25_000,
+  ): Promise<MongoSchemaMigrationLockHandle> {
+    const deadline = Date.now() + maxWaitMs;
+    while (true) {
+      try {
+        return await this.acquire(context);
+      } catch (error: any) {
+        if (error?.details?.reason !== 'schema_locked' || Date.now() >= deadline) {
+          throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
     }
   }
 
@@ -102,6 +132,9 @@ export class MongoSchemaMigrationLockService {
           lockToken: null,
           lockedAt: null,
           lockExpiresAt: null,
+          sagaSessionId: null,
+          purpose: null,
+          mutationId: null,
         },
         $currentDate: { updatedAt: true },
       },
@@ -145,7 +178,7 @@ export class MongoSchemaMigrationLockService {
   private async getCollection(): Promise<
     Collection<SchemaMigrationLockDocument>
   > {
-    const db = this.mongoService.getDb();
+    const db = getMongoRawDb(this.mongoService);
     return await this.ensureCollection(db);
   }
 
@@ -184,6 +217,8 @@ export class MongoSchemaMigrationLockService {
         lockedBy: doc?.lockedBy || null,
         lockedAt: doc?.lockedAt || null,
         lockedContext: doc?.lockedContext || null,
+        sagaSessionId: doc?.sagaSessionId || null,
+        mutationId: doc?.mutationId || null,
       },
     );
   }

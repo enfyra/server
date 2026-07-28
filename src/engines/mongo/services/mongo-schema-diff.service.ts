@@ -3,6 +3,11 @@ import { MongoService } from './mongo.service';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { buildMongoFullIndexSpecs } from '../utils/mongo-physical-schema-contract';
+import {
+  buildMongoValidationSchema,
+  MONGO_VALIDATION_LEVEL,
+  MONGO_VALIDATION_ACTION,
+} from '../utils/mongo-validation-schema.util';
 
 export class MongoSchemaDiffService {
   private readonly logger = new Logger(MongoSchemaDiffService.name);
@@ -18,69 +23,6 @@ export class MongoSchemaDiffService {
     this.queryBuilderService = deps.queryBuilderService;
   }
 
-  private sqlTypeToBsonType(type: string): any {
-    const typeMap: Record<string, any> = {
-      string: 'string',
-      text: 'string',
-      varchar: 'string',
-      char: 'string',
-      uuid: 'string',
-      objectId: 'objectId',
-      ObjectId: 'objectId',
-      objectid: 'objectId',
-      richtext: 'string',
-      int: 'int',
-      integer: 'int',
-      smallint: 'int',
-      tinyint: 'int',
-      bigint: 'long',
-      float: 'double',
-      double: 'double',
-      decimal: 'double',
-      numeric: 'double',
-      real: 'double',
-      boolean: 'bool',
-      bool: 'bool',
-      date: 'date',
-      datetime: 'date',
-      timestamp: 'date',
-      json: 'object',
-      'simple-json': 'object',
-      array: 'array',
-      enum: 'string',
-    };
-    return typeMap[type] || 'string';
-  }
-
-  private createValidationSchema(columns: any[]): any {
-    const properties: any = {};
-    const required: string[] = [];
-    for (const col of columns) {
-      if (
-        col.name === '_id' ||
-        col.name === 'createdAt' ||
-        col.name === 'updatedAt'
-      ) {
-        continue;
-      }
-      const bsonType = this.sqlTypeToBsonType(col.type);
-      properties[col.name] = {
-        bsonType: col.isNullable ? [bsonType, 'null'] : bsonType,
-        description: col.description || col.name,
-      };
-      if (!col.isNullable && !col.defaultValue && !col.isGenerated) {
-        required.push(col.name);
-      }
-    }
-    const schema: any = {
-      bsonType: 'object',
-      properties,
-    };
-    if (required.length > 0) {
-      schema.required = required;
-    }
-    return schema;
-  }
 
   indexKey(index: string[]): string {
     return [...index].sort().join(',');
@@ -291,8 +233,8 @@ export class MongoSchemaDiffService {
       newMetadata.columns || [],
     );
 
-    const oldSchema = this.createValidationSchema(oldMetadata.columns || []);
-    const newSchema = this.createValidationSchema(newMetadata.columns || []);
+    const oldSchema = buildMongoValidationSchema(oldMetadata.columns || []);
+    const newSchema = buildMongoValidationSchema(newMetadata.columns || []);
     const validationChanged =
       JSON.stringify(oldSchema) !== JSON.stringify(newSchema);
 
@@ -427,8 +369,8 @@ export class MongoSchemaDiffService {
         await db.command({
           collMod: activeCollectionName,
           validator: { $jsonSchema: diff.validation.newSchema },
-          validationLevel: 'moderate',
-          validationAction: 'error',
+          validationLevel: MONGO_VALIDATION_LEVEL,
+          validationAction: MONGO_VALIDATION_ACTION,
         });
       } catch (error: any) {
         throw new Error(

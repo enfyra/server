@@ -5,6 +5,7 @@ export interface TCacheInvalidationPayload {
   scope: 'full' | 'partial';
   ids?: (string | number)[];
   affectedTables?: string[];
+  critical?: boolean;
   tableRenames?: Array<{
     id: string | number;
     oldName: string;

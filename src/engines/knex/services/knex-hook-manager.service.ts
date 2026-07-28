@@ -515,6 +515,8 @@ export class KnexHookManagerService {
     knexContext: AsyncLocalStorage<Knex | Knex.Transaction>,
     cascadeContext: AsyncLocalStorage<Map<string, any>>,
     options: KnexQueryOptions = {},
+    runWithWriteLease: <T>(context: string, run: () => Promise<T>) => Promise<T> =
+      async (_context, run) => run(),
   ): any {
     const runHooks = (event: HookEvent, ...args: any[]) =>
       this.runHooks(event, ...args);
@@ -569,7 +571,9 @@ export class KnexHookManagerService {
           );
           return runHooks('afterInsert', tableName, result);
         });
-      return ensureTransaction(runInsert);
+      return runWithWriteLease(String(tableName ?? 'insert'), () =>
+        ensureTransaction(runInsert),
+      );
     };
 
     qb.update = async function (data: any, ...rest: any[]) {
@@ -585,7 +589,9 @@ export class KnexHookManagerService {
           );
           return runHooks('afterUpdate', tableName, result);
         });
-      return ensureTransaction(runUpdate);
+      return runWithWriteLease(String(tableName ?? 'update'), () =>
+        ensureTransaction(runUpdate),
+      );
     };
 
     qb.delete = qb.del = async function (...args: any[]) {
@@ -595,7 +601,9 @@ export class KnexHookManagerService {
         const result = await originalDelete.call(masterQb, ...args);
         return runHooks('afterDelete', tableName, result);
       };
-      return ensureTransaction(runDelete);
+      return runWithWriteLease(String(tableName ?? 'delete'), () =>
+        ensureTransaction(runDelete),
+      );
     };
 
     qb.then = function (onFulfilled: any, onRejected: any) {

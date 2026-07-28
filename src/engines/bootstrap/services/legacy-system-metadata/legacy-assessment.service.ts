@@ -57,14 +57,22 @@ export class LegacyAssessmentService {
         return this.finding(coreKey, 'malformed', canonical, legacy,
           `Legacy store ${legacy!.storeName} has no detectable primary identity.`, true);
       }
-      const hasData = (legacy!.rowCount ?? 0) > 0;
-      return this.finding(coreKey, 'legacy_only', canonical, legacy,
-        `Only legacy store ${legacy!.storeName} present with ${legacy!.rowCount} rows; declared rename required.`, hasData);
+      return this.finding(coreKey, 'declared_rename', canonical, legacy,
+        `Only legacy store ${legacy!.storeName} present with ${legacy!.rowCount} rows; transactional declared rename will prove the result.`, false);
     }
 
     if (canonical!.fingerprint === legacy!.fingerprint) {
-      return this.finding(coreKey, 'exact_duplicate', canonical, legacy,
-        'Canonical and legacy stores have identical fingerprints.', false);
+      const bothEmpty = canonical!.rowCount === 0 && legacy!.rowCount === 0;
+      return this.finding(
+        coreKey,
+        bothEmpty ? 'exact_duplicate' : 'declared_rename',
+        canonical,
+        legacy,
+        bothEmpty
+          ? 'Canonical and legacy stores have identical empty structural fingerprints.'
+          : 'Canonical and legacy stores are structurally compatible; transactional overlap reconciliation will prove row equivalence.',
+        false,
+      );
     }
 
     if (!canonical!.primaryIdentity || !legacy!.primaryIdentity) {

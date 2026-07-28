@@ -4,8 +4,10 @@ import {
   MongoSagaLockService,
   MongoSagaSnapshotService,
   MongoSagaCoordinator,
+  MongoMigrationJournalService,
 } from '../../src/engines/mongo';
 import { InstanceService } from '../../src/shared/services';
+import { RuntimeSchemaJournalService } from '../../src/modules/table-management/services/runtime-schema-journal.service';
 
 const MONGO_URI =
   'mongodb://enfyra_admin:enfyra_password_123@localhost:27017/enfyra_test?authSource=admin';
@@ -35,6 +37,8 @@ describe('MongoDB Saga System - Integration Tests', () => {
     meta: 'system_saga_sessions',
     snapshots: 'system_saga_snapshots',
     counters: 'system_saga_counters',
+    migrationJournal: 'enfyra_schema_migration',
+    runtimeJournal: 'enfyra_runtime_schema_journal',
   };
 
   beforeAll(async () => {
@@ -1298,7 +1302,54 @@ describe('MongoDB Saga System - Integration Tests', () => {
   // ORPHAN RECOVERY
   // ====================================================================
   describe('Orphan Recovery', () => {
-    it('should rollback all open sessions during boot recovery', async () => {
+    it('persists runtime mutation correlation on the saga session', async () => {
+      const txId = await lockService.beginTransaction({
+        purpose: 'runtime-schema',
+        mutationId: 'runtime-schema:correlation',
+      });
+
+      await expect(lockService.getSagaStatus(txId)).resolves.toEqual(
+        expect.objectContaining({
+          purpose: 'runtime-schema',
+          mutationId: 'runtime-schema:correlation',
+        }),
+      );
+      await lockService.abortTransaction(txId);
+    });
+
+    it('leaves a live leased saga untouched during boot recovery', async () => {
+      await db.collection(COLLECTIONS.orders).deleteMany({});
+      const id = new ObjectId();
+      await db.collection(COLLECTIONS.orders).insertOne({
+        _id: id,
+        customerId: 'live-owner',
+        status: 'dirty',
+      });
+      const txId = await lockService.beginTransaction();
+      const snapshot = await snapshotService.createSnapshot(
+        txId,
+        'update',
+        COLLECTIONS.orders,
+        id,
+        { _id: id, customerId: 'live-owner', status: 'original' },
+        { status: 'dirty' },
+      );
+      await snapshotService.markSnapshotCompleted(snapshot.snapshotId);
+
+      const result = await coordinator.recoverOrphanedSagas('boot');
+
+      expect(result.recovered).toBe(0);
+      await expect(lockService.getSagaStatus(txId)).resolves.toEqual(
+        expect.objectContaining({ status: 'active' }),
+      );
+      await expect(
+        db.collection(COLLECTIONS.orders).findOne({ _id: id }),
+      ).resolves.toEqual(expect.objectContaining({ status: 'dirty' }));
+      await lockService.abortTransaction(txId);
+      await snapshotService.deleteSnapshotsForSession(txId);
+    });
+
+    it('rolls back only an expired session during boot recovery', async () => {
       await db.collection(COLLECTIONS.orders).deleteMany({});
       const existingId = new ObjectId();
       const insertedId = new ObjectId();
@@ -1313,6 +1364,11 @@ describe('MongoDB Saga System - Integration Tests', () => {
       ]);
 
       const txId = await lockService.beginTransaction();
+      const expiredAt = new Date(Date.now() - 120_000);
+      await db.collection(COLLECTIONS.meta).updateOne(
+        { txId },
+        { $set: { expiresAt: expiredAt, lastActivityAt: expiredAt } },
+      );
       await snapshotService
         .createSnapshotsBatch(txId, [
           {
@@ -1363,6 +1419,132 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(inserted).toBeNull();
       await expect(lockService.getSagaStatus(txId)).resolves.toBeNull();
     });
+
+    it('does not double-rollback a correlated migration already compensated by its saga', async () => {
+      await db.collection(COLLECTIONS.migrationJournal).deleteMany({});
+      await db.collection(COLLECTIONS.runtimeJournal).deleteMany({});
+      const mutationId = 'runtime-schema:already-compensated';
+      await db.collection(COLLECTIONS.runtimeJournal).insertOne({
+        mutationId,
+        stage: 'failed',
+      });
+      await db.collection(COLLECTIONS.migrationJournal).insertOne({
+        uuid: 'mj-already-compensated',
+        tableName: 'posts',
+        operation: 'update',
+        status: 'running',
+        purpose: 'runtime-schema',
+        mutationId,
+        sagaSessionId: 'tx-already-gone',
+        downDiff: {},
+      });
+      const service = new MongoMigrationJournalService({ mongoService });
+      const executeDiff = vi.fn();
+
+      await service.recoverPending(executeDiff);
+
+      expect(executeDiff).not.toHaveBeenCalled();
+      await expect(
+        db
+          .collection(COLLECTIONS.migrationJournal)
+          .findOne({ uuid: 'mj-already-compensated' }),
+      ).resolves.toEqual(expect.objectContaining({ status: 'rolled_back' }));
+    });
+
+    it('refuses generic rollback while the correlated runtime saga is live', async () => {
+      await db.collection(COLLECTIONS.migrationJournal).deleteMany({});
+      await db.collection(COLLECTIONS.runtimeJournal).deleteMany({});
+      const mutationId = 'runtime-schema:live-correlation';
+      const txId = await lockService.beginTransaction({
+        purpose: 'runtime-schema',
+        mutationId,
+      });
+      await db.collection(COLLECTIONS.runtimeJournal).insertOne({
+        mutationId,
+        stage: 'executing',
+      });
+      await db.collection(COLLECTIONS.migrationJournal).insertOne({
+        uuid: 'mj-live-correlation',
+        tableName: 'posts',
+        operation: 'update',
+        status: 'running',
+        purpose: 'runtime-schema',
+        mutationId,
+        sagaSessionId: txId,
+        downDiff: {},
+      });
+      const service = new MongoMigrationJournalService({ mongoService });
+      const executeDiff = vi.fn();
+
+      await expect(service.recoverPending(executeDiff)).rejects.toThrow(
+        /still live/i,
+      );
+      expect(executeDiff).not.toHaveBeenCalled();
+      await lockService.abortTransaction(txId);
+    });
+
+    it('does not classify a runtime journal while its correlated saga is live', async () => {
+      await db.collection(COLLECTIONS.runtimeJournal).deleteMany({});
+      const mutationId = 'runtime-schema:live-runtime-journal';
+      const txId = await lockService.beginTransaction({
+        purpose: 'runtime-schema',
+        mutationId,
+      });
+      await db.collection(COLLECTIONS.runtimeJournal).insertOne({
+        mutationId,
+        contractHash: 'hash',
+        backend: 'mongodb',
+        stage: 'executing',
+        sagaSessionId: txId,
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        completedNodeIds: [],
+      });
+      const journal = new RuntimeSchemaJournalService({
+        queryBuilderService: {
+          isMongoDb: () => true,
+          getMongoDb: () => db,
+        } as any,
+      });
+
+      await expect(journal.recoverUnresolved()).rejects.toThrow(/still live/i);
+      await expect(
+        db.collection(COLLECTIONS.runtimeJournal).findOne({ mutationId }),
+      ).resolves.toEqual(expect.objectContaining({ stage: 'executing' }));
+      await lockService.abortTransaction(txId);
+    });
+
+    it('keeps committed recovery activation pending until boot caches are ready', async () => {
+      await db.collection(COLLECTIONS.runtimeJournal).deleteMany({});
+      const mutationId = 'runtime-schema:boot-activation';
+      await db.collection(COLLECTIONS.runtimeJournal).insertOne({
+        mutationId,
+        contractHash: 'hash',
+        backend: 'mongodb',
+        stage: 'db_committed',
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        completedNodeIds: [],
+      });
+      const journal = new RuntimeSchemaJournalService({
+        queryBuilderService: {
+          isMongoDb: () => true,
+          getMongoDb: () => db,
+        } as any,
+      });
+
+      await journal.recoverUnresolved();
+      await expect(
+        db.collection(COLLECTIONS.runtimeJournal).findOne({ mutationId }),
+      ).resolves.toEqual(
+        expect.objectContaining({ stage: 'activation_pending' }),
+      );
+
+      await journal.completeRecoveredActivations();
+      await expect(
+        db.collection(COLLECTIONS.runtimeJournal).findOne({ mutationId }),
+      ).resolves.toEqual(expect.objectContaining({ stage: 'completed' }));
+    });
   });
 
   // ====================================================================
@@ -1378,12 +1560,25 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(names).toContain(COLLECTIONS.snapshots);
     });
 
-    it('should cleanup expired locks and snapshots', async () => {
+    it('does not delete rollback evidence for a live saga', async () => {
       const cleanedLocks = await lockService.cleanupOrphanedLocks();
+      const txId = await lockService.beginTransaction();
+      const snapshot = await snapshotService.createSnapshot(
+        txId,
+        'update',
+        COLLECTIONS.orders,
+        new ObjectId(),
+        { status: 'before' },
+        { status: 'after' },
+      );
+      await snapshotService.markSnapshotCompleted(snapshot.snapshotId);
       const oldLogs = await snapshotService.cleanupOldSnapshots(0);
 
       expect(typeof cleanedLocks).toBe('number');
-      expect(typeof oldLogs).toBe('number');
+      expect(oldLogs).toBe(0);
+      await expect(snapshotService.getSnapshots(txId)).resolves.toHaveLength(1);
+      await lockService.abortTransaction(txId);
+      await snapshotService.deleteSnapshotsForSession(txId);
     });
 
     it('should detect deadlocks in the system', async () => {
@@ -2138,7 +2333,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
     it('renewTransactionLease is no-op when transaction metadata is missing', async () => {
       await expect(
         lockService.renewTransactionLease('tx-missing-' + Date.now()),
-      ).resolves.toBeUndefined();
+      ).resolves.toBe(false);
     });
 
     it('recoverOrphanedSagas(boot) updates recovery metrics', async () => {

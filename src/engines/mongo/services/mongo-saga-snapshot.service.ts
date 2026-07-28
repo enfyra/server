@@ -112,12 +112,18 @@ export class MongoSagaSnapshotService {
         await collection.createIndex({ collection: 1, documentId: 1 });
       } catch {}
     }
+    const createdAtIndex = existingIndexes.find(
+      (index: any) => index.name === 'createdAt_1',
+    );
+    if (createdAtIndex?.expireAfterSeconds != null) {
+      try {
+        await collection.dropIndex('createdAt_1');
+        indexNames.delete('createdAt_1');
+      } catch {}
+    }
     if (!indexNames.has('createdAt_1')) {
       try {
-        await collection.createIndex(
-          { createdAt: 1 },
-          { expireAfterSeconds: 86400 * 7 },
-        );
+        await collection.createIndex({ createdAt: 1 });
       } catch {}
     }
 
@@ -348,16 +354,16 @@ export class MongoSagaSnapshotService {
       }
     }
 
-    const batchPromises: Promise<void>[] = [];
+    const collectionPromises: Promise<void>[] = [];
 
     for (const [collectionName, group] of batchableByCollection) {
-      const collection = getMongoRawDb(this.mongoService).collection(
-        collectionName,
-      );
+      collectionPromises.push(
+        (async () => {
+          const collection = getMongoRawDb(this.mongoService).collection(
+            collectionName,
+          );
 
-      if (group.deleteIds.length > 0) {
-        batchPromises.push(
-          (async () => {
+          if (group.deleteIds.length > 0) {
             try {
               const idsToDelete = group.deleteIds.map((id) =>
                 this.toMongoDocumentId(id),
@@ -373,14 +379,11 @@ export class MongoSagaSnapshotService {
                   error: getErrorMessage(error),
                 });
               }
+              return;
             }
-          })(),
-        );
-      }
+          }
 
-      if (group.restoreOps.length > 0) {
-        batchPromises.push(
-          (async () => {
+          if (group.restoreOps.length > 0) {
             const bulkOps = group.restoreOps.map((op) => ({
               replaceOne: {
                 filter: { _id: this.toMongoDocumentId(op.id) },
@@ -396,21 +399,45 @@ export class MongoSagaSnapshotService {
                 ),
               );
             } catch (error) {
-              for (const op of group.restoreOps) {
-                for (const snapshot of op.snapshots) {
-                  failedSnapshots.push({
-                    snapshotId: snapshot.snapshotId,
-                    error: getErrorMessage(error),
-                  });
+              const writeErrors: Array<{ index: number; errmsg: string }> =
+                (error as any)?.writeErrors ?? [];
+              if (writeErrors.length > 0) {
+                const failedIndexes = new Set(writeErrors.map((w) => w.index));
+                for (let i = 0; i < group.restoreOps.length; i++) {
+                  const op = group.restoreOps[i];
+                  const specificError =
+                    writeErrors.find((w) => w.index === i)?.errmsg ??
+                    getErrorMessage(error);
+                  if (failedIndexes.has(i)) {
+                    for (const snapshot of op.snapshots) {
+                      failedSnapshots.push({
+                        snapshotId: snapshot.snapshotId,
+                        error: specificError,
+                      });
+                    }
+                  } else {
+                    rolledBackSnapshots.push(
+                      ...op.snapshots.map((s) => s.snapshotId),
+                    );
+                  }
+                }
+              } else {
+                for (const op of group.restoreOps) {
+                  for (const snapshot of op.snapshots) {
+                    failedSnapshots.push({
+                      snapshotId: snapshot.snapshotId,
+                      error: getErrorMessage(error),
+                    });
+                  }
                 }
               }
             }
-          })(),
-        );
-      }
+          }
+        })(),
+      );
     }
 
-    await Promise.allSettled(batchPromises);
+    await Promise.allSettled(collectionPromises);
 
     if (rolledBackSnapshots.length > 0) {
       await this.getSnapshotCollection().updateMany(
@@ -590,39 +617,8 @@ export class MongoSagaSnapshotService {
 
   async cleanupOldSnapshots(olderThanDays: number = 7): Promise<number> {
     await this.ensureCollection();
-    const filter: Record<string, any> = {
-      status: { $in: ['completed', 'rolled_back', 'aborted'] },
-    };
-    if (olderThanDays > 0) {
-      filter.createdAt = {
-        $lt: new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000),
-      };
-    }
-    const sessionIds = await this.getSnapshotCollection().distinct(
-      'sessionId',
-      filter,
-    );
-    const result = await this.getSnapshotCollection().deleteMany(filter);
-
-    const remainingSessionIds = await this.getSnapshotCollection().distinct(
-      'sessionId',
-      {
-        sessionId: { $in: sessionIds },
-      },
-    );
-    const remainingSessionIdSet = new Set(
-      remainingSessionIds.map((id: any) => String(id)),
-    );
-    const orphanedCounterIds = sessionIds.filter(
-      (id: any) => !remainingSessionIdSet.has(String(id)),
-    );
-    if (orphanedCounterIds.length > 0) {
-      await getMongoRawDb(this.mongoService)
-        .collection(this.counterCollectionName)
-        .deleteMany({ _id: { $in: orphanedCounterIds } as any });
-    }
-
-    return result.deletedCount || 0;
+    void olderThanDays;
+    return 0;
   }
 
   async getSnapshotsForDocument(

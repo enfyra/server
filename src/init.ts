@@ -49,13 +49,9 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
     c.runtimeNamespaceLifecycleService?.init?.(),
   );
 
-  try {
-    await runInitStep('mongoSagaCoordinator.init', () =>
-      c.mongoSagaCoordinator?.init?.(),
-    );
-  } catch (e: any) {
-    logger.warn(`MongoSagaCoordinator init skipped: ${e.message}`);
-  }
+  await runInitStep('mongoSagaCoordinator.init', () =>
+    c.mongoSagaCoordinator?.init?.(),
+  );
 
   await runInitStep('provisionService.waitForDatabase', () =>
     c.provisionService.waitForDatabase(),
@@ -206,6 +202,9 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
   await runInitStep('runtimeNamespaceLifecycleService.renewReadyNamespace', () =>
     c.runtimeNamespaceLifecycleService?.renewCurrentNamespaceKeys?.(),
   );
+  await runInitStep('runtimeSchemaJournalService.completeRecoveredActivations', () =>
+    c.runtimeSchemaJournalService?.completeRecoveredActivations?.(),
+  );
 
   c.eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
   logger.log('Init event emitted: SYSTEM_READY');
@@ -214,7 +213,31 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
 export async function shutdown(
   container: AwilixContainer<Cradle>,
 ): Promise<void> {
-  await container.cradle.flowExecutionQueueService?.onDestroy?.();
-  await container.cradle.queryBuilderService?.flushBatchInserts?.();
-  await container.dispose();
+  const redis = container.cradle.redis;
+  let shutdownError: unknown;
+  const operations = [
+    () => container.cradle.flowExecutionQueueService?.onDestroy?.(),
+    () => container.cradle.queryBuilderService?.flushBatchInserts?.(),
+    () => container.dispose(),
+  ];
+
+  for (const operation of operations) {
+    try {
+      await operation();
+    } catch (error) {
+      shutdownError ??= error;
+    }
+  }
+
+  if (shutdownError) {
+    redis.disconnect();
+    throw shutdownError;
+  }
+
+  try {
+    await redis.quit();
+  } catch (error) {
+    redis.disconnect();
+    throw error;
+  }
 }

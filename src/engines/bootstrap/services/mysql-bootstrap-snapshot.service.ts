@@ -2,11 +2,17 @@ import { createHash, randomUUID } from 'crypto';
 import type { Knex } from 'knex';
 import type { KnexService } from '../../knex';
 import { getErrorMessage } from '../../../shared/utils/error.util';
+import type {
+  MySqlBootstrapSnapshotContext,
+  MySqlBootstrapSnapshotRecoveryResult,
+} from '../types/mysql-bootstrap-snapshot.types';
 
 const TRANSACTION_TABLE = 'system_bootstrap_transactions';
 const SNAPSHOT_TABLE = 'system_bootstrap_snapshots';
 const BACKUP_PREFIX = 'system_bootstrap_backup_';
 const ADVISORY_LOCK_NAME = 'enfyra:bootstrap:snapshot';
+const RUNTIME_FENCE_TABLE = 'system_runtime_write_fence';
+const RUNTIME_WRITER_TABLE = 'system_runtime_active_writes';
 
 interface BootstrapSnapshotEntry {
   txId: string;
@@ -24,17 +30,26 @@ export class MySqlBootstrapSnapshotService {
     this.knexService = deps.knexService;
   }
 
-  async recoverPending(): Promise<void> {
+  async recoverPending(): Promise<MySqlBootstrapSnapshotRecoveryResult> {
     const knex = this.knexService.getKnex({ skipMetadataHooks: true });
-    await this.withAdvisoryLock(knex, () => this.recoverPendingLocked(knex));
+    return this.withAdvisoryLock(knex, (connection) =>
+      this.recoverPendingLocked(knex, connection),
+    );
   }
 
-  private async recoverPendingLocked(knex: Knex): Promise<void> {
+  private async recoverPendingLocked(
+    knex: Knex,
+    connection?: any,
+  ): Promise<MySqlBootstrapSnapshotRecoveryResult> {
     await this.ensureJournalTables(knex);
+    const rolledBackMutationIds = new Set<string>();
     const planning = await knex(TRANSACTION_TABLE)
       .where({ status: 'planning' })
       .orderBy('createdAt', 'asc');
     for (const transaction of planning) {
+      if (transaction.mutationId) {
+        rolledBackMutationIds.add(String(transaction.mutationId));
+      }
       await this.cleanup(knex, transaction.txId);
       await knex(TRANSACTION_TABLE).where({ txId: transaction.txId }).update({
         status: 'rolled_back',
@@ -46,7 +61,10 @@ export class MySqlBootstrapSnapshotService {
       .whereIn('status', ['running', 'rolling_back'])
       .orderBy('createdAt', 'asc');
     for (const transaction of pending) {
-      await this.restore(knex, transaction.txId);
+      if (transaction.mutationId) {
+        rolledBackMutationIds.add(String(transaction.mutationId));
+      }
+      await this.restore(knex, transaction.txId, connection);
     }
 
     const terminal = await knex(TRANSACTION_TABLE)
@@ -55,23 +73,39 @@ export class MySqlBootstrapSnapshotService {
     for (const transaction of terminal) {
       await this.cleanup(knex, transaction.txId);
     }
+    const rolledBackTerminal = await knex(TRANSACTION_TABLE)
+      .where({ status: 'rolled_back' })
+      .whereNotNull('mutationId')
+      .select('mutationId');
+    for (const transaction of rolledBackTerminal) {
+      rolledBackMutationIds.add(String(transaction.mutationId));
+    }
+    return { rolledBackMutationIds: [...rolledBackMutationIds].sort() };
   }
 
-  async run<T>(callback: () => Promise<T>): Promise<T> {
+  async run<T>(
+    callback: () => Promise<T>,
+    context: MySqlBootstrapSnapshotContext = {},
+  ): Promise<T> {
     const knex = this.knexService.getKnex({ skipMetadataHooks: true });
-    return this.withAdvisoryLock(knex, () => this.runLocked(knex, callback));
+    return this.withAdvisoryLock(knex, (connection) =>
+      this.runLocked(knex, callback, context, connection),
+    );
   }
 
   private async runLocked<T>(
     knex: Knex,
     callback: () => Promise<T>,
+    context: MySqlBootstrapSnapshotContext,
+    connection?: any,
   ): Promise<T> {
     await this.ensureJournalTables(knex);
-    await this.recoverPendingLocked(knex);
+    await this.recoverPendingLocked(knex, connection);
 
     const txId = `bootstrap-${randomUUID()}`;
     await knex(TRANSACTION_TABLE).insert({
       txId,
+      mutationId: context.mutationId ?? null,
       status: 'planning',
       errorMessage: null,
       createdAt: new Date(),
@@ -99,14 +133,17 @@ export class MySqlBootstrapSnapshotService {
           errorMessage: getErrorMessage(error).slice(0, 4000),
           updatedAt: new Date(),
         });
-      await this.restore(knex, txId);
+      await this.restore(knex, txId, connection);
+      if (error && typeof error === 'object') {
+        (error as any).mysqlSnapshotRestored = true;
+      }
       throw error;
     }
   }
 
   private async withAdvisoryLock<T>(
     knex: Knex,
-    callback: () => Promise<T>,
+    callback: (connection: any) => Promise<T>,
   ): Promise<T> {
     const connection = await knex.client.acquireConnection();
     try {
@@ -119,7 +156,7 @@ export class MySqlBootstrapSnapshotService {
       if (Number(rows?.[0]?.acquired) !== 1) {
         throw new Error('Timed out acquiring MySQL bootstrap snapshot lock');
       }
-      return await callback();
+      return await callback(connection);
     } finally {
       try {
         await connection
@@ -136,6 +173,7 @@ export class MySqlBootstrapSnapshotService {
       try {
         await knex.schema.createTable(TRANSACTION_TABLE, (table) => {
           table.string('txId', 64).primary();
+          table.string('mutationId', 128).nullable().index();
           table.string('status', 32).notNullable();
           table.text('errorMessage').nullable();
           table.timestamp('createdAt').notNullable();
@@ -143,6 +181,15 @@ export class MySqlBootstrapSnapshotService {
         });
       } catch (error: any) {
         if (error?.code !== 'ER_TABLE_EXISTS_ERROR') throw error;
+      }
+    }
+    if (!(await knex.schema.hasColumn(TRANSACTION_TABLE, 'mutationId'))) {
+      try {
+        await knex.schema.alterTable(TRANSACTION_TABLE, (table) => {
+          table.string('mutationId', 128).nullable().index();
+        });
+      } catch (error: any) {
+        if (error?.code !== 'ER_DUP_FIELDNAME') throw error;
       }
     }
     if (!(await knex.schema.hasTable(SNAPSHOT_TABLE))) {
@@ -190,41 +237,61 @@ export class MySqlBootstrapSnapshotService {
     }
   }
 
-  private async restore(knex: Knex, txId: string): Promise<void> {
+  private async restore(
+    knex: Knex,
+    txId: string,
+    connection?: any,
+  ): Promise<void> {
     const entries = (await knex(SNAPSHOT_TABLE)
       .where({ txId })
       .orderBy('ordinal', 'asc')) as BootstrapSnapshotEntry[];
     const originalNames = new Set(entries.map((entry) => entry.tableName));
-    const currentTables = await this.listApplicationTables(knex);
+    const activeConnection = connection ?? await knex.client.acquireConnection();
+    const ownsConnection = connection == null;
+    const query = async (sql: string, bindings: any[] = []) =>
+      activeConnection.promise().query(sql, bindings);
+    const escapeId = (value: string) => activeConnection.escapeId(value);
+    const currentTables = await this.listApplicationTablesOnConnection(
+      activeConnection,
+    );
 
-    await knex.raw('SET FOREIGN_KEY_CHECKS = 0');
+    await query('SET FOREIGN_KEY_CHECKS = 0');
     try {
       for (const tableName of currentTables.reverse()) {
-        await knex.schema.dropTableIfExists(tableName);
+        await query(`DROP TABLE IF EXISTS ${escapeId(tableName)}`);
       }
       for (const entry of entries) {
-        await knex.raw(entry.createSql);
+        await query(entry.createSql);
       }
       for (const entry of entries) {
-        if (!(await knex.schema.hasTable(entry.backupTableName))) continue;
+        const [backupRows] = await query(
+          `SELECT 1 FROM information_schema.TABLES
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1`,
+          [entry.backupTableName],
+        );
+        if (!(backupRows as any[]).length) continue;
         const columns = JSON.parse(entry.columnsJson) as string[];
         if (columns.length > 0) {
-          await knex.raw('INSERT INTO ?? (??) SELECT ?? FROM ??', [
-            entry.tableName,
-            columns,
-            columns,
-            entry.backupTableName,
-          ]);
+          const escapedColumns = columns.map(escapeId).join(', ');
+          await query(
+            `INSERT INTO ${escapeId(entry.tableName)} (${escapedColumns}) ` +
+              `SELECT ${escapedColumns} FROM ${escapeId(entry.backupTableName)}`,
+          );
         }
       }
-      const remaining = await this.listApplicationTables(knex);
+      const remaining = await this.listApplicationTablesOnConnection(
+        activeConnection,
+      );
       for (const tableName of remaining) {
         if (!originalNames.has(tableName)) {
-          await knex.schema.dropTableIfExists(tableName);
+          await query(`DROP TABLE IF EXISTS ${escapeId(tableName)}`);
         }
       }
     } finally {
-      await knex.raw('SET FOREIGN_KEY_CHECKS = 1');
+      await query('SET FOREIGN_KEY_CHECKS = 1');
+      if (ownsConnection) {
+        await knex.client.releaseConnection(activeConnection);
+      }
     }
 
     await knex(TRANSACTION_TABLE).where({ txId }).update({
@@ -232,6 +299,28 @@ export class MySqlBootstrapSnapshotService {
       updatedAt: new Date(),
     });
     await this.cleanup(knex, txId);
+  }
+
+  private async listApplicationTablesOnConnection(
+    connection: any,
+  ): Promise<string[]> {
+    const [rows] = await connection.promise().query(
+      `SELECT TABLE_NAME AS tableName
+       FROM information_schema.TABLES
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_TYPE = 'BASE TABLE'
+       ORDER BY TABLE_NAME`,
+    );
+    return (rows ?? [])
+      .map((row: any) => String(row.tableName ?? row.TABLE_NAME))
+      .filter(
+        (tableName: string) =>
+          tableName !== TRANSACTION_TABLE &&
+          tableName !== SNAPSHOT_TABLE &&
+          tableName !== RUNTIME_FENCE_TABLE &&
+          tableName !== RUNTIME_WRITER_TABLE &&
+          !tableName.startsWith(BACKUP_PREFIX),
+      );
   }
 
   private async cleanup(knex: Knex, txId: string): Promise<void> {
@@ -259,6 +348,8 @@ export class MySqlBootstrapSnapshotService {
         (tableName: string) =>
           tableName !== TRANSACTION_TABLE &&
           tableName !== SNAPSHOT_TABLE &&
+          tableName !== RUNTIME_FENCE_TABLE &&
+          tableName !== RUNTIME_WRITER_TABLE &&
           !tableName.startsWith(BACKUP_PREFIX),
       );
   }

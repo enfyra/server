@@ -59,7 +59,7 @@ describe('LegacyAssessmentService', () => {
     expect(report.findings.every((f) => f.outcome === 'canonical_only')).toBe(true);
   });
 
-  it('reports legacy_only when canonical stores do not exist', () => {
+  it('allows a well-formed legacy-only store through the declared rename path', () => {
     const keys: Array<'table' | 'column' | 'relation'> = ['table', 'column', 'relation'];
     const entries: LegacyStoreInventoryEntry[] = [];
     for (const coreKey of keys) {
@@ -67,15 +67,22 @@ describe('LegacyAssessmentService', () => {
       entries.push(entry({ coreKey, kind: 'legacy', storeName: `${coreKey}_definition`, rowCount: 5 }));
     }
     const report = assessment.assess(inventory(entries));
-    expect(report.hasBlockingFindings).toBe(true);
-    expect(report.findings.every((f) => f.outcome === 'legacy_only')).toBe(true);
+    expect(report.hasBlockingFindings).toBe(false);
+    expect(report.findings.every((f) => f.outcome === 'declared_rename')).toBe(true);
   });
 
   it('reports exact_duplicate when fingerprints match', () => {
-    const inv = fullInventory({ fingerprint: 'same-hash' });
+    const inv = fullInventory({ fingerprint: 'same-hash', rowCount: 0 });
     const report = assessment.assess(inv);
     expect(report.hasBlockingFindings).toBe(false);
     expect(report.findings.every((f) => f.outcome === 'exact_duplicate')).toBe(true);
+  });
+
+  it('routes populated compatible pairs through transactional reconciliation', () => {
+    const inv = fullInventory({ fingerprint: 'same-hash', rowCount: 10 });
+    const report = assessment.assess(inv);
+    expect(report.hasBlockingFindings).toBe(false);
+    expect(report.findings.every((f) => f.outcome === 'declared_rename')).toBe(true);
   });
 
   it('reports conflict when columns diverge in both directions', () => {

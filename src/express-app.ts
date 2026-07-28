@@ -88,6 +88,16 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
 
   const c = container.cradle;
 
+  app.use((_req, res, next) => {
+    if (!c.runtimeSchemaActivationGateService?.isBlocked?.()) {
+      next();
+      return;
+    }
+    res.status(503).json({
+      message: 'Runtime schema activation is pending; this instance is not ready',
+    });
+  });
+
   app.use((req: any, res, next) => {
     const startedAt = performance.now();
     res.on('finish', () => {

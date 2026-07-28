@@ -112,6 +112,7 @@ export class MigrationJournalService {
       this.logger.warn(
         `No downScript found for journal ${uuid}, skipping rollback`,
       );
+      if (entry) await this.markRolledBack(uuid);
       return;
     }
 
@@ -131,6 +132,11 @@ export class MigrationJournalService {
         await knex.raw(stmt);
         this.logger.log(`  Rollback [${i + 1}]: ${stmt.substring(0, 80)}`);
       } catch (error: any) {
+        const code = error?.code ?? '';
+        const tableGone = code === '42P01' || code === 'ER_NO_SUCH_TABLE';
+        if (tableGone) {
+          continue;
+        }
         failures.push(`[${i + 1}] ${stmt.substring(0, 80)}: ${error.message}`);
         this.logger.warn(
           `  Rollback failed [${i + 1}]: ${stmt.substring(0, 80)} — ${error.message}`,
@@ -143,6 +149,28 @@ export class MigrationJournalService {
         `Rollback for ${uuid} had ${failures.length} failed statement(s): ${failures.join('; ')}`,
       );
     }
+
+    if (entry.beforeSnapshot && entry.tableName) {
+      try {
+        const snapshot = typeof entry.beforeSnapshot === 'string'
+          ? JSON.parse(entry.beforeSnapshot)
+          : entry.beforeSnapshot;
+        const restoreFields: Record<string, any> = {};
+        if (snapshot.uniques !== undefined) restoreFields.uniques = JSON.stringify(snapshot.uniques);
+        if (snapshot.indexes !== undefined) restoreFields.indexes = JSON.stringify(snapshot.indexes);
+        if (Object.keys(restoreFields).length > 0) {
+          await knex('enfyra_table')
+            .where('name', entry.tableName)
+            .update(restoreFields);
+          this.logger.log(`  Restored metadata for ${entry.tableName} from beforeSnapshot`);
+        }
+      } catch (metaErr: any) {
+        this.logger.warn(
+          `  Metadata restore skipped for ${entry.tableName}: ${metaErr.message}`,
+        );
+      }
+    }
+
     await this.markRolledBack(uuid);
   }
 
@@ -152,7 +180,7 @@ export class MigrationJournalService {
 
     try {
       pending = await knex('enfyra_schema_migration')
-        .whereIn('status', ['pending', 'running'])
+        .whereIn('status', ['pending', 'running', 'failed'])
         .select('*');
     } catch (error: any) {
       const isMissingTable =
@@ -170,7 +198,7 @@ export class MigrationJournalService {
     if (pending.length === 0) return;
 
     this.logger.warn(
-      `Found ${pending.length} pending/running migration(s), rolling back...`,
+      `Found ${pending.length} unresolved migration(s), rolling back...`,
     );
 
     const unrecovered: string[] = [];

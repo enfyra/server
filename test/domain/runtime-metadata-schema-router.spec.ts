@@ -38,7 +38,15 @@ function createHarness(input?: { mongo?: boolean; preview?: boolean }) {
   };
   const queryBuilderService = {
     findOne: vi.fn(async (query: any) => {
-      if (query.table === 'enfyra_table') return ownerTable;
+      if (query.table === 'enfyra_table') {
+        const id = query.where?.id ?? query.where?._id;
+        if (String(id) === String(input?.mongo ? 'target-mongo' : 20)) {
+          return input?.mongo
+            ? { _id: 'target-mongo', name: 'user' }
+            : { id: 20, name: 'user' };
+        }
+        return ownerTable;
+      }
       if (query.table === 'enfyra_column' && query.where?.name === 'slug') {
         return input?.mongo ? { _id: 'created-column' } : { id: 99 };
       }
@@ -123,6 +131,7 @@ describe('RuntimeMetadataSchemaRouterService', () => {
       recordId: 99,
       ownerTableId: 10,
       affectedTables: ['user'],
+      mutationId: 'test-mutation',
     });
   });
 
@@ -162,6 +171,163 @@ describe('RuntimeMetadataSchemaRouterService', () => {
     ).toHaveBeenCalledOnce();
   });
 
+  it('reconstructs the complete table aggregate for sparse table patches', async () => {
+    const harness = createHarness();
+    await harness.service.updateTable({
+      tableId: 10,
+      body: { description: 'Updated description' },
+      context: { $query: { schemaConfirmHash: 'confirm-me' } },
+    });
+
+    const compileInput =
+      harness.runtimeSchemaContractCompilerService.compile.mock.calls[0][0];
+    expect(compileInput.afterMetadata).toEqual(
+      expect.objectContaining({
+        id: 10,
+        name: 'post',
+        description: 'Updated description',
+      }),
+    );
+    expect(compileInput.afterMetadata.columns).toEqual(
+      harness.ownerTable.columns,
+    );
+    expect(compileInput.afterMetadata.relations).toEqual([
+      {
+        ...harness.ownerTable.relations[0],
+        targetTableName: 'user',
+      },
+    ]);
+  });
+
+  it('expands id-only children before compiling a table replacement', async () => {
+    const harness = createHarness();
+    await harness.service.updateTable({
+      tableId: 10,
+      body: {
+        columns: [{ id: 1 }, { id: 2 }, { name: 'slug', type: 'varchar' }],
+      },
+      context: { $query: { schemaConfirmHash: 'confirm-me' } },
+    });
+
+    const compileInput =
+      harness.runtimeSchemaContractCompilerService.compile.mock.calls[0][0];
+    expect(compileInput.afterMetadata.columns).toEqual([
+      harness.ownerTable.columns[0],
+      harness.ownerTable.columns[1],
+      { name: 'slug', type: 'varchar' },
+    ]);
+    expect(
+      harness.runtimeSchemaExecutorService.execute.mock.calls[0][0].body,
+    ).toEqual(compileInput.afterMetadata);
+  });
+
+  it('matches SQL child ids canonically when the request uses numeric strings', async () => {
+    const harness = createHarness();
+    await harness.service.updateTable({
+      tableId: 10,
+      body: { columns: [{ id: '1' }, { id: '2' }] },
+      context: { $query: { schemaConfirmHash: 'confirm-me' } },
+    });
+
+    const compileInput =
+      harness.runtimeSchemaContractCompilerService.compile.mock.calls[0][0];
+    expect(compileInput.afterMetadata.columns).toEqual([
+      { ...harness.ownerTable.columns[0], id: '1' },
+      { ...harness.ownerTable.columns[1], id: '2' },
+    ]);
+  });
+
+  it('resolves relation target ids before compiling a table create', async () => {
+    const harness = createHarness();
+    await harness.service.createTable({
+      body: {
+        name: 'comment',
+        columns: [],
+        relations: [
+          {
+            propertyName: 'author',
+            type: 'many-to-one',
+            targetTable: '20',
+            targetTableName: 'forged_name',
+          },
+        ],
+      },
+    });
+
+    const compileInput =
+      harness.runtimeSchemaContractCompilerService.compile.mock.calls[0][0];
+    expect(compileInput.afterMetadata.relations[0]).toEqual(
+      expect.objectContaining({
+        targetTable: '20',
+        targetTableName: 'user',
+      }),
+    );
+  });
+
+  it('deduplicates relation target lookups within one contract snapshot', async () => {
+    const harness = createHarness();
+    await harness.service.createTable({
+      body: {
+        name: 'comment',
+        columns: [],
+        relations: [
+          { propertyName: 'author', type: 'many-to-one', targetTable: 20 },
+          { propertyName: 'editor', type: 'many-to-one', targetTable: { id: 20 } },
+        ],
+      },
+    });
+
+    const targetLookups = harness.queryBuilderService.findOne.mock.calls
+      .map(([query]: any[]) => query)
+      .filter((query: any) => query.table === 'enfyra_table' && String(query.where?.id) === '20');
+    expect(targetLookups).toHaveLength(1);
+  });
+
+  it('rejects relation target objects without an id', async () => {
+    const harness = createHarness();
+    await expect(
+      harness.service.createTable({
+        body: {
+          name: 'comment',
+          columns: [],
+          relations: [
+            {
+              propertyName: 'author',
+              type: 'many-to-one',
+              targetTable: { name: 'user' },
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow(/requires a target table id/i);
+  });
+
+  it('resolves object relation targets before compiling a Mongo table update', async () => {
+    const harness = createHarness({ mongo: true });
+    await harness.service.updateTable({
+      tableId: 'owner-mongo',
+      body: {
+        relations: [
+          {
+            propertyName: 'editor',
+            type: 'many-to-one',
+            targetTable: { _id: 'target-mongo' },
+          },
+        ],
+      },
+      context: { $query: { schemaConfirmHash: 'confirm-me' } },
+    });
+
+    const compileInput =
+      harness.runtimeSchemaContractCompilerService.compile.mock.calls[0][0];
+    expect(compileInput.afterMetadata.relations[0]).toEqual(
+      expect.objectContaining({
+        targetTable: { _id: 'target-mongo' },
+        targetTableName: 'user',
+      }),
+    );
+  });
+
   it('uses Mongo ids and target references without leaking owner fields', async () => {
     const harness = createHarness({ mongo: true });
     await harness.service.update({
@@ -180,7 +346,7 @@ describe('RuntimeMetadataSchemaRouterService', () => {
         _id: 'relation-author',
         propertyName: 'writer',
         targetTable: { _id: 'target-mongo' },
-        targetTableName: 'post',
+        targetTableName: 'user',
       }),
     );
     expect(body.relations[0]).not.toHaveProperty('sourceTable');

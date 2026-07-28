@@ -60,7 +60,7 @@ export class LegacyStoreInventoryService {
     const columns = await this.listColumns(storeName);
     const primaryIdentity = this.detectPrimaryIdentity(columns);
     const rowCount = await this.countRows(storeName);
-    const fingerprint = this.computeFingerprint(storeName, columns, primaryIdentity);
+    const fingerprint = this.computeFingerprint(columns, primaryIdentity);
     return {
       kind,
       storeName,
@@ -111,12 +111,10 @@ export class LegacyStoreInventoryService {
   }
 
   private computeFingerprint(
-    storeName: string,
     columns: string[],
     primaryIdentity: string | null,
   ): string {
     const payload = JSON.stringify({
-      storeName,
       columns: [...columns].sort(),
       primaryIdentity,
     });

@@ -39,6 +39,8 @@ import { FlowQueueMaintenanceService } from '../../flow';
 import { logMemory } from '../../../shared/utils/memory-log.util';
 import { normalizeDynamicReadProjection } from '../utils/field-selection.util';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
+import type { RuntimeSchemaActivationGateService } from '../../table-management';
+import type { RuntimeMetadataSchemaMutationResult } from '../../table-management/types/runtime-metadata-schema-router.types';
 
 interface DynamicBatchCreateResult {
   accepted: true;
@@ -61,6 +63,7 @@ export class DynamicRepository {
   private runtimeRegistryService: RuntimeRegistryService;
   private enforceFieldPermission: boolean;
   private tableMetadata: any;
+  private readonly runtimeSchemaActivationGateService?: RuntimeSchemaActivationGateService;
 
   constructor({
     context,
@@ -75,6 +78,7 @@ export class DynamicRepository {
     flowQueueMaintenanceService,
     runtimeRegistryService,
     enforceFieldPermission,
+    runtimeSchemaActivationGateService,
   }: {
     context: TDynamicContext;
     tableName: string;
@@ -89,6 +93,7 @@ export class DynamicRepository {
     flowQueueMaintenanceService?: FlowQueueMaintenanceService;
     runtimeRegistryService: RuntimeRegistryService;
     enforceFieldPermission?: boolean;
+    runtimeSchemaActivationGateService?: RuntimeSchemaActivationGateService;
   }) {
     this.context = context;
     this.tableName = tableName;
@@ -103,6 +108,8 @@ export class DynamicRepository {
     this.flowQueueMaintenanceService = flowQueueMaintenanceService;
     this.runtimeRegistryService = runtimeRegistryService;
     this.enforceFieldPermission = enforceFieldPermission === true;
+    this.runtimeSchemaActivationGateService =
+      runtimeSchemaActivationGateService;
   }
 
   async init() {
@@ -899,26 +906,18 @@ export class DynamicRepository {
       });
       if (this.tableName === 'enfyra_table') {
         body.isSystem = false;
-        const table: any = await this.tableHandlerService.createTable(
-          body as any,
-          this.context,
-        );
-        logMemory(this.logger, 'dynamic create table handler done', {
-          ...writeMeta,
-          durationMs: Date.now() - startedAt,
+        const mutation = await this.runtimeMetadataSchemaRouterService.createTable({
+          body: body as any,
+          context: this.context,
         });
-        const idValue = table._id || table.id;
-        await this.reload({
-          ids: [idValue],
-          affectedTables: table.affectedTables,
+        if (mutation.preview) return { data: [mutation.preview] };
+        const idValue = mutation.recordId;
+        await this.activateRuntimeSchemaMutation(mutation, {
+          ids: idValue == null ? undefined : [idValue],
         });
         const result = await this.find({
           filter: { [this.getIdField()]: { _eq: idValue } },
           fields,
-        });
-        logMemory(this.logger, 'dynamic create done', {
-          ...writeMeta,
-          durationMs: Date.now() - startedAt,
         });
         return result;
       }
@@ -929,16 +928,10 @@ export class DynamicRepository {
           context: this.context,
         });
         if (mutation.preview) return { data: [mutation.preview] };
-        try {
-          await this.reload({
-            ids: mutation.recordId == null ? undefined : [mutation.recordId],
-            affectedTables: mutation.affectedTables,
-          });
-        } catch (reloadError: any) {
-          this.logger.warn(
-            `Cache reload failed after schema mutation (db_committed_pending_activation): ${reloadError.message}`,
-          );
-        }
+        await this.activateRuntimeSchemaMutation(mutation, {
+          ids:
+            mutation.recordId == null ? undefined : [mutation.recordId],
+        });
         return this.find({
           filter: {
             [this.getIdField()]: { _eq: mutation.recordId },
@@ -1193,31 +1186,20 @@ export class DynamicRepository {
         await this.assertColumnRuleUnique(body, id);
       }
       if (this.tableName === 'enfyra_table') {
-        const table: any = await this.tableHandlerService.updateTable(
-          id,
-          body,
-          this.context,
-        );
-        logMemory(this.logger, 'dynamic update table handler done', {
-          ...writeMeta,
-          durationMs: Date.now() - startedAt,
+        const mutation = await this.runtimeMetadataSchemaRouterService.updateTable({
+          tableId: id,
+          body: body as any,
+          existing: exists,
+          context: this.context,
         });
-        if (table?._preview) {
-          return { data: [table] };
-        }
-        const tableId = table._id || table.id;
-        await this.reload({
+        if (mutation.preview) return { data: [mutation.preview] };
+        const tableId = mutation.recordId ?? id;
+        await this.activateRuntimeSchemaMutation(mutation, {
           ids: [tableId],
-          affectedTables: table.affectedTables,
-          tableRenames: table.tableRenames,
         });
         const result = await this.find({
           filter: { [this.getIdField()]: { _eq: tableId } },
           fields,
-        });
-        logMemory(this.logger, 'dynamic update done', {
-          ...writeMeta,
-          durationMs: Date.now() - startedAt,
         });
         return result;
       }
@@ -1230,16 +1212,7 @@ export class DynamicRepository {
           context: this.context,
         });
         if (mutation.preview) return { data: [mutation.preview] };
-        try {
-          await this.reload({
-            ids: [id],
-            affectedTables: mutation.affectedTables,
-          });
-        } catch (reloadError: any) {
-          this.logger.warn(
-            `Cache reload failed after schema mutation (db_committed_pending_activation): ${reloadError.message}`,
-          );
-        }
+        await this.activateRuntimeSchemaMutation(mutation, { ids: [id] });
         return this.find({
           filter: { [this.getIdField()]: { _eq: id } },
           fields,
@@ -1328,21 +1301,13 @@ export class DynamicRepository {
         throw new BadRequestException(deleteDecision.message);
       }
       if (this.tableName === 'enfyra_table') {
-        const deleted: any = await this.tableHandlerService.delete(
-          id,
-          this.context,
-        );
-        if (deleted?._preview) {
-          return { data: [deleted] };
-        }
-        await this.reload({
-          ids: [id],
-          affectedTables: deleted?.affectedTables,
+        const mutation = await this.runtimeMetadataSchemaRouterService.deleteTable({
+          tableId: id,
+          existing: exists,
+          context: this.context,
         });
-        logMemory(this.logger, 'dynamic delete done', {
-          ...writeMeta,
-          durationMs: Date.now() - startedAt,
-        });
+        if (mutation.preview) return { data: [mutation.preview] };
+        await this.activateRuntimeSchemaMutation(mutation, { ids: [id] });
         return { message: 'Success', statusCode: 200 };
       }
       if (this.runtimeMetadataSchemaRouterService.handles(this.tableName)) {
@@ -1353,16 +1318,7 @@ export class DynamicRepository {
           context: this.context,
         });
         if (mutation.preview) return { data: [mutation.preview] };
-        try {
-          await this.reload({
-            ids: [id],
-            affectedTables: mutation.affectedTables,
-          });
-        } catch (reloadError: any) {
-          this.logger.warn(
-            `Cache reload failed after schema mutation (db_committed_pending_activation): ${reloadError.message}`,
-          );
-        }
+        await this.activateRuntimeSchemaMutation(mutation, { ids: [id] });
         return { message: 'Success', statusCode: 200 };
       }
       await this.queryBuilderService.runWithPolicy(
@@ -1615,10 +1571,57 @@ export class DynamicRepository {
     }
   }
 
+  private async activateRuntimeSchemaMutation(
+    mutation: RuntimeMetadataSchemaMutationResult,
+    opts: { ids?: (string | number)[] },
+  ): Promise<void> {
+    const mutationId = mutation.mutationId;
+    if (!mutationId) {
+      await this.reload({
+        ids: opts.ids,
+        affectedTables: mutation.affectedTables,
+        critical: true,
+        tableRenames: mutation.tableRenames,
+      });
+      return;
+    }
+
+    this.runtimeSchemaActivationGateService?.begin(mutationId);
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await this.reload({
+          ids: opts.ids,
+          affectedTables: mutation.affectedTables,
+          critical: true,
+          tableRenames: mutation.tableRenames,
+        });
+        await this.runtimeMetadataSchemaRouterService.markActivated(mutationId);
+        this.runtimeSchemaActivationGateService?.complete(mutationId);
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, attempt * 100),
+          );
+        }
+      }
+    }
+
+    this.runtimeSchemaActivationGateService?.fail(mutationId, lastError);
+    const message =
+      lastError instanceof Error ? lastError.message : String(lastError);
+    throw new Error(
+      `Schema mutation committed but cache activation failed; instance fenced: ${message}`,
+    );
+  }
+
   private async reload(opts?: {
     ids?: (string | number)[];
     affectedTables?: string[];
     tableRenames?: TCacheInvalidationPayload['tableRenames'];
+    critical?: boolean;
   }) {
     const payload: TCacheInvalidationPayload = {
       table: this.tableName,
@@ -1627,6 +1630,7 @@ export class DynamicRepository {
       scope: opts?.ids?.length ? 'partial' : 'full',
       ids: opts?.ids,
       affectedTables: opts?.affectedTables,
+      critical: opts?.critical,
       tableRenames: opts?.tableRenames,
     };
     if (typeof this.eventEmitter.emitAsync === 'function') {

@@ -12,7 +12,7 @@ import {
 } from './mongo-saga-snapshot.service';
 import { MongoService } from './mongo.service';
 import { DatabaseException } from '../../../domain/exceptions';
-import { ISagaOptions, ISagaContext } from './mongo-saga.types';
+import { type ISagaContext, type ResolvedSagaOptions } from './mongo-saga.types';
 import { SagaPlan } from './mongo-saga-plan';
 
 export class MongoSagaSession {
@@ -23,9 +23,17 @@ export class MongoSagaSession {
     private readonly lockService: MongoSagaLockService,
     private readonly snapshotService: MongoSagaSnapshotService,
     private readonly mongoService: MongoService,
-    private readonly options: Required<ISagaOptions>,
+    private readonly options: ResolvedSagaOptions,
     private readonly context: ISagaContext,
   ) {}
+
+  get purpose(): string | undefined {
+    return this.options.purpose;
+  }
+
+  get mutationId(): string | undefined {
+    return this.options.mutationId;
+  }
 
   private checkDuration(): void {
     const elapsed = Date.now() - this.context.metadata.startedAt.getTime();
@@ -61,6 +69,7 @@ export class MongoSagaSession {
     );
     this.trackSnapshot(snapshot);
     try {
+      await this.lockService.assertTransactionOwnership(this.txId);
       const collection = await this.mongoService
         .getRawDb()
         .createCollection(collectionName, options);
@@ -110,6 +119,7 @@ export class MongoSagaSession {
     this.context.snapshots.push(...documentSnapshots, structureSnapshot);
 
     try {
+      await this.lockService.assertTransactionOwnership(this.txId);
       const dropped = await db.dropCollection(collectionName);
       await this.snapshotService.markSnapshotsBatchCompleted(
         documentSnapshots.map((snapshot) => snapshot.snapshotId),
@@ -145,6 +155,7 @@ export class MongoSagaSession {
     );
     this.trackSnapshot(snapshot);
     try {
+      await this.lockService.assertTransactionOwnership(this.txId);
       const renamed = await this.mongoService
         .getRawDb()
         .collection(from)
@@ -190,6 +201,7 @@ export class MongoSagaSession {
     );
     this.trackSnapshot(snapshot);
     try {
+      await this.lockService.assertTransactionOwnership(this.txId);
       const createdName = await collection.createIndex(keys as any, options);
       snapshot.afterPatch.name = createdName;
       await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
@@ -221,6 +233,7 @@ export class MongoSagaSession {
     );
     this.trackSnapshot(snapshot);
     try {
+      await this.lockService.assertTransactionOwnership(this.txId);
       await collection.dropIndex(indexName);
       await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
     } catch (error) {
@@ -319,6 +332,7 @@ export class MongoSagaSession {
     }
 
     try {
+      await this.lockService.assertTransactionOwnership(this.txId);
       const collection = this.mongoService
         .getRawDb()
         .collection(collectionName);
@@ -402,6 +416,7 @@ export class MongoSagaSession {
     }
 
     try {
+      await this.lockService.assertTransactionOwnership(this.txId);
       await collection.updateOne({ _id: objectId }, { $set: data });
 
       if (snapshot) {
@@ -465,6 +480,7 @@ export class MongoSagaSession {
       this.trackSnapshot(snapshot);
     }
     try {
+      await this.lockService.assertTransactionOwnership(this.txId);
       let payload: any;
       if (Array.isArray(update)) {
         payload = update;
@@ -575,6 +591,7 @@ export class MongoSagaSession {
     }
 
     try {
+      await this.lockService.assertTransactionOwnership(this.txId);
       const result = await collection.deleteOne({ _id: objectId });
 
       if (snapshot) {
@@ -647,6 +664,7 @@ export class MongoSagaSession {
       this.trackSnapshot(snapshot);
     }
     try {
+      await this.lockService.assertTransactionOwnership(this.txId);
       const result = await collection.replaceOne(
         { _id: oldDoc._id },
         { ...replacement, _id: oldDoc._id },
@@ -832,6 +850,7 @@ export class MongoSagaSession {
     }
 
     try {
+      await this.lockService.assertTransactionOwnership(this.txId);
       const collection = this.mongoService
         .getRawDb()
         .collection(collectionName);
@@ -916,6 +935,7 @@ export class MongoSagaSession {
     }
 
     try {
+      await this.lockService.assertTransactionOwnership(this.txId);
       const bulkOps = updates.map((update, index) => ({
         updateOne: {
           filter: { _id: objectIds[index] },
@@ -1016,6 +1036,7 @@ export class MongoSagaSession {
     const idsToDelete = oldDocs.map((d) => d._id);
 
     try {
+      await this.lockService.assertTransactionOwnership(this.txId);
       const result = await collection.deleteMany({ _id: { $in: idsToDelete } });
 
       if (snapshots.length > 0) {

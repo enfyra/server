@@ -361,8 +361,8 @@ describe('SchemaHealingService Mongo integration', () => {
       },
     ]);
     await db.collection(oldCollectionName).insertOne({
-      enfyra_routeId: routeId,
-      enfyra_methodId: methodId,
+      enfyraRouteId: routeId,
+      enfyraMethodId: methodId,
     });
     await db.collection(junction.junctionTableName).insertOne({
       [junction.junctionSourceColumn]: routeId,

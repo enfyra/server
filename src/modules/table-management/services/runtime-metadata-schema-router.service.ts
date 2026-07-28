@@ -10,6 +10,7 @@ import type {
   RuntimeMetadataSchemaMutationInput,
   RuntimeMetadataSchemaMutationResult,
   RuntimeSchemaMetadataTable,
+  RuntimeTableMutationInput,
 } from '../types/runtime-metadata-schema-router.types';
 import type { TableHandlerService } from './table-handler.service';
 import type { RuntimeSchemaContractCompilerService } from './runtime-schema-contract-compiler.service';
@@ -35,11 +36,11 @@ export class RuntimeMetadataSchemaRouterService {
   ): Promise<RuntimeMetadataSchemaMutationResult> {
     const ownerTableId = this.getOwnerTableId(input.tableName, input.data);
     const table = await this.loadOwnerTable(ownerTableId);
-    const body = this.buildTableBody(table);
+    let body = this.buildTableBody(table);
     const list = this.getBodyList(body, input.tableName);
     const child = this.normalizeChild(input.tableName, input.data ?? {});
     list.push(child);
-    await this.resolveRelationTargetNames(body);
+    body = await this.resolveRelationTargetNames(body);
     const { contract, requiredConfirmHash } =
       await this.deps.runtimeSchemaContractCompilerService.compile({
         operation: 'update',
@@ -68,7 +69,7 @@ export class RuntimeMetadataSchemaRouterService {
       return { preview: execResult.preview, ownerTableId };
     }
     if (execResult.affectedTables.length === 0 && contract.context.diff.schemaChanged === false) {
-      return { ownerTableId, affectedTables: [] };
+      return { ownerTableId, affectedTables: [], mutationId: execResult.mutationId };
     }
     const created = await this.findCreatedChild(
       input.tableName,
@@ -79,6 +80,8 @@ export class RuntimeMetadataSchemaRouterService {
       recordId: this.getRecordId(created),
       ownerTableId,
       affectedTables: execResult.affectedTables as string[],
+      tableRenames: execResult.tableRenames,
+      mutationId: execResult.mutationId,
     };
   }
 
@@ -91,7 +94,7 @@ export class RuntimeMetadataSchemaRouterService {
     const existing = input.existing ?? (await this.loadChild(input));
     const ownerTableId = this.getOwnerTableId(input.tableName, existing);
     const table = await this.loadOwnerTable(ownerTableId);
-    const body = this.buildTableBody(table);
+    let body = this.buildTableBody(table);
     const list = this.getBodyList(body, input.tableName);
     const index = list.findIndex(
       (entry: any) =>
@@ -108,7 +111,7 @@ export class RuntimeMetadataSchemaRouterService {
       ...input.data,
       [this.getPkField()]: input.recordId,
     });
-    await this.resolveRelationTargetNames(body);
+    body = await this.resolveRelationTargetNames(body);
     const { contract, requiredConfirmHash } =
       await this.deps.runtimeSchemaContractCompilerService.compile({
         operation: 'update',
@@ -141,6 +144,8 @@ export class RuntimeMetadataSchemaRouterService {
       recordId: input.recordId,
       ownerTableId,
       affectedTables: execResult.affectedTables as string[],
+      tableRenames: execResult.tableRenames,
+      mutationId: execResult.mutationId,
     };
   }
 
@@ -153,7 +158,7 @@ export class RuntimeMetadataSchemaRouterService {
     const existing = input.existing ?? (await this.loadChild(input));
     const ownerTableId = this.getOwnerTableId(input.tableName, existing);
     const table = await this.loadOwnerTable(ownerTableId);
-    const body = this.buildTableBody(table);
+    let body = this.buildTableBody(table);
     const list = this.getBodyList(body, input.tableName);
     const next = list.filter(
       (entry: any) =>
@@ -167,7 +172,7 @@ export class RuntimeMetadataSchemaRouterService {
     }
     if (input.tableName === 'enfyra_column') body.columns = next;
     else body.relations = next;
-    await this.resolveRelationTargetNames(body);
+    body = await this.resolveRelationTargetNames(body);
     const { contract, requiredConfirmHash } =
       await this.deps.runtimeSchemaContractCompilerService.compile({
         operation: 'update',
@@ -200,7 +205,194 @@ export class RuntimeMetadataSchemaRouterService {
       recordId: input.recordId,
       ownerTableId,
       affectedTables: execResult.affectedTables as string[],
+      tableRenames: execResult.tableRenames,
+      mutationId: execResult.mutationId,
     };
+  }
+
+  async markActivated(mutationId: string): Promise<void> {
+    await this.deps.runtimeSchemaExecutorService.markActivated(mutationId);
+  }
+
+  async createTable(
+    input: RuntimeTableMutationInput,
+  ): Promise<RuntimeMetadataSchemaMutationResult> {
+    const body = await this.resolveRelationTargetNames(input.body!);
+    const { contract, requiredConfirmHash } =
+      await this.deps.runtimeSchemaContractCompilerService.compile({
+        operation: 'create',
+        tableName: String(body.name),
+        tableId: null,
+        currentUser: input.context?.$user,
+        beforeMetadata: null,
+        afterMetadata: body,
+        data: body,
+        requestContext: input.context,
+      });
+    const confirmHash = this.extractConfirmHash(input.context);
+    if (contract.context.diff.isDestructive && confirmHash !== requiredConfirmHash) {
+      return { preview: { _preview: true, requiredConfirmHash, schemaMutationContract: contract } };
+    }
+    const execResult = await this.deps.runtimeSchemaExecutorService.execute({
+      contract,
+      body,
+      context: input.context,
+    });
+    if (execResult.preview) {
+      return { preview: execResult.preview };
+    }
+    return {
+      recordId: execResult.recordId,
+      affectedTables: execResult.affectedTables as string[],
+      tableRenames: execResult.tableRenames,
+      mutationId: execResult.mutationId,
+    };
+  }
+
+  async updateTable(
+    input: RuntimeTableMutationInput,
+  ): Promise<RuntimeMetadataSchemaMutationResult> {
+    const tableId = input.tableId!;
+    const existing = await this.deps.queryBuilderService.findOne({
+      table: 'enfyra_table',
+      where: { [this.getPkField()]: tableId },
+      fields: ['*', 'columns.*', 'relations.*', 'relations.targetTable.name'],
+    });
+    if (!existing) {
+      throw new ResourceNotFoundException('enfyra_table', String(tableId));
+    }
+    const body = input.body!;
+    const target = await this.resolveRelationTargetNames(
+      this.buildCompleteTarget(existing, body),
+    );
+    const { contract, requiredConfirmHash } =
+      await this.deps.runtimeSchemaContractCompilerService.compile({
+        operation: 'update',
+        tableName: String(existing.name),
+        tableId,
+        currentUser: input.context?.$user,
+        beforeMetadata: existing,
+        afterMetadata: target,
+        data: target,
+        requestContext: input.context,
+      });
+    const confirmHash = this.extractConfirmHash(input.context);
+    if (contract.context.diff.schemaChanged && confirmHash !== requiredConfirmHash) {
+      return { preview: { _preview: true, requiredConfirmHash, schemaMutationContract: contract } };
+    }
+    const execResult = await this.deps.runtimeSchemaExecutorService.execute({
+      contract,
+      ownerTableId: tableId,
+      body: target,
+      context: input.context,
+    });
+    if (execResult.preview) {
+      return { preview: execResult.preview };
+    }
+    return {
+      recordId: execResult.recordId ?? tableId,
+      ownerTableId: tableId,
+      affectedTables: execResult.affectedTables as string[],
+      tableRenames: execResult.tableRenames,
+      mutationId: execResult.mutationId,
+    };
+  }
+
+  async deleteTable(
+    input: RuntimeTableMutationInput,
+  ): Promise<RuntimeMetadataSchemaMutationResult> {
+    const tableId = input.tableId!;
+    const existing = await this.deps.queryBuilderService.findOne({
+      table: 'enfyra_table',
+      where: { [this.getPkField()]: tableId },
+      fields: ['*', 'columns.*', 'relations.*', 'relations.targetTable.name'],
+    });
+    if (!existing) {
+      throw new ResourceNotFoundException('enfyra_table', String(tableId));
+    }
+    const { contract, requiredConfirmHash } =
+      await this.deps.runtimeSchemaContractCompilerService.compile({
+        operation: 'delete',
+        tableName: String(existing.name),
+        tableId,
+        currentUser: input.context?.$user,
+        beforeMetadata: existing,
+        afterMetadata: null,
+        data: null,
+        requestContext: input.context,
+      });
+    const confirmHash = this.extractConfirmHash(input.context);
+    if (confirmHash !== requiredConfirmHash) {
+      return { preview: { _preview: true, requiredConfirmHash, schemaMutationContract: contract } };
+    }
+    const execResult = await this.deps.runtimeSchemaExecutorService.execute({
+      contract,
+      tableId,
+      context: input.context,
+    });
+    if (execResult.preview) {
+      return { preview: execResult.preview };
+    }
+    return {
+      recordId: tableId,
+      ownerTableId: tableId,
+      affectedTables: execResult.affectedTables as string[],
+      tableRenames: execResult.tableRenames,
+      mutationId: execResult.mutationId,
+    };
+  }
+
+  private buildCompleteTarget(existing: any, body: any): any {
+    const pk = this.getPkField();
+    const target: any = { ...existing };
+    const scalarFields = [
+      'name', 'description', 'alias', 'isSingleRecord',
+      'graphqlEnabled', 'validateBody',
+    ];
+    for (const field of scalarFields) {
+      if (body[field] !== undefined) target[field] = body[field];
+    }
+    if (body.indexes !== undefined) {
+      target.indexes = body.indexes;
+    } else if (typeof target.indexes === 'string') {
+      try { target.indexes = JSON.parse(target.indexes); } catch {}
+    }
+    if (body.uniques !== undefined) {
+      target.uniques = body.uniques;
+    } else if (typeof target.uniques === 'string') {
+      try { target.uniques = JSON.parse(target.uniques); } catch {}
+    }
+    if (Array.isArray(body.columns)) {
+      target.columns = body.columns.map((col: any) => {
+        const matchById = col[pk] != null
+          ? (existing.columns || []).find(
+              (c: any) => String(c[pk]) === String(col[pk]),
+            )
+          : null;
+        const matchByName = !matchById && col.name
+          ? (existing.columns || []).find((c: any) => c.name === col.name)
+          : null;
+        const match = matchById || matchByName;
+        if (match) return { ...match, ...col };
+        return col;
+      });
+    }
+    if (Array.isArray(body.relations)) {
+      target.relations = body.relations.map((rel: any) => {
+        const matchById = rel[pk] != null
+          ? (existing.relations || []).find(
+              (r: any) => String(r[pk]) === String(rel[pk]),
+            )
+          : null;
+        const matchByProp = !matchById && rel.propertyName
+          ? (existing.relations || []).find((r: any) => r.propertyName === rel.propertyName)
+          : null;
+        const match = matchById || matchByProp;
+        if (match) return { ...match, ...rel };
+        return rel;
+      });
+    }
+    return target;
   }
 
   private async loadChild(
@@ -369,32 +561,50 @@ export class RuntimeMetadataSchemaRouterService {
     );
   }
 
-  private async resolveRelationTargetNames(body: TCreateTableBody): Promise<void> {
-    if (!body.relations?.length) return;
-    const toResolve = body.relations.filter(
-      (rel: any) => rel.targetTable != null,
-    );
-    if (!toResolve.length) return;
-    await Promise.all(
-      toResolve.map(async (rel: any) => {
+  private async resolveRelationTargetNames(
+    body: TCreateTableBody,
+  ): Promise<TCreateTableBody> {
+    if (!body.relations?.length) return body;
+    const targetLookups = new Map<string, Promise<any>>();
+    const relations = await Promise.all(
+      body.relations.map(async (relation: any) => {
+        const rel = { ...relation };
         const raw = rel.targetTable;
+        if (raw == null) return rel;
         const targetId =
-          raw && typeof raw === 'object'
-            ? (raw._id ?? raw.id)
-            : raw;
-        const target = await this.deps.queryBuilderService.findOne({
-          table: 'enfyra_table',
-          where: { [this.getPkField()]: targetId },
-          fields: ['name'],
-        });
-        if (target?.name) {
-          rel.targetTableName = target.name;
-        } else {
-          throw new Error(
-            `Relation target table not found for id=${String(targetId)}`,
+          raw && typeof raw === 'object' ? this.getReferenceId(raw) : raw;
+        if (targetId == null || targetId === '') {
+          throw new ValidationException(
+            `Relation '${String(rel.propertyName)}' requires a target table id`,
           );
         }
+        const canonicalId =
+          !this.deps.databaseConfigService.isMongoDb() &&
+          typeof targetId === 'string' &&
+          /^\d+$/.test(targetId)
+            ? Number(targetId)
+            : targetId;
+        const lookupKey = String(canonicalId);
+        let lookup = targetLookups.get(lookupKey);
+        if (!lookup) {
+          lookup = this.deps.queryBuilderService.findOne({
+            table: 'enfyra_table',
+            where: { [this.getPkField()]: canonicalId },
+            fields: ['name'],
+          });
+          targetLookups.set(lookupKey, lookup);
+        }
+        const target = await lookup;
+        if (!target?.name) {
+          throw new ResourceNotFoundException(
+            'enfyra_table',
+            String(canonicalId),
+          );
+        }
+        rel.targetTableName = target.name;
+        return rel;
       }),
     );
+    return { ...body, relations };
   }
 }

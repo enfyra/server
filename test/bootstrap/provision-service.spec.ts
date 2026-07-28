@@ -7,6 +7,9 @@ function createService(overrides: Partial<any> = {}) {
     queryBuilderService: { isMongoDb: () => false },
     databaseConfigService: { getDbType: () => 'postgres' },
     mySqlBootstrapSnapshotService: { recoverPending: vi.fn() },
+    mySqlRuntimeWriteBarrierService: {
+      recoverExclusive: vi.fn(async (callback) => callback()),
+    },
     routeDefinitionProcessor: { ensureMissingHandlers: vi.fn() },
     migrationJournalService: {
       recoverPending: vi.fn().mockResolvedValue(undefined),
@@ -15,6 +18,7 @@ function createService(overrides: Partial<any> = {}) {
     mongoMigrationJournalService: { cleanup: vi.fn() },
     mongoSchemaMigrationService: { recoverPendingMigrationSagas: vi.fn() },
     runtimeSchemaJournalService: {
+      markRecoveredRollbacks: vi.fn().mockResolvedValue(undefined),
       recoverUnresolved: vi.fn().mockResolvedValue(undefined),
       cleanup: vi.fn().mockResolvedValue(undefined),
     },
@@ -59,5 +63,39 @@ describe('ProvisionService', () => {
     await expect(service.recoverJournals()).rejects.toThrow(
       'unresolved journals',
     );
+  });
+
+  it('marks MySQL runtime mutations rolled back by snapshot recovery before journal classification', async () => {
+    const calls: string[] = [];
+    const service = createService({
+      databaseConfigService: { getDbType: () => 'mysql' },
+      mySqlBootstrapSnapshotService: {
+        recoverPending: vi.fn(async () => ({
+          rolledBackMutationIds: ['runtime-schema:restored'],
+        })),
+      },
+      runtimeSchemaJournalService: {
+        markRecoveredRollbacks: vi.fn(async () => {
+          calls.push('mark-rolled-back');
+        }),
+        recoverUnresolved: vi.fn(async () => {
+          calls.push('classify-unresolved');
+        }),
+      },
+      migrationJournalService: {
+        recoverPending: vi.fn(async () => {
+          calls.push('recover-sql-journal');
+        }),
+        cleanup: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+
+    await service.recoverJournals();
+
+    expect(calls).toEqual([
+      'mark-rolled-back',
+      'recover-sql-journal',
+      'classify-unresolved',
+    ]);
   });
 });

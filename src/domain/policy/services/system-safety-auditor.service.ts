@@ -58,7 +58,11 @@ export class SystemSafetyAuditorService {
       relationFields,
     );
 
-    if (operation === 'create') {
+    if (
+      hasSystemFlag &&
+      (operation === 'create' ||
+        (operation === 'update' && !fullExisting?.isSystem))
+    ) {
       const jsonFields =
         await this.schemaMigrationValidatorService.getJsonFields(tableName);
       const dataWithoutJson =

@@ -11,6 +11,7 @@ import { UserRevocationService } from '../../../domain/auth';
 import { TDynamicContext } from '../../../shared/types';
 import { FlowQueueMaintenanceService } from '../../flow';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
+import type { RuntimeSchemaActivationGateService } from '../../table-management';
 
 export class DynamicRepositoryFactory {
   private readonly tableHandlerService: TableHandlerService;
@@ -22,6 +23,7 @@ export class DynamicRepositoryFactory {
   private readonly flowQueueMaintenanceService: FlowQueueMaintenanceService;
   private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly eventEmitter: EventEmitter2;
+  private readonly runtimeSchemaActivationGateService: RuntimeSchemaActivationGateService;
 
   constructor(deps: {
     tableHandlerService: TableHandlerService;
@@ -33,6 +35,7 @@ export class DynamicRepositoryFactory {
     flowQueueMaintenanceService: FlowQueueMaintenanceService;
     runtimeRegistryService: RuntimeRegistryService;
     eventEmitter: EventEmitter2;
+    runtimeSchemaActivationGateService: RuntimeSchemaActivationGateService;
   }) {
     this.tableHandlerService = deps.tableHandlerService;
     this.runtimeMetadataSchemaRouterService =
@@ -44,6 +47,8 @@ export class DynamicRepositoryFactory {
     this.flowQueueMaintenanceService = deps.flowQueueMaintenanceService;
     this.runtimeRegistryService = deps.runtimeRegistryService;
     this.eventEmitter = deps.eventEmitter;
+    this.runtimeSchemaActivationGateService =
+      deps.runtimeSchemaActivationGateService;
   }
 
   create(
@@ -65,6 +70,8 @@ export class DynamicRepositoryFactory {
       flowQueueMaintenanceService: this.flowQueueMaintenanceService,
       runtimeRegistryService: this.runtimeRegistryService,
       eventEmitter: this.eventEmitter,
+      runtimeSchemaActivationGateService:
+        this.runtimeSchemaActivationGateService,
     });
   }
 }

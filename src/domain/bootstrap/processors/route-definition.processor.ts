@@ -431,10 +431,15 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     let methodIds: any[] = [];
     const raw = record.availableMethods;
     if (Array.isArray(raw) && raw.length > 0) {
-      methodIds =
-        typeof raw[0] === 'object' && raw[0] !== null
-          ? raw.map((m: any) => m?.id ?? m?._id).filter(Boolean)
-          : [...raw];
+      methodIds = raw
+        .map((method: any) => {
+          if (method instanceof ObjectId) return method;
+          if (typeof method === 'object' && method !== null) {
+            return method.id ?? method._id;
+          }
+          return method;
+        })
+        .filter(Boolean);
     } else {
       if (isMongoDB) {
         const junction = getSqlJunctionPhysicalNames({

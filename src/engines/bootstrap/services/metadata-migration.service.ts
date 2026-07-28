@@ -140,19 +140,22 @@ export class MetadataMigrationService {
 
   async executeCoreMigrationPlan(
     onOperationCompleted?: BootstrapSchemaOperationCompleted,
+    beforeNode?: () => Promise<void>,
   ): Promise<void> {
-    await this.executePlanCheckpoint('core', onOperationCompleted);
+    await this.executePlanCheckpoint('core', onOperationCompleted, beforeNode);
   }
 
   async executeRemainingMigrationPlan(
     onOperationCompleted?: BootstrapSchemaOperationCompleted,
+    beforeNode?: () => Promise<void>,
   ): Promise<void> {
-    await this.executePlanCheckpoint('remaining', onOperationCompleted);
+    await this.executePlanCheckpoint('remaining', onOperationCompleted, beforeNode);
   }
 
   private async executePlanCheckpoint(
     checkpoint: 'core' | 'remaining',
     onOperationCompleted?: BootstrapSchemaOperationCompleted,
+    beforeNode?: () => Promise<void>,
   ): Promise<void> {
     const plan = this.getExecutionPlan();
     for (const phase of plan.phases) {
@@ -164,6 +167,9 @@ export class MetadataMigrationService {
       if (nodes.length === 0) continue;
       this.verbose(`Executing migration phase ${phase.index}`);
       for (const node of nodes) {
+        if (beforeNode) {
+          await beforeNode();
+        }
         if (node.command.backend !== plan.database) {
           throw new Error(
             `Bootstrap migration node ${node.id} targets ${node.command.backend}, not ${plan.database}.`,

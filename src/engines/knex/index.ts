@@ -2,6 +2,7 @@ export * from './knex.service';
 export * from './services';
 export * from './types/knex-types';
 export * from './types/sql-physical-schema-contract.types';
+export * from './types/mysql-runtime-write-barrier.types';
 export {
   getPrimaryKeyColumn,
   getPrimaryKeyType as getMetadataPrimaryKeyType,

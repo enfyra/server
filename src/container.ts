@@ -163,6 +163,7 @@ import {
   KnexService,
   KnexHookManagerService,
   MigrationJournalService,
+  MySqlRuntimeWriteBarrierService,
   ReplicationManager,
   SchemaMigrationLockService,
   SqlPoolClusterCoordinatorService,
@@ -227,6 +228,8 @@ import {
   RuntimeSchemaPhysicalPlannerService,
   RuntimeMetadataSchemaRouterService,
   RuntimeSchemaExecutorService,
+  RuntimeSchemaTargetAttestorService,
+  RuntimeSchemaActivationGateService,
   RuntimeSchemaUnitOfWorkService,
   RuntimeSchemaJournalService,
   SqlTableCreateService,
@@ -288,8 +291,10 @@ export interface Cradle {
   runtimeSchemaPhysicalPlannerService: RuntimeSchemaPhysicalPlannerService;
   runtimeMetadataSchemaRouterService: RuntimeMetadataSchemaRouterService;
   runtimeSchemaExecutorService: RuntimeSchemaExecutorService;
+  runtimeSchemaTargetAttestorService: RuntimeSchemaTargetAttestorService;
   runtimeSchemaUnitOfWorkService: RuntimeSchemaUnitOfWorkService;
   runtimeSchemaJournalService: RuntimeSchemaJournalService;
+  runtimeSchemaActivationGateService: RuntimeSchemaActivationGateService;
   systemSafetyAuditorService: SystemSafetyAuditorService;
 
   mongoService: MongoService;
@@ -310,6 +315,7 @@ export interface Cradle {
   sqlSchemaMigrationService: SqlSchemaMigrationService;
   sqlSchemaDiffService: SqlSchemaDiffService;
   migrationJournalService: MigrationJournalService;
+  mySqlRuntimeWriteBarrierService: MySqlRuntimeWriteBarrierService;
   schemaMigrationLockService: SchemaMigrationLockService;
   sqlPoolClusterCoordinatorService: SqlPoolClusterCoordinatorService;
   sqlFunctionService: SqlFunctionService;
@@ -470,9 +476,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     eventEmitter: asValue(
       new EventEmitter2({ wildcard: true, maxListeners: 50 }),
     ),
-    redis: asFunction(() => new Redis(env.REDIS_URI))
-      .singleton()
-      .disposer((redis) => redis.disconnect()),
+    redis: asFunction(() => new Redis(env.REDIS_URI)).singleton(),
 
     flowQueue: asFunction(() =>
       createRuntimeQueue(SYSTEM_QUEUES.FLOW_EXECUTION),
@@ -535,11 +539,17 @@ export function buildContainer(): AwilixContainer<Cradle> {
     runtimeSchemaExecutorService: asClass(
       RuntimeSchemaExecutorService,
     ).singleton(),
+    runtimeSchemaTargetAttestorService: asClass(
+      RuntimeSchemaTargetAttestorService,
+    ).singleton(),
     runtimeSchemaUnitOfWorkService: asClass(
       RuntimeSchemaUnitOfWorkService,
     ).singleton(),
     runtimeSchemaJournalService: asClass(
       RuntimeSchemaJournalService,
+    ).singleton(),
+    runtimeSchemaActivationGateService: asClass(
+      RuntimeSchemaActivationGateService,
     ).singleton(),
     systemSafetyAuditorService: asClass(SystemSafetyAuditorService).singleton(),
 
@@ -588,6 +598,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     sqlSchemaMigrationService: asClass(SqlSchemaMigrationService).singleton(),
     sqlSchemaDiffService: asClass(SqlSchemaDiffService).singleton(),
     migrationJournalService: asClass(MigrationJournalService).singleton(),
+    mySqlRuntimeWriteBarrierService: asClass(
+      MySqlRuntimeWriteBarrierService,
+    ).singleton(),
     schemaMigrationLockService: asClass(SchemaMigrationLockService).singleton(),
     sqlPoolClusterCoordinatorService: asClass(SqlPoolClusterCoordinatorService)
       .singleton()

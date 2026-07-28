@@ -212,9 +212,14 @@ export function buildMongoFullIndexSpecs(input: {
 
   for (const index of indexes) {
     if (!Array.isArray(index) || index.length === 0) continue;
-    const keys: Record<string, 1> = {};
+    const temporalDirection =
+      index.length === 1 &&
+      (index[0] === 'createdAt' || index[0] === 'updatedAt')
+        ? -1
+        : 1;
+    const keys: Record<string, 1 | -1> = {};
     for (const field of index) {
-      keys[field] = 1;
+      keys[field] = temporalDirection;
     }
     specs.push({
       keys: withStableIdTieBreaker(keys),

@@ -6,20 +6,20 @@ import type { TCacheInvalidationPayload } from '../../../shared/types/cache.type
 
 const TABLE_NAME = SYSTEM_TABLES.runtimeReloadLog;
 
-export type RuntimeReloadAuditStatus =
+type RuntimeReloadAuditStatus =
   | 'pending'
   | 'building'
   | 'activated'
   | 'failed';
 
-export type RuntimeReloadAuditStepMetric = {
+type RuntimeReloadAuditStepMetric = {
   name: string;
   durationMs: number;
   status: 'success' | 'failed';
   error?: string;
 };
 
-export type RuntimeReloadAuditStartInput = {
+type RuntimeReloadAuditStartInput = {
   reloadId: string;
   flow: string;
   table: string;
@@ -30,7 +30,7 @@ export type RuntimeReloadAuditStartInput = {
   instanceId?: string;
 };
 
-export type RuntimeReloadAuditFinishInput = {
+type RuntimeReloadAuditFinishInput = {
   reloadId: string;
   status: 'activated' | 'failed';
   durationMs: number;
@@ -72,12 +72,20 @@ export class RuntimeReloadAuditService {
 
     try {
       if (this.queryBuilderService.isMongoDb()) {
+        const {
+          status: _status,
+          updatedAt: _updatedAt,
+          ...insertOnly
+        } = row;
         await this.queryBuilderService
           .getMongoDb()
           .collection(TABLE_NAME)
           .updateOne(
             { reloadId: input.reloadId },
-            { $setOnInsert: row, $set: { status: 'building', updatedAt: now } },
+            {
+              $setOnInsert: insertOnly,
+              $set: { status: 'building', updatedAt: now },
+            },
             { upsert: true },
           );
         return true;

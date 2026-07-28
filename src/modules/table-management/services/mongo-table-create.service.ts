@@ -449,6 +449,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
           );
         }
       },
+      (context as any)?.$onLockAcquired,
     );
   }
 }

@@ -34,6 +34,9 @@ describe('MongoSagaSnapshotService snapshot rollback', () => {
       getDb: () => ({
         collection: (name: string) => (name === 'posts' ? posts : snapshots),
       }),
+      getRawDb: () => ({
+        collection: (name: string) => (name === 'posts' ? posts : snapshots),
+      }),
     };
     const service = new MongoSagaSnapshotService({
       mongoService: mongoService as any,
@@ -105,5 +108,58 @@ describe('MongoSagaSnapshotService snapshot rollback', () => {
     expect(result.success).toBe(true);
     expect(posts.deleteMany).toHaveBeenCalledWith({ _id: { $in: [id] } });
     expect(posts.bulkWrite).not.toHaveBeenCalled();
+  });
+
+  it('deletes replacement rows before restoring originals sharing a unique key', async () => {
+    const { service, posts } = createService();
+    const oldId = new ObjectId('65f000000000000000000001');
+    const newId = new ObjectId('65f000000000000000000002');
+    const callOrder: string[] = [];
+    posts.deleteMany.mockImplementation(async () => {
+      callOrder.push('delete');
+      return { deletedCount: 1 };
+    });
+    posts.bulkWrite.mockImplementation(async () => {
+      callOrder.push('restore');
+      return {};
+    });
+
+    const result = await (service as any).rollbackBatch('tx-race', [
+      snapshot({
+        sessionId: 'tx-race',
+        seq: 2,
+        op: 'insert',
+        snapshotId: 'tx-race-2',
+        documentId: newId,
+        before: null,
+        afterPatch: { sourceId: 'src1', targetId: 'tgt1' },
+      }),
+      snapshot({
+        sessionId: 'tx-race',
+        seq: 1,
+        op: 'delete',
+        snapshotId: 'tx-race-1',
+        documentId: oldId,
+        before: { _id: oldId, sourceId: 'src1', targetId: 'tgt1' },
+      }),
+    ]);
+
+    expect(result.success).toBe(true);
+    expect(callOrder).toEqual(['delete', 'restore']);
+    expect(posts.deleteMany).toHaveBeenCalledWith({
+      _id: { $in: [newId] },
+    });
+    expect(posts.bulkWrite).toHaveBeenCalledWith(
+      [
+        {
+          replaceOne: {
+            filter: { _id: oldId },
+            replacement: { _id: oldId, sourceId: 'src1', targetId: 'tgt1' },
+            upsert: true,
+          },
+        },
+      ],
+      { ordered: false },
+    );
   });
 });

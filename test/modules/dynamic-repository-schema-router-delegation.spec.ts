@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DynamicRepository } from '../../src/modules/dynamic-api';
+import { RuntimeSchemaActivationGateService } from '../../src/modules/table-management';
 
 function makeRepo(
   tableName: string,
@@ -19,7 +20,10 @@ function makeRepo(
     create: vi.fn().mockResolvedValue(routerResult),
     update: vi.fn().mockResolvedValue(routerResult),
     delete: vi.fn().mockResolvedValue(routerResult),
+    markActivated: vi.fn().mockResolvedValue(undefined),
   };
+  const runtimeSchemaActivationGateService =
+    new RuntimeSchemaActivationGateService();
   const queryBuilderService = {
     getPkField: vi.fn(() => 'id'),
     find: vi.fn().mockResolvedValue({ data: [], count: 0 }),
@@ -68,6 +72,7 @@ function makeRepo(
     } as any,
     runtimeRegistryService: runtimeRegistryService as any,
     eventEmitter: { emit: vi.fn() } as any,
+    runtimeSchemaActivationGateService,
   });
   vi.spyOn(repo as any, 'ensureInit').mockResolvedValue(undefined);
   vi.spyOn(repo as any, 'reload').mockResolvedValue(undefined);
@@ -80,6 +85,7 @@ function makeRepo(
     repo,
     runtimeMetadataSchemaRouterService,
     queryBuilderService,
+    runtimeSchemaActivationGateService,
   };
 }
 
@@ -128,5 +134,51 @@ describe('DynamicRepository schema router delegation', () => {
     await repo.create({ data: { name: 'test' } });
     expect(runtimeMetadataSchemaRouterService.create).not.toHaveBeenCalled();
     expect(queryBuilderService.insert).toHaveBeenCalled();
+  });
+
+  it('fences the instance when committed schema activation exhausts retries', async () => {
+    const {
+      repo,
+      runtimeMetadataSchemaRouterService,
+      runtimeSchemaActivationGateService,
+    } = makeRepo('enfyra_column', {
+      routerResult: {
+        recordId: 42,
+        ownerTableId: 10,
+        affectedTables: ['user'],
+        mutationId: 'runtime-schema:activation-failure',
+      },
+    });
+    (repo as any).reload.mockRejectedValue(new Error('cache reload failed'));
+
+    await expect(
+      repo.create({ data: { name: 'slug', type: 'varchar', table: 10 } }),
+    ).rejects.toThrow(/instance fenced/i);
+
+    expect((repo as any).reload).toHaveBeenCalledTimes(3);
+    expect(runtimeMetadataSchemaRouterService.markActivated).not.toHaveBeenCalled();
+    expect(runtimeSchemaActivationGateService.isBlocked()).toBe(true);
+  });
+
+  it('unfences only after activation and journal completion both succeed', async () => {
+    const {
+      repo,
+      runtimeMetadataSchemaRouterService,
+      runtimeSchemaActivationGateService,
+    } = makeRepo('enfyra_column', {
+      routerResult: {
+        recordId: 42,
+        ownerTableId: 10,
+        affectedTables: ['user'],
+        mutationId: 'runtime-schema:activation-success',
+      },
+    });
+
+    await repo.create({ data: { name: 'slug', type: 'varchar', table: 10 } });
+
+    expect(runtimeMetadataSchemaRouterService.markActivated).toHaveBeenCalledWith(
+      'runtime-schema:activation-success',
+    );
+    expect(runtimeSchemaActivationGateService.isBlocked()).toBe(false);
   });
 });

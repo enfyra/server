@@ -134,4 +134,24 @@ describe('Mongo physical schema contract', () => {
       logicalFields: ['author'],
     });
   });
+
+  it('keeps persisted temporal index metadata on the canonical descending direction', () => {
+    const specs = buildMongoFullIndexSpecs({
+      collectionName: 'post',
+      indexes: [['createdAt'], ['updatedAt']],
+    });
+
+    expect(specs).toContainEqual({
+      keys: { createdAt: -1, _id: 1 },
+      options: { name: 'post_createdAt_idx' },
+      name: 'post_createdAt_idx',
+      logicalFields: ['createdAt'],
+    });
+    expect(specs).toContainEqual({
+      keys: { updatedAt: -1, _id: 1 },
+      options: { name: 'post_updatedAt_idx' },
+      name: 'post_updatedAt_idx',
+      logicalFields: ['updatedAt'],
+    });
+  });
 });

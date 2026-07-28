@@ -108,6 +108,7 @@ describe('MySQL bootstrap snapshot compensation', () => {
     await db('system_bootstrap_transactions').insert({
       txId,
       status: 'planning',
+      mutationId: 'runtime-schema:incomplete-planning',
       errorMessage: null,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -124,7 +125,11 @@ describe('MySQL bootstrap snapshot compensation', () => {
       ordinal: 0,
     });
 
-    await service.recoverPending();
+    const recovery = await service.recoverPending();
+
+    expect(recovery.rolledBackMutationIds).toContain(
+      'runtime-schema:incomplete-planning',
+    );
 
     expect(await db.schema.hasTable('parents')).toBe(true);
     expect(await db.schema.hasTable('children')).toBe(true);
