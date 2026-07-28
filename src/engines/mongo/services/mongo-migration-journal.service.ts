@@ -137,10 +137,9 @@ export class MongoMigrationJournalService {
   ): Promise<void> {
     const entry = await this.getEntry(uuid);
     if (!entry || !entry.downDiff) {
-      this.logger.warn(
-        `No downDiff found for journal ${uuid}, skipping rollback`,
+      throw new Error(
+        `Cannot rollback journal ${uuid}: ${!entry ? 'entry not found' : 'missing downDiff'}`,
       );
-      return;
     }
     this.logger.warn(`Executing rollback for ${uuid}`);
     const errors: string[] = [];
@@ -274,6 +273,14 @@ export class MongoMigrationJournalService {
     if (failures.length > 0) {
       throw new Error(
         `Mongo migration recovery failed for ${failures.length} entr${failures.length === 1 ? 'y' : 'ies'}: ${failures.join('; ')}`,
+      );
+    }
+    const remaining = await this.getCollection()
+      .find({ status: { $in: ['pending', 'running', 'failed'] } })
+      .toArray();
+    if (remaining.length > 0) {
+      throw new Error(
+        `Mongo migration recovery incomplete: ${remaining.length} unresolved journal(s) remain after recovery`,
       );
     }
   }

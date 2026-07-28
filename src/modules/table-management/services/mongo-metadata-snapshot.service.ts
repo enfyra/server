@@ -136,22 +136,29 @@ export class MongoMetadataSnapshotService {
       await db.collection('enfyra_column').insertMany(snapshot.columns);
     }
 
+    const preRestoreSourceRels = await db
+      .collection('enfyra_relation')
+      .find({ sourceTable: oid })
+      .toArray();
+    const preRestoreOwningIds = preRestoreSourceRels
+      .filter((r: any) => !r.mappedBy)
+      .map((r: any) => r._id);
     await db.collection('enfyra_relation').deleteMany({ sourceTable: oid });
     if (snapshot.relations && snapshot.relations.length > 0) {
       await db.collection('enfyra_relation').insertMany(snapshot.relations);
     }
 
-    const currentSourceRels = await db
-      .collection('enfyra_relation')
-      .find({ sourceTable: oid })
-      .toArray();
-    const owningRelIds = currentSourceRels
+    const snapshotOwningIds = (snapshot.relations || [])
       .filter((r: any) => !r.mappedBy)
       .map((r: any) => r._id);
-    if (owningRelIds.length > 0) {
+    const allOwningIds = [...new Set([
+      ...preRestoreOwningIds.map(String),
+      ...snapshotOwningIds.map(String),
+    ])].map((id) => new ObjectId(id));
+    if (allOwningIds.length > 0) {
       const currentInverse = await db
         .collection('enfyra_relation')
-        .find({ mappedBy: { $in: owningRelIds } })
+        .find({ mappedBy: { $in: allOwningIds } })
         .toArray();
       const snapshotInverseIds = new Set<string>(
         (snapshot.inverseRelations || []).map((r: any) => String(r._id)),
