@@ -8,13 +8,6 @@ export interface SchemaMutationLogicalChange {
   label: string;
 }
 
-export interface SchemaMutationOutputReference {
-  readonly $schemaMutationOutput: {
-    readonly nodeId: string;
-    readonly path: readonly string[];
-  };
-}
-
 export interface SchemaMutationExecutionNode<TCommand = unknown> {
   id: string;
   changeId: string;

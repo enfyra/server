@@ -125,12 +125,6 @@ function normalizeEffectiveIndexes(
   ]);
 }
 
-export function normalizeRuntimeSchemaRelations(
-  relations: unknown,
-): readonly RuntimeSchemaRelationContract[] {
-  return normalizeRelations(relations, '', {});
-}
-
 export function runtimeRelationDiffKey(
   relation: RuntimeSchemaRelationContract,
 ): string {

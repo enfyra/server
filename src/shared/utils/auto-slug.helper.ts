@@ -36,19 +36,3 @@ export function autoSlug(
   }
   return slug;
 }
-export function generateUniqueSlug(
-  input: string,
-  existingSlugs: string[] = [],
-): string {
-  const baseSlug = autoSlug(input);
-  if (!existingSlugs.includes(baseSlug)) {
-    return baseSlug;
-  }
-  let counter = 1;
-  let uniqueSlug = `${baseSlug}-${counter}`;
-  while (existingSlugs.includes(uniqueSlug)) {
-    counter++;
-    uniqueSlug = `${baseSlug}-${counter}`;
-  }
-  return uniqueSlug;
-}

@@ -3,8 +3,6 @@ import type {
   SchemaMutationContract,
   SchemaMutationContractInput,
   SchemaMutationLogicalChange,
-  SchemaMutationNodeOutputs,
-  SchemaMutationOutputReference,
 } from '../types/schema-mutation-contract.types';
 import {
   assertSchemaMutationPlan,
@@ -25,27 +23,6 @@ export function compileSchemaMutationContract<
   const { nodes: _nodes, ...contractFields } = normalized;
   const contract = { ...contractFields, phases };
   return deepFreeze({ ...contract, contractHash: hashCanonical(contract) });
-}
-
-export function createSchemaMutationOutputReference(
-  nodeId: string,
-  ...path: string[]
-): SchemaMutationOutputReference {
-  if (!nodeId || path.length === 0 || path.some((segment) => !segment)) {
-    throw new Error(
-      'Schema mutation output references require a node and path.',
-    );
-  }
-  return deepFreeze({
-    $schemaMutationOutput: { nodeId, path: [...path] },
-  });
-}
-
-export function resolveSchemaMutationOutputReferences<T>(
-  value: T,
-  outputs: SchemaMutationNodeOutputs,
-): T {
-  return resolveValue(value, outputs) as T;
 }
 
 export function hashCanonical(value: unknown): string {
@@ -123,51 +100,6 @@ function stringifyCanonical(value: unknown): string {
     }
   };
   return encode(value);
-}
-
-function resolveValue(
-  value: unknown,
-  outputs: SchemaMutationNodeOutputs,
-): unknown {
-  if (!value || typeof value !== 'object') return value;
-  if (isOutputReference(value)) {
-    const { nodeId, path } = value.$schemaMutationOutput;
-    let resolved: unknown = outputs.get(nodeId);
-    if (!resolved) {
-      throw new Error(`Schema mutation output is missing for node ${nodeId}.`);
-    }
-    for (const segment of path) {
-      if (!resolved || typeof resolved !== 'object' || !(segment in resolved)) {
-        throw new Error(
-          `Schema mutation output ${nodeId}.${path.join('.')} is missing.`,
-        );
-      }
-      resolved = (resolved as Record<string, unknown>)[segment];
-    }
-    return resolved;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => resolveValue(item, outputs));
-  }
-  return Object.fromEntries(
-    Object.entries(value).map(([key, nested]) => [
-      key,
-      resolveValue(nested, outputs),
-    ]),
-  );
-}
-
-function isOutputReference(
-  value: object,
-): value is SchemaMutationOutputReference {
-  const candidate = (value as Partial<SchemaMutationOutputReference>)
-    .$schemaMutationOutput;
-  return (
-    !!candidate &&
-    Object.keys(value).length === 1 &&
-    typeof candidate.nodeId === 'string' &&
-    Array.isArray(candidate.path)
-  );
 }
 
 function deepFreeze<T>(value: T): T {

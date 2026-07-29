@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-export type RequestWithRawBody = IncomingMessage & {
+type RequestWithRawBody = IncomingMessage & {
   rawBody?: string;
 };
 

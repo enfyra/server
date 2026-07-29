@@ -42,7 +42,7 @@ import { registerMeRoutes } from './http/routes/me.routes';
 import { registerDynamicRoutes } from './http/routes/dynamic.routes';
 import { DebugTrace } from './shared/utils/debug-trace.util';
 
-export function disposeRequestScopeOnResponse(req: any, res: any): void {
+function disposeRequestScopeOnResponse(req: any, res: any): void {
   let disposed = false;
   const dispose = () => {
     if (disposed) return;

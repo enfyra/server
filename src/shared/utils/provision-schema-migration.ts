@@ -18,20 +18,6 @@ import {
   supportsSqlColumnDefault,
 } from '../../engines/knex/utils/migration/sql-generator';
 
-export function hasSchemaMigrations(
-  migration: SchemaMigrationDef | null,
-): boolean {
-  if (!migration) return false;
-  return (
-    (migration.coreTablesToRename?.length ?? 0) > 0 ||
-    (migration.tablesToRename?.length ?? 0) > 0 ||
-    (migration.physicalTablesToRename?.length ?? 0) > 0 ||
-    (migration.physicalTablesToDrop?.length ?? 0) > 0 ||
-    (migration.tables?.length ?? 0) > 0 ||
-    (migration.tablesToDrop?.length ?? 0) > 0
-  );
-}
-
 /**
  * Apply SQL schema migrations (physical database)
  */

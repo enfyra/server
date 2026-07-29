@@ -1,7 +1,6 @@
 export * from './services';
 export * from './types/mongo-hook.types';
 export * from './types/mongo-physical-schema-contract.types';
-export * from './utils/junction-collections';
 export * from './utils/mongo-junction.util';
 export * from './utils/mongo-native-transaction-topology.util';
 export * from './utils/mongo-physical-schema-contract';

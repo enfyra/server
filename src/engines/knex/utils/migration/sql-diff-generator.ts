@@ -676,10 +676,3 @@ export async function executeBatchSQL(
     }
   }
 }
-export async function executeSQLStatements(
-  knex: Knex,
-  sqlStatements: string[],
-): Promise<void> {
-  const batchSQL = generateBatchSQL(sqlStatements);
-  await executeBatchSQL(knex, batchSQL);
-}

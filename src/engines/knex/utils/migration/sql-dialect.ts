@@ -17,33 +17,6 @@ export function quoteIdentifier(
   }
 }
 
-export function getJsonObjectFunc(dbType: DatabaseType | string): string {
-  return dbType === 'postgres' || dbType === 'pg'
-    ? 'json_build_object'
-    : 'JSON_OBJECT';
-}
-
-export function getJsonArrayAggFunc(dbType: DatabaseType | string): string {
-  return dbType === 'postgres' || dbType === 'pg'
-    ? 'COALESCE(json_agg'
-    : 'ifnull(JSON_ARRAYAGG';
-}
-
-export function getEmptyJsonArray(dbType: DatabaseType | string): string {
-  return dbType === 'postgres' || dbType === 'pg'
-    ? "'[]'::json"
-    : 'JSON_ARRAY()';
-}
-
-export function castToText(
-  columnRef: string,
-  dbType: DatabaseType | string,
-): string {
-  return dbType === 'postgres' || dbType === 'pg'
-    ? `${columnRef}::text`
-    : columnRef;
-}
-
 export function generateRenameTableSQL(
   oldName: string,
   newName: string,

@@ -7,14 +7,6 @@ export interface LogStore {
 
 export const logStore = new AsyncLocalStorage<LogStore>();
 
-export function runWithLogStore<T>(store: LogStore, fn: () => T): T {
-  return logStore.run(store, fn);
-}
-
-export function getCorrelationId(): string | undefined {
-  return logStore.getStore()?.correlationId;
-}
-
 export function setCorrelationId(correlationId: string): void {
   const s = logStore.getStore();
   if (s) s.correlationId = correlationId;

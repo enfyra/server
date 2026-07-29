@@ -34,9 +34,3 @@ export const exchangeApiTokenSchema = z
     apiToken: z.string().min(1),
   })
   .strict();
-
-export type LoginBody = z.infer<typeof loginSchema>;
-export type RefreshTokenBody = z.infer<typeof refreshTokenSchema>;
-export type LogoutBody = z.infer<typeof logoutSchema>;
-export type CreateApiTokenBody = z.infer<typeof createApiTokenSchema>;
-export type ExchangeApiTokenBody = z.infer<typeof exchangeApiTokenSchema>;

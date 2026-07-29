@@ -113,24 +113,6 @@ export async function getAccessibleMetadataTableActions({
   return tableActions;
 }
 
-export async function getAccessibleMetadataTableNames({
-  metadata,
-  user,
-  routeCacheService,
-  policyService,
-}: MetadataAccessDeps): Promise<Set<string>> {
-  return new Set(
-    (
-      await getAccessibleMetadataTableActions({
-        metadata,
-        user,
-        routeCacheService,
-        policyService,
-      })
-    ).keys(),
-  );
-}
-
 async function getSubjectAccess(params: {
   user: any;
   tableName: string;

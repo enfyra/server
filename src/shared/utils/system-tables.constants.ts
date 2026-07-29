@@ -49,9 +49,3 @@ export const CORE_SYSTEM_TABLES = {
   column: SYSTEM_TABLES.column,
   relation: SYSTEM_TABLES.relation,
 } as const;
-
-export const METADATA_SYSTEM_TABLE_NAMES = [
-  SYSTEM_TABLES.table,
-  SYSTEM_TABLES.column,
-  SYSTEM_TABLES.relation,
-] as const;

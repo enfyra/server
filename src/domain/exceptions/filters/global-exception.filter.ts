@@ -8,7 +8,7 @@ import { GraphQLError } from 'graphql';
 import { Logger } from '../../../shared/logger';
 import { AppError } from '../../../shared/errors';
 
-export interface ErrorResponse {
+interface ErrorResponse {
   success: false;
   message: string | string[];
   statusCode: number;

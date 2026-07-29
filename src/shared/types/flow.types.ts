@@ -56,16 +56,3 @@ export interface FlowJobData {
   sourceFlowName?: string;
   sourceStepKey?: string;
 }
-
-export interface FlowContext {
-  $payload: any;
-  $last: any;
-  $meta: {
-    flowId: number | string;
-    flowName: string;
-    executionId: number | string;
-    depth: number;
-    startedAt: string;
-  };
-  [stepKey: string]: any;
-}

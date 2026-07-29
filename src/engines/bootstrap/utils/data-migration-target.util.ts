@@ -92,10 +92,3 @@ export function applyDataMigrationMetadataTargets(
 
   return target;
 }
-
-export function loadDataMigrationMetadataTargets(
-  snapshot: Record<string, any>,
-  dataMigration: Record<string, any> = dataMigrationSource,
-): Record<string, any> {
-  return applyDataMigrationMetadataTargets(snapshot, dataMigration);
-}

@@ -45,9 +45,3 @@ export interface LegacyAssessmentReport {
   readonly hasBlockingFindings: boolean;
   readonly assessedAt: string;
 }
-
-export interface LegacyFingerprintAdapter {
-  readonly id: string;
-  readonly fingerprint: string;
-  readonly description: string;
-}

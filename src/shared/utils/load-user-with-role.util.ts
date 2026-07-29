@@ -129,10 +129,6 @@ export function invalidateCachedUserWithRole(rawId: unknown): void {
   localUserCache.delete(userCacheKey(rawId));
 }
 
-export function clearLocalUserCacheForTesting(): void {
-  localUserCache.clear();
-}
-
 export function withUserRequestContext(
   user: any,
   context: {

@@ -71,7 +71,6 @@ import {
   FlowExecutionDefinitionProcessor,
   FlowStepDefinitionProcessor,
   FolderDefinitionProcessor,
-  GenericTableProcessor,
   GraphQLDefinitionProcessor,
   MenuDefinitionProcessor,
   MethodDefinitionProcessor,
@@ -243,10 +242,7 @@ import {
 } from './modules/table-management';
 
 import {
-  WebsocketGatewayFactory,
   DynamicWebSocketGateway,
-  ConnectionQueueService,
-  EventQueueService,
   BuiltInSocketRegistry,
   WebsocketEmitService,
   WebsocketContextFactory,
@@ -402,9 +398,6 @@ export interface Cradle {
   dynamicWebSocketGateway: DynamicWebSocketGateway;
   websocketRuntimeService: WebsocketRuntimeService;
   builtInSocketRegistry: BuiltInSocketRegistry;
-  websocketGatewayFactory: WebsocketGatewayFactory;
-  connectionQueueService: ConnectionQueueService;
-  eventQueueService: EventQueueService;
   websocketEmitService: WebsocketEmitService;
   websocketContextFactory: WebsocketContextFactory;
 
@@ -445,7 +438,6 @@ export interface Cradle {
   flowStepDefinitionProcessor: FlowStepDefinitionProcessor;
   flowExecutionDefinitionProcessor: FlowExecutionDefinitionProcessor;
   graphqlDefinitionProcessor: GraphQLDefinitionProcessor;
-  genericTableProcessor: GenericTableProcessor;
 
   $req: any;
   $res: any;
@@ -754,13 +746,6 @@ export function buildContainer(): AwilixContainer<Cradle> {
       .singleton()
       .disposer((service) => service.onDestroy()),
     websocketRuntimeService: asClass(WebsocketRuntimeService).singleton(),
-    websocketGatewayFactory: asClass(WebsocketGatewayFactory).singleton(),
-    connectionQueueService: asClass(ConnectionQueueService)
-      .singleton()
-      .disposer((service) => service.onDestroy()),
-    eventQueueService: asClass(EventQueueService)
-      .singleton()
-      .disposer((service) => service.onDestroy()),
     websocketEmitService: asClass(WebsocketEmitService).singleton(),
     websocketContextFactory: asClass(WebsocketContextFactory).singleton(),
 
@@ -829,7 +814,6 @@ export function buildContainer(): AwilixContainer<Cradle> {
       FlowExecutionDefinitionProcessor,
     ).singleton(),
     graphqlDefinitionProcessor: asClass(GraphQLDefinitionProcessor).singleton(),
-    genericTableProcessor: asClass(GenericTableProcessor).singleton(),
   });
 
   return container;

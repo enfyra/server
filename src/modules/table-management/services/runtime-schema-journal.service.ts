@@ -2,7 +2,6 @@ import { Logger } from '../../../shared/logger';
 import type { QueryBuilderService } from '@enfyra/kernel';
 import type {
   RuntimeSchemaJournalAdvanceOptions,
-  RuntimeSchemaJournalEntry,
   RuntimeSchemaJournalStage,
 } from '../types/runtime-schema-executor.types';
 
