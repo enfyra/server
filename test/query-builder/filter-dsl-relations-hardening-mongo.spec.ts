@@ -342,11 +342,10 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
   });
 
   runOrSkip(
-    'menu._not_in [m88]: excludes NULL FK (Mongo parity with SQL NOT IN)',
+    'menu._not_in [m88]: includes NULL FK because null relation has explicit operators',
     async () => {
       const ids = await rowIds({ menu: { _not_in: [menuIds[1]] } });
-      // excludes [0,1,5] AND excludes [3] (null FK, same SQL NOT IN semantics)
-      expect(ids).toEqual(idxs([2, 4]));
+      expect(ids).toEqual(idxs([2, 3, 4]));
     },
   );
 
