@@ -42,7 +42,7 @@ describe('FirstRunInitializer', () => {
     expect(bar?.match(/░/g)).toHaveLength(16);
   });
 
-  it('derives each percentage point from one of 100 planned changes', () => {
+  it('derives percentage from completed weight while preserving change counts', () => {
     delete process.env.LOG_DISABLE_CONSOLE;
     const write = jest
       .spyOn(process.stdout, 'write')
@@ -50,10 +50,14 @@ describe('FirstRunInitializer', () => {
     const initializer = new FirstRunInitializer({} as any);
     (initializer as any).progressTotal = 100;
     (initializer as any).progressCompleted = 1;
+    (initializer as any).progressWeightTotal = 100;
+    (initializer as any).progressWeightCompleted = 15;
 
     (initializer as any).logPlannedProgress('Installing', 'first change');
 
-    expect(String(write.mock.calls[0][0])).toContain('1% first change (1/100)');
+    expect(String(write.mock.calls[0][0])).toContain(
+      '15% first change (1/100)',
+    );
   });
 
   it('runs snapshot physical migrations before schema healing preflight', async () => {

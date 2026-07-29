@@ -18,8 +18,11 @@ import { RouteDefinitionProcessor } from '../../../domain/bootstrap';
 import { REDIS_TTL, PROVISION_LOCK_KEY } from '../../../shared/utils/constant';
 import { isBootstrapVerbose } from '../utils/bootstrap-logging.util';
 import { runWithBootstrapLogMode } from '../../../shared/bootstrap-log-context';
-import { buildBootstrapChangePlan } from '../utils/bootstrap-change-plan.util';
-import type { BootstrapChangeStage } from '../types';
+import {
+  BOOTSTRAP_PROGRESS_CHANGE_IDS,
+  buildBootstrapChangePlan,
+} from '../utils/bootstrap-change-plan.util';
+import type { BootstrapChangeStage, BootstrapPlannedChange } from '../types';
 import type { MongoSagaCoordinator } from '../../mongo';
 
 const BOOTSTRAP_PROGRESS_BAR_WIDTH = 30;
@@ -44,6 +47,8 @@ export class FirstRunInitializer {
   private lastProgressLineLength = 0;
   private progressTotal = 0;
   private progressCompleted = 0;
+  private progressWeightTotal = 0;
+  private progressWeightCompleted = 0;
   private readonly completedProgressChangeIds = new Set<string>();
 
   constructor(deps: {
@@ -165,6 +170,11 @@ export class FirstRunInitializer {
       );
       this.progressTotal = changePlan.changes.length;
       this.progressCompleted = 0;
+      this.progressWeightTotal = changePlan.changes.reduce(
+        (total, change) => total + change.weight,
+        0,
+      );
+      this.progressWeightCompleted = 0;
       this.completedProgressChangeIds.clear();
       this.logPlannedProgress(mode, `planned ${this.progressTotal} changes`);
       await lease.assertOwned();
@@ -213,6 +223,11 @@ export class FirstRunInitializer {
         await this.runOwnedStep(lease, () =>
           this.schemaHealingService.repairSystemPhysicalColumnsBeforeMetadataProvision(),
         );
+        this.completeProgressChange(
+          changePlan.changes,
+          BOOTSTRAP_PROGRESS_CHANGE_IDS.healingPhysicalPreflight,
+          mode,
+        );
         this.logVerbose(`System schema preflight: ${Date.now() - t0}ms`);
 
         const t1 = Date.now();
@@ -222,6 +237,14 @@ export class FirstRunInitializer {
         );
         await this.runOwnedStep(lease, () =>
           this.metadataCacheService.clearMetadataCache(),
+        );
+        if (schemaPlan.mode === 'install') {
+          this.completeProgressStage(changePlan.changes, 'schema', mode);
+        }
+        this.completeProgressChange(
+          changePlan.changes,
+          BOOTSTRAP_PROGRESS_CHANGE_IDS.metadataProvision,
+          mode,
         );
         this.logVerbose(`createInitMetadata: ${Date.now() - t1}ms`);
 
@@ -233,6 +256,11 @@ export class FirstRunInitializer {
         await this.runOwnedStep(lease, () =>
           this.metadataCacheService.clearMetadataCache(),
         );
+        this.completeProgressChange(
+          changePlan.changes,
+          BOOTSTRAP_PROGRESS_CHANGE_IDS.healingMetadata,
+          mode,
+        );
         this.logVerbose(`System metadata healing: ${Date.now() - t2b}ms`);
 
         const t3 = Date.now();
@@ -240,9 +268,19 @@ export class FirstRunInitializer {
         await this.runOwnedStep(lease, () =>
           this.schemaHealingService.repairDerivedContracts(),
         );
+        this.completeProgressChange(
+          changePlan.changes,
+          BOOTSTRAP_PROGRESS_CHANGE_IDS.healingDerivedContracts,
+          mode,
+        );
         this.logPlannedProgress(mode, 'applying explicit schema repairs');
         await this.runOwnedStep(lease, () =>
           this.schemaHealingService.runExplicitRepairsIfNeeded(),
+        );
+        this.completeProgressChange(
+          changePlan.changes,
+          BOOTSTRAP_PROGRESS_CHANGE_IDS.healingExplicitRepairs,
+          mode,
         );
         this.logVerbose(`Schema repair: ${Date.now() - t3}ms`);
 
@@ -254,9 +292,12 @@ export class FirstRunInitializer {
         await this.runOwnedStep(lease, () =>
           this.snapshotTargetVerifierService.assertSchemaTargetState(),
         );
-        if (schemaPlan.mode === 'install') {
-          this.completeProgressStage(changePlan.changes, 'schema', mode);
-        } else {
+        this.completeProgressChange(
+          changePlan.changes,
+          BOOTSTRAP_PROGRESS_CHANGE_IDS.cacheWarm,
+          mode,
+        );
+        if (schemaPlan.mode !== 'install') {
           this.assertProgressStageCompleted(changePlan.changes, 'schema');
         }
         this.logVerbose(`Metadata cache warmed: ${Date.now() - t4}ms`);
@@ -463,9 +504,9 @@ export class FirstRunInitializer {
     terminal = false,
   ): void {
     const percent =
-      this.progressTotal === 0
+      this.progressWeightTotal === 0
         ? 0
-        : (this.progressCompleted / this.progressTotal) * 100;
+        : (this.progressWeightCompleted / this.progressWeightTotal) * 100;
     this.logProgress(
       mode,
       percent,
@@ -475,11 +516,7 @@ export class FirstRunInitializer {
   }
 
   private completeProgressStage(
-    changes: readonly {
-      id: string;
-      stage: BootstrapChangeStage;
-      label: string;
-    }[],
+    changes: readonly BootstrapPlannedChange[],
     stage: BootstrapChangeStage,
     mode: 'Installing' | 'Upgrading',
   ): void {
@@ -490,7 +527,7 @@ export class FirstRunInitializer {
   }
 
   private completeProgressChange(
-    changes: readonly { id: string; label: string }[],
+    changes: readonly BootstrapPlannedChange[],
     changeId: string,
     mode: 'Installing' | 'Upgrading',
   ): void {
@@ -499,6 +536,7 @@ export class FirstRunInitializer {
     if (!change) return;
     this.completedProgressChangeIds.add(changeId);
     this.progressCompleted++;
+    this.progressWeightCompleted += change.weight;
     this.logPlannedProgress(mode, change.label);
   }
 

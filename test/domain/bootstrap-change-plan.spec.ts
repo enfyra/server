@@ -1,7 +1,7 @@
 import { buildBootstrapChangePlan } from '../../src/engines/bootstrap/utils/bootstrap-change-plan.util';
 
 describe('buildBootstrapChangePlan', () => {
-  it('counts each install record and table as one immutable change', () => {
+  it('weights install stages by expected runtime instead of raw change count', () => {
     const plan = buildBootstrapChangePlan(
       {
         mode: 'install',
@@ -23,16 +23,28 @@ describe('buildBootstrapChangePlan', () => {
       },
     );
 
-    expect(plan.changes).toHaveLength(8);
+    expect(plan.changes).toHaveLength(12);
     expect(
       plan.changes.filter((change) => change.stage === 'schema'),
     ).toHaveLength(2);
     expect(
       plan.changes.filter((change) => change.stage === 'defaults'),
-    ).toHaveLength(3);
+    ).toHaveLength(1);
     expect(
       plan.changes.filter((change) => change.stage === 'handlers'),
     ).toHaveLength(1);
+    const weightFor = (...stages: string[]) =>
+      plan.changes
+        .filter((change) => stages.includes(change.stage))
+        .reduce((total, change) => total + change.weight, 0);
+    expect(weightFor('schema')).toBe(40);
+    expect(weightFor('metadata')).toBe(15);
+    expect(weightFor('healing')).toBe(10);
+    expect(weightFor('cache')).toBe(15);
+    expect(weightFor('defaults', 'data')).toBe(10);
+    expect(weightFor('handlers')).toBe(5);
+    expect(weightFor('attestation', 'finalize')).toBe(5);
+    expect(weightFor(...plan.changes.map((change) => change.stage))).toBe(100);
     expect(Object.isFrozen(plan.changes)).toBe(true);
   });
 
@@ -79,7 +91,9 @@ describe('buildBootstrapChangePlan', () => {
       plan.changes.filter((change) => change.stage === 'schema'),
     ).toHaveLength(2);
     expect(plan.changes.some((change) => change.stage === 'defaults')).toBe(
-      false,
+      true,
     );
+    expect(plan.changes[0].weight).toBe(20);
+    expect(plan.changes[1].weight).toBe(20);
   });
 });

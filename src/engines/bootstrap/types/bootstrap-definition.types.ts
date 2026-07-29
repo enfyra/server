@@ -126,6 +126,9 @@ export type BootstrapSchemaOperationCompleted = (
 
 export type BootstrapChangeStage =
   | 'schema'
+  | 'metadata'
+  | 'healing'
+  | 'cache'
   | 'defaults'
   | 'handlers'
   | 'data'
@@ -136,6 +139,7 @@ export interface BootstrapPlannedChange {
   id: string;
   stage: BootstrapChangeStage;
   label: string;
+  weight: number;
 }
 
 export interface BootstrapChangePlan {
