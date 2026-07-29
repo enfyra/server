@@ -17,6 +17,7 @@ import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
 import { loadCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
 import { matchRouteInRoutes } from '../../../shared/utils/route-match.util';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
+import type { ApiTokenService } from '../../../domain/auth/services/api-token.service';
 
 export class DynamicResolver {
   private readonly queryBuilderService: QueryBuilderService;
@@ -28,6 +29,7 @@ export class DynamicResolver {
   private readonly policyService: PolicyService;
   private readonly envService: EnvService;
   private readonly dynamicContextFactory: DynamicContextFactory;
+  private readonly apiTokenService: ApiTokenService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
@@ -39,6 +41,7 @@ export class DynamicResolver {
     policyService: PolicyService;
     envService: EnvService;
     dynamicContextFactory: DynamicContextFactory;
+    apiTokenService: ApiTokenService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.executorEngineService = deps.executorEngineService;
@@ -48,6 +51,7 @@ export class DynamicResolver {
     this.runtimeRegistryService = deps.runtimeRegistryService;
     this.policyService = deps.policyService;
     this.envService = deps.envService;
+    this.apiTokenService = deps.apiTokenService;
     this.dynamicContextFactory = deps.dynamicContextFactory;
   }
 
@@ -269,6 +273,12 @@ export class DynamicResolver {
       ) as jwt.JwtPayload;
     } catch {
       throwGqlError('401', 'Unauthorized');
+    }
+    if (
+      decoded.tokenType === 'api_token' &&
+      !(await this.apiTokenService.validateAccessPayload(decoded))
+    ) {
+      throwGqlError('401', 'Token has been revoked');
     }
     const user = await loadCachedUserWithRole(
       this.queryBuilderService,

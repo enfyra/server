@@ -536,16 +536,20 @@ export class KnexHookManagerService {
         return qb;
       }
 
-      const newQb = masterKnex(tableName);
+      const newQb: any = masterKnex(tableName);
+      if (qb._statements?.length) {
+        newQb._statements = [...qb._statements];
+      }
       return newQb;
     };
 
     const ensureTransaction = async <T>(run: () => Promise<T>): Promise<T> => {
-      const activeKnex = knexContext.getStore() || currentKnex;
-      if ('commit' in activeKnex) {
+      const activeTransaction = knexContext.getStore();
+      if (activeTransaction && 'commit' in activeTransaction) {
         return run();
       }
-      return activeKnex.transaction(async (trx) => {
+      const writeKnex = getKnexForWrite();
+      return writeKnex.transaction(async (trx) => {
         const signal = getIoAbortSignal();
         if (signal) {
           const onAbort = () => {
@@ -559,10 +563,10 @@ export class KnexHookManagerService {
     };
 
     qb.insert = async function (data: any, ...rest: any[]) {
-      const masterQb = getMasterQueryBuilder();
       const cascadeMap = cascadeContext.getStore() || new Map<string, any>();
       const runInsert = () =>
         cascadeContext.run(cascadeMap, async () => {
+          const masterQb = getMasterQueryBuilder();
           const processedData = await runHooks('beforeInsert', tableName, data);
           const result = await originalInsert.call(
             masterQb,
@@ -577,10 +581,10 @@ export class KnexHookManagerService {
     };
 
     qb.update = async function (data: any, ...rest: any[]) {
-      const masterQb = getMasterQueryBuilder();
       const cascadeMap = cascadeContext.getStore() || new Map<string, any>();
       const runUpdate = () =>
         cascadeContext.run(cascadeMap, async () => {
+          const masterQb = getMasterQueryBuilder();
           const processedData = await runHooks('beforeUpdate', tableName, data);
           const result = await originalUpdate.call(
             masterQb,
@@ -595,8 +599,8 @@ export class KnexHookManagerService {
     };
 
     qb.delete = qb.del = async function (...args: any[]) {
-      const masterQb = getMasterQueryBuilder();
       const runDelete = async () => {
+        const masterQb = getMasterQueryBuilder();
         await runHooks('beforeDelete', tableName, args);
         const result = await originalDelete.call(masterQb, ...args);
         return runHooks('afterDelete', tableName, result);

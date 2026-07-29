@@ -6,14 +6,14 @@ export function quoteIdentifier(
 ): string {
   switch (dbType) {
     case 'mysql':
-      return `\`${identifier}\``;
+      return `\`${identifier.replace(/`/g, '``')}\``;
     case 'postgres':
     case 'pg':
-      return `"${identifier}"`;
+      return `"${identifier.replace(/"/g, '""')}"`;
     case 'mongodb':
       return identifier;
     default:
-      return `\`${identifier}\``;
+      return `\`${identifier.replace(/`/g, '``')}\``;
   }
 }
 

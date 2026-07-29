@@ -58,8 +58,8 @@ function isIdempotentDDLError(err: any, dbType: string): boolean {
 function generateRollbackSQL(statement: string, dbType: string): string | null {
   const stmt = statement.trim().toUpperCase();
   const qt = (id: string) => {
-    if (dbType === 'mysql') return `\`${id}\``;
-    return `"${id}"`;
+    if (dbType === 'mysql') return `\`${id.replace(/`/g, '``')}\``;
+    return `"${id.replace(/"/g, '""')}"`;
   };
   const addColumnMatch = stmt.match(
     /ALTER\s+TABLE\s+([^\s]+)\s+ADD\s+COLUMN\s+([^\s]+)/i,

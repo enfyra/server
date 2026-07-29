@@ -62,6 +62,14 @@ export class SqlTableCreateService extends SqlTableHandlerService {
         tableName: body?.name,
       });
     }
+    for (const col of body.columns) {
+      if (typeof col.name !== 'string' || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(col.name)) {
+        throw new ValidationException(
+          `Invalid column name: "${col.name}". Only letters, digits, and underscores are allowed.`,
+          { columnName: col.name },
+        );
+      }
+    }
     const bodyRelations = body.relations ?? [];
     this.tableValidationService.validateRelations(bodyRelations);
     const knex = this.queryBuilderService.getKnex();
