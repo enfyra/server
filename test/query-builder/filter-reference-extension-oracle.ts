@@ -38,6 +38,22 @@ export const USER_FIXTURE_ROWS: UserFixtureRow[] = [
 const menusById = new Map(MENU_FIXTURE_ROWS.map((m) => [m.id, m]));
 const usersById = new Map(USER_FIXTURE_ROWS.map((u) => [u.id, u]));
 
+function nullRelationMatchesOperatorSpec(spec: Record<string, any>): boolean {
+  if (
+    Object.prototype.hasOwnProperty.call(spec, '_is_null') &&
+    spec._is_null
+  ) {
+    return true;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(spec, '_is_not_null') &&
+    spec._is_not_null
+  ) {
+    return false;
+  }
+  return Object.keys(spec).some((op) => op === '_neq' || op === '_nin' || op === '_not_in');
+}
+
 function likeToRegex(pattern: string): RegExp {
   const esc = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const body = esc.replace(/%/g, '.*').replace(/_/g, '.');
@@ -169,14 +185,10 @@ function evalMenu(
     ) {
       return fk != null;
     }
-    if (fk == null) {
-      return SQL_NULL;
-    }
+    if (fk == null) return nullRelationMatchesOperatorSpec(spec);
     return evalScalar(fk, spec, textMode);
   }
-  if (fk == null) {
-    return SQL_NULL;
-  }
+  if (fk == null) return false;
   const menu = menusById.get(fk);
   if (!menu) {
     return false;
@@ -220,14 +232,10 @@ function evalOwner(
     ) {
       return fk != null;
     }
-    if (fk == null) {
-      return SQL_NULL;
-    }
+    if (fk == null) return nullRelationMatchesOperatorSpec(spec);
     return evalScalar(fk, spec, textMode);
   }
-  if (fk == null) {
-    return SQL_NULL;
-  }
+  if (fk == null) return false;
   const user = usersById.get(fk);
   if (!user) {
     return false;

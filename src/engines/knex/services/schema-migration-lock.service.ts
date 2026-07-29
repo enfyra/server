@@ -38,6 +38,63 @@ export class SchemaMigrationLockService {
     await this.clearLockRow(knex, handle.token);
   }
 
+  async isStillHeld(handle: SchemaMigrationLockHandle): Promise<boolean> {
+    if (!handle) return false;
+    const knex = this.knexService.getKnex();
+    await this.ensureLockTable();
+    const query = knex(this.tableName).where({
+      id: 1,
+      lockToken: handle.token,
+      isLocked: true,
+    });
+    this.selectMySqlLockAges(query, knex, handle.dbType);
+    const row = await query.first();
+    if (!row) {
+      const current = await knex(this.tableName).where({ id: 1 }).first();
+      this.logger.warn(
+        `Schema lock ownership check failed: expected token=${handle.token}, ` +
+          `current token=${current?.lockToken ?? 'none'}, locked=${String(current?.isLocked ?? false)}`,
+      );
+      return false;
+    }
+    const now = Date.now();
+    const heartbeatAgeMs = this.getLockAgeMs(
+      row,
+      'heartbeatAt',
+      'heartbeatAgeMs',
+      handle.dbType,
+      now,
+    );
+    if (
+      row.heartbeatAt &&
+      heartbeatAgeMs >
+        SchemaMigrationLockService.STALE_HEARTBEAT_THRESHOLD_MS
+    ) {
+      this.logger.warn(
+        `Schema lock heartbeat expired for token=${handle.token}: ageMs=${heartbeatAgeMs}`,
+      );
+      return false;
+    }
+    const lockedAgeMs = this.getLockAgeMs(
+      row,
+      'lockedAt',
+      'lockedAgeMs',
+      handle.dbType,
+      now,
+    );
+    if (
+      !row.heartbeatAt &&
+      row.lockedAt &&
+      lockedAgeMs > SchemaMigrationLockService.STALE_LOCK_THRESHOLD_MS
+    ) {
+      this.logger.warn(
+        `Schema lock acquisition expired for token=${handle.token}: ageMs=${lockedAgeMs}`,
+      );
+      return false;
+    }
+    return true;
+  }
+
   private static readonly STALE_LOCK_THRESHOLD_MS = 120_000;
   private static readonly STALE_HEARTBEAT_THRESHOLD_MS = 30_000;
 
@@ -91,6 +148,7 @@ export class SchemaMigrationLockService {
 
     const handle = await knex.transaction(async (trx) => {
       const builder = trx(this.tableName).where({ id: 1 });
+      this.selectMySqlLockAges(builder, trx, dbType);
       if (typeof (builder as any).forUpdate === 'function') {
         builder.forUpdate();
       }
@@ -98,23 +156,34 @@ export class SchemaMigrationLockService {
 
       if (row?.isLocked) {
         const now = Date.now();
-        const lockedAtMs = row.lockedAt ? new Date(row.lockedAt).getTime() : 0;
-        const heartbeatMs = row.heartbeatAt
-          ? new Date(row.heartbeatAt).getTime()
-          : 0;
+        const lockedAgeMs = this.getLockAgeMs(
+          row,
+          'lockedAt',
+          'lockedAgeMs',
+          dbType,
+          now,
+        );
+        const heartbeatAgeMs = this.getLockAgeMs(
+          row,
+          'heartbeatAt',
+          'heartbeatAgeMs',
+          dbType,
+          now,
+        );
 
         const staleByHeartbeat =
-          heartbeatMs > 0 &&
-          now - heartbeatMs >
+          !!row.heartbeatAt &&
+          heartbeatAgeMs >
             SchemaMigrationLockService.STALE_HEARTBEAT_THRESHOLD_MS;
         const staleByDuration =
-          !heartbeatMs &&
-          now - lockedAtMs > SchemaMigrationLockService.STALE_LOCK_THRESHOLD_MS;
+          !row.heartbeatAt &&
+          !!row.lockedAt &&
+          lockedAgeMs > SchemaMigrationLockService.STALE_LOCK_THRESHOLD_MS;
 
         if (staleByHeartbeat || staleByDuration) {
           const staleReason = staleByHeartbeat
-            ? `heartbeat stale (${Math.round((now - heartbeatMs) / 1000)}s old)`
-            : `duration stale (${Math.round((now - lockedAtMs) / 1000)}s old)`;
+            ? `heartbeat stale (${Math.round(heartbeatAgeMs / 1000)}s old)`
+            : `duration stale (${Math.round(lockedAgeMs / 1000)}s old)`;
 
           this.logger.warn(
             `Clearing stale schema lock held by ${row.lockedBy} for ${context} (${staleReason})`,
@@ -138,7 +207,6 @@ export class SchemaMigrationLockService {
         }
       }
 
-      const dbType = this.queryBuilderService.getDatabaseType() || 'mysql';
       const updateData: any = {
         isLocked: true,
         lockedBy,
@@ -224,6 +292,43 @@ export class SchemaMigrationLockService {
     updateData.heartbeatAt = this.getTimestampValue(knex, dbType);
 
     await knex(this.tableName).where({ id: 1 }).update(updateData);
+  }
+
+  private selectMySqlLockAges(
+    builder: any,
+    knex: KnexLike,
+    dbType: string,
+  ): void {
+    if (dbType !== 'mysql') return;
+    builder.select(
+      '*',
+      knex.raw(
+        'TIMESTAMPDIFF(MICROSECOND, ??, NOW(3)) / 1000 AS ??',
+        ['heartbeatAt', 'heartbeatAgeMs'],
+      ),
+      knex.raw(
+        'TIMESTAMPDIFF(MICROSECOND, ??, NOW(3)) / 1000 AS ??',
+        ['lockedAt', 'lockedAgeMs'],
+      ),
+    );
+  }
+
+  private getLockAgeMs(
+    row: any,
+    timestampField: string,
+    ageField: string,
+    dbType: string,
+    now: number,
+  ): number {
+    if (!row?.[timestampField]) return 0;
+    if (dbType === 'mysql') {
+      const age = Number(row[ageField]);
+      return Number.isFinite(age) ? Math.max(0, age) : Number.POSITIVE_INFINITY;
+    }
+    const timestamp = new Date(row[timestampField]).getTime();
+    return Number.isFinite(timestamp)
+      ? Math.max(0, now - timestamp)
+      : Number.POSITIVE_INFINITY;
   }
 
   private async clearLockRow(knex: KnexLike, token: string): Promise<void> {

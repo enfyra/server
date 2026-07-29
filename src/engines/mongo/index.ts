@@ -5,5 +5,6 @@ export * from './utils/junction-collections';
 export * from './utils/mongo-junction.util';
 export * from './utils/mongo-native-transaction-topology.util';
 export * from './utils/mongo-physical-schema-contract';
+export * from './utils/mongo-validation-schema.util';
 export * from './utils/mongo-relation-on-delete.util';
 export * from './utils/normalize-mongo-document.util';

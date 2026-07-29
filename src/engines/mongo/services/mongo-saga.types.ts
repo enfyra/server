@@ -24,7 +24,14 @@ export interface ISagaOptions {
   maxRetries?: number;
   waitTimeout?: number;
   autoRollbackOnError?: boolean;
+  purpose?: string;
+  mutationId?: string;
 }
+
+export type ResolvedSagaOptions = Required<
+  Omit<ISagaOptions, 'purpose' | 'mutationId'>
+> &
+  Pick<ISagaOptions, 'purpose' | 'mutationId'>;
 
 export interface ISagaResult<T> {
   success: boolean;

@@ -9,7 +9,12 @@ export interface IQueryBuilder {
     limit?: number;
     page?: number;
   }): Promise<{ data: any[] }>;
-  findOne(options: { table: string; where?: any; filter?: any }): Promise<any>;
+  findOne(options: {
+    table: string;
+    where?: any;
+    filter?: any;
+    fields?: string[];
+  }): Promise<any>;
   insert(table: string, data: any): Promise<any>;
   update(table: string, id: any, data: any): Promise<any>;
   delete(table: string, idOrOptions: any): Promise<any>;

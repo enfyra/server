@@ -22,6 +22,23 @@ import {
 import { renameMongoAutoTableRoute } from './table-route-artifacts.service';
 
 export class MongoTableUpdateService extends MongoTableHandlerService {
+  private extractPrecompiledMongoPlan(context?: TDynamicContext): {
+    upDiff: any;
+    downDiff: any;
+  } | undefined {
+    const contract = (context as any)?.$schemaContract?.contract;
+    if (!contract?.phases) return undefined;
+    for (const phase of contract.phases) {
+      for (const node of phase.nodes) {
+        const plan = node.command?.physicalPlan;
+        if (plan && plan.backend === 'mongodb' && plan.upDiff !== undefined) {
+          return { upDiff: plan.upDiff, downDiff: plan.downDiff };
+        }
+      }
+    }
+    return undefined;
+  }
+
   async updateTable(
     id: any,
     body: TCreateTableBody,
@@ -710,6 +727,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
               oldMetadata,
               finalMetadata,
               rawSnapshot,
+              this.extractPrecompiledMongoPlan(context),
             );
             stepLog(`STEP 11 updateCollection done (+${lap()}ms)`);
           } catch (ddlError: any) {
@@ -806,10 +824,24 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
           stepLog(`STEP 12 junction collections synced (+${lap()}ms)`);
         }
 
-        if (renamedColumns.length > 0) {
+        const runtimeContract = (context as any)?.$schemaContract?.contract;
+        const removedColumns = Array.isArray(
+          runtimeContract?.context?.diff?.removedColumns,
+        )
+          ? runtimeContract.context.diff.removedColumns
+          : [];
+        if (runtimeContract && (renamedColumns.length > 0 || removedColumns.length > 0)) {
+          this.assertNotAborted();
+          await this.mongoPhysicalMigrationService.applyRuntimeFieldChanges(
+            body.name || exists.name,
+            renamedColumns,
+            removedColumns,
+          );
+          stepLog(`STEP 13 applied runtime physical field changes (+${lap()}ms)`);
+        } else if (renamedColumns.length > 0) {
           this.assertNotAborted();
           await this.mongoPhysicalMigrationService.enqueueFieldRenames(
-            exists.name,
+            body.name || exists.name,
             renamedColumns,
           );
           stepLog(`STEP 13 queued physical field rename jobs (+${lap()}ms)`);
@@ -867,7 +899,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
           },
         );
       }
-    });
+    }, (context as any)?.$onLockAcquired);
     stepLog(`STEP DONE total=${Date.now() - t0}ms`);
     logMemory(this.logger, 'mongo updateTable done', {
       tableId: id,

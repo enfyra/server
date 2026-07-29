@@ -301,20 +301,13 @@ export class DataMigrationService {
       );
     }
     const idField = DatabaseConfigService.getPkField();
-    const existing = await this.queryBuilderService.find({
-      table: tableName,
-      filter: uniqueFilter,
-      limit: 1,
-      fields: ['*'],
-    });
-    const current = existing.data?.[0];
-    if (!current) return;
-
     const { newRecord, relationUpdates } = this.transformRecord(
       tableName,
       migrationRecord,
     );
     await this.normalizeRouteMainTable(tableName, newRecord);
+    const current = await this.findRawMigrationRecord(tableName, uniqueFilter);
+    if (!current) return;
     const mismatchedFields = Object.entries(newRecord)
       .filter(
         ([field, expected]) => !this.valuesEquivalent(expected, current[field]),
@@ -335,6 +328,133 @@ export class DataMigrationService {
         relationUpdates,
       );
     }
+  }
+
+  private async findRawMigrationRecord(
+    tableName: string,
+    uniqueFilter: Record<string, any>,
+  ): Promise<any> {
+    const exactWhere = this.toExactDeleteWhere(uniqueFilter);
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
+    if (exactWhere) {
+      return isMongoDB
+        ? await this.queryBuilderService
+            .getMongoDb()
+            .collection(tableName)
+            .findOne(exactWhere)
+        : await this.queryBuilderService
+            .getKnex()(tableName)
+            .where(exactWhere)
+            .first();
+    }
+
+    const conditions = Array.isArray(uniqueFilter._and)
+      ? uniqueFilter._and
+      : [];
+    const valueOf = (field: string): any =>
+      conditions.find((condition: any) => condition[field])?.[field]?._eq;
+    const relatedTableName =
+      uniqueFilter.table?.name?._eq ??
+      conditions.find((condition: any) => condition.table)?.table?.name?._eq;
+    if (tableName === 'enfyra_graphql' && relatedTableName) {
+      if (isMongoDB) {
+        const db = this.queryBuilderService.getMongoDb();
+        const table = await db
+          .collection('enfyra_table')
+          .findOne({ name: relatedTableName });
+        return table
+          ? db.collection(tableName).findOne({ table: table._id })
+          : null;
+      }
+      const knex = this.queryBuilderService.getKnex();
+      const table = await knex('enfyra_table')
+        .select('id')
+        .where({ name: relatedTableName })
+        .first();
+      return table
+        ? knex(tableName).where({ tableId: table.id }).first()
+        : null;
+    }
+
+    if (tableName === 'enfyra_column' && relatedTableName && valueOf('name')) {
+      if (isMongoDB) {
+        const db = this.queryBuilderService.getMongoDb();
+        const table = await db
+          .collection('enfyra_table')
+          .findOne({ name: relatedTableName });
+        return table
+          ? db
+              .collection(tableName)
+              .findOne({ table: table._id, name: valueOf('name') })
+          : null;
+      }
+      const knex = this.queryBuilderService.getKnex();
+      const table = await knex('enfyra_table')
+        .select('id')
+        .where({ name: relatedTableName })
+        .first();
+      return table
+        ? knex(tableName)
+            .where({ tableId: table.id, name: valueOf('name') })
+            .first()
+        : null;
+    }
+
+    if (tableName !== 'enfyra_field_permission') {
+      throw new Error(
+        `Data migration target mismatch: ${tableName} has an unsupported unique filter`,
+      );
+    }
+
+    const columnCondition = conditions.find(
+      (condition: any) => condition.column,
+    )?.column;
+    const tableNameValue = columnCondition?.table?.name?._eq;
+    const columnName = columnCondition?.name?._eq;
+    if (!tableNameValue || !columnName) {
+      throw new Error(
+        `Data migration target mismatch: ${tableName} has an unsupported column filter`,
+      );
+    }
+
+    if (isMongoDB) {
+      const db = this.queryBuilderService.getMongoDb();
+      const table = await db
+        .collection('enfyra_table')
+        .findOne({ name: tableNameValue });
+      if (!table) return null;
+      const column = await db.collection('enfyra_column').findOne({
+        table: table._id,
+        name: columnName,
+      });
+      if (!column) return null;
+      return db.collection(tableName).findOne({
+        action: valueOf('action'),
+        role: valueOf('role'),
+        column: column._id,
+        description: valueOf('description'),
+      });
+    }
+
+    const knex = this.queryBuilderService.getKnex();
+    const table = await knex('enfyra_table')
+      .select('id')
+      .where({ name: tableNameValue })
+      .first();
+    if (!table) return null;
+    const column = await knex('enfyra_column')
+      .select('id')
+      .where({ tableId: table.id, name: columnName })
+      .first();
+    if (!column) return null;
+    return knex(tableName)
+      .where({
+        action: valueOf('action'),
+        roleId: valueOf('role'),
+        columnId: column.id,
+        description: valueOf('description'),
+      })
+      .first();
   }
 
   private async assertRouteMethodRelationTargets(
@@ -396,15 +516,39 @@ export class DataMigrationService {
   }
 
   private async assertCustomRouteMainTablesCleared(): Promise<void> {
-    const idField = DatabaseConfigService.getPkField();
-    const routes = await this.queryBuilderService.find({
-      table: 'enfyra_route',
-      filter: {},
-      limit: -1,
-      fields: [idField, 'path', 'mainTable.name'],
-    });
-    const mismatches = (routes.data || []).filter((route: any) => {
-      const tableName = route.mainTable?.name;
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
+    const connection = isMongoDB
+      ? this.queryBuilderService.getMongoDb()
+      : this.queryBuilderService.getKnex();
+    const routes = isMongoDB
+      ? await connection
+          .collection('enfyra_route')
+          .find({}, { projection: { path: 1, mainTable: 1 } })
+          .toArray()
+      : await connection('enfyra_route').select('path', 'mainTableId');
+    const tableIds = routes
+      .map((route: any) => (isMongoDB ? route.mainTable : route.mainTableId))
+      .filter(Boolean);
+    const tables = isMongoDB
+      ? await connection
+          .collection('enfyra_table')
+          .find({ _id: { $in: tableIds } }, { projection: { name: 1 } })
+          .toArray()
+      : await connection('enfyra_table')
+          .select('id', 'name')
+          .whereIn('id', tableIds);
+    const tableNames = new Map<string, string>(
+      tables.map(
+        (table: any) =>
+          [String(isMongoDB ? table._id : table.id), String(table.name)] as [
+            string,
+            string,
+          ],
+      ),
+    );
+    const mismatches = routes.filter((route: any) => {
+      const tableId = isMongoDB ? route.mainTable : route.mainTableId;
+      const tableName = tableNames.get(String(tableId));
       return tableName && !isCanonicalTableRoutePath(route.path, tableName);
     });
     if (mismatches.length > 0) {
@@ -487,16 +631,23 @@ export class DataMigrationService {
     data: any,
   ): Promise<void> {
     if (tableName === 'enfyra_route' && data.mainTable) {
-      const mainTable = await this.queryBuilderService.findOne({
-        table: 'enfyra_table',
-        where: { name: data.mainTable },
-      });
+      const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
+      const mainTable = isMongoDB
+        ? await this.queryBuilderService
+            .getMongoDb()
+            .collection('enfyra_table')
+            .findOne({ name: data.mainTable })
+        : await this.queryBuilderService
+            .getKnex()('enfyra_table')
+            .select('id', 'name')
+            .where({ name: data.mainTable })
+            .first();
       if (!mainTable) {
         this.logger.warn(
           `Table '${data.mainTable}' not found for route data migration`,
         );
         delete data.mainTable;
-      } else if (DatabaseConfigService.instanceIsMongoDb()) {
+      } else if (isMongoDB) {
         const mainTableId = mainTable._id ?? mainTable.id;
         data.mainTable = this.normalizeMongoId(mainTableId);
       } else {
@@ -541,32 +692,55 @@ export class DataMigrationService {
   }
 
   private async clearCustomRouteMainTables(): Promise<number> {
-    const idField = DatabaseConfigService.getPkField();
-
     try {
-      const routes = await this.queryBuilderService.find({
-        table: 'enfyra_route',
-        filter: {},
-        limit: -1,
-        fields: [idField, 'path', 'mainTable.name'],
-      });
+      const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
+      const connection = isMongoDB
+        ? this.queryBuilderService.getMongoDb()
+        : this.queryBuilderService.getKnex();
+      const routes = isMongoDB
+        ? await connection
+            .collection('enfyra_route')
+            .find({}, { projection: { _id: 1, path: 1, mainTable: 1 } })
+            .toArray()
+        : await connection('enfyra_route').select('id', 'path', 'mainTableId');
+      const tableIds = routes
+        .map((route: any) => (isMongoDB ? route.mainTable : route.mainTableId))
+        .filter(Boolean);
+      const tables = isMongoDB
+        ? await connection
+            .collection('enfyra_table')
+            .find({ _id: { $in: tableIds } }, { projection: { name: 1 } })
+            .toArray()
+        : await connection('enfyra_table')
+            .select('id', 'name')
+            .whereIn('id', tableIds);
+      const tableNames = new Map<string, string>(
+        tables.map(
+          (table: any) =>
+            [String(isMongoDB ? table._id : table.id), String(table.name)] as [
+              string,
+              string,
+            ],
+        ),
+      );
 
       let cleared = 0;
-      for (const route of routes.data || []) {
-        const tableName = route.mainTable?.name;
+      for (const route of routes) {
+        const routeId = isMongoDB ? route._id : route.id;
+        const tableId = isMongoDB ? route.mainTable : route.mainTableId;
+        const tableName = tableNames.get(String(tableId));
         if (!tableName || isCanonicalTableRoutePath(route.path, tableName)) {
           continue;
         }
-
-        const data = DatabaseConfigService.instanceIsMongoDb()
-          ? { mainTable: null }
-          : { mainTableId: null };
-
-        await this.queryBuilderService.update(
-          'enfyra_route',
-          { where: [{ field: idField, operator: '=', value: route[idField] }] },
-          data,
-        );
+        if (isMongoDB) {
+          await connection
+            .collection('enfyra_route')
+            .updateOne({ _id: routeId }, { $set: { mainTable: null } });
+        } else {
+          await connection('enfyra_route')
+            .where({ id: routeId })
+            .update({ mainTableId: null });
+        }
         cleared++;
       }
 

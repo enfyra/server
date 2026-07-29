@@ -1,4 +1,18 @@
-import { MetadataMigrationService } from '../../src/engines/bootstrap/services/metadata-migration.service';
+import { MetadataTableRenameService } from '../../src/engines/bootstrap/services/metadata-migration/metadata-table-rename.service';
+import { MetadataPhysicalMigrationHelper } from '../../src/engines/bootstrap/utils/metadata-physical-migration.util';
+
+function makeRenameService(deps: {
+  queryBuilderService: any;
+  systemCoreTableResolver: any;
+}) {
+  return new MetadataTableRenameService({
+    ...deps,
+    physicalMigration: new MetadataPhysicalMigrationHelper({
+      queryBuilderService: deps.queryBuilderService,
+    }),
+    verbose: () => undefined,
+  });
+}
 
 function makeSqlKnex({
   tables,
@@ -182,7 +196,7 @@ describe('MetadataMigrationService core table overlap', () => {
       },
     });
 
-    const service = new MetadataMigrationService({
+    const service = makeRenameService({
       queryBuilderService: {
         isMongoDb: jest.fn(() => false),
         getKnex: jest.fn(() => sql.knex),
@@ -192,7 +206,7 @@ describe('MetadataMigrationService core table overlap', () => {
       } as any,
     });
 
-    await (service as any).runSqlCoreTableRenames([
+    await service.runSqlCoreTableRenames([
       { from: 'table_definition', to: 'enfyra_table' },
     ]);
 
@@ -217,7 +231,7 @@ describe('MetadataMigrationService core table overlap', () => {
       },
     });
 
-    const service = new MetadataMigrationService({
+    const service = makeRenameService({
       queryBuilderService: {
         isMongoDb: jest.fn(() => false),
         getKnex: jest.fn(() => sql.knex),
@@ -227,7 +241,7 @@ describe('MetadataMigrationService core table overlap', () => {
       } as any,
     });
 
-    await (service as any).runSqlCoreTableRenames([
+    await service.runSqlCoreTableRenames([
       { from: 'table_definition', to: 'enfyra_table' },
     ]);
 
@@ -253,7 +267,7 @@ describe('MetadataMigrationService core table overlap', () => {
       },
     });
 
-    const service = new MetadataMigrationService({
+    const service = makeRenameService({
       queryBuilderService: {
         isMongoDb: jest.fn(() => false),
         getKnex: jest.fn(() => sql.knex),
@@ -263,7 +277,7 @@ describe('MetadataMigrationService core table overlap', () => {
       } as any,
     });
 
-    await (service as any).runSqlCoreTableRenames([
+    await service.runSqlCoreTableRenames([
       { from: 'table_definition', to: 'enfyra_table' },
       { from: 'column_definition', to: 'enfyra_column' },
     ]);
@@ -301,7 +315,7 @@ describe('MetadataMigrationService core table overlap', () => {
       },
     });
 
-    const service = new MetadataMigrationService({
+    const service = makeRenameService({
       queryBuilderService: {
         isMongoDb: jest.fn(() => false),
         getKnex: jest.fn(() => sql.knex),
@@ -311,7 +325,7 @@ describe('MetadataMigrationService core table overlap', () => {
       } as any,
     });
 
-    await (service as any).runSqlCoreTableRenames([
+    await service.runSqlCoreTableRenames([
       { from: 'table_definition', to: 'enfyra_table' },
       { from: 'column_definition', to: 'enfyra_column' },
     ]);
@@ -370,7 +384,7 @@ describe('MetadataMigrationService core table overlap', () => {
       },
     });
 
-    const service = new MetadataMigrationService({
+    const service = makeRenameService({
       queryBuilderService: {
         isMongoDb: jest.fn(() => false),
         getKnex: jest.fn(() => sql.knex),
@@ -380,7 +394,7 @@ describe('MetadataMigrationService core table overlap', () => {
       } as any,
     });
 
-    await (service as any).runSqlCoreTableRenames([
+    await service.runSqlCoreTableRenames([
       { from: 'table_definition', to: 'enfyra_table' },
       { from: 'relation_definition', to: 'enfyra_relation' },
     ]);
@@ -453,7 +467,7 @@ describe('MetadataMigrationService core table overlap', () => {
       },
     });
 
-    const service = new MetadataMigrationService({
+    const service = makeRenameService({
       queryBuilderService: {
         isMongoDb: jest.fn(() => false),
         getKnex: jest.fn(() => sql.knex),
@@ -463,7 +477,7 @@ describe('MetadataMigrationService core table overlap', () => {
       } as any,
     });
 
-    await (service as any).runSqlCoreTableRenames([
+    await service.runSqlCoreTableRenames([
       { from: 'table_definition', to: 'enfyra_table' },
       { from: 'relation_definition', to: 'enfyra_relation' },
     ]);
@@ -528,7 +542,7 @@ describe('MetadataMigrationService core table overlap', () => {
       },
     });
 
-    const service = new MetadataMigrationService({
+    const service = makeRenameService({
       queryBuilderService: {
         isMongoDb: jest.fn(() => false),
         getKnex: jest.fn(() => sql.knex),
@@ -544,7 +558,7 @@ describe('MetadataMigrationService core table overlap', () => {
       { from: 'relation_definition', to: 'enfyra_relation' },
     ];
 
-    await (service as any).runSqlCoreTableRenames(renames);
+    await service.runSqlCoreTableRenames(renames);
     const afterFirstRun = {
       tables: [...sql.tables.enfyra_table],
       columns: [...sql.tables.enfyra_column],
@@ -552,7 +566,7 @@ describe('MetadataMigrationService core table overlap', () => {
       insertCount: sql.inserts.length,
     };
 
-    await (service as any).runSqlCoreTableRenames(renames);
+    await service.runSqlCoreTableRenames(renames);
 
     expect(sql.tables.enfyra_table).toEqual(afterFirstRun.tables);
     expect(sql.tables.enfyra_column).toEqual(afterFirstRun.columns);
@@ -566,6 +580,37 @@ describe('MetadataMigrationService core table overlap', () => {
         (row) => row.propertyName === 'comments',
       ),
     ).toHaveLength(1);
+  });
+
+  it('blocks conflicting SQL core overlap instead of discarding legacy evidence', async () => {
+    const sql = makeSqlKnex({
+      tables: {
+        table_definition: [
+          { id: 1, name: 'table_definition', isSystem: false },
+        ],
+        enfyra_table: [{ id: 2, name: 'enfyra_table', isSystem: true }],
+      },
+      schemas: {
+        table_definition: ['id', 'name', 'isSystem'],
+        enfyra_table: ['id', 'name', 'isSystem'],
+      },
+    });
+    const service = makeRenameService({
+      queryBuilderService: {
+        isMongoDb: jest.fn(() => false),
+        getKnex: jest.fn(() => sql.knex),
+      } as any,
+      systemCoreTableResolver: {
+        getTableName: jest.fn(async () => 'enfyra_table'),
+      } as any,
+    });
+
+    await expect(
+      service.runSqlCoreTableRenames([
+        { from: 'table_definition', to: 'enfyra_table' },
+      ]),
+    ).rejects.toThrow(/core.*overlap.*blocked/i);
+    expect(sql.tables.table_definition).toHaveLength(1);
   });
 
   it('does not duplicate SQL relation metadata when remapped logical relation already exists', async () => {
@@ -582,7 +627,7 @@ describe('MetadataMigrationService core table overlap', () => {
       },
     });
 
-    const service = new MetadataMigrationService({
+    const service = makeRenameService({
       queryBuilderService: {
         isMongoDb: jest.fn(() => false),
         getKnex: jest.fn(() => sql.knex),
@@ -592,7 +637,7 @@ describe('MetadataMigrationService core table overlap', () => {
       } as any,
     });
 
-    await (service as any).runSqlCoreTableRenames([
+    await service.runSqlCoreTableRenames([
       { from: 'table_definition', to: 'enfyra_table' },
       { from: 'relation_definition', to: 'enfyra_relation' },
     ]);
@@ -611,7 +656,7 @@ describe('MetadataMigrationService core table overlap', () => {
       },
     });
 
-    const service = new MetadataMigrationService({
+    const service = makeRenameService({
       queryBuilderService: {
         isMongoDb: jest.fn(() => false),
         getKnex: jest.fn(() => sql.knex),
@@ -621,7 +666,7 @@ describe('MetadataMigrationService core table overlap', () => {
       } as any,
     });
 
-    await (service as any).runSqlCoreTableRenames([
+    await service.runSqlCoreTableRenames([
       { from: 'table_definition', to: 'enfyra_table' },
     ]);
 
@@ -651,7 +696,7 @@ describe('MetadataMigrationService core table overlap', () => {
       },
     });
 
-    const service = new MetadataMigrationService({
+    const service = makeRenameService({
       queryBuilderService: {
         isMongoDb: jest.fn(() => false),
         getKnex: jest.fn(() => sql.knex),
@@ -661,7 +706,7 @@ describe('MetadataMigrationService core table overlap', () => {
       } as any,
     });
 
-    await (service as any).renameSqlTable({
+    await service.renameSqlTable({
       from: 'user_definition',
       to: 'enfyra_user',
       mergeKeys: ['email'],
@@ -695,7 +740,7 @@ describe('MetadataMigrationService core table overlap', () => {
       },
     });
 
-    const service = new MetadataMigrationService({
+    const service = makeRenameService({
       queryBuilderService: {
         isMongoDb: jest.fn(() => false),
         getKnex: jest.fn(() => sql.knex),
@@ -705,16 +750,13 @@ describe('MetadataMigrationService core table overlap', () => {
       } as any,
     });
 
-    await (service as any).renameSqlTable({
-      from: 'user_definition',
-      to: 'enfyra_user',
-      mergeKeys: ['email'],
-    });
-
-    expect(sql.tables.enfyra_user).toEqual([
-      { id: 1, email: 'same@example.com', displayName: 'Canonical' },
-    ]);
-    expect(sql.inserts).toEqual([]);
+    await expect(
+      service.renameSqlTable({
+        from: 'user_definition',
+        to: 'enfyra_user',
+        mergeKeys: ['email'],
+      }),
+    ).rejects.toThrow('SQL overlap reconciliation blocked');
   });
 
   it('backfills missing custom values into existing SQL non-core canonical rows', async () => {
@@ -740,7 +782,7 @@ describe('MetadataMigrationService core table overlap', () => {
       },
     });
 
-    const service = new MetadataMigrationService({
+    const service = makeRenameService({
       queryBuilderService: {
         isMongoDb: jest.fn(() => false),
         getKnex: jest.fn(() => sql.knex),
@@ -750,7 +792,7 @@ describe('MetadataMigrationService core table overlap', () => {
       } as any,
     });
 
-    await (service as any).renameSqlTable({
+    await service.renameSqlTable({
       from: 'user_definition',
       to: 'enfyra_user',
       mergeKeys: ['email'],
@@ -778,7 +820,7 @@ describe('MetadataMigrationService core table overlap', () => {
       },
     });
 
-    const service = new MetadataMigrationService({
+    const service = makeRenameService({
       queryBuilderService: {
         isMongoDb: jest.fn(() => true),
         getMongoDb: jest.fn(() => mongo.db),
@@ -788,7 +830,7 @@ describe('MetadataMigrationService core table overlap', () => {
       } as any,
     });
 
-    await (service as any).runMongoCoreTableRenames([
+    await service.runMongoCoreTableRenames([
       { from: 'table_definition', to: 'enfyra_table' },
     ]);
 
@@ -801,6 +843,35 @@ describe('MetadataMigrationService core table overlap', () => {
         { _id: 'legacy-table', name: 'table_definition' },
       ]),
     );
+  });
+
+  it('blocks conflicting Mongo core overlap instead of discarding legacy evidence', async () => {
+    const mongo = makeMongoDb({
+      collections: {
+        table_definition: [
+          { _id: 'legacy', name: 'table_definition', isSystem: false },
+        ],
+        enfyra_table: [
+          { _id: 'canonical', name: 'enfyra_table', isSystem: true },
+        ],
+      },
+    });
+    const service = makeRenameService({
+      queryBuilderService: {
+        isMongoDb: jest.fn(() => true),
+        getMongoDb: jest.fn(() => mongo.db),
+      } as any,
+      systemCoreTableResolver: {
+        getTableName: jest.fn(async () => 'enfyra_table'),
+      } as any,
+    });
+
+    await expect(
+      service.runMongoCoreTableRenames([
+        { from: 'table_definition', to: 'enfyra_table' },
+      ]),
+    ).rejects.toThrow(/core.*overlap.*blocked/i);
+    expect(mongo.collections.table_definition).toHaveLength(1);
   });
 
   it('remaps Mongo child metadata when a legacy table id conflicts with an existing canonical document', async () => {
@@ -818,7 +889,7 @@ describe('MetadataMigrationService core table overlap', () => {
       },
     });
 
-    const service = new MetadataMigrationService({
+    const service = makeRenameService({
       queryBuilderService: {
         isMongoDb: jest.fn(() => true),
         getMongoDb: jest.fn(() => mongo.db),
@@ -828,7 +899,7 @@ describe('MetadataMigrationService core table overlap', () => {
       } as any,
     });
 
-    await (service as any).runMongoCoreTableRenames([
+    await service.runMongoCoreTableRenames([
       { from: 'table_definition', to: 'enfyra_table' },
       { from: 'column_definition', to: 'enfyra_column' },
     ]);
@@ -866,7 +937,7 @@ describe('MetadataMigrationService core table overlap', () => {
       },
     });
 
-    const service = new MetadataMigrationService({
+    const service = makeRenameService({
       queryBuilderService: {
         isMongoDb: jest.fn(() => true),
         getMongoDb: jest.fn(() => mongo.db),
@@ -876,7 +947,7 @@ describe('MetadataMigrationService core table overlap', () => {
       } as any,
     });
 
-    await (service as any).renameMongoTable({
+    await service.renameMongoTable({
       from: 'user_definition',
       to: 'enfyra_user',
       mergeKeys: ['email'],
@@ -916,7 +987,7 @@ describe('MetadataMigrationService core table overlap', () => {
       },
     });
 
-    const service = new MetadataMigrationService({
+    const service = makeRenameService({
       queryBuilderService: {
         isMongoDb: jest.fn(() => true),
         getMongoDb: jest.fn(() => mongo.db),
@@ -926,7 +997,7 @@ describe('MetadataMigrationService core table overlap', () => {
       } as any,
     });
 
-    await (service as any).runMongoCoreTableRenames([
+    await service.runMongoCoreTableRenames([
       { from: 'table_definition', to: 'enfyra_table' },
       { from: 'relation_definition', to: 'enfyra_relation' },
     ]);
@@ -974,7 +1045,7 @@ describe('MetadataMigrationService core table overlap', () => {
       },
     });
 
-    const service = new MetadataMigrationService({
+    const service = makeRenameService({
       queryBuilderService: {
         isMongoDb: jest.fn(() => true),
         getMongoDb: jest.fn(() => mongo.db),
@@ -984,7 +1055,7 @@ describe('MetadataMigrationService core table overlap', () => {
       } as any,
     });
 
-    await (service as any).runMongoCoreTableRenames([
+    await service.runMongoCoreTableRenames([
       { from: 'table_definition', to: 'enfyra_table' },
       { from: 'relation_definition', to: 'enfyra_relation' },
     ]);

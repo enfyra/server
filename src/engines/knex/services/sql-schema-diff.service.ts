@@ -94,10 +94,14 @@ export class SqlSchemaDiffService {
 
   analyzeColumnChanges(oldColumns: any[], newColumns: any[], diff: any): void {
     const oldColMap = new Map(
-      oldColumns.filter((c) => c.id != null).map((c) => [c.id, c]),
+      oldColumns
+        .filter((c) => c.id != null)
+        .map((c) => [String(c.id), c]),
     );
     const newColMap = new Map(
-      newColumns.filter((c) => c.id != null).map((c) => [c.id, c]),
+      newColumns
+        .filter((c) => c.id != null)
+        .map((c) => [String(c.id), c]),
     );
     const oldColNameMap = new Map(oldColumns.map((c) => [c.name, c]));
     for (const newCol of newColumns) {
@@ -109,7 +113,7 @@ export class SqlSchemaDiffService {
         diff.columns.create.push(newCol);
         continue;
       }
-      const hasInOld = oldColMap.has(newCol.id);
+      const hasInOld = oldColMap.has(String(newCol.id));
       const existsByName = oldColNameMap.has(newCol.name);
       if (!hasInOld) {
         if (existsByName && this.isSystemColumn(newCol.name)) {
@@ -125,7 +129,7 @@ export class SqlSchemaDiffService {
       if (oldCol.id == null) {
         continue;
       }
-      const newCol = newColMap.get(oldCol.id);
+      const newCol = newColMap.get(String(oldCol.id));
       if (!newCol) {
         if (this.isSystemColumn(oldCol.name)) {
         } else {
@@ -135,7 +139,7 @@ export class SqlSchemaDiffService {
         if (
           oldCol.id &&
           newCol.id &&
-          oldCol.id === newCol.id &&
+          String(oldCol.id) === String(newCol.id) &&
           oldCol.name !== newCol.name
         ) {
           diff.columns.rename.push({
@@ -183,15 +187,15 @@ export class SqlSchemaDiffService {
 
     const propertyNameRenames: Map<string, string> = new Map();
     const fkColumnRenames: Map<string, string> = new Map();
-    const oldRelMap = new Map<number, any>(
-      (oldMetadata.relations || []).map((r: any) => [r.id, r]),
+    const oldRelMap = new Map<string, any>(
+      (oldMetadata.relations || []).map((r: any) => [String(r.id), r]),
     );
-    const newRelMap = new Map<number, any>(
-      (newMetadata.relations || []).map((r: any) => [r.id, r]),
+    const newRelMap = new Map<string, any>(
+      (newMetadata.relations || []).map((r: any) => [String(r.id), r]),
     );
 
     for (const [relId, newRel] of newRelMap) {
-      const oldRel = oldRelMap.get(relId as number);
+      const oldRel = oldRelMap.get(String(relId));
       if (
         oldRel &&
         oldRel.propertyName !== newRel.propertyName &&

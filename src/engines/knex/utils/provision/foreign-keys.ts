@@ -30,7 +30,25 @@ export async function addForeignKeys(
     return;
   }
 
+  const isPostgres = String(knex.client.config.client).toLowerCase() === 'pg';
+  const existingPostgresConstraints = new Set<string>();
+  if (isPostgres) {
+    const result = await knex.raw<{ rows: Array<{ name: string }> }>(
+      `SELECT conname AS name
+       FROM pg_constraint
+       WHERE connamespace = current_schema()::regnamespace
+         AND contype = 'f'`,
+    );
+    for (const row of result.rows) existingPostgresConstraints.add(row.name);
+  }
+
   for (const fkOp of fkOperations) {
+    if (existingPostgresConstraints.has(fkOp.constraintName)) {
+      console.log(
+        `  ⏩ FK already exists: ${fkOp.tableName}.${fkOp.columnName}`,
+      );
+      continue;
+    }
     console.log(
       `  Adding FK: ${fkOp.tableName}.${fkOp.columnName} → ${fkOp.targetTable}.id (onDelete: ${fkOp.onDelete})`,
     );
@@ -45,7 +63,9 @@ export async function addForeignKeys(
 
         table.index([fkOp.columnName]);
       });
+      existingPostgresConstraints.add(fkOp.constraintName);
     } catch (error) {
+      if (isPostgres) throw error;
       const msg = getErrorMessage(error).toLowerCase();
       if (msg.includes('already exists') || msg.includes('duplicate')) {
         console.log(

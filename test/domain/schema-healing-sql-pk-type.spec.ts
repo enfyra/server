@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SchemaHealingService } from '../../src/engines/bootstrap/services/schema-healing.service';
+import { SqlSchemaHealingService } from '../../src/engines/bootstrap/services/schema-healing/sql-schema-healing.service';
 
-describe('SchemaHealingService SQL primary key type fallback', () => {
+describe('SqlSchemaHealingService primary key type fallback', () => {
   it('does not default UUID physical primary keys to integer when metadata cache misses', async () => {
     const knex = {
       raw: vi.fn().mockResolvedValue([
@@ -15,7 +15,7 @@ describe('SchemaHealingService SQL primary key type fallback', () => {
       ]),
     };
 
-    const service = new SchemaHealingService({
+    const service = new SqlSchemaHealingService({
       metadataCacheService: {
         lookupTableByName: vi.fn().mockResolvedValue(null),
       } as any,
@@ -24,9 +24,11 @@ describe('SchemaHealingService SQL primary key type fallback', () => {
         getKnex: vi.fn().mockReturnValue(knex),
       } as any,
       systemCoreTableResolver: {} as any,
+      log: () => undefined,
+      warn: () => undefined,
     });
 
-    const pkType = await (service as any).getSqlPrimaryKeyType('enfyra_user');
+    const pkType = await service.getSqlPrimaryKeyType('enfyra_user');
 
     expect(pkType).toBe('uuid');
   });

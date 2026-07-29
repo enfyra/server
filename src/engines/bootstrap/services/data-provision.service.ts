@@ -195,12 +195,20 @@ export class DataProvisionService {
         this.verbose(
           `Processing '${SYSTEM_TABLES.user}' (ensure rootAdmin from env)...`,
         );
-        const result = await userProcessor.processWithQueryBuilder(
-          [],
-          this.queryBuilderService,
-          SYSTEM_TABLES.user,
-          {},
-        );
+        const result =
+          this.dbType === 'mongodb'
+            ? await userProcessor.processMongo(
+                [],
+                this.queryBuilderService.getConnection(),
+                SYSTEM_TABLES.user,
+                {},
+              )
+            : await userProcessor.processSql(
+                [],
+                this.queryBuilderService.getConnection(),
+                SYSTEM_TABLES.user,
+                { dbType: this.dbType },
+              );
         totalCreated += result.created;
         totalSkipped += result.skipped;
       } catch (error) {
@@ -231,12 +239,20 @@ export class DataProvisionService {
       try {
         const records = Array.isArray(rawRecords) ? rawRecords : [rawRecords];
 
-        const result = await processor.processWithQueryBuilder(
-          records,
-          this.queryBuilderService,
-          tableName,
-          {},
-        );
+        const result =
+          this.dbType === 'mongodb'
+            ? await processor.processMongo(
+                records,
+                this.queryBuilderService.getConnection(),
+                tableName,
+                {},
+              )
+            : await processor.processSql(
+                records,
+                this.queryBuilderService.getConnection(),
+                tableName,
+                { dbType: this.dbType },
+              );
 
         totalCreated += result.created;
         totalSkipped += result.skipped;

@@ -112,6 +112,7 @@ export class MigrationJournalService {
       this.logger.warn(
         `No downScript found for journal ${uuid}, skipping rollback`,
       );
+      if (entry) await this.markRolledBack(uuid);
       return;
     }
 
@@ -124,14 +125,48 @@ export class MigrationJournalService {
       `Executing rollback for ${uuid}: ${statements.length} statement(s)`,
     );
 
+    const failures: string[] = [];
     for (let i = statements.length - 1; i >= 0; i--) {
       const stmt = statements[i];
       try {
         await knex.raw(stmt);
         this.logger.log(`  Rollback [${i + 1}]: ${stmt.substring(0, 80)}`);
       } catch (error: any) {
+        const code = error?.code ?? '';
+        const tableGone = code === '42P01' || code === 'ER_NO_SUCH_TABLE';
+        if (tableGone) {
+          continue;
+        }
+        failures.push(`[${i + 1}] ${stmt.substring(0, 80)}: ${error.message}`);
         this.logger.warn(
           `  Rollback failed [${i + 1}]: ${stmt.substring(0, 80)} — ${error.message}`,
+        );
+      }
+    }
+
+    if (failures.length > 0) {
+      throw new Error(
+        `Rollback for ${uuid} had ${failures.length} failed statement(s): ${failures.join('; ')}`,
+      );
+    }
+
+    if (entry.beforeSnapshot && entry.tableName) {
+      try {
+        const snapshot = typeof entry.beforeSnapshot === 'string'
+          ? JSON.parse(entry.beforeSnapshot)
+          : entry.beforeSnapshot;
+        const restoreFields: Record<string, any> = {};
+        if (snapshot.uniques !== undefined) restoreFields.uniques = JSON.stringify(snapshot.uniques);
+        if (snapshot.indexes !== undefined) restoreFields.indexes = JSON.stringify(snapshot.indexes);
+        if (Object.keys(restoreFields).length > 0) {
+          await knex('enfyra_table')
+            .where('name', entry.tableName)
+            .update(restoreFields);
+          this.logger.log(`  Restored metadata for ${entry.tableName} from beforeSnapshot`);
+        }
+      } catch (metaErr: any) {
+        this.logger.warn(
+          `  Metadata restore skipped for ${entry.tableName}: ${metaErr.message}`,
         );
       }
     }
@@ -145,21 +180,28 @@ export class MigrationJournalService {
 
     try {
       pending = await knex('enfyra_schema_migration')
-        .whereIn('status', ['pending', 'running'])
+        .whereIn('status', ['pending', 'running', 'failed'])
         .select('*');
-    } catch {
-      this.logger.warn(
-        'enfyra_schema_migration table not found, skipping recovery',
-      );
-      return;
+    } catch (error: any) {
+      const isMissingTable =
+        error?.code === '42P01' ||
+        error?.errno === 1146;
+      if (isMissingTable) {
+        this.logger.warn(
+          'enfyra_schema_migration table not found, skipping recovery',
+        );
+        return;
+      }
+      throw error;
     }
 
     if (pending.length === 0) return;
 
     this.logger.warn(
-      `Found ${pending.length} pending/running migration(s), rolling back...`,
+      `Found ${pending.length} unresolved migration(s), rolling back...`,
     );
 
+    const unrecovered: string[] = [];
     for (const entry of pending) {
       this.logger.warn(
         `Recovering ${entry.uuid} [${entry.operation}] ${entry.tableName}`,
@@ -170,6 +212,7 @@ export class MigrationJournalService {
           `Recovery completed for ${entry.uuid} — DDL rolled back, metadata was not changed (DDL-first pattern)`,
         );
       } catch (error: any) {
+        unrecovered.push(`${entry.uuid}: ${error.message}`);
         this.logger.error(
           `Recovery failed for ${entry.uuid}: ${error.message}`,
         );
@@ -177,6 +220,12 @@ export class MigrationJournalService {
     }
 
     await this.cleanupStalePending();
+
+    if (unrecovered.length > 0) {
+      throw new Error(
+        `Schema migration recovery failed for ${unrecovered.length} journal(s), boot cannot continue: ${unrecovered.join('; ')}`,
+      );
+    }
   }
 
   async cleanupStalePending(): Promise<void> {

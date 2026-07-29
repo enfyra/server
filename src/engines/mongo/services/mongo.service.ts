@@ -18,6 +18,7 @@ import { RuntimeRegistryService } from '../../cache';
 import { MongoRelationManagerService } from './mongo-relation-manager.service';
 import { MongoHookManagerService } from './mongo-hook-manager.service';
 import type { MongoSagaSession } from './mongo-saga-session';
+import type { ISagaOptions } from './mongo-saga.types';
 import { mongoTopologySupportsNativeTransactions } from '../utils/mongo-native-transaction-topology.util';
 import {
   buildMongoWritableFieldSet,
@@ -30,6 +31,7 @@ import {
   decryptResultFields,
   encryptRecordFields,
 } from '../../../shared/utils/encrypted-field.util';
+import { getIoAbortSignal } from '@enfyra/kernel';
 
 export type MongoTransactionScope =
   | {
@@ -70,6 +72,8 @@ export class MongoService {
     logicalTxId: string;
   }>();
   private readonly appTxSessionAls = new AsyncLocalStorage<MongoSagaSession>();
+  private readonly scopedDbAccessAls = new AsyncLocalStorage<boolean>();
+  private scopedDb?: Db;
 
   constructor(
     deps: Partial<{
@@ -201,7 +205,7 @@ export class MongoService {
       async (collectionName, data, context) => {
         context.oldRecord = await this.collection(collectionName).findOne({
           _id: context.recordId,
-        } as any);
+        } as any, this.ioSignal());
 
         const dataParsed = await this.parseJsonFields(collectionName, data);
         const dataWithRelations = await this.processNestedRelations(
@@ -273,7 +277,7 @@ export class MongoService {
     this.mongoHookManagerService.addHook(
       'beforeDelete',
       async (collectionName, filter, context) => {
-        const record = await this.collection(collectionName).findOne(filter);
+        const record = await this.collection(collectionName).findOne(filter, this.ioSignal());
         context.deletedRecord = record;
         if (!record) {
           return filter;
@@ -409,11 +413,37 @@ export class MongoService {
     }
   }
 
-  getDb(): Db {
+  getRawDb(): Db {
     if (!this.db) {
       throw new Error('MongoDB is not initialized');
     }
     return this.db;
+  }
+
+  getDb(): Db {
+    const db = this.getRawDb();
+    if (!this.scopedDbAccessAls.getStore() || !this.isInSaga()) return db;
+    if (this.scopedDb) return this.scopedDb;
+
+    const mongoService = this;
+    this.scopedDb = new Proxy(db, {
+      get(target, prop) {
+        if (prop === 'collection') {
+          return (name: string) => mongoService.collection(name);
+        }
+        if (prop === 'createCollection') {
+          return (name: string, options?: any) =>
+            mongoService.createScopedCollection(name, options);
+        }
+        if (prop === 'dropCollection') {
+          return (name: string, options?: any) =>
+            mongoService.dropScopedCollection(name, options);
+        }
+        const value = (target as any)[prop];
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }) as Db;
+    return this.scopedDb;
   }
 
   getClient(): MongoClient {
@@ -448,7 +478,12 @@ export class MongoService {
 
   async runInSaga<T>(
     fn: (scope: MongoTransactionScope) => Promise<T>,
-    options?: { throwOnFailure?: boolean },
+    options?: {
+      throwOnFailure?: boolean;
+      forceApplicationTransaction?: boolean;
+      scopeRawDbAccess?: boolean;
+      sagaOptions?: ISagaOptions;
+    },
   ): Promise<{
     success: boolean;
     data?: T;
@@ -458,7 +493,10 @@ export class MongoService {
     stats?: unknown;
   }> {
     const throwOnFailure = options?.throwOnFailure !== false;
-    if (this.nativeMultiDocSupported) {
+    if (
+      this.nativeMultiDocSupported &&
+      options?.forceApplicationTransaction !== true
+    ) {
       const logicalTxId = `tx-${randomUUID()}`;
       const session = this.client.startSession();
       try {
@@ -466,7 +504,9 @@ export class MongoService {
         await session.withTransaction(async () => {
           const bundle = { session, logicalTxId };
           dataOut = await this.nativeTxBundleAls.run(bundle, () =>
-            fn({ kind: 'native', bundle }),
+            this.runWithScopedDbAccess(options, () =>
+              fn({ kind: 'native', bundle }),
+            ),
           );
         });
         return { success: true, data: dataOut as T, txId: logicalTxId };
@@ -485,8 +525,14 @@ export class MongoService {
         'MongoSagaCoordinator is required when native multi-document transactions are not available',
       );
     }
-    const execResult = await sagaCoordinator.execute((tx) =>
-      this.appTxSessionAls.run(tx, () => fn({ kind: 'saga', session: tx })),
+    const execResult = await sagaCoordinator.execute(
+      (tx) =>
+        this.appTxSessionAls.run(tx, () =>
+          this.runWithScopedDbAccess(options, () =>
+            fn({ kind: 'saga', session: tx }),
+          ),
+        ),
+      options?.sagaOptions,
     );
     if (throwOnFailure && !execResult.success) {
       const err = execResult.error;
@@ -506,6 +552,50 @@ export class MongoService {
       rollbackResult: execResult.rollbackResult,
       stats: execResult.stats,
     };
+  }
+
+  private runWithScopedDbAccess<T>(
+    options: { scopeRawDbAccess?: boolean } | undefined,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    if (options?.scopeRawDbAccess !== true) return callback();
+    return this.scopedDbAccessAls.run(true, callback);
+  }
+
+  ioSignalPublic(): any {
+    const signal = getIoAbortSignal();
+    if (signal?.aborted) throw new Error('Operation aborted');
+    return signal ? { signal } : {};
+  }
+
+  private ioSignal(): any {
+    return this.ioSignalPublic();
+  }
+
+  private createScopedCollection(name: string, options?: any): Promise<any> {
+    const native = this.nativeTxBundleAls.getStore();
+    if (native) {
+      return this.getRawDb().createCollection(name, {
+        ...options,
+        session: native.session,
+      });
+    }
+    const saga = this.appTxSessionAls.getStore();
+    if (saga) return saga.createCollection(name, options);
+    return this.getRawDb().createCollection(name, options);
+  }
+
+  private dropScopedCollection(name: string, options?: any): Promise<boolean> {
+    const native = this.nativeTxBundleAls.getStore();
+    if (native) {
+      return this.getRawDb().dropCollection(name, {
+        ...options,
+        session: native.session,
+      });
+    }
+    const saga = this.appTxSessionAls.getStore();
+    if (saga) return saga.dropCollection(name);
+    return this.getRawDb().dropCollection(name, options);
   }
 
   async runWithTransactionScope<T>(
@@ -574,14 +664,14 @@ export class MongoService {
     const nativeCtx = this.nativeTxBundleAls.getStore();
     if (nativeCtx) {
       return new NativeSessionCollection(
-        this.getDb().collection<T>(name),
+        this.getRawDb().collection<T>(name),
         nativeCtx.session,
       ) as unknown as Collection<T>;
     }
     if (this.appTxSessionAls.getStore()) {
       return new SagaCollection(name, this) as unknown as Collection<T>;
     }
-    return this.getDb().collection<T>(name);
+    return this.getRawDb().collection<T>(name);
   }
 
   async applyDefaultValues(tableName: string, data: any): Promise<any> {
@@ -705,7 +795,7 @@ export class MongoService {
     let result;
     let insertedId;
     try {
-      result = await collection.insertOne(processedData);
+      result = await collection.insertOne(processedData, this.ioSignal());
       insertedId = result.insertedId;
       context.insertedId = insertedId;
     } catch (err: any) {
@@ -801,7 +891,7 @@ export class MongoService {
 
     const insertStart = performance.now();
     try {
-      await collection.insertMany(processedRows as any);
+      await collection.insertMany(processedRows as any, this.ioSignal());
     } catch (err: any) {
       const errorMessage = err.errInfo?.details?.details
         ? JSON.stringify(err.errInfo.details.details, null, 2)
@@ -1103,7 +1193,7 @@ export class MongoService {
       context,
     );
 
-    let cursor = collection.find(processedFilter);
+    let cursor = collection.find(processedFilter, this.ioSignal());
 
     if (skip) cursor = cursor.skip(skip);
     if (limit) cursor = cursor.limit(limit);
@@ -1130,7 +1220,7 @@ export class MongoService {
       filter,
       context,
     );
-    const result = await collection.findOne(processedFilter);
+    const result = await collection.findOne(processedFilter, this.ioSignal());
     return this.mongoHookManagerService.runHooks(
       'afterSelect',
       collectionName,
@@ -1231,6 +1321,7 @@ export class MongoService {
     const updateResult = await collection.updateOne(
       { _id: objectId },
       { $set: processedData },
+      this.ioSignal(),
     );
     context.updateResult = updateResult;
 
@@ -1264,7 +1355,7 @@ export class MongoService {
       return false;
     }
 
-    const result = await collection.deleteOne(processedFilter);
+    const result = await collection.deleteOne(processedFilter, this.ioSignal());
     context.deleteResult = result;
     const hookResult = await this.mongoHookManagerService.runHooks(
       'afterDelete',
@@ -1288,7 +1379,7 @@ export class MongoService {
       filter,
       context,
     );
-    const count = await collection.countDocuments(processedFilter);
+    const count = await collection.countDocuments(processedFilter, this.ioSignal());
     return this.mongoHookManagerService.runHooks(
       'afterSelect',
       collectionName,
@@ -1309,11 +1400,19 @@ export class NativeSessionCollection<T extends Document = Document> {
     private readonly session: ClientSession,
   ) {}
 
-  find(filter: any): any {
-    const cursor = this.base.find(filter as any, { session: this.session });
+  find(filter: any, options?: any): any {
+    let cursor = this.base.find(filter as any, { ...options, session: this.session });
     let skipVal = 0;
     let limitVal: number | undefined;
     const self = {
+      sort: (sort: any) => {
+        cursor = cursor.sort(sort);
+        return self;
+      },
+      project: (projection: any) => {
+        cursor = cursor.project(projection);
+        return self;
+      },
       skip: (n: number) => {
         skipVal = n;
         return self;
@@ -1334,6 +1433,9 @@ export class NativeSessionCollection<T extends Document = Document> {
       },
       then: (onFulfilled: any, onRejected: any) =>
         self.toArray().then(onFulfilled, onRejected),
+      async *[Symbol.asyncIterator]() {
+        for (const document of await self.toArray()) yield document;
+      },
     };
     return self;
   }
@@ -1395,6 +1497,60 @@ export class NativeSessionCollection<T extends Document = Document> {
       session: this.session,
     });
   }
+
+  replaceOne(filter: any, replacement: any, options?: any) {
+    return this.base.replaceOne(filter, replacement, {
+      ...options,
+      session: this.session,
+    });
+  }
+
+  findOneAndUpdate(filter: any, update: any, options?: any) {
+    return this.base.findOneAndUpdate(filter, update, {
+      ...options,
+      session: this.session,
+    });
+  }
+
+  distinct(field: string, filter?: any, options?: any) {
+    return this.base.distinct(field, filter || {}, {
+      ...options,
+      session: this.session,
+    });
+  }
+
+  listIndexes(options?: any) {
+    return this.base.listIndexes({ ...options, session: this.session });
+  }
+
+  indexes(options?: any) {
+    return this.base.indexes({ ...options, session: this.session });
+  }
+
+  createIndex(keys: any, options?: any) {
+    return this.base.createIndex(keys, {
+      ...options,
+      session: this.session,
+    });
+  }
+
+  dropIndex(name: string, options?: any) {
+    return this.base.dropIndex(name, {
+      ...options,
+      session: this.session,
+    });
+  }
+
+  rename(name: string, options?: any) {
+    return this.base.rename(name, {
+      ...options,
+      session: this.session,
+    });
+  }
+
+  drop(options?: any) {
+    return this.base.drop({ ...options, session: this.session });
+  }
 }
 
 export class SagaCollection<_T extends Document = Document> {
@@ -1416,7 +1572,17 @@ export class SagaCollection<_T extends Document = Document> {
     const getTx = () => this.session();
     let skipVal = 0;
     let limitVal: number | undefined;
+    let sortVal: any;
+    let projectionVal: any;
     const self = {
+      sort: (sort: any) => {
+        sortVal = sort;
+        return self;
+      },
+      project: (projection: any) => {
+        projectionVal = projection;
+        return self;
+      },
       skip: (n: number) => {
         skipVal = n;
         return self;
@@ -1429,9 +1595,14 @@ export class SagaCollection<_T extends Document = Document> {
         getTx().find(collName, filter, {
           skip: skipVal || undefined,
           limit: limitVal,
+          sort: sortVal,
+          projection: projectionVal,
         }),
       then: (onFulfilled: any, onRejected: any) =>
         self.toArray().then(onFulfilled, onRejected),
+      async *[Symbol.asyncIterator]() {
+        for (const document of await self.toArray()) yield document;
+      },
     };
     return self;
   }
@@ -1454,22 +1625,7 @@ export class SagaCollection<_T extends Document = Document> {
   }
 
   async updateOne(filter: any, update: any, options?: any) {
-    const tx = this.session();
-    if (filter && filter._id != null) {
-      const opKeys =
-        update && typeof update === 'object' && !Array.isArray(update)
-          ? Object.keys(update)
-          : [];
-      const onlyPlainOrSet =
-        opKeys.length === 0 ||
-        (opKeys.length === 1 && opKeys[0] === '$set') ||
-        opKeys.every((k) => !k.startsWith('$'));
-      if (onlyPlainOrSet) {
-        const payload = update.$set ?? update;
-        return tx.updateOne(this.name, filter._id, payload, options);
-      }
-    }
-    return tx.updateOneByFilter(this.name, filter, update, options);
+    return this.session().updateOneByFilter(this.name, filter, update, options);
   }
 
   updateMany(filter: any, update: any, options?: any) {
@@ -1497,8 +1653,8 @@ export class SagaCollection<_T extends Document = Document> {
 
   async deleteMany(filter?: any, options?: any) {
     const tx = this.session();
-    const coll = this.mongo.getDb().collection(this.name);
-    const cursor = coll.find(filter || {});
+    const coll = this.mongo.getRawDb().collection(this.name);
+    const cursor = coll.find(filter || {}, this.mongo.ioSignalPublic());
     const batch: ObjectId[] = [];
     const BATCH = 500;
     let total = 0;
@@ -1523,10 +1679,106 @@ export class SagaCollection<_T extends Document = Document> {
   }
 
   bulkWrite(operations: any[], options?: any) {
-    this.session().assertWithinMaxDuration();
+    return this.executeBulkWrite(operations, options);
+  }
+
+  replaceOne(filter: any, replacement: any, options?: any) {
+    return this.session().replaceOneByFilter(
+      this.name,
+      filter,
+      replacement,
+      options,
+    );
+  }
+
+  async findOneAndUpdate(filter: any, update: any, options?: any) {
+    await this.updateOne(filter, update, options);
+    if (options?.returnDocument === 'before') return null;
+    return this.findOne(filter);
+  }
+
+  distinct(field: string, filter?: any) {
     return this.mongo
-      .getDb()
+      .getRawDb()
       .collection(this.name)
-      .bulkWrite(operations, options);
+      .distinct(field, filter || {});
+  }
+
+  listIndexes(options?: any) {
+    return this.mongo.getRawDb().collection(this.name).listIndexes(options);
+  }
+
+  indexes(options?: any) {
+    return this.mongo.getRawDb().collection(this.name).indexes(options);
+  }
+
+  createIndex(keys: any, options?: any) {
+    return this.session().createIndex(this.name, keys, options);
+  }
+
+  dropIndex(name: string) {
+    return this.session().dropIndex(this.name, name);
+  }
+
+  rename(name: string) {
+    return this.session().renameCollection(this.name, name);
+  }
+
+  drop() {
+    return this.session().dropCollection(this.name);
+  }
+
+  private async executeBulkWrite(operations: any[], options?: any) {
+    this.session().assertWithinMaxDuration();
+    let insertedCount = 0;
+    let matchedCount = 0;
+    let modifiedCount = 0;
+    let deletedCount = 0;
+    for (const operation of operations) {
+      if (operation.insertOne) {
+        await this.insertOne(operation.insertOne.document, options);
+        insertedCount++;
+        continue;
+      }
+      if (operation.updateOne) {
+        const result = await this.updateOne(
+          operation.updateOne.filter,
+          operation.updateOne.update,
+          operation.updateOne,
+        );
+        matchedCount += result.matchedCount ?? 0;
+        modifiedCount += result.modifiedCount ?? 0;
+        continue;
+      }
+      if (operation.replaceOne) {
+        const result = await this.replaceOne(
+          operation.replaceOne.filter,
+          operation.replaceOne.replacement,
+          operation.replaceOne,
+        );
+        matchedCount += result.matchedCount ?? 0;
+        modifiedCount += result.modifiedCount ?? 0;
+        continue;
+      }
+      if (operation.deleteOne) {
+        const result = await this.deleteOne(
+          operation.deleteOne.filter,
+          operation.deleteOne,
+        );
+        deletedCount += result.deletedCount ?? 0;
+        continue;
+      }
+      throw new Error('Unsupported saga bulkWrite operation');
+    }
+    return {
+      acknowledged: true,
+      insertedCount,
+      matchedCount,
+      modifiedCount,
+      deletedCount,
+      upsertedCount: 0,
+      upsertedIds: {},
+      insertedIds: {},
+    };
   }
 }

@@ -2,6 +2,7 @@ import { Collection, ObjectId } from 'mongodb';
 import { Logger } from '../../../shared/logger';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { MongoService } from './mongo.service';
+import { getMongoRawDb } from './mongo-raw-db.util';
 
 export type TSagaSnapshotOp =
   | 'insert'
@@ -10,6 +11,11 @@ export type TSagaSnapshotOp =
   | 'update_inverse'
   | 'nested_insert'
   | 'nested_update'
+  | 'collection_create'
+  | 'collection_drop'
+  | 'collection_rename'
+  | 'index_create'
+  | 'index_drop'
   | 'checkpoint';
 
 export interface ISagaSnapshot {
@@ -56,7 +62,7 @@ export class MongoSagaSnapshotService {
   private async ensureCollection(): Promise<void> {
     if (this.collectionReady) return;
 
-    const db = this.mongoService.getDb();
+    const db = getMongoRawDb(this.mongoService);
     const collections = await db.listCollections().toArray();
     const collectionNames = new Set(collections.map((c) => c.name));
 
@@ -106,12 +112,18 @@ export class MongoSagaSnapshotService {
         await collection.createIndex({ collection: 1, documentId: 1 });
       } catch {}
     }
+    const createdAtIndex = existingIndexes.find(
+      (index: any) => index.name === 'createdAt_1',
+    );
+    if (createdAtIndex?.expireAfterSeconds != null) {
+      try {
+        await collection.dropIndex('createdAt_1');
+        indexNames.delete('createdAt_1');
+      } catch {}
+    }
     if (!indexNames.has('createdAt_1')) {
       try {
-        await collection.createIndex(
-          { createdAt: 1 },
-          { expireAfterSeconds: 86400 * 7 },
-        );
+        await collection.createIndex({ createdAt: 1 });
       } catch {}
     }
 
@@ -119,9 +131,9 @@ export class MongoSagaSnapshotService {
   }
 
   getSnapshotCollection(): Collection<ISagaSnapshot> {
-    return this.mongoService
-      .getDb()
-      .collection<ISagaSnapshot>(this.snapshotCollectionName);
+    return getMongoRawDb(this.mongoService).collection<ISagaSnapshot>(
+      this.snapshotCollectionName,
+    );
   }
 
   async createSnapshot(
@@ -169,9 +181,9 @@ export class MongoSagaSnapshotService {
     await this.ensureCollection();
     if (entries.length === 0) return [];
 
-    const counterCollection = this.mongoService
-      .getDb()
-      .collection(this.counterCollectionName);
+    const counterCollection = getMongoRawDb(this.mongoService).collection(
+      this.counterCollectionName,
+    );
     const counterResult = await counterCollection.findOneAndUpdate(
       { _id: sessionId as any },
       { $inc: { seq: entries.length } },
@@ -251,8 +263,7 @@ export class MongoSagaSnapshotService {
   async deleteSnapshotsForSession(sessionId: string): Promise<number> {
     await this.ensureCollection();
     const result = await this.getSnapshotCollection().deleteMany({ sessionId });
-    await this.mongoService
-      .getDb()
+    await getMongoRawDb(this.mongoService)
       .collection(this.counterCollectionName)
       .deleteOne({ _id: sessionId as any });
     return result.deletedCount || 0;
@@ -285,6 +296,10 @@ export class MongoSagaSnapshotService {
     sessionId: string,
     snapshots: ISagaSnapshot[],
   ): Promise<IRollbackResult> {
+    if (snapshots.some((snapshot) => this.isStructuralSnapshot(snapshot))) {
+      return this.rollbackSequentially(sessionId, snapshots);
+    }
+
     const rolledBackSnapshots: string[] = [];
     const failedSnapshots: Array<{ snapshotId: string; error: string }> = [];
     const snapshotsByDocKey = new Map<string, ISagaSnapshot[]>();
@@ -339,14 +354,16 @@ export class MongoSagaSnapshotService {
       }
     }
 
-    const batchPromises: Promise<void>[] = [];
+    const collectionPromises: Promise<void>[] = [];
 
     for (const [collectionName, group] of batchableByCollection) {
-      const collection = this.mongoService.getDb().collection(collectionName);
+      collectionPromises.push(
+        (async () => {
+          const collection = getMongoRawDb(this.mongoService).collection(
+            collectionName,
+          );
 
-      if (group.deleteIds.length > 0) {
-        batchPromises.push(
-          (async () => {
+          if (group.deleteIds.length > 0) {
             try {
               const idsToDelete = group.deleteIds.map((id) =>
                 this.toMongoDocumentId(id),
@@ -362,14 +379,11 @@ export class MongoSagaSnapshotService {
                   error: getErrorMessage(error),
                 });
               }
+              return;
             }
-          })(),
-        );
-      }
+          }
 
-      if (group.restoreOps.length > 0) {
-        batchPromises.push(
-          (async () => {
+          if (group.restoreOps.length > 0) {
             const bulkOps = group.restoreOps.map((op) => ({
               replaceOne: {
                 filter: { _id: this.toMongoDocumentId(op.id) },
@@ -385,21 +399,45 @@ export class MongoSagaSnapshotService {
                 ),
               );
             } catch (error) {
-              for (const op of group.restoreOps) {
-                for (const snapshot of op.snapshots) {
-                  failedSnapshots.push({
-                    snapshotId: snapshot.snapshotId,
-                    error: getErrorMessage(error),
-                  });
+              const writeErrors: Array<{ index: number; errmsg: string }> =
+                (error as any)?.writeErrors ?? [];
+              if (writeErrors.length > 0) {
+                const failedIndexes = new Set(writeErrors.map((w) => w.index));
+                for (let i = 0; i < group.restoreOps.length; i++) {
+                  const op = group.restoreOps[i];
+                  const specificError =
+                    writeErrors.find((w) => w.index === i)?.errmsg ??
+                    getErrorMessage(error);
+                  if (failedIndexes.has(i)) {
+                    for (const snapshot of op.snapshots) {
+                      failedSnapshots.push({
+                        snapshotId: snapshot.snapshotId,
+                        error: specificError,
+                      });
+                    }
+                  } else {
+                    rolledBackSnapshots.push(
+                      ...op.snapshots.map((s) => s.snapshotId),
+                    );
+                  }
+                }
+              } else {
+                for (const op of group.restoreOps) {
+                  for (const snapshot of op.snapshots) {
+                    failedSnapshots.push({
+                      snapshotId: snapshot.snapshotId,
+                      error: getErrorMessage(error),
+                    });
+                  }
                 }
               }
             }
-          })(),
-        );
-      }
+          }
+        })(),
+      );
     }
 
-    await Promise.allSettled(batchPromises);
+    await Promise.allSettled(collectionPromises);
 
     if (rolledBackSnapshots.length > 0) {
       await this.getSnapshotCollection().updateMany(
@@ -416,6 +454,155 @@ export class MongoSagaSnapshotService {
     };
   }
 
+  private isStructuralSnapshot(snapshot: ISagaSnapshot): boolean {
+    return [
+      'collection_create',
+      'collection_drop',
+      'collection_rename',
+      'index_create',
+      'index_drop',
+    ].includes(snapshot.op);
+  }
+
+  private async rollbackSequentially(
+    sessionId: string,
+    snapshots: ISagaSnapshot[],
+  ): Promise<IRollbackResult> {
+    const rolledBackSnapshots: string[] = [];
+    const failedSnapshots: Array<{ snapshotId: string; error: string }> = [];
+    const ordered = [...snapshots].sort((left, right) => right.seq - left.seq);
+
+    for (const snapshot of ordered) {
+      if (snapshot.op === 'checkpoint') {
+        rolledBackSnapshots.push(snapshot.snapshotId);
+        continue;
+      }
+      try {
+        await this.rollbackSnapshot(snapshot);
+        rolledBackSnapshots.push(snapshot.snapshotId);
+        await this.getSnapshotCollection().updateOne(
+          { snapshotId: snapshot.snapshotId },
+          { $set: { status: 'rolled_back' } },
+        );
+      } catch (error) {
+        failedSnapshots.push({
+          snapshotId: snapshot.snapshotId,
+          error: getErrorMessage(error),
+        });
+      }
+    }
+
+    return {
+      success: failedSnapshots.length === 0,
+      rolledBackSnapshots,
+      failedSnapshots,
+      txId: sessionId,
+    };
+  }
+
+  private async rollbackSnapshot(snapshot: ISagaSnapshot): Promise<void> {
+    const db = getMongoRawDb(this.mongoService);
+
+    if (snapshot.op === 'collection_create') {
+      const exists = await db
+        .listCollections({ name: snapshot.collection })
+        .hasNext();
+      if (exists) await db.dropCollection(snapshot.collection);
+      return;
+    }
+
+    if (snapshot.op === 'collection_drop') {
+      const exists = await db
+        .listCollections({ name: snapshot.collection })
+        .hasNext();
+      if (!exists) {
+        await db.createCollection(
+          snapshot.collection,
+          snapshot.before?.options ?? {},
+        );
+      }
+      for (const index of snapshot.before?.indexes ?? []) {
+        if (index.name === '_id_') continue;
+        const collection = db.collection(snapshot.collection);
+        if (await collection.indexExists(index.name)) continue;
+        await collection.createIndex(index.key, {
+          ...this.getIndexOptions(index),
+          name: index.name,
+        });
+      }
+      return;
+    }
+
+    if (snapshot.op === 'collection_rename') {
+      const from = snapshot.afterPatch?.to;
+      const to = snapshot.before?.from;
+      if (!from || !to) return;
+      const fromExists = await db.listCollections({ name: from }).hasNext();
+      const toExists = await db.listCollections({ name: to }).hasNext();
+      if (fromExists && !toExists) {
+        await db.collection(from).rename(to);
+      }
+      return;
+    }
+
+    if (snapshot.op === 'index_create') {
+      const name = snapshot.afterPatch?.name;
+      if (!name) return;
+      try {
+        await db.collection(snapshot.collection).dropIndex(name);
+      } catch (error: any) {
+        if (error?.code !== 27 && error?.codeName !== 'IndexNotFound') {
+          throw error;
+        }
+      }
+      return;
+    }
+
+    if (snapshot.op === 'index_drop') {
+      const index = snapshot.before;
+      if (!index?.key || index.name === '_id_') return;
+      const collection = db.collection(snapshot.collection);
+      if (await collection.indexExists(index.name)) return;
+      await collection.createIndex(index.key, {
+        ...this.getIndexOptions(index),
+        name: index.name,
+      });
+      return;
+    }
+
+    const collection = db.collection(snapshot.collection);
+    const documentId = this.toMongoDocumentId(snapshot.documentId);
+    if (
+      snapshot.op === 'insert' ||
+      snapshot.op === 'nested_insert' ||
+      !snapshot.before
+    ) {
+      await collection.deleteOne({ _id: documentId } as any);
+      return;
+    }
+    await collection.replaceOne({ _id: documentId } as any, snapshot.before, {
+      upsert: true,
+    });
+  }
+
+  private getIndexOptions(index: Record<string, any>): Record<string, any> {
+    return Object.fromEntries(
+      [
+        'unique',
+        'sparse',
+        'expireAfterSeconds',
+        'partialFilterExpression',
+        'collation',
+        'hidden',
+        'weights',
+        'default_language',
+        'language_override',
+      ]
+        .filter((key) => index[key] !== undefined)
+        .map((key) => [key, index[key]]),
+    );
+  }
+
   private toMongoDocumentId(id: string | ObjectId): string | ObjectId {
     if (typeof id !== 'string') return id;
     return ObjectId.isValid(id) ? new ObjectId(id) : id;
@@ -430,40 +617,8 @@ export class MongoSagaSnapshotService {
 
   async cleanupOldSnapshots(olderThanDays: number = 7): Promise<number> {
     await this.ensureCollection();
-    const filter: Record<string, any> = {
-      status: { $in: ['completed', 'rolled_back', 'aborted'] },
-    };
-    if (olderThanDays > 0) {
-      filter.createdAt = {
-        $lt: new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000),
-      };
-    }
-    const sessionIds = await this.getSnapshotCollection().distinct(
-      'sessionId',
-      filter,
-    );
-    const result = await this.getSnapshotCollection().deleteMany(filter);
-
-    const remainingSessionIds = await this.getSnapshotCollection().distinct(
-      'sessionId',
-      {
-        sessionId: { $in: sessionIds },
-      },
-    );
-    const remainingSessionIdSet = new Set(
-      remainingSessionIds.map((id: any) => String(id)),
-    );
-    const orphanedCounterIds = sessionIds.filter(
-      (id: any) => !remainingSessionIdSet.has(String(id)),
-    );
-    if (orphanedCounterIds.length > 0) {
-      await this.mongoService
-        .getDb()
-        .collection(this.counterCollectionName)
-        .deleteMany({ _id: { $in: orphanedCounterIds } as any });
-    }
-
-    return result.deletedCount || 0;
+    void olderThanDays;
+    return 0;
   }
 
   async getSnapshotsForDocument(
@@ -480,9 +635,9 @@ export class MongoSagaSnapshotService {
   }
 
   private async getNextSequence(sessionId: string): Promise<number> {
-    const counterCollection = this.mongoService
-      .getDb()
-      .collection(this.counterCollectionName);
+    const counterCollection = getMongoRawDb(this.mongoService).collection(
+      this.counterCollectionName,
+    );
     const result = await counterCollection.findOneAndUpdate(
       { _id: sessionId as any },
       { $inc: { seq: 1 } },
@@ -491,7 +646,10 @@ export class MongoSagaSnapshotService {
     return (result as any)!.seq;
   }
 
-  async createCheckpoint(sessionId: string, description?: string): Promise<string> {
+  async createCheckpoint(
+    sessionId: string,
+    description?: string,
+  ): Promise<string> {
     await this.ensureCollection();
     const checkpointId = `checkpoint-${Date.now()}`;
     const seq = await this.getNextSequence(sessionId);

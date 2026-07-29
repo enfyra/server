@@ -2,6 +2,7 @@ import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { ObjectId } from 'mongodb';
 import { DatabaseConfigService } from '../../../shared/services';
+import { mapSequentially } from '../utils/map-sequentially.util';
 
 export class GraphQLDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;
@@ -13,8 +14,9 @@ export class GraphQLDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
 
-    const transformedRecords = await Promise.all(
-      records.map(async (record) => {
+    const transformedRecords = await mapSequentially(
+      records,
+      async (record) => {
         const transformedRecord = { ...record };
 
         if (transformedRecord.description === undefined)
@@ -34,6 +36,7 @@ export class GraphQLDefinitionProcessor extends BaseTableProcessor {
           if (isMongoDB) {
             const table = await this.queryBuilderService.findOne({
               table: 'enfyra_table',
+              fields: ['_id', 'name'],
               where: { name: record.table },
             });
             if (!table) {
@@ -49,6 +52,7 @@ export class GraphQLDefinitionProcessor extends BaseTableProcessor {
           } else {
             const table = await this.queryBuilderService.findOne({
               table: 'enfyra_table',
+              fields: ['id', 'name'],
               where: { name: record.table },
             });
             if (!table) {
@@ -63,7 +67,7 @@ export class GraphQLDefinitionProcessor extends BaseTableProcessor {
         }
 
         return transformedRecord;
-      }),
+      },
     );
 
     return transformedRecords.filter(Boolean);

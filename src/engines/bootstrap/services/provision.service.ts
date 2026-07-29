@@ -2,21 +2,31 @@ import { Logger } from '../../../shared/logger';
 import { RouteDefinitionProcessor } from '../../../domain/bootstrap';
 import { CommonService } from '../../../shared/common';
 import { QueryBuilderService } from '@enfyra/kernel';
-import { MigrationJournalService } from '../../knex';
+import {
+  MigrationJournalService,
+  MySqlRuntimeWriteBarrierService,
+} from '../../knex';
 import {
   MongoMigrationJournalService,
   MongoSchemaMigrationService,
 } from '../../mongo';
+import { DatabaseConfigService } from '../../../shared/services';
+import { MySqlBootstrapSnapshotService } from './mysql-bootstrap-snapshot.service';
+import type { RuntimeSchemaJournalService } from '../../../modules/table-management/services/runtime-schema-journal.service';
 
 export class ProvisionService {
   private readonly logger = new Logger(ProvisionService.name);
-  private readonly journalRecoveryTimeoutMs = 30000;
+  private readonly journalRecoveryTimeoutMs = 60000;
   private readonly commonService: CommonService;
   private readonly queryBuilderService: QueryBuilderService;
   private readonly routeDefinitionProcessor: RouteDefinitionProcessor;
   private readonly migrationJournalService: MigrationJournalService;
   private readonly mongoMigrationJournalService: MongoMigrationJournalService;
   private readonly mongoSchemaMigrationService: MongoSchemaMigrationService;
+  private readonly databaseConfigService: DatabaseConfigService;
+  private readonly mySqlBootstrapSnapshotService: MySqlBootstrapSnapshotService;
+  private readonly runtimeSchemaJournalService: RuntimeSchemaJournalService;
+  private readonly mySqlRuntimeWriteBarrierService: MySqlRuntimeWriteBarrierService;
 
   constructor(deps: {
     commonService: CommonService;
@@ -25,6 +35,10 @@ export class ProvisionService {
     migrationJournalService: MigrationJournalService;
     mongoMigrationJournalService: MongoMigrationJournalService;
     mongoSchemaMigrationService: MongoSchemaMigrationService;
+    databaseConfigService: DatabaseConfigService;
+    mySqlBootstrapSnapshotService: MySqlBootstrapSnapshotService;
+    runtimeSchemaJournalService: RuntimeSchemaJournalService;
+    mySqlRuntimeWriteBarrierService: MySqlRuntimeWriteBarrierService;
   }) {
     this.commonService = deps.commonService;
     this.queryBuilderService = deps.queryBuilderService;
@@ -32,6 +46,10 @@ export class ProvisionService {
     this.migrationJournalService = deps.migrationJournalService;
     this.mongoMigrationJournalService = deps.mongoMigrationJournalService;
     this.mongoSchemaMigrationService = deps.mongoSchemaMigrationService;
+    this.databaseConfigService = deps.databaseConfigService;
+    this.mySqlBootstrapSnapshotService = deps.mySqlBootstrapSnapshotService;
+    this.runtimeSchemaJournalService = deps.runtimeSchemaJournalService;
+    this.mySqlRuntimeWriteBarrierService = deps.mySqlRuntimeWriteBarrierService;
   }
 
   async waitForDatabase(maxRetries = 10, delayMs = 1000): Promise<void> {
@@ -51,14 +69,27 @@ export class ProvisionService {
 
   async recoverJournals(): Promise<void> {
     if (!this.queryBuilderService.isMongoDb()) {
-      try {
-        await this.runJournalStep(
-          'SQL migration journal recovery',
-          () => this.migrationJournalService.recoverPending(),
+      if (this.databaseConfigService.getDbType() === 'mysql') {
+        await this.runJournalStep('MySQL bootstrap recovery', async () => {
+          const recovery =
+            await this.mySqlRuntimeWriteBarrierService.recoverExclusive(() =>
+              this.mySqlBootstrapSnapshotService.recoverPending(),
+            );
+          await this.runtimeSchemaJournalService.markRecoveredRollbacks(
+            recovery.rolledBackMutationIds,
+          );
+        });
+      } else {
+        await this.runJournalStep('Runtime schema journal recovery', () =>
+          this.runtimeSchemaJournalService.recoverUnresolved(),
         );
-      } catch (error) {
-        this.logger.warn(
-          `SQL migration journal recovery failed (non-fatal): ${(error as Error).message}`,
+      }
+      await this.runJournalStep('SQL migration journal recovery', () =>
+        this.migrationJournalService.recoverPending(),
+      );
+      if (this.databaseConfigService.getDbType() === 'mysql') {
+        await this.runJournalStep('Runtime schema journal recovery', () =>
+          this.runtimeSchemaJournalService.recoverUnresolved(),
         );
       }
       try {
@@ -73,15 +104,13 @@ export class ProvisionService {
       return;
     }
 
-    try {
-      await this.runJournalStep('Mongo migration saga recovery', () =>
-        this.mongoSchemaMigrationService.recoverPendingMigrationSagas(),
-      );
-    } catch (error) {
-      this.logger.warn(
-        `Mongo migration saga recovery failed (non-fatal): ${(error as Error).message}`,
-      );
-    }
+    await this.runJournalStep('Runtime schema journal recovery', () =>
+      this.runtimeSchemaJournalService.recoverUnresolved(),
+    );
+
+    await this.runJournalStep('Mongo migration saga recovery', () =>
+      this.mongoSchemaMigrationService.recoverPendingMigrationSagas(),
+    );
     try {
       await this.runJournalStep('Mongo journal cleanup', () =>
         this.mongoMigrationJournalService.cleanup(),
@@ -103,26 +132,31 @@ export class ProvisionService {
     }
   }
 
-  private async runJournalStep(
+  private async runJournalStep<T>(
     label: string,
-    callback: () => Promise<void>,
-  ): Promise<void> {
+    callback: () => Promise<T>,
+  ): Promise<T> {
     const start = Date.now();
     this.logger.log(`${label} started`);
-    await Promise.race([
-      callback(),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              new Error(
-                `${label} timed out after ${this.journalRecoveryTimeoutMs}ms`,
-              ),
+    let timer: ReturnType<typeof setTimeout>;
+    let result: T;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `${label} timed out after ${this.journalRecoveryTimeoutMs}ms`,
             ),
-          this.journalRecoveryTimeoutMs,
-        ),
-      ),
-    ]);
+          ),
+        this.journalRecoveryTimeoutMs,
+      );
+    });
+    try {
+      result = await Promise.race([callback(), timeout]);
+    } finally {
+      clearTimeout(timer!);
+    }
     this.logger.log(`${label} completed (${Date.now() - start}ms)`);
+    return result;
   }
 }

@@ -42,6 +42,21 @@ describe('init runtime registry publish', () => {
           waitForDatabase: vi.fn(async () => undefined),
           recoverJournals: vi.fn(async () => undefined),
         },
+        legacyStoreInventoryService: {
+          inventory: vi.fn(async () => ({
+            backend: 'postgresql',
+            entries: [],
+            capturedAt: new Date().toISOString(),
+          })),
+        },
+        legacyAssessmentService: {
+          assess: vi.fn(() => ({
+            backend: 'postgresql',
+            findings: [],
+            hasBlockingFindings: false,
+            assessedAt: new Date().toISOString(),
+          })),
+        },
         firstRunInitializer: {
           isNeeded: vi.fn(async () => false),
           run: vi.fn(async () => undefined),

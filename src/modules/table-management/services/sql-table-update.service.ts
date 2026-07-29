@@ -23,6 +23,34 @@ import {
 } from './table-post-migration.service';
 
 export class SqlTableUpdateService extends SqlTableHandlerService {
+  private extractPrecompiledPlan(context?: TDynamicContext): {
+    upStatements: readonly string[];
+    upBatch: string;
+    downStatements: readonly string[];
+    downBatch: string;
+    metadataUpdate: unknown;
+    activeTableName: string;
+  } | undefined {
+    const contract = (context as any)?.$schemaContract?.contract;
+    if (!contract?.phases) return undefined;
+    for (const phase of contract.phases) {
+      for (const node of phase.nodes) {
+        const plan = node.command?.physicalPlan;
+        if (plan && plan.backend !== 'mongodb' && plan.upBatch !== undefined) {
+          return {
+            upStatements: plan.upStatements ?? [],
+            upBatch: plan.upBatch ?? '',
+            downStatements: plan.downStatements ?? [],
+            downBatch: plan.downBatch ?? '',
+            metadataUpdate: plan.metadataUpdate ?? null,
+            activeTableName: plan.activeTableName ?? '',
+          };
+        }
+      }
+    }
+    return undefined;
+  }
+
   async updateTable(
     id: string | number,
     body: TCreateTableBody,
@@ -40,7 +68,7 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
         waitMs: Date.now() - t0,
       });
       return this.updateTableInternal(id, body, context);
-    });
+    }, (context as any)?.$onLockAcquired);
     this.logger.log(`[updateTable:${id}] STEP DONE total=${Date.now() - t0}ms`);
     logMemory(this.logger, 'sql updateTable done', {
       tableId: id,
@@ -109,6 +137,16 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
       throw new ValidationException('Table name must be snake_case.', {
         tableName: body.name,
       });
+    }
+    if (Array.isArray(body.columns)) {
+      for (const col of body.columns) {
+        if (typeof col.name !== 'string' || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(col.name)) {
+          throw new ValidationException(
+            `Invalid column name: "${col.name}". Only letters, digits, and underscores are allowed.`,
+            { columnName: col.name },
+          );
+        }
+      }
     }
     const bodyRelations = body.relations ?? [];
     this.tableValidationService.validateRelations(bodyRelations);
@@ -240,22 +278,15 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
           const schemaChanged = decision.details?.schemaChanged === true;
           if (schemaChanged) {
             stepLog(`STEP 11 PG: running DDL inside metadata transaction...`);
-            const ddlTimeoutMs = 90 * 1000;
-            const pendingUpdate: any = await Promise.race([
-              this.schemaMigrationService.updateTable(
-                exists.name,
-                oldMetadata,
-                updatedFullMetadata,
-                trx,
-              ),
-              new Promise<never>((_, reject) =>
-                setTimeout(
-                  () =>
-                    reject(new Error(`DDL timed out after ${ddlTimeoutMs}ms`)),
-                  ddlTimeoutMs,
-                ),
-              ),
-            ]);
+            await trx.raw(`SET LOCAL statement_timeout = '90s'`);
+            const pendingUpdate: any = await this.schemaMigrationService.updateTable(
+              exists.name,
+              oldMetadata,
+              updatedFullMetadata,
+              trx,
+              this.extractPrecompiledPlan(context),
+            );
+            await trx.raw(`SET LOCAL statement_timeout = '0'`);
             stepLog(`STEP 11 PG: DDL done (+${lap()}ms)`);
             if (pendingUpdate?.pendingMetadataUpdate) {
               await this.schemaMigrationService.applyPendingMetadataUpdate(
@@ -315,23 +346,15 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
         if (schemaChanged) {
           assertNotAborted();
           stepLog(`STEP 9 ${dbType}: running DDL before metadata...`);
-          const ddlTimeoutMs = 90 * 1000;
           let pendingUpdate: any;
           try {
-            pendingUpdate = await Promise.race([
-              this.schemaMigrationService.updateTable(
-                exists.name,
-                oldMetadata,
-                afterMetadata,
-              ),
-              new Promise<never>((_, reject) =>
-                setTimeout(
-                  () =>
-                    reject(new Error(`DDL timed out after ${ddlTimeoutMs}ms`)),
-                  ddlTimeoutMs,
-                ),
-              ),
-            ]);
+            pendingUpdate = await this.schemaMigrationService.updateTable(
+              exists.name,
+              oldMetadata,
+              afterMetadata,
+              undefined,
+              this.extractPrecompiledPlan(context),
+            );
             stepLog(`STEP 9 ${dbType}: DDL done (+${lap()}ms)`);
           } catch (ddlError: any) {
             stepLog(`STEP 9 ${dbType}: DDL FAILED, metadata not saved`);

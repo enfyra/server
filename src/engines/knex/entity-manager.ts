@@ -1,5 +1,6 @@
 import { Knex } from 'knex';
 import { appendFileSync } from 'node:fs';
+import { getIoAbortSignal } from '@enfyra/kernel';
 
 export class KnexEntityManager {
   private static readonly idColumnCache = new Map<string, boolean>();
@@ -10,6 +11,11 @@ export class KnexEntityManager {
     private dbType: string,
     private cascadeContextMap?: Map<string, any>,
   ) {}
+
+  private assertNotAborted(): void {
+    const signal = getIoAbortSignal();
+    if (signal?.aborted) throw new Error('Operation aborted');
+  }
 
   private async tableHasIdColumn(tableName: string): Promise<boolean> {
     const cached = KnexEntityManager.idColumnCache.get(tableName);
@@ -22,6 +28,7 @@ export class KnexEntityManager {
   }
 
   async insert(tableName: string, data: any): Promise<any> {
+    this.assertNotAborted();
     let processedData = data;
     for (const hook of this.hooks.beforeInsert) {
       processedData = await hook(tableName, processedData);
@@ -30,15 +37,18 @@ export class KnexEntityManager {
     let insertedId: any;
     if (this.dbType === 'pg' || this.dbType === 'postgres') {
       if (await this.tableHasIdColumn(tableName)) {
+        this.assertNotAborted();
         const result = await this.knexOrTrx(tableName)
           .insert(processedData)
           .returning('id');
         insertedId = result[0]?.id || result[0];
       } else {
+        this.assertNotAborted();
         await this.knexOrTrx(tableName).insert(processedData);
         insertedId = null;
       }
     } else {
+      this.assertNotAborted();
       const result = await this.knexOrTrx(tableName).insert(processedData);
       insertedId = Array.isArray(result) ? result[0] : result;
     }
@@ -60,6 +70,7 @@ export class KnexEntityManager {
 
   async insertMany(tableName: string, rows: any[]): Promise<any[]> {
     if (rows.length === 0) return [];
+    this.assertNotAborted();
 
     const traceStarted = Date.now();
     const beforeHookDurations = new Array(this.hooks.beforeInsert.length).fill(
@@ -94,17 +105,20 @@ export class KnexEntityManager {
     const sqlInsertStarted = Date.now();
     if (this.dbType === 'pg' || this.dbType === 'postgres') {
       if (await this.tableHasIdColumn(tableName)) {
+        this.assertNotAborted();
         const result = await this.knexOrTrx(tableName)
           .insert(prepared.map((item) => item.data))
           .returning('id');
         recordIds = result.map((item: any) => item?.id ?? item);
       } else {
+        this.assertNotAborted();
         await this.knexOrTrx(tableName).insert(
           prepared.map((item) => item.data),
         );
         recordIds = prepared.map(() => null);
       }
     } else {
+      this.assertNotAborted();
       const result = await this.knexOrTrx(tableName).insert(
         prepared.map((item) => item.data),
       );
@@ -172,6 +186,7 @@ export class KnexEntityManager {
   }
 
   async update(tableName: string, recordId: any, data: any): Promise<void> {
+    this.assertNotAborted();
     data.id = recordId;
 
     let processedData = data;
@@ -180,6 +195,7 @@ export class KnexEntityManager {
     }
 
     if (Object.keys(processedData).length > 0) {
+      this.assertNotAborted();
       await this.knexOrTrx(tableName)
         .where('id', recordId)
         .update(processedData);

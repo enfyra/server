@@ -137,7 +137,9 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
       return { created: false, skipped: true };
     }
 
-    const cleanedRecord = this.cleanRecordForKnex(record);
+    const cleanedRecord = this.cleanRecordForKnex(
+      this.prepareSqlInsertRecord(record, tableName),
+    );
     const dbType = context?.dbType;
     let insertedId: any;
     if (dbType === 'postgres') {
@@ -335,11 +337,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
       if (existingRecord) {
         const hasChanges = this.detectRecordChanges(record, existingRecord);
         if (hasChanges) {
-          await queryBuilder.update(
-            tableName,
-            existingRecord[idField],
-            record,
-          );
+          await queryBuilder.update(tableName, existingRecord[idField], record);
         }
         this.logger.log(
           `   Skipped (existing): ${this.getRecordIdentifier(record)}`,
@@ -385,7 +383,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     return { created: totalCreated, skipped: totalSkipped };
   }
 
-  async transformRecords(records: any[], _context?: any): Promise<any[]> {
+  async transformRecords(records: any[], context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = [];
     for (const record of records) {
@@ -402,10 +400,16 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
       }
       if (transformed.parent && typeof transformed.parent === 'string') {
         const parentLabel = transformed.parent;
-        const parent = await this.queryBuilderService.findOne({
-          table: 'enfyra_menu',
-          where: { type: 'Dropdown Menu', label: parentLabel },
-        });
+        const parent = isMongoDB
+          ? await this.queryBuilderService
+              .getMongoDb()
+              .collection('enfyra_menu')
+              .findOne({ type: 'Dropdown Menu', label: parentLabel })
+          : await (context?.knex ?? this.queryBuilderService.getKnex())(
+              'enfyra_menu',
+            )
+              .where({ type: 'Dropdown Menu', label: parentLabel })
+              .first();
         if (parent) {
           if (isMongoDB) {
             transformed.parent =
@@ -465,10 +469,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     if (newValue == null && existingValue == null) {
       return false;
     }
-    if (
-      newValue instanceof ObjectId &&
-      existingValue instanceof ObjectId
-    ) {
+    if (newValue instanceof ObjectId && existingValue instanceof ObjectId) {
       return newValue.toHexString() !== existingValue.toHexString();
     }
     if (newValue instanceof ObjectId && typeof existingValue === 'string') {

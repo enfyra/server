@@ -17,6 +17,7 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
   let cleanupOrphanedLocks: jest.Mock;
   let cleanupOldSnapshots: jest.Mock;
   let getOpenSessions: jest.Mock;
+  let claimNextRecoverableSession: jest.Mock;
 
   async function createModule() {
     acquire = jest.fn();
@@ -24,6 +25,7 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
     cleanupOrphanedLocks = jest.fn().mockResolvedValue(0);
     cleanupOldSnapshots = jest.fn().mockResolvedValue(0);
     getOpenSessions = jest.fn().mockResolvedValue([]);
+    claimNextRecoverableSession = jest.fn().mockResolvedValue(null);
 
     const db = {
       listCollections: () => ({
@@ -41,6 +43,8 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
 
     const lockService = new MongoSagaLockService({ mongoService });
     (lockService as any).getOpenSessions = getOpenSessions;
+    (lockService as any).claimNextRecoverableSession =
+      claimNextRecoverableSession;
     (lockService as any).cleanupOrphanedLocks = cleanupOrphanedLocks;
     (lockService as any).getOrphanMarkerRecoveryPlan = jest
       .fn()
@@ -68,24 +72,27 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
     });
   }
 
-  it('skips recovery when Redis lock not acquired', async () => {
+  it('waits and reacquires the recovery barrier during boot', async () => {
     await createModule();
-    acquire.mockResolvedValue(false);
+    acquire.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
 
     const before = coordinator.getSagaRecoveryMetrics();
     const result = await coordinator.recoverOrphanedSagas('boot');
 
     expect(result).toEqual({ cleaned: 0, recovered: 0 });
-    expect(acquire).toHaveBeenCalledWith(
+    expect(acquire).toHaveBeenNthCalledWith(
+      1,
       SAGA_ORPHAN_RECOVERY_LOCK_KEY,
       'instance-test-abc',
       REDIS_TTL.SAGA_ORPHAN_RECOVERY_LOCK_TTL,
+      { global: true },
     );
-    expect(release).not.toHaveBeenCalled();
-    expect(cleanupOrphanedLocks).not.toHaveBeenCalled();
+    expect(acquire).toHaveBeenCalledTimes(2);
+    expect(release).toHaveBeenCalled();
+    expect(cleanupOrphanedLocks).toHaveBeenCalled();
     const after = coordinator.getSagaRecoveryMetrics();
     expect(after.skippedDueToRedisLock).toBe(before.skippedDueToRedisLock + 1);
-    expect(after.totalRuns).toBe(before.totalRuns);
+    expect(after.totalRuns).toBe(before.totalRuns + 1);
   });
 
   it('runs recovery and releases Redis lock when acquired', async () => {
@@ -96,10 +103,11 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
     await coordinator.recoverOrphanedSagas('periodic');
 
     expect(cleanupOrphanedLocks).toHaveBeenCalled();
-    expect(cleanupOldSnapshots).toHaveBeenCalled();
+    expect(cleanupOldSnapshots).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledWith(
       SAGA_ORPHAN_RECOVERY_LOCK_KEY,
       'instance-test-abc',
+      { global: true },
     );
     const after = coordinator.getSagaRecoveryMetrics();
     expect(after.totalRuns).toBe(before.totalRuns + 1);
@@ -117,6 +125,7 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
     expect(release).toHaveBeenCalledWith(
       SAGA_ORPHAN_RECOVERY_LOCK_KEY,
       'instance-test-abc',
+      { global: true },
     );
   });
 
@@ -139,6 +148,9 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
 
     const lockService = new MongoSagaLockService({ mongoService });
     (lockService as any).getOpenSessions = jest.fn().mockResolvedValue([]);
+    (lockService as any).claimNextRecoverableSession = jest
+      .fn()
+      .mockResolvedValue(null);
     (lockService as any).cleanupOrphanedLocks = cleanupOrphanedLocksLocal;
     (lockService as any).getOrphanMarkerRecoveryPlan = jest
       .fn()
@@ -162,6 +174,28 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
     });
     await solo.recoverOrphanedSagas('boot');
     expect(cleanupOrphanedLocksLocal).toHaveBeenCalled();
-    expect(cleanupOldSnapshotsLocal).toHaveBeenCalled();
+    expect(cleanupOldSnapshotsLocal).not.toHaveBeenCalled();
+  });
+
+  it('waits for a live bootstrap saga lease before recovering and continuing', async () => {
+    await createModule();
+    const recover = jest
+      .spyOn(coordinator, 'recoverOrphanedSagas')
+      .mockResolvedValue({ cleaned: 0, recovered: 0 });
+    getOpenSessions
+      .mockResolvedValueOnce([
+        {
+          txId: 'crashed-bootstrap',
+          purpose: 'bootstrap',
+          status: 'active',
+          expiresAt: new Date(Date.now() + 5),
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    await coordinator.recoverOrWaitForPurpose('bootstrap', 100);
+
+    expect(recover).toHaveBeenCalledTimes(2);
+    expect(getOpenSessions).toHaveBeenCalledTimes(2);
   });
 });

@@ -14,7 +14,8 @@ import {
   applySqlSchemaMigrations,
 } from '../../src/shared/utils/provision-schema-migration';
 import type { SchemaMigrationDef } from '../../src/shared/types/schema-migration.types';
-import { MetadataMigrationService } from '../../src/engines/bootstrap/services/metadata-migration.service';
+import { MetadataTableMigrationService } from '../../src/engines/bootstrap/services/metadata-migration/metadata-table-migration.service';
+import { MetadataPhysicalMigrationHelper } from '../../src/engines/bootstrap/utils/metadata-physical-migration.util';
 import { PROVISION_LOCK_KEY } from '../../src/shared/utils/constant';
 
 type SqlDatabase = 'postgres' | 'mysql';
@@ -68,7 +69,6 @@ function buildDatabaseUri(
 
 async function stopServer(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
-  killServerProcess(child, 'SIGTERM');
   await new Promise<void>((resolve) => {
     const timeout = setTimeout(() => {
       if (child.exitCode === null) killServerProcess(child, 'SIGKILL');
@@ -77,6 +77,7 @@ async function stopServer(child: ChildProcess): Promise<void> {
       clearTimeout(timeout);
       resolve();
     });
+    killServerProcess(child, 'SIGTERM');
   });
 }
 
@@ -111,7 +112,7 @@ function serverEnvironment(
     ADMIN_PASSWORD: options.adminPassword || `e2e-${randomUUID()}`,
     NODE_ENV: 'test',
     NODE_NAME: options.nodeName || `snapshot-migration-e2e-${port}`,
-    BOOTSTRAP_VERBOSE: '0',
+    BOOTSTRAP_VERBOSE: process.env.MATRIX_BOOTSTRAP_VERBOSE || '0',
     MONGO_FORCE_APP_TRANSACTION: '0',
     ISOLATED_EXECUTOR_FILE_LOG: '0',
   };
@@ -210,13 +211,13 @@ async function crashServerAtProgress(
   });
 }
 
-async function clearProvisionLock(nodeName: string): Promise<void> {
+async function clearProvisionLock(): Promise<void> {
   const redis = new Redis(
     process.env.MATRIX_REDIS_URI || 'redis://127.0.0.1:6379/14',
     { maxRetriesPerRequest: 1 },
   );
   try {
-    await redis.del(`${nodeName}:${PROVISION_LOCK_KEY}`);
+    await redis.del(PROVISION_LOCK_KEY);
   } finally {
     await redis.quit();
   }
@@ -224,8 +225,7 @@ async function clearProvisionLock(nodeName: string): Promise<void> {
 
 const BOOTSTRAP_CRASH_CHECKPOINTS = [
   'migrating core metadata tables',
-  'preparing system schema',
-  'applying metadata migrations',
+  'executing migration plan',
   'provisioning metadata',
   'healing system metadata',
   'repairing derived schema contracts',
@@ -397,20 +397,26 @@ async function runSql(database: SqlDatabase): Promise<void> {
       (await target('posts').where({ id: 1 }).first()).title,
       'preserved',
     );
-    const metadataMigration = new MetadataMigrationService({
-      queryBuilderService: {
-        isMongoDb: () => false,
-        getKnex: () => target,
-      } as any,
-      systemCoreTableResolver: {
-        getNames: async () => ({
-          table: 'enfyra_table',
-          column: 'enfyra_column',
-          relation: 'enfyra_relation',
-        }),
-      } as any,
+    const queryBuilderService = {
+      isMongoDb: () => false,
+      getKnex: () => target,
+    } as any;
+    const systemCoreTableResolver = {
+      getNames: async () => ({
+        table: 'enfyra_table',
+        column: 'enfyra_column',
+        relation: 'enfyra_relation',
+      }),
+    } as any;
+    const metadataMigration = new MetadataTableMigrationService({
+      queryBuilderService,
+      systemCoreTableResolver,
+      physicalMigration: new MetadataPhysicalMigrationHelper({
+        queryBuilderService,
+      }),
+      verbose: () => undefined,
     });
-    await (metadataMigration as any).dropTableMetadata(['authors'], false);
+    await metadataMigration.dropTableMetadata(['authors'], false);
     assert.deepEqual(
       (await target('enfyra_table').orderBy('id')).map((row) => row.name),
       ['posts', 'tags'],
@@ -1033,15 +1039,23 @@ async function runSqlBoot(database: SqlDatabase, port: number): Promise<void> {
       database === 'postgres' ? 'postgresql' : 'mysql',
       connection,
     );
-    const clusterOptions = {
+    const clusterIdentity = {
       adminPassword: `e2e-${randomUUID()}`,
-      nodeName: `snapshot-migration-cluster-${database}-${suffix}`,
       secretKey: `snapshot-migration-cluster-${randomUUID()}`,
     };
+    const primaryOptions = {
+      ...clusterIdentity,
+      nodeName: `snapshot-migration-cluster-${database}-${suffix}-primary`,
+    };
+    const peerOptions = {
+      ...clusterIdentity,
+      nodeName: `snapshot-migration-cluster-${database}-${suffix}-peer`,
+    };
+    await clearProvisionLock();
     target = createKnex(database, databaseName);
     [server, peerServer] = await Promise.all([
-      bootServer(databaseUri, port, clusterOptions),
-      bootServer(databaseUri, port + 20, clusterOptions),
+      bootServer(databaseUri, port, primaryOptions),
+      bootServer(databaseUri, port + 20, peerOptions),
     ]);
     const setting = await target('enfyra_setting').first();
     assert.equal(
@@ -1136,7 +1150,7 @@ async function runSqlBoot(database: SqlDatabase, port: number): Promise<void> {
     for (const checkpoint of BOOTSTRAP_CRASH_CHECKPOINTS) {
       await target('enfyra_setting').update({ isInit: false });
       await crashServerAtProgress(databaseUri, port, checkpoint, crashOptions);
-      await clearProvisionLock(crashOptions.nodeName);
+      await clearProvisionLock();
       server = await bootServer(databaseUri, port, crashOptions);
       const resumedSetting = await target('enfyra_setting').first();
       assert.equal(
@@ -1156,15 +1170,18 @@ async function runSqlBoot(database: SqlDatabase, port: number): Promise<void> {
       table.text('description').notNullable().alter();
     });
     await target('enfyra_setting').update({ isInit: false });
-    await assert.rejects(
-      bootServer(databaseUri, port),
-      /physical column enfyra_file\.description differs on nullable|target attestation/i,
-    );
-    const failedSetting = await target('enfyra_setting').first();
+    server = await bootServer(databaseUri, port);
+    const healedSetting = await target('enfyra_setting').first();
     assert.equal(
-      failedSetting.isInit === false || failedSetting.isInit === 0,
+      healedSetting.isInit === true || healedSetting.isInit === 1,
       true,
     );
+    assert.equal(
+      (await target('enfyra_file').columnInfo('description')).nullable,
+      true,
+    );
+    await stopServer(server);
+    server = null;
   } finally {
     if (peerServer) await stopServer(peerServer);
     if (server) await stopServer(server);
@@ -1298,20 +1315,26 @@ async function runMongo(): Promise<void> {
       ),
       ['_id_', 'idx_title'],
     );
-    const metadataMigration = new MetadataMigrationService({
-      queryBuilderService: {
-        isMongoDb: () => true,
-        getMongoDb: () => db,
-      } as any,
-      systemCoreTableResolver: {
-        getNames: async () => ({
-          table: 'enfyra_table',
-          column: 'enfyra_column',
-          relation: 'enfyra_relation',
-        }),
-      } as any,
+    const queryBuilderService = {
+      isMongoDb: () => true,
+      getMongoDb: () => db,
+    } as any;
+    const systemCoreTableResolver = {
+      getNames: async () => ({
+        table: 'enfyra_table',
+        column: 'enfyra_column',
+        relation: 'enfyra_relation',
+      }),
+    } as any;
+    const metadataMigration = new MetadataTableMigrationService({
+      queryBuilderService,
+      systemCoreTableResolver,
+      physicalMigration: new MetadataPhysicalMigrationHelper({
+        queryBuilderService,
+      }),
+      verbose: () => undefined,
     });
-    await (metadataMigration as any).dropTableMetadata(['authors'], true);
+    await metadataMigration.dropTableMetadata(['authors'], true);
     assert.deepEqual(
       (await db.collection('enfyra_table').find({}).sort({ _id: 1 }).toArray())
         .map((row) => row.name)
@@ -1506,14 +1529,22 @@ async function runMongoBoot(port: number): Promise<void> {
       },
       mongoAuthDatabase,
     );
-    const clusterOptions = {
+    const clusterIdentity = {
       adminPassword: `e2e-${randomUUID()}`,
-      nodeName: `snapshot-migration-cluster-mongo-${databaseName}`,
       secretKey: `snapshot-migration-cluster-${randomUUID()}`,
     };
+    const primaryOptions = {
+      ...clusterIdentity,
+      nodeName: `snapshot-migration-cluster-mongo-${databaseName}-primary`,
+    };
+    const peerOptions = {
+      ...clusterIdentity,
+      nodeName: `snapshot-migration-cluster-mongo-${databaseName}-peer`,
+    };
+    await clearProvisionLock();
     [server, peerServer] = await Promise.all([
-      bootServer(databaseUri, port, clusterOptions),
-      bootServer(databaseUri, port + 20, clusterOptions),
+      bootServer(databaseUri, port, primaryOptions),
+      bootServer(databaseUri, port + 20, peerOptions),
     ]);
     const setting = await db.collection('enfyra_setting').findOne({});
     assert.equal(setting?.isInit, true);
@@ -1612,7 +1643,7 @@ async function runMongoBoot(port: number): Promise<void> {
         .collection('enfyra_setting')
         .updateOne({}, { $set: { isInit: false } });
       await crashServerAtProgress(databaseUri, port, checkpoint, crashOptions);
-      await clearProvisionLock(crashOptions.nodeName);
+      await clearProvisionLock();
       server = await bootServer(databaseUri, port, crashOptions);
       const resumedSetting = await db.collection('enfyra_setting').findOne({});
       assert.equal(
@@ -1652,6 +1683,7 @@ async function runMongoBoot(port: number): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const bootOnly = process.env.MATRIX_BOOT_ONLY === '1';
   const supportedDatabases = new Set(['postgres', 'mysql', 'mongodb']);
   const databases = new Set(
     (process.env.MATRIX_DATABASES || 'postgres,mysql,mongodb')
@@ -1667,42 +1699,48 @@ async function main(): Promise<void> {
     );
   }
   if (databases.has('postgres')) {
-    await runSql('postgres');
-    console.log('PostgreSQL snapshot migration E2E passed');
-    await runSqlRenameConflict('postgres');
-    console.log('PostgreSQL conflict and retry E2E passed');
-    await runSqlColumnContract('postgres');
-    console.log('PostgreSQL comprehensive column update E2E passed');
-    await runSqlRelationContract('postgres');
-    console.log('PostgreSQL comprehensive relation update E2E passed');
-    await runSqlFailureGuards('postgres');
-    console.log('PostgreSQL pre-mutation failure guards E2E passed');
-    await runSqlPartialJunctionResume('postgres');
-    console.log('PostgreSQL partial junction resume E2E passed');
+    if (!bootOnly) {
+      await runSql('postgres');
+      console.log('PostgreSQL snapshot migration E2E passed');
+      await runSqlRenameConflict('postgres');
+      console.log('PostgreSQL conflict and retry E2E passed');
+      await runSqlColumnContract('postgres');
+      console.log('PostgreSQL comprehensive column update E2E passed');
+      await runSqlRelationContract('postgres');
+      console.log('PostgreSQL comprehensive relation update E2E passed');
+      await runSqlFailureGuards('postgres');
+      console.log('PostgreSQL pre-mutation failure guards E2E passed');
+      await runSqlPartialJunctionResume('postgres');
+      console.log('PostgreSQL partial junction resume E2E passed');
+    }
     await runSqlBoot('postgres', 18105);
     console.log('PostgreSQL full bootstrap E2E passed');
   }
   if (databases.has('mysql')) {
-    await runSql('mysql');
-    console.log('MySQL snapshot migration E2E passed');
-    await runSqlRenameConflict('mysql');
-    console.log('MySQL conflict and retry E2E passed');
-    await runSqlColumnContract('mysql');
-    console.log('MySQL comprehensive column update E2E passed');
-    await runSqlRelationContract('mysql');
-    console.log('MySQL comprehensive relation update E2E passed');
-    await runSqlFailureGuards('mysql');
-    console.log('MySQL pre-mutation failure guards E2E passed');
-    await runSqlPartialJunctionResume('mysql');
-    console.log('MySQL partial junction resume E2E passed');
+    if (!bootOnly) {
+      await runSql('mysql');
+      console.log('MySQL snapshot migration E2E passed');
+      await runSqlRenameConflict('mysql');
+      console.log('MySQL conflict and retry E2E passed');
+      await runSqlColumnContract('mysql');
+      console.log('MySQL comprehensive column update E2E passed');
+      await runSqlRelationContract('mysql');
+      console.log('MySQL comprehensive relation update E2E passed');
+      await runSqlFailureGuards('mysql');
+      console.log('MySQL pre-mutation failure guards E2E passed');
+      await runSqlPartialJunctionResume('mysql');
+      console.log('MySQL partial junction resume E2E passed');
+    }
     await runSqlBoot('mysql', 18106);
     console.log('MySQL full bootstrap E2E passed');
   }
   if (databases.has('mongodb')) {
-    await runMongo();
-    console.log('MongoDB snapshot migration E2E passed');
-    await runMongoRenameConflict();
-    console.log('MongoDB conflict and retry E2E passed');
+    if (!bootOnly) {
+      await runMongo();
+      console.log('MongoDB snapshot migration E2E passed');
+      await runMongoRenameConflict();
+      console.log('MongoDB conflict and retry E2E passed');
+    }
     await runMongoBoot(18107);
     console.log('MongoDB full bootstrap E2E passed');
   }

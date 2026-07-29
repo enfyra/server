@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SchemaHealingService } from '../../src/engines/bootstrap';
+import { SystemMetadataHealingService } from '../../src/engines/bootstrap/services/schema-healing/system-metadata-healing.service';
 import { DatabaseConfigService } from '../../src/shared/services';
 import { getSqlJunctionPhysicalNames } from '../../src/modules/table-management/utils/sql-junction-naming.util';
 
@@ -86,6 +87,13 @@ function makeService(qb: any, cache: any) {
   return new SchemaHealingService({
     queryBuilderService: qb,
     metadataCacheService: cache,
+    systemCoreTableResolver: makeCoreTableResolver(),
+  });
+}
+
+function makeSystemMetadataHealing(qb: any) {
+  return new SystemMetadataHealingService({
+    queryBuilderService: qb,
     systemCoreTableResolver: makeCoreTableResolver(),
   });
 }
@@ -283,15 +291,9 @@ describe('SchemaHealingService.runIfNeeded', () => {
         collection: vi.fn((name: string) => collections[name]),
       }),
     };
-    const svc = makeService(qb, makeCache([]));
+    const service = makeSystemMetadataHealing(qb);
 
-    const repaired = await (
-      svc as unknown as {
-        repairMongoSystemColumnMetadataFromSnapshot(
-          snapshot: Record<string, any>,
-        ): Promise<number>;
-      }
-    ).repairMongoSystemColumnMetadataFromSnapshot({
+    const repaired = await service.repairMongoSystemColumnMetadataFromSnapshot({
       enfyra_test: {
         name: 'enfyra_test',
         isSystem: true,
@@ -364,18 +366,11 @@ describe('SchemaHealingService.runIfNeeded', () => {
     knex.schema = {
       hasTable: vi.fn().mockResolvedValue(true),
     };
-    const svc = makeService(
-      { getKnex: vi.fn().mockReturnValue(knex) },
-      makeCache([]),
-    );
+    const service = makeSystemMetadataHealing({
+      getKnex: vi.fn().mockReturnValue(knex),
+    });
 
-    const repaired = await (
-      svc as unknown as {
-        repairSqlSystemDisplayMetadataFromSnapshot(
-          snapshot: Record<string, any>,
-        ): Promise<number>;
-      }
-    ).repairSqlSystemDisplayMetadataFromSnapshot({
+    const repaired = await service.repairSqlSystemDisplayMetadataFromSnapshot({
       enfyra_post: {
         name: 'enfyra_post',
         isSystem: true,
@@ -448,36 +443,29 @@ describe('SchemaHealingService.runIfNeeded', () => {
         updateOne: updates.relation,
       },
     };
-    const svc = makeService(
-      {
-        getMongoDb: vi.fn().mockReturnValue({
-          collection: vi.fn((name: string) => collections[name]),
-        }),
-      },
-      makeCache([]),
-    );
-
-    const repaired = await (
-      svc as unknown as {
-        repairMongoSystemDisplayMetadataFromSnapshot(
-          snapshot: Record<string, any>,
-        ): Promise<number>;
-      }
-    ).repairMongoSystemDisplayMetadataFromSnapshot({
-      enfyra_post: {
-        name: 'enfyra_post',
-        isSystem: true,
-        description: 'Posts',
-        columns: [
-          {
-            name: 'title',
-            description: 'Post title',
-            placeholder: 'Enter a title',
-          },
-        ],
-        relations: [{ propertyName: 'author', description: 'Post author' }],
-      },
+    const service = makeSystemMetadataHealing({
+      getMongoDb: vi.fn().mockReturnValue({
+        collection: vi.fn((name: string) => collections[name]),
+      }),
     });
+
+    const repaired = await service.repairMongoSystemDisplayMetadataFromSnapshot(
+      {
+        enfyra_post: {
+          name: 'enfyra_post',
+          isSystem: true,
+          description: 'Posts',
+          columns: [
+            {
+              name: 'title',
+              description: 'Post title',
+              placeholder: 'Enter a title',
+            },
+          ],
+          relations: [{ propertyName: 'author', description: 'Post author' }],
+        },
+      },
+    );
 
     expect(repaired).toBe(3);
     expect(updates.table).toHaveBeenCalledWith(

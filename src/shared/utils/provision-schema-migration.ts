@@ -1,4 +1,3 @@
-import snapshotMigration from '../../data/snapshot-migration';
 import { Knex } from 'knex';
 import { Db } from 'mongodb';
 import {
@@ -18,10 +17,6 @@ import {
   generateColumnDefinition,
   supportsSqlColumnDefault,
 } from '../../engines/knex/utils/migration/sql-generator';
-
-export function loadSchemaMigration(): SchemaMigrationDef | null {
-  return hasSchemaMigrations(snapshotMigration) ? snapshotMigration : null;
-}
 
 export function hasSchemaMigrations(
   migration: SchemaMigrationDef | null,
@@ -76,14 +71,9 @@ export async function applySqlSchemaMigrations(
     }
   }
 
-  const BATCH = 5;
   const tables = migration.tables || [];
-  for (let i = 0; i < tables.length; i += BATCH) {
-    await Promise.all(
-      tables
-        .slice(i, i + BATCH)
-        .map((t) => applySqlTableMigration(knex, t, dbType)),
-    );
+  for (const table of tables) {
+    await applySqlTableMigration(knex, table, dbType);
   }
 }
 

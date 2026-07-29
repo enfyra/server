@@ -1,6 +1,6 @@
 import knex, { type Knex } from 'knex';
 import { MongoClient, type Db } from 'mongodb';
-import { MetadataMigrationService } from '../../src/engines/bootstrap/services/metadata-migration.service';
+import { MetadataTableRenameService } from '../../src/engines/bootstrap/services/metadata-migration/metadata-table-rename.service';
 import { MetadataPhysicalMigrationHelper } from '../../src/engines/bootstrap/utils/metadata-physical-migration.util';
 import { repairSqlSystemPhysicalTarget } from '../../src/engines/bootstrap/utils/sql-system-physical-healing.util';
 import { getCurrentDatabaseSchema } from '../../src/engines/knex/utils/provision/schema-comparison';
@@ -50,11 +50,21 @@ async function probeMongo(): Promise<boolean> {
 }
 
 function makeService(queryBuilderService: any) {
-  return new MetadataMigrationService({
+  const systemCoreTableResolver = {
+    getTableName: async (key: string) => `enfyra_${key}`,
+    getNames: async () => ({
+      table: 'enfyra_table',
+      column: 'enfyra_column',
+      relation: 'enfyra_relation',
+    }),
+  } as any;
+  return new MetadataTableRenameService({
     queryBuilderService,
-    systemCoreTableResolver: {
-      getTableName: async (key: string) => `enfyra_${key}`,
-    } as any,
+    systemCoreTableResolver,
+    physicalMigration: new MetadataPhysicalMigrationHelper({
+      queryBuilderService,
+    }),
+    verbose: () => undefined,
   });
 }
 
@@ -221,10 +231,10 @@ describe('MetadataMigrationService real DB self-healing stress', () => {
           { from: names.relationOld, to: names.relationNew },
         ];
 
-        await (service as any).runSqlCoreTableRenames(renames);
-        await (service as any).runSqlCoreTableRenames(renames);
-        await (service as any).dropLegacyRenamedSqlTables(renames);
-        await (service as any).dropLegacyRenamedSqlTables(renames);
+        await service.runSqlCoreTableRenames(renames);
+        await service.runSqlCoreTableRenames(renames);
+        await service.cleanupRenamedTables(renames, false);
+        await service.cleanupRenamedTables(renames, false);
 
         const tables = await db(names.tableNew).select('*').orderBy('name');
         const post = tables.find((row) => row.name === 'post');
@@ -463,8 +473,8 @@ describe('MetadataMigrationService real DB self-healing stress', () => {
           to: 'enfyra_user',
           mergeKeys: ['email'],
         };
-        await (service as any).renameSqlTable(rename);
-        await (service as any).renameSqlTable(rename);
+        await service.renameSqlTable(rename);
+        await service.renameSqlTable(rename);
 
         const users = await db('enfyra_user').select('*').orderBy('id');
         expect(users).toEqual([
@@ -612,10 +622,10 @@ describe('MetadataMigrationService real DB self-healing stress', () => {
         { from: names.relationOld, to: names.relationNew },
       ];
 
-      await (service as any).runMongoCoreTableRenames(renames);
-      await (service as any).runMongoCoreTableRenames(renames);
-      await (service as any).dropLegacyRenamedMongoCollections(renames);
-      await (service as any).dropLegacyRenamedMongoCollections(renames);
+      await service.runMongoCoreTableRenames(renames);
+      await service.runMongoCoreTableRenames(renames);
+      await service.cleanupRenamedTables(renames, true);
+      await service.cleanupRenamedTables(renames, true);
 
       const tables = await db.collection(names.tableNew).find({}).toArray();
       const post = tables.find((row) => row.name === 'post');
@@ -716,8 +726,8 @@ describe('MetadataMigrationService real DB self-healing stress', () => {
         to: 'enfyra_user',
         mergeKeys: ['email'],
       };
-      await (service as any).renameMongoTable(rename);
-      await (service as any).renameMongoTable(rename);
+      await service.renameMongoTable(rename);
+      await service.renameMongoTable(rename);
 
       const users = await db
         .collection('enfyra_user')

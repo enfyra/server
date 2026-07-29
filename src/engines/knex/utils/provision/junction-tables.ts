@@ -37,10 +37,16 @@ function addJunctionTableColumns(
     .onUpdate(contract.onUpdate)
     .withKeyName(contract.targetForeignKeyName);
 
-  table.primary([contract.sourceColumn, contract.targetColumn], contract.primaryKeyName);
+  table.primary(
+    [contract.sourceColumn, contract.targetColumn],
+    contract.primaryKeyName,
+  );
   table.index([contract.sourceColumn], contract.sourceIndexName);
   table.index([contract.targetColumn], contract.targetIndexName);
-  table.index([contract.targetColumn, contract.sourceColumn], contract.reverseIndexName);
+  table.index(
+    [contract.targetColumn, contract.sourceColumn],
+    contract.reverseIndexName,
+  );
 }
 
 export async function createJunctionTables(
@@ -85,6 +91,7 @@ export async function createJunctionTables(
 
       console.log(`✅ Created junction table: ${junction.tableName}`);
     } catch (error) {
+      if (String(knex.client.config.client).toLowerCase() === 'pg') throw error;
       const nowExists = await knex.schema.hasTable(junction.tableName);
       if (nowExists) {
         console.log(
@@ -128,6 +135,9 @@ export async function syncJunctionTables(
 
         console.log(`  ✅ Created junction table: ${junction.tableName}`);
       } catch (error) {
+        if (String(knex.client.config.client).toLowerCase() === 'pg') {
+          throw error;
+        }
         const nowExists = await knex.schema.hasTable(junction.tableName);
         if (nowExists) {
           console.log(

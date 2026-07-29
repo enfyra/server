@@ -19,6 +19,13 @@ function makeService(tableColumns: any[] = [{ name: 'isSystem' }]) {
             columns: tableColumns,
           },
         ],
+        [
+          'enfyra_table',
+          {
+            name: 'enfyra_table',
+            columns: tableColumns,
+          },
+        ],
       ]),
     }),
   };
@@ -31,7 +38,18 @@ function makeService(tableColumns: any[] = [{ name: 'isSystem' }]) {
     getAllowedFields: vi.fn((fields) => fields),
   };
   const commonService = {
-    assertNoSystemFlagDeep: vi.fn(),
+    assertNoSystemFlagDeep: vi.fn((values: unknown[]) => {
+      const containsSystemFlag = (value: unknown): boolean => {
+        if (!value || typeof value !== 'object') return false;
+        if (Array.isArray(value)) return value.some(containsSystemFlag);
+        const record = value as Record<string, unknown>;
+        if (record.isSystem === true) return true;
+        return Object.values(record).some(containsSystemFlag);
+      };
+      if (containsSystemFlag(values)) {
+        throw new Error('Cannot create system-owned nested metadata');
+      }
+    }),
   };
 
   return {
@@ -88,6 +106,24 @@ describe('SystemSafetyAuditorService isSystem field contract', () => {
         existing: { id: 1, isSystem: false },
       }),
     ).rejects.toThrow('Cannot modify isSystem');
+  });
+
+  it('rejects nested system metadata minted through an application table update', async () => {
+    const { service } = makeService();
+
+    await expect(
+      service.assertSystemSafe({
+        operation: 'update',
+        tableName: 'enfyra_table',
+        data: {
+          columns: [
+            { name: 'id', type: 'int', isSystem: false },
+            { name: 'forged', type: 'varchar', isSystem: true },
+          ],
+        },
+        existing: { id: 10, name: 'application_table', isSystem: false },
+      }),
+    ).rejects.toThrow('Cannot create system-owned nested metadata');
   });
 
   it('rejects application deletes when cascade data identifies a system row', async () => {

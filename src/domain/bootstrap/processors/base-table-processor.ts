@@ -8,9 +8,11 @@ import {
 import {
   getManyToOneRelations,
   getScalarColumns,
+  getTableDef,
   getUniqueFields,
 } from '../utils/snapshot-meta.util';
 import { DatabaseConfigService } from '../../../shared/services';
+import { v7 as uuidv7 } from 'uuid';
 export interface UpsertResult {
   created: number;
   skipped: number;
@@ -54,6 +56,7 @@ export abstract class BaseTableProcessor {
         where: {
           [rel.lookupKey]: rawValue,
         },
+        fields: isMongoDB ? ['_id', rel.lookupKey] : ['id', rel.lookupKey],
       });
 
       if (!target) {
@@ -286,7 +289,9 @@ export abstract class BaseTableProcessor {
             );
           }
         } else {
-          const cleanedRecord = this.cleanRecordForKnex(record);
+          const cleanedRecord = this.cleanRecordForKnex(
+            this.prepareSqlInsertRecord(record, tableName),
+          );
           const dbType = context?.dbType;
           this.logger.debug(
             `dbType: ${dbType}, cleanedRecord keys: ${Object.keys(cleanedRecord).join(', ')}`,
@@ -375,6 +380,18 @@ export abstract class BaseTableProcessor {
       }
     }
     return cleaned;
+  }
+  protected prepareSqlInsertRecord(record: any, tableName: string): any {
+    const primaryColumn = getTableDef(tableName)?.columns?.find(
+      (column: any) => column.isPrimary,
+    );
+    if (
+      primaryColumn?.type !== 'uuid' ||
+      record[primaryColumn.name] !== undefined
+    ) {
+      return record;
+    }
+    return { ...record, [primaryColumn.name]: uuidv7() };
   }
   protected async updateRecordKnex(
     existingId: any,

@@ -189,7 +189,12 @@ describe('MongoDB Migration Compensation', () => {
       };
 
       const mockMongoService = {
-        getDb: () => ({ collection: () => mockCollection }),
+        getRawDb: () => ({ collection: () => mockCollection }),
+        getActiveSagaSession: () => ({
+          txId: 'tx-runtime-schema',
+          purpose: 'runtime-schema',
+          mutationId: 'runtime-schema:test',
+        }),
       };
 
       const service = new MongoMigrationJournalService({
@@ -219,11 +224,17 @@ describe('MongoDB Migration Compensation', () => {
         columns: [],
         relations: [],
       });
+      expect(inserted[0]).toMatchObject({
+        sagaSessionId: 'tx-runtime-schema',
+        purpose: 'runtime-schema',
+        mutationId: 'runtime-schema:test',
+      });
     });
 
     it('record requires rawBeforeSnapshot for update migration saga', async () => {
       const mockMongoService = {
-        getDb: () => ({ collection: () => ({ insertOne: jest.fn() }) }),
+        getRawDb: () => ({ collection: () => ({ insertOne: jest.fn() }) }),
+        getActiveSagaSession: () => undefined,
       };
       const service = new MongoMigrationJournalService({
         mongoService: mockMongoService as any,
@@ -257,9 +268,9 @@ describe('MongoDB Migration Compensation', () => {
       };
 
       const mockCollection = {
-        find: jest.fn().mockReturnValue({
-          toArray: jest.fn().mockResolvedValue([entry]),
-        }),
+        find: jest.fn()
+          .mockReturnValueOnce({ toArray: jest.fn().mockResolvedValue([entry]) })
+          .mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
         findOne: jest.fn().mockResolvedValue(entry),
         updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
         insertOne: jest.fn(),
@@ -267,7 +278,7 @@ describe('MongoDB Migration Compensation', () => {
       };
 
       const mockMongoService = {
-        getDb: () => ({ collection: () => mockCollection }),
+        getRawDb: () => ({ collection: () => mockCollection }),
       };
 
       const service = new MongoMigrationJournalService({
@@ -297,9 +308,9 @@ describe('MongoDB Migration Compensation', () => {
         },
       };
       const mockCollection = {
-        find: jest.fn().mockReturnValue({
-          toArray: jest.fn().mockResolvedValue([entry]),
-        }),
+        find: jest.fn()
+          .mockReturnValueOnce({ toArray: jest.fn().mockResolvedValue([entry]) })
+          .mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
         findOne: jest.fn().mockResolvedValue(entry),
         updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
       };
@@ -307,7 +318,7 @@ describe('MongoDB Migration Compensation', () => {
       const release = jest.fn().mockResolvedValue(true);
       const service = new MongoMigrationJournalService({
         mongoService: {
-          getDb: () => ({ collection: () => mockCollection }),
+          getRawDb: () => ({ collection: () => mockCollection }),
         } as any,
         cacheService: { acquire, release } as any,
         instanceService: { getInstanceId: () => 'instance-a' } as any,
@@ -321,18 +332,19 @@ describe('MongoDB Migration Compensation', () => {
       expect(executeDiff).toHaveBeenCalledWith(entry.downDiff, entry);
     });
 
-    it('recoverPending skips when Redis lock is held by another instance', async () => {
+    it('recoverPending waits and verifies when Redis lock is held by another instance', async () => {
       const mockCollection = {
         find: jest.fn().mockReturnValue({
-          toArray: jest.fn().mockResolvedValue([{ uuid: 'mj-test' }]),
+          toArray: jest.fn().mockResolvedValue([]),
         }),
       };
       const acquire = jest.fn().mockResolvedValue(false);
+      const get = jest.fn().mockResolvedValue(null);
       const service = new MongoMigrationJournalService({
         mongoService: {
-          getDb: () => ({ collection: () => mockCollection }),
+          getRawDb: () => ({ collection: () => mockCollection }),
         } as any,
-        cacheService: { acquire, release: jest.fn() } as any,
+        cacheService: { acquire, release: jest.fn(), get } as any,
         instanceService: { getInstanceId: () => 'instance-a' } as any,
       });
       const executeDiff = jest.fn();
@@ -340,6 +352,7 @@ describe('MongoDB Migration Compensation', () => {
       await service.recoverPending(executeDiff);
 
       expect(executeDiff).not.toHaveBeenCalled();
+      expect(get).toHaveBeenCalled();
     });
 
     it('recoverPending without restoreMetadataFn still works', async () => {
@@ -350,7 +363,7 @@ describe('MongoDB Migration Compensation', () => {
       };
 
       const mockMongoService = {
-        getDb: () => ({ collection: () => mockCollection }),
+        getRawDb: () => ({ collection: () => mockCollection }),
       };
 
       const service = new MongoMigrationJournalService({

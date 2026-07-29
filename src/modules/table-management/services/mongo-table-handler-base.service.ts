@@ -314,11 +314,38 @@ export class MongoTableHandlerService {
   protected async runWithSchemaLock<T>(
     context: string,
     handler: () => Promise<T>,
+    onAcquired?: () => Promise<void>,
   ): Promise<T> {
     const lock = await this.mongoSchemaMigrationLockService.acquire(context);
+    let lockLost = false;
+    const heartbeat = setInterval(() => {
+      this.mongoSchemaMigrationLockService
+        .refreshHeartbeat(lock)
+        .then((renewed) => {
+          if (!renewed) lockLost = true;
+        })
+        .catch(() => {
+          lockLost = true;
+        });
+    }, 5_000);
     try {
-      return await handler();
+      if (onAcquired) await onAcquired();
+      const result = await handler();
+      if (lockLost) {
+        throw new Error(
+          `Schema lock lost during "${context}", aborting to prevent conflicting writes`,
+        );
+      }
+      const stillHeld =
+        await this.mongoSchemaMigrationLockService.isStillHeld(lock);
+      if (!stillHeld) {
+        throw new Error(
+          `Schema lock lost during "${context}", aborting to prevent conflicting writes`,
+        );
+      }
+      return result;
     } finally {
+      clearInterval(heartbeat);
       await this.mongoSchemaMigrationLockService.release(lock);
     }
   }

@@ -8,7 +8,7 @@ import {
 } from './mongo-saga-snapshot.service';
 import { MongoService } from './mongo.service';
 import { DatabaseException } from '../../../domain/exceptions';
-import { ISagaOptions, ISagaContext } from './mongo-saga.types';
+import { type ISagaContext, type ResolvedSagaOptions } from './mongo-saga.types';
 
 interface IPlanInsert {
   type: 'insert';
@@ -47,7 +47,7 @@ export class SagaPlan {
     private readonly lockService: MongoSagaLockService,
     private readonly snapshotService: MongoSagaSnapshotService,
     private readonly mongoService: MongoService,
-    private readonly options: Required<ISagaOptions>,
+    private readonly options: ResolvedSagaOptions,
     private readonly context: ISagaContext,
   ) {}
 
@@ -151,7 +151,7 @@ export class SagaPlan {
     for (const [collName, ids] of fetchGroups) {
       fetchPromises.push(
         (async () => {
-          const coll = this.mongoService.getDb().collection(collName);
+          const coll = this.mongoService.getRawDb().collection(collName);
           const docs = await coll.find({ _id: { $in: ids } }).toArray();
           for (const doc of docs) {
             oldDocMap.set(`${collName}:${doc._id.toString()}`, doc);
@@ -222,7 +222,7 @@ export class SagaPlan {
     for (const [collName, ops] of insertsByCollection) {
       executePromises.push(
         (async () => {
-          const coll = this.mongoService.getDb().collection(collName);
+          const coll = this.mongoService.getRawDb().collection(collName);
           const docs = ops.map((op) => ({
             ...op.data,
             _id: op.predictedId,
@@ -245,7 +245,7 @@ export class SagaPlan {
     for (const [collName, ops] of updatesByCollection) {
       executePromises.push(
         (async () => {
-          const coll = this.mongoService.getDb().collection(collName);
+          const coll = this.mongoService.getRawDb().collection(collName);
           const bulkOps = ops.map((op) => ({
             updateOne: {
               filter: { _id: op.id },
@@ -270,7 +270,7 @@ export class SagaPlan {
     for (const [collName, ops] of deletesByCollection) {
       executePromises.push(
         (async () => {
-          const coll = this.mongoService.getDb().collection(collName);
+          const coll = this.mongoService.getRawDb().collection(collName);
           const ids = ops.map((op) => op.id);
           await coll.deleteMany({ _id: { $in: ids } });
           result.deletes.set(

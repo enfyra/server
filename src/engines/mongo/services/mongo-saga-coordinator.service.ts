@@ -20,11 +20,14 @@ import type {
   ISagaOptions,
   ISagaResult,
   ISagaRecoveryMetrics,
+  ResolvedSagaOptions,
 } from './mongo-saga.types';
 export class MongoSagaCoordinator {
   private readonly logger = new Logger(MongoSagaCoordinator.name);
   private readonly sagaContext = new AsyncLocalStorage<ISagaContext>();
-  private readonly defaultOptions: Required<ISagaOptions> = {
+  private readonly defaultOptions: Required<
+    Omit<ISagaOptions, 'purpose' | 'mutationId'>
+  > = {
     maxDurationMs: 30000,
     lockTimeoutMs: 10000,
     maxRetries: 3,
@@ -65,17 +68,11 @@ export class MongoSagaCoordinator {
 
   async init(): Promise<void> {
     try {
-      this.mongoService.getDb();
+      this.mongoService.getRawDb();
     } catch {
       return;
     }
-    try {
-      await this.recoverOrphanedSagas('boot');
-    } catch (error) {
-      this.logger.error(
-        `Saga boot recovery failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
+    await this.recoverOrphanedSagas('boot');
     this.startPeriodicCleanup(60_000);
   }
 
@@ -126,41 +123,85 @@ export class MongoSagaCoordinator {
   ): Promise<{ cleaned: number; recovered: number }> {
     if (this.cacheService) {
       const lockValue = this.instanceService.getInstanceId();
-      const acquired = await this.cacheService.acquire(
-        SAGA_ORPHAN_RECOVERY_LOCK_KEY,
-        lockValue,
-        REDIS_TTL.SAGA_ORPHAN_RECOVERY_LOCK_TTL,
-      );
+      const acquired = await this.acquireRecoveryBarrier(source, lockValue);
       if (!acquired) {
-        this.recoveryMetrics.skippedDueToRedisLock++;
-        this.logger.debug(
-          `Saga orphan recovery skipped (${source}): another instance holds ${SAGA_ORPHAN_RECOVERY_LOCK_KEY}`,
-        );
         return { cleaned: 0, recovered: 0 };
       }
+      let leaseLost = false;
+      const renewal = setInterval(() => {
+        void this.cacheService!
+          .renew(
+            SAGA_ORPHAN_RECOVERY_LOCK_KEY,
+            lockValue,
+            REDIS_TTL.SAGA_ORPHAN_RECOVERY_LOCK_TTL,
+            { global: true },
+          )
+          .then((renewed) => {
+            if (!renewed) leaseLost = true;
+          })
+          .catch(() => {
+            leaseLost = true;
+          });
+      }, Math.floor(REDIS_TTL.SAGA_ORPHAN_RECOVERY_LOCK_TTL / 3));
       try {
-        return await this.runOrphanRecoveryBody(source);
+        const result = await this.runOrphanRecoveryBody(source);
+        if (leaseLost) {
+          throw new Error('Saga orphan recovery barrier lease was lost');
+        }
+        return result;
       } finally {
+        clearInterval(renewal);
         await this.cacheService.release(
           SAGA_ORPHAN_RECOVERY_LOCK_KEY,
           lockValue,
+          { global: true },
         );
       }
     }
     return await this.runOrphanRecoveryBody(source);
   }
 
+  async recoverOrWaitForPurpose(
+    purpose: string,
+    maxWaitMs: number,
+  ): Promise<void> {
+    try {
+      this.mongoService.getRawDb();
+    } catch {
+      return;
+    }
+    const deadline = Date.now() + maxWaitMs;
+    while (true) {
+      await this.recoverOrphanedSagas('boot');
+      const open = (await this.lockService.getOpenSessions()).filter(
+        (session) => session.purpose === purpose,
+      );
+      if (open.length === 0) return;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        throw new Error(
+          `Timed out waiting for ${purpose} saga recovery after ${maxWaitMs}ms`,
+        );
+      }
+      const earliestExpiry = Math.min(
+        ...open.map((session) => new Date(session.expiresAt).getTime()),
+      );
+      const untilExpiry = Math.max(10, earliestExpiry - Date.now() + 10);
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(1000, remaining, untilExpiry)),
+      );
+    }
+  }
+
   private async runOrphanRecoveryBody(
     source: 'boot' | 'periodic',
   ): Promise<{ cleaned: number; recovered: number }> {
     try {
-      const recoveredOpenSessions =
-        source === 'boot' ? await this.rollbackOpenSessionsOnBoot() : 0;
+      const recoveredOpenSessions = await this.rollbackClaimedSessions();
       const orphanedLocks = await this.lockService.cleanupOrphanedLocks();
-      const oldSnapshots = await this.snapshotService.cleanupOldSnapshots(0);
       const recovered = recoveredOpenSessions;
 
-      const result = { cleaned: orphanedLocks + oldSnapshots, recovered };
+      const result = { cleaned: orphanedLocks, recovered };
       this.recordRecoverySuccess(source, result);
       if (source === 'boot') {
         this.logger.log(
@@ -174,31 +215,88 @@ export class MongoSagaCoordinator {
     }
   }
 
-  private async rollbackOpenSessionsOnBoot(): Promise<number> {
-    const sessions = await this.lockService.getOpenSessions();
-    let recovered = 0;
+  private async acquireRecoveryBarrier(
+    source: 'boot' | 'periodic',
+    lockValue: string,
+  ): Promise<boolean> {
+    const deadline = Date.now() + 30_000;
+    while (true) {
+      const acquired = await this.cacheService!.acquire(
+        SAGA_ORPHAN_RECOVERY_LOCK_KEY,
+        lockValue,
+        REDIS_TTL.SAGA_ORPHAN_RECOVERY_LOCK_TTL,
+        { global: true },
+      );
+      if (acquired) return true;
+      this.recoveryMetrics.skippedDueToRedisLock++;
+      if (source === 'periodic') {
+        this.logger.debug(
+          `Saga orphan recovery skipped (${source}): another instance holds ${SAGA_ORPHAN_RECOVERY_LOCK_KEY}`,
+        );
+        return false;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Timed out waiting for saga orphan recovery barrier ${SAGA_ORPHAN_RECOVERY_LOCK_KEY}`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
 
-    for (const session of sessions) {
+  private async rollbackClaimedSessions(): Promise<number> {
+    let recovered = 0;
+    const failures: string[] = [];
+
+    while (true) {
+      const session = await this.lockService.claimNextRecoverableSession(
+        this.instanceService.getInstanceId(),
+      );
+      if (!session) break;
       const txId = session.sessionId || session.txId;
-      if (!txId) continue;
+      const recoveryToken = session.recoveryToken;
+      if (!txId || !recoveryToken) {
+        failures.push(`${txId || 'unknown'}: recovery claim has no token`);
+        continue;
+      }
       try {
         const rollbackResult =
           await this.snapshotService.rollbackTransaction(txId);
-        await this.lockService.abortTransaction(txId, 'boot recovery');
         if (rollbackResult.success) {
+          await this.lockService.completeRecovery(txId, recoveryToken);
+          await this.snapshotService.deleteSnapshotsForSession(txId);
           recovered++;
         } else {
-          this.logger.error(
-            `Saga boot rollback failed for ${txId}: ${rollbackResult.failedSnapshots.length} failed snapshot(s)`,
+          const detail = rollbackResult.failedSnapshots
+            .slice(0, 5)
+            .map((f) => `${f.snapshotId}: ${f.error}`)
+            .join('; ');
+          const suffix =
+            rollbackResult.failedSnapshots.length > 5
+              ? ` (+${rollbackResult.failedSnapshots.length - 5} more)`
+              : '';
+          const message = `${rollbackResult.failedSnapshots.length} failed snapshot(s): ${detail}${suffix}`;
+          await this.lockService.markRecoveryFailed(
+            txId,
+            recoveryToken,
+            message,
           );
+          failures.push(`${txId}: ${message}`);
         }
       } catch (error) {
-        this.logger.error(
-          `Saga boot rollback failed for ${txId}: ${getErrorMessage(error)}`,
-        );
+        const message = getErrorMessage(error);
+        await this.lockService
+          .markRecoveryFailed(txId, recoveryToken, message)
+          .catch(() => {});
+        failures.push(`${txId}: ${message}`);
       }
     }
 
+    if (failures.length > 0) {
+      throw new Error(
+        `Saga boot recovery failed for ${failures.length} session(s): ${failures.join('; ')}`,
+      );
+    }
     return recovered;
   }
 
@@ -243,13 +341,16 @@ export class MongoSagaCoordinator {
       );
     }
 
-    const opts = { ...this.defaultOptions, ...options };
+    const opts: ResolvedSagaOptions = { ...this.defaultOptions, ...options };
     const startTime = Date.now();
     let txId: string | null = null;
     let context: ISagaContext | undefined;
 
     try {
-      txId = await this.lockService.beginTransaction();
+      txId = await this.lockService.beginTransaction({
+        purpose: opts.purpose,
+        mutationId: opts.mutationId,
+      });
 
       context = {
         txId,
@@ -277,10 +378,15 @@ export class MongoSagaCoordinator {
         Math.max(2_000, Math.floor(opts.maxDurationMs / 5)),
       );
       let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+      let leaseLost = false;
       heartbeatTimer = setInterval(() => {
         void this.lockService
           .renewTransactionLease(txId!)
+          .then((renewed) => {
+            if (!renewed) leaseLost = true;
+          })
           .catch((err: Error) => {
+            leaseLost = true;
             this.logger.warn(
               `[${txId}] Saga lease renew failed: ${err.message}`,
             );
@@ -311,6 +417,14 @@ export class MongoSagaCoordinator {
           },
         );
       }
+
+      if (leaseLost) {
+        throw new DatabaseException(
+          `Transaction ${txId} lost its ownership lease`,
+          { txId, reason: 'saga_lease_lost' },
+        );
+      }
+      await this.lockService.assertTransactionOwnership(txId);
 
       await this.commit(txId, context);
       const operationsCount = context.snapshots.length;
@@ -375,6 +489,7 @@ export class MongoSagaCoordinator {
   ): Promise<IRollbackResult> {
     context.status = 'rolling_back';
 
+    await this.lockService.assertTransactionOwnership(txId);
     const rollbackResult = await this.snapshotService.rollbackTransaction(txId);
 
     await this.lockService.abortTransaction(

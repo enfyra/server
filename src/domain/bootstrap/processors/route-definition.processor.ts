@@ -10,6 +10,7 @@ import { compileScriptSource } from '../../../shared/utils/script-code.util';
 import { getSqlJunctionMetadata } from '../utils/sql-junction-metadata.util';
 import { replaceSqlJunctionRows } from '../utils/sql-junction-writer.util';
 import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';
+import { mapSequentially } from '../utils/map-sequentially.util';
 
 const ROUTE_METHOD_RELATION_FIELDS = [
   'publicMethods',
@@ -27,8 +28,9 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const pkField = isMongoDB ? '_id' : 'id';
-    const transformedRecords = await Promise.all(
-      records.map(async (record) => {
+    const transformedRecords = await mapSequentially(
+      records,
+      async (record) => {
         const transformedRecord = { ...record };
         if (transformedRecord.description === undefined)
           transformedRecord.description = null;
@@ -45,12 +47,10 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         }
         if (record.mainTable) {
           if (isMongoDB) {
-            const mainTable = await this.queryBuilderService.findOne({
-              table: 'enfyra_table',
-              where: {
-                name: record.mainTable,
-              },
-            });
+            const mainTable = await this.queryBuilderService
+              .getMongoDb()
+              .collection('enfyra_table')
+              .findOne({ name: record.mainTable });
             if (!mainTable) {
               this.logger.warn(
                 `Table '${record.mainTable}' not found for route ${record.path}, skipping.`,
@@ -59,12 +59,10 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
             }
             transformedRecord.mainTable = this.normalizeMongoId(mainTable._id);
           } else {
-            const mainTable = await this.queryBuilderService.findOne({
-              table: 'enfyra_table',
-              where: {
-                name: record.mainTable,
-              },
-            });
+            const mainTable = await this.queryBuilderService
+              .getKnex()('enfyra_table')
+              .where({ name: record.mainTable })
+              .first();
             if (!mainTable) {
               this.logger.warn(
                 `Table '${record.mainTable}' not found for route ${record.path}, skipping.`,
@@ -101,7 +99,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         }
 
         return transformedRecord;
-      }),
+      },
     );
     return transformedRecords.filter(Boolean);
   }
@@ -312,10 +310,15 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
 
     this.logger.log('[ensureMissingHandlers] Starting handler check...');
 
-    const { data: routes } = await this.queryBuilderService.find({
-      table: 'enfyra_route',
-      filter: { isEnabled: { _eq: true } },
-    });
+    const routes = isMongoDB
+      ? await this.queryBuilderService
+          .getMongoDb()
+          .collection('enfyra_route')
+          .find({ isEnabled: true })
+          .toArray()
+      : await this.queryBuilderService
+          .getKnex()('enfyra_route')
+          .where({ isEnabled: true });
 
     if (!routes || routes.length === 0) return;
 
@@ -428,10 +431,15 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     let methodIds: any[] = [];
     const raw = record.availableMethods;
     if (Array.isArray(raw) && raw.length > 0) {
-      methodIds =
-        typeof raw[0] === 'object' && raw[0] !== null
-          ? raw.map((m: any) => m?.id ?? m?._id).filter(Boolean)
-          : [...raw];
+      methodIds = raw
+        .map((method: any) => {
+          if (method instanceof ObjectId) return method;
+          if (typeof method === 'object' && method !== null) {
+            return method.id ?? method._id;
+          }
+          return method;
+        })
+        .filter(Boolean);
     } else {
       if (isMongoDB) {
         const junction = getSqlJunctionPhysicalNames({
@@ -493,10 +501,15 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       const logic = DEFAULT_REST_HANDLER_LOGIC[methodName];
       if (!logic) continue;
 
-      const methodRow = await this.queryBuilderService.findOne({
-        table: 'enfyra_method',
-        where: { name: methodName },
-      });
+      const methodRow = isMongoDB
+        ? await this.queryBuilderService
+            .getMongoDb()
+            .collection('enfyra_method')
+            .findOne({ name: methodName })
+        : await this.queryBuilderService
+            .getKnex()('enfyra_method')
+            .where({ name: methodName })
+            .first();
       if (!methodRow) {
         this.logger.warn(`[${path}] Method row not found: ${methodName}`);
         continue;
@@ -524,13 +537,10 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
             method: methodIdObj,
           });
       } else {
-        existing = await this.queryBuilderService.findOne({
-          table: 'enfyra_route_handler',
-          where: {
-            routeId,
-            methodId: methodKeyId,
-          },
-        });
+        existing = await this.queryBuilderService
+          .getKnex()('enfyra_route_handler')
+          .where({ routeId, methodId: methodKeyId })
+          .first();
       }
 
       if (existing) {

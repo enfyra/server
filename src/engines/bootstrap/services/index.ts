@@ -1,8 +1,10 @@
 export * from './bootstrap-definition.service';
+export * from './bootstrap-unit-of-work.service';
 export * from './data-migration.service';
 export * from './data-provision.service';
 export * from './first-run-initializer.service';
 export * from './metadata-migration.service';
+export * from './mysql-bootstrap-snapshot.service';
 export * from './metadata-provision-mongo.service';
 export * from './metadata-provision-sql.service';
 export * from './metadata-provision.service';
@@ -10,3 +12,5 @@ export * from './schema-healing.service';
 export * from './snapshot-target-verifier.service';
 export * from './provision.service';
 export * from './system-core-table-resolver.service';
+export * from './legacy-system-metadata/legacy-store-inventory.service';
+export * from './legacy-system-metadata/legacy-assessment.service';

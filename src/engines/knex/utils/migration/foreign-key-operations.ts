@@ -13,86 +13,70 @@ export async function dropForeignKeyIfExists(
   columnName: string,
   dbType: 'mysql' | 'postgres',
 ): Promise<void> {
+  const constraintName = await findForeignKeyConstraintName(
+    knex,
+    tableName,
+    columnName,
+    dbType,
+  );
+  if (!constraintName) return;
   try {
-    logger.log(
-      `Querying FK constraints for table: ${tableName}, column: ${columnName}`,
-    );
-    const { query, bindings } = getForeignKeyConstraintsQuery(
+    logger.log(`Found FK constraint: ${constraintName}`);
+    const dropSQL = generateDropForeignKeySQL(
       tableName,
-      columnName,
+      constraintName,
       dbType,
     );
-    const fkConstraints = await knex.raw(query, bindings);
-    let constraintName: string | null = null;
-    if (dbType === 'mysql') {
-      if (fkConstraints[0] && fkConstraints[0].length > 0) {
-        constraintName = fkConstraints[0][0].CONSTRAINT_NAME;
+    await knex.transaction(async (conn) => {
+      if (dbType === 'mysql') {
+        await conn.raw(`SET SESSION lock_wait_timeout = 30`);
+        await conn.raw(`SET SESSION innodb_lock_wait_timeout = 30`);
       }
-    } else if (dbType === 'postgres') {
-      if (fkConstraints.rows && fkConstraints.rows.length > 0) {
-        constraintName = fkConstraints.rows[0].constraint_name;
-      }
-    }
-    if (constraintName) {
-      logger.log(`Found FK constraint: ${constraintName}`);
-      const dropSQL = generateDropForeignKeySQL(
-        tableName,
-        constraintName,
-        dbType,
-      );
-      await knex.transaction(async (conn) => {
-        if (dbType === 'mysql') {
-          await conn.raw(`SET SESSION lock_wait_timeout = 30`);
-          await conn.raw(`SET SESSION innodb_lock_wait_timeout = 30`);
-        }
-        try {
-          await conn.raw(dropSQL);
-        } catch (ddlError: any) {
-          if (
-            dbType === 'mysql' &&
-            /lock wait timeout/i.test(String(ddlError?.message || ''))
-          ) {
-            try {
-              const blockers = await knex.raw(
-                `SELECT ml.OWNER_THREAD_ID, t.PROCESSLIST_ID, t.PROCESSLIST_COMMAND,
-                        t.PROCESSLIST_TIME, t.PROCESSLIST_STATE,
-                        COUNT(*) AS mdl_count,
-                        GROUP_CONCAT(DISTINCT ml.OBJECT_NAME ORDER BY ml.OBJECT_NAME) AS tables_locked
-                 FROM performance_schema.metadata_locks ml
-                 JOIN performance_schema.threads t ON t.THREAD_ID = ml.OWNER_THREAD_ID
-                 WHERE ml.OBJECT_SCHEMA = DATABASE()
-                 GROUP BY ml.OWNER_THREAD_ID, t.PROCESSLIST_ID
-                 ORDER BY mdl_count DESC
-                 LIMIT 5`,
-              );
-              logger.error(
-                `Top MDL-holding threads: ${JSON.stringify(blockers?.[0] ?? blockers)}`,
-              );
-              const lastStmt = await knex.raw(
-                `SELECT h.THREAD_ID, LEFT(h.SQL_TEXT, 500) AS sql_text, h.EVENT_NAME
-                 FROM performance_schema.events_statements_history h
-                 WHERE h.THREAD_ID IN (
-                   SELECT DISTINCT OWNER_THREAD_ID FROM performance_schema.metadata_locks
-                   WHERE OBJECT_SCHEMA = DATABASE()
-                 )
-                 AND h.SQL_TEXT IS NOT NULL
-                 ORDER BY h.THREAD_ID, h.EVENT_ID DESC
-                 LIMIT 40`,
-              );
-              logger.error(
-                `Last statements from MDL-holding threads: ${JSON.stringify(lastStmt?.[0] ?? lastStmt)}`,
-              );
-            } catch (diagErr: any) {
-              logger.error(`Diagnostic failed: ${diagErr?.message}`);
-            }
+      try {
+        await conn.raw(dropSQL);
+      } catch (ddlError: any) {
+        if (
+          dbType === 'mysql' &&
+          /lock wait timeout/i.test(String(ddlError?.message || ''))
+        ) {
+          try {
+            const blockers = await knex.raw(
+              `SELECT ml.OWNER_THREAD_ID, t.PROCESSLIST_ID, t.PROCESSLIST_COMMAND,
+                      t.PROCESSLIST_TIME, t.PROCESSLIST_STATE,
+                      COUNT(*) AS mdl_count,
+                      GROUP_CONCAT(DISTINCT ml.OBJECT_NAME ORDER BY ml.OBJECT_NAME) AS tables_locked
+               FROM performance_schema.metadata_locks ml
+               JOIN performance_schema.threads t ON t.THREAD_ID = ml.OWNER_THREAD_ID
+               WHERE ml.OBJECT_SCHEMA = DATABASE()
+               GROUP BY ml.OWNER_THREAD_ID, t.PROCESSLIST_ID
+               ORDER BY mdl_count DESC
+               LIMIT 5`,
+            );
+            logger.error(
+              `Top MDL-holding threads: ${JSON.stringify(blockers?.[0] ?? blockers)}`,
+            );
+            const lastStmt = await knex.raw(
+              `SELECT h.THREAD_ID, LEFT(h.SQL_TEXT, 500) AS sql_text, h.EVENT_NAME
+               FROM performance_schema.events_statements_history h
+               WHERE h.THREAD_ID IN (
+                 SELECT DISTINCT OWNER_THREAD_ID FROM performance_schema.metadata_locks
+                 WHERE OBJECT_SCHEMA = DATABASE()
+               )
+               AND h.SQL_TEXT IS NOT NULL
+               ORDER BY h.THREAD_ID, h.EVENT_ID DESC
+               LIMIT 40`,
+            );
+            logger.error(
+              `Last statements from MDL-holding threads: ${JSON.stringify(lastStmt?.[0] ?? lastStmt)}`,
+            );
+          } catch (diagErr: any) {
+            logger.error(`Diagnostic failed: ${diagErr?.message}`);
           }
-          throw ddlError;
         }
-      });
-      logger.log(`Successfully dropped FK constraint: ${constraintName}`);
-    } else {
-      logger.log(`No FK constraint found for column ${columnName}`);
-    }
+        throw ddlError;
+      }
+    });
+    logger.log(`Successfully dropped FK constraint: ${constraintName}`);
   } catch (error: any) {
     const msg = String(error?.message || '').toLowerCase();
     const errno = Number(error?.errno);
@@ -113,6 +97,45 @@ export async function dropForeignKeyIfExists(
     throw error;
   }
 }
+
+export async function findForeignKeyConstraintName(
+  knex: Knex,
+  tableName: string,
+  columnName: string,
+  dbType: 'mysql' | 'postgres',
+): Promise<string | null> {
+  try {
+    const { query, bindings } = getForeignKeyConstraintsQuery(
+      tableName,
+      columnName,
+      dbType,
+    );
+    const fkConstraints = await knex.raw(query, bindings);
+    if (dbType === 'mysql') {
+      if (fkConstraints[0] && fkConstraints[0].length > 0) {
+        return fkConstraints[0][0].CONSTRAINT_NAME;
+      }
+    } else if (dbType === 'postgres') {
+      if (fkConstraints.rows && fkConstraints.rows.length > 0) {
+        return fkConstraints.rows[0].constraint_name;
+      }
+    }
+    return null;
+  } catch (error: any) {
+    const msg = String(error?.message || '').toLowerCase();
+    const errno = Number(error?.errno);
+    if (
+      msg.includes('check that column/key exists') ||
+      msg.includes('does not exist') ||
+      errno === 1091 ||
+      errno === 1025
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 export async function dropAllForeignKeysReferencingTable(
   knex: Knex,
   targetTableName: string,

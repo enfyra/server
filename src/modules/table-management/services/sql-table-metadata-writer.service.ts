@@ -244,7 +244,11 @@ export class SqlTableMetadataWriterService {
             existingRel?.referencedColumn || rel.referencedColumn || 'id';
           relationData.constraintName =
             existingRel?.constraintName || rel.constraintName || null;
-        } else if (updateMappedById && mappedByRelation) {
+        } else if (
+          updateMappedById &&
+          mappedByRelation &&
+          rel.type !== 'many-to-many'
+        ) {
           relationData.foreignKeyColumn =
             mappedByRelation.foreignKeyColumn ||
             getForeignKeyColumnName(mappedByRelation.propertyName);

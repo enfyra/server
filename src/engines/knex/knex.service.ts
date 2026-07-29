@@ -277,6 +277,7 @@ export class KnexService implements LifecycleAware {
       this.knexContext,
       this.cascadeContext,
       options,
+      (context, run) => this.runWithRuntimeWriteLease(run, context),
     );
   }
 
@@ -367,6 +368,8 @@ export class KnexService implements LifecycleAware {
     const baseKnex = this.knexContext.getStore() || this.knexInstance;
     const getKnexForRead = () => this.getKnexForRead();
     const getKnexForWrite = () => this.getKnexForWrite();
+    const runWithWriteLease = <T>(run: () => Promise<T>, context: string) =>
+      this.runWithRuntimeWriteLease(run, context);
     const wrapQueryBuilder = (qb: any, knexInstance: any) =>
       this.wrapQueryBuilder(qb, knexInstance, options);
 
@@ -395,7 +398,25 @@ export class KnexService implements LifecycleAware {
               const knexInstance = isReadQuery
                 ? getKnexForRead()
                 : getKnexForWrite();
-              return value.apply(knexInstance, [sql, ...rawArgs]);
+              const raw = value.apply(knexInstance, [sql, ...rawArgs]);
+              if (isReadQuery) {
+                return raw;
+              }
+              return new Proxy(raw, {
+                get(rawTarget, rawProp) {
+                  if (rawProp === 'then') {
+                    return (onFulfilled: any, onRejected: any) =>
+                      runWithWriteLease(
+                        async () => await rawTarget,
+                        'raw-sql-write',
+                      ).then(onFulfilled, onRejected);
+                  }
+                  const rawValue = Reflect.get(rawTarget, rawProp, rawTarget);
+                  return typeof rawValue === 'function'
+                    ? rawValue.bind(rawTarget)
+                    : rawValue;
+                },
+              });
             };
           }
 
@@ -484,8 +505,12 @@ export class KnexService implements LifecycleAware {
       }
     }
 
-    return await this.knexInstance(tableName).insert(
-      Array.isArray(data) ? records : records[0],
+    return await this.runWithRuntimeWriteLease(
+      async () =>
+        await this.knexInstance(tableName).insert(
+          Array.isArray(data) ? records : records[0],
+        ),
+      tableName,
     );
   }
 
@@ -493,9 +518,28 @@ export class KnexService implements LifecycleAware {
     callback: (trx: Knex.Transaction) => Promise<any>,
   ): Promise<any> {
     const knexInstance = this.getKnexForWrite();
-    return await knexInstance.transaction(async (trx) => {
-      return this.knexContext.run(trx, async () => callback(trx));
-    });
+    return await this.runWithRuntimeWriteLease(
+      async () =>
+        await knexInstance.transaction(async (trx) => {
+          return this.knexContext.run(trx, async () => callback(trx));
+        }),
+      'transaction',
+    );
+  }
+
+  getSystemKnex(): Knex {
+    return this.getKnexForWrite() as Knex;
+  }
+
+  private async runWithRuntimeWriteLease<T>(
+    callback: () => Promise<T>,
+    context: string,
+  ): Promise<T> {
+    if (this.dbType !== 'mysql') return callback();
+    return this.lazyRef.mySqlRuntimeWriteBarrierService.runWithWriteLease(
+      callback,
+      context,
+    );
   }
 
   async runWithTransaction<T>(
@@ -596,7 +640,8 @@ export class KnexService implements LifecycleAware {
 
     const promise = (async () => {
       try {
-        const tableDef = await this.knexInstance('enfyra_table')
+        const connection = this.getActiveKnex();
+        const tableDef = await connection('enfyra_table')
           .where('name', tableName)
           .first();
 
@@ -604,7 +649,7 @@ export class KnexService implements LifecycleAware {
           return;
         }
 
-        const columns = await this.knexInstance('enfyra_column')
+        const columns = await connection('enfyra_column')
           .where('tableId', tableDef.id)
           .select('name', 'type');
 
@@ -615,6 +660,7 @@ export class KnexService implements LifecycleAware {
 
         this.columnTypesMap.set(tableName, columnTypes);
       } catch (error) {
+        if (this.knexContext.getStore()) throw error;
         this.logger.error(
           `[loadColumnTypesForTable] Error loading columnTypes for ${tableName}:`,
           error,

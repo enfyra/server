@@ -1,16 +1,31 @@
 import { describe, it, expect } from 'vitest';
 import { SchemaMigrationValidatorService } from '../../src/domain/policy';
+import { RuntimeSchemaContractCompilerService } from '../../src/modules/table-management';
 
-const metadataCacheStub: any = {
-  async getMetadata() {
+const runtimeRegistryStub: any = {
+  getMetadata() {
     return { tables: new Map() };
   },
 };
 
-const makeValidator = () =>
-  new SchemaMigrationValidatorService({
-    metadataCacheService: metadataCacheStub,
+const databaseConfigStub: any = {
+  getDbType: () => 'postgres',
+};
+
+const makeValidator = () => {
+  const runtimeSchemaContractCompilerService =
+    new RuntimeSchemaContractCompilerService({
+      databaseConfigService: databaseConfigStub,
+      runtimeRegistryService: runtimeRegistryStub,
+      runtimeSchemaPhysicalPlannerService: {
+        plan: async () => null,
+      } as any,
+    });
+  return new SchemaMigrationValidatorService({
+    runtimeRegistryService: runtimeRegistryStub,
+    runtimeSchemaContractCompilerService,
   });
+};
 
 const baseBefore = {
   name: 'post',
@@ -99,6 +114,9 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
     });
     expect(confirmDecision.allow).toBe(true);
     expect(confirmDecision.details.requiredConfirmHash).toBe(previewHash);
+    expect(confirmDecision.details.contractHash).toBe(
+      previewDecision.details.contractHash,
+    );
   });
 
   it('rejects when client hash is wrong', async () => {
@@ -127,7 +145,10 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
       data: {
         name: 'runtime_versions',
         uniques: [{ value: ['version'] }],
-        indexes: [{ value: ['is_active', 'sort_order'] }, { value: ['version'] }],
+        indexes: [
+          { value: ['is_active', 'sort_order'] },
+          { value: ['version'] },
+        ],
       },
       requestContext: { $query: {} },
     });
@@ -152,7 +173,10 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
     const after = {
       ...baseBefore,
       uniques: [['version'], ['docker_image']],
-      indexes: [['is_active', 'sort_order'], ['version', 'is_active']],
+      indexes: [
+        ['is_active', 'sort_order'],
+        ['version', 'is_active'],
+      ],
     };
 
     const decision = await v.checkSchemaMigration({
@@ -184,7 +208,10 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
       operation: 'create',
       tableName: 'cloud_host_databases',
       data: {
-        uniques: [['host', 'db_name'], ['host', 'db_user']],
+        uniques: [
+          ['host', 'db_name'],
+          ['host', 'db_user'],
+        ],
         indexes: [['host']],
       },
       requestContext: { $query: {} },

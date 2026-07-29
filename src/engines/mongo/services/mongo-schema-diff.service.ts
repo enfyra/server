@@ -3,6 +3,11 @@ import { MongoService } from './mongo.service';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { buildMongoFullIndexSpecs } from '../utils/mongo-physical-schema-contract';
+import {
+  buildMongoValidationSchema,
+  MONGO_VALIDATION_LEVEL,
+  MONGO_VALIDATION_ACTION,
+} from '../utils/mongo-validation-schema.util';
 
 export class MongoSchemaDiffService {
   private readonly logger = new Logger(MongoSchemaDiffService.name);
@@ -18,69 +23,6 @@ export class MongoSchemaDiffService {
     this.queryBuilderService = deps.queryBuilderService;
   }
 
-  private sqlTypeToBsonType(type: string): any {
-    const typeMap: Record<string, any> = {
-      string: 'string',
-      text: 'string',
-      varchar: 'string',
-      char: 'string',
-      uuid: 'string',
-      objectId: 'objectId',
-      ObjectId: 'objectId',
-      objectid: 'objectId',
-      richtext: 'string',
-      int: 'int',
-      integer: 'int',
-      smallint: 'int',
-      tinyint: 'int',
-      bigint: 'long',
-      float: 'double',
-      double: 'double',
-      decimal: 'double',
-      numeric: 'double',
-      real: 'double',
-      boolean: 'bool',
-      bool: 'bool',
-      date: 'date',
-      datetime: 'date',
-      timestamp: 'date',
-      json: 'object',
-      'simple-json': 'object',
-      array: 'array',
-      enum: 'string',
-    };
-    return typeMap[type] || 'string';
-  }
-
-  private createValidationSchema(columns: any[]): any {
-    const properties: any = {};
-    const required: string[] = [];
-    for (const col of columns) {
-      if (
-        col.name === '_id' ||
-        col.name === 'createdAt' ||
-        col.name === 'updatedAt'
-      ) {
-        continue;
-      }
-      const bsonType = this.sqlTypeToBsonType(col.type);
-      properties[col.name] = {
-        bsonType: col.isNullable ? [bsonType, 'null'] : bsonType,
-        description: col.description || col.name,
-      };
-      if (!col.isNullable && !col.defaultValue && !col.isGenerated) {
-        required.push(col.name);
-      }
-    }
-    const schema: any = {
-      bsonType: 'object',
-      properties,
-    };
-    if (required.length > 0) {
-      schema.required = required;
-    }
-    return schema;
-  }
 
   indexKey(index: string[]): string {
     return [...index].sort().join(',');
@@ -108,17 +50,11 @@ export class MongoSchemaDiffService {
 
     const mergedIndexes = [...userDefinedIndexes, ...newIndexes];
 
-    try {
-      await this.queryBuilderService.update(
-        'enfyra_table',
-        { where: [{ field: 'name', operator: '=', value: collectionName }] },
-        { indexes: mergedIndexes },
-      );
-    } catch (error) {
-      this.logger.error(
-        `  Failed to update indexes metadata for ${collectionName}: ${getErrorMessage(error)}`,
-      );
-    }
+    await this.queryBuilderService.update(
+      'enfyra_table',
+      { where: [{ field: 'name', operator: '=', value: collectionName }] },
+      { indexes: mergedIndexes },
+    );
   }
 
   updateConstraintColumns(
@@ -297,8 +233,8 @@ export class MongoSchemaDiffService {
       newMetadata.columns || [],
     );
 
-    const oldSchema = this.createValidationSchema(oldMetadata.columns || []);
-    const newSchema = this.createValidationSchema(newMetadata.columns || []);
+    const oldSchema = buildMongoValidationSchema(oldMetadata.columns || []);
+    const newSchema = buildMongoValidationSchema(newMetadata.columns || []);
     const validationChanged =
       JSON.stringify(oldSchema) !== JSON.stringify(newSchema);
 
@@ -413,9 +349,11 @@ export class MongoSchemaDiffService {
         try {
           await collection.dropIndex(indexName);
         } catch (error: any) {
-          this.logger.warn(
-            `Failed to drop index ${indexName}: ${error.message}`,
-          );
+          if (error?.code === 27) {
+            this.logger.log(`Index ${indexName} already absent, skipping drop`);
+          } else {
+            throw new Error(`Failed to drop index ${indexName}: ${error.message}`);
+          }
         }
       }
     }
@@ -431,11 +369,11 @@ export class MongoSchemaDiffService {
         await db.command({
           collMod: activeCollectionName,
           validator: { $jsonSchema: diff.validation.newSchema },
-          validationLevel: 'moderate',
-          validationAction: 'error',
+          validationLevel: MONGO_VALIDATION_LEVEL,
+          validationAction: MONGO_VALIDATION_ACTION,
         });
       } catch (error: any) {
-        this.logger.warn(
+        throw new Error(
           `Failed to update validation for ${collectionName}: ${error.message}`,
         );
       }
@@ -448,9 +386,7 @@ export class MongoSchemaDiffService {
         try {
           await collection.createIndex(spec.keys, spec.options);
         } catch (error: any) {
-          this.logger.warn(
-            `Failed to create index ${spec.name}: ${error.message}`,
-          );
+          throw new Error(`Failed to create index ${spec.name}: ${error.message}`);
         }
       }
     }
@@ -488,7 +424,10 @@ export class MongoSchemaDiffService {
       if (existing.length === 0) return;
       await db.collection(junctionName).drop();
     } catch (error: any) {
-      this.logger.warn(
+      if (error?.code === 26 || String(error?.message ?? '').includes('ns not found')) {
+        return;
+      }
+      throw new Error(
         `Failed to drop junction collection ${junctionName}: ${error.message}`,
       );
     }
@@ -520,7 +459,7 @@ export class MongoSchemaDiffService {
         { unique: true, name: `${junctionName}_src_tgt_uq` },
       );
     } catch (error: any) {
-      if (error.code !== 85 && error.code !== 86) throw error;
+      throw new Error(`Failed to create junction index ${junctionName}_src_tgt_uq: ${error.message}`);
     }
 
     try {
@@ -529,7 +468,7 @@ export class MongoSchemaDiffService {
         { name: `${junctionName}_tgt_idx` },
       );
     } catch (error: any) {
-      if (error.code !== 85 && error.code !== 86) throw error;
+      throw new Error(`Failed to create junction index ${junctionName}_tgt_idx: ${error.message}`);
     }
   }
 }

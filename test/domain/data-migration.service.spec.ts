@@ -67,18 +67,22 @@ function makeKnex(methodRows: any[] = []) {
       };
       return chain;
     }
-    return {
-      where: jest.fn((condition: any) => ({
-        delete: jest.fn(async () => {
-          deletes.push({ table, condition });
-          return 1;
-        }),
-      })),
+    const chain: any = {
+      where: jest.fn((condition: any) => {
+        chain.condition = condition;
+        return chain;
+      }),
+      first: jest.fn(async () => undefined),
+      delete: jest.fn(async () => {
+        deletes.push({ table, condition: chain.condition });
+        return 1;
+      }),
       insert: jest.fn(async (rows: any[]) => {
         inserts.push({ table, rows });
         return rows;
       }),
     };
+    return chain;
   });
   (knex as any).raw = jest.fn(async (sql: string, bindings: any[]) => {
     rawCalls.push({ sql, bindings });

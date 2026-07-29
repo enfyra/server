@@ -12,10 +12,20 @@ import { DataProvisionService } from './data-provision.service';
 import { DataMigrationService } from './data-migration.service';
 import { SchemaHealingService } from './schema-healing.service';
 import { SnapshotTargetVerifierService } from './snapshot-target-verifier.service';
+import { BootstrapUnitOfWorkService } from './bootstrap-unit-of-work.service';
+import { BootstrapDefinitionService } from './bootstrap-definition.service';
 import { RouteDefinitionProcessor } from '../../../domain/bootstrap';
 import { REDIS_TTL, PROVISION_LOCK_KEY } from '../../../shared/utils/constant';
 import { isBootstrapVerbose } from '../utils/bootstrap-logging.util';
 import { runWithBootstrapLogMode } from '../../../shared/bootstrap-log-context';
+import {
+  BOOTSTRAP_PROGRESS_CHANGE_IDS,
+  buildBootstrapChangePlan,
+} from '../utils/bootstrap-change-plan.util';
+import type { BootstrapChangeStage, BootstrapPlannedChange } from '../types';
+import type { MongoSagaCoordinator } from '../../mongo';
+
+const BOOTSTRAP_PROGRESS_BAR_WIDTH = 30;
 
 export class FirstRunInitializer {
   private readonly logger = new Logger(FirstRunInitializer.name);
@@ -31,7 +41,15 @@ export class FirstRunInitializer {
   private readonly schemaHealingService: SchemaHealingService;
   private readonly snapshotTargetVerifierService: SnapshotTargetVerifierService;
   private readonly routeDefinitionProcessor: RouteDefinitionProcessor;
+  private readonly bootstrapUnitOfWorkService: BootstrapUnitOfWorkService;
+  private readonly bootstrapDefinitionService: BootstrapDefinitionService;
+  private readonly mongoSagaCoordinator?: MongoSagaCoordinator;
   private lastProgressLineLength = 0;
+  private progressTotal = 0;
+  private progressCompleted = 0;
+  private progressWeightTotal = 0;
+  private progressWeightCompleted = 0;
+  private readonly completedProgressChangeIds = new Set<string>();
 
   constructor(deps: {
     commonService: CommonService;
@@ -46,6 +64,9 @@ export class FirstRunInitializer {
     schemaHealingService: SchemaHealingService;
     snapshotTargetVerifierService: SnapshotTargetVerifierService;
     routeDefinitionProcessor: RouteDefinitionProcessor;
+    bootstrapUnitOfWorkService: BootstrapUnitOfWorkService;
+    bootstrapDefinitionService?: BootstrapDefinitionService;
+    mongoSagaCoordinator?: MongoSagaCoordinator;
   }) {
     this.commonService = deps.commonService;
     this.queryBuilderService = deps.queryBuilderService;
@@ -59,6 +80,10 @@ export class FirstRunInitializer {
     this.schemaHealingService = deps.schemaHealingService;
     this.snapshotTargetVerifierService = deps.snapshotTargetVerifierService;
     this.routeDefinitionProcessor = deps.routeDefinitionProcessor;
+    this.bootstrapUnitOfWorkService = deps.bootstrapUnitOfWorkService;
+    this.bootstrapDefinitionService =
+      deps.bootstrapDefinitionService ?? new BootstrapDefinitionService();
+    this.mongoSagaCoordinator = deps.mongoSagaCoordinator;
   }
 
   async isNeeded(): Promise<boolean> {
@@ -88,21 +113,24 @@ export class FirstRunInitializer {
   private async runWithProgress(): Promise<void> {
     if (!(await this.isNeeded())) return;
 
+    const originalNoDeprecation = process.noDeprecation;
+    process.noDeprecation = true;
     const start = Date.now();
     const waitDeadline = start + REDIS_TTL.PROVISION_LOCK_TTL;
     const lockValue = this.instanceService.getInstanceId();
     const mode = await this.getInitMode();
-    this.logProgress(mode, 0, 'starting');
+    this.logPlanning(mode, 'starting');
     let acquired = false;
     while (!acquired) {
       acquired = await this.cacheService.acquire(
         PROVISION_LOCK_KEY,
         lockValue,
         REDIS_TTL.PROVISION_LOCK_TTL,
+        { global: true },
       );
       if (acquired) break;
 
-      this.logProgress(mode, 0, 'another instance is running, waiting');
+      this.logPlanning(mode, 'another instance is running, waiting');
       const remainingWaitMs = waitDeadline - Date.now();
       if (remainingWaitMs <= 0) {
         throw new Error(
@@ -118,141 +146,224 @@ export class FirstRunInitializer {
 
     const lease = this.startProvisionLease(lockValue);
     try {
-      const coreT0 = Date.now();
-      this.logProgress(mode, 3, 'migrating core metadata tables');
-      await this.runOwnedStep(lease, () =>
-        this.metadataMigrationService.runCoreTableRenamesBeforeMetadataSync(),
+      await this.mongoSagaCoordinator?.recoverOrWaitForPurpose(
+        'bootstrap',
+        REDIS_TTL.PROVISION_LOCK_TTL,
       );
-      this.logVerbose(`Core system table migration: ${Date.now() - coreT0}ms`);
+      this.logPlanning(mode, 'planning bootstrap changes');
+      await lease.assertOwned();
+      const preparedSchemaPlan =
+        await this.metadataMigrationService.prepareMigrationExecutionPlan();
+      const schemaPlan = preparedSchemaPlan ?? {
+        mode: mode === 'Installing' ? 'install' : 'upgrade',
+        database: DatabaseConfigService.instanceIsMongoDb()
+          ? 'mongodb'
+          : 'postgresql',
+        targetTableCount: 0,
+        observedMetadata: { tables: 0, columns: 0, relations: 0 },
+        operations: [],
+        phases: [],
+      };
+      const changePlan = buildBootstrapChangePlan(
+        schemaPlan,
+        this.bootstrapDefinitionService.getDefinition(),
+      );
+      this.progressTotal = changePlan.changes.length;
+      this.progressCompleted = 0;
+      this.progressWeightTotal = changePlan.changes.reduce(
+        (total, change) => total + change.weight,
+        0,
+      );
+      this.progressWeightCompleted = 0;
+      this.completedProgressChangeIds.clear();
+      this.logPlannedProgress(mode, `planned ${this.progressTotal} changes`);
+      await lease.assertOwned();
 
-      if (!(await this.isNeeded())) {
-        this.logProgress(
-          mode,
-          100,
-          `already initialized by another instance, ready in ${Date.now() - start}ms`,
-        );
-        return;
-      }
-
-      this.logProgress(mode, 5, 'acquired init lock');
-
-      const t0 = Date.now();
-      this.logProgress(mode, 8, 'preparing system schema');
-      await this.runOwnedStep(lease, () =>
-        this.metadataMigrationService.runTableRenamesBeforeMetadataSync(),
-      );
-      await this.runOwnedStep(lease, () =>
-        this.metadataMigrationService.prepareMigrationExecutionPlan(),
-      );
-      await this.runOwnedStep(lease, () =>
-        this.metadataMigrationService.runPhysicalTableRenamesAndDropsAfterCoverage(),
-      );
-      await this.runOwnedStep(lease, () =>
-        this.metadataMigrationService.runPhysicalMigrationsBeforeMetadataSync(),
-      );
-      if (this.metadataMigrationService.hasMigrations()) {
-        const t2 = Date.now();
-        this.logProgress(mode, 10, 'applying metadata migrations');
+      await this.bootstrapUnitOfWorkService.run(async () => {
+        const coreT0 = Date.now();
+        this.logPlannedProgress(mode, 'migrating core metadata tables');
         await this.runOwnedStep(lease, () =>
-          this.metadataMigrationService.runMigrations(),
+          this.metadataMigrationService.executeCoreMigrationPlan(
+            (operation) =>
+              this.completeProgressChange(changePlan.changes, operation.id, mode),
+            () => lease.assertOwned(),
+          ),
+        );
+        this.logVerbose(
+          `Core system table migration: ${Date.now() - coreT0}ms`,
+        );
+
+        if (!(await this.isNeeded())) {
+          this.logProgress(
+            mode,
+            100,
+            `already initialized by another instance, ready in ${Date.now() - start}ms`,
+          );
+          return;
+        }
+
+        this.logPlannedProgress(mode, 'acquired init lock');
+
+        const t0 = Date.now();
+        this.logPlannedProgress(mode, 'executing migration plan');
+        await this.runOwnedStep(lease, () =>
+          this.metadataMigrationService.executeRemainingMigrationPlan(
+            (operation) =>
+              this.completeProgressChange(
+                changePlan.changes,
+                operation.id,
+                mode,
+              ),
+            () => lease.assertOwned(),
+          ),
         );
         await this.runOwnedStep(lease, () =>
           this.metadataCacheService.clearMetadataCache(),
         );
-        this.logVerbose(`Metadata migrations: ${Date.now() - t2}ms`);
-      }
-      await this.runOwnedStep(lease, () =>
-        this.schemaHealingService.repairSystemPhysicalColumnsBeforeMetadataProvision(),
-      );
-      this.logVerbose(`System schema preflight: ${Date.now() - t0}ms`);
-
-      const t1 = Date.now();
-      this.logProgress(mode, 20, 'provisioning metadata');
-      await this.runOwnedStep(lease, () =>
-        this.metadataProvisionService.createInitMetadata(),
-      );
-      await this.runOwnedStep(lease, () =>
-        this.metadataCacheService.clearMetadataCache(),
-      );
-      this.logVerbose(`createInitMetadata: ${Date.now() - t1}ms`);
-
-      const t2b = Date.now();
-      this.logProgress(mode, 45, 'healing system metadata');
-      await this.runOwnedStep(lease, () =>
-        this.schemaHealingService.repairSystemMetadataFromSnapshot(),
-      );
-      await this.runOwnedStep(lease, () =>
-        this.metadataCacheService.clearMetadataCache(),
-      );
-      this.logVerbose(`System metadata healing: ${Date.now() - t2b}ms`);
-
-      const t3 = Date.now();
-      this.logProgress(mode, 50, 'repairing derived schema contracts');
-      await this.runOwnedStep(lease, () =>
-        this.schemaHealingService.repairDerivedContracts(),
-      );
-      this.logProgress(mode, 55, 'applying explicit schema repairs');
-      await this.runOwnedStep(lease, () =>
-        this.schemaHealingService.runExplicitRepairsIfNeeded(),
-      );
-      this.logVerbose(`Schema repair: ${Date.now() - t3}ms`);
-
-      const t4 = Date.now();
-      this.logProgress(mode, 60, 'warming metadata cache');
-      await this.runOwnedStep(lease, () => this.metadataCacheService.reload());
-      await this.runOwnedStep(lease, () =>
-        this.snapshotTargetVerifierService.assertSchemaTargetState(),
-      );
-      this.logVerbose(`Metadata cache warmed: ${Date.now() - t4}ms`);
-
-      const t5 = Date.now();
-      this.logProgress(mode, 65, 'seeding default data');
-      await this.runOwnedStep(lease, () =>
-        this.dataProvisionService.insertAllDefaultRecords(),
-      );
-      this.logVerbose(`Default records: ${Date.now() - t5}ms`);
-
-      try {
-        this.logProgress(mode, 80, 'ensuring route handlers');
         await this.runOwnedStep(lease, () =>
-          this.routeDefinitionProcessor.ensureMissingHandlers(),
+          this.schemaHealingService.repairSystemPhysicalColumnsBeforeMetadataProvision(),
         );
-      } catch (error) {
-        this.logger.error(
-          `Error ensuring route handlers: ${(error as Error).message}`,
+        this.completeProgressChange(
+          changePlan.changes,
+          BOOTSTRAP_PROGRESS_CHANGE_IDS.healingPhysicalPreflight,
+          mode,
         );
-        throw error;
-      }
+        this.logVerbose(`System schema preflight: ${Date.now() - t0}ms`);
 
-      if (this.dataMigrationService.hasMigrations()) {
-        const t6 = Date.now();
-        this.logProgress(mode, 90, 'applying data migrations');
+        const t1 = Date.now();
+        this.logPlannedProgress(mode, 'provisioning metadata');
         await this.runOwnedStep(lease, () =>
-          this.dataMigrationService.runMigrations(),
+          this.metadataProvisionService.createInitMetadata(),
         );
-        this.logVerbose(`Data migrations: ${Date.now() - t6}ms`);
-      }
+        await this.runOwnedStep(lease, () =>
+          this.metadataCacheService.clearMetadataCache(),
+        );
+        if (schemaPlan.mode === 'install') {
+          this.completeProgressStage(changePlan.changes, 'schema', mode);
+        }
+        this.completeProgressChange(
+          changePlan.changes,
+          BOOTSTRAP_PROGRESS_CHANGE_IDS.metadataProvision,
+          mode,
+        );
+        this.logVerbose(`createInitMetadata: ${Date.now() - t1}ms`);
 
-      this.logProgress(mode, 96, 'attesting data target state');
-      await this.runOwnedStep(lease, () =>
-        this.snapshotTargetVerifierService.assertSchemaTargetState(),
-      );
-      await this.runOwnedStep(lease, () =>
-        this.snapshotTargetVerifierService.assertDataTargetState(),
-      );
+        const t2b = Date.now();
+        this.logPlannedProgress(mode, 'healing system metadata');
+        await this.runOwnedStep(lease, () =>
+          this.schemaHealingService.repairSystemMetadataFromSnapshot(),
+        );
+        await this.runOwnedStep(lease, () =>
+          this.metadataCacheService.clearMetadataCache(),
+        );
+        this.completeProgressChange(
+          changePlan.changes,
+          BOOTSTRAP_PROGRESS_CHANGE_IDS.healingMetadata,
+          mode,
+        );
+        this.logVerbose(`System metadata healing: ${Date.now() - t2b}ms`);
 
-      this.logProgress(mode, 98, 'finalizing');
-      await lease.assertOwned();
-      await this.markInitialized();
+        const t3 = Date.now();
+        this.logPlannedProgress(mode, 'repairing derived schema contracts');
+        await this.runOwnedStep(lease, () =>
+          this.schemaHealingService.repairDerivedContracts(),
+        );
+        this.completeProgressChange(
+          changePlan.changes,
+          BOOTSTRAP_PROGRESS_CHANGE_IDS.healingDerivedContracts,
+          mode,
+        );
+        this.logPlannedProgress(mode, 'applying explicit schema repairs');
+        await this.runOwnedStep(lease, () =>
+          this.schemaHealingService.runExplicitRepairsIfNeeded(),
+        );
+        this.completeProgressChange(
+          changePlan.changes,
+          BOOTSTRAP_PROGRESS_CHANGE_IDS.healingExplicitRepairs,
+          mode,
+        );
+        this.logVerbose(`Schema repair: ${Date.now() - t3}ms`);
+
+        const t4 = Date.now();
+        this.logPlannedProgress(mode, 'warming metadata cache');
+        await this.runOwnedStep(lease, () =>
+          this.metadataCacheService.reload(false),
+        );
+        await this.runOwnedStep(lease, () =>
+          this.snapshotTargetVerifierService.assertSchemaTargetState(),
+        );
+        this.completeProgressChange(
+          changePlan.changes,
+          BOOTSTRAP_PROGRESS_CHANGE_IDS.cacheWarm,
+          mode,
+        );
+        if (schemaPlan.mode !== 'install') {
+          this.assertProgressStageCompleted(changePlan.changes, 'schema');
+        }
+        this.logVerbose(`Metadata cache warmed: ${Date.now() - t4}ms`);
+
+        const t5 = Date.now();
+        this.logPlannedProgress(mode, 'seeding default data');
+        await this.runOwnedStep(lease, () =>
+          this.dataProvisionService.insertAllDefaultRecords(),
+        );
+        this.completeProgressStage(changePlan.changes, 'defaults', mode);
+        this.logVerbose(`Default records: ${Date.now() - t5}ms`);
+
+        try {
+          this.logPlannedProgress(mode, 'ensuring route handlers');
+          await this.runOwnedStep(lease, () =>
+            this.routeDefinitionProcessor.ensureMissingHandlers(),
+          );
+          this.completeProgressStage(changePlan.changes, 'handlers', mode);
+        } catch (error) {
+          this.logger.error(
+            `Error ensuring route handlers: ${(error as Error).message}`,
+          );
+          throw error;
+        }
+
+        if (this.dataMigrationService.hasMigrations()) {
+          const t6 = Date.now();
+          this.logPlannedProgress(mode, 'applying data migrations');
+          await this.runOwnedStep(lease, () =>
+            this.dataMigrationService.runMigrations(),
+          );
+          this.completeProgressStage(changePlan.changes, 'data', mode);
+          this.logVerbose(`Data migrations: ${Date.now() - t6}ms`);
+        }
+
+        this.logPlannedProgress(mode, 'attesting data target state');
+        await this.runOwnedStep(lease, () =>
+          this.snapshotTargetVerifierService.assertSchemaTargetState(),
+        );
+        await this.runOwnedStep(lease, () =>
+          this.snapshotTargetVerifierService.assertDataTargetState(),
+        );
+        this.completeProgressStage(changePlan.changes, 'attestation', mode);
+
+        this.logPlannedProgress(mode, 'finalizing');
+        await lease.assertOwned();
+        await this.markInitialized();
+        this.completeProgressStage(changePlan.changes, 'finalize', mode);
+      });
 
       this.logProgress(mode, 100, `completed in ${Date.now() - start}ms`);
     } catch (error) {
-      this.logProgress(mode, 100, `failed after ${Date.now() - start}ms`);
+      await this.metadataCacheService.clearMetadataCache();
+      this.logPlannedProgress(
+        mode,
+        `failed after ${Date.now() - start}ms`,
+        true,
+      );
       this.logger.error(`${mode} failed after ${Date.now() - start}ms`, error);
       throw error;
     } finally {
       await lease.stop();
-      await this.cacheService.release(PROVISION_LOCK_KEY, lockValue);
+      await this.cacheService.release(PROVISION_LOCK_KEY, lockValue, {
+        global: true,
+      });
+      process.noDeprecation = originalNoDeprecation;
     }
   }
 
@@ -277,7 +388,9 @@ export class FirstRunInitializer {
       if (stopped || lost) return Promise.resolve(false);
       if (pending) return pending;
       pending = this.cacheService
-        .renew(PROVISION_LOCK_KEY, lockValue, REDIS_TTL.PROVISION_LOCK_TTL)
+        .renew(PROVISION_LOCK_KEY, lockValue, REDIS_TTL.PROVISION_LOCK_TTL, {
+          global: true,
+        })
         .then((renewed) => {
           if (!renewed) lost = true;
           return renewed;
@@ -333,23 +446,113 @@ export class FirstRunInitializer {
     mode: 'Installing' | 'Upgrading',
     percent: number,
     message: string,
+    terminal = false,
   ): void {
     if (process.env.LOG_DISABLE_CONSOLE === '1') return;
 
+    const normalizedPercent = Math.min(
+      100,
+      Math.max(0, Math.round(percent * 10) / 10),
+    );
+    const filledWidth = Math.round(
+      (normalizedPercent / 100) * BOOTSTRAP_PROGRESS_BAR_WIDTH,
+    );
+    const progressBar = `${'█'.repeat(filledWidth)}${'░'.repeat(
+      BOOTSTRAP_PROGRESS_BAR_WIDTH - filledWidth,
+    )}`;
     const now = new Date();
     const pad = (n: number) => n.toString().padStart(2, '0');
     const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(
       now.getSeconds(),
     )}`;
-    const line = `[${time}] ${mode} (${percent}%) ${message}`;
+    const percentText = Number.isInteger(normalizedPercent)
+      ? normalizedPercent.toFixed(0)
+      : normalizedPercent.toFixed(1);
+    const line = `[${time}] ${mode} [${progressBar}] ${percentText.padStart(
+      5,
+      ' ',
+    )}% ${message}`;
     const padding = ' '.repeat(
       Math.max(0, this.lastProgressLineLength - line.length),
     );
     process.stdout.write(`\r${line}${padding}`);
     this.lastProgressLineLength = line.length;
-    if (percent >= 100) {
+    if (normalizedPercent >= 100 || terminal) {
       process.stdout.write('\n');
       this.lastProgressLineLength = 0;
+    }
+  }
+
+  private logPlanning(mode: 'Installing' | 'Upgrading', message: string): void {
+    if (process.env.LOG_DISABLE_CONSOLE === '1') return;
+    const now = new Date();
+    const pad = (value: number) => value.toString().padStart(2, '0');
+    const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(
+      now.getSeconds(),
+    )}`;
+    const line = `[${time}] ${mode} [Planning] ${message}`;
+    const padding = ' '.repeat(
+      Math.max(0, this.lastProgressLineLength - line.length),
+    );
+    process.stdout.write(`\r${line}${padding}`);
+    this.lastProgressLineLength = line.length;
+  }
+
+  private logPlannedProgress(
+    mode: 'Installing' | 'Upgrading',
+    message: string,
+    terminal = false,
+  ): void {
+    const percent =
+      this.progressWeightTotal === 0
+        ? 0
+        : (this.progressWeightCompleted / this.progressWeightTotal) * 100;
+    this.logProgress(
+      mode,
+      percent,
+      `${message} (${this.progressCompleted}/${this.progressTotal})`,
+      terminal,
+    );
+  }
+
+  private completeProgressStage(
+    changes: readonly BootstrapPlannedChange[],
+    stage: BootstrapChangeStage,
+    mode: 'Installing' | 'Upgrading',
+  ): void {
+    for (const change of changes) {
+      if (change.stage !== stage) continue;
+      this.completeProgressChange(changes, change.id, mode);
+    }
+  }
+
+  private completeProgressChange(
+    changes: readonly BootstrapPlannedChange[],
+    changeId: string,
+    mode: 'Installing' | 'Upgrading',
+  ): void {
+    if (this.completedProgressChangeIds.has(changeId)) return;
+    const change = changes.find((candidate) => candidate.id === changeId);
+    if (!change) return;
+    this.completedProgressChangeIds.add(changeId);
+    this.progressCompleted++;
+    this.progressWeightCompleted += change.weight;
+    this.logPlannedProgress(mode, change.label);
+  }
+
+  private assertProgressStageCompleted(
+    changes: readonly { id: string; stage: BootstrapChangeStage }[],
+    stage: BootstrapChangeStage,
+  ): void {
+    const pending = changes.filter(
+      (change) =>
+        change.stage === stage &&
+        !this.completedProgressChangeIds.has(change.id),
+    );
+    if (pending.length > 0) {
+      throw new Error(
+        `Bootstrap execution plan did not complete ${pending.length} ${stage} change(s).`,
+      );
     }
   }
 
@@ -435,7 +638,10 @@ export class FirstRunInitializer {
         if ((await this.findFirstSetting())?.isInit) return 'initialized';
       } catch {}
       try {
-        if ((await this.cacheService.get(PROVISION_LOCK_KEY)) === null) {
+        if (
+          (await this.cacheService.get(PROVISION_LOCK_KEY, { global: true })) ===
+          null
+        ) {
           return 'unlocked';
         }
       } catch {}

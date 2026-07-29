@@ -90,10 +90,12 @@ import {
 
 import {
   BootstrapDefinitionService,
+  BootstrapUnitOfWorkService,
   DataMigrationService,
   DataProvisionService,
   FirstRunInitializer,
   MetadataMigrationService,
+  MySqlBootstrapSnapshotService,
   MetadataProvisionMongoService,
   MetadataProvisionSqlService,
   MetadataProvisionService,
@@ -101,6 +103,8 @@ import {
   SchemaHealingService,
   SnapshotTargetVerifierService,
   SystemCoreTableResolver,
+  LegacyStoreInventoryService,
+  LegacyAssessmentService,
 } from './engines/bootstrap';
 
 import { LoggingService } from './domain/exceptions';
@@ -159,6 +163,7 @@ import {
   KnexService,
   KnexHookManagerService,
   MigrationJournalService,
+  MySqlRuntimeWriteBarrierService,
   ReplicationManager,
   SchemaMigrationLockService,
   SqlPoolClusterCoordinatorService,
@@ -219,6 +224,14 @@ import {
   MongoTableDeleteService,
   MongoTableHandlerService,
   MongoTableUpdateService,
+  RuntimeSchemaContractCompilerService,
+  RuntimeSchemaPhysicalPlannerService,
+  RuntimeMetadataSchemaRouterService,
+  RuntimeSchemaExecutorService,
+  RuntimeSchemaTargetAttestorService,
+  RuntimeSchemaActivationGateService,
+  RuntimeSchemaUnitOfWorkService,
+  RuntimeSchemaJournalService,
   SqlTableCreateService,
   SqlTableDeleteService,
   SqlTableHandlerService,
@@ -274,6 +287,14 @@ export interface Cradle {
   loggingService: LoggingService;
   policyService: PolicyService;
   schemaMigrationValidatorService: SchemaMigrationValidatorService;
+  runtimeSchemaContractCompilerService: RuntimeSchemaContractCompilerService;
+  runtimeSchemaPhysicalPlannerService: RuntimeSchemaPhysicalPlannerService;
+  runtimeMetadataSchemaRouterService: RuntimeMetadataSchemaRouterService;
+  runtimeSchemaExecutorService: RuntimeSchemaExecutorService;
+  runtimeSchemaTargetAttestorService: RuntimeSchemaTargetAttestorService;
+  runtimeSchemaUnitOfWorkService: RuntimeSchemaUnitOfWorkService;
+  runtimeSchemaJournalService: RuntimeSchemaJournalService;
+  runtimeSchemaActivationGateService: RuntimeSchemaActivationGateService;
   systemSafetyAuditorService: SystemSafetyAuditorService;
 
   mongoService: MongoService;
@@ -294,6 +315,7 @@ export interface Cradle {
   sqlSchemaMigrationService: SqlSchemaMigrationService;
   sqlSchemaDiffService: SqlSchemaDiffService;
   migrationJournalService: MigrationJournalService;
+  mySqlRuntimeWriteBarrierService: MySqlRuntimeWriteBarrierService;
   schemaMigrationLockService: SchemaMigrationLockService;
   sqlPoolClusterCoordinatorService: SqlPoolClusterCoordinatorService;
   sqlFunctionService: SqlFunctionService;
@@ -390,6 +412,8 @@ export interface Cradle {
   firstRunInitializer: FirstRunInitializer;
   schemaHealingService: SchemaHealingService;
   systemCoreTableResolver: SystemCoreTableResolver;
+  legacyStoreInventoryService: LegacyStoreInventoryService;
+  legacyAssessmentService: LegacyAssessmentService;
   metadataProvisionService: MetadataProvisionService;
   metadataProvisionSqlService: MetadataProvisionSqlService;
   metadataProvisionMongoService: MetadataProvisionMongoService;
@@ -398,6 +422,8 @@ export interface Cradle {
   metadataMigrationService: MetadataMigrationService;
   snapshotTargetVerifierService: SnapshotTargetVerifierService;
   bootstrapDefinitionService: BootstrapDefinitionService;
+  bootstrapUnitOfWorkService: BootstrapUnitOfWorkService;
+  mySqlBootstrapSnapshotService: MySqlBootstrapSnapshotService;
   bootstrapScriptService: BootstrapScriptService;
 
   userDefinitionProcessor: UserDefinitionProcessor;
@@ -450,9 +476,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     eventEmitter: asValue(
       new EventEmitter2({ wildcard: true, maxListeners: 50 }),
     ),
-    redis: asFunction(() => new Redis(env.REDIS_URI))
-      .singleton()
-      .disposer((redis) => redis.disconnect()),
+    redis: asFunction(() => new Redis(env.REDIS_URI)).singleton(),
 
     flowQueue: asFunction(() =>
       createRuntimeQueue(SYSTEM_QUEUES.FLOW_EXECUTION),
@@ -503,6 +527,30 @@ export function buildContainer(): AwilixContainer<Cradle> {
     schemaMigrationValidatorService: asClass(
       SchemaMigrationValidatorService,
     ).singleton(),
+    runtimeSchemaContractCompilerService: asClass(
+      RuntimeSchemaContractCompilerService,
+    ).singleton(),
+    runtimeSchemaPhysicalPlannerService: asClass(
+      RuntimeSchemaPhysicalPlannerService,
+    ).singleton(),
+    runtimeMetadataSchemaRouterService: asClass(
+      RuntimeMetadataSchemaRouterService,
+    ).singleton(),
+    runtimeSchemaExecutorService: asClass(
+      RuntimeSchemaExecutorService,
+    ).singleton(),
+    runtimeSchemaTargetAttestorService: asClass(
+      RuntimeSchemaTargetAttestorService,
+    ).singleton(),
+    runtimeSchemaUnitOfWorkService: asClass(
+      RuntimeSchemaUnitOfWorkService,
+    ).singleton(),
+    runtimeSchemaJournalService: asClass(
+      RuntimeSchemaJournalService,
+    ).singleton(),
+    runtimeSchemaActivationGateService: asClass(
+      RuntimeSchemaActivationGateService,
+    ).singleton(),
     systemSafetyAuditorService: asClass(SystemSafetyAuditorService).singleton(),
 
     mongoService: asClass(MongoService)
@@ -550,6 +598,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     sqlSchemaMigrationService: asClass(SqlSchemaMigrationService).singleton(),
     sqlSchemaDiffService: asClass(SqlSchemaDiffService).singleton(),
     migrationJournalService: asClass(MigrationJournalService).singleton(),
+    mySqlRuntimeWriteBarrierService: asClass(
+      MySqlRuntimeWriteBarrierService,
+    ).singleton(),
     schemaMigrationLockService: asClass(SchemaMigrationLockService).singleton(),
     sqlPoolClusterCoordinatorService: asClass(SqlPoolClusterCoordinatorService)
       .singleton()
@@ -715,9 +766,15 @@ export function buildContainer(): AwilixContainer<Cradle> {
 
     provisionService: asClass(ProvisionService).singleton(),
     bootstrapDefinitionService: asClass(BootstrapDefinitionService).singleton(),
+    bootstrapUnitOfWorkService: asClass(BootstrapUnitOfWorkService).singleton(),
+    mySqlBootstrapSnapshotService: asClass(
+      MySqlBootstrapSnapshotService,
+    ).singleton(),
     firstRunInitializer: asClass(FirstRunInitializer).singleton(),
     schemaHealingService: asClass(SchemaHealingService).singleton(),
     systemCoreTableResolver: asClass(SystemCoreTableResolver).singleton(),
+    legacyStoreInventoryService: asClass(LegacyStoreInventoryService).singleton(),
+    legacyAssessmentService: asClass(LegacyAssessmentService).singleton(),
     metadataProvisionService: asClass(MetadataProvisionService).singleton(),
     metadataProvisionSqlService: asClass(
       MetadataProvisionSqlService,

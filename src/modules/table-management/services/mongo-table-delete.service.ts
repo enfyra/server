@@ -4,7 +4,7 @@ import {
   ResourceNotFoundException,
   ValidationException,
 } from '../../../domain/exceptions';
-import { isPolicyDeny } from '../../../domain/policy';
+import { isPolicyDeny, isPolicyPreview } from '../../../domain/policy';
 import { TDynamicContext } from '../../../shared/types';
 import { MongoTableHandlerService } from './mongo-table-handler-base.service';
 
@@ -37,6 +37,9 @@ export class MongoTableDeleteService extends MongoTableHandlerService {
         });
         if (isPolicyDeny(decision)) {
           throw new ValidationException(decision.message, decision.details);
+        }
+        if (isPolicyPreview(decision)) {
+          return { _preview: true, ...decision.details };
         }
         const { data: routes } = await this.queryBuilderService.find({
           table: 'enfyra_route',
@@ -108,6 +111,6 @@ export class MongoTableDeleteService extends MongoTableHandlerService {
           },
         );
       }
-    });
+    }, (context as any)?.$onLockAcquired);
   }
 }

@@ -172,7 +172,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   ) => Promise<void>;
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private debounceResolvers: Array<() => void> = [];
+  private debounceResolvers: Array<{ resolve: () => void; reject: (err: any) => void }> = [];
   private pendingPayload: TCacheInvalidationPayload | null = null;
   private reloadLock: Promise<void> | null = null;
   private reloadEventSequence = 0;
@@ -295,7 +295,7 @@ export class CacheOrchestratorService implements LifecycleAware {
       this.debounceTimer = null;
     }
     const resolvers = this.debounceResolvers.splice(0);
-    resolvers.forEach((resolve) => resolve());
+    resolvers.forEach((r) => r.resolve());
     this.pendingPayload = null;
     this.messageHandler = null;
   }
@@ -303,8 +303,8 @@ export class CacheOrchestratorService implements LifecycleAware {
   private handleInvalidation(
     payload: TCacheInvalidationPayload,
   ): Promise<void> {
-    return new Promise<void>((resolve) => {
-      this.debounceResolvers.push(resolve);
+    return new Promise<void>((resolve, reject) => {
+      this.debounceResolvers.push({ resolve, reject });
       this.mergePayload(payload);
       if (this.debounceTimer) clearTimeout(this.debounceTimer);
       this.debounceTimer = setTimeout(async () => {
@@ -316,10 +316,15 @@ export class CacheOrchestratorService implements LifecycleAware {
           if (merged) {
             await this.executeChain(merged, true);
           }
+          resolvers.forEach((r) => r.resolve());
         } catch (error) {
           this.logger.error('Invalidation chain failed:', error);
+          if (merged?.critical) {
+            resolvers.forEach((r) => r.reject(error));
+            return;
+          }
+          resolvers.forEach((r) => r.resolve());
         }
-        resolvers.forEach((r) => r());
       }, 50);
     });
   }
@@ -329,6 +334,7 @@ export class CacheOrchestratorService implements LifecycleAware {
       this.pendingPayload = { ...payload };
       return;
     }
+    if (payload.critical) this.pendingPayload.critical = true;
     if (this.pendingPayload.table !== payload.table) {
       const currentChain = RELOAD_CHAINS[this.pendingPayload.table] || [];
       const incomingChain = RELOAD_CHAINS[payload.table] || [];
@@ -1369,14 +1375,14 @@ export class CacheOrchestratorService implements LifecycleAware {
   private async publishSignal(
     payload: TCacheInvalidationPayload,
   ): Promise<void> {
+    const timestamp = Date.now();
+    const version = `${this.instanceService.getInstanceId()}:${timestamp}:${payload.table}:${payload.scope || 'full'}:${payload.ids?.join(',') || 'all'}`;
+    this.processedVersions.add(version);
+    if (this.processedVersions.size > 1000) {
+      const first = this.processedVersions.values().next().value!;
+      this.processedVersions.delete(first);
+    }
     try {
-      const timestamp = Date.now();
-      const version = `${this.instanceService.getInstanceId()}:${timestamp}:${payload.table}:${payload.scope || 'full'}:${payload.ids?.join(',') || 'all'}`;
-      this.processedVersions.add(version);
-      if (this.processedVersions.size > 1000) {
-        const first = this.processedVersions.values().next().value!;
-        this.processedVersions.delete(first);
-      }
       await this.redisPubSubService.publish(
         SYNC_CHANNEL,
         JSON.stringify({
@@ -1387,6 +1393,11 @@ export class CacheOrchestratorService implements LifecycleAware {
         }),
       );
     } catch (error) {
+      if (payload.critical) {
+        throw new Error(
+          `Critical schema activation signal failed to publish: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
       this.logger.error('Failed to publish signal:', error);
     }
   }

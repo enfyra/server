@@ -145,7 +145,14 @@ export class PackageCdnLoaderService {
 
   private getPackageArtifactDir(name: string, version: string): string {
     const safeName = name.replace(/[^a-zA-Z0-9]/g, '_');
-    return path.join(CACHE_DIR, `${safeName}@${version}`);
+    if (!/^[a-zA-Z0-9._-]+$/.test(version)) {
+      throw new Error(`Invalid package version: ${version}`);
+    }
+    const dir = path.resolve(CACHE_DIR, `${safeName}@${version}`);
+    if (!dir.startsWith(CACHE_DIR + path.sep)) {
+      throw new Error(`Package path escapes cache directory`);
+    }
+    return dir;
   }
 
   private getMainFilePath(name: string, version: string): string {
