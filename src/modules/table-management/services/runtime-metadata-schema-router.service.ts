@@ -218,6 +218,7 @@ export class RuntimeMetadataSchemaRouterService {
     input: RuntimeTableMutationInput,
   ): Promise<RuntimeMetadataSchemaMutationResult> {
     const body = await this.resolveRelationTargetNames(input.body!);
+    this.assertNotReservedTableName(String(body.name));
     const { contract, requiredConfirmHash } =
       await this.deps.runtimeSchemaContractCompilerService.compile({
         operation: 'create',
@@ -265,6 +266,9 @@ export class RuntimeMetadataSchemaRouterService {
     const target = await this.resolveRelationTargetNames(
       this.buildCompleteTarget(existing, body),
     );
+    if (target.name !== existing.name) {
+      this.assertNotReservedTableName(String(target.name));
+    }
     const { contract, requiredConfirmHash } =
       await this.deps.runtimeSchemaContractCompilerService.compile({
         operation: 'update',
@@ -559,6 +563,14 @@ export class RuntimeMetadataSchemaRouterService {
       context?.$query?.confirmHash ??
       undefined
     );
+  }
+
+  private assertNotReservedTableName(name: string): void {
+    if (name.startsWith('enfyra_')) {
+      throw new ValidationException(
+        `Table name '${name}' uses the reserved 'enfyra_' prefix and cannot be created or renamed at runtime`,
+      );
+    }
   }
 
   private async resolveRelationTargetNames(
