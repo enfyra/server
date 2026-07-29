@@ -180,7 +180,7 @@ export class MySqlRuntimeWriteBarrierService {
         );
       }
       const waitMs = result.leaseExpiresAt
-        ? Math.max(50, result.leaseExpiresAt - Date.now() + 50)
+        ? Math.min(2_000, Math.max(50, result.leaseExpiresAt - Date.now() + 50))
         : 500;
       await new Promise((resolve) =>
         setTimeout(resolve, Math.min(waitMs, deadline - Date.now())),

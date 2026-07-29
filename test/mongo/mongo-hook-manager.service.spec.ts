@@ -99,15 +99,17 @@ describe('MongoHookManagerService integration', () => {
     expect(inserted.hooked).toBe(true);
     expect(collection.insertOne).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'hello', status: 'draft' }),
+      expect.anything(),
     );
     expect(collection.updateOne).toHaveBeenCalledWith(
       expect.any(Object),
       expect.objectContaining({
         $set: expect.objectContaining({ status: 'published' }),
       }),
+      expect.anything(),
     );
     expect(collection.deleteOne).toHaveBeenCalled();
-    expect(collection.find).toHaveBeenCalledWith({ status: 'published' });
+    expect(collection.find).toHaveBeenCalledWith({ status: 'published' }, expect.anything());
     expect(relationManager.updateInverseRelationsOnUpdate).toHaveBeenCalled();
     expect(relationManager.cleanupInverseRelationsOnDelete).toHaveBeenCalled();
     expect(events).toEqual(

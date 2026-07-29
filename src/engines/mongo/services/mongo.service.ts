@@ -31,6 +31,7 @@ import {
   decryptResultFields,
   encryptRecordFields,
 } from '../../../shared/utils/encrypted-field.util';
+import { getIoAbortSignal } from '@enfyra/kernel';
 
 export type MongoTransactionScope =
   | {
@@ -204,7 +205,7 @@ export class MongoService {
       async (collectionName, data, context) => {
         context.oldRecord = await this.collection(collectionName).findOne({
           _id: context.recordId,
-        } as any);
+        } as any, this.ioSignal());
 
         const dataParsed = await this.parseJsonFields(collectionName, data);
         const dataWithRelations = await this.processNestedRelations(
@@ -276,7 +277,7 @@ export class MongoService {
     this.mongoHookManagerService.addHook(
       'beforeDelete',
       async (collectionName, filter, context) => {
-        const record = await this.collection(collectionName).findOne(filter);
+        const record = await this.collection(collectionName).findOne(filter, this.ioSignal());
         context.deletedRecord = record;
         if (!record) {
           return filter;
@@ -561,6 +562,16 @@ export class MongoService {
     return this.scopedDbAccessAls.run(true, callback);
   }
 
+  ioSignalPublic(): any {
+    const signal = getIoAbortSignal();
+    if (signal?.aborted) throw new Error('Operation aborted');
+    return signal ? { signal } : {};
+  }
+
+  private ioSignal(): any {
+    return this.ioSignalPublic();
+  }
+
   private createScopedCollection(name: string, options?: any): Promise<any> {
     const native = this.nativeTxBundleAls.getStore();
     if (native) {
@@ -784,7 +795,7 @@ export class MongoService {
     let result;
     let insertedId;
     try {
-      result = await collection.insertOne(processedData);
+      result = await collection.insertOne(processedData, this.ioSignal());
       insertedId = result.insertedId;
       context.insertedId = insertedId;
     } catch (err: any) {
@@ -880,7 +891,7 @@ export class MongoService {
 
     const insertStart = performance.now();
     try {
-      await collection.insertMany(processedRows as any);
+      await collection.insertMany(processedRows as any, this.ioSignal());
     } catch (err: any) {
       const errorMessage = err.errInfo?.details?.details
         ? JSON.stringify(err.errInfo.details.details, null, 2)
@@ -1182,7 +1193,7 @@ export class MongoService {
       context,
     );
 
-    let cursor = collection.find(processedFilter);
+    let cursor = collection.find(processedFilter, this.ioSignal());
 
     if (skip) cursor = cursor.skip(skip);
     if (limit) cursor = cursor.limit(limit);
@@ -1209,7 +1220,7 @@ export class MongoService {
       filter,
       context,
     );
-    const result = await collection.findOne(processedFilter);
+    const result = await collection.findOne(processedFilter, this.ioSignal());
     return this.mongoHookManagerService.runHooks(
       'afterSelect',
       collectionName,
@@ -1310,6 +1321,7 @@ export class MongoService {
     const updateResult = await collection.updateOne(
       { _id: objectId },
       { $set: processedData },
+      this.ioSignal(),
     );
     context.updateResult = updateResult;
 
@@ -1343,7 +1355,7 @@ export class MongoService {
       return false;
     }
 
-    const result = await collection.deleteOne(processedFilter);
+    const result = await collection.deleteOne(processedFilter, this.ioSignal());
     context.deleteResult = result;
     const hookResult = await this.mongoHookManagerService.runHooks(
       'afterDelete',
@@ -1367,7 +1379,7 @@ export class MongoService {
       filter,
       context,
     );
-    const count = await collection.countDocuments(processedFilter);
+    const count = await collection.countDocuments(processedFilter, this.ioSignal());
     return this.mongoHookManagerService.runHooks(
       'afterSelect',
       collectionName,
@@ -1388,8 +1400,8 @@ export class NativeSessionCollection<T extends Document = Document> {
     private readonly session: ClientSession,
   ) {}
 
-  find(filter: any): any {
-    let cursor = this.base.find(filter as any, { session: this.session });
+  find(filter: any, options?: any): any {
+    let cursor = this.base.find(filter as any, { ...options, session: this.session });
     let skipVal = 0;
     let limitVal: number | undefined;
     const self = {
@@ -1641,8 +1653,8 @@ export class SagaCollection<_T extends Document = Document> {
 
   async deleteMany(filter?: any, options?: any) {
     const tx = this.session();
-    const coll = this.mongo.getDb().collection(this.name);
-    const cursor = coll.find(filter || {});
+    const coll = this.mongo.getRawDb().collection(this.name);
+    const cursor = coll.find(filter || {}, this.mongo.ioSignalPublic());
     const batch: ObjectId[] = [];
     const BATCH = 500;
     let total = 0;

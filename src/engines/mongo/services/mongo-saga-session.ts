@@ -1,6 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import { ObjectId, AggregationCursor } from 'mongodb';
 import { getErrorMessage } from '../../../shared/utils/error.util';
+import { getIoAbortSignal } from '@enfyra/kernel';
 import {
   MongoSagaLockService,
   ILockAcquisitionResult,
@@ -53,6 +54,12 @@ export class MongoSagaSession {
     this.checkDuration();
   }
 
+  private ioSignal(): any {
+    const signal = getIoAbortSignal();
+    if (signal?.aborted) throw new Error('Operation aborted');
+    return signal ? { signal } : {};
+  }
+
   async createCollection(
     collectionName: string,
     options?: Record<string, unknown>,
@@ -93,7 +100,7 @@ export class MongoSagaSession {
     if (!definition) return false;
 
     await this.lockCollectionResources([collectionName]);
-    const documents = await db.collection(collectionName).find({}).toArray();
+    const documents = await db.collection(collectionName).find({}, this.ioSignal()).toArray();
     const documentSnapshots = await this.snapshotService.createSnapshotsBatch(
       this.txId,
       documents.map((document) => ({
@@ -270,13 +277,13 @@ export class MongoSagaSession {
   ): AggregationCursor {
     this.checkDuration();
     const collection = this.mongoService.getRawDb().collection(collectionName);
-    return collection.aggregate(pipeline, options);
+    return collection.aggregate(pipeline, { ...options, ...this.ioSignal() });
   }
 
   async countDocuments(collectionName: string, filter?: any): Promise<number> {
     this.checkDuration();
     const collection = this.mongoService.getRawDb().collection(collectionName);
-    return collection.countDocuments(filter || {});
+    return collection.countDocuments(filter || {}, this.ioSignal());
   }
 
   private trackSnapshot(snapshot: ISagaSnapshot): void {
@@ -339,7 +346,7 @@ export class MongoSagaSession {
       await collection.insertOne({
         ...data,
         _id: predictedId,
-      });
+      }, this.ioSignal());
 
       if (snapshot) {
         await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
@@ -389,7 +396,7 @@ export class MongoSagaSession {
     }
 
     const collection = this.mongoService.getRawDb().collection(collectionName);
-    const oldDoc = await collection.findOne({ _id: objectId });
+    const oldDoc = await collection.findOne({ _id: objectId }, this.ioSignal());
 
     if (!oldDoc) {
       throw new DatabaseException(
@@ -417,13 +424,13 @@ export class MongoSagaSession {
 
     try {
       await this.lockService.assertTransactionOwnership(this.txId);
-      await collection.updateOne({ _id: objectId }, { $set: data });
+      await collection.updateOne({ _id: objectId }, { $set: data }, this.ioSignal());
 
       if (snapshot) {
         await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
       }
 
-      return collection.findOne({ _id: objectId });
+      return collection.findOne({ _id: objectId }, this.ioSignal());
     } catch (error) {
       if (snapshot) {
         await this.snapshotService.markSnapshotFailed(
@@ -444,7 +451,7 @@ export class MongoSagaSession {
     this.checkDuration();
 
     const collection = this.mongoService.getRawDb().collection(collectionName);
-    const oldDoc = await collection.findOne(filter);
+    const oldDoc = await collection.findOne(filter, this.ioSignal());
     if (!oldDoc) {
       return {
         acknowledged: true,
@@ -496,7 +503,7 @@ export class MongoSagaSession {
           payload = { $set: update };
         }
       }
-      const result = await collection.updateOne(filter, payload);
+      const result = await collection.updateOne(filter, payload, this.ioSignal());
 
       if (snapshot) {
         await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
@@ -522,7 +529,7 @@ export class MongoSagaSession {
     this.checkDuration();
 
     const collection = this.mongoService.getRawDb().collection(collectionName);
-    const cursor = collection.find(filter || {});
+    const cursor = collection.find(filter || {}, this.ioSignal());
     let modified = 0;
     let matched = 0;
     for await (const d of cursor) {
@@ -570,7 +577,7 @@ export class MongoSagaSession {
     }
 
     const collection = this.mongoService.getRawDb().collection(collectionName);
-    const oldDoc = await collection.findOne({ _id: objectId });
+    const oldDoc = await collection.findOne({ _id: objectId }, this.ioSignal());
 
     if (!oldDoc) {
       return false;
@@ -592,7 +599,7 @@ export class MongoSagaSession {
 
     try {
       await this.lockService.assertTransactionOwnership(this.txId);
-      const result = await collection.deleteOne({ _id: objectId });
+      const result = await collection.deleteOne({ _id: objectId }, this.ioSignal());
 
       if (snapshot) {
         await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
@@ -618,7 +625,7 @@ export class MongoSagaSession {
   ): Promise<any> {
     this.checkDuration();
     const collection = this.mongoService.getRawDb().collection(collectionName);
-    const oldDoc = await collection.findOne(filter);
+    const oldDoc = await collection.findOne(filter, this.ioSignal());
     if (!oldDoc) {
       if (!options?.upsert) {
         return {
@@ -668,6 +675,7 @@ export class MongoSagaSession {
       const result = await collection.replaceOne(
         { _id: oldDoc._id },
         { ...replacement, _id: oldDoc._id },
+        this.ioSignal(),
       );
       if (snapshot) {
         await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
@@ -708,7 +716,7 @@ export class MongoSagaSession {
       }
     }
 
-    const doc = await collection.findOne(filter);
+    const doc = await collection.findOne(filter, this.ioSignal());
     return doc;
   }
 
@@ -725,7 +733,7 @@ export class MongoSagaSession {
   ): Promise<any[]> {
     const collection = this.mongoService.getRawDb().collection(collectionName);
 
-    let cursor = collection.find(filter || {});
+    let cursor = collection.find(filter || {}, this.ioSignal());
     if (options?.sort) cursor = cursor.sort(options.sort);
     if (options?.projection) cursor = cursor.project(options.projection);
     if (options?.skip) cursor = cursor.skip(options.skip);
@@ -751,7 +759,7 @@ export class MongoSagaSession {
       }
 
       const reDocs = await collection
-        .find({ _id: { $in: docs.map((d) => d._id) } })
+        .find({ _id: { $in: docs.map((d) => d._id) } }, this.ioSignal())
         .toArray();
       return reDocs;
     }
@@ -857,6 +865,7 @@ export class MongoSagaSession {
       const insertStart = performance.now();
       await collection.insertMany(docsWithIds, {
         ordered: options?.ordered ?? true,
+        ...this.ioSignal(),
       });
       this.mongoService.traceSaga('saga_insert_many_raw_insert', {
         txId: this.txId,
@@ -912,7 +921,7 @@ export class MongoSagaSession {
     const collection = this.mongoService.getRawDb().collection(collectionName);
 
     const oldDocs = await collection
-      .find({ _id: { $in: objectIds } })
+      .find({ _id: { $in: objectIds } }, this.ioSignal())
       .toArray();
     const oldDocMap = new Map(oldDocs.map((d) => [d._id.toString(), d]));
 
@@ -943,7 +952,7 @@ export class MongoSagaSession {
         },
       }));
 
-      await collection.bulkWrite(bulkOps, { ordered: true });
+      await collection.bulkWrite(bulkOps, { ordered: true, ...this.ioSignal() });
 
       if (snapshots.length > 0) {
         await Promise.all(
@@ -954,7 +963,7 @@ export class MongoSagaSession {
       }
 
       const results = await collection
-        .find({ _id: { $in: objectIds } })
+        .find({ _id: { $in: objectIds } }, this.ioSignal())
         .toArray();
       return results;
     } catch (error) {
@@ -1009,7 +1018,7 @@ export class MongoSagaSession {
 
     const collection = this.mongoService.getRawDb().collection(collectionName);
     const oldDocs = await collection
-      .find({ _id: { $in: objectIds } })
+      .find({ _id: { $in: objectIds } }, this.ioSignal())
       .toArray();
 
     if (oldDocs.length === 0) {
@@ -1037,7 +1046,7 @@ export class MongoSagaSession {
 
     try {
       await this.lockService.assertTransactionOwnership(this.txId);
-      const result = await collection.deleteMany({ _id: { $in: idsToDelete } });
+      const result = await collection.deleteMany({ _id: { $in: idsToDelete } }, this.ioSignal());
 
       if (snapshots.length > 0) {
         await Promise.all(
@@ -1079,6 +1088,7 @@ export class MongoSagaSession {
         .collection(read.collection)
         .findOne(read.filter, {
           projection: read.projection,
+          ...this.ioSignal(),
         })
         .then((doc) => doc),
     );
