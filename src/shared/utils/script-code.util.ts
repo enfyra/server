@@ -26,10 +26,6 @@ export function getScriptLegacyField(tableName: string): string | undefined {
   return scriptContractService.getLegacyField(tableName);
 }
 
-export function isScriptTable(tableName: string): boolean {
-  return scriptContractService.isScriptTable(tableName);
-}
-
 export function normalizeScriptLanguage(value: unknown): ScriptLanguage {
   return scriptContractService.normalizeLanguage(value);
 }
@@ -310,12 +306,6 @@ export function compileScriptSource(
   return scriptContractService.compileSource(sourceCode, scriptLanguage);
 }
 
-export function isExecutableJavaScript(
-  code: string | null | undefined,
-): boolean {
-  return scriptContractService.isExecutableJavaScript(code);
-}
-
 export function normalizeScriptRecord(
   tableName: string,
   record: ScriptFields,
@@ -329,10 +319,6 @@ export function normalizeScriptPatch(
   existing?: ScriptFields | null,
 ): ScriptFields {
   return scriptContractService.normalizePatch(tableName, patch, existing);
-}
-
-export function getExecutableScript(record: ScriptFields): string | null {
-  return scriptContractService.getExecutableScript(record);
 }
 
 export function resolveExecutableScript(

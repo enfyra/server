@@ -17,18 +17,6 @@ export type RuntimeSchemaJournalStage =
   | 'rolled_back'
   | 'failed';
 
-export interface RuntimeSchemaJournalEntry {
-  mutationId: string;
-  contractHash: string;
-  backend: string;
-  stage: RuntimeSchemaJournalStage;
-  startedAt: string;
-  updatedAt: string;
-  completedNodeIds: readonly string[];
-  sagaSessionId?: string;
-  error?: string;
-}
-
 export interface RuntimeSchemaExecutionResult {
   mutationId: string;
   contractHash: string;

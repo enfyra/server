@@ -12,11 +12,3 @@ export interface TCacheInvalidationPayload {
     newName: string;
   }>;
 }
-
-export interface TTableHandlerResult {
-  id: string | number;
-  name?: string;
-  affectedTables?: string[];
-  tableRenames?: TCacheInvalidationPayload['tableRenames'];
-  [key: string]: any;
-}

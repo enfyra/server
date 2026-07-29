@@ -7,7 +7,7 @@ export function setBootstrapSnapshot(snapshot: Record<string, any>): void {
   cachedSnapshot = snapshot;
 }
 
-export function getSnapshot(): Record<string, any> {
+function getSnapshot(): Record<string, any> {
   return cachedSnapshot;
 }
 
@@ -27,7 +27,7 @@ const LOOKUP_KEY_MAP: Record<string, string> = {
   enfyra_flow_step: 'key',
 };
 
-export function getLookupKey(targetTable: string): string {
+function getLookupKey(targetTable: string): string {
   if (LOOKUP_KEY_MAP[targetTable]) return LOOKUP_KEY_MAP[targetTable];
   const def = getTableDef(targetTable);
   if (!def) return 'name';

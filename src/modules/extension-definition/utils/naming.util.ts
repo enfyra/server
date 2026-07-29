@@ -13,7 +13,3 @@ export function autoAssignExtensionName(body: any): any {
 
   return body;
 }
-
-export function isValidExtensionId(extensionId: string): boolean {
-  return EXTENSION_UUID_PATTERN.test(extensionId);
-}

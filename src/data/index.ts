@@ -4,8 +4,6 @@ import defaultData from './default-data';
 import snapshot from './snapshot';
 import snapshotMigration from './snapshot-migration';
 
-export { dataMigration, defaultData, snapshot, snapshotMigration };
-
 export const bootstrapSourceArtifacts = {
   snapshot,
   migration: snapshotMigration,

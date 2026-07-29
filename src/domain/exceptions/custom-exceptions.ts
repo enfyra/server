@@ -86,12 +86,6 @@ export class DatabaseException extends CustomException {
   }
 }
 
-export class DatabaseConnectionException extends CustomException {
-  constructor() {
-    super('Database connection failed', 503, 'DATABASE_CONNECTION_ERROR');
-  }
-}
-
 export class DatabaseQueryException extends CustomException {
   constructor(message: string, details?: any) {
     super(message, 400, 'DATABASE_QUERY_ERROR', details);
@@ -240,45 +234,15 @@ export class HttpException extends CustomException {
   }
 }
 
-export class MethodNotAllowedException extends CustomException {
-  constructor(message: string = 'Method Not Allowed', details?: any) {
-    super(message, 405, 'METHOD_NOT_ALLOWED', details);
-  }
-}
-
-export class NotAcceptableException extends CustomException {
-  constructor(message: string = 'Not Acceptable', details?: any) {
-    super(message, 406, 'NOT_ACCEPTABLE', details);
-  }
-}
-
 export class ConflictException extends CustomException {
   constructor(message: string = 'Conflict', details?: any) {
     super(message, 409, 'CONFLICT', details);
   }
 }
 
-export class TooManyRequestsException extends CustomException {
-  constructor(message: string = 'Too Many Requests', details?: any) {
-    super(message, 429, 'TOO_MANY_REQUESTS', details);
-  }
-}
-
 export class InternalServerErrorException extends CustomException {
   constructor(message: string = 'Internal Server Error', details?: any) {
     super(message, 500, 'INTERNAL_SERVER_ERROR', details);
-  }
-}
-
-export class BadGatewayException extends CustomException {
-  constructor(message: string = 'Bad Gateway', details?: any) {
-    super(message, 502, 'BAD_GATEWAY', details);
-  }
-}
-
-export class GatewayTimeoutException extends CustomException {
-  constructor(message: string = 'Gateway Timeout', details?: any) {
-    super(message, 504, 'GATEWAY_TIMEOUT', details);
   }
 }
 

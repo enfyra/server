@@ -35,8 +35,6 @@ import type { RuntimeRegistryService } from '../../../engines/cache/services/run
 import type { RuntimeNamespaceLifecycleService } from '../../../engines/cache/services/runtime-namespace-lifecycle.service';
 import type { RuntimeScriptRepairService } from '../../../engines/cache';
 
-export type { FlowJobData } from '../../../shared/types/flow.types';
-
 const MAX_FLOW_DEPTH = 10;
 const MAX_STEP_TIMEOUT = 300000;
 const MAX_PAYLOAD_SIZE = 1024 * 1024;

@@ -6,12 +6,12 @@ export type TPolicyDeny = {
   details?: any;
 };
 
-export type TPolicyAllow = {
+type TPolicyAllow = {
   allow: true;
   details?: any;
 };
 
-export type TPolicyPreview = {
+type TPolicyPreview = {
   allow: false;
   preview: true;
   details: any;
@@ -31,7 +31,7 @@ export function isPolicyPreview(
   return decision.allow === false && (decision as any).preview === true;
 }
 
-export type TSchemaOperation = 'create' | 'update' | 'delete';
+type TSchemaOperation = 'create' | 'update' | 'delete';
 
 export type TPolicyRequestContext = {
   method: string;

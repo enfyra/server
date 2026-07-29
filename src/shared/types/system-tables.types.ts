@@ -1,10 +1,4 @@
-import type {
-  CORE_SYSTEM_TABLES,
-  SYSTEM_TABLES,
-} from '../utils/system-tables.constants';
-
-export type SystemTableName =
-  (typeof SYSTEM_TABLES)[keyof typeof SYSTEM_TABLES];
+import type { CORE_SYSTEM_TABLES } from '../utils/system-tables.constants';
 
 export type CoreSystemTableKey = keyof typeof CORE_SYSTEM_TABLES;
 

@@ -1,6 +1,5 @@
 // Barrel export for shared types
 
-export * from './common.types';
 export * from './database-init.types';
 export * from './dynamic-context.types';
 export * from './file-management.types';
@@ -10,4 +9,3 @@ export * from './cache.types';
 export * from './runtime-metrics.types';
 export * from './package-runtime.types';
 export * from './system-tables.types';
-export * from './schema-mutation-contract.types';
