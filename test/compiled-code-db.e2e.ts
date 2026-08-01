@@ -107,8 +107,6 @@ async function seedStaleFlowStep(db: Knex) {
   const flow = await insertReturning(db, 'enfyra_flow', {
     name: FLOW_NAME,
     description: 'E2E compiledCode DB repair',
-    triggerType: 'manual',
-    triggerConfig: null,
     isEnabled: true,
     isSystem: false,
     timeout: 10000,

@@ -300,12 +300,18 @@ export abstract class BaseCacheService<T> {
       this.config.cacheIdentifier,
     );
     if (!lockValue) {
-      const snapshot =
-        await this.redisRuntimeCacheStore!.waitForSnapshot<T>(
-          this.config.cacheIdentifier,
+      if (this.cacheLoaded) {
+        const snapshot =
+          await this.redisRuntimeCacheStore!.waitForSnapshot<T>(
+            this.config.cacheIdentifier,
+          );
+        if (snapshot) {
+          return snapshot.data;
+        }
+      } else {
+        this.logger.warn(
+          'Cold start: refresh lock unavailable but cache not yet loaded, forcing DB read',
         );
-      if (snapshot) {
-        return snapshot.data;
       }
     }
 

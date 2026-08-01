@@ -214,6 +214,14 @@ const snapshotMigration = {
     {
       _unique: {
         name: {
+          _eq: 'enfyra_flow',
+        },
+      },
+      columnsToRemove: ['triggerType', 'triggerConfig'],
+    },
+    {
+      _unique: {
+        name: {
           _eq: 'enfyra_package',
         },
       },

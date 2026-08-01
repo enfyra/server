@@ -537,16 +537,30 @@ snapshot
     name: col.varchar().notNull().system().description("Unique name of the flow"),
     description: col.text().system().nullable().description("Description of what the flow does"),
     icon: col.varchar().system().default("lucide:workflow").nullable().description("Icon identifier for UI display"),
-    triggerType: col.enum(["schedule","manual"]).notNull().system().description("Type of trigger: schedule (cron) or manual (user-initiated via UI/API/handler)"),
-    triggerConfig: col.simpleJson().system().nullable().description("JSON config for the trigger (cron expression, event table/action, webhook path)"),
     timeout: col.int().system().default(30000).nullable().description("Maximum execution time in milliseconds for the entire flow"),
     isEnabled: col.boolean().notNull().system().default(true).description("Whether the flow is active"),
     isSystem: col.boolean().notNull().system().default(false).description("Whether this is a system-defined flow"),
     maxExecutions: col.int().system().default(100).nullable().description("Maximum number of execution history records to keep per flow"),
   })
   .relations({
+    triggers: rel.oneToMany("enfyra_flow_trigger").inverse("flow").system().description("Trigger definitions that activate this flow"),
   })
   .uniques([["name"]]);
+
+snapshot
+  .table("enfyra_flow_trigger", { description: "Junction table defining how flows are activated: schedule (cron), event (table mutation), or webhook (route)", system: true })
+  .columns({
+    id: col.int().primary().generated().notNull().system().description("Primary key identifier"),
+    type: col.enum(["schedule","event","webhook"]).notNull().system().description("Trigger type: schedule (cron-based), event (table mutation), webhook (route-based)"),
+    isEnabled: col.boolean().notNull().system().default(true).description("Whether this trigger is active"),
+    config: col.simpleJson().system().nullable().description("Type-specific config: schedule={cron,timezone}, event={filter}, webhook={method}"),
+    tableEvent: col.enum(["create","update","delete"]).system().nullable().description("Which table mutation event activates this trigger (required when type=event)"),
+  })
+  .relations({
+    flow: rel.manyToOne("enfyra_flow").inverse("triggers").notNull().system().onDelete("CASCADE").description("Flow this trigger activates"),
+    route: rel.manyToOne("enfyra_route").system().nullable().onDelete("CASCADE").description("Route that triggers this flow (required when type=webhook)"),
+    table: rel.manyToOne("enfyra_table").system().nullable().onDelete("CASCADE").description("Table whose mutations trigger this flow (required when type=event)"),
+  });
 
 snapshot
   .table("enfyra_flow_step", { description: "Defines individual steps within a flow", system: true })

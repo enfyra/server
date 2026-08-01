@@ -7,14 +7,7 @@ import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 import type { RuntimeNamespaceLifecycleService } from '../../../engines/cache/services/runtime-namespace-lifecycle.service';
 
-interface ScheduledFlow {
-  id: string | number;
-  name: string;
-  triggerConfig?: {
-    cron?: string;
-    timezone?: string;
-  } | null;
-}
+import type { FlowDefinition, FlowTrigger } from '../../../shared/types/flow.types';
 
 export type FlowScheduleReconcileStatus =
   | 'idle'
@@ -96,16 +89,21 @@ export class FlowSchedulerService {
       }
       this.registeredSchedulers.clear();
 
-      const flows = this.runtimeRegistryService.requireActiveData<
-        ScheduledFlow[]
-      >(CACHE_IDENTIFIERS.FLOW);
-      const scheduleFlows = flows.filter(
-        (flow: any) => flow.triggerType === 'schedule',
+      const flows = this.runtimeRegistryService.requireActiveData<FlowDefinition[]>(
+        CACHE_IDENTIFIERS.FLOW,
       );
+      const scheduleEntries: { flow: FlowDefinition; trigger: FlowTrigger }[] = [];
+      for (const flow of flows) {
+        for (const trigger of flow.triggers || []) {
+          if (trigger.type === 'schedule' && trigger.isEnabled) {
+            scheduleEntries.push({ flow, trigger });
+          }
+        }
+      }
       let registered = 0;
 
-      for (const flow of scheduleFlows) {
-        const cron = flow.triggerConfig?.cron;
+      for (const { flow, trigger } of scheduleEntries) {
+        const cron = trigger.config?.cron;
         if (!cron) {
           this.logger.warn(
             `Flow "${flow.name}" has schedule trigger but no cron expression`,
@@ -121,11 +119,11 @@ export class FlowSchedulerService {
           continue;
         }
 
-        const schedulerId = `flow-schedule-${flow.id}`;
+        const schedulerId = `flow-schedule-${trigger.id}`;
 
         await this.flowQueue.upsertJobScheduler(
           schedulerId,
-          { pattern: cron, tz: flow.triggerConfig?.timezone },
+          { pattern: cron, tz: trigger.config?.timezone },
           {
             name: `flow:${flow.name}`,
             data: {

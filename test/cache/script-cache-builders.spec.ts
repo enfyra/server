@@ -17,7 +17,7 @@ describe('script cache builders', () => {
                 id: 1,
                 name: 'demo',
                 isEnabled: true,
-                triggerType: 'manual',
+                triggers: [],
               },
             ],
           };

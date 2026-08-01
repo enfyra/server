@@ -350,7 +350,9 @@ export class RuntimeRegistryService {
   }
 
   getFlowsByTriggerType(triggerType: string): FlowDefinition[] {
-    return this.getFlows().filter((flow) => flow.triggerType === triggerType);
+    return this.getFlows().filter((flow) =>
+      (flow.triggers || []).some((t) => t.type === triggerType && t.isEnabled),
+    );
   }
 
   getWebsocketGateways(): WebSocketGateway[] {

@@ -19,7 +19,7 @@ import {
 import { PolicyService, isPolicyDeny } from '../../../domain/policy';
 import { DynamicApiTableValidationService } from '../services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
-import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
+import { CACHE_EVENTS, DATA_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import {
   buildRequestedShapeFromQuery,
@@ -896,6 +896,7 @@ export class DynamicRepository {
           durationMs: Date.now() - startedAt,
           count: result.count,
         });
+        this.emitTableMutation('create', undefined, undefined);
         return result;
       }
 
@@ -904,6 +905,9 @@ export class DynamicRepository {
         ...writeMeta,
         bodyKeys: Object.keys(body).length,
       });
+      if (this.tableName === 'enfyra_flow_trigger') {
+        this.assertFlowTriggerBody(body);
+      }
       if (this.tableName === 'enfyra_table') {
         body.isSystem = false;
         const mutation = await this.runtimeMetadataSchemaRouterService.createTable({
@@ -965,6 +969,7 @@ export class DynamicRepository {
           ...writeMeta,
           durationMs: Date.now() - startedAt,
         });
+        this.emitTableMutation('create', [createdId], body);
         return result;
       } catch (error: any) {
         const errorMessage = error?.message || error?.toString() || '';
@@ -978,6 +983,7 @@ export class DynamicRepository {
             durationMs: Date.now() - startedAt,
             fallbackResult: true,
           });
+          this.emitTableMutation('create', [createdId], body);
           return {
             data: [inserted],
             count: 1,
@@ -1144,6 +1150,9 @@ export class DynamicRepository {
       if (isPolicyDeny(updateDecision)) {
         throw new BadRequestException(updateDecision.message);
       }
+      if (this.tableName === 'enfyra_flow_trigger') {
+        this.assertFlowTriggerBody({ ...exists, ...body });
+      }
       if (this.tableName === 'enfyra_route' && body.publicMethods) {
         this.filterMethodsSubsetOfAvailable(body, exists, 'publicMethods');
       }
@@ -1255,6 +1264,7 @@ export class DynamicRepository {
       ) {
         await this.userRevocationService.publish(id);
       }
+      this.emitTableMutation('update', [id], body);
       return result;
     } catch (error: any) {
       if (isCustomException(error)) {
@@ -1339,6 +1349,7 @@ export class DynamicRepository {
       if (this.tableName === 'enfyra_user' && this.userRevocationService) {
         await this.userRevocationService.publish(id);
       }
+      this.emitTableMutation('delete', [id]);
       return { message: 'Delete successfully!', statusCode: 200 };
     } catch (error: any) {
       if (isCustomException(error)) {
@@ -1638,5 +1649,35 @@ export class DynamicRepository {
       return;
     }
     this.eventEmitter.emit(CACHE_EVENTS.INVALIDATE, payload);
+  }
+
+  private emitTableMutation(action: 'create' | 'update' | 'delete', ids?: (string | number)[], data?: any) {
+    this.eventEmitter.emit(DATA_EVENTS.TABLE_MUTATION, {
+      table: this.tableName,
+      action,
+      ids,
+      data,
+      userId: this.context?.$user?.id ?? null,
+    });
+  }
+
+  private assertFlowTriggerBody(body: any) {
+    const type = body.type;
+    if (!type || !['schedule', 'event', 'webhook'].includes(type)) {
+      throw new BadRequestException('Flow trigger type must be one of: schedule, event, webhook');
+    }
+    if (type === 'schedule') {
+      const config = typeof body.config === 'string' ? JSON.parse(body.config) : body.config;
+      if (!config?.cron) throw new BadRequestException('Schedule trigger requires config.cron');
+    }
+    if (type === 'event') {
+      if (!body.table && !body.tableId) throw new BadRequestException('Event trigger requires table reference');
+      if (!body.tableEvent || !['create', 'update', 'delete'].includes(body.tableEvent)) {
+        throw new BadRequestException('Event trigger requires tableEvent (create|update|delete)');
+      }
+    }
+    if (type === 'webhook') {
+      if (!body.route && !body.routeId) throw new BadRequestException('Webhook trigger requires route reference');
+    }
   }
 }

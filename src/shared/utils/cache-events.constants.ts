@@ -18,6 +18,26 @@ export const CACHE_EVENTS = {
   SYSTEM_READY: 'system:ready',
 } as const;
 
+export const DATA_EVENTS = {
+  TABLE_MUTATION: 'data:table:mutation',
+  ROUTE_EXECUTED: 'data:route:executed',
+} as const;
+
+export interface TableMutationPayload {
+  table: string;
+  action: 'create' | 'update' | 'delete';
+  ids?: (string | number)[];
+  data?: any;
+  userId?: string | number | null;
+}
+
+export interface RouteExecutedPayload {
+  routePath: string;
+  method: string;
+  userId?: string | number | null;
+  result?: any;
+}
+
 export const CACHE_IDENTIFIERS = {
   METADATA: 'metadata',
   ROUTE: 'route',

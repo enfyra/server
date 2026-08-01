@@ -12,11 +12,12 @@ import {
   resolveExecutableScript,
 } from '../../../shared/utils/script-code.util';
 import { QueryBuilderService } from '@enfyra/kernel';
-import { FlowDefinition, FlowStep } from '../../../shared/types/flow.types';
+import { FlowDefinition, FlowStep, FlowTrigger } from '../../../shared/types/flow.types';
 
 export type {
   FlowDefinition,
   FlowStep,
+  FlowTrigger,
 } from '../../../shared/types/flow.types';
 
 const FLOW_CONFIG: CacheConfig = {
@@ -49,6 +50,26 @@ export class FlowCacheBuilder extends BaseCacheService<FlowDefinition[]> {
 
     const flows = [];
     for (const flow of flowsResult.data) {
+      const triggersResult = await this.queryBuilderService.find({
+        table: 'enfyra_flow_trigger',
+        filter: { flow: { [idField]: { _eq: flow[idField] } } },
+        fields: ['*', 'route.*', 'table.*'],
+        limit: 100,
+      });
+      const triggers: FlowTrigger[] = (triggersResult.data || [])
+        .filter((t: any) => t.isEnabled)
+        .map((t: any) => ({
+          id: t[idField],
+          type: t.type,
+          isEnabled: t.isEnabled,
+          config: t.config,
+          tableEvent: t.tableEvent || null,
+          route: t.route?.[idField] ?? t.routeId ?? null,
+          table: t.table?.[idField] ?? t.tableId ?? null,
+          tableName: t.table?.name ?? null,
+          routePath: t.route?.path ?? null,
+        }));
+
       const stepsResult = await this.queryBuilderService.find({
         table: 'enfyra_flow_step',
         filter: { flow: { [idField]: { _eq: flow[idField] } } },
@@ -102,8 +123,7 @@ export class FlowCacheBuilder extends BaseCacheService<FlowDefinition[]> {
         name: flow.name,
         description: flow.description,
         icon: flow.icon,
-        triggerType: flow.triggerType,
-        triggerConfig: flow.triggerConfig,
+        triggers,
         timeout: flow.timeout || 30000,
         maxExecutions: flow.maxExecutions || 100,
         isEnabled: flow.isEnabled,

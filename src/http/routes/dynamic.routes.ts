@@ -1,6 +1,7 @@
 import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
+import { DATA_EVENTS } from '../../shared/utils/cache-events.constants';
 
 function attachDebug(req: any, data: any): any {
   const debug: any = req._debug;
@@ -33,6 +34,13 @@ export function registerDynamicRoutes(
     const dynamicService =
       req.scope?.cradle?.dynamicService ?? container.cradle.dynamicService;
     const result = await dynamicService.runHandler(req);
+    const routePath = req.routeData?.route?.path || req.path;
+    container.cradle.eventEmitter.emit(DATA_EVENTS.ROUTE_EXECUTED, {
+      routePath,
+      method: req.method,
+      userId: req.user?.id ?? null,
+      result,
+    });
     if (res.headersSent || (res as any).__enfyraStreamStarted) {
       return;
     }

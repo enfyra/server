@@ -891,11 +891,17 @@ export class MetadataCacheService implements IMetadataCache {
     const lockValue =
       await this.redisRuntimeCacheStore!.acquireRefreshLock('metadata');
     if (!lockValue) {
-      const snapshot =
-        await this.redisRuntimeCacheStore!.waitForSnapshot<EnfyraMetadata>(
-          'metadata',
+      if (this.sharedCacheLoaded) {
+        const snapshot =
+          await this.redisRuntimeCacheStore!.waitForSnapshot<EnfyraMetadata>(
+            'metadata',
+          );
+        if (snapshot) return this.normalizeMetadataSnapshot(snapshot.data);
+      } else {
+        this.logger.warn(
+          'Cold start: metadata refresh lock unavailable but cache not yet loaded, forcing DB read',
         );
-      if (snapshot) return this.normalizeMetadataSnapshot(snapshot.data);
+      }
     }
 
     try {

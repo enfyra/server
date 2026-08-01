@@ -7,12 +7,6 @@ export class FlowDefinitionProcessor extends BaseTableProcessor {
       if (transformed.isEnabled === undefined) transformed.isEnabled = true;
       if (transformed.timeout === undefined) transformed.timeout = 30000;
       if (transformed.icon === undefined) transformed.icon = 'lucide:workflow';
-      if (
-        transformed.triggerConfig &&
-        typeof transformed.triggerConfig === 'object'
-      ) {
-        transformed.triggerConfig = JSON.stringify(transformed.triggerConfig);
-      }
       return transformed;
     });
   }
@@ -26,8 +20,6 @@ export class FlowDefinitionProcessor extends BaseTableProcessor {
       'name',
       'description',
       'icon',
-      'triggerType',
-      'triggerConfig',
       'timeout',
       'isEnabled',
     ];
