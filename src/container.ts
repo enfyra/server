@@ -210,6 +210,7 @@ import {
   FlowQueueMaintenanceService,
   FlowRuntimeService,
   FlowSchedulerService,
+  FlowTriggerDispatcherService,
   FlowService,
 } from './modules/flow';
 
@@ -392,6 +393,7 @@ export interface Cradle {
   flowQueueMaintenanceService: FlowQueueMaintenanceService;
   flowRuntimeService: FlowRuntimeService;
   flowSchedulerService: FlowSchedulerService;
+  flowTriggerDispatcherService: FlowTriggerDispatcherService;
   flowExecutionQueueService: FlowExecutionQueueService;
   mongoPhysicalMigrationQueue: Queue;
 
@@ -737,6 +739,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     ).singleton(),
     flowRuntimeService: asClass(FlowRuntimeService).singleton(),
     flowSchedulerService: asClass(FlowSchedulerService).singleton(),
+    flowTriggerDispatcherService: asClass(FlowTriggerDispatcherService).singleton(),
     flowExecutionQueueService: asClass(FlowExecutionQueueService)
       .singleton()
       .disposer((service) => service.onDestroy()),

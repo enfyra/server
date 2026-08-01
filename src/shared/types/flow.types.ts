@@ -10,8 +10,21 @@ export type StepType =
   | 'sleep'
   | 'log';
 export type StepErrorHandling = 'stop' | 'skip' | 'retry';
-export type TriggerType = 'schedule' | 'manual';
+export type TriggerType = 'schedule' | 'event' | 'webhook';
 export type BranchType = 'true' | 'false' | null;
+export type TableEventType = 'create' | 'update' | 'delete';
+
+export interface FlowTrigger {
+  id: number | string;
+  type: TriggerType;
+  isEnabled: boolean;
+  config?: any;
+  tableEvent?: TableEventType | null;
+  route?: number | string | null;
+  table?: number | string | null;
+  tableName?: string | null;
+  routePath?: string | null;
+}
 
 export interface FlowStep {
   id: number | string;
@@ -36,8 +49,7 @@ export interface FlowDefinition {
   name: string;
   description?: string;
   icon?: string;
-  triggerType: TriggerType;
-  triggerConfig?: any;
+  triggers?: FlowTrigger[];
   timeout?: number;
   maxExecutions?: number;
   isEnabled: boolean;

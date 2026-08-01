@@ -131,6 +131,7 @@ export const RELOAD_CHAINS: Record<string, string[]> = {
   [SYSTEM_TABLES.package]: ['package'],
   [SYSTEM_TABLES.flow]: ['flow'],
   [SYSTEM_TABLES.flowStep]: ['flow'],
+  [SYSTEM_TABLES.flowTrigger]: ['flow'],
   [SYSTEM_TABLES.folder]: ['folder'],
   [SYSTEM_TABLES.bootstrapScript]: ['bootstrap'],
   [SYSTEM_TABLES.menu]: ['menu', 'extension'],

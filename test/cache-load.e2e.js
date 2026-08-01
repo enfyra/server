@@ -126,8 +126,7 @@ async function simulateFlowCacheLoad(queryBuilder) {
       name: flow.name,
       description: flow.description,
       icon: flow.icon,
-      triggerType: flow.triggerType,
-      triggerConfig: flow.triggerConfig,
+      triggers: flow.triggers || [],
       timeout: flow.timeout || 30000,
       isEnabled: flow.isEnabled,
       steps,
@@ -168,9 +167,9 @@ async function testFlowCacheSingleQuery() {
   const qb = new MockQueryBuilder();
 
   qb.setTableData('enfyra_flow', [
-    { id: 1, name: 'daily-report', triggerType: 'schedule', triggerConfig: { cron: '0 2 * * *' }, timeout: 30000, isEnabled: true },
-    { id: 2, name: 'disabled-flow', triggerType: 'manual', isEnabled: false },
-    { id: 3, name: 'manual-cleanup', triggerType: 'manual', timeout: 60000, isEnabled: true },
+    { id: 1, name: 'daily-report', triggers: [{ id: 101, type: 'schedule', isEnabled: true, config: { cron: '0 2 * * *' } }], timeout: 30000, isEnabled: true },
+    { id: 2, name: 'disabled-flow', triggers: [], isEnabled: false },
+    { id: 3, name: 'manual-cleanup', triggers: [], timeout: 60000, isEnabled: true },
   ]);
 
   qb.setTableData('enfyra_flow_step', [
@@ -195,14 +194,14 @@ async function testFlowCacheSingleQuery() {
   log('Flow: second flow has 1 step', flows[1].steps.length === 1);
   log('Flow: timeout defaults to 30000', flows[0].timeout === 30000);
   log('Flow: custom timeout preserved', flows[1].timeout === 60000);
-  log('Flow: triggerConfig preserved', flows[0].triggerConfig?.cron === '0 2 * * *');
+  log('Flow: triggers preserved', flows[0].triggers?.[0]?.config?.cron === '0 2 * * *');
 }
 
 async function testFlowCacheStepOrdering() {
   const qb = new MockQueryBuilder();
 
   qb.setTableData('enfyra_flow', [
-    { id: 1, name: 'order-test', triggerType: 'manual', isEnabled: true },
+    { id: 1, name: 'order-test', triggers: [], isEnabled: true },
   ]);
 
   qb.setTableData('enfyra_flow_step', [
@@ -221,7 +220,7 @@ async function testFlowCacheBranching() {
   const qb = new MockQueryBuilder();
 
   qb.setTableData('enfyra_flow', [
-    { id: 1, name: 'branching-test', triggerType: 'manual', isEnabled: true },
+    { id: 1, name: 'branching-test', triggers: [], isEnabled: true },
   ]);
 
   qb.setTableData('enfyra_flow_step', [
@@ -245,7 +244,7 @@ async function testFlowCacheEmptySteps() {
   const qb = new MockQueryBuilder();
 
   qb.setTableData('enfyra_flow', [
-    { id: 1, name: 'empty-flow', triggerType: 'manual', isEnabled: true },
+    { id: 1, name: 'empty-flow', triggers: [], isEnabled: true },
   ]);
 
   qb.setTableData('enfyra_flow_step', []);
@@ -259,7 +258,7 @@ async function testFlowCacheCodeTransform() {
   const qb = new MockQueryBuilder();
 
   qb.setTableData('enfyra_flow', [
-    { id: 1, name: 'code-test', triggerType: 'manual', isEnabled: true },
+    { id: 1, name: 'code-test', triggers: [], isEnabled: true },
   ]);
 
   qb.setTableData('enfyra_flow_step', [
@@ -349,7 +348,7 @@ async function testFlowCacheMongoMode() {
   qb.setMongoMode(true);
 
   qb.setTableData('enfyra_flow', [
-    { _id: 'abc123', name: 'mongo-flow', triggerType: 'manual', isEnabled: true },
+    { _id: 'abc123', name: 'mongo-flow', triggers: [], isEnabled: true },
   ]);
 
   qb.setTableData('enfyra_flow_step', [

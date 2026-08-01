@@ -31,6 +31,7 @@ export const SYSTEM_TABLES = {
   websocketEvent: 'enfyra_websocket_event',
   flow: 'enfyra_flow',
   flowStep: 'enfyra_flow_step',
+  flowTrigger: 'enfyra_flow_trigger',
   flowExecution: 'enfyra_flow_execution',
   guard: 'enfyra_guard',
   guardRule: 'enfyra_guard_rule',

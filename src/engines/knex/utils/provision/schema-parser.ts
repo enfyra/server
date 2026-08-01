@@ -162,6 +162,7 @@ export function getKnexColumnType(columnDef: ColumnDef): string {
     code: 'text',
     'array-select': 'text',
     enum: 'enum',
+    float: 'float',
   };
 
   return typeMap[columnDef.type] || 'text';

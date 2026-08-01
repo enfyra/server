@@ -189,7 +189,7 @@ describe('flow step socket context', () => {
         {
           id: 9,
           name: 'notify-admin',
-          triggerType: 'manual',
+          triggers: [],
           isEnabled: true,
           steps: [],
         },
@@ -226,7 +226,7 @@ describe('flow step socket context', () => {
       {
         id: 1,
         name: 'send-mail',
-        triggerType: 'manual',
+        triggers: [],
         isEnabled: true,
         steps: [
           {

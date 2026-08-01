@@ -829,6 +829,19 @@ const defaultData = {
       ]
     },
     {
+      "path": "/enfyra_flow_trigger",
+      "mainTable": "enfyra_flow_trigger",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:zap",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
       "path": "/enfyra_graphql",
       "mainTable": "enfyra_graphql",
       "isEnabled": true,

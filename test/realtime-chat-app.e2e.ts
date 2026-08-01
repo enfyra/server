@@ -458,7 +458,7 @@ async function upsertPersistFlow(container: ReturnType<typeof buildContainer>) {
       id: flow.id ?? flow._id,
       data: {
         isEnabled: true,
-        triggerType: 'manual',
+        triggers: [],
         timeout: 10000,
         maxExecutions: 100,
       },
@@ -468,7 +468,7 @@ async function upsertPersistFlow(container: ReturnType<typeof buildContainer>) {
       data: {
         name: FLOW_NAME,
         description: 'E2E realtime chat message persistence',
-        triggerType: 'manual',
+        triggers: [],
         isEnabled: true,
         timeout: 10000,
         maxExecutions: 100,

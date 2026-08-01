@@ -1002,6 +1002,19 @@ const dataMigration = {
     {
       "_unique": {
         "path": {
+          "_eq": "/enfyra_flow_trigger"
+        }
+      },
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
           "_eq": "/enfyra_file_permission"
         }
       },

@@ -177,6 +177,9 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
   await runInitStep('flowRuntimeService.init', () =>
     c.flowRuntimeService?.init?.(),
   );
+  await runInitStep('flowTriggerDispatcherService.init', () =>
+    c.flowTriggerDispatcherService?.init?.(),
+  );
 
   await runInitStep('graphqlService.reloadSchema', () =>
     c.graphqlService?.reloadSchema?.(),

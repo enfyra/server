@@ -42,7 +42,7 @@ describe('runtime registry required reads', () => {
         {
           id: 7,
           name: 'scheduled-flow',
-          triggerType: 'schedule',
+          triggers: [{ id: 1, type: 'schedule', isEnabled: true, config: { cron: '0 2 * * *' } }],
           steps: [],
         },
       ]),

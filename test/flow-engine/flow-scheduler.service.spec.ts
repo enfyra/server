@@ -49,8 +49,9 @@ describe('FlowSchedulerService', () => {
           {
             id: 6,
             name: 'cloud-reconcile-hosts',
-            triggerType: 'schedule',
-            triggerConfig: { cron: '*/15 * * * *', timezone: 'UTC' },
+            triggers: [
+              { id: 101, type: 'schedule', isEnabled: true, config: { cron: '*/15 * * * *', timezone: 'UTC' } },
+            ],
           },
         ],
       });
@@ -58,7 +59,7 @@ describe('FlowSchedulerService', () => {
     await service.init();
 
     expect(flowQueue.upsertJobScheduler).toHaveBeenCalledWith(
-      'flow-schedule-6',
+      'flow-schedule-101',
       { pattern: '*/15 * * * *', tz: 'UTC' },
       expect.objectContaining({
         name: 'flow:cloud-reconcile-hosts',
@@ -91,8 +92,9 @@ describe('FlowSchedulerService', () => {
         {
           id: 7,
           name: 'daily-flow',
-          triggerType: 'schedule',
-          triggerConfig: { cron: '0 2 * * *' },
+          triggers: [
+            { id: 102, type: 'schedule', isEnabled: true, config: { cron: '0 2 * * *' } },
+          ],
         },
       ],
     });
@@ -109,7 +111,7 @@ describe('FlowSchedulerService', () => {
       'session-cleanup-daily',
     );
     expect(flowQueue.upsertJobScheduler).toHaveBeenCalledWith(
-      'flow-schedule-7',
+      'flow-schedule-102',
       { pattern: '0 2 * * *', tz: undefined },
       expect.objectContaining({ name: 'flow:daily-flow' }),
     );
