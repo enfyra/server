@@ -69,6 +69,9 @@ export function buildTableSchema(
         case 'datetime':
           column = table.datetime(col.name);
           break;
+        case 'float':
+          column = table.float(col.name);
+          break;
         case 'simple-json':
           column = table.text(col.name, 'longtext');
           break;

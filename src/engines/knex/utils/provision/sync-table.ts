@@ -80,6 +80,9 @@ export async function applyColumnMigrations(
           case 'datetime':
             column = table.datetime(col.name);
             break;
+          case 'float':
+            column = table.float(col.name);
+            break;
           case 'simple-json':
             column = table.text(col.name, 'longtext');
             break;
@@ -232,6 +235,7 @@ export async function applyColumnMigrations(
           timestamp: 'TIMESTAMP',
           datetime: 'DATETIME',
           json: 'LONGTEXT',
+          float: 'FLOAT',
         };
         sqlType = typeMap[knexType] || 'TEXT';
         const nullable = col.isNullable === false ? 'NOT NULL' : 'NULL';
