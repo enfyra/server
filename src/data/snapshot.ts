@@ -201,6 +201,36 @@ snapshot
   });
 
 snapshot
+  .table("enfyra_graphql_operation", { description: "Canonical immutable GraphQL operations used by public access and GraphQL permissions", system: true })
+  .columns({
+    id: col.int().primary().generated().notNull().system().description("Primary key identifier"),
+    name: col.varchar().notNull().system().description("Canonical GraphQL operation name"),
+    label: col.varchar().notNull().system().description("Human-readable operation label"),
+    description: col.text().system().nullable().description("Description of the GraphQL operation"),
+    order: col.int().notNull().system().default(0).description("Stable display order"),
+    isSystem: col.boolean().notNull().system().default(true).description("Always true for canonical GraphQL operations"),
+  })
+  .relations({
+    publicGraphqlConfigs: rel.manyToMany("enfyra_graphql").inverse("publicOperations").system().description("GraphQL configs that expose this operation publicly"),
+    graphqlPermissions: rel.manyToMany("enfyra_graphql_permission").inverse("operations").system().description("GraphQL permissions that grant this operation"),
+  })
+  .uniques([["name"]]);
+
+snapshot
+  .table("enfyra_graphql_permission", { description: "Grants private GraphQL operations to a role or explicit users", system: true })
+  .columns({
+    id: col.int().primary().generated().notNull().system().description("Primary key identifier"),
+    isEnabled: col.boolean().notNull().system().default(true).description("Whether this GraphQL permission is active"),
+    description: col.text().system().nullable().description("Description of what this GraphQL permission grants"),
+  })
+  .relations({
+    graphql: rel.manyToOne("enfyra_graphql").inverse("permissions").notNull().system().onDelete("CASCADE").description("GraphQL table configuration controlled by this permission"),
+    role: rel.manyToOne("enfyra_role").inverse("graphqlPermissions").system().onDelete("CASCADE").nullable().description("Role that receives these private GraphQL operations"),
+    allowedUsers: rel.manyToMany("enfyra_user").inverse("allowedGraphqlPermissions").system().description("Explicit users that receive these private GraphQL operations"),
+    operations: rel.manyToMany("enfyra_graphql_operation").inverse("graphqlPermissions").notNull().system().description("Private GraphQL operations granted by this permission"),
+  });
+
+snapshot
   .table("enfyra_field_permission", { description: "Defines per-field permissions (columns and relations) by role and user, with optional conditions", system: true })
   .columns({
     id: col.int().primary().generated().notNull().system().description("Primary key identifier"),
@@ -321,7 +351,7 @@ snapshot
   .uniques([["uuid"]]);
 
 snapshot
-  .table("enfyra_method", { description: "Defines available HTTP methods (GET, POST, etc.) and GraphQL operations", system: true })
+  .table("enfyra_method", { description: "Defines available HTTP methods (GET, POST, PATCH, DELETE, etc.)", system: true })
   .columns({
     id: col.int().primary().generated().notNull().system().description("Primary key identifier"),
     name: col.varchar().notNull().system().description("HTTP method name (GET, POST, PATCH, DELETE, PUT, HEAD, OPTIONS)"),
@@ -650,16 +680,18 @@ snapshot
   });
 
 snapshot
-  .table("enfyra_graphql", { description: "GraphQL configuration per table — enables/disables GraphQL API for a specific table", system: true })
+  .table("enfyra_graphql", { description: "GraphQL configuration per table with independent public and authenticated operation access", system: true })
   .columns({
     id: col.int().primary().generated().notNull().system().description("Primary key"),
-    isEnabled: col.boolean().notNull().system().default(false).description("Whether GraphQL is enabled for this table (REST-first, opt-in)"),
+    isEnabled: col.boolean().notNull().system().default(false).description("Whether GraphQL is enabled for this table"),
     isSystem: col.boolean().notNull().system().default(false).description("System-managed flag"),
     description: col.text().system().nullable().description("Human-readable description"),
     metadata: col.simpleJson().system().nullable().description("Extended configuration (custom handler, timeout, etc.)"),
   })
   .relations({
     table: rel.manyToOne("enfyra_table").inverse("gqlConfig").notNull().system().onDelete("CASCADE").description("The table this GraphQL config belongs to"),
+    publicOperations: rel.manyToMany("enfyra_graphql_operation").inverse("publicGraphqlConfigs").system().description("Operations callable without authentication"),
+    permissions: rel.oneToMany("enfyra_graphql_permission").inverse("graphql").system().description("Authenticated GraphQL operation permissions"),
   })
   .uniques([["table"]]);
 

@@ -5,13 +5,20 @@ export interface SettingData {
   [key: string]: any;
 }
 
+import type {
+  GraphqlOperationName,
+  GraphqlPermissionGrant,
+} from '../../../modules/graphql/utils/graphql-access.util';
+
 export interface TGqlDefinition {
-  id: number;
+  id: string;
   isEnabled: boolean;
   isSystem: boolean;
   description: string | null;
   metadata: Record<string, any> | null;
   tableName: string;
+  publicOperations: GraphqlOperationName[];
+  permissions: GraphqlPermissionGrant[];
 }
 
 export interface FolderNode {

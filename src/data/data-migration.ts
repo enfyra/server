@@ -1076,6 +1076,87 @@ const dataMigration = {
         "PATCH",
         "DELETE"
       ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/enfyra_graphql_operation"
+        }
+      },
+      "mainTable": "enfyra_graphql_operation",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:braces",
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/enfyra_graphql_permission"
+        }
+      },
+      "mainTable": "enfyra_graphql_permission",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:shield-check",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    }
+  ],
+  "enfyra_graphql_operation": [
+    {
+      "_unique": {
+        "name": {
+          "_eq": "QUERY"
+        }
+      },
+      "name": "QUERY",
+      "label": "Query",
+      "description": "Read GraphQL records, relations, and aggregate metadata",
+      "order": 0,
+      "isSystem": true
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "CREATE"
+        }
+      },
+      "name": "CREATE",
+      "label": "Create",
+      "description": "Create records through GraphQL mutations",
+      "order": 10,
+      "isSystem": true
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "UPDATE"
+        }
+      },
+      "name": "UPDATE",
+      "label": "Update",
+      "description": "Update records through GraphQL mutations",
+      "order": 20,
+      "isSystem": true
+    },
+    {
+      "_unique": {
+        "name": {
+          "_eq": "DELETE"
+        }
+      },
+      "name": "DELETE",
+      "label": "Delete",
+      "description": "Delete records through GraphQL mutations",
+      "order": 30,
+      "isSystem": true
     }
   ],
   "enfyra_graphql": [

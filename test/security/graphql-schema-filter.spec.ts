@@ -1,6 +1,46 @@
+import { printType } from 'graphql';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { generateGraphQLTypeDefsFromTables } from '../../src/modules/graphql';
+import {
+  buildStubType,
+  buildTableGraphQLDef,
+  MetaResultType,
+} from '../../src/modules/graphql';
 import { DatabaseConfigService } from '../../src/shared/services';
+
+function generateGraphQLTypeDefsFromTables(
+  tables: any[],
+  queryableTableNames?: Set<string>,
+): string {
+  const queryable = queryableTableNames ?? new Set(tables.map((table) => table.name));
+  const typeRegistry = new Map();
+  const definitions = [];
+  const referencedStubs = new Set<string>();
+
+  for (const table of tables) {
+    const definition = buildTableGraphQLDef(table, queryable, typeRegistry);
+    if (!definition) continue;
+    definitions.push(definition);
+    typeRegistry.set(table.name, definition.type);
+    for (const stubName of definition.referencedStubs) referencedStubs.add(stubName);
+  }
+
+  const rendered = [printType(MetaResultType)];
+  for (const definition of definitions) {
+    rendered.push(printType(definition.type), printType(definition.resultType));
+    if (definition.inputType) rendered.push(printType(definition.inputType));
+    if (definition.updateInputType) rendered.push(printType(definition.updateInputType));
+    if (definition.queryField) {
+      rendered.push(
+        `${definition.type.name}(${Object.keys(definition.queryField.args).join(', ')})`,
+      );
+    }
+    rendered.push(...Object.keys(definition.mutationFields));
+  }
+  for (const stubName of referencedStubs) {
+    if (!typeRegistry.has(stubName)) rendered.push(printType(buildStubType(stubName)));
+  }
+  return rendered.join('\n');
+}
 
 function makeTable(name: string, columns: any[], relations: any[] = []): any {
   return { name, columns, relations };

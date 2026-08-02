@@ -7,6 +7,32 @@ import {
   isMetadataTable,
 } from '../../../shared/utils/cache-events.constants';
 import type { TGqlDefinition } from '../types/cache-data.types';
+import {
+  assertGraphqlPermissionScope,
+  assertNoPublicPermissionOverlap,
+  normalizeGraphqlOperationList,
+} from '../../../modules/graphql/utils/graphql-access.util';
+
+const GRAPHQL_DEFINITION_CACHE_FIELDS = [
+  'id',
+  'isEnabled',
+  'isSystem',
+  'description',
+  'metadata',
+  'table.id',
+  'table.name',
+  'publicOperations.name',
+  'permissions.id',
+  'permissions.isEnabled',
+  'permissions.role.id',
+  'permissions.allowedUsers.id',
+  'permissions.operations.name',
+];
+
+function toIdString(value: any): string | null {
+  if (value === undefined || value === null) return null;
+  return String(value?._id ?? value?.id ?? value);
+}
 
 export class GqlDefinitionCacheService extends BaseCacheService<
   Map<string, TGqlDefinition>
@@ -34,7 +60,7 @@ export class GqlDefinitionCacheService extends BaseCacheService<
     try {
       const result = await this.queryBuilderService.find({
         table: 'enfyra_graphql',
-        fields: ['*', 'table.id', 'table.name'],
+        fields: GRAPHQL_DEFINITION_CACHE_FIELDS,
         limit: 10000,
       });
       return result?.data ?? [];
@@ -51,13 +77,44 @@ export class GqlDefinitionCacheService extends BaseCacheService<
       const tableName = row?.table?.name;
       if (!tableName) continue;
 
+      const publicOperations = normalizeGraphqlOperationList(
+        row.publicOperations,
+      );
+      const permissions = (Array.isArray(row.permissions)
+        ? row.permissions
+        : []
+      ).map((permission: any) => {
+        assertGraphqlPermissionScope({
+          role: permission.role,
+          allowedUsers: permission.allowedUsers,
+        });
+        const operations = normalizeGraphqlOperationList(permission.operations);
+        if (operations.length === 0) {
+          throw new Error('GraphQL permission must grant at least one operation');
+        }
+        assertNoPublicPermissionOverlap({
+          publicOperations,
+          permissionOperations: operations,
+        });
+        return {
+          isEnabled: permission.isEnabled !== false,
+          roleId: toIdString(permission.role),
+          allowedUserIds: (permission.allowedUsers ?? [])
+            .map(toIdString)
+            .filter((id: string | null): id is string => id !== null),
+          operations,
+        };
+      });
+
       map.set(tableName, {
-        id: row.id,
+        id: toIdString(row) ?? '',
         isEnabled: !!row.isEnabled,
         isSystem: !!row.isSystem,
         description: row.description ?? null,
         metadata: row.metadata ?? null,
         tableName,
+        publicOperations,
+        permissions,
       });
     }
 

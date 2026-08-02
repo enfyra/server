@@ -72,6 +72,7 @@ import {
   FlowStepDefinitionProcessor,
   FolderDefinitionProcessor,
   GraphQLDefinitionProcessor,
+  GraphQLOperationDefinitionProcessor,
   MenuDefinitionProcessor,
   MethodDefinitionProcessor,
   PostHookDefinitionProcessor,
@@ -442,6 +443,7 @@ export interface Cradle {
   flowStepDefinitionProcessor: FlowStepDefinitionProcessor;
   flowExecutionDefinitionProcessor: FlowExecutionDefinitionProcessor;
   graphqlDefinitionProcessor: GraphQLDefinitionProcessor;
+  graphqlOperationDefinitionProcessor: GraphQLOperationDefinitionProcessor;
 
   $req: any;
   $res: any;
@@ -820,6 +822,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
       FlowExecutionDefinitionProcessor,
     ).singleton(),
     graphqlDefinitionProcessor: asClass(GraphQLDefinitionProcessor).singleton(),
+    graphqlOperationDefinitionProcessor: asClass(
+      GraphQLOperationDefinitionProcessor,
+    ).singleton(),
   });
 
   return container;

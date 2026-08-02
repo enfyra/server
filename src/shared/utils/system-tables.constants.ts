@@ -36,6 +36,8 @@ export const SYSTEM_TABLES = {
   guard: 'enfyra_guard',
   guardRule: 'enfyra_guard_rule',
   graphql: 'enfyra_graphql',
+  graphqlOperation: 'enfyra_graphql_operation',
+  graphqlPermission: 'enfyra_graphql_permission',
   runtimeReloadLog: 'enfyra_runtime_reload_log',
 } as const;
 

@@ -2,6 +2,7 @@ import { BadRequestException } from '../../../domain/exceptions';
 import { throwGqlError } from '../utils/throw-error';
 import { convertFieldNodesToFieldPicker } from '../utils/field-string-converter';
 import * as jwt from 'jsonwebtoken';
+import { GraphQLError } from 'graphql';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { EnvService, DynamicContextFactory } from '../../../shared/services';
@@ -11,13 +12,15 @@ import {
   GuardCacheBuilder,
   GuardEvaluatorService,
 } from '../../../engines/cache';
-import { PolicyService, isPolicyDeny } from '../../../domain/policy';
 import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
 import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
 import { loadCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
-import { matchRouteInRoutes } from '../../../shared/utils/route-match.util';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 import type { ApiTokenService } from '../../../domain/auth/services/api-token.service';
+import {
+  hasGraphqlOperationAccess,
+  type GraphqlOperationName,
+} from '../utils/graphql-access.util';
 
 export class DynamicResolver {
   private readonly queryBuilderService: QueryBuilderService;
@@ -26,7 +29,6 @@ export class DynamicResolver {
   private readonly guardCacheBuilder: GuardCacheBuilder;
   private readonly guardEvaluatorService: GuardEvaluatorService;
   private readonly runtimeRegistryService: RuntimeRegistryService;
-  private readonly policyService: PolicyService;
   private readonly envService: EnvService;
   private readonly dynamicContextFactory: DynamicContextFactory;
   private readonly apiTokenService: ApiTokenService;
@@ -38,7 +40,6 @@ export class DynamicResolver {
     guardCacheBuilder: GuardCacheBuilder;
     guardEvaluatorService: GuardEvaluatorService;
     runtimeRegistryService: RuntimeRegistryService;
-    policyService: PolicyService;
     envService: EnvService;
     dynamicContextFactory: DynamicContextFactory;
     apiTokenService: ApiTokenService;
@@ -49,7 +50,6 @@ export class DynamicResolver {
     this.guardCacheBuilder = deps.guardCacheBuilder;
     this.guardEvaluatorService = deps.guardEvaluatorService;
     this.runtimeRegistryService = deps.runtimeRegistryService;
-    this.policyService = deps.policyService;
     this.envService = deps.envService;
     this.apiTokenService = deps.apiTokenService;
     this.dynamicContextFactory = deps.dynamicContextFactory;
@@ -71,8 +71,8 @@ export class DynamicResolver {
     const { mainTable, user } = await this.middleware(
       tableName,
       'GQL_QUERY',
+      'QUERY',
       context,
-      'GET',
     );
     const selections = info.fieldNodes?.[0]?.selectionSet?.selections || [];
     const fullFieldPicker = convertFieldNodesToFieldPicker(selections);
@@ -136,12 +136,12 @@ export class DynamicResolver {
       }
       const operation = match[1];
       const tableName = match[2];
-      const routeAccessMethod = this.graphqlOperationToHttp(operation);
+      const graphqlOperation = operation.toUpperCase() as GraphqlOperationName;
       const { user } = await this.middleware(
         tableName,
         'GQL_MUTATION',
+        graphqlOperation,
         context,
-        routeAccessMethod,
       );
       const handlerCtx: any = this.dynamicContextFactory.createGraphql({
         request: context.request,
@@ -177,6 +177,7 @@ export class DynamicResolver {
       }
       return this.sanitizeResult(result, tableName);
     } catch (error) {
+      if (error instanceof GraphQLError) throw error;
       throwGqlError('MUTATION_ERROR', getErrorMessage(error));
     }
   }
@@ -184,8 +185,8 @@ export class DynamicResolver {
   private async middleware(
     mainTableName: string,
     method: string,
+    operation: GraphqlOperationName,
     context: any,
-    routeAccessMethod: string,
   ) {
     if (!mainTableName) {
       throwGqlError('400', 'Missing table name');
@@ -198,9 +199,9 @@ export class DynamicResolver {
       );
     }
 
-    const isEnabled =
-      this.runtimeRegistryService.isGraphqlEnabledForTable(mainTableName);
-    if (!isEnabled) {
+    const definition =
+      this.runtimeRegistryService.getGraphqlDefinitionForTable(mainTableName);
+    if (!definition?.isEnabled) {
       throwGqlError(
         '404',
         `GraphQL is not enabled for table: ${mainTableName}`,
@@ -209,17 +210,27 @@ export class DynamicResolver {
 
     const routePath = `/${mainTableName}`;
     const clientIp = this.resolveClientIp(context);
-
     await this.runGuards('pre_auth', routePath, method, clientIp, null);
 
-    const accessToken =
-      context.request?.headers?.get('authorization')?.split('Bearer ')[1] || '';
-    const user = await this.checkAccess(mainTableName, method, accessToken);
+    const accessToken = this.getBearerToken(context);
+    const isPublic = definition.publicOperations.includes(operation);
+    const user = accessToken
+      ? await this.authenticate(accessToken)
+      : isPublic
+        ? null
+        : this.throwAuthenticationRequired();
 
-    const userId =
-      user && !user.isAnonymous ? user._id || user.id || null : null;
+    const access = hasGraphqlOperationAccess({
+      definition,
+      operation,
+      user,
+    });
+    if (!access.allowed) {
+      throwGqlError('403', 'Forbidden');
+    }
+
+    const userId = user ? user._id || user.id || null : null;
     await this.runGuards('post_auth', routePath, method, clientIp, userId);
-    await this.assertRouteAccess(routePath, routeAccessMethod, user);
 
     return {
       user,
@@ -227,44 +238,17 @@ export class DynamicResolver {
     };
   }
 
-  private graphqlOperationToHttp(operation: string): string {
-    if (operation === 'create') return 'POST';
-    if (operation === 'update') return 'PATCH';
-    if (operation === 'delete') return 'DELETE';
-    return 'GET';
+  private getBearerToken(context: any): string {
+    const authorization = context.request?.headers?.get('authorization') || '';
+    const match = authorization.match(/^Bearer\s+(.+)$/i);
+    return match?.[1]?.trim() || '';
   }
 
-  private async assertRouteAccess(
-    routePath: string,
-    method: string,
-    user: any,
-  ) {
-    const match = matchRouteInRoutes(
-      this.runtimeRegistryService.requireRoutes(),
-      method,
-      routePath,
-    );
-    if (!match?.route) {
-      throwGqlError('403', 'Forbidden');
-    }
-    const decision = this.policyService.checkRequestAccess({
-      method,
-      routeData: match.route,
-      user,
-    });
-    if (isPolicyDeny(decision)) {
-      throwGqlError(String(decision.statusCode || 403), decision.message);
-    }
+  private throwAuthenticationRequired(): never {
+    return throwGqlError('401', 'Authentication required') as never;
   }
 
-  private async checkAccess(
-    tableName: string,
-    method: string,
-    accessToken: string,
-  ) {
-    if (!accessToken) {
-      throwGqlError('401', 'Authentication required');
-    }
+  private async authenticate(accessToken: string) {
     let decoded: jwt.JwtPayload;
     try {
       decoded = jwt.verify(

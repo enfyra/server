@@ -36,6 +36,36 @@ const defaultData = {
       "name": "DELETE"
     }
   ],
+  "enfyra_graphql_operation": [
+    {
+      "name": "QUERY",
+      "label": "Query",
+      "description": "Read GraphQL records, relations, and aggregate metadata",
+      "order": 0,
+      "isSystem": true
+    },
+    {
+      "name": "CREATE",
+      "label": "Create",
+      "description": "Create records through GraphQL mutations",
+      "order": 10,
+      "isSystem": true
+    },
+    {
+      "name": "UPDATE",
+      "label": "Update",
+      "description": "Update records through GraphQL mutations",
+      "order": 20,
+      "isSystem": true
+    },
+    {
+      "name": "DELETE",
+      "label": "Delete",
+      "description": "Delete records through GraphQL mutations",
+      "order": 30,
+      "isSystem": true
+    }
+  ],
   "enfyra_route": [
     {
       "path": "/enfyra_route",
@@ -847,6 +877,29 @@ const defaultData = {
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:file-code",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/enfyra_graphql_operation",
+      "mainTable": "enfyra_graphql_operation",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:braces",
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/enfyra_graphql_permission",
+      "mainTable": "enfyra_graphql_permission",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:shield-check",
       "availableMethods": [
         "GET",
         "POST",
