@@ -122,6 +122,7 @@ import {
   FlowCacheBuilder,
   FolderTreeCacheService,
   GqlDefinitionCacheService,
+  GuardAlertService,
   GuardCacheBuilder,
   GuardEvaluatorService,
   MetadataCacheService,
@@ -342,6 +343,7 @@ export interface Cradle {
   packageCdnLoaderService: PackageCdnLoaderService;
   guardCacheBuilder: GuardCacheBuilder;
   guardEvaluatorService: GuardEvaluatorService;
+  guardAlertService: GuardAlertService;
   settingCacheService: SettingCacheService;
   fieldPermissionCacheBuilder: FieldPermissionCacheBuilder;
   columnRuleCacheBuilder: ColumnRuleCacheBuilder;
@@ -650,6 +652,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     packageCdnLoaderService: asClass(PackageCdnLoaderService).singleton(),
     guardCacheBuilder: asClass(GuardCacheBuilder).singleton(),
     guardEvaluatorService: asClass(GuardEvaluatorService).singleton(),
+    guardAlertService: asClass(GuardAlertService).singleton(),
     settingCacheService: asClass(SettingCacheService).singleton(),
     fieldPermissionCacheBuilder: asClass(
       FieldPermissionCacheBuilder,

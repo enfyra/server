@@ -100,7 +100,7 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/test',
       });
-      expect(result).toBeNull();
+      expect(result.reject).toBeNull();
     });
 
     it('should reject with 429 when rate limit exceeded', async () => {
@@ -117,9 +117,9 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/test',
       });
-      expect(result).not.toBeNull();
-      expect(result!.statusCode).toBe(429);
-      expect(result!.headers?.['Retry-After']).toBeDefined();
+      expect(result.reject).not.toBeNull();
+      expect(result.reject!.statusCode).toBe(429);
+      expect(result.reject!.headers?.['Retry-After']).toBeDefined();
     });
 
     it('should use correct key for rate_limit_by_user', async () => {
@@ -190,7 +190,7 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/test',
       });
-      expect(result).toBeNull();
+      expect(result.reject).toBeNull();
       expect(rateLimitService.calledKeys).toHaveLength(0);
     });
   });
@@ -209,7 +209,7 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/test',
       });
-      expect(result).toBeNull();
+      expect(result.reject).toBeNull();
     });
 
     it('should reject when IP is not in whitelist', async () => {
@@ -222,8 +222,8 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/test',
       });
-      expect(result).not.toBeNull();
-      expect(result!.statusCode).toBe(403);
+      expect(result.reject).not.toBeNull();
+      expect(result.reject!.statusCode).toBe(403);
     });
 
     it('should match CIDR notation', async () => {
@@ -233,23 +233,23 @@ describe('GuardEvaluatorService', () => {
         ],
       });
       expect(
-        await evaluator.evaluateGuard(guard, {
+        (await evaluator.evaluateGuard(guard, {
           clientIp: '10.1.2.3',
           routePath: '/test',
-        }),
+        })).reject,
       ).toBeNull();
       expect(
-        await evaluator.evaluateGuard(guard, {
+        (await evaluator.evaluateGuard(guard, {
           clientIp: '10.255.255.255',
           routePath: '/test',
-        }),
+        })).reject,
       ).toBeNull();
       const reject = await evaluator.evaluateGuard(guard, {
         clientIp: '11.0.0.1',
         routePath: '/test',
       });
-      expect(reject).not.toBeNull();
-      expect(reject!.statusCode).toBe(403);
+      expect(reject.reject).not.toBeNull();
+      expect(reject.reject!.statusCode).toBe(403);
     });
 
     it('should handle /24 subnet', async () => {
@@ -262,22 +262,22 @@ describe('GuardEvaluatorService', () => {
         ],
       });
       expect(
-        await evaluator.evaluateGuard(guard, {
+        (await evaluator.evaluateGuard(guard, {
           clientIp: '192.168.1.100',
           routePath: '/t',
-        }),
+        })).reject,
       ).toBeNull();
       expect(
-        await evaluator.evaluateGuard(guard, {
+        (await evaluator.evaluateGuard(guard, {
           clientIp: '192.168.1.255',
           routePath: '/t',
-        }),
+        })).reject,
       ).toBeNull();
       expect(
-        await evaluator.evaluateGuard(guard, {
+        (await evaluator.evaluateGuard(guard, {
           clientIp: '192.168.2.1',
           routePath: '/t',
-        }),
+        })).reject,
       ).not.toBeNull();
     });
 
@@ -289,7 +289,7 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/test',
       });
-      expect(result).toBeNull();
+      expect(result.reject).toBeNull();
     });
   });
 
@@ -304,8 +304,8 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/test',
       });
-      expect(result).not.toBeNull();
-      expect(result!.statusCode).toBe(403);
+      expect(result.reject).not.toBeNull();
+      expect(result.reject!.statusCode).toBe(403);
     });
 
     it('should pass when IP is not in blacklist', async () => {
@@ -318,7 +318,7 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/test',
       });
-      expect(result).toBeNull();
+      expect(result.reject).toBeNull();
     });
 
     it('should match CIDR in blacklist', async () => {
@@ -331,7 +331,7 @@ describe('GuardEvaluatorService', () => {
         clientIp: '10.5.5.5',
         routePath: '/test',
       });
-      expect(result).not.toBeNull();
+      expect(result.reject).not.toBeNull();
     });
   });
 
@@ -356,7 +356,7 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/test',
       });
-      expect(result).toBeNull();
+      expect(result.reject).toBeNull();
     });
 
     it('should reject on first failing rule (short-circuit)', async () => {
@@ -380,9 +380,9 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/test',
       });
-      expect(result).not.toBeNull();
+      expect(result.reject).not.toBeNull();
       // ip_blacklist (cost 0) runs before rate_limit_by_ip (cost 1)
-      expect(result!.ruleType).toBe('ip_blacklist');
+      expect(result.reject!.ruleType).toBe('ip_blacklist');
     });
   });
 
@@ -410,8 +410,8 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/test',
       });
-      expect(result).not.toBeNull();
-      expect(result!.ruleType).toBe('ip_blacklist');
+      expect(result.reject).not.toBeNull();
+      expect(result.reject!.ruleType).toBe('ip_blacklist');
       // rate limit should NOT have been called since IP was blocked first
       expect(rateLimitService.calledKeys).toHaveLength(0);
     });
@@ -436,9 +436,9 @@ describe('GuardEvaluatorService', () => {
         clientIp: '192.168.1.1',
         routePath: '/test',
       });
-      expect(result).not.toBeNull();
-      expect(result!.ruleType).toBe('ip_whitelist');
-      expect(result!.statusCode).toBe(403);
+      expect(result.reject).not.toBeNull();
+      expect(result.reject!.ruleType).toBe('ip_whitelist');
+      expect(result.reject!.statusCode).toBe(403);
       expect(rateLimitService.calledKeys).toHaveLength(0);
     });
 
@@ -464,7 +464,7 @@ describe('GuardEvaluatorService', () => {
         routePath: '/test',
       });
       // ip_whitelist passes (cost 0, runs first) → OR short-circuits → no rate limit call
-      expect(result).toBeNull();
+      expect(result.reject).toBeNull();
       expect(rateLimitService.calledKeys).toHaveLength(0);
     });
 
@@ -490,9 +490,9 @@ describe('GuardEvaluatorService', () => {
         routePath: '/test',
       });
       // ip_whitelist passes, then rate_limit runs and rejects
-      expect(result).not.toBeNull();
-      expect(result!.ruleType).toBe('rate_limit_by_ip');
-      expect(result!.statusCode).toBe(429);
+      expect(result.reject).not.toBeNull();
+      expect(result.reject!.ruleType).toBe('rate_limit_by_ip');
+      expect(result.reject!.statusCode).toBe(429);
       expect(rateLimitService.calledKeys).toHaveLength(1);
     });
   });
@@ -518,7 +518,7 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/test',
       });
-      expect(result).toBeNull();
+      expect(result.reject).toBeNull();
     });
 
     it('should reject when all rules fail', async () => {
@@ -541,8 +541,8 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/test',
       });
-      expect(result).not.toBeNull();
-      expect(result!.statusCode).toBe(403);
+      expect(result.reject).not.toBeNull();
+      expect(result.reject!.statusCode).toBe(403);
     });
   });
 
@@ -591,7 +591,7 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/test',
       });
-      expect(result).toBeNull();
+      expect(result.reject).toBeNull();
     });
 
     it('should reject when nested OR has no passing branch', async () => {
@@ -633,7 +633,7 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/test',
       });
-      expect(result).not.toBeNull();
+      expect(result.reject).not.toBeNull();
     });
 
     it('should handle 3-level nesting', async () => {
@@ -685,20 +685,20 @@ describe('GuardEvaluatorService', () => {
         clientIp: '10.5.5.5',
         routePath: '/test',
       });
-      expect(result).toBeNull();
+      expect(result.reject).toBeNull();
 
       const result2 = await evaluator.evaluateGuard(guard, {
         clientIp: '192.168.1.1',
         routePath: '/test',
       });
-      expect(result2).toBeNull();
+      expect(result2.reject).toBeNull();
 
       const result3 = await evaluator.evaluateGuard(guard, {
         clientIp: '172.16.0.1',
         routePath: '/test',
       });
-      expect(result3).not.toBeNull();
-      expect(result3!.statusCode).toBe(403);
+      expect(result3.reject).not.toBeNull();
+      expect(result3.reject!.statusCode).toBe(403);
     });
   });
 
@@ -720,15 +720,15 @@ describe('GuardEvaluatorService', () => {
         routePath: '/test',
         userId: 'user-A',
       });
-      expect(resultA).not.toBeNull();
-      expect(resultA!.statusCode).toBe(429);
+      expect(resultA.reject).not.toBeNull();
+      expect(resultA.reject!.statusCode).toBe(429);
 
       const resultB = await evaluator.evaluateGuard(guard, {
         clientIp: '1.2.3.4',
         routePath: '/test',
         userId: 'user-B',
       });
-      expect(resultB).toBeNull();
+      expect(resultB.reject).toBeNull();
     });
 
     it('should skip user-scoped rules when no userId', async () => {
@@ -746,7 +746,7 @@ describe('GuardEvaluatorService', () => {
         routePath: '/test',
         userId: null,
       });
-      expect(result).toBeNull();
+      expect(result.reject).toBeNull();
     });
 
     it('should apply rule to all users when userIds is empty', async () => {
@@ -765,8 +765,8 @@ describe('GuardEvaluatorService', () => {
         routePath: '/test',
         userId: 'user-X',
       });
-      expect(result).not.toBeNull();
-      expect(result!.statusCode).toBe(429);
+      expect(result.reject).not.toBeNull();
+      expect(result.reject!.statusCode).toBe(429);
     });
   });
 
@@ -788,7 +788,7 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/test',
       });
-      expect(result).toBeNull();
+      expect(result.reject).toBeNull();
     });
   });
 
@@ -799,7 +799,7 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/test',
       });
-      expect(result).toBeNull();
+      expect(result.reject).toBeNull();
     });
   });
 
@@ -814,7 +814,7 @@ describe('GuardEvaluatorService', () => {
         clientIp: '::ffff:10.0.0.1',
         routePath: '/test',
       });
-      expect(result).toBeNull();
+      expect(result.reject).toBeNull();
     });
 
     it('should match ::ffff:192.168.1.1 against exact IP 192.168.1.1', async () => {
@@ -830,7 +830,7 @@ describe('GuardEvaluatorService', () => {
         clientIp: '::ffff:192.168.1.1',
         routePath: '/test',
       });
-      expect(result).toBeNull();
+      expect(result.reject).toBeNull();
     });
 
     it('should match plain IPv4 against ::ffff:-prefixed pattern', async () => {
@@ -846,7 +846,7 @@ describe('GuardEvaluatorService', () => {
         clientIp: '172.16.0.1',
         routePath: '/test',
       });
-      expect(result).toBeNull();
+      expect(result.reject).toBeNull();
     });
 
     it('should reject ::ffff:192.168.1.1 when whitelist has different IP', async () => {
@@ -862,8 +862,8 @@ describe('GuardEvaluatorService', () => {
         clientIp: '::ffff:192.168.1.1',
         routePath: '/test',
       });
-      expect(result).not.toBeNull();
-      expect(result!.statusCode).toBe(403);
+      expect(result.reject).not.toBeNull();
+      expect(result.reject!.statusCode).toBe(403);
     });
 
     it('should block ::ffff:10.5.5.5 via blacklist CIDR 10.0.0.0/8', async () => {
@@ -879,8 +879,8 @@ describe('GuardEvaluatorService', () => {
         clientIp: '::ffff:10.5.5.5',
         routePath: '/test',
       });
-      expect(result).not.toBeNull();
-      expect(result!.statusCode).toBe(403);
+      expect(result.reject).not.toBeNull();
+      expect(result.reject!.statusCode).toBe(403);
     });
 
     it('should match pure IPv6 loopback ::1 against ::1', async () => {
@@ -898,7 +898,7 @@ describe('GuardEvaluatorService', () => {
         clientIp: '::1',
         routePath: '/test',
       });
-      expect(result).toBeNull();
+      expect(result.reject).toBeNull();
     });
 
     it('should reject pure IPv6 ::1 when whitelist only has IPv4', async () => {
@@ -914,8 +914,8 @@ describe('GuardEvaluatorService', () => {
         clientIp: '::1',
         routePath: '/test',
       });
-      expect(result).not.toBeNull();
-      expect(result!.statusCode).toBe(403);
+      expect(result.reject).not.toBeNull();
+      expect(result.reject!.statusCode).toBe(403);
     });
 
     it('should normalize both client IP and pattern with ::ffff: prefix', async () => {
@@ -931,7 +931,7 @@ describe('GuardEvaluatorService', () => {
         clientIp: '::ffff:10.1.2.3',
         routePath: '/test',
       });
-      expect(result).toBeNull();
+      expect(result.reject).toBeNull();
     });
 
     it('should use normalized IP for rate limit key', async () => {
@@ -951,6 +951,257 @@ describe('GuardEvaluatorService', () => {
       // normalization is only applied in matchIp; this test verifies
       // the guard still passes (no error).
       expect(rateLimitService.calledKeys.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('GuardRejectInfo contract', () => {
+    it('rate_limit reject carries errorCode, structured details, and Retry-After header', async () => {
+      rateLimitService.setResult('guard_rule:1:ip:1.2.3.4', false);
+      const guard = makeGuard({
+        rules: [
+          makeRule({
+            type: 'rate_limit_by_ip',
+            config: { maxRequests: 100, perSeconds: 60 },
+          }),
+        ],
+      });
+      const result = await evaluator.evaluateGuard(guard, {
+        clientIp: '1.2.3.4',
+        routePath: '/test',
+      });
+      const reject = result.reject!;
+      expect(reject.errorCode).toBe('RATE_LIMIT_EXCEEDED');
+      expect(reject.statusCode).toBe(429);
+      expect(reject.details).toEqual({
+        reason: 'rate_limit',
+        scope: 'ip',
+        limit: 100,
+        remaining: 0,
+        windowSeconds: 60,
+        retryAfterSeconds: 30,
+        resetAt: expect.any(Number) as any,
+      });
+      expect(reject.headers).toEqual(
+        expect.objectContaining({
+          'Retry-After': '30',
+          'X-RateLimit-Limit': '100',
+          'X-RateLimit-Remaining': '0',
+          'X-Enfyra-Guard-Reason': 'rate_limit',
+          'X-Enfyra-Guard-Scope': 'ip',
+          'X-Enfyra-Guard-Error-Code': 'RATE_LIMIT_EXCEEDED',
+        }),
+      );
+    });
+
+    it('ip_whitelist reject carries IP_NOT_ALLOWED errorCode + minimal details', async () => {
+      const guard = makeGuard({
+        rules: [
+          makeRule({ type: 'ip_whitelist', config: { ips: ['10.0.0.0/8'] } }),
+        ],
+      });
+      const result = await evaluator.evaluateGuard(guard, {
+        clientIp: '192.168.1.1',
+        routePath: '/test',
+      });
+      const reject = result.reject!;
+      expect(reject.errorCode).toBe('IP_NOT_ALLOWED');
+      expect(reject.statusCode).toBe(403);
+      expect(reject.details).toEqual({
+        reason: 'ip_not_allowed',
+      });
+      expect(reject.headers).toEqual(
+        expect.objectContaining({
+          'X-Enfyra-Guard-Reason': 'ip_not_allowed',
+          'X-Enfyra-Guard-Error-Code': 'IP_NOT_ALLOWED',
+        }),
+      );
+    });
+
+    it('ip_blacklist reject carries IP_BLOCKED errorCode', async () => {
+      const guard = makeGuard({
+        rules: [
+          makeRule({ type: 'ip_blacklist', config: { ips: ['1.2.3.4'] } }),
+        ],
+      });
+      const result = await evaluator.evaluateGuard(guard, {
+        clientIp: '1.2.3.4',
+        routePath: '/test',
+      });
+      const reject = result.reject!;
+      expect(reject.errorCode).toBe('IP_BLOCKED');
+      expect(reject.statusCode).toBe(403);
+      expect(reject.details).toEqual({
+        reason: 'ip_blocked',
+      });
+    });
+
+    it('rate_limit_by_user reject uses scope=user and user-scoped headers', async () => {
+      rateLimitService.setResult('guard_rule:1:user:user-7', false);
+      const guard = makeGuard({
+        rules: [
+          makeRule({
+            type: 'rate_limit_by_user',
+            config: { maxRequests: 5, perSeconds: 60 },
+          }),
+        ],
+      });
+      const result = await evaluator.evaluateGuard(guard, {
+        clientIp: '1.2.3.4',
+        routePath: '/test',
+        userId: 'user-7',
+      });
+      const reject = result.reject!;
+      expect(reject.errorCode).toBe('RATE_LIMIT_EXCEEDED');
+      expect(reject.details).toMatchObject({
+        reason: 'rate_limit',
+        scope: 'user',
+      });
+      expect(reject.headers?.['X-Enfyra-Guard-Scope']).toBe('user');
+    });
+
+    it('rate_limit_by_route reject uses scope=route', async () => {
+      rateLimitService.setResult('guard_rule:1:route:/api/posts', false);
+      const guard = makeGuard({
+        rules: [
+          makeRule({
+            type: 'rate_limit_by_route',
+            config: { maxRequests: 1000, perSeconds: 60 },
+          }),
+        ],
+      });
+      const result = await evaluator.evaluateGuard(guard, {
+        clientIp: '1.2.3.4',
+        routePath: '/api/posts',
+      });
+      const reject = result.reject!;
+      expect(reject.details).toMatchObject({ scope: 'route' });
+      expect(reject.headers?.['X-Enfyra-Guard-Scope']).toBe('route');
+    });
+
+    it('rejection does NOT expose guardName, ruleId, or Redis key in public details', async () => {
+      rateLimitService.setResult('guard_rule:99:ip:1.2.3.4', false);
+      const guard = makeGuard({
+        name: 'super-secret-internal-name',
+        rules: [
+          makeRule({
+            id: 99,
+            type: 'rate_limit_by_ip',
+            config: { maxRequests: 1, perSeconds: 60 },
+          }),
+        ],
+      });
+      const result = await evaluator.evaluateGuard(guard, {
+        clientIp: '1.2.3.4',
+        routePath: '/test',
+      });
+      const reject = result.reject!;
+      const json = JSON.stringify({
+        details: reject.details,
+        headers: reject.headers,
+      });
+      expect(json).not.toContain('super-secret-internal-name');
+      expect(json).not.toContain('guard_rule');
+      expect(json).not.toContain('ruleId');
+      expect((reject.details as any).ruleId).toBeUndefined();
+      // guardName is kept on the reject object for internal logging,
+      // but it must NOT leak via details/headers:
+      expect((reject.details as any).guardName).toBeUndefined();
+      expect((reject.headers as any)['X-Enfyra-Guard-Name']).toBeUndefined();
+    });
+  });
+
+  describe('rateLimitSnapshots on pass', () => {
+    it('records snapshot when rate_limit rule passes', async () => {
+      rateLimitService.setResult('guard_rule:1:ip:1.2.3.4', true, 73);
+      const guard = makeGuard({
+        rules: [
+          makeRule({
+            type: 'rate_limit_by_ip',
+            config: { maxRequests: 100, perSeconds: 60 },
+          }),
+        ],
+      });
+      const result = await evaluator.evaluateGuard(guard, {
+        clientIp: '1.2.3.4',
+        routePath: '/test',
+      });
+      expect(result.reject).toBeNull();
+      expect(result.rateLimitSnapshots).toHaveLength(1);
+      expect(result.rateLimitSnapshots[0]).toMatchObject({
+        ruleId: 1,
+        scope: 'ip',
+        limit: 100,
+        remaining: 73,
+        windowSeconds: 60,
+      });
+      expect(typeof result.rateLimitSnapshots[0].resetAt).toBe('number');
+    });
+
+    it('captures multiple snapshots in AND combinator when all rate limits pass', async () => {
+      const guard = makeGuard({
+        combinator: 'and',
+        rules: [
+          makeRule({
+            id: 10,
+            type: 'rate_limit_by_ip',
+            config: { maxRequests: 100, perSeconds: 60 },
+          }),
+          makeRule({
+            id: 11,
+            type: 'rate_limit_by_route',
+            config: { maxRequests: 1000, perSeconds: 60 },
+          }),
+        ],
+      });
+      const result = await evaluator.evaluateGuard(guard, {
+        clientIp: '1.2.3.4',
+        routePath: '/test',
+      });
+      expect(result.reject).toBeNull();
+      expect(result.rateLimitSnapshots).toHaveLength(2);
+      expect(result.rateLimitSnapshots.map((s) => s.scope)).toEqual(['ip', 'route']);
+    });
+
+    it('still records snapshot when one rate limit rejects (snapshot is captured before reject)', async () => {
+      rateLimitService.setResult('guard_rule:10:ip:1.2.3.4', false);
+      const guard = makeGuard({
+        combinator: 'and',
+        rules: [
+          makeRule({
+            id: 10,
+            type: 'rate_limit_by_ip',
+            config: { maxRequests: 100, perSeconds: 60 },
+          }),
+          makeRule({
+            id: 11,
+            type: 'rate_limit_by_route',
+            config: { maxRequests: 1000, perSeconds: 60 },
+          }),
+        ],
+      });
+      const result = await evaluator.evaluateGuard(guard, {
+        clientIp: '1.2.3.4',
+        routePath: '/test',
+      });
+      expect(result.reject).not.toBeNull();
+      // ip rule ran first → snapshot present; route rule never ran
+      expect(result.rateLimitSnapshots).toHaveLength(1);
+      expect(result.rateLimitSnapshots[0].scope).toBe('ip');
+    });
+
+    it('does NOT create snapshots for non-rate-limit rules', async () => {
+      const guard = makeGuard({
+        rules: [
+          makeRule({ type: 'ip_whitelist', config: { ips: ['1.2.3.4'] } }),
+        ],
+      });
+      const result = await evaluator.evaluateGuard(guard, {
+        clientIp: '1.2.3.4',
+        routePath: '/test',
+      });
+      expect(result.reject).toBeNull();
+      expect(result.rateLimitSnapshots).toEqual([]);
+      expect(rateLimitService.calledKeys).toHaveLength(0);
     });
   });
 });

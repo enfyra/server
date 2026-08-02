@@ -638,6 +638,18 @@ snapshot
   });
 
 snapshot
+  .table("enfyra_guard_alert", { description: "Records guard rejections for admin monitoring in Runtime Monitor", system: true })
+  .columns({
+    id: col.int().primary().generated().notNull().system().description("Primary key identifier"),
+    scope: col.enum(["ip","user","route"]).notNull().system().description("Rate-limit or filter scope that triggered rejection"),
+    scopeKey: col.varchar().notNull().system().description("Subject identifier: client IP, userId, or routePath depending on scope"),
+    routePath: col.varchar().notNull().system().description("Route path that was rejected"),
+    method: col.varchar().notNull().system().description("HTTP method of the rejected request"),
+    errorCode: col.varchar().notNull().system().description("Structured error code: RATE_LIMIT_EXCEEDED, IP_NOT_ALLOWED, IP_BLOCKED"),
+    guardName: col.varchar().notNull().system().description("Name of the guard that rejected the request (denormalized)"),
+  });
+
+snapshot
   .table("enfyra_graphql", { description: "GraphQL configuration per table — enables/disables GraphQL API for a specific table", system: true })
   .columns({
     id: col.int().primary().generated().notNull().system().description("Primary key"),

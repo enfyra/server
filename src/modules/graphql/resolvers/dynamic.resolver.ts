@@ -306,13 +306,16 @@ export class DynamicResolver {
     if (guards.length === 0) return;
 
     for (const guard of guards) {
-      const reject = await this.guardEvaluatorService.evaluateGuard(guard, {
+      const { reject } = await this.guardEvaluatorService.evaluateGuard(guard, {
         clientIp,
         routePath,
         userId,
       });
       if (reject) {
-        throwGqlError(String(reject.statusCode), reject.message);
+        throwGqlError(reject.errorCode, reject.message, {
+          statusCode: reject.statusCode,
+          details: reject.details,
+        });
       }
     }
   }

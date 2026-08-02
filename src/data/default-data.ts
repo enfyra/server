@@ -891,6 +891,17 @@ const defaultData = {
       ]
     },
     {
+      "path": "/enfyra_guard_alert",
+      "mainTable": "enfyra_guard_alert",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:shield-alert",
+      "availableMethods": [
+        "GET",
+        "DELETE"
+      ]
+    },
+    {
       "path": "/admin/reload/guards",
       "isEnabled": true,
       "isSystem": true,

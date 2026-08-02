@@ -6,6 +6,7 @@ export * from './field-permission-cache-builder.service';
 export * from './flow-cache-builder.service';
 export * from './folder-tree-cache.service';
 export * from './gql-definition-cache.service';
+export * from './guard-alert.service';
 export * from './guard-cache-builder.service';
 export * from './guard-evaluator.service';
 export * from './metadata-cache.service';

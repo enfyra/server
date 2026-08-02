@@ -146,6 +146,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
       c.guardCacheBuilder,
       c.runtimeRegistryService,
       c.guardEvaluatorService,
+      c.guardAlertService,
     ),
   );
   app.use(
@@ -166,6 +167,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
       c.guardCacheBuilder,
       c.runtimeRegistryService,
       c.guardEvaluatorService,
+      c.guardAlertService,
     ),
   );
   app.use(
