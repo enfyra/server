@@ -748,7 +748,21 @@ export class MetadataCacheService implements IMetadataCache {
 
   async getMetadata(): Promise<EnfyraMetadata> {
     if (this.usesSharedRuntimeCache()) {
-      if (this.inMemoryCache) return this.inMemoryCache;
+      if (this.inMemoryCache) {
+        // A non-null in-memory copy may be stale (e.g. loaded before another
+        // instance wrote a newer snapshot). Compare the shared Redis version
+        // and refresh when the local copy has diverged, so a stale revision is
+        // never served to schema mutation / runtime lookups.
+        const snapshot =
+          await this.redisRuntimeCacheStore!.getSnapshot<EnfyraMetadata>(
+            'metadata',
+          );
+        if (snapshot && snapshot.data?.version !== this.inMemoryCache.version) {
+          this.sharedCacheLoaded = true;
+          this.inMemoryCache = this.normalizeMetadataSnapshot(snapshot.data);
+        }
+        return this.inMemoryCache;
+      }
       const snapshot =
         await this.redisRuntimeCacheStore!.getSnapshot<EnfyraMetadata>(
           'metadata',
@@ -844,7 +858,14 @@ export class MetadataCacheService implements IMetadataCache {
     publish = true,
   ): Promise<void> {
     metadata = this.normalizeMetadataSnapshot(metadata);
-    if (publish && this.usesSharedRuntimeCache()) {
+    if (this.usesSharedRuntimeCache()) {
+      // Always persist the authoritative snapshot to shared Redis so every
+      // instance (including the one performing an upgrade/bootstrap warm with
+      // publish=false) converges on the same revision. `publish` only controls
+      // the broadcast reload signal, not whether the shared snapshot is
+      // updated. Without this, an upgrade that used reload(false) left Redis
+      // holding the OLD snapshot, so every other (and future) instance read
+      // stale metadata and failed schema mutation with a revision mismatch.
       await this.redisRuntimeCacheStore!.setSnapshot('metadata', metadata);
       this.sharedCacheLoaded = true;
       this.inMemoryCache = metadata;
