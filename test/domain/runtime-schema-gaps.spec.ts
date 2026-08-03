@@ -107,6 +107,49 @@ describe('Runtime schema normalization', () => {
     );
   });
 
+  it('canonicalizes hydrated relation references without object string coercion', () => {
+    const hydrated = normalizeRuntimeTableSchema(
+      {
+        name: 'enfyra_user',
+        relations: [
+          {
+            id: 14,
+            propertyName: 'allowedRoutePermissions',
+            type: 'many-to-many',
+            targetTable: { id: 8, name: 'enfyra_route_permission' },
+            mappedBy: { id: 13, propertyName: 'allowedUsers' },
+            junctionTableName: 'j_9475348e0853',
+          },
+        ],
+      },
+      { backend: 'postgresql', mode: 'persisted' },
+    );
+    const scalar = normalizeRuntimeTableSchema(
+      {
+        name: 'enfyra_user',
+        relations: [
+          {
+            id: 14,
+            propertyName: 'allowedRoutePermissions',
+            type: 'many-to-many',
+            targetTableName: 'enfyra_route_permission',
+            mappedBy: 'allowedUsers',
+            junctionTableName: 'j_9475348e0853',
+          },
+        ],
+      },
+      { backend: 'postgresql', mode: 'persisted' },
+    );
+
+    expect(hydrated!.contract.relations[0]).toMatchObject({
+      targetTableName: 'enfyra_route_permission',
+      mappedBy: 'allowedUsers',
+    });
+    expect(hashCanonical(hydrated!.contract)).toBe(
+      hashCanonical(scalar!.contract),
+    );
+  });
+
   it('compiles SQL create against the effective metadata including generated indexes', async () => {
     const compiler = makeCompiler();
     const { contract } = await compiler.compile({
@@ -510,6 +553,99 @@ describe('C3b: Target revision must be attested inside the UOW', () => {
     expect(journal.advanceStage).not.toHaveBeenCalledWith(
       contract.mutationId,
       'target_attested',
+    );
+  });
+
+  it('attests inverse deletion while preserving hydrated many-to-many relations', async () => {
+    const inverseRoute = {
+      id: 14,
+      propertyName: 'allowedRoutePermissions',
+      type: 'many-to-many',
+      targetTable: { id: 8, name: 'enfyra_route_permission' },
+      mappedBy: { id: 13, propertyName: 'allowedUsers' },
+      junctionTableName: 'j_9475348e0853',
+    };
+    const inverseGraphql = {
+      id: 2314,
+      propertyName: 'allowedGraphqlPermissions',
+      type: 'many-to-many',
+      targetTable: { id: 824, name: 'enfyra_graphql_permission' },
+      mappedBy: { id: 2309, propertyName: 'allowedUsers' },
+      junctionTableName: 'j_ab366c6a77d1',
+    };
+    const ownerRole = {
+      id: 6,
+      propertyName: 'role',
+      type: 'many-to-one',
+      targetTable: { id: 7, name: 'enfyra_role' },
+      foreignKeyColumn: 'roleId',
+    };
+    const deletedInverse = {
+      id: 2379,
+      propertyName: 'gwTestUsage',
+      type: 'one-to-many',
+      targetTable: { id: 896, name: 'gw_child' },
+      mappedBy: { id: 2378, propertyName: 'testUser' },
+    };
+    const before = {
+      name: 'enfyra_user',
+      columns: [],
+      relations: [ownerRole, inverseRoute, inverseGraphql, deletedInverse],
+    };
+    const target = {
+      ...before,
+      relations: [
+        ownerRole,
+        { ...inverseRoute, mappedBy: 'allowedUsers' },
+        { ...inverseGraphql, mappedBy: 'allowedUsers' },
+      ],
+    };
+    const persistedTarget = {
+      ...before,
+      relations: [ownerRole, inverseRoute, inverseGraphql],
+    };
+    const compiler = makeCompiler();
+    const { contract } = await compiler.compile({
+      operation: 'update',
+      tableName: 'enfyra_user',
+      tableId: '4',
+      beforeMetadata: before,
+      afterMetadata: target,
+    });
+    const updateTable = vi.fn(async () => ({
+      id: 4,
+      affectedTables: ['enfyra_user'],
+    }));
+    const { executor } = makeExecutor({
+      tableHandlerService: { updateTable },
+      queryBuilderService: {
+        findOne: vi.fn()
+          .mockResolvedValueOnce(before)
+          .mockResolvedValue(persistedTarget),
+      },
+    });
+
+    await expect(
+      executor.execute({
+        contract,
+        ownerTableId: 4,
+        body: target as any,
+      }),
+    ).resolves.toMatchObject({ recordId: 4 });
+    expect(updateTable).toHaveBeenCalledWith(
+      4,
+      expect.objectContaining({
+        relations: expect.arrayContaining([
+          expect.objectContaining({ id: 6 }),
+          expect.objectContaining({ id: 14 }),
+          expect.objectContaining({ id: 2314 }),
+        ]),
+      }),
+      expect.any(Object),
+    );
+    expect(updateTable.mock.calls[0][1].relations).toHaveLength(3);
+    expect(updateTable.mock.calls[0][1].relations).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 2378 })]),
     );
   });
 

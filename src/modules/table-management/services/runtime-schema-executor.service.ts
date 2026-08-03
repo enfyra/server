@@ -200,7 +200,15 @@ export class RuntimeSchemaExecutorService {
       where: expectedRevision && tableId != null
         ? { [pkField]: tableId }
         : { name: tableName },
-      fields: ['*', 'columns.*', 'relations.*', 'relations.targetTable.name'],
+      fields: [
+        '*',
+        'columns.*',
+        'relations.*',
+        'relations.targetTable.name',
+        'relations.mappedBy.id',
+        'relations.mappedBy._id',
+        'relations.mappedBy.propertyName',
+      ],
     });
     if (!expectedRevision) {
       if (contract.context.operation === 'create' && tableMeta) {
@@ -244,7 +252,15 @@ export class RuntimeSchemaExecutorService {
       where: tableId != null
         ? { [pkField]: tableId }
         : { name: tableName },
-      fields: ['*', 'columns.*', 'relations.*', 'relations.targetTable.name'],
+      fields: [
+        '*',
+        'columns.*',
+        'relations.*',
+        'relations.targetTable.name',
+        'relations.mappedBy.id',
+        'relations.mappedBy._id',
+        'relations.mappedBy.propertyName',
+      ],
     });
 
     if (!expectedRevision) {

@@ -173,7 +173,7 @@ function normalizeRelations(
           relation?.targetTable?.name ??
           relation?.targetTable,
       );
-      const mappedBy = stringValue(
+      const mappedBy = relationReferenceValue(
         relation?.mappedBy ??
           relation?.mappedById ??
           relation?.mappedByRelationId,
@@ -270,6 +270,18 @@ function normalizeJsonValue(value: unknown): unknown {
     Object.entries(value as Record<string, unknown>)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, nested]) => [key, normalizeJsonValue(nested)]),
+  );
+}
+
+function relationReferenceValue(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value !== 'object') return String(value);
+  const reference = value as Record<string, unknown>;
+  return stringValue(
+    reference.propertyName ??
+      reference.name ??
+      reference.id ??
+      reference._id,
   );
 }
 

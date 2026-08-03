@@ -257,7 +257,15 @@ export class RuntimeMetadataSchemaRouterService {
     const existing = await this.deps.queryBuilderService.findOne({
       table: 'enfyra_table',
       where: { [this.getPkField()]: tableId },
-      fields: ['*', 'columns.*', 'relations.*', 'relations.targetTable.name'],
+      fields: [
+        '*',
+        'columns.*',
+        'relations.*',
+        'relations.targetTable.name',
+        'relations.mappedBy.id',
+        'relations.mappedBy._id',
+        'relations.mappedBy.propertyName',
+      ],
     });
     if (!existing) {
       throw new ResourceNotFoundException('enfyra_table', String(tableId));
@@ -309,7 +317,15 @@ export class RuntimeMetadataSchemaRouterService {
     const existing = await this.deps.queryBuilderService.findOne({
       table: 'enfyra_table',
       where: { [this.getPkField()]: tableId },
-      fields: ['*', 'columns.*', 'relations.*', 'relations.targetTable.name'],
+      fields: [
+        '*',
+        'columns.*',
+        'relations.*',
+        'relations.targetTable.name',
+        'relations.mappedBy.id',
+        'relations.mappedBy._id',
+        'relations.mappedBy.propertyName',
+      ],
     });
     if (!existing) {
       throw new ResourceNotFoundException('enfyra_table', String(tableId));
@@ -427,6 +443,9 @@ export class RuntimeMetadataSchemaRouterService {
         'relations.targetTable.id',
         'relations.targetTable._id',
         'relations.targetTable.name',
+        'relations.mappedBy.id',
+        'relations.mappedBy._id',
+        'relations.mappedBy.propertyName',
       ],
     });
     if (!table) {
