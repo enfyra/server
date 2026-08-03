@@ -117,6 +117,28 @@ describe('SQL physical schema contract', () => {
     ).toEqual([]);
   });
 
+  it('includes the implicit owning one-to-one FK unique in the physical contract', () => {
+    expect(
+      buildSqlUniqueContracts('course_definition', {
+        uniques: [],
+        relations: [
+          {
+            propertyName: 'room',
+            type: 'one-to-one',
+            targetTable: 'room_definition',
+            foreignKeyColumn: 'roomId',
+          },
+        ],
+      } as any),
+    ).toEqual([
+      {
+        name: 'uq_course_definition_roomId',
+        logicalColumns: ['room'],
+        physicalColumns: ['roomId'],
+      },
+    ]);
+  });
+
   it('appends id tie-breakers to non-unique physical indexes once', () => {
     expect(buildSqlIndexContracts('enfyra_route', table)).toEqual([
       {

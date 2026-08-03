@@ -51,28 +51,32 @@ describe('CacheService', () => {
     );
   });
 
-  it('uses one global coordination key across runtime namespaces', async () => {
+  it('scopes global coordination keys to the app namespace', async () => {
     const redis = {
       set: vi.fn(async () => 'OK'),
     };
-    const service = new CacheService({
+    const service = (nodeName: string) => new CacheService({
       redis: redis as any,
       envService: {
-        get: (key: string) => (key === 'NODE_NAME' ? 'app-a' : null),
+        get: (key: string) => (key === 'NODE_NAME' ? nodeName : null),
       } as any,
     });
 
-    await service.acquire('sys:provision_init_lock', 'token', 7000, {
+    await service('app-a').acquire('sys:provision_init_lock', 'token-a', 7000, {
+      global: true,
+    });
+    await service('app-a').acquire('sys:provision_init_lock', 'token-b', 7000, {
+      global: true,
+    });
+    await service('app-b').acquire('sys:provision_init_lock', 'token-c', 7000, {
       global: true,
     });
 
-    expect(redis.set).toHaveBeenCalledWith(
-      'sys:provision_init_lock',
-      'token',
-      'PX',
-      7000,
-      'NX',
-    );
+    expect(redis.set.mock.calls.map(([key]) => key)).toEqual([
+      'app-a:sys:provision_init_lock',
+      'app-a:sys:provision_init_lock',
+      'app-b:sys:provision_init_lock',
+    ]);
   });
 
   it('renews a lock only while the caller still owns it', async () => {

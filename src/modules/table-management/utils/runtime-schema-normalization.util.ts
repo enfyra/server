@@ -180,9 +180,9 @@ function normalizeRelations(
       );
       const ownsForeignKey =
         (type === 'many-to-one' || type === 'one-to-one') && !mappedBy;
+      const ownsJunction = type === 'many-to-many' && !mappedBy;
       const generatedJunction =
-        type === 'many-to-many' &&
-        !mappedBy &&
+        ownsJunction &&
         tableName &&
         propertyName &&
         targetTableName
@@ -198,14 +198,16 @@ function normalizeRelations(
         targetTableName,
         mappedBy,
         foreignKeyColumn:
-          stringValue(relation?.foreignKeyColumn) ||
-          (ownsForeignKey
-            ? options.backend === 'mongodb'
-              ? propertyName
-              : getForeignKeyColumnName(propertyName)
-            : ''),
+          ownsForeignKey
+            ? stringValue(relation?.foreignKeyColumn) ||
+              (options.backend === 'mongodb'
+                ? propertyName
+                : getForeignKeyColumnName(propertyName))
+            : '',
         junctionTableName:
-          stringValue(relation?.junctionTableName) || generatedJunction,
+          ownsJunction
+            ? stringValue(relation?.junctionTableName) || generatedJunction
+            : '',
         isNullable: relation?.isNullable ?? true,
         onDelete: stringValue(relation?.onDelete) || 'SET NULL',
         inversePropertyName:

@@ -27,8 +27,7 @@ export class CacheService implements ICache {
     }
     this.nodeName = this.envService.get('NODE_NAME') || null;
   }
-  private decorateKey(key: string, options?: CacheKeyOptions): string {
-    if (options?.global) return key;
+  private decorateKey(key: string, _options?: CacheKeyOptions): string {
     if (!this.nodeName) {
       return key;
     }

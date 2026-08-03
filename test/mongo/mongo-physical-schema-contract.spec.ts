@@ -3,6 +3,7 @@ import {
   buildMongoFullIndexSpecs,
   buildMongoStoredRelationContracts,
   buildMongoWritableFieldSet,
+  getRemovedMongoStoredFields,
   getMongoInverseRelationForeignField,
   getMongoStoredRelationField,
   isMongoInverseRelation,
@@ -153,5 +154,57 @@ describe('Mongo physical schema contract', () => {
       name: 'post_updatedAt_idx',
       logicalFields: ['updatedAt'],
     });
+  });
+
+  it('keeps a persisted single-relation index on the canonical FK index name', () => {
+    const specs = buildMongoFullIndexSpecs({
+      collectionName: 'post',
+      indexes: [['author']],
+      relations: [{ propertyName: 'author', type: 'many-to-one' }],
+    });
+    const authorSpecs = specs.filter(
+      (spec) => spec.logicalFields.length === 1 && spec.logicalFields[0] === 'author',
+    );
+
+    expect(authorSpecs).toEqual([
+      {
+        keys: { author: 1, _id: 1 },
+        options: { name: 'post_author_fk_idx' },
+        name: 'post_author_fk_idx',
+        logicalFields: ['author'],
+      },
+    ]);
+  });
+
+  it('removes stored relation fields only when the physical mapping disappears', () => {
+    const source = {
+      columns: [{ name: '_id' }],
+      relations: [
+        {
+          propertyName: 'teacher',
+          type: 'many-to-one',
+          foreignKeyColumn: 'teacher',
+        },
+      ],
+    };
+
+    expect(
+      getRemovedMongoStoredFields(source, {
+        columns: [{ name: '_id' }],
+        relations: [
+          {
+            propertyName: 'mentor',
+            type: 'many-to-one',
+            foreignKeyColumn: 'teacher',
+          },
+        ],
+      }),
+    ).toEqual([]);
+    expect(
+      getRemovedMongoStoredFields(source, {
+        columns: [{ name: '_id' }],
+        relations: [],
+      }),
+    ).toEqual(['teacher']);
   });
 });

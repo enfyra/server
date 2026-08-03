@@ -2,6 +2,7 @@ import type { QueryBuilderService } from '@enfyra/kernel';
 import type { Knex } from 'knex';
 import type { Db } from 'mongodb';
 import { buildMongoFullIndexSpecs } from '../../../engines/mongo';
+import { getRemovedMongoStoredFields } from '../../../engines/mongo/utils/mongo-physical-schema-contract';
 import {
   buildMongoValidationSchema,
   MONGO_VALIDATION_LEVEL,
@@ -9,6 +10,7 @@ import {
 } from '../../../engines/mongo/utils/mongo-validation-schema.util';
 import {
   buildSqlForeignKeyContracts,
+  isSqlForeignKeyRelation,
 } from '../../../engines/knex/utils/sql-physical-schema-contract';
 import {
   compareSchemas,
@@ -209,7 +211,7 @@ export class RuntimeSchemaTargetAttestorService {
     if (!(await knex.schema.hasTable(state.name))) {
       return [`physical table ${state.name} is missing`];
     }
-    const definition = this.toPhysicalDefinition(state);
+    const definition = this.toSqlPhysicalDefinition(state);
     const schema = parseSnapshotToSchema({ [state.name]: definition })[0];
     const current = await getCurrentDatabaseSchema(knex, state.name);
     const diff = compareSchemas(schema, current);
@@ -263,7 +265,7 @@ export class RuntimeSchemaTargetAttestorService {
   ): Promise<void> {
     const expected = buildSqlForeignKeyContracts(
       state.name,
-      this.toPhysicalDefinition(state).relations,
+      this.toSqlPhysicalDefinition(state).relations,
     );
     const actual = await this.readSqlForeignKeys(knex, state.name);
     for (const target of expected) {
@@ -458,17 +460,7 @@ export class RuntimeSchemaTargetAttestorService {
     target: RuntimeTableSchemaContract,
   ): Promise<void> {
     if (!source) return;
-    const sourceFields = new Set([
-      ...source.columns.map((column) => column.name),
-      ...source.relations.map((relation) => relation.propertyName),
-    ]);
-    const targetFields = new Set([
-      ...target.columns.map((column) => column.name),
-      ...target.relations.map((relation) => relation.propertyName),
-    ]);
-    const removed = [...sourceFields].filter(
-      (field) => field !== '_id' && !targetFields.has(field),
-    );
+    const removed = getRemovedMongoStoredFields(source, target);
     if (removed.length === 0) return;
     const db = this.deps.queryBuilderService.getMongoDb();
     for (const field of removed) {
@@ -515,6 +507,14 @@ export class RuntimeSchemaTargetAttestorService {
         ...relation,
         targetTable: relation.targetTableName,
       })),
+    };
+  }
+
+  private toSqlPhysicalDefinition(state: RuntimeTableSchemaContract): any {
+    const definition = this.toPhysicalDefinition(state);
+    return {
+      ...definition,
+      relations: definition.relations.filter(isSqlForeignKeyRelation),
     };
   }
 

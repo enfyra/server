@@ -14,6 +14,7 @@ import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
 import { getDeletedIds } from '../utils/get-deleted-ids';
 import { getRelationMappedByProperty } from '../utils/relation-target-id.util';
 import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
+import { getRemovedMongoStoredFields } from '../../../engines/mongo/utils/mongo-physical-schema-contract';
 import { MongoTableHandlerService } from './mongo-table-handler-base.service';
 import {
   ensureMongoSingleRecord,
@@ -559,7 +560,10 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
                 existingRel?.foreignKeyColumn ||
                 rel.foreignKeyColumn ||
                 rel.propertyName;
-            } else if (updateResolvedMappedBy) {
+            } else if (
+              updateResolvedMappedBy &&
+              rel.type !== 'many-to-many'
+            ) {
               const owningRel = await this.queryBuilderService.findOne({
                 table: 'enfyra_relation',
                 where: { _id: updateResolvedMappedBy },
@@ -825,17 +829,19 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
         }
 
         const runtimeContract = (context as any)?.$schemaContract?.contract;
-        const removedColumns = Array.isArray(
-          runtimeContract?.context?.diff?.removedColumns,
-        )
-          ? runtimeContract.context.diff.removedColumns
-          : [];
-        if (runtimeContract && (renamedColumns.length > 0 || removedColumns.length > 0)) {
+        const removedFields =
+          runtimeContract?.context?.source && runtimeContract?.context?.target
+            ? getRemovedMongoStoredFields(
+                runtimeContract.context.source,
+                runtimeContract.context.target,
+              )
+            : [];
+        if (runtimeContract && (renamedColumns.length > 0 || removedFields.length > 0)) {
           this.assertNotAborted();
           await this.mongoPhysicalMigrationService.applyRuntimeFieldChanges(
             body.name || exists.name,
             renamedColumns,
-            removedColumns,
+            removedFields,
           );
           stepLog(`STEP 13 applied runtime physical field changes (+${lap()}ms)`);
         } else if (renamedColumns.length > 0) {

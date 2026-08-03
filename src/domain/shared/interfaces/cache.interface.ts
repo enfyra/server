@@ -1,4 +1,5 @@
 export interface CacheKeyOptions {
+  /** Coordinates across every replica in the current NODE_NAME app namespace. */
   global?: boolean;
 }
 

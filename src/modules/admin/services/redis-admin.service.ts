@@ -336,14 +336,7 @@ export class RedisAdminService {
         reason: `BullMQ system queue ${queue.queueName}`,
       };
     }
-    if (
-      [
-        BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
-        PROVISION_LOCK_KEY,
-        SAGA_ORPHAN_RECOVERY_LOCK_KEY,
-        MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
-      ].includes(key)
-    ) {
+    if (this.isSystemLockKey(key)) {
       return {
         isSystem: true,
         modifiable: false,
@@ -808,15 +801,8 @@ export class RedisAdminService {
     if (key.startsWith('user_cache:') || key.startsWith('user_cache_meta:')) {
       return `${this.nodeName}:${key}`;
     }
-    if (
-      [
-        BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
-        PROVISION_LOCK_KEY,
-        SAGA_ORPHAN_RECOVERY_LOCK_KEY,
-        MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
-      ].includes(key)
-    ) {
-      return key;
+    if (this.isSystemLockKey(key)) {
+      return `${this.nodeName}:${key}`;
     }
     return `${this.nodeName}:user_cache:${key}`;
   }
@@ -828,15 +814,8 @@ export class RedisAdminService {
     if (key.startsWith('user_cache:') || key.startsWith('user_cache_meta:')) {
       return `${this.nodeName}:${key}`;
     }
-    if (
-      [
-        BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
-        PROVISION_LOCK_KEY,
-        SAGA_ORPHAN_RECOVERY_LOCK_KEY,
-        MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
-      ].includes(key)
-    ) {
-      return key;
+    if (this.isSystemLockKey(key)) {
+      return `${this.nodeName}:${key}`;
     }
     const currentNamespaceKey = `${this.nodeName}:${key}`;
     if ((await this.redis.exists(currentNamespaceKey)) > 0) {
@@ -862,6 +841,19 @@ export class RedisAdminService {
       key.startsWith('runtime-monitor:') ||
       key.startsWith('cluster-telemetry:') ||
       Object.values(SYSTEM_QUEUES).includes(firstPart as any)
+    );
+  }
+
+  private isSystemLockKey(key: string): boolean {
+    const lockKeys = [
+      BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
+      PROVISION_LOCK_KEY,
+      SAGA_ORPHAN_RECOVERY_LOCK_KEY,
+      MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
+    ];
+    return lockKeys.some(
+      (lockKey) =>
+        key === lockKey || key === `${this.nodeName}:${lockKey}`,
     );
   }
 

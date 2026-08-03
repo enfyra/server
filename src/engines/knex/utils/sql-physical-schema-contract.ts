@@ -135,18 +135,35 @@ export function buildSqlUniqueContracts(
   tableName: string,
   table: Pick<TableLike, 'uniques' | 'relations'>,
 ): SqlPhysicalUniqueContract[] {
-  return (table.uniques || [])
+  const relations = (table.relations || []) as RelationLike[];
+  const groups = [
+    ...(table.uniques || []),
+    ...relations
+      .filter(
+        (relation) =>
+          relation.type === 'one-to-one' && isSqlForeignKeyRelation(relation),
+      )
+      .map((relation) => [relation.propertyName]),
+  ];
+  const seen = new Set<string>();
+  return groups
     .filter((group) => Array.isArray(group) && group.length > 0)
     .map((group) => {
       const physicalColumns = resolveSqlPhysicalColumns(
         group,
-        (table.relations || []) as RelationLike[],
+        relations,
       );
       return {
         name: `uq_${tableName}_${physicalColumns.join('_')}`,
         logicalColumns: group,
         physicalColumns,
       };
+    })
+    .filter((contract) => {
+      const key = contract.physicalColumns.join('|');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
     });
 }
 

@@ -2,6 +2,7 @@ import type {
   MongoColumnLike,
   MongoPhysicalIndexSpec,
   MongoRelationLike,
+  MongoStoredFieldTable,
   MongoStoredRelationContract,
 } from '../types/mongo-physical-schema-contract.types';
 
@@ -39,7 +40,7 @@ export function getMongoInverseRelationForeignField(
 }
 
 export function buildMongoStoredRelationContracts(
-  relations: MongoRelationLike[] = [],
+  relations: readonly MongoRelationLike[] = [],
 ): MongoStoredRelationContract[] {
   const contracts: MongoStoredRelationContract[] = [];
 
@@ -60,10 +61,9 @@ export function buildMongoStoredRelationContracts(
   return contracts;
 }
 
-export function buildMongoWritableFieldSet(tableMetadata: {
-  columns?: Array<{ name?: string }>;
-  relations?: MongoRelationLike[];
-}): Set<string> {
+export function buildMongoWritableFieldSet(
+  tableMetadata: MongoStoredFieldTable,
+): Set<string> {
   const fields = new Set<string>();
 
   for (const column of tableMetadata.columns || []) {
@@ -77,6 +77,17 @@ export function buildMongoWritableFieldSet(tableMetadata: {
   }
 
   return fields;
+}
+
+export function getRemovedMongoStoredFields(
+  source: MongoStoredFieldTable,
+  target: MongoStoredFieldTable,
+): string[] {
+  const sourceFields = buildMongoWritableFieldSet(source);
+  const targetFields = buildMongoWritableFieldSet(target);
+  return [...sourceFields].filter(
+    (field) => field !== '_id' && !targetFields.has(field),
+  );
 }
 
 function getMongoIndexFilterType(columnType?: string): string | null {
@@ -167,6 +178,11 @@ export function buildMongoFullIndexSpecs(input: {
   const uniques = input.uniques || [];
   const indexes = input.indexes || [];
   const relations = input.relations || [];
+  const storedRelationFields = new Set(
+    relations
+      .map((relation) => getMongoStoredRelationField(relation))
+      .filter((field): field is string => Boolean(field)),
+  );
 
   for (const index of indexes) {
     for (const field of index) {
@@ -222,10 +238,14 @@ export function buildMongoFullIndexSpecs(input: {
     for (const field of index) {
       keys[field] = temporalDirection;
     }
+    const indexName =
+      index.length === 1 && storedRelationFields.has(index[0])
+        ? `${input.collectionName}_${index[0]}_fk_idx`
+        : `${input.collectionName}_${index.join('_')}_idx`;
     specs.push({
       keys: withStableIdTieBreaker(keys),
-      options: { name: `${input.collectionName}_${index.join('_')}_idx` },
-      name: `${input.collectionName}_${index.join('_')}_idx`,
+      options: { name: indexName },
+      name: indexName,
       logicalFields: index,
     });
   }

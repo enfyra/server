@@ -15,6 +15,7 @@ import type {
 import type { TableHandlerService } from './table-handler.service';
 import type { RuntimeSchemaContractCompilerService } from './runtime-schema-contract-compiler.service';
 import type { RuntimeSchemaExecutorService } from './runtime-schema-executor.service';
+import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
 
 export class RuntimeMetadataSchemaRouterService {
   constructor(
@@ -365,6 +366,7 @@ export class RuntimeMetadataSchemaRouterService {
   private buildCompleteTarget(existing: any, body: any): any {
     const pk = this.getPkField();
     const target: any = { ...existing };
+    const fieldRenames = new Map<string, string>();
     const scalarFields = [
       'name', 'description', 'alias', 'isSingleRecord',
       'graphqlEnabled', 'validateBody',
@@ -384,35 +386,103 @@ export class RuntimeMetadataSchemaRouterService {
     }
     if (Array.isArray(body.columns)) {
       target.columns = body.columns.map((col: any) => {
-        const matchById = col[pk] != null
+        const childId = col[pk] ?? col.id ?? col._id;
+        const matchById = childId != null
           ? (existing.columns || []).find(
-              (c: any) => String(c[pk]) === String(col[pk]),
+              (c: any) =>
+                String(c[pk] ?? c.id ?? c._id) === String(childId),
             )
           : null;
         const matchByName = !matchById && col.name
           ? (existing.columns || []).find((c: any) => c.name === col.name)
           : null;
         const match = matchById || matchByName;
-        if (match) return { ...match, ...col };
+        if (match) {
+          if (match.name && col.name && match.name !== col.name) {
+            fieldRenames.set(match.name, col.name);
+          }
+          return { ...match, ...col };
+        }
         return col;
       });
     }
     if (Array.isArray(body.relations)) {
       target.relations = body.relations.map((rel: any) => {
-        const matchById = rel[pk] != null
+        const childId = rel[pk] ?? rel.id ?? rel._id;
+        const matchById = childId != null
           ? (existing.relations || []).find(
-              (r: any) => String(r[pk]) === String(rel[pk]),
+              (r: any) =>
+                String(r[pk] ?? r.id ?? r._id) === String(childId),
             )
           : null;
         const matchByProp = !matchById && rel.propertyName
           ? (existing.relations || []).find((r: any) => r.propertyName === rel.propertyName)
           : null;
         const match = matchById || matchByProp;
-        if (match) return { ...match, ...rel };
+        if (match) {
+          if (
+            match.propertyName &&
+            rel.propertyName &&
+            match.propertyName !== rel.propertyName
+          ) {
+            fieldRenames.set(match.propertyName, rel.propertyName);
+          }
+          return { ...match, ...rel };
+        }
         return rel;
       });
     }
+    const allowedConstraintFields = new Set<string>([
+      'id',
+      '_id',
+      'createdAt',
+      'updatedAt',
+      ...(target.columns || [])
+        .map((column: any) => column.name)
+        .filter(Boolean),
+      ...(target.relations || [])
+        .map((relation: any) => relation.propertyName)
+        .filter(Boolean),
+    ]);
+    target.uniques = this.canonicalizeConstraintGroups(
+      target.uniques,
+      fieldRenames,
+      allowedConstraintFields,
+    );
+    target.indexes = this.canonicalizeConstraintGroups(
+      target.indexes,
+      fieldRenames,
+      allowedConstraintFields,
+    );
     return target;
+  }
+
+  private canonicalizeConstraintGroups(
+    value: unknown,
+    renames: Map<string, string>,
+    allowedFields: Set<string>,
+  ): any[] {
+    let groups = value;
+    if (typeof groups === 'string') {
+      try {
+        groups = JSON.parse(groups);
+      } catch {
+        return [];
+      }
+    }
+    if (!Array.isArray(groups)) return [];
+    return groups
+      .map((group: any) => {
+        const fields = Array.isArray(group) ? group : group?.value;
+        if (!Array.isArray(fields)) return null;
+        const normalized = fields.map((field: unknown) => {
+          const name = String(field);
+          return renames.get(name) ?? name;
+        });
+        if (!normalized.every((field) => allowedFields.has(field))) return null;
+        return Array.isArray(group) ? normalized : { ...group, value: normalized };
+      })
+      .filter((group): group is any => group !== null);
   }
 
   private async loadChild(
@@ -597,45 +667,123 @@ export class RuntimeMetadataSchemaRouterService {
   ): Promise<TCreateTableBody> {
     if (!body.relations?.length) return body;
     const targetLookups = new Map<string, Promise<any>>();
+    const mappedByLookups = new Map<string, Promise<any>>();
     const relations = await Promise.all(
       body.relations.map(async (relation: any) => {
         const rel = { ...relation };
         const raw = rel.targetTable;
-        if (raw == null) return rel;
-        const targetId =
-          raw && typeof raw === 'object' ? this.getReferenceId(raw) : raw;
-        if (targetId == null || targetId === '') {
-          throw new ValidationException(
-            `Relation '${String(rel.propertyName)}' requires a target table id`,
-          );
+        if (raw != null) {
+          const targetId =
+            raw && typeof raw === 'object' ? this.getReferenceId(raw) : raw;
+          if (targetId == null || targetId === '') {
+            throw new ValidationException(
+              `Relation '${String(rel.propertyName)}' requires a target table id`,
+            );
+          }
+          const canonicalId = this.normalizeReferenceId(targetId);
+          const lookupKey = String(canonicalId);
+          let lookup = targetLookups.get(lookupKey);
+          if (!lookup) {
+            lookup = this.deps.queryBuilderService.findOne({
+              table: 'enfyra_table',
+              where: { [this.getPkField()]: canonicalId },
+              fields: ['name'],
+            });
+            targetLookups.set(lookupKey, lookup);
+          }
+          const target = await lookup;
+          if (!target?.name) {
+            throw new ResourceNotFoundException(
+              'enfyra_table',
+              String(canonicalId),
+            );
+          }
+          rel.targetTableName = target.name;
         }
-        const canonicalId =
-          !this.deps.databaseConfigService.isMongoDb() &&
-          typeof targetId === 'string' &&
-          /^\d+$/.test(targetId)
-            ? Number(targetId)
-            : targetId;
-        const lookupKey = String(canonicalId);
-        let lookup = targetLookups.get(lookupKey);
-        if (!lookup) {
-          lookup = this.deps.queryBuilderService.findOne({
-            table: 'enfyra_table',
-            where: { [this.getPkField()]: canonicalId },
-            fields: ['name'],
+
+        const rawMappedBy =
+          rel.mappedBy ?? rel.mappedById ?? rel.mappedByRelationId;
+        if (rawMappedBy != null && rawMappedBy !== '') {
+          const propertyName =
+            typeof rawMappedBy === 'object'
+              ? rawMappedBy.propertyName
+              : undefined;
+          if (propertyName) {
+            rel.mappedBy = String(propertyName);
+          } else if (
+            typeof rawMappedBy === 'object' ||
+            this.isRelationReferenceId(rawMappedBy)
+          ) {
+            const mappedById =
+              typeof rawMappedBy === 'object'
+                ? this.getReferenceId(rawMappedBy)
+                : rawMappedBy;
+            if (mappedById == null || mappedById === '') {
+              throw new ValidationException(
+                `Relation '${String(rel.propertyName)}' has an invalid mappedBy reference`,
+              );
+            }
+            const canonicalId = this.normalizeReferenceId(mappedById);
+            const lookupKey = String(canonicalId);
+            let lookup = mappedByLookups.get(lookupKey);
+            if (!lookup) {
+              lookup = this.deps.queryBuilderService.findOne({
+                table: 'enfyra_relation',
+                where: { [this.getPkField()]: canonicalId },
+                fields: ['propertyName'],
+              });
+              mappedByLookups.set(lookupKey, lookup);
+            }
+            const mappedBy = await lookup;
+            if (!mappedBy?.propertyName) {
+              throw new ResourceNotFoundException(
+                'enfyra_relation',
+                String(canonicalId),
+              );
+            }
+            rel.mappedBy = mappedBy.propertyName;
+          }
+        }
+        delete rel.mappedById;
+        delete rel.mappedByRelationId;
+        if (
+          rel.type === 'many-to-many' &&
+          !rel.mappedBy &&
+          body.name &&
+          rel.propertyName &&
+          rel.targetTableName
+        ) {
+          const junction = getSqlJunctionPhysicalNames({
+            sourceTable: body.name,
+            propertyName: rel.propertyName,
+            targetTable: rel.targetTableName,
           });
-          targetLookups.set(lookupKey, lookup);
+          rel.junctionTableName ||= junction.junctionTableName;
+          rel.junctionSourceColumn ||= junction.junctionSourceColumn;
+          rel.junctionTargetColumn ||= junction.junctionTargetColumn;
         }
-        const target = await lookup;
-        if (!target?.name) {
-          throw new ResourceNotFoundException(
-            'enfyra_table',
-            String(canonicalId),
-          );
-        }
-        rel.targetTableName = target.name;
         return rel;
       }),
     );
     return { ...body, relations };
+  }
+
+  private normalizeReferenceId(value: unknown): unknown {
+    if (this.deps.databaseConfigService.isMongoDb()) {
+      return typeof value === 'string' && ObjectId.isValid(value)
+        ? new ObjectId(value)
+        : value;
+    }
+    return typeof value === 'string' && /^\d+$/.test(value)
+      ? Number(value)
+      : value;
+  }
+
+  private isRelationReferenceId(value: unknown): boolean {
+    if (typeof value === 'number') return true;
+    if (typeof value !== 'string') return false;
+    return this.deps.databaseConfigService.isMongoDb()
+      ? ObjectId.isValid(value)
+      : /^\d+$/.test(value);
   }
 }

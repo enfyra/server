@@ -42,6 +42,7 @@
     "test:e2e:flow-engine": "node test/flow-engine.e2e.js",
     "test:e2e:query-builder": "node test/query-builder.e2e.js",
     "test:e2e:compiled-code-db": "tsx test/compiled-code-db.e2e.ts",
+    "test:e2e:bootstrap-boot-race": "tsx test/e2e/bootstrap-boot-race.e2e.ts",
     "test:e2e:snapshot-migration-matrix": "tsx test/e2e/snapshot-migration-database-matrix.e2e.ts",
     "test:e2e:bootstrap-randomized-matrix": "bash scripts/e2e-bootstrap-randomized-matrix.sh",
     "test:e2e:realtime-chat-load": "tsx test/realtime-chat-app.e2e.ts",

@@ -193,6 +193,32 @@ export async function generateSQLFromDiff(
     renamedColumns.add(rename.newName);
     plannedColumns.add(rename.newName);
   }
+  const pendingForeignKeyCreates: string[] = [];
+  for (const fkRecreate of ensureArray(fkDiff.recreate)) {
+    const {
+      tableName: fkTableName,
+      columnName,
+      targetTable,
+      targetColumn,
+      onDelete,
+    } = fkRecreate;
+    const fkName = `fk_${fkTableName}_${columnName}`;
+    logger.log(`Recreating FK constraint ${fkName} with onDelete: ${onDelete}`);
+    const existingConstraint = await findForeignKeyConstraintName(
+      knex,
+      fkTableName,
+      columnName,
+      dbType,
+    );
+    if (existingConstraint) {
+      sqlStatements.push(
+        generateDropForeignKeySQL(fkTableName, existingConstraint, dbType),
+      );
+    }
+    pendingForeignKeyCreates.push(
+      `ALTER TABLE ${qt(fkTableName)} ADD CONSTRAINT ${qt(fkName)} FOREIGN KEY (${qt(columnName)}) REFERENCES ${qt(targetTable)} (${qt(targetColumn || 'id')}) ON DELETE ${onDelete} ON UPDATE CASCADE`,
+    );
+  }
   for (const col of ensureArray(columnDiff.delete)) {
     if (col.isForeignKey) {
       const constraintName = await findForeignKeyConstraintName(
@@ -466,31 +492,7 @@ export async function generateSQLFromDiff(
     const { tableName: junctionName } = junctionDrop;
     sqlStatements.push(`DROP TABLE IF EXISTS ${qt(junctionName)}`);
   }
-  for (const fkRecreate of ensureArray(fkDiff.recreate)) {
-    const {
-      tableName: fkTableName,
-      columnName,
-      targetTable,
-      targetColumn,
-      onDelete,
-    } = fkRecreate;
-    const fkName = `fk_${fkTableName}_${columnName}`;
-    logger.log(`Recreating FK constraint ${fkName} with onDelete: ${onDelete}`);
-    const existingConstraint = await findForeignKeyConstraintName(
-      knex,
-      fkTableName,
-      columnName,
-      dbType,
-    );
-    if (existingConstraint) {
-      sqlStatements.push(
-        generateDropForeignKeySQL(fkTableName, existingConstraint, dbType),
-      );
-    }
-    sqlStatements.push(
-      `ALTER TABLE ${qt(fkTableName)} ADD CONSTRAINT ${qt(fkName)} FOREIGN KEY (${qt(columnName)}) REFERENCES ${qt(targetTable)} (${qt(targetColumn || 'id')}) ON DELETE ${onDelete} ON UPDATE CASCADE`,
-    );
-  }
+  sqlStatements.push(...pendingForeignKeyCreates);
   return sqlStatements;
 }
 export function generateBatchSQL(sqlStatements: string[]): string {

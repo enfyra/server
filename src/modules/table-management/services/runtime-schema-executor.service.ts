@@ -16,6 +16,7 @@ import type {
 } from '../types/runtime-schema-executor.types';
 import { verifySchemaMutationContractHash } from '../../../shared/utils/schema-mutation-contract.util';
 import { normalizeRuntimeTableSchema } from '../utils/runtime-schema-normalization.util';
+import { formatRuntimeSchemaContractDiff } from '../utils/runtime-schema-contract-diff.util';
 import { hashCanonical } from '../../../shared/utils/schema-mutation-contract.util';
 import type { QueryBuilderService } from '@enfyra/kernel';
 import type { RuntimeSchemaTargetAttestorService } from './runtime-schema-target-attestor.service';
@@ -287,8 +288,14 @@ export class RuntimeSchemaExecutorService {
     }
     const currentRevision = hashCanonical(normalized.contract);
     if (currentRevision !== expectedRevision) {
+      const details = contract.context.target
+        ? formatRuntimeSchemaContractDiff(
+            contract.context.target,
+            normalized.contract,
+          )
+        : 'target-contract-unavailable';
       throw new Error(
-        `Schema mutation target revision mismatch: expected=${expectedRevision}, current=${currentRevision}. The database unit of work will be rolled back.`,
+        `Schema mutation target revision mismatch: expected=${expectedRevision}, current=${currentRevision}, diff=${details}. The database unit of work will be rolled back.`,
       );
     }
   }

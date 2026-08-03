@@ -80,6 +80,7 @@ function makeExecutor(deps: Record<string, unknown> = {}) {
     tableHandlerService,
     journal,
     unitOfWork,
+    queryBuilderService,
   };
 }
 
@@ -147,6 +148,43 @@ describe('Runtime schema normalization', () => {
     });
     expect(hashCanonical(hydrated!.contract)).toBe(
       hashCanonical(scalar!.contract),
+    );
+  });
+
+  it('ignores inverse-only physical mappings in the logical contract', () => {
+    const intent = normalizeRuntimeTableSchema(
+      {
+        name: 'student',
+        relations: [
+          {
+            propertyName: 'courses',
+            type: 'many-to-many',
+            targetTableName: 'course',
+            mappedBy: 'students',
+          },
+        ],
+      },
+      { backend: 'mongodb', mode: 'persisted' },
+    );
+    const persisted = normalizeRuntimeTableSchema(
+      {
+        name: 'student',
+        relations: [
+          {
+            propertyName: 'courses',
+            type: 'many-to-many',
+            targetTableName: 'course',
+            mappedBy: { propertyName: 'students' },
+            foreignKeyColumn: 'students',
+            junctionTableName: 'j_legacy_mapping',
+          },
+        ],
+      },
+      { backend: 'mongodb', mode: 'persisted' },
+    );
+
+    expect(hashCanonical(intent!.contract)).toBe(
+      hashCanonical(persisted!.contract),
     );
   });
 
@@ -391,6 +429,70 @@ describe('Runtime inverse metadata attestation', () => {
         },
       } as any),
     ).rejects.toThrow(/validator/i);
+  });
+
+  it('does not treat a logical relation rename as a removed Mongo field when the stored field is stable', async () => {
+    const countDocuments = vi.fn().mockResolvedValue(1);
+    const service = new RuntimeSchemaTargetAttestorService({
+      queryBuilderService: {
+        getMongoDb: () => ({
+          collection: () => ({ countDocuments }),
+        }),
+      } as any,
+      databaseConfigService: { isMongoDb: () => true } as any,
+    });
+    const source = {
+      name: 'course',
+      columns: [],
+      relations: [
+        {
+          propertyName: 'teacher',
+          type: 'many-to-one',
+          targetTableName: 'teacher',
+          foreignKeyColumn: 'teacher',
+        },
+      ],
+    };
+    const target = {
+      name: 'course',
+      columns: [],
+      relations: [
+        {
+          propertyName: 'mentor',
+          type: 'many-to-one',
+          targetTableName: 'teacher',
+          foreignKeyColumn: 'teacher',
+        },
+      ],
+    };
+
+    await expect(
+      (service as any).assertRemovedMongoFields(source, target),
+    ).resolves.toBeUndefined();
+    expect(countDocuments).not.toHaveBeenCalled();
+  });
+
+  it('excludes inverse one-to-one relations from the SQL column definition', () => {
+    const service = new RuntimeSchemaTargetAttestorService({
+      queryBuilderService: {} as any,
+      databaseConfigService: { isMongoDb: () => false } as any,
+    });
+    const definition = (service as any).toSqlPhysicalDefinition({
+      name: 'room',
+      columns: [],
+      relations: [
+        {
+          propertyName: 'course',
+          type: 'one-to-one',
+          targetTableName: 'course',
+          mappedBy: 'room',
+        },
+      ],
+      uniques: [],
+      indexes: [],
+    });
+
+    expect(definition.relations).toEqual([]);
   });
 });
 
@@ -985,5 +1087,54 @@ describe('H7: onDelete change must be detected as schema change', () => {
       afterMetadata: after,
     });
     expect(contract.context.diff.schemaChanged).toBe(true);
+  });
+});
+
+describe('H8: contract diff surfaces canonical drift', () => {
+  it('reports bounded structured diff on target revision mismatch', async () => {
+    const executor = makeExecutor({});
+    const contract = await compileRealContract({
+      afterMetadata: {
+        ...baseAfter,
+        relations: [
+          {
+            id: 10,
+            propertyName: 'author',
+            type: 'many-to-one',
+            targetTableName: 'user',
+            mappedBy: '13',
+            isNullable: true,
+            onDelete: 'SET NULL',
+          },
+        ],
+      },
+    });
+
+    const drifted = {
+      ...baseAfter,
+      relations: [
+        {
+          id: 10,
+          propertyName: 'author',
+          type: 'many-to-one',
+          targetTable: { id: 5, name: 'user' },
+          mappedBy: { id: 99, propertyName: 'posts' },
+          isNullable: true,
+          onDelete: 'SET NULL',
+        },
+      ],
+    };
+    executor.queryBuilderService.findOne
+      .mockReset()
+      .mockResolvedValueOnce(baseBefore)
+      .mockResolvedValue(drifted);
+
+    await expect(
+      executor.executor.execute({
+        contract,
+        tableId: '42',
+        context: {},
+      }),
+    ).rejects.toThrow(/diff=relations\[author\(mappedBy:13->posts\)\]/);
   });
 });

@@ -21,6 +21,11 @@ export interface MongoColumnLike {
   isPrimary?: boolean;
 }
 
+export interface MongoStoredFieldTable {
+  columns?: readonly MongoColumnLike[];
+  relations?: readonly MongoRelationLike[];
+}
+
 export interface MongoPhysicalIndexSpec {
   keys: Record<string, 1 | -1>;
   options: Record<string, any>;
