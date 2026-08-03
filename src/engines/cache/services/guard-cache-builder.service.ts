@@ -189,6 +189,13 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
       if (!position) continue;
 
       if (root.isGlobal) {
+        // Global wins: a guard with isGlobal=true applies everywhere, even if
+        // a route scope is also present (conflicting data — warn instead of silently picking one).
+        if (root.routePath) {
+          this.logger.warn(
+            `Guard "${root.name}" (id=${root.id}) has both isGlobal=true and route scope — route scope ignored, treated as global`,
+          );
+        }
         if (position === 'pre_auth') {
           cache.preAuthGlobal.push(root);
         } else {
@@ -202,6 +209,10 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
         const list = routeMap.get(root.routePath) || [];
         list.push(root);
         routeMap.set(root.routePath, list);
+      } else {
+        this.logger.warn(
+          `Guard "${root.name}" (id=${root.id}) has no route scope and isGlobal=false — dropped from runtime cache`,
+        );
       }
     }
 

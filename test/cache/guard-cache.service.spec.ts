@@ -164,6 +164,58 @@ describe('GuardCacheBuilder — tree building', () => {
     expect(cache.preAuthByRoute.has('/comments')).toBe(false);
   });
 
+  it('should treat a guard as global when isGlobal is true even if route scope is present (global wins)', async () => {
+    const { svc, registry } = await loadGuardCache(
+      [
+        {
+          id: 1,
+          name: 'both-set',
+          position: 'pre_auth',
+          combinator: 'and',
+          isEnabled: true,
+          isGlobal: true, // global wins over the route scope
+          priority: 0,
+          parent: null,
+          route: { id: 10, path: '/posts' },
+          methods: [],
+        },
+      ],
+      [],
+    );
+    const cache = svc.getRawCache();
+    expect(cache.preAuthGlobal).toHaveLength(1);
+    expect(cache.preAuthByRoute.get('/posts')).toBeUndefined();
+    expect(
+      registry.getGuardsForRoute('pre_auth', '/posts', 'GET'),
+    ).toHaveLength(1);
+    expect(registry.getGuardsForRoute('pre_auth', '/other', 'GET')).toHaveLength(
+      1,
+    );
+  });
+
+  it('should drop root guards with neither route scope nor isGlobal (no silent half-applied state)', async () => {
+    const { svc } = await loadGuardCache(
+      [
+        {
+          id: 1,
+          name: 'nowhere',
+          position: 'pre_auth',
+          combinator: 'and',
+          isEnabled: true,
+          isGlobal: false,
+          priority: 0,
+          parent: null,
+          route: null,
+          methods: [],
+        },
+      ],
+      [],
+    );
+    const cache = svc.getRawCache();
+    expect(cache.preAuthGlobal).toHaveLength(0);
+    expect(cache.preAuthByRoute.size).toBe(0);
+  });
+
   it('should merge global + route guards in getGuardsForRoute', async () => {
     const { registry } = await loadGuardCache(
       [

@@ -1,13 +1,13 @@
-import { DynamicRepositoryFactory } from '../../../modules/dynamic-api/repositories/dynamic-repository.factory';
+import { QueryBuilderService } from '@enfyra/kernel';
 import type { GuardAlertInput } from '../types/guard.types';
 
 export type { GuardAlertInput } from '../types/guard.types';
 
 export class GuardAlertService {
-  private readonly factory: DynamicRepositoryFactory;
+  private readonly queryBuilderService: QueryBuilderService;
 
-  constructor(deps: { dynamicRepositoryFactory: DynamicRepositoryFactory }) {
-    this.factory = deps.dynamicRepositoryFactory;
+  constructor(deps: { queryBuilderService: QueryBuilderService }) {
+    this.queryBuilderService = deps.queryBuilderService;
   }
 
   /**
@@ -21,16 +21,17 @@ export class GuardAlertService {
   }
 
   private async writeAlert(input: GuardAlertInput): Promise<void> {
-    const repo = this.factory.create('enfyra_guard_alert', null as any, false);
-    await repo.create({
-      data: {
-        scope: input.scope,
-        scopeKey: input.scopeKey,
-        routePath: input.routePath,
-        method: input.method,
-        errorCode: input.errorCode,
-        guardName: input.guardName,
-      },
+    // Trusted internal write straight through the kernel query builder. The
+    // DynamicRepository path is not usable here: it requires a request context
+    // (reads `context.$user` for mutation safety) and would throw on a null
+    // context, silently dropping the alert row.
+    await this.queryBuilderService.insert('enfyra_guard_alert', {
+      scope: input.scope,
+      scopeKey: input.scopeKey,
+      routePath: input.routePath,
+      method: input.method,
+      errorCode: input.errorCode,
+      guardName: input.guardName,
     });
   }
 }
