@@ -114,7 +114,7 @@ export const RELOAD_CHAINS: Record<string, string[]> = {
   [SYSTEM_TABLES.routeHandler]: ['route'],
   [SYSTEM_TABLES.routePermission]: ['route'],
   [SYSTEM_TABLES.role]: ['route'],
-  [SYSTEM_TABLES.method]: ['route', 'graphql'],
+  [SYSTEM_TABLES.method]: ['route'],
 
   [SYSTEM_TABLES.guard]: ['guard'],
   [SYSTEM_TABLES.guardRule]: ['guard'],

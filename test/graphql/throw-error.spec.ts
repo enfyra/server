@@ -3,29 +3,29 @@ import { GraphQLError } from 'graphql';
 import { throwGqlError } from '../../src/modules/graphql/utils/throw-error';
 
 describe('throwGqlError extensions contract', () => {
-  it('legacy 3-arg form (string detail) still works for backward compat', () => {
+  it('legacy 3-arg form (string detail) is ignored — only structured options are supported', () => {
     expect(() => throwGqlError('400', 'Missing table name')).toThrowError(
       GraphQLError,
     );
     try {
-      throwGqlError('400', 'Missing table name', 'some-detail');
+      throwGqlError('400', 'Missing table name', 'some-detail' as any);
     } catch (e: any) {
       expect(e).toBeInstanceOf(GraphQLError);
       expect(e.message).toBe('Missing table name');
       expect(e.extensions.code).toBe('400');
-      expect(e.extensions.detail).toBe('some-detail');
-      expect(e.extensions.details).toBe('some-detail');
+      expect(e.extensions.detail).toBeUndefined();
+      expect(e.extensions.details).toBeUndefined();
       expect(e.extensions.statusCode).toBeUndefined();
     }
   });
 
-  it('legacy 3-arg form (object detail) still works for backward compat', () => {
+  it('legacy 3-arg form (object detail) is ignored — only structured options are supported', () => {
     try {
-      throwGqlError('SCRIPT_ERROR', 'boom', { foo: 1 });
+      throwGqlError('SCRIPT_ERROR', 'boom', { foo: 1 } as any);
     } catch (e: any) {
       expect(e.extensions.code).toBe('SCRIPT_ERROR');
-      expect(e.extensions.detail).toEqual({ foo: 1 });
-      expect(e.extensions.details).toEqual({ foo: 1 });
+      expect(e.extensions.detail).toBeUndefined();
+      expect(e.extensions.details).toBeUndefined();
       expect(e.extensions.statusCode).toBeUndefined();
     }
   });

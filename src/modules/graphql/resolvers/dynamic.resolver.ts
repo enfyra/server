@@ -7,12 +7,7 @@ import { QueryBuilderService } from '@enfyra/kernel';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { EnvService, DynamicContextFactory } from '../../../shared/services';
 import { ExecutorEngineService } from '@enfyra/kernel';
-import {
-  RepoRegistryService,
-  GuardCacheBuilder,
-  GuardEvaluatorService,
-} from '../../../engines/cache';
-import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
+import { RepoRegistryService } from '../../../engines/cache';
 import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
 import { loadCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
@@ -26,8 +21,6 @@ export class DynamicResolver {
   private readonly queryBuilderService: QueryBuilderService;
   private readonly executorEngineService: ExecutorEngineService;
   private readonly repoRegistryService: RepoRegistryService;
-  private readonly guardCacheBuilder: GuardCacheBuilder;
-  private readonly guardEvaluatorService: GuardEvaluatorService;
   private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly envService: EnvService;
   private readonly dynamicContextFactory: DynamicContextFactory;
@@ -37,8 +30,6 @@ export class DynamicResolver {
     queryBuilderService: QueryBuilderService;
     executorEngineService: ExecutorEngineService;
     repoRegistryService: RepoRegistryService;
-    guardCacheBuilder: GuardCacheBuilder;
-    guardEvaluatorService: GuardEvaluatorService;
     runtimeRegistryService: RuntimeRegistryService;
     envService: EnvService;
     dynamicContextFactory: DynamicContextFactory;
@@ -47,8 +38,6 @@ export class DynamicResolver {
     this.queryBuilderService = deps.queryBuilderService;
     this.executorEngineService = deps.executorEngineService;
     this.repoRegistryService = deps.repoRegistryService;
-    this.guardCacheBuilder = deps.guardCacheBuilder;
-    this.guardEvaluatorService = deps.guardEvaluatorService;
     this.runtimeRegistryService = deps.runtimeRegistryService;
     this.envService = deps.envService;
     this.apiTokenService = deps.apiTokenService;
@@ -70,7 +59,6 @@ export class DynamicResolver {
   ) {
     const { mainTable, user } = await this.middleware(
       tableName,
-      'GQL_QUERY',
       'QUERY',
       context,
     );
@@ -139,7 +127,6 @@ export class DynamicResolver {
       const graphqlOperation = operation.toUpperCase() as GraphqlOperationName;
       const { user } = await this.middleware(
         tableName,
-        'GQL_MUTATION',
         graphqlOperation,
         context,
       );
@@ -184,7 +171,6 @@ export class DynamicResolver {
 
   private async middleware(
     mainTableName: string,
-    method: string,
     operation: GraphqlOperationName,
     context: any,
   ) {
@@ -208,10 +194,6 @@ export class DynamicResolver {
       );
     }
 
-    const routePath = `/${mainTableName}`;
-    const clientIp = this.resolveClientIp(context);
-    await this.runGuards('pre_auth', routePath, method, clientIp, null);
-
     const accessToken = this.getBearerToken(context);
     const isPublic = definition.publicOperations.includes(operation);
     const user = accessToken
@@ -228,9 +210,6 @@ export class DynamicResolver {
     if (!access.allowed) {
       throwGqlError('403', 'Forbidden');
     }
-
-    const userId = user ? user._id || user.id || null : null;
-    await this.runGuards('post_auth', routePath, method, clientIp, userId);
 
     return {
       user,
@@ -272,49 +251,6 @@ export class DynamicResolver {
       throwGqlError('401', 'Invalid user');
     }
     return user;
-  }
-
-  private async runGuards(
-    position: 'pre_auth' | 'post_auth',
-    routePath: string,
-    method: string,
-    clientIp: string,
-    userId: string | null,
-  ) {
-    await this.guardCacheBuilder.ensureGuardsLoaded();
-    const guards = this.runtimeRegistryService.getGuardsForRoute(
-      position,
-      routePath,
-      method,
-    );
-    if (guards.length === 0) return;
-
-    for (const guard of guards) {
-      const { reject } = await this.guardEvaluatorService.evaluateGuard(guard, {
-        clientIp,
-        routePath,
-        userId,
-      });
-      if (reject) {
-        throwGqlError(reject.errorCode, reject.message, {
-          statusCode: reject.statusCode,
-          details: reject.details,
-        });
-      }
-    }
-  }
-
-  private resolveClientIp(context: any): string {
-    const headers: Record<string, unknown> = {};
-    if (context.request?.headers) {
-      const reqHeaders = context.request.headers;
-      if (typeof reqHeaders.forEach === 'function') {
-        reqHeaders.forEach((value: string, key: string) => {
-          headers[key.toLowerCase()] = value;
-        });
-      }
-    }
-    return resolveClientIpFromRequest({ headers, ip: undefined });
   }
 
   private sanitizeResult(result: any, _tableName?: string): any {

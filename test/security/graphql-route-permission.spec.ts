@@ -27,7 +27,6 @@ function makeResolver(definition: any = baseDefinition) {
   };
   const runtimeRegistryService = {
     getGraphqlDefinitionForTable: vi.fn().mockReturnValue(definition),
-    getGuardsForRoute: vi.fn().mockReturnValue([]),
   };
   const resolver = new DynamicResolver({
     queryBuilderService: {},
@@ -35,10 +34,6 @@ function makeResolver(definition: any = baseDefinition) {
     repoRegistryService: {
       createReposProxy: vi.fn().mockReturnValue({ main: {} }),
     },
-    guardCacheBuilder: {
-      ensureGuardsLoaded: vi.fn().mockResolvedValue(undefined),
-    },
-    guardEvaluatorService: { evaluateGuard: vi.fn() },
     runtimeRegistryService,
     envService: { get: vi.fn().mockReturnValue('test-secret') },
     dynamicContextFactory: {

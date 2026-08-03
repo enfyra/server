@@ -41,13 +41,10 @@ function makeResolver(options: {
     queryBuilderService: {},
     executorEngineService,
     repoRegistryService: { createReposProxy: vi.fn().mockReturnValue({ main: {} }) },
-    guardCacheBuilder: { ensureGuardsLoaded: vi.fn().mockResolvedValue(undefined) },
-    guardEvaluatorService: { evaluateGuard: vi.fn() },
     runtimeRegistryService: {
       getGraphqlDefinitionForTable: vi
         .fn()
         .mockReturnValue(options.definition ?? baseDefinition),
-      getGuardsForRoute: vi.fn().mockReturnValue([]),
     },
     envService: { get: vi.fn().mockReturnValue('test-secret') },
     dynamicContextFactory: {

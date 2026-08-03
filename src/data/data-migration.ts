@@ -137,22 +137,6 @@ const dataMigration = {
           "_eq": "/admin/reload/swagger"
         }
       }
-    },
-    {
-      "table": "enfyra_method",
-      "filter": {
-        "name": {
-          "_eq": "GQL_QUERY"
-        }
-      }
-    },
-    {
-      "table": "enfyra_method",
-      "filter": {
-        "name": {
-          "_eq": "GQL_MUTATION"
-        }
-      }
     }
   ],
   "enfyra_method": [
