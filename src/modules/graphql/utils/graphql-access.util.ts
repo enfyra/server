@@ -1,11 +1,10 @@
-export const GRAPHQL_OPERATION_NAMES = [
-  'QUERY',
-  'CREATE',
-  'UPDATE',
-  'DELETE',
-] as const;
+import {
+  GRAPHQL_OPERATION_NAMES,
+  type GraphqlOperationName,
+} from '../../../shared/types/graphql.types';
 
-export type GraphqlOperationName = (typeof GRAPHQL_OPERATION_NAMES)[number];
+export { GRAPHQL_OPERATION_NAMES };
+export type { GraphqlOperationName };
 
 export type GraphqlPermissionGrant = {
   isEnabled: boolean;
@@ -25,7 +24,9 @@ function toIdString(value: any): string | null {
   return String(value?._id ?? value?.id ?? value);
 }
 
-export function normalizeGraphqlOperation(value: unknown): GraphqlOperationName {
+export function normalizeGraphqlOperation(
+  value: unknown,
+): GraphqlOperationName {
   const operation = String(value ?? '').toUpperCase();
   if (!GRAPHQL_OPERATION_NAMES.includes(operation as GraphqlOperationName)) {
     throw new Error(`Unsupported GraphQL operation: ${String(value)}`);

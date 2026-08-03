@@ -1,5 +1,7 @@
-import { dataMigration, defaultData, snapshot } from '../../src/data';
+import { bootstrapSourceArtifacts } from '../../src/data';
 import { validateBootstrapDataFiles } from '../../src/domain/bootstrap/utils/bootstrap-data-validator.util';
+
+const { dataMigration, defaultData, snapshot } = bootstrapSourceArtifacts;
 
 describe('validateBootstrapDataFiles', () => {
   it('accepts current bootstrap route metadata', () => {

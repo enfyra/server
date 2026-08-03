@@ -188,9 +188,9 @@ describe('GuardCacheBuilder — tree building', () => {
     expect(
       registry.getGuardsForRoute('pre_auth', '/posts', 'GET'),
     ).toHaveLength(1);
-    expect(registry.getGuardsForRoute('pre_auth', '/other', 'GET')).toHaveLength(
-      1,
-    );
+    expect(
+      registry.getGuardsForRoute('pre_auth', '/other', 'GET'),
+    ).toHaveLength(1);
   });
 
   it('should drop root guards with neither route scope nor isGlobal (no silent half-applied state)', async () => {
@@ -543,13 +543,115 @@ describe('GuardCacheBuilder — validation', () => {
     ).toBe(true);
   });
 
-  it('should skip guards with no position', async () => {
-    const { svc } = await loadGuardCache(
+  it('rejects enabled root guards with no position', async () => {
+    await expect(
+      loadGuardCache(
+        [
+          {
+            id: 1,
+            name: 'no-pos',
+            position: null,
+            combinator: 'and',
+            isEnabled: true,
+            isGlobal: true,
+            priority: 0,
+            parent: null,
+            route: null,
+            methods: [],
+          },
+        ],
+        [],
+      ),
+    ).rejects.toThrow(/requires position/);
+  });
+
+  it('rejects missing parents and cyclic persisted guard trees', async () => {
+    await expect(
+      loadGuardCache(
+        [
+          {
+            id: 1,
+            name: 'orphan',
+            position: null,
+            combinator: 'and',
+            isEnabled: true,
+            parent: { id: 99 },
+            route: null,
+            methods: [],
+          },
+        ],
+        [],
+      ),
+    ).rejects.toThrow(/parent guard 99 does not exist/);
+
+    await expect(
+      loadGuardCache(
+        [
+          {
+            id: 1,
+            name: 'cycle-a',
+            position: null,
+            combinator: 'and',
+            isEnabled: true,
+            parent: { id: 2 },
+            route: null,
+            methods: [],
+          },
+          {
+            id: 2,
+            name: 'cycle-b',
+            position: null,
+            combinator: 'and',
+            isEnabled: true,
+            parent: { id: 1 },
+            route: null,
+            methods: [],
+          },
+        ],
+        [],
+      ),
+    ).rejects.toThrow(/cycle/);
+  });
+
+  it('keeps disabled ancestors for topology but excludes their subtrees', async () => {
+    const disabledRoot = await loadGuardCache(
       [
         {
           id: 1,
-          name: 'no-pos',
+          name: 'disabled-root',
           position: null,
+          combinator: 'and',
+          isEnabled: false,
+          isGlobal: true,
+          priority: 0,
+          parent: null,
+          route: null,
+          methods: [],
+        },
+        {
+          id: 2,
+          name: 'enabled-child',
+          position: null,
+          combinator: 'and',
+          isEnabled: true,
+          isGlobal: false,
+          priority: 0,
+          parent: { id: 1 },
+          route: null,
+          methods: [],
+        },
+      ],
+      [],
+    );
+    expect(disabledRoot.svc.getRawCache().preAuthGlobal).toHaveLength(0);
+    expect(disabledRoot.svc.getRawCache().postAuthGlobal).toHaveLength(0);
+
+    const disabledIntermediate = await loadGuardCache(
+      [
+        {
+          id: 10,
+          name: 'enabled-root',
+          position: 'pre_auth',
           combinator: 'and',
           isEnabled: true,
           isGlobal: true,
@@ -558,11 +660,185 @@ describe('GuardCacheBuilder — validation', () => {
           route: null,
           methods: [],
         },
+        {
+          id: 11,
+          name: 'disabled-intermediate',
+          position: null,
+          combinator: 'and',
+          isEnabled: false,
+          isGlobal: false,
+          priority: 0,
+          parent: { id: 10 },
+          route: null,
+          methods: [],
+        },
+        {
+          id: 12,
+          name: 'enabled-grandchild',
+          position: null,
+          combinator: 'and',
+          isEnabled: true,
+          isGlobal: false,
+          priority: 0,
+          parent: { id: 11 },
+          route: null,
+          methods: [],
+        },
+      ],
+      [],
+    );
+    const root = disabledIntermediate.svc.getRawCache().preAuthGlobal[0];
+    expect(root.children[0].isEnabled).toBe(false);
+    expect(root.children[0].children[0].isEnabled).toBe(true);
+  });
+});
+
+describe('GuardCacheBuilder — GraphQL matrix buckets', () => {
+  function gqlGuard(
+    id: number,
+    name: string,
+    position: string,
+    opts: {
+      tableName?: string | null;
+      op?: string | null;
+      priority?: number;
+    } = {},
+  ) {
+    return {
+      id,
+      name,
+      position,
+      combinator: 'and',
+      isEnabled: true,
+      isGlobal: false,
+      type: 'graphql',
+      gqlOperation: opts.op ?? null,
+      table:
+        opts.tableName != null ? { id: 100 + id, name: opts.tableName } : null,
+      priority: opts.priority ?? 0,
+      parent: null,
+      route: null,
+      methods: [],
+    };
+  }
+
+  it('classifies (null,null) into global bucket', async () => {
+    const { svc } = await loadGuardCache(
+      [gqlGuard(1, 'gql-global', 'pre_auth')],
+      [],
+    );
+    const cache = svc.getRawCache();
+    expect(cache.gqlPreAuthGlobal).toHaveLength(1);
+    expect(cache.gqlPreAuthByTable.size).toBe(0);
+    expect(cache.gqlPreAuthByOperation.size).toBe(0);
+    expect(cache.gqlPreAuthExact.size).toBe(0);
+    expect(cache.preAuthGlobal).toHaveLength(0);
+  });
+
+  it('classifies (table,null) into byTable bucket', async () => {
+    const { svc } = await loadGuardCache(
+      [gqlGuard(1, 'gql-table', 'post_auth', { tableName: 'orders' })],
+      [],
+    );
+    const cache = svc.getRawCache();
+    expect(cache.gqlPostAuthByTable.get('orders')).toHaveLength(1);
+    expect(cache.gqlPostAuthGlobal).toHaveLength(0);
+  });
+
+  it('classifies (null,op) into byOperation bucket', async () => {
+    const { svc } = await loadGuardCache(
+      [gqlGuard(1, 'gql-op', 'pre_auth', { op: 'CREATE' })],
+      [],
+    );
+    const cache = svc.getRawCache();
+    expect(cache.gqlPreAuthByOperation.get('CREATE')).toHaveLength(1);
+  });
+
+  it('classifies (table,op) into exact bucket', async () => {
+    const { svc } = await loadGuardCache(
+      [
+        gqlGuard(1, 'gql-exact', 'pre_auth', {
+          tableName: 'orders',
+          op: 'CREATE',
+        }),
       ],
       [],
     );
     const cache = svc.getRawCache();
-    expect(cache.preAuthGlobal).toHaveLength(0);
-    expect(cache.postAuthGlobal).toHaveLength(0);
+    expect(cache.gqlPreAuthExact.get('orders:CREATE')).toHaveLength(1);
+  });
+
+  it('keeps route guards out of GQL buckets and GQL guards out of route buckets', async () => {
+    const { svc } = await loadGuardCache(
+      [
+        {
+          id: 1,
+          name: 'route-guard',
+          position: 'pre_auth',
+          combinator: 'and',
+          isEnabled: true,
+          isGlobal: true,
+          priority: 0,
+          parent: null,
+          route: null,
+          methods: [],
+        },
+        gqlGuard(2, 'gql-guard', 'pre_auth'),
+      ],
+      [],
+    );
+    const cache = svc.getRawCache();
+    expect(cache.preAuthGlobal).toHaveLength(1);
+    expect(cache.gqlPreAuthGlobal).toHaveLength(1);
+  });
+
+  it('getGuardsForGraphql merges exact + byTable + byOperation + global, sorted by priority', async () => {
+    const { registry } = await loadGuardCache(
+      [
+        gqlGuard(1, 'global', 'pre_auth', { priority: 30 }),
+        gqlGuard(2, 'by-op', 'pre_auth', { op: 'CREATE', priority: 10 }),
+        gqlGuard(3, 'by-table', 'pre_auth', {
+          tableName: 'orders',
+          priority: 20,
+        }),
+        gqlGuard(4, 'exact', 'pre_auth', {
+          tableName: 'orders',
+          op: 'CREATE',
+          priority: 5,
+        }),
+      ],
+      [],
+    );
+    const guards = registry.getGuardsForGraphql('pre_auth', 'orders', 'CREATE');
+    expect(guards.map((g) => g.name)).toEqual([
+      'exact',
+      'by-op',
+      'by-table',
+      'global',
+    ]);
+  });
+
+  it('route guards are not returned by getGuardsForGraphql', async () => {
+    const { registry } = await loadGuardCache(
+      [
+        {
+          id: 1,
+          name: 'route-guard',
+          position: 'pre_auth',
+          combinator: 'and',
+          isEnabled: true,
+          isGlobal: true,
+          priority: 0,
+          parent: null,
+          route: null,
+          methods: [],
+        },
+        gqlGuard(2, 'gql-global', 'pre_auth'),
+      ],
+      [],
+    );
+    expect(
+      registry.getGuardsForGraphql('pre_auth', 'orders', 'QUERY'),
+    ).toHaveLength(1);
   });
 });

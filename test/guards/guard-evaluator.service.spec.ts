@@ -52,6 +52,9 @@ function makeGuard(overrides: Partial<GuardNode> = {}): GuardNode {
     priority: 0,
     isEnabled: true,
     isGlobal: false,
+    type: 'route',
+    gqlOperation: null,
+    tableName: null,
     parentId: null,
     routeId: null,
     routePath: null,
@@ -136,7 +139,9 @@ describe('GuardEvaluatorService', () => {
         routePath: '/test',
         userId: 'user-123',
       });
-      expect(rateLimitService.calledKeys).toContain('guard_rule:1:user:user-123');
+      expect(rateLimitService.calledKeys).toContain(
+        'guard_rule:1:user:user-123',
+      );
     });
 
     it('should use correct key for rate_limit_by_route', async () => {
@@ -152,7 +157,9 @@ describe('GuardEvaluatorService', () => {
         clientIp: '1.2.3.4',
         routePath: '/api/posts',
       });
-      expect(rateLimitService.calledKeys).toContain('guard_rule:1:route:/api/posts');
+      expect(rateLimitService.calledKeys).toContain(
+        'guard_rule:1:route:/api/posts',
+      );
     });
 
     it('should scope IP counters by guard rule instead of route path', async () => {
@@ -233,16 +240,20 @@ describe('GuardEvaluatorService', () => {
         ],
       });
       expect(
-        (await evaluator.evaluateGuard(guard, {
-          clientIp: '10.1.2.3',
-          routePath: '/test',
-        })).reject,
+        (
+          await evaluator.evaluateGuard(guard, {
+            clientIp: '10.1.2.3',
+            routePath: '/test',
+          })
+        ).reject,
       ).toBeNull();
       expect(
-        (await evaluator.evaluateGuard(guard, {
-          clientIp: '10.255.255.255',
-          routePath: '/test',
-        })).reject,
+        (
+          await evaluator.evaluateGuard(guard, {
+            clientIp: '10.255.255.255',
+            routePath: '/test',
+          })
+        ).reject,
       ).toBeNull();
       const reject = await evaluator.evaluateGuard(guard, {
         clientIp: '11.0.0.1',
@@ -262,22 +273,28 @@ describe('GuardEvaluatorService', () => {
         ],
       });
       expect(
-        (await evaluator.evaluateGuard(guard, {
-          clientIp: '192.168.1.100',
-          routePath: '/t',
-        })).reject,
+        (
+          await evaluator.evaluateGuard(guard, {
+            clientIp: '192.168.1.100',
+            routePath: '/t',
+          })
+        ).reject,
       ).toBeNull();
       expect(
-        (await evaluator.evaluateGuard(guard, {
-          clientIp: '192.168.1.255',
-          routePath: '/t',
-        })).reject,
+        (
+          await evaluator.evaluateGuard(guard, {
+            clientIp: '192.168.1.255',
+            routePath: '/t',
+          })
+        ).reject,
       ).toBeNull();
       expect(
-        (await evaluator.evaluateGuard(guard, {
-          clientIp: '192.168.2.1',
-          routePath: '/t',
-        })).reject,
+        (
+          await evaluator.evaluateGuard(guard, {
+            clientIp: '192.168.2.1',
+            routePath: '/t',
+          })
+        ).reject,
       ).not.toBeNull();
     });
 
@@ -1159,7 +1176,10 @@ describe('GuardEvaluatorService', () => {
       });
       expect(result.reject).toBeNull();
       expect(result.rateLimitSnapshots).toHaveLength(2);
-      expect(result.rateLimitSnapshots.map((s) => s.scope)).toEqual(['ip', 'route']);
+      expect(result.rateLimitSnapshots.map((s) => s.scope)).toEqual([
+        'ip',
+        'route',
+      ]);
     });
 
     it('still records snapshot when one rate limit rejects (snapshot is captured before reject)', async () => {
@@ -1202,6 +1222,92 @@ describe('GuardEvaluatorService', () => {
       expect(result.reject).toBeNull();
       expect(result.rateLimitSnapshots).toEqual([]);
       expect(rateLimitService.calledKeys).toHaveLength(0);
+    });
+  });
+
+  describe('rate_limit_by_operation (GraphQL)', () => {
+    it('uses operation scope and key table:operation', async () => {
+      rateLimitService.setResult(
+        'guard_rule:10:operation:orders:CREATE',
+        false,
+      );
+      const guard = makeGuard({
+        type: 'graphql',
+        tableName: 'orders',
+        gqlOperation: 'CREATE',
+        rules: [
+          makeRule({
+            id: 10,
+            type: 'rate_limit_by_operation',
+            config: { maxRequests: 5, perSeconds: 60 },
+          }),
+        ],
+      });
+      const result = await evaluator.evaluateGuard(guard, {
+        clientIp: '1.2.3.4',
+        routePath: '/graphql',
+        tableName: 'orders',
+        operation: 'CREATE',
+        targetType: 'graphql',
+      });
+      expect(result.reject).not.toBeNull();
+      expect(result.reject!.statusCode).toBe(429);
+      expect(result.reject!.errorCode).toBe('RATE_LIMIT_EXCEEDED');
+      expect(result.reject!.details).toMatchObject({
+        reason: 'rate_limit',
+        scope: 'operation',
+      });
+      expect(result.rateLimitSnapshots[0].scope).toBe('operation');
+      expect(rateLimitService.calledKeys).toContain(
+        'guard_rule:10:operation:orders:CREATE',
+      );
+    });
+
+    it('uses a shared table wildcard when the guard targets all tables', async () => {
+      const guard = makeGuard({
+        type: 'graphql',
+        tableName: null,
+        gqlOperation: 'QUERY',
+        rules: [
+          makeRule({
+            id: 20,
+            type: 'rate_limit_by_operation',
+            config: { maxRequests: 5, perSeconds: 60 },
+          }),
+        ],
+      });
+      await evaluator.evaluateGuard(guard, {
+        clientIp: '1.2.3.4',
+        routePath: '/graphql',
+        tableName: 'orders',
+        operation: 'QUERY',
+        targetType: 'graphql',
+      });
+      expect(rateLimitService.calledKeys).toContain(
+        'guard_rule:20:operation:*:QUERY',
+      );
+    });
+
+    it('allows when under limit', async () => {
+      const guard = makeGuard({
+        type: 'graphql',
+        rules: [
+          makeRule({
+            id: 30,
+            type: 'rate_limit_by_operation',
+            config: { maxRequests: 100, perSeconds: 60 },
+          }),
+        ],
+      });
+      const result = await evaluator.evaluateGuard(guard, {
+        clientIp: '1.2.3.4',
+        routePath: '/graphql',
+        tableName: 'orders',
+        operation: 'UPDATE',
+        targetType: 'graphql',
+      });
+      expect(result.reject).toBeNull();
+      expect(result.rateLimitSnapshots[0].scope).toBe('operation');
     });
   });
 });

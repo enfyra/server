@@ -27,6 +27,7 @@ function makeResolver(definition: any = baseDefinition) {
   };
   const runtimeRegistryService = {
     getGraphqlDefinitionForTable: vi.fn().mockReturnValue(definition),
+    getGuardsForGraphql: vi.fn().mockReturnValue([]),
   };
   const resolver = new DynamicResolver({
     queryBuilderService: {},
@@ -44,6 +45,11 @@ function makeResolver(definition: any = baseDefinition) {
       })),
     },
     apiTokenService: { validateAccessPayload: vi.fn().mockResolvedValue(true) },
+    guardCacheBuilder: {
+      ensureGuardsLoaded: vi.fn().mockResolvedValue(undefined),
+    },
+    guardEvaluatorService: {},
+    guardAlertService: { recordAlert: vi.fn() },
   } as any);
 
   return { resolver, executorEngineService, runtimeRegistryService };
@@ -61,7 +67,10 @@ function sessionToken(id = 'user-1') {
   return jwt.sign({ id, tokenType: 'session' }, 'test-secret');
 }
 
-async function runUpdate(resolver: DynamicResolver, context = requestContext()) {
+async function runUpdate(
+  resolver: DynamicResolver,
+  context = requestContext(),
+) {
   return resolver.dynamicMutationResolver(
     'update_posts',
     { id: '1', input: { title: 'Changed' } },

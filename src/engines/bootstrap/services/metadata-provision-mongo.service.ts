@@ -109,10 +109,77 @@ export class MetadataProvisionMongoService {
         relations: def.relations || [],
       });
       const collection = db.collection(tableName);
+      const currentIndexes = await this.listMongoIndexes(collection);
       for (const spec of specs) {
+        const currentByName = currentIndexes.find(
+          (index) => index.name === spec.name,
+        );
+        if (currentByName && this.mongoIndexMatches(currentByName, spec)) {
+          continue;
+        }
+
+        const currentByKeys = currentIndexes.find(
+          (index) =>
+            this.canonical(index.key ?? {}) === this.canonical(spec.keys),
+        );
+        const conflicts = [currentByName, currentByKeys].filter(
+          (index, position, values): index is NonNullable<typeof index> =>
+            Boolean(index?.name) && values.indexOf(index) === position,
+        );
+        for (const conflict of conflicts) {
+          await collection.dropIndex(conflict.name!);
+          const currentIndex = currentIndexes.indexOf(conflict);
+          if (currentIndex >= 0) currentIndexes.splice(currentIndex, 1);
+        }
+
         await collection.createIndex(spec.keys, spec.options);
+        currentIndexes.push({
+          name: spec.name,
+          key: spec.keys,
+          unique: spec.options?.unique,
+          sparse: spec.options?.sparse,
+          expireAfterSeconds: spec.options?.expireAfterSeconds,
+          partialFilterExpression: spec.options?.partialFilterExpression,
+        });
       }
     }
+  }
+
+  private async listMongoIndexes(collection: any): Promise<any[]> {
+    try {
+      return await collection.listIndexes().toArray();
+    } catch (error: any) {
+      if (error?.code === 26 || error?.codeName === 'NamespaceNotFound') {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private mongoIndexMatches(current: any, target: any): boolean {
+    const options = target.options ?? {};
+    return (
+      this.canonical(current.key ?? {}) === this.canonical(target.keys) &&
+      Boolean(current.unique) === Boolean(options.unique) &&
+      Boolean(current.sparse) === Boolean(options.sparse) &&
+      (current.expireAfterSeconds ?? null) ===
+        (options.expireAfterSeconds ?? null) &&
+      this.canonical(current.partialFilterExpression ?? null) ===
+        this.canonical(options.partialFilterExpression ?? null)
+    );
+  }
+
+  private canonical(value: unknown): string {
+    if (!value || typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => this.canonical(item)).join(',')}]`;
+    }
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(
+        ([key, nested]) => `${JSON.stringify(key)}:${this.canonical(nested)}`,
+      )
+      .join(',')}}`;
   }
 
   private buildRecordFromColumns(data: any, columns: any[]): any {

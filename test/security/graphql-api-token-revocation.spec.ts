@@ -28,10 +28,12 @@ const baseDefinition = {
   ],
 };
 
-function makeResolver(options: {
-  definition?: any;
-  validateAccessPayload?: ReturnType<typeof vi.fn>;
-} = {}) {
+function makeResolver(
+  options: {
+    definition?: any;
+    validateAccessPayload?: ReturnType<typeof vi.fn>;
+  } = {},
+) {
   const validateAccessPayload =
     options.validateAccessPayload ?? vi.fn().mockResolvedValue(true);
   const executorEngineService = {
@@ -40,11 +42,14 @@ function makeResolver(options: {
   const resolver = new DynamicResolver({
     queryBuilderService: {},
     executorEngineService,
-    repoRegistryService: { createReposProxy: vi.fn().mockReturnValue({ main: {} }) },
+    repoRegistryService: {
+      createReposProxy: vi.fn().mockReturnValue({ main: {} }),
+    },
     runtimeRegistryService: {
       getGraphqlDefinitionForTable: vi
         .fn()
         .mockReturnValue(options.definition ?? baseDefinition),
+      getGuardsForGraphql: vi.fn().mockReturnValue([]),
     },
     envService: { get: vi.fn().mockReturnValue('test-secret') },
     dynamicContextFactory: {
@@ -55,6 +60,11 @@ function makeResolver(options: {
       })),
     },
     apiTokenService: { validateAccessPayload },
+    guardCacheBuilder: {
+      ensureGuardsLoaded: vi.fn().mockResolvedValue(undefined),
+    },
+    guardEvaluatorService: {},
+    guardAlertService: { recordAlert: vi.fn() },
   } as any);
 
   return { resolver, executorEngineService, validateAccessPayload };
@@ -99,9 +109,10 @@ describe('GraphQL API token revocation check', () => {
   });
 
   it('rejects a revoked API token for a private operation with 401', async () => {
-    const { resolver, executorEngineService, validateAccessPayload } = makeResolver({
-      validateAccessPayload: vi.fn().mockResolvedValue(false),
-    });
+    const { resolver, executorEngineService, validateAccessPayload } =
+      makeResolver({
+        validateAccessPayload: vi.fn().mockResolvedValue(false),
+      });
 
     await expect(runUpdate(resolver, apiToken())).rejects.toMatchObject({
       extensions: { code: '401' },
@@ -125,7 +136,8 @@ describe('GraphQL API token revocation check', () => {
   });
 
   it('accepts a valid API token with a matching GraphQL permission', async () => {
-    const { resolver, executorEngineService, validateAccessPayload } = makeResolver();
+    const { resolver, executorEngineService, validateAccessPayload } =
+      makeResolver();
 
     await expect(runUpdate(resolver, apiToken())).resolves.toMatchObject({
       id: 'user-1',

@@ -1,7 +1,8 @@
 import { Logger } from '../../../shared/logger';
 import { RateLimitService, RateLimitResult } from './rate-limit.service';
-import { GuardNode, GuardRuleNode } from './guard-cache-builder.service';
 import type {
+  GuardNode,
+  GuardRuleNode,
   GuardEvalContext,
   GuardRateLimitScope,
   GuardRateLimitDetails,
@@ -28,9 +29,12 @@ const RATE_LIMIT_SCOPE_BY_RULE: Record<string, GuardRateLimitScope> = {
   rate_limit_by_ip: 'ip',
   rate_limit_by_user: 'user',
   rate_limit_by_route: 'route',
+  rate_limit_by_operation: 'operation',
 };
 
-function buildGuardHeaders(details: GuardRejectDetails): Record<string, string> {
+function buildGuardHeaders(
+  details: GuardRejectDetails,
+): Record<string, string> {
   const headers: Record<string, string> = {
     'X-Enfyra-Guard-Reason': details.reason,
     'X-Enfyra-Guard-Error-Code': errorCodeForDetails(details),
@@ -79,6 +83,7 @@ export class GuardEvaluatorService {
       evalCtx,
       guard.name,
       rateLimitSnapshots,
+      guard.tableName,
     );
     return { reject, rateLimitSnapshots };
   }
@@ -89,6 +94,7 @@ export class GuardEvaluatorService {
     rate_limit_by_ip: 1,
     rate_limit_by_user: 1,
     rate_limit_by_route: 1,
+    rate_limit_by_operation: 1,
   };
 
   private async evaluateNode(
@@ -96,6 +102,7 @@ export class GuardEvaluatorService {
     evalCtx: GuardEvalContext,
     rootName: string,
     rateLimitSnapshots: GuardRateLimitSnapshot[],
+    targetTableName: string | null,
   ): Promise<GuardRejectInfo | null> {
     const items: Array<() => Promise<GuardRejectInfo | null>> = [];
 
@@ -104,13 +111,27 @@ export class GuardEvaluatorService {
     );
 
     for (const rule of sortedRules) {
-      items.push(() => this.evaluateRule(rule, evalCtx, rootName, rateLimitSnapshots));
+      items.push(() =>
+        this.evaluateRule(
+          rule,
+          evalCtx,
+          rootName,
+          rateLimitSnapshots,
+          targetTableName,
+        ),
+      );
     }
 
     for (const child of node.children) {
       if (!child.isEnabled) continue;
       items.push(() =>
-        this.evaluateNode(child, evalCtx, rootName, rateLimitSnapshots),
+        this.evaluateNode(
+          child,
+          evalCtx,
+          rootName,
+          rateLimitSnapshots,
+          targetTableName,
+        ),
       );
     }
 
@@ -138,6 +159,7 @@ export class GuardEvaluatorService {
     evalCtx: GuardEvalContext,
     guardName: string,
     rateLimitSnapshots: GuardRateLimitSnapshot[],
+    targetTableName: string | null,
   ): Promise<GuardRejectInfo | null> {
     if (rule.userIds.length > 0) {
       if (!evalCtx.userId || !rule.userIds.includes(evalCtx.userId)) {
@@ -163,6 +185,13 @@ export class GuardEvaluatorService {
       case 'rate_limit_by_route':
         return this.evalRateLimit(
           `guard_rule:${rule.id}:route:${evalCtx.routePath}`,
+          rule,
+          guardName,
+          rateLimitSnapshots,
+        );
+      case 'rate_limit_by_operation':
+        return this.evalRateLimit(
+          `guard_rule:${rule.id}:operation:${targetTableName || '*'}:${evalCtx.operation || '*'}`,
           rule,
           guardName,
           rateLimitSnapshots,

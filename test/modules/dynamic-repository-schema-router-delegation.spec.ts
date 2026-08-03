@@ -67,6 +67,7 @@ function makeRepo(
     policyService: {
       checkMutationSafety: vi.fn().mockResolvedValue({ allowed: true }),
     } as any,
+    guardValidationService: {} as any,
     tableValidationService: {
       assertTableValid: vi.fn().mockResolvedValue(undefined),
     } as any,
@@ -156,7 +157,9 @@ describe('DynamicRepository schema router delegation', () => {
     ).rejects.toThrow(/instance fenced/i);
 
     expect((repo as any).reload).toHaveBeenCalledTimes(3);
-    expect(runtimeMetadataSchemaRouterService.markActivated).not.toHaveBeenCalled();
+    expect(
+      runtimeMetadataSchemaRouterService.markActivated,
+    ).not.toHaveBeenCalled();
     expect(runtimeSchemaActivationGateService.isBlocked()).toBe(true);
   });
 
@@ -176,9 +179,9 @@ describe('DynamicRepository schema router delegation', () => {
 
     await repo.create({ data: { name: 'slug', type: 'varchar', table: 10 } });
 
-    expect(runtimeMetadataSchemaRouterService.markActivated).toHaveBeenCalledWith(
-      'runtime-schema:activation-success',
-    );
+    expect(
+      runtimeMetadataSchemaRouterService.markActivated,
+    ).toHaveBeenCalledWith('runtime-schema:activation-success');
     expect(runtimeSchemaActivationGateService.isBlocked()).toBe(false);
   });
 });

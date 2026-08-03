@@ -323,6 +323,61 @@ const snapshotMigration = {
         },
       ],
     },
+    {
+      _unique: {
+        name: {
+          _eq: 'enfyra_guard_rule',
+        },
+      },
+      columnsToModify: [
+        {
+          from: {
+            name: 'type',
+            type: 'enum',
+            options: [
+              'rate_limit_by_ip',
+              'rate_limit_by_user',
+              'rate_limit_by_route',
+              'ip_whitelist',
+              'ip_blacklist',
+            ],
+          },
+          to: {
+            name: 'type',
+            type: 'enum',
+            options: [
+              'rate_limit_by_ip',
+              'rate_limit_by_user',
+              'rate_limit_by_route',
+              'rate_limit_by_operation',
+              'ip_whitelist',
+              'ip_blacklist',
+            ],
+          },
+        },
+      ],
+    },
+    {
+      _unique: {
+        name: {
+          _eq: 'enfyra_guard_alert',
+        },
+      },
+      columnsToModify: [
+        {
+          from: {
+            name: 'scope',
+            type: 'enum',
+            options: ['ip', 'user', 'route'],
+          },
+          to: {
+            name: 'scope',
+            type: 'enum',
+            options: ['ip', 'user', 'route', 'operation'],
+          },
+        },
+      ],
+    },
   ],
   tablesToDrop: ['schema_history'],
   coreTablesToRename: [

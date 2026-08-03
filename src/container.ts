@@ -150,6 +150,7 @@ import {
   DynamicRepositoryFactory,
   DynamicService,
   DynamicApiTableValidationService,
+  GuardValidationService,
 } from './modules/dynamic-api';
 
 import {
@@ -366,6 +367,7 @@ export interface Cradle {
   mongoTableDeleteService: MongoTableDeleteService;
   mongoTableHandlerService: MongoTableHandlerService;
   tableValidationService: DynamicApiTableValidationService;
+  guardValidationService: GuardValidationService;
   tableManagementValidationService: TableManagementValidationService;
   mongoMetadataSnapshotService: MongoMetadataSnapshotService;
   sqlTableMetadataBuilderService: SqlTableMetadataBuilderService;
@@ -700,6 +702,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     tableValidationService: asClass(
       DynamicApiTableValidationService,
     ).singleton(),
+    guardValidationService: asClass(GuardValidationService).singleton(),
     tableManagementValidationService: asClass(
       TableManagementValidationService,
     ).singleton(),
@@ -744,7 +747,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     ).singleton(),
     flowRuntimeService: asClass(FlowRuntimeService).singleton(),
     flowSchedulerService: asClass(FlowSchedulerService).singleton(),
-    flowTriggerDispatcherService: asClass(FlowTriggerDispatcherService).singleton(),
+    flowTriggerDispatcherService: asClass(
+      FlowTriggerDispatcherService,
+    ).singleton(),
     flowExecutionQueueService: asClass(FlowExecutionQueueService)
       .singleton()
       .disposer((service) => service.onDestroy()),
@@ -766,7 +771,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     firstRunInitializer: asClass(FirstRunInitializer).singleton(),
     schemaHealingService: asClass(SchemaHealingService).singleton(),
     systemCoreTableResolver: asClass(SystemCoreTableResolver).singleton(),
-    legacyStoreInventoryService: asClass(LegacyStoreInventoryService).singleton(),
+    legacyStoreInventoryService: asClass(
+      LegacyStoreInventoryService,
+    ).singleton(),
     legacyAssessmentService: asClass(LegacyAssessmentService).singleton(),
     metadataProvisionService: asClass(MetadataProvisionService).singleton(),
     metadataProvisionSqlService: asClass(

@@ -41,6 +41,7 @@ import { registerPackageRoutes } from './http/routes/package.routes';
 import { registerMeRoutes } from './http/routes/me.routes';
 import { registerDynamicRoutes } from './http/routes/dynamic.routes';
 import { DebugTrace } from './shared/utils/debug-trace.util';
+import { resolveClientIpFromRequest } from './shared/utils/client-ip.util';
 
 function disposeRequestScopeOnResponse(req: any, res: any): void {
   let disposed = false;
@@ -94,7 +95,8 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
       return;
     }
     res.status(503).json({
-      message: 'Runtime schema activation is pending; this instance is not ready',
+      message:
+        'Runtime schema activation is pending; this instance is not ready',
     });
   });
 
@@ -171,10 +173,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
     ),
   );
   app.use(
-    fileUploadMiddleware(
-      c.runtimeRegistryService,
-      c.dynamicWebSocketGateway,
-    ),
+    fileUploadMiddleware(c.runtimeRegistryService, c.dynamicWebSocketGateway),
   );
   app.use(requestLoggingBegin);
   app.use(bodyValidationMiddleware(container));
@@ -199,9 +198,11 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   registerMeRoutes(app, container);
 
   c.graphqlService.getYogaApp();
-  app.use('/graphql', (req: any, res: any, next: any) => {
+  app.use('/graphql', (req: any, res: any) => {
     const yogaApp = c.graphqlService.getYogaApp();
-    return yogaApp(req, res, next);
+    return yogaApp(req, res, {
+      clientIp: resolveClientIpFromRequest(req),
+    });
   });
 
   registerDynamicRoutes(app, container);

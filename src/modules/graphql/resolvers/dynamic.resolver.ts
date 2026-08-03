@@ -16,6 +16,10 @@ import {
   hasGraphqlOperationAccess,
   type GraphqlOperationName,
 } from '../utils/graphql-access.util';
+import type { GuardEvaluatorService } from '../../../engines/cache/services/guard-evaluator.service';
+import type { GuardAlertService } from '../../../engines/cache/services/guard-alert.service';
+import type { GuardEvalContext } from '../../../engines/cache/types/guard.types';
+import type { GuardPosition } from '../../../engines/cache/types/guard.types';
 
 export class DynamicResolver {
   private readonly queryBuilderService: QueryBuilderService;
@@ -25,6 +29,8 @@ export class DynamicResolver {
   private readonly envService: EnvService;
   private readonly dynamicContextFactory: DynamicContextFactory;
   private readonly apiTokenService: ApiTokenService;
+  private readonly guardEvaluatorService: GuardEvaluatorService;
+  private readonly guardAlertService: GuardAlertService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
@@ -34,6 +40,8 @@ export class DynamicResolver {
     envService: EnvService;
     dynamicContextFactory: DynamicContextFactory;
     apiTokenService: ApiTokenService;
+    guardEvaluatorService: GuardEvaluatorService;
+    guardAlertService: GuardAlertService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.executorEngineService = deps.executorEngineService;
@@ -42,6 +50,8 @@ export class DynamicResolver {
     this.envService = deps.envService;
     this.apiTokenService = deps.apiTokenService;
     this.dynamicContextFactory = deps.dynamicContextFactory;
+    this.guardEvaluatorService = deps.guardEvaluatorService;
+    this.guardAlertService = deps.guardAlertService;
   }
 
   async dynamicResolver(
@@ -196,11 +206,32 @@ export class DynamicResolver {
 
     const accessToken = this.getBearerToken(context);
     const isPublic = definition.publicOperations.includes(operation);
+
+    // pre_auth GQL guards: IP allow/block + rate by IP/operation. Runs before
+    // authenticate() so anonymous callers are also throttled/blocked.
+    await this.runGqlGuards(
+      'pre_auth',
+      mainTableName,
+      operation,
+      context,
+      null,
+    );
+
     const user = accessToken
       ? await this.authenticate(accessToken)
       : isPublic
         ? null
         : this.throwAuthenticationRequired();
+
+    // post_auth GQL guards: rate by user. Runs after the user is resolved but
+    // before the GraphQL operation permission check.
+    await this.runGqlGuards(
+      'post_auth',
+      mainTableName,
+      operation,
+      context,
+      user,
+    );
 
     const access = hasGraphqlOperationAccess({
       definition,
@@ -215,6 +246,80 @@ export class DynamicResolver {
       user,
       mainTable: { name: mainTableName },
     };
+  }
+
+  /**
+   * Run GraphQL guards for a given position. pre_auth runs before
+   * authenticate() (IP allow/block, rate by IP/operation); post_auth runs
+   * after the user is resolved (rate by user). Rejects are mapped to
+   * GraphQLError with extensions { code, statusCode, details, headers } so the
+   * 404/401/403/429 semantics are preserved inside the resolver.
+   */
+  private async runGqlGuards(
+    position: GuardPosition,
+    mainTableName: string,
+    operation: GraphqlOperationName,
+    context: any,
+    user: any,
+  ): Promise<void> {
+    const guards = this.runtimeRegistryService.getGuardsForGraphql(
+      position,
+      mainTableName,
+      operation as any,
+    );
+    if (guards.length === 0) return;
+
+    const clientIp = context.clientIp || 'unknown';
+
+    const evalCtx: GuardEvalContext = {
+      clientIp,
+      routePath: '/graphql',
+      tableName: mainTableName,
+      operation,
+      targetType: 'graphql',
+      userId:
+        position === 'post_auth' && user?.id != null ? String(user.id) : null,
+    };
+
+    for (const guard of guards) {
+      const { reject } = await this.guardEvaluatorService.evaluateGuard(
+        guard,
+        evalCtx,
+      );
+
+      if (reject) {
+        const scope =
+          'reason' in reject.details && reject.details.reason === 'rate_limit'
+            ? reject.details.scope
+            : 'ip';
+        const scopeKey =
+          scope === 'ip'
+            ? clientIp
+            : scope === 'user'
+              ? evalCtx.userId || 'anonymous'
+              : scope === 'operation'
+                ? `${mainTableName}:${operation}`
+                : '/graphql';
+        this.guardAlertService.recordAlert({
+          scope,
+          scopeKey,
+          routePath: '/graphql',
+          method: operation,
+          errorCode: reject.errorCode,
+          guardName: guard.name,
+        });
+
+        const extensions: Record<string, any> = {
+          code: reject.errorCode,
+          statusCode: reject.statusCode,
+          details: reject.details,
+        };
+        if (reject.headers) {
+          extensions.headers = reject.headers;
+        }
+        throw new GraphQLError(reject.message, { extensions });
+      }
+    }
   }
 
   private getBearerToken(context: any): string {

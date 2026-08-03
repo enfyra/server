@@ -6,55 +6,28 @@ import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
 } from '../../../shared/utils/cache-events.constants';
+import type {
+  GuardCache,
+  GuardNode,
+  GuardPosition,
+  GuardRuleNode,
+} from '../types/guard.types';
+
+export type {
+  GuardCache,
+  GuardCombinator,
+  GuardNode,
+  GuardPosition,
+  GuardRuleNode,
+  GuardRuleType,
+  GuardTargetType,
+} from '../types/guard.types';
 
 const GUARD_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.GUARD,
   colorCode: '\x1b[35m',
   cacheName: 'GuardCache',
 };
-
-export type GuardRuleType =
-  | 'rate_limit_by_ip'
-  | 'rate_limit_by_user'
-  | 'rate_limit_by_route'
-  | 'ip_whitelist'
-  | 'ip_blacklist';
-
-export type GuardPosition = 'pre_auth' | 'post_auth';
-export type GuardCombinator = 'and' | 'or';
-
-export interface GuardRuleNode {
-  id: number;
-  type: GuardRuleType;
-  config: any;
-  priority: number;
-  isEnabled: boolean;
-  userIds: string[];
-}
-
-export interface GuardNode {
-  id: number;
-  name: string;
-  position: GuardPosition | null;
-  combinator: GuardCombinator;
-  priority: number;
-  isEnabled: boolean;
-  isGlobal: boolean;
-  parentId: number | null;
-  routeId: number | null;
-  routePath: string | null;
-  methodIds: number[];
-  methods: string[];
-  children: GuardNode[];
-  rules: GuardRuleNode[];
-}
-
-export interface GuardCache {
-  preAuthGlobal: GuardNode[];
-  postAuthGlobal: GuardNode[];
-  preAuthByRoute: Map<string, GuardNode[]>;
-  postAuthByRoute: Map<string, GuardNode[]>;
-}
 
 export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
   private readonly queryBuilderService: QueryBuilderService;
@@ -71,6 +44,14 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
       postAuthGlobal: [],
       preAuthByRoute: new Map(),
       postAuthByRoute: new Map(),
+      gqlPreAuthGlobal: [],
+      gqlPostAuthGlobal: [],
+      gqlPreAuthByTable: new Map(),
+      gqlPostAuthByTable: new Map(),
+      gqlPreAuthByOperation: new Map(),
+      gqlPostAuthByOperation: new Map(),
+      gqlPreAuthExact: new Map(),
+      gqlPostAuthExact: new Map(),
     };
   }
 
@@ -78,8 +59,15 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
     const [guardsResult, rulesResult] = await Promise.all([
       this.queryBuilderService.find({
         table: 'enfyra_guard',
-        filter: { isEnabled: { _eq: true } },
-        fields: ['*', 'parent', 'route.id', 'route.path', 'methods.name'],
+        fields: [
+          '*',
+          'parent',
+          'route.id',
+          'route.path',
+          'table.id',
+          'table.name',
+          'methods.name',
+        ],
         sort: ['priority'],
       }),
       this.queryBuilderService.find({
@@ -146,6 +134,9 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
         priority: guard.priority ?? 0,
         isEnabled: guard.isEnabled !== false,
         isGlobal: guard.isGlobal === true,
+        type: guard.type === 'graphql' ? 'graphql' : 'route',
+        gqlOperation: guard.gqlOperation || null,
+        tableName: guard.table?.name || null,
         parentId: getId(guard.parent),
         routeId: guard.route ? getId(guard.route) : null,
         routePath: guard.route?.path || null,
@@ -160,13 +151,18 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
     for (const node of nodeMap.values()) {
       if (node.parentId != null) {
         const parent = nodeMap.get(node.parentId);
-        if (parent) {
-          parent.children.push(node);
+        if (!parent) {
+          throw new Error(
+            `Guard "${node.name}" (id=${node.id}) parent guard ${node.parentId} does not exist`,
+          );
         }
+        parent.children.push(node);
       } else {
         roots.push(node);
       }
     }
+
+    this.assertAcyclicGuardForest(nodeMap);
 
     for (const root of roots) {
       this.validateGuardTree(root, root.position);
@@ -182,11 +178,29 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
       postAuthGlobal: [],
       preAuthByRoute: new Map(),
       postAuthByRoute: new Map(),
+      gqlPreAuthGlobal: [],
+      gqlPostAuthGlobal: [],
+      gqlPreAuthByTable: new Map(),
+      gqlPostAuthByTable: new Map(),
+      gqlPreAuthByOperation: new Map(),
+      gqlPostAuthByOperation: new Map(),
+      gqlPreAuthExact: new Map(),
+      gqlPostAuthExact: new Map(),
     };
 
     for (const root of roots) {
+      if (!root.isEnabled) continue;
       const position = root.position;
-      if (!position) continue;
+      if (!position) {
+        throw new Error(
+          `Enabled root guard "${root.name}" (id=${root.id}) requires position pre_auth or post_auth`,
+        );
+      }
+
+      if (root.type === 'graphql') {
+        this.classifyGqlGuard(cache, root, position);
+        continue;
+      }
 
       if (root.isGlobal) {
         // Global wins: a guard with isGlobal=true applies everywhere, even if
@@ -222,8 +236,72 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
       list.sort((a, b) => a.priority - b.priority);
     for (const list of cache.postAuthByRoute.values())
       list.sort((a, b) => a.priority - b.priority);
+    cache.gqlPreAuthGlobal.sort((a, b) => a.priority - b.priority);
+    cache.gqlPostAuthGlobal.sort((a, b) => a.priority - b.priority);
+    for (const list of cache.gqlPreAuthByTable.values())
+      list.sort((a, b) => a.priority - b.priority);
+    for (const list of cache.gqlPostAuthByTable.values())
+      list.sort((a, b) => a.priority - b.priority);
+    for (const list of cache.gqlPreAuthByOperation.values())
+      list.sort((a, b) => a.priority - b.priority);
+    for (const list of cache.gqlPostAuthByOperation.values())
+      list.sort((a, b) => a.priority - b.priority);
+    for (const list of cache.gqlPreAuthExact.values())
+      list.sort((a, b) => a.priority - b.priority);
+    for (const list of cache.gqlPostAuthExact.values())
+      list.sort((a, b) => a.priority - b.priority);
 
     return cache;
+  }
+
+  /**
+   * Classify a GraphQL guard into one of the 4 matrix buckets:
+   *   (null, null)      → global
+   *   (table, null)     → byTable
+   *   (null, op)        → byOperation
+   *   (table, op)       → exact `${table}:${op}`
+   * GQL never uses isGlobal (matrix is the source of truth).
+   */
+  private classifyGqlGuard(
+    cache: GuardCache,
+    root: GuardNode,
+    position: GuardPosition,
+  ): void {
+    const tableName = root.tableName;
+    const op = root.gqlOperation;
+
+    if (tableName == null && op == null) {
+      const list =
+        position === 'pre_auth'
+          ? cache.gqlPreAuthGlobal
+          : cache.gqlPostAuthGlobal;
+      list.push(root);
+    } else if (tableName != null && op == null) {
+      const map =
+        position === 'pre_auth'
+          ? cache.gqlPreAuthByTable
+          : cache.gqlPostAuthByTable;
+      const list = map.get(tableName) || [];
+      list.push(root);
+      map.set(tableName, list);
+    } else if (tableName == null && op != null) {
+      const map =
+        position === 'pre_auth'
+          ? cache.gqlPreAuthByOperation
+          : cache.gqlPostAuthByOperation;
+      const list = map.get(op) || [];
+      list.push(root);
+      map.set(op, list);
+    } else {
+      const map =
+        position === 'pre_auth'
+          ? cache.gqlPreAuthExact
+          : cache.gqlPostAuthExact;
+      const key = `${tableName}:${op}`;
+      const list = map.get(key) || [];
+      list.push(root);
+      map.set(key, list);
+    }
   }
 
   protected emitLoadedEvent(): void {
@@ -231,29 +309,31 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
   }
 
   protected getLogCount(): string {
-    const total =
-      this.cache.preAuthGlobal.length +
-      this.cache.postAuthGlobal.length +
-      [...this.cache.preAuthByRoute.values()].reduce(
-        (s, l) => s + l.length,
-        0,
-      ) +
-      [...this.cache.postAuthByRoute.values()].reduce(
-        (s, l) => s + l.length,
-        0,
-      );
+    const total = this.countAll();
     return `${total} guards`;
   }
 
   protected getCount(): number {
+    return this.countAll();
+  }
+
+  private countAll(): number {
+    const sum = (arr: GuardNode[]) => arr.length;
+    const sumMap = (m: Map<string, GuardNode[]>) =>
+      [...m.values()].reduce((s, l) => s + l.length, 0);
     return (
-      this.cache.preAuthGlobal.length +
-      this.cache.postAuthGlobal.length +
-      [...this.cache.preAuthByRoute.values()].reduce(
-        (s, l) => s + l.length,
-        0,
-      ) +
-      [...this.cache.postAuthByRoute.values()].reduce((s, l) => s + l.length, 0)
+      sum(this.cache.preAuthGlobal) +
+      sum(this.cache.postAuthGlobal) +
+      sumMap(this.cache.preAuthByRoute) +
+      sumMap(this.cache.postAuthByRoute) +
+      sum(this.cache.gqlPreAuthGlobal) +
+      sum(this.cache.gqlPostAuthGlobal) +
+      sumMap(this.cache.gqlPreAuthByTable) +
+      sumMap(this.cache.gqlPostAuthByTable) +
+      sumMap(this.cache.gqlPreAuthByOperation) +
+      sumMap(this.cache.gqlPostAuthByOperation) +
+      sumMap(this.cache.gqlPreAuthExact) +
+      sumMap(this.cache.gqlPostAuthExact)
     );
   }
 
@@ -288,5 +368,33 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
     for (const child of node.children) {
       this.validateGuardTree(child, rootPosition);
     }
+  }
+
+  private assertAcyclicGuardForest(nodeMap: Map<number, GuardNode>): void {
+    const visiting = new Set<number>();
+    const visited = new Set<number>();
+
+    const visit = (node: GuardNode): void => {
+      if (visited.has(node.id)) return;
+      if (visiting.has(node.id)) {
+        throw new Error(
+          `Guard parent hierarchy contains a cycle at guard "${node.name}" (id=${node.id})`,
+        );
+      }
+      visiting.add(node.id);
+      if (node.parentId != null) {
+        const parent = nodeMap.get(node.parentId);
+        if (!parent) {
+          throw new Error(
+            `Guard "${node.name}" (id=${node.id}) parent guard ${node.parentId} does not exist`,
+          );
+        }
+        visit(parent);
+      }
+      visiting.delete(node.id);
+      visited.add(node.id);
+    };
+
+    for (const node of nodeMap.values()) visit(node);
   }
 }

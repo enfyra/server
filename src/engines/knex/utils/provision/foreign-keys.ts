@@ -39,13 +39,29 @@ export async function addForeignKeys(
        WHERE connamespace = current_schema()::regnamespace
          AND contype = 'f'`,
     );
-    for (const row of result.rows) existingPostgresConstraints.add(row.name);
+    for (const row of result.rows) {
+      existingPostgresConstraints.add(row.name);
+      // Postgres folds unquoted constraint names to lowercase, so the same
+      // FK can exist under a case-variant name (e.g. knex auto-named
+      // `enfyra_guard_tableid_foreign` vs explicit `enfyra_guard_tableId_foreign`).
+      // Dedupe case-insensitively to avoid re-creating a duplicate constraint.
+      existingPostgresConstraints.add(row.name.toLowerCase());
+    }
   }
 
   for (const fkOp of fkOperations) {
-    if (existingPostgresConstraints.has(fkOp.constraintName)) {
+    if (
+      existingPostgresConstraints.has(fkOp.constraintName) ||
+      existingPostgresConstraints.has(fkOp.constraintName.toLowerCase())
+    ) {
       console.log(
         `  ⏩ FK already exists: ${fkOp.tableName}.${fkOp.columnName}`,
+      );
+      continue;
+    }
+    if (!(await knex.schema.hasColumn(fkOp.tableName, fkOp.columnName))) {
+      console.log(
+        `  ⏩ FK column missing, deferring: ${fkOp.tableName}.${fkOp.columnName} (column will be created by syncTable relation migration)`,
       );
       continue;
     }
@@ -64,6 +80,7 @@ export async function addForeignKeys(
         table.index([fkOp.columnName]);
       });
       existingPostgresConstraints.add(fkOp.constraintName);
+      existingPostgresConstraints.add(fkOp.constraintName.toLowerCase());
     } catch (error) {
       if (isPostgres) throw error;
       const msg = getErrorMessage(error).toLowerCase();

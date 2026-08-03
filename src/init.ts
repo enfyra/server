@@ -27,58 +27,8 @@ async function runInitStep(
 export async function init(container: AwilixContainer<Cradle>): Promise<void> {
   const c: any = container.cradle;
 
-  await runInitStep('mongoService.init', () => c.mongoService?.init?.());
-  await runInitStep('ensureDatabaseExists', async () => {
-    const dbType = c.databaseConfigService?.getDbType?.();
-    if (dbType === 'mysql' || dbType === 'postgres') {
-      await ensureDatabaseExists();
-    }
-  });
-  await runInitStep('replicationManager.init', () =>
-    c.replicationManager?.init?.(),
-  );
-  await runInitStep('knexService.init', () => c.knexService?.init?.());
-  await runInitStep('sqlPoolClusterCoordinatorService.init', () =>
-    c.sqlPoolClusterCoordinatorService?.init?.(),
-  );
+  await initBootstrap(container);
 
-  await runInitStep('redisPubSubService.init', () =>
-    c.redisPubSubService?.init?.(),
-  );
-  await runInitStep('runtimeNamespaceLifecycleService.init', () =>
-    c.runtimeNamespaceLifecycleService?.init?.(),
-  );
-
-  await runInitStep('mongoSagaCoordinator.init', () =>
-    c.mongoSagaCoordinator?.init?.(),
-  );
-
-  await runInitStep('provisionService.waitForDatabase', () =>
-    c.provisionService.waitForDatabase(),
-  );
-  await runInitStep('provisionService.recoverJournals', () =>
-    c.provisionService.recoverJournals(),
-  );
-
-  await runInitStep('legacyStoreAssessment', async () => {
-    const inventory = await c.legacyStoreInventoryService.inventory();
-    const report = c.legacyAssessmentService.assess(inventory);
-    if (report.hasBlockingFindings) {
-      const details = report.findings
-        .filter((f: any) => f.blocking)
-        .map((f: any) => `[${f.coreKey}] ${f.outcome}: ${f.detail}`)
-        .join('; ');
-      throw new Error(
-        `Legacy system metadata assessment found blocking issues, boot cannot continue: ${details}`,
-      );
-    }
-  });
-
-  await runInitStep('firstRunInitializer', async () => {
-    if (await c.firstRunInitializer.isNeeded()) {
-      await c.firstRunInitializer.run();
-    }
-  });
   await runInitStep('runtimeReloadAuditService.repairInterruptedReloads', () =>
     c.runtimeReloadAuditService?.markInterruptedReloadsFailed?.(
       'Runtime reload was interrupted by process restart before activation',
@@ -202,15 +152,76 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
       c.mongoPhysicalMigrationService?.init?.(),
     ),
   ]);
-  await runInitStep('runtimeNamespaceLifecycleService.renewReadyNamespace', () =>
-    c.runtimeNamespaceLifecycleService?.renewCurrentNamespaceKeys?.(),
+  await runInitStep(
+    'runtimeNamespaceLifecycleService.renewReadyNamespace',
+    () => c.runtimeNamespaceLifecycleService?.renewCurrentNamespaceKeys?.(),
   );
-  await runInitStep('runtimeSchemaJournalService.completeRecoveredActivations', () =>
-    c.runtimeSchemaJournalService?.completeRecoveredActivations?.(),
+  await runInitStep(
+    'runtimeSchemaJournalService.completeRecoveredActivations',
+    () => c.runtimeSchemaJournalService?.completeRecoveredActivations?.(),
   );
 
   c.eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
   logger.log('Init event emitted: SYSTEM_READY');
+}
+
+export async function initBootstrap(
+  container: AwilixContainer<Cradle>,
+): Promise<void> {
+  const c: any = container.cradle;
+
+  await runInitStep('mongoService.init', () => c.mongoService?.init?.());
+  await runInitStep('ensureDatabaseExists', async () => {
+    const dbType = c.databaseConfigService?.getDbType?.();
+    if (dbType === 'mysql' || dbType === 'postgres') {
+      await ensureDatabaseExists();
+    }
+  });
+  await runInitStep('replicationManager.init', () =>
+    c.replicationManager?.init?.(),
+  );
+  await runInitStep('knexService.init', () => c.knexService?.init?.());
+  await runInitStep('sqlPoolClusterCoordinatorService.init', () =>
+    c.sqlPoolClusterCoordinatorService?.init?.(),
+  );
+
+  await runInitStep('redisPubSubService.init', () =>
+    c.redisPubSubService?.init?.(),
+  );
+  await runInitStep('runtimeNamespaceLifecycleService.init', () =>
+    c.runtimeNamespaceLifecycleService?.init?.(),
+  );
+
+  await runInitStep('mongoSagaCoordinator.init', () =>
+    c.mongoSagaCoordinator?.init?.(),
+  );
+
+  await runInitStep('provisionService.waitForDatabase', () =>
+    c.provisionService.waitForDatabase(),
+  );
+  await runInitStep('provisionService.recoverJournals', () =>
+    c.provisionService.recoverJournals(),
+  );
+
+  await runInitStep('legacyStoreAssessment', async () => {
+    const inventory = await c.legacyStoreInventoryService.inventory();
+    const report = c.legacyAssessmentService.assess(inventory);
+    if (report.hasBlockingFindings) {
+      const details = report.findings
+        .filter((f: any) => f.blocking)
+        .map((f: any) => `[${f.coreKey}] ${f.outcome}: ${f.detail}`)
+        .join('; ');
+      throw new Error(
+        `Legacy system metadata assessment found blocking issues, boot cannot continue: ${details}`,
+      );
+    }
+  });
+
+  await runInitStep('firstRunInitializer', async () => {
+    if (await c.firstRunInitializer.isNeeded()) {
+      await c.firstRunInitializer.run();
+    }
+  });
 }
 
 export async function shutdown(
