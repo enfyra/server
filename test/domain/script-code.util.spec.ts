@@ -1,6 +1,5 @@
 import {
   compileScriptSource,
-  getExecutableScript,
   normalizeFlowStepScriptConfig,
   normalizeScriptPatch,
   normalizeScriptRecord,
@@ -46,11 +45,11 @@ describe('script-code util', () => {
   });
 
   it('executes sourceCode over stale compiledCode', () => {
-    const executable = getExecutableScript({
+    const executable = resolveExecutableScript({
       scriptLanguage: 'typescript',
       sourceCode: 'const value: string = @BODY.name; return value;',
       compiledCode: 'const value: string = $ctx.$body.name; return value;',
-    });
+    }).code;
 
     expect(executable).toContain('const value = $ctx.$body.name;');
     expect(executable).not.toContain(': string');

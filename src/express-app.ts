@@ -43,7 +43,7 @@ import { registerDynamicRoutes } from './http/routes/dynamic.routes';
 import { DebugTrace } from './shared/utils/debug-trace.util';
 import { resolveClientIpFromRequest } from './shared/utils/client-ip.util';
 
-function disposeRequestScopeOnResponse(req: any, res: any): void {
+export function disposeRequestScopeOnResponse(req: any, res: any): void {
   let disposed = false;
   const dispose = () => {
     if (disposed) return;

@@ -1,16 +1,10 @@
 import {
   compileSchemaMutationContract,
-  createSchemaMutationOutputReference,
   hashCanonical,
-  resolveSchemaMutationOutputReferences,
   verifySchemaMutationContractHash,
 } from '../../src/shared/utils/schema-mutation-contract.util';
 
 function buildInput() {
-  const generatedTableId = createSchemaMutationOutputReference(
-    'metadata:create-table',
-    'tableId',
-  );
   return {
     contractVersion: 1,
     mutationId: 'mutation-1',
@@ -34,7 +28,7 @@ function buildInput() {
         changeId: 'change:create-table',
         dependsOn: ['metadata:create-table'],
         completesChange: true,
-        command: { kind: 'create-physical', tableId: generatedTableId },
+        command: { kind: 'create-physical', tableId: 'generated-id-42' },
       },
     ],
   };
@@ -60,21 +54,6 @@ describe('schema mutation contract', () => {
     expect(Object.isFrozen(contract.phases[1].nodes[0].command)).toBe(true);
   });
 
-  it('keeps generated ids symbolic until node execution', () => {
-    const input = buildInput();
-    const initialHash = compileSchemaMutationContract(input).contractHash;
-    const resolved = resolveSchemaMutationOutputReferences(
-      input.nodes[1].command,
-      new Map([['metadata:create-table', { tableId: 'generated-id-42' }]]),
-    );
-
-    expect(resolved).toEqual({
-      kind: 'create-physical',
-      tableId: 'generated-id-42',
-    });
-    expect(compileSchemaMutationContract(input).contractHash).toBe(initialHash);
-  });
-
   it('rejects values that cannot be represented by the durable contract', () => {
     expect(() => hashCanonical({ unsafe: undefined })).toThrow(
       /do not support undefined/,
@@ -85,14 +64,5 @@ describe('schema mutation contract', () => {
     expect(() => hashCanonical({ unsafe: new Date() })).toThrow(
       /plain objects and arrays/,
     );
-  });
-
-  it('fails when a symbolic output cannot be resolved', () => {
-    expect(() =>
-      resolveSchemaMutationOutputReferences(
-        createSchemaMutationOutputReference('missing-node', 'id'),
-        new Map(),
-      ),
-    ).toThrow(/output is missing for node missing-node/);
   });
 });

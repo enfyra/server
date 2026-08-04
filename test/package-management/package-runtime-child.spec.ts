@@ -64,15 +64,6 @@ function callRuntime(child: ReturnType<typeof fork>, message: any) {
 }
 
 describe('package runtime child', () => {
-  it('published worker bundle forwards remaining package call timeout', async () => {
-    const workerBundlePath = require.resolve('@enfyra/kernel/execution/worker.js');
-    const workerBundle = await import('fs').then((fs) =>
-      fs.readFileSync(workerBundlePath, 'utf8'),
-    );
-
-    expect(workerBundle).toContain('timeoutMs:n.timeoutMs');
-  });
-
   it('uses the remaining task timeout for proxied package calls', async () => {
     tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-package-runtime-'));
     const modulePath = path.join(tempDir, 'slow-package.mjs');

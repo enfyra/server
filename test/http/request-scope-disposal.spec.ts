@@ -171,8 +171,17 @@ function makeAppContainer(dispose = vi.fn()) {
     guardEvaluatorService: {
       evaluateGuard: vi.fn(),
     },
+    guardAlertService: {
+      recordAlert: vi.fn(),
+    },
+    authenticationService: {
+      authenticate: vi.fn(async () => null),
+    },
     queryBuilderService: {},
     cacheService: {},
+    eventEmitter: {
+      emit: vi.fn(),
+    },
     envService: {
       get: vi.fn(() => 'test-secret'),
     },

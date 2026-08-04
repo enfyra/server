@@ -4,15 +4,19 @@ import {
   splitSqlPoolAcrossReplication,
 } from '../../src/engines/knex';
 import {
-  WORKER_RSS_HIGH,
-  WORKER_RSS_LOW,
-  WORKER_CPU_HIGH,
-  WORKER_CPU_LOW,
-  WORKER_FLOOR,
-  WORKER_HYSTERESIS_TICKS,
   SQL_COORD_RESERVE_MIN,
   SQL_COORD_RESERVE_RATIO,
 } from '../../src/shared/utils/auto-scaling.constants';
+
+// Worker feedback-loop thresholds are kernel-owned (computeEngineTuning).
+// Keep the expected values local so the sweep/simulation stays a spec of
+// kernel behavior without re-introducing dead server constants.
+const WORKER_RSS_HIGH = 0.85;
+const WORKER_RSS_LOW = 0.7;
+const WORKER_CPU_HIGH = 0.7;
+const WORKER_CPU_LOW = 0.5;
+const WORKER_FLOOR = 1;
+const WORKER_HYSTERESIS_TICKS = 3;
 
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
