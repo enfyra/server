@@ -5,7 +5,7 @@ import {
 } from '../../../shared/services';
 import { CommonService } from '../../../shared/common';
 import { QueryBuilderService } from '@enfyra/kernel';
-import { CacheService, MetadataCacheService } from '../../cache';
+import { MetadataCacheService, type RedisCacheService } from '../../cache';
 import { MetadataProvisionService } from './metadata-provision.service';
 import { MetadataMigrationService } from './metadata-migration.service';
 import { DataProvisionService } from './data-provision.service';
@@ -31,7 +31,7 @@ export class FirstRunInitializer {
   private readonly logger = new Logger(FirstRunInitializer.name);
   private readonly commonService: CommonService;
   private readonly queryBuilderService: QueryBuilderService;
-  private readonly cacheService: CacheService;
+  private readonly cacheService: RedisCacheService;
   private readonly instanceService: InstanceService;
   private readonly metadataCacheService: MetadataCacheService;
   private readonly metadataProvisionService: MetadataProvisionService;
@@ -54,7 +54,7 @@ export class FirstRunInitializer {
   constructor(deps: {
     commonService: CommonService;
     queryBuilderService: QueryBuilderService;
-    cacheService: CacheService;
+    cacheService: RedisCacheService;
     instanceService: InstanceService;
     metadataCacheService: MetadataCacheService;
     metadataProvisionService: MetadataProvisionService;
@@ -126,7 +126,6 @@ export class FirstRunInitializer {
         PROVISION_LOCK_KEY,
         lockValue,
         REDIS_TTL.PROVISION_LOCK_TTL,
-        { global: true },
       );
       if (acquired) break;
 
@@ -360,9 +359,7 @@ export class FirstRunInitializer {
       throw error;
     } finally {
       await lease.stop();
-      await this.cacheService.release(PROVISION_LOCK_KEY, lockValue, {
-        global: true,
-      });
+      await this.cacheService.release(PROVISION_LOCK_KEY, lockValue);
       process.noDeprecation = originalNoDeprecation;
     }
   }
@@ -388,9 +385,7 @@ export class FirstRunInitializer {
       if (stopped || lost) return Promise.resolve(false);
       if (pending) return pending;
       pending = this.cacheService
-        .renew(PROVISION_LOCK_KEY, lockValue, REDIS_TTL.PROVISION_LOCK_TTL, {
-          global: true,
-        })
+        .renew(PROVISION_LOCK_KEY, lockValue, REDIS_TTL.PROVISION_LOCK_TTL)
         .then((renewed) => {
           if (!renewed) lost = true;
           return renewed;
@@ -639,7 +634,7 @@ export class FirstRunInitializer {
       } catch {}
       try {
         if (
-          (await this.cacheService.get(PROVISION_LOCK_KEY, { global: true })) ===
+          (await this.cacheService.get(PROVISION_LOCK_KEY)) ===
           null
         ) {
           return 'unlocked';

@@ -241,6 +241,7 @@ class FakeRedis {
 function makeService(redis = new FakeRedis()) {
   const lifecycleTtlMs = 30 * 60 * 1000;
   const userCacheService = {
+    getQuota: () => ({ limitBytes: 0, maxValueBytes: 0 }),
     async set(key: string, value: any, ttlMs: number) {
       redis.values.set(`app-a:user_cache:${key}`, {
         type: 'string',

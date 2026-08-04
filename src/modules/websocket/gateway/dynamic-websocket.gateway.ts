@@ -7,7 +7,6 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import {
-  CacheService,
   RuntimeRegistryService,
   type WebSocketGateway,
 } from '../../../engines/cache';
@@ -60,7 +59,6 @@ export class DynamicWebSocketGateway {
   private readonly builtInRegistry: BuiltInSocketRegistry;
   private readonly envService: EnvService;
   private readonly queryBuilderService: QueryBuilderService;
-  private readonly cacheService: CacheService;
   private readonly redisAdminService: RedisAdminService;
   private readonly lazyRef: Cradle;
 
@@ -70,7 +68,6 @@ export class DynamicWebSocketGateway {
     eventEmitter?: any;
     envService: EnvService;
     queryBuilderService: QueryBuilderService;
-    cacheService: CacheService;
     redisAdminService: RedisAdminService;
     lazyRef: Cradle;
   }) {
@@ -78,7 +75,6 @@ export class DynamicWebSocketGateway {
     this.builtInRegistry = deps.builtInSocketRegistry;
     this.envService = deps.envService;
     this.queryBuilderService = deps.queryBuilderService;
-    this.cacheService = deps.cacheService;
     this.redisAdminService = deps.redisAdminService;
     this.lazyRef = deps.lazyRef;
     this.roomFanoutChunkThreshold = this.readPositiveEnvNumber(

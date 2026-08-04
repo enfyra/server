@@ -154,7 +154,6 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   app.use(
     jwtAuthMiddleware(
       c.queryBuilderService,
-      c.cacheService,
       c.envService.get('SECRET_KEY'),
       c.apiTokenService,
     ),

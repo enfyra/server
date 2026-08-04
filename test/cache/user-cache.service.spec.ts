@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { UserCacheService } from '../../src/engines/cache';
+import { RedisCacheService } from '../../src/engines/cache';
 
 class FakePipeline {
   private readonly ops: Array<() => void> = [];
@@ -153,24 +153,31 @@ function makeService(limitMb: number, maxValueBytes = 0) {
   const redis = new FakeRedis();
   return {
     redis,
-    service: new UserCacheService({
+    service: new RedisCacheService({
       redis: redis as any,
       envService: {
         get: (key: string) => {
           if (key === 'NODE_NAME') return 'app-a';
-          if (key === 'REDIS_USER_CACHE_LIMIT_MB') return limitMb;
-          if (key === 'REDIS_USER_CACHE_MAX_VALUE_BYTES') return maxValueBytes;
           return undefined;
         },
       } as any,
       runtimeNamespaceLifecycleService: {
         getKeyTtlMs: () => 5000,
       } as any,
+      policy: {
+        keyPrefix: 'user_cache:',
+        requireNamespace: true,
+        quota: {
+          limitBytes: limitMb * 1024 * 1024,
+          maxValueBytes,
+        },
+        clearAllMode: 'prefix',
+      },
     }),
   };
 }
 
-describe('UserCacheService', () => {
+describe('RedisCacheService — user cache policy', () => {
   it('stores $cache keys under the user_cache namespace', async () => {
     const { redis, service } = makeService(1);
 

@@ -85,7 +85,6 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
       SAGA_ORPHAN_RECOVERY_LOCK_KEY,
       'instance-test-abc',
       REDIS_TTL.SAGA_ORPHAN_RECOVERY_LOCK_TTL,
-      { global: true },
     );
     expect(acquire).toHaveBeenCalledTimes(2);
     expect(release).toHaveBeenCalled();
@@ -107,7 +106,6 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
     expect(release).toHaveBeenCalledWith(
       SAGA_ORPHAN_RECOVERY_LOCK_KEY,
       'instance-test-abc',
-      { global: true },
     );
     const after = coordinator.getSagaRecoveryMetrics();
     expect(after.totalRuns).toBe(before.totalRuns + 1);
@@ -125,7 +123,6 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
     expect(release).toHaveBeenCalledWith(
       SAGA_ORPHAN_RECOVERY_LOCK_KEY,
       'instance-test-abc',
-      { global: true },
     );
   });
 

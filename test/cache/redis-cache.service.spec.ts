@@ -1,20 +1,31 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CacheService } from '../../src/engines/cache/services/cache.service';
+import { RedisCacheService } from '../../src/engines/cache/services/redis-cache.service';
+import type { RedisCachePolicy } from '../../src/engines/cache/types/redis-cache-policy.types';
 
-describe('CacheService', () => {
+const SYSTEM_POLICY: RedisCachePolicy = {
+  keyPrefix: '',
+  clearAllMode: 'namespace',
+};
+
+function makeSystemCache(redis: any, nodeName: string | null) {
+  return new RedisCacheService({
+    redis,
+    envService: {
+      get: (key: string) => (key === 'NODE_NAME' ? nodeName : null),
+    } as any,
+    runtimeNamespaceLifecycleService: {
+      getKeyTtlMs: () => 7000,
+    } as any,
+    policy: SYSTEM_POLICY,
+  });
+}
+
+describe('RedisCacheService — system policy', () => {
   it('stores zero-ttl values with namespace lifecycle ttl when available', async () => {
     const redis = {
       set: vi.fn(async () => 'OK'),
     };
-    const service = new CacheService({
-      redis: redis as any,
-      envService: {
-        get: (key: string) => (key === 'NODE_NAME' ? 'app-a' : null),
-      } as any,
-      runtimeNamespaceLifecycleService: {
-        getKeyTtlMs: () => 7000,
-      } as any,
-    });
+    const service = makeSystemCache(redis, 'app-a');
 
     await service.set('auth:oauth-exchange:pending:code', { ok: true }, 0);
 
@@ -30,15 +41,7 @@ describe('CacheService', () => {
     const redis = {
       set: vi.fn(async () => 'OK'),
     };
-    const service = new CacheService({
-      redis: redis as any,
-      envService: {
-        get: (key: string) => (key === 'NODE_NAME' ? 'app-a' : null),
-      } as any,
-      runtimeNamespaceLifecycleService: {
-        getKeyTtlMs: () => 7000,
-      } as any,
-    });
+    const service = makeSystemCache(redis, 'app-a');
 
     await service.acquire('lock:boot', 'token', 0);
 
@@ -51,26 +54,26 @@ describe('CacheService', () => {
     );
   });
 
-  it('scopes global coordination keys to the app namespace', async () => {
+  it('scopes coordination keys to the app namespace', async () => {
     const redis = {
       set: vi.fn(async () => 'OK'),
     };
-    const service = (nodeName: string) => new CacheService({
-      redis: redis as any,
-      envService: {
-        get: (key: string) => (key === 'NODE_NAME' ? nodeName : null),
-      } as any,
-    });
 
-    await service('app-a').acquire('sys:provision_init_lock', 'token-a', 7000, {
-      global: true,
-    });
-    await service('app-a').acquire('sys:provision_init_lock', 'token-b', 7000, {
-      global: true,
-    });
-    await service('app-b').acquire('sys:provision_init_lock', 'token-c', 7000, {
-      global: true,
-    });
+    await makeSystemCache(redis, 'app-a').acquire(
+      'sys:provision_init_lock',
+      'token-a',
+      7000,
+    );
+    await makeSystemCache(redis, 'app-a').acquire(
+      'sys:provision_init_lock',
+      'token-b',
+      7000,
+    );
+    await makeSystemCache(redis, 'app-b').acquire(
+      'sys:provision_init_lock',
+      'token-c',
+      7000,
+    );
 
     expect(redis.set.mock.calls.map(([key]) => key)).toEqual([
       'app-a:sys:provision_init_lock',
@@ -83,12 +86,7 @@ describe('CacheService', () => {
     const redis = {
       eval: vi.fn(async () => 1),
     };
-    const service = new CacheService({
-      redis: redis as any,
-      envService: {
-        get: (key: string) => (key === 'NODE_NAME' ? 'app-a' : null),
-      } as any,
-    });
+    const service = makeSystemCache(redis, 'app-a');
 
     await expect(service.renew('lock:boot', 'token', 7000)).resolves.toBe(true);
 
@@ -102,13 +100,14 @@ describe('CacheService', () => {
   });
 
   it('reports a lost lock instead of recreating it during renewal', async () => {
-    const service = new CacheService({
+    const service = new RedisCacheService({
       redis: {
         eval: vi.fn(async () => 0),
       } as any,
       envService: {
         get: () => null,
       } as any,
+      policy: SYSTEM_POLICY,
     });
 
     await expect(service.renew('lock:boot', 'stale-token', 7000)).resolves.toBe(

@@ -117,7 +117,6 @@ import {
 
 import {
   CacheOrchestratorService,
-  CacheService,
   FieldPermissionCacheBuilder,
   ColumnRuleCacheBuilder,
   FlowCacheBuilder,
@@ -134,6 +133,7 @@ import {
   RateLimitService,
   RedisPubSubService,
   RedisRuntimeCacheStore,
+  RedisCacheService,
   RepoRegistryService,
   RouteCacheService,
   RuntimeNamespaceLifecycleService,
@@ -143,7 +143,6 @@ import {
   RuntimeScriptRepairService,
   SettingCacheService,
   StorageConfigCacheBuilder,
-  UserCacheService,
   WebsocketCacheBuilder,
 } from './engines/cache';
 import {
@@ -327,8 +326,8 @@ export interface Cradle {
   kernelExecutorEngineService: KernelExecutorEngineService;
   executorEngineService: RuntimeScriptExecutorService;
 
-  cacheService: CacheService;
-  userCacheService: UserCacheService;
+  cacheService: RedisCacheService;
+  userCacheService: RedisCacheService;
   redisPubSubService: RedisPubSubService;
   runtimeNamespaceLifecycleService: RuntimeNamespaceLifecycleService;
   redisRuntimeCacheStore: RedisRuntimeCacheStore;
@@ -634,8 +633,32 @@ export function buildContainer(): AwilixContainer<Cradle> {
     ).singleton(),
     executorEngineService: asClass(RuntimeScriptExecutorService).singleton(),
 
-    cacheService: asClass(CacheService).singleton(),
-    userCacheService: asClass(UserCacheService).singleton(),
+    cacheService: asFunction(
+      (cradle) =>
+        new RedisCacheService({
+          redis: cradle.redis,
+          envService: cradle.envService,
+          runtimeNamespaceLifecycleService: cradle.runtimeNamespaceLifecycleService,
+          policy: { keyPrefix: '', clearAllMode: 'namespace' },
+        }),
+    ).singleton(),
+    userCacheService: asFunction(
+      (cradle) =>
+        new RedisCacheService({
+          redis: cradle.redis,
+          envService: cradle.envService,
+          runtimeNamespaceLifecycleService: cradle.runtimeNamespaceLifecycleService,
+          policy: {
+            keyPrefix: 'user_cache:',
+            requireNamespace: true,
+            quota: {
+              limitBytes: env.REDIS_USER_CACHE_LIMIT_MB * 1024 * 1024,
+              maxValueBytes: env.REDIS_USER_CACHE_MAX_VALUE_BYTES,
+            },
+            clearAllMode: 'prefix',
+          },
+        }),
+    ).singleton(),
     redisPubSubService: asClass(RedisPubSubService)
       .singleton()
       .disposer((service) => service.onDestroy()),

@@ -31,5 +31,5 @@
     "allowJs": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "build-entities.ts", "src_bak", "scripts"]
+  "exclude": ["node_modules", "dist", "build-entities.ts", "scripts"]
 }

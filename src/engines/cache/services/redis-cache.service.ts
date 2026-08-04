@@ -1,39 +1,47 @@
 import { Redis } from 'ioredis';
-import { EnvService } from '../../../shared/services';
-import { ICache } from '../../../domain/shared/interfaces/cache.interface';
-import { RuntimeNamespaceLifecycleService } from './runtime-namespace-lifecycle.service';
+import type { EnvService } from '../../../shared/services';
+import type { ICache } from '../../../domain/shared/interfaces/cache.interface';
+import type { RuntimeNamespaceLifecycleService } from './runtime-namespace-lifecycle.service';
+import type { RedisCachePolicy } from '../types/redis-cache-policy.types';
 
-export class UserCacheService implements ICache {
+export class RedisCacheService implements ICache {
   private readonly redis: Redis;
-  private readonly nodeName: string;
-  private readonly limitBytes: number;
-  private readonly maxValueBytes: number;
+  private readonly namespace: string | null;
+  private readonly policy: RedisCachePolicy;
   private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
 
   constructor(deps: {
     redis: Redis;
     envService: EnvService;
     runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
+    policy: RedisCachePolicy;
   }) {
     this.redis = deps.redis;
-    this.nodeName = deps.envService.get('NODE_NAME') || 'enfyra';
+    if (!this.redis) {
+      throw new Error(
+        'Redis connection not available - RedisCacheService cannot initialize',
+      );
+    }
+    this.policy = deps.policy;
     this.runtimeNamespaceLifecycleService =
       deps.runtimeNamespaceLifecycleService;
-    this.limitBytes =
-      Number(deps.envService.get('REDIS_USER_CACHE_LIMIT_MB') || 0) *
-      1024 *
-      1024;
-    this.maxValueBytes = Number(
-      deps.envService.get('REDIS_USER_CACHE_MAX_VALUE_BYTES') || 0,
-    );
+    const nodeName = deps.envService.get('NODE_NAME') || '';
+    this.namespace =
+      nodeName || (deps.policy.requireNamespace ? 'enfyra' : null);
+  }
+
+  getQuota(): { limitBytes: number; maxValueBytes: number } | null {
+    return this.policy.quota ?? null;
   }
 
   async acquire(key: string, value: any, ttlMs: number): Promise<boolean> {
     const decoratedKey = this.decorateKey(key);
     const serializedValue = this.serialize(value);
     const size = this.valueSize(serializedValue);
-    this.assertValueSize(size);
-    this.assertFitsLimit(size);
+    if (this.policy.quota) {
+      this.assertValueSize(size);
+      this.assertFitsLimit(size);
+    }
     const result = await this.redis.set(
       decoratedKey,
       serializedValue,
@@ -42,11 +50,13 @@ export class UserCacheService implements ICache {
       'NX',
     );
     if (result !== 'OK') {
-      await this.touch(decoratedKey);
+      if (this.policy.quota) await this.touch(decoratedKey);
       return false;
     }
-    await this.track(decoratedKey, size);
-    await this.evictIfNeeded();
+    if (this.policy.quota) {
+      await this.track(decoratedKey, size);
+      await this.evictIfNeeded();
+    }
     return true;
   }
 
@@ -67,7 +77,7 @@ export class UserCacheService implements ICache {
         ttlMs,
       );
       if (renewed === 1) {
-        await this.touch(decoratedKey);
+        if (this.policy.quota) await this.touch(decoratedKey);
         return true;
       }
       return false;
@@ -92,7 +102,9 @@ export class UserCacheService implements ICache {
         decoratedKey,
         serializedValue,
       );
-      if (deleted === 1) await this.untrack(decoratedKey);
+      if (deleted === 1 && this.policy.quota) {
+        await this.untrack(decoratedKey);
+      }
       return deleted === 1;
     } catch {
       return false;
@@ -102,11 +114,13 @@ export class UserCacheService implements ICache {
   async get<T = any>(key: string): Promise<T | null> {
     const decoratedKey = this.decorateKey(key);
     const current = await this.redis.get(decoratedKey);
-    if (current === null) {
-      await this.untrack(decoratedKey);
-      return null;
+    if (this.policy.quota) {
+      if (current === null) {
+        await this.untrack(decoratedKey);
+        return null;
+      }
+      await this.touch(decoratedKey);
     }
-    await this.touch(decoratedKey);
     return this.deserialize(current);
   }
 
@@ -114,8 +128,10 @@ export class UserCacheService implements ICache {
     const decoratedKey = this.decorateKey(key);
     const serializedValue = this.serialize(value);
     const size = this.valueSize(serializedValue);
-    this.assertValueSize(size);
-    this.assertFitsLimit(size);
+    if (this.policy.quota) {
+      this.assertValueSize(size);
+      this.assertFitsLimit(size);
+    }
     if (ttlMs > 0) {
       await this.redis.set(decoratedKey, serializedValue, 'PX', ttlMs);
     } else {
@@ -126,18 +142,22 @@ export class UserCacheService implements ICache {
         this.lifecycleTtlMs(),
       );
     }
-    await this.track(decoratedKey, size);
-    await this.evictIfNeeded();
+    if (this.policy.quota) {
+      await this.track(decoratedKey, size);
+      await this.evictIfNeeded();
+    }
   }
 
   async exists(key: string, value: any): Promise<boolean> {
     const decoratedKey = this.decorateKey(key);
     const current = await this.redis.get(decoratedKey);
-    if (current === null) {
-      await this.untrack(decoratedKey);
-      return false;
+    if (this.policy.quota) {
+      if (current === null) {
+        await this.untrack(decoratedKey);
+        return false;
+      }
+      await this.touch(decoratedKey);
     }
-    await this.touch(decoratedKey);
     const parsed = this.deserialize(current);
     const checkValue = this.deserialize(this.serialize(value));
     return JSON.stringify(parsed) === JSON.stringify(checkValue);
@@ -146,50 +166,84 @@ export class UserCacheService implements ICache {
   async deleteKey(key: string): Promise<void> {
     const decoratedKey = this.decorateKey(key);
     await this.redis.del(decoratedKey);
-    await this.untrack(decoratedKey);
+    if (this.policy.quota) await this.untrack(decoratedKey);
   }
 
-  async setNoExpire<T = any>(key: string, val: T): Promise<void> {
-    await this.set(key, val, 0);
+  async setNoExpire<T = any>(key: string, value: T): Promise<void> {
+    await this.set(key, value, 0);
   }
 
   async clearAll(): Promise<void> {
+    if (this.policy.clearAllMode === 'prefix') {
+      let cursor = '0';
+      do {
+        const [nextCursor, keys] = await this.redis.scan(
+          cursor,
+          'MATCH',
+          `${this.dataPrefix()}*`,
+          'COUNT',
+          100,
+        );
+        if (keys.length > 0) await this.redis.del(...keys);
+        cursor = nextCursor;
+      } while (cursor !== '0');
+      await this.redis.del(this.lruKey(), this.sizesKey(), this.totalKey());
+      return;
+    }
+    if (!this.namespace) {
+      await this.redis.flushdb();
+      return;
+    }
+    const pattern = `${this.namespace}:*`;
+    const runtimeCachePrefix = `${this.namespace}:runtime_cache:`;
     let cursor = '0';
     do {
       const [nextCursor, keys] = await this.redis.scan(
         cursor,
         'MATCH',
-        `${this.dataPrefix()}*`,
+        pattern,
         'COUNT',
         100,
       );
-      if (keys.length > 0) await this.redis.del(...keys);
+      const deletableKeys = keys.filter(
+        (key) => !key.startsWith(runtimeCachePrefix),
+      );
+      if (deletableKeys.length > 0) {
+        await this.redis.del(...deletableKeys);
+      }
       cursor = nextCursor;
     } while (cursor !== '0');
-    await this.redis.del(this.lruKey(), this.sizesKey(), this.totalKey());
   }
 
   private decorateKey(key: string): string {
-    if (!key || typeof key !== 'string')
-      throw new Error('cache key is required');
-    if (key.startsWith(this.dataPrefix())) return key;
-    return `${this.dataPrefix()}${key}`;
+    if (this.policy.quota) {
+      if (!key || typeof key !== 'string')
+        throw new Error('cache key is required');
+      if (key.startsWith(this.dataPrefix())) return key;
+      return `${this.dataPrefix()}${key}`;
+    }
+    if (!this.namespace) return key;
+    return `${this.namespace}:${key}`;
   }
 
   private dataPrefix(): string {
-    return `${this.nodeName}:user_cache:`;
+    return `${this.namespace}:${this.policy.keyPrefix}`;
+  }
+
+  private metaPrefix(): string {
+    return `${this.namespace}:${this.policy.keyPrefix.replace(/:$/, '')}_meta:`;
   }
 
   private lruKey(): string {
-    return `${this.nodeName}:user_cache_meta:lru`;
+    return `${this.metaPrefix()}lru`;
   }
 
   private sizesKey(): string {
-    return `${this.nodeName}:user_cache_meta:sizes`;
+    return `${this.metaPrefix()}sizes`;
   }
 
   private totalKey(): string {
-    return `${this.nodeName}:user_cache_meta:total_bytes`;
+    return `${this.metaPrefix()}total_bytes`;
   }
 
   private serialize(value: any): string {
@@ -210,17 +264,19 @@ export class UserCacheService implements ICache {
   }
 
   private assertValueSize(size: number): void {
-    if (this.maxValueBytes > 0 && size > this.maxValueBytes) {
+    const maxValueBytes = this.policy.quota?.maxValueBytes ?? 0;
+    if (maxValueBytes > 0 && size > maxValueBytes) {
       throw new Error(
-        `$cache value is ${size} bytes, above REDIS_USER_CACHE_MAX_VALUE_BYTES=${this.maxValueBytes}`,
+        `$cache value is ${size} bytes, above REDIS_USER_CACHE_MAX_VALUE_BYTES=${maxValueBytes}`,
       );
     }
   }
 
   private assertFitsLimit(size: number): void {
-    if (this.limitBytes > 0 && size > this.limitBytes) {
+    const limitBytes = this.policy.quota?.limitBytes ?? 0;
+    if (limitBytes > 0 && size > limitBytes) {
       throw new Error(
-        `$cache value is ${size} bytes, above REDIS_USER_CACHE_LIMIT_MB capacity ${this.limitBytes} bytes`,
+        `$cache value is ${size} bytes, above REDIS_USER_CACHE_LIMIT_MB capacity ${limitBytes} bytes`,
       );
     }
   }
@@ -253,9 +309,10 @@ export class UserCacheService implements ICache {
   }
 
   private async evictIfNeeded(): Promise<void> {
-    if (this.limitBytes <= 0) return;
+    const limitBytes = this.policy.quota?.limitBytes ?? 0;
+    if (limitBytes <= 0) return;
     let total = Number((await this.redis.get(this.totalKey())) ?? 0);
-    while (total > this.limitBytes) {
+    while (total > limitBytes) {
       const [oldest] = await this.redis.zrange(this.lruKey(), 0, 0);
       if (!oldest) break;
       const size = Number(

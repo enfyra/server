@@ -11,10 +11,9 @@ const secret = 'test-secret';
 
 function makeMiddleware(
   queryBuilder: any = {},
-  cacheService: any = {},
   apiTokenService?: any,
 ) {
-  return jwtAuthMiddleware(queryBuilder, cacheService, secret, apiTokenService);
+  return jwtAuthMiddleware(queryBuilder, secret, apiTokenService);
 }
 
 async function signToken(payload: Record<string, any>) {
@@ -127,7 +126,6 @@ describe('jwtAuthMiddleware', () => {
 
     await makeMiddleware(
       { isMongoDb: () => false },
-      {},
       {
         validateAccessPayload: vi.fn().mockResolvedValue(true),
       },

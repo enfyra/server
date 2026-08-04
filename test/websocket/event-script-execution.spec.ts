@@ -83,7 +83,6 @@ describe('DynamicWebSocketGateway event script execution — real socket E2E', (
       eventEmitter: { on: () => undefined } as any,
       envService: { get: () => undefined } as any,
       queryBuilderService: {} as any,
-      cacheService: {} as any,
       redisAdminService: {} as any,
       lazyRef: {} as any,
     });

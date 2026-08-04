@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { registerAdminRoutes } from '../../src/http/routes';
+import { registerAdminRoutes } from '../../src/http/routes/admin.routes';
 import { DynamicContextFactory } from '../../src/shared/services';
 import { WebsocketContextFactory } from '../../src/modules/websocket';
 

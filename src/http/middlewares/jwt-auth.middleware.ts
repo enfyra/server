@@ -5,7 +5,6 @@ import {
   InvalidTokenException,
 } from '../../domain/exceptions';
 import { QueryBuilderService } from '@enfyra/kernel';
-import { CacheService } from '../../engines/cache';
 import {
   loadCachedUserWithRole,
   withUserRequestContext,
@@ -30,7 +29,6 @@ function setAnonymousUser(req: any): void {
 
 export function jwtAuthMiddleware(
   queryBuilderService: QueryBuilderService,
-  _cacheService: CacheService,
   secretKey: string,
   apiTokenService?: ApiTokenService,
 ) {
