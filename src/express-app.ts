@@ -11,7 +11,7 @@ import {
   preAuthMetadataGuard,
   postAuthMetadataGuard,
 } from './http/middlewares/metadata-guard.middleware';
-import { jwtAuthMiddleware } from './http/middlewares/jwt-auth.middleware';
+import { authMiddleware } from './http/middlewares/auth.middleware';
 import { roleGuardMiddleware } from './http/middlewares/role-guard.middleware';
 import {
   requestLoggingBegin,
@@ -139,7 +139,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   );
   app.use((req: any, _res: any, next: any) => {
     if (req._debug) req._debug.dur('mw_route_detect', req._perfRouteDetect);
-    req._perfJwt = performance.now();
+    req._perfAuth = performance.now();
     next();
   });
   app.use(notFoundDetectMiddleware);
@@ -151,15 +151,9 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
       c.guardAlertService,
     ),
   );
-  app.use(
-    jwtAuthMiddleware(
-      c.queryBuilderService,
-      c.envService.get('SECRET_KEY'),
-      c.apiTokenService,
-    ),
-  );
+  app.use(authMiddleware(c.authenticationService));
   app.use((req: any, _res: any, next: any) => {
-    if (req._debug) req._debug.dur('mw_jwt_auth', req._perfJwt);
+    if (req._debug) req._debug.dur('mw_auth', req._perfAuth);
     next();
   });
   app.use(roleGuardMiddleware(c.policyService));
@@ -201,6 +195,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
     const yogaApp = c.graphqlService.getYogaApp();
     return yogaApp(req, res, {
       clientIp: resolveClientIpFromRequest(req),
+      auth: req.auth ?? null,
     });
   });
 

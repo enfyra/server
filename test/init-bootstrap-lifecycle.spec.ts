@@ -85,7 +85,7 @@ function runtimeContainer(bootstrapOverrides: Record<string, unknown> = {}) {
     graphqlService: { reloadSchema: vi.fn(async () => undefined) },
     sessionCleanupService: { init: vi.fn(async () => undefined) },
     userRevocationService: { init: vi.fn(async () => undefined) },
-    apiTokenService: { init: vi.fn(async () => undefined) },
+    patVerifierService: { init: vi.fn(async () => undefined) },
     oauthExchangeCodeService: { init: vi.fn(async () => undefined) },
     mongoPhysicalMigrationService: { init: vi.fn(async () => undefined) },
   };

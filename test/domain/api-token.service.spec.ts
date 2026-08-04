@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as jwt from 'jsonwebtoken';
-import { ApiTokenService } from '../../src/domain/auth';
+import { ApiTokenService, PatVerifierService } from '../../src/domain/auth';
 
 function createHarness() {
   const userId = '019e39d4-dca8-72d9-a33f-3488f7400c54';
@@ -63,15 +63,20 @@ function createHarness() {
     publish: vi.fn(async () => undefined),
     subscribeWithHandler: vi.fn(),
   };
+  const patVerifierService = new PatVerifierService({
+    queryBuilderService: queryBuilder,
+    cacheService,
+    redisPubSubService,
+  });
   const service = new ApiTokenService({
     queryBuilderService: queryBuilder,
     envService: { get: () => 'secret' } as any,
-    cacheService,
-    redisPubSubService,
+    patVerifierService,
   });
 
   return {
     service,
+    patVerifierService,
     tokens,
     cacheService,
     redisPubSubService,
@@ -115,10 +120,28 @@ describe('ApiTokenService', () => {
     ).rejects.toThrow(/expiresAt must be in the future/);
   });
 
+  it('verifies a PAT directly without issuing a JWT', async () => {
+    const { service, patVerifierService, req, userId } = createHarness();
+    const created = await service.create(
+      { name: 'Reusable PAT', expiresAt: 'never' },
+      req,
+    );
+
+    const verified = await patVerifierService.verify(created.token);
+
+    expect(verified.payload).toEqual({
+      id: userId,
+      loginProvider: 'api_token',
+      tokenType: 'api_token',
+      tokenId: created.id,
+    });
+    expect(verified.expiresAt).toBeNull();
+  });
+
   it('exchanges a valid API token into a JWT tied to the token record', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
-    const { service, req, userId } = createHarness();
+    const { service, patVerifierService, req, userId } = createHarness();
     const created = await service.create(
       {
         name: 'MCP token',
@@ -135,7 +158,9 @@ describe('ApiTokenService', () => {
     expect(decoded.tokenId).toBe(created.id);
     expect(decoded.exp).toBe(Math.floor((now.getTime() + 60_000) / 1000));
     expect(exchanged.expTime).toBe(decoded.exp! * 1000);
-    await expect(service.validateAccessPayload(decoded)).resolves.toBe(true);
+    await expect(
+      patVerifierService.validateAccessPayload(decoded),
+    ).resolves.toBe(true);
   });
 
   it('caps exchanged JWT expiry to the API token expiry when sooner than the access TTL', async () => {
@@ -159,8 +184,14 @@ describe('ApiTokenService', () => {
   });
 
   it('hard-deletes revoked tokens and invalidates their cached access state', async () => {
-    const { service, req, tokens, cacheService, redisPubSubService } =
-      createHarness();
+    const {
+      service,
+      patVerifierService,
+      req,
+      tokens,
+      cacheService,
+      redisPubSubService,
+    } = createHarness();
     const created = await service.create(
       { name: 'MCP token', expiresAt: 'never' },
       req,
@@ -178,6 +209,8 @@ describe('ApiTokenService', () => {
       'api-token:revoked',
       { tokenId: created.id },
     );
-    await expect(service.validateAccessPayload(decoded)).resolves.toBe(false);
+    await expect(
+      patVerifierService.validateAccessPayload(decoded),
+    ).resolves.toBe(false);
   });
 });

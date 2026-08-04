@@ -1,6 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
+import { EventEmitter } from 'events';
 import { afterEach, describe, expect, it } from 'vitest';
 import { IsolatedExecutorService } from '@enfyra/kernel';
 
@@ -13,16 +14,16 @@ afterEach(async () => {
   }
 });
 
-function makeService(modulePath: string) {
+function makeService(modulePath: string, packageName = 'sse-package') {
   return new IsolatedExecutorService({
     packageCacheService: {
-      getPackages: async () => ['sse-package'],
+      getPackages: async () => [packageName],
     } as any,
     packageCdnLoaderService: {
       getPackageSources: () => [
         {
-          name: 'sse-package',
-          safeName: 'sse_package',
+          name: packageName,
+          safeName: packageName.replace(/[^a-z0-9_]/gi, '_'),
           version: '1.0.0',
           sourceCode: '',
           filePath: modulePath,
@@ -172,6 +173,143 @@ describe('stream observer callback', () => {
         ],
       });
       expect(Buffer.concat(received).toString('utf8')).toBe('ab');
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('cancels a package-backed stream when the response closes', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-stream-cancel-'));
+    const modulePath = path.join(tempDir, 'undici.mjs');
+    await writeFile(
+      modulePath,
+      `
+        class ControlledBody {
+          constructor(signal) {
+            this.aborted = false;
+            this.release = null;
+            signal.addEventListener('abort', () => {
+              this.aborted = true;
+              this.release?.();
+            }, { once: true });
+          }
+          async *[Symbol.asyncIterator]() {
+            yield 'first';
+            await new Promise((resolve) => { this.release = resolve; });
+            if (this.aborted) throw new Error('upstream aborted');
+          }
+        }
+        export default {
+          async request(_url, options) {
+            return {
+              statusCode: 200,
+              headers: { 'content-type': 'text/event-stream' },
+              body: new ControlledBody(options.signal),
+            };
+          },
+        };
+      `,
+      'utf8',
+    );
+
+    const service = makeService(modulePath, 'undici');
+    const response: any = new EventEmitter();
+    response.writableEnded = false;
+    let ended = false;
+    let firstChunk = false;
+    response.stream = (stream: any) =>
+      new Promise<void>((resolve, reject) => {
+        stream.on('data', () => {
+          if (!firstChunk) {
+            firstChunk = true;
+            queueMicrotask(() => response.emit('close'));
+          }
+        });
+        stream.on('end', () => {
+          ended = true;
+          resolve();
+        });
+        stream.on('error', reject);
+      });
+
+    try {
+      const result = service.run(
+        `
+          const upstream = await $ctx.$pkgs.undici.request('https://upstream.test', { method: 'GET' });
+          await $ctx.$res.stream(upstream.body, { mimetype: 'text/event-stream' });
+        `,
+        {
+          $body: {},
+          $query: {},
+          $params: {},
+          $share: { $logs: [] },
+          $helpers: {},
+          $cache: {},
+          $repos: {},
+          $user: null,
+          $res: response,
+        },
+        5000,
+      );
+
+      await expect(result).rejects.toMatchObject({
+        code: 'ERR_EXECUTION_ABORTED',
+      });
+      expect(firstChunk).toBe(true);
+      expect(ended).toBe(false);
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('cancels a pending package request through the external task signal', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-request-cancel-'));
+    const modulePath = path.join(tempDir, 'undici.mjs');
+    await writeFile(
+      modulePath,
+      `
+        export default {
+          request(_url, options) {
+            if (options.signal.aborted) return Promise.reject(new Error('upstream aborted'));
+            return new Promise((_resolve, reject) => {
+              options.signal.addEventListener('abort', () => reject(new Error('upstream aborted')), { once: true });
+            });
+          },
+        };
+      `,
+      'utf8',
+    );
+
+    const service = makeService(modulePath, 'undici');
+    const controller = new AbortController();
+    const context: any = {
+      $body: {},
+      $query: {},
+      $params: {},
+      $share: { $logs: [] },
+      $helpers: {},
+      $cache: {},
+      $repos: {},
+      $user: null,
+    };
+
+    try {
+      const result = service.runBatch(
+        [
+          {
+            type: 'handler',
+            code: `await $ctx.$pkgs.undici.request('https://upstream.test', { method: 'GET' });`,
+          },
+        ],
+        context,
+        5000,
+        { signal: controller.signal },
+      );
+      setTimeout(() => controller.abort(), 20);
+
+      await expect(result).rejects.toMatchObject({
+        code: 'ERR_EXECUTION_ABORTED',
+      });
     } finally {
       service.onDestroy();
     }

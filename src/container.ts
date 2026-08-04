@@ -58,6 +58,9 @@ import {
   BcryptService,
   AuthService,
   ApiTokenService,
+  PatVerifierService,
+  JwtVerifierService,
+  AuthenticationService,
   OAuthService,
   OAuthExchangeCodeService,
   SessionCleanupService,
@@ -279,6 +282,9 @@ export interface Cradle {
   bcryptService: BcryptService;
   authService: AuthService;
   apiTokenService: ApiTokenService;
+  patVerifierService: PatVerifierService;
+  jwtVerifierService: JwtVerifierService;
+  authenticationService: AuthenticationService;
   oauthService: OAuthService;
   oauthExchangeCodeService: OAuthExchangeCodeService;
   sessionCleanupService: SessionCleanupService;
@@ -513,6 +519,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     bcryptService: asClass(BcryptService).singleton(),
     authService: asClass(AuthService).singleton(),
     apiTokenService: asClass(ApiTokenService).singleton(),
+    patVerifierService: asClass(PatVerifierService).singleton(),
+    jwtVerifierService: asClass(JwtVerifierService).singleton(),
+    authenticationService: asClass(AuthenticationService).singleton(),
     oauthService: asClass(OAuthService).singleton(),
     oauthExchangeCodeService: asClass(OAuthExchangeCodeService)
       .singleton()
@@ -638,7 +647,8 @@ export function buildContainer(): AwilixContainer<Cradle> {
         new RedisCacheService({
           redis: cradle.redis,
           envService: cradle.envService,
-          runtimeNamespaceLifecycleService: cradle.runtimeNamespaceLifecycleService,
+          runtimeNamespaceLifecycleService:
+            cradle.runtimeNamespaceLifecycleService,
           policy: { keyPrefix: '', clearAllMode: 'namespace' },
         }),
     ).singleton(),
@@ -647,7 +657,8 @@ export function buildContainer(): AwilixContainer<Cradle> {
         new RedisCacheService({
           redis: cradle.redis,
           envService: cradle.envService,
-          runtimeNamespaceLifecycleService: cradle.runtimeNamespaceLifecycleService,
+          runtimeNamespaceLifecycleService:
+            cradle.runtimeNamespaceLifecycleService,
           policy: {
             keyPrefix: 'user_cache:',
             requireNamespace: true,

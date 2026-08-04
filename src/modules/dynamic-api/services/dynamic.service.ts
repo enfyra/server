@@ -135,10 +135,21 @@ export class DynamicService {
       }
 
       const res = routeData.res;
+      const abortController = new AbortController();
+      const abortOnDisconnect = () => {
+        if (res?.writableEnded === true) return;
+        abortController.abort();
+      };
+      const removeAbortListeners = () => {
+        if (typeof req.off === 'function') req.off('aborted', abortOnDisconnect);
+        if (typeof res?.off === 'function') res.off('close', abortOnDisconnect);
+      };
       if (res) {
         attachStreamResponseHelper(res);
         routeData.context.$res = res;
+        res.once('close', abortOnDisconnect);
       }
+      if (typeof req.once === 'function') req.once('aborted', abortOnDisconnect);
 
       this.executorEngineService.register(req, {
         code: handler,
@@ -179,10 +190,12 @@ export class DynamicService {
         const result = await this.executorEngineService.runBatch(
           req,
           timeoutMs,
+          { signal: abortController.signal },
         );
         value = result.value;
         shortCircuit = result.shortCircuit;
       } finally {
+        removeAbortListeners();
         delete routeData.context.$res;
       }
 
@@ -203,7 +216,14 @@ export class DynamicService {
 
       return value;
     } catch (error) {
-      const err = error as { statusCode?: number; details?: any };
+      const err = error as {
+        code?: string;
+        statusCode?: number;
+        details?: any;
+      };
+      if (err.code === 'ERR_EXECUTION_ABORTED') {
+        return undefined;
+      }
       const httpStatus =
         error instanceof HttpException
           ? error.getStatus()

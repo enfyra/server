@@ -144,7 +144,9 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
     runInitStep('userRevocationService.init', () =>
       c.userRevocationService?.init?.(),
     ),
-    runInitStep('apiTokenService.init', () => c.apiTokenService?.init?.()),
+    runInitStep('patVerifierService.init', () =>
+      c.patVerifierService?.init?.(),
+    ),
     runInitStep('oauthExchangeCodeService.init', () =>
       c.oauthExchangeCodeService?.init?.(),
     ),

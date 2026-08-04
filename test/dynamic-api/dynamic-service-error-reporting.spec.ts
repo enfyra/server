@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'events';
 import { DynamicService } from '../../src/modules/dynamic-api/services/dynamic.service';
 import { HttpException } from '../../src/domain/exceptions';
 
@@ -70,5 +71,50 @@ describe('DynamicService error reporting', () => {
         '> 2. const second = missingValue + 1;',
       );
     }
+  });
+
+  it('treats response-close cancellation as a normal disconnect', async () => {
+    const response: any = new EventEmitter();
+    response.writableEnded = false;
+    const request: any = Object.assign(new EventEmitter(), createRequest({
+      routeData: {
+        handler: 'return true;',
+        postHooks: [],
+        context: { $share: { $logs: [] }, $query: {} },
+        res: response,
+      },
+    }));
+    const loggingService = { error: vi.fn() };
+    const runBatch = vi.fn(
+      async (_req: any, _timeout: number, options: { signal: AbortSignal }) => {
+        return new Promise((_resolve, reject) => {
+          options.signal.addEventListener(
+            'abort',
+            () => {
+              const error: any = new Error('Execution aborted after client disconnect');
+              error.code = 'ERR_EXECUTION_ABORTED';
+              reject(error);
+            },
+            { once: true },
+          );
+          queueMicrotask(() => response.emit('close'));
+        });
+      },
+    );
+    const service = new DynamicService({
+      executorEngineService: {
+        register: vi.fn(),
+        runBatch,
+      },
+      loggingService,
+    } as any);
+
+    await expect(service.runHandler(request)).resolves.toBeUndefined();
+    expect(runBatch).toHaveBeenCalledWith(
+      request,
+      undefined,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(loggingService.error).not.toHaveBeenCalled();
   });
 });

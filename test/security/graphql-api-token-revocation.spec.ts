@@ -1,6 +1,10 @@
 import jwt from 'jsonwebtoken';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DynamicResolver } from '../../src/modules/graphql/resolvers/dynamic.resolver';
+import {
+  AuthenticationService,
+  JwtVerifierService,
+} from '../../src/domain/auth';
 
 const mocks = vi.hoisted(() => ({
   loadCachedUserWithRole: vi.fn(),
@@ -8,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../src/shared/utils/load-user-with-role.util', () => ({
   loadCachedUserWithRole: mocks.loadCachedUserWithRole,
+  withUserRequestContext: (user: any) => user,
 }));
 
 const baseDefinition = {
@@ -36,6 +41,13 @@ function makeResolver(
 ) {
   const validateAccessPayload =
     options.validateAccessPayload ?? vi.fn().mockResolvedValue(true);
+  const authenticationService = new AuthenticationService({
+    queryBuilderService: {},
+    patVerifierService: { validateAccessPayload } as any,
+    jwtVerifierService: new JwtVerifierService({
+      envService: { get: () => 'test-secret' } as any,
+    }),
+  });
   const executorEngineService = {
     run: vi.fn().mockResolvedValue({ data: [{ id: 'user-1' }] }),
   };
@@ -59,7 +71,7 @@ function makeResolver(
         $params: input.params,
       })),
     },
-    apiTokenService: { validateAccessPayload },
+    authenticationService,
     guardCacheBuilder: {
       ensureGuardsLoaded: vi.fn().mockResolvedValue(undefined),
     },

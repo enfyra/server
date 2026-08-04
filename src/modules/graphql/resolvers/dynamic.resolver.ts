@@ -1,17 +1,18 @@
 import { BadRequestException } from '../../../domain/exceptions';
+import {
+  AuthenticationService,
+  ENFYRA_PAT_HEADER,
+  type AuthenticatedRequest,
+} from '../../../domain/auth';
 import { throwGqlError } from '../utils/throw-error';
 import { convertFieldNodesToFieldPicker } from '../utils/field-string-converter';
-import * as jwt from 'jsonwebtoken';
 import { GraphQLError } from 'graphql';
-import { QueryBuilderService } from '@enfyra/kernel';
 import { getErrorMessage } from '../../../shared/utils/error.util';
-import { EnvService, DynamicContextFactory } from '../../../shared/services';
+import { DynamicContextFactory } from '../../../shared/services';
 import { ExecutorEngineService } from '@enfyra/kernel';
 import { RepoRegistryService } from '../../../engines/cache';
 import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
-import { loadCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
-import type { ApiTokenService } from '../../../domain/auth/services/api-token.service';
 import {
   hasGraphqlOperationAccess,
   type GraphqlOperationName,
@@ -22,33 +23,27 @@ import type { GuardEvalContext } from '../../../engines/cache/types/guard.types'
 import type { GuardPosition } from '../../../engines/cache/types/guard.types';
 
 export class DynamicResolver {
-  private readonly queryBuilderService: QueryBuilderService;
   private readonly executorEngineService: ExecutorEngineService;
   private readonly repoRegistryService: RepoRegistryService;
   private readonly runtimeRegistryService: RuntimeRegistryService;
-  private readonly envService: EnvService;
   private readonly dynamicContextFactory: DynamicContextFactory;
-  private readonly apiTokenService: ApiTokenService;
+  private readonly authenticationService: AuthenticationService;
   private readonly guardEvaluatorService: GuardEvaluatorService;
   private readonly guardAlertService: GuardAlertService;
 
   constructor(deps: {
-    queryBuilderService: QueryBuilderService;
     executorEngineService: ExecutorEngineService;
     repoRegistryService: RepoRegistryService;
     runtimeRegistryService: RuntimeRegistryService;
-    envService: EnvService;
     dynamicContextFactory: DynamicContextFactory;
-    apiTokenService: ApiTokenService;
+    authenticationService: AuthenticationService;
     guardEvaluatorService: GuardEvaluatorService;
     guardAlertService: GuardAlertService;
   }) {
-    this.queryBuilderService = deps.queryBuilderService;
     this.executorEngineService = deps.executorEngineService;
     this.repoRegistryService = deps.repoRegistryService;
     this.runtimeRegistryService = deps.runtimeRegistryService;
-    this.envService = deps.envService;
-    this.apiTokenService = deps.apiTokenService;
+    this.authenticationService = deps.authenticationService;
     this.dynamicContextFactory = deps.dynamicContextFactory;
     this.guardEvaluatorService = deps.guardEvaluatorService;
     this.guardAlertService = deps.guardAlertService;
@@ -205,6 +200,7 @@ export class DynamicResolver {
     }
 
     const accessToken = this.getBearerToken(context);
+    const patToken = this.getPatToken(context);
     const isPublic = definition.publicOperations.includes(operation);
 
     // pre_auth GQL guards: IP allow/block + rate by IP/operation. Runs before
@@ -217,11 +213,12 @@ export class DynamicResolver {
       null,
     );
 
-    const user = accessToken
-      ? await this.authenticate(accessToken)
-      : isPublic
-        ? null
-        : this.throwAuthenticationRequired();
+    const user =
+      accessToken || patToken
+        ? await this.authenticate(context)
+        : isPublic
+          ? null
+          : this.throwAuthenticationRequired();
 
     // post_auth GQL guards: rate by user. Runs after the user is resolved but
     // before the GraphQL operation permission check.
@@ -328,34 +325,34 @@ export class DynamicResolver {
     return match?.[1]?.trim() || '';
   }
 
+  private getPatToken(context: any): string {
+    return context.request?.headers?.get(ENFYRA_PAT_HEADER)?.trim() || '';
+  }
+
   private throwAuthenticationRequired(): never {
     return throwGqlError('401', 'Authentication required') as never;
   }
 
-  private async authenticate(accessToken: string) {
-    let decoded: jwt.JwtPayload;
+  private async authenticate(context: any) {
+    const requestAuth = context.auth as AuthenticatedRequest | null | undefined;
+    if (requestAuth) return requestAuth.user;
+
     try {
-      decoded = jwt.verify(
-        accessToken,
-        this.envService.get('SECRET_KEY'),
-      ) as jwt.JwtPayload;
-    } catch {
-      throwGqlError('401', 'Unauthorized');
+      const authenticated = await this.authenticationService.authenticate({
+        authorization: context.request?.headers?.get('authorization'),
+        patToken: context.request?.headers?.get(ENFYRA_PAT_HEADER),
+        allowAnonymous: false,
+      });
+      if (!authenticated) {
+        throwGqlError('401', 'Invalid user');
+      }
+      return authenticated.user;
+    } catch (error: any) {
+      if (error?.statusCode === 401) {
+        throwGqlError('401', 'Unauthorized');
+      }
+      throw error;
     }
-    if (
-      decoded.tokenType === 'api_token' &&
-      !(await this.apiTokenService.validateAccessPayload(decoded))
-    ) {
-      throwGqlError('401', 'Token has been revoked');
-    }
-    const user = await loadCachedUserWithRole(
-      this.queryBuilderService,
-      decoded.id,
-    );
-    if (!user) {
-      throwGqlError('401', 'Invalid user');
-    }
-    return user;
   }
 
   private sanitizeResult(result: any, _tableName?: string): any {
