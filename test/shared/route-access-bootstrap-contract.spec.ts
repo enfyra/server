@@ -1,4 +1,5 @@
-import { dataMigration, defaultData } from '../../src/data';
+import { bootstrapSourceArtifacts } from '../../src/data';
+const { dataMigration, defaultData } = bootstrapSourceArtifacts;
 
 const PUBLIC_METHODS: Record<string, string[]> = {
   '/enfyra_cors_origin': ['GET'],

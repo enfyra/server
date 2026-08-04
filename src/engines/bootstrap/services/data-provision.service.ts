@@ -27,6 +27,7 @@ import {
   FlowExecutionDefinitionProcessor,
   GenericTableProcessor,
   GraphQLDefinitionProcessor,
+  GraphQLOperationDefinitionProcessor,
 } from '../../../domain/bootstrap';
 import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
 import { SYSTEM_TABLES } from '../../../shared/utils/system-tables.constants';
@@ -57,6 +58,7 @@ export class DataProvisionService {
   private readonly flowStepDefinitionProcessor: FlowStepDefinitionProcessor;
   private readonly flowExecutionDefinitionProcessor: FlowExecutionDefinitionProcessor;
   private readonly graphqlDefinitionProcessor: GraphQLDefinitionProcessor;
+  private readonly graphqlOperationDefinitionProcessor: GraphQLOperationDefinitionProcessor;
   private readonly dbType: string;
   private readonly initJson: Record<string, any>;
 
@@ -83,6 +85,7 @@ export class DataProvisionService {
     flowStepDefinitionProcessor: FlowStepDefinitionProcessor;
     flowExecutionDefinitionProcessor: FlowExecutionDefinitionProcessor;
     graphqlDefinitionProcessor: GraphQLDefinitionProcessor;
+    graphqlOperationDefinitionProcessor: GraphQLOperationDefinitionProcessor;
     bootstrapDefinitionService?: BootstrapDefinitionService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
@@ -112,6 +115,8 @@ export class DataProvisionService {
     this.flowExecutionDefinitionProcessor =
       deps.flowExecutionDefinitionProcessor;
     this.graphqlDefinitionProcessor = deps.graphqlDefinitionProcessor;
+    this.graphqlOperationDefinitionProcessor =
+      deps.graphqlOperationDefinitionProcessor;
     this.initJson = (
       deps.bootstrapDefinitionService ?? new BootstrapDefinitionService()
     ).getDefaultData();
@@ -169,6 +174,10 @@ export class DataProvisionService {
       this.flowExecutionDefinitionProcessor,
     );
     this.processors.set(SYSTEM_TABLES.graphql, this.graphqlDefinitionProcessor);
+    this.processors.set(
+      SYSTEM_TABLES.graphqlOperation,
+      this.graphqlOperationDefinitionProcessor,
+    );
 
     const allTables = Object.keys(this.initJson);
     const registeredTables = Array.from(this.processors.keys());

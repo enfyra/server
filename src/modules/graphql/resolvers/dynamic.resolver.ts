@@ -1,58 +1,52 @@
 import { BadRequestException } from '../../../domain/exceptions';
+import {
+  AuthenticationService,
+  ENFYRA_PAT_HEADER,
+  type AuthenticatedRequest,
+} from '../../../domain/auth';
 import { throwGqlError } from '../utils/throw-error';
 import { convertFieldNodesToFieldPicker } from '../utils/field-string-converter';
-import * as jwt from 'jsonwebtoken';
-import { QueryBuilderService } from '@enfyra/kernel';
+import { GraphQLError } from 'graphql';
 import { getErrorMessage } from '../../../shared/utils/error.util';
-import { EnvService, DynamicContextFactory } from '../../../shared/services';
+import { DynamicContextFactory } from '../../../shared/services';
 import { ExecutorEngineService } from '@enfyra/kernel';
-import {
-  RepoRegistryService,
-  GuardCacheBuilder,
-  GuardEvaluatorService,
-} from '../../../engines/cache';
-import { PolicyService, isPolicyDeny } from '../../../domain/policy';
-import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
+import { RepoRegistryService } from '../../../engines/cache';
 import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
-import { loadCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
-import { matchRouteInRoutes } from '../../../shared/utils/route-match.util';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
-import type { ApiTokenService } from '../../../domain/auth/services/api-token.service';
+import {
+  hasGraphqlOperationAccess,
+  type GraphqlOperationName,
+} from '../utils/graphql-access.util';
+import type { GuardEvaluatorService } from '../../../engines/cache/services/guard-evaluator.service';
+import type { GuardAlertService } from '../../../engines/cache/services/guard-alert.service';
+import type { GuardEvalContext } from '../../../engines/cache/types/guard.types';
+import type { GuardPosition } from '../../../engines/cache/types/guard.types';
 
 export class DynamicResolver {
-  private readonly queryBuilderService: QueryBuilderService;
   private readonly executorEngineService: ExecutorEngineService;
   private readonly repoRegistryService: RepoRegistryService;
-  private readonly guardCacheBuilder: GuardCacheBuilder;
-  private readonly guardEvaluatorService: GuardEvaluatorService;
   private readonly runtimeRegistryService: RuntimeRegistryService;
-  private readonly policyService: PolicyService;
-  private readonly envService: EnvService;
   private readonly dynamicContextFactory: DynamicContextFactory;
-  private readonly apiTokenService: ApiTokenService;
+  private readonly authenticationService: AuthenticationService;
+  private readonly guardEvaluatorService: GuardEvaluatorService;
+  private readonly guardAlertService: GuardAlertService;
 
   constructor(deps: {
-    queryBuilderService: QueryBuilderService;
     executorEngineService: ExecutorEngineService;
     repoRegistryService: RepoRegistryService;
-    guardCacheBuilder: GuardCacheBuilder;
-    guardEvaluatorService: GuardEvaluatorService;
     runtimeRegistryService: RuntimeRegistryService;
-    policyService: PolicyService;
-    envService: EnvService;
     dynamicContextFactory: DynamicContextFactory;
-    apiTokenService: ApiTokenService;
+    authenticationService: AuthenticationService;
+    guardEvaluatorService: GuardEvaluatorService;
+    guardAlertService: GuardAlertService;
   }) {
-    this.queryBuilderService = deps.queryBuilderService;
     this.executorEngineService = deps.executorEngineService;
     this.repoRegistryService = deps.repoRegistryService;
-    this.guardCacheBuilder = deps.guardCacheBuilder;
-    this.guardEvaluatorService = deps.guardEvaluatorService;
     this.runtimeRegistryService = deps.runtimeRegistryService;
-    this.policyService = deps.policyService;
-    this.envService = deps.envService;
-    this.apiTokenService = deps.apiTokenService;
+    this.authenticationService = deps.authenticationService;
     this.dynamicContextFactory = deps.dynamicContextFactory;
+    this.guardEvaluatorService = deps.guardEvaluatorService;
+    this.guardAlertService = deps.guardAlertService;
   }
 
   async dynamicResolver(
@@ -70,9 +64,8 @@ export class DynamicResolver {
   ) {
     const { mainTable, user } = await this.middleware(
       tableName,
-      'GQL_QUERY',
+      'QUERY',
       context,
-      'GET',
     );
     const selections = info.fieldNodes?.[0]?.selectionSet?.selections || [];
     const fullFieldPicker = convertFieldNodesToFieldPicker(selections);
@@ -136,12 +129,11 @@ export class DynamicResolver {
       }
       const operation = match[1];
       const tableName = match[2];
-      const routeAccessMethod = this.graphqlOperationToHttp(operation);
+      const graphqlOperation = operation.toUpperCase() as GraphqlOperationName;
       const { user } = await this.middleware(
         tableName,
-        'GQL_MUTATION',
+        graphqlOperation,
         context,
-        routeAccessMethod,
       );
       const handlerCtx: any = this.dynamicContextFactory.createGraphql({
         request: context.request,
@@ -177,15 +169,15 @@ export class DynamicResolver {
       }
       return this.sanitizeResult(result, tableName);
     } catch (error) {
+      if (error instanceof GraphQLError) throw error;
       throwGqlError('MUTATION_ERROR', getErrorMessage(error));
     }
   }
 
   private async middleware(
     mainTableName: string,
-    method: string,
+    operation: GraphqlOperationName,
     context: any,
-    routeAccessMethod: string,
   ) {
     if (!mainTableName) {
       throwGqlError('400', 'Missing table name');
@@ -198,28 +190,54 @@ export class DynamicResolver {
       );
     }
 
-    const isEnabled =
-      this.runtimeRegistryService.isGraphqlEnabledForTable(mainTableName);
-    if (!isEnabled) {
+    const definition =
+      this.runtimeRegistryService.getGraphqlDefinitionForTable(mainTableName);
+    if (!definition?.isEnabled) {
       throwGqlError(
         '404',
         `GraphQL is not enabled for table: ${mainTableName}`,
       );
     }
 
-    const routePath = `/${mainTableName}`;
-    const clientIp = this.resolveClientIp(context);
+    const accessToken = this.getBearerToken(context);
+    const patToken = this.getPatToken(context);
+    const isPublic = definition.publicOperations.includes(operation);
 
-    await this.runGuards('pre_auth', routePath, method, clientIp, null);
+    // pre_auth GQL guards: IP allow/block + rate by IP/operation. Runs before
+    // authenticate() so anonymous callers are also throttled/blocked.
+    await this.runGqlGuards(
+      'pre_auth',
+      mainTableName,
+      operation,
+      context,
+      null,
+    );
 
-    const accessToken =
-      context.request?.headers?.get('authorization')?.split('Bearer ')[1] || '';
-    const user = await this.checkAccess(mainTableName, method, accessToken);
+    const user =
+      accessToken || patToken
+        ? await this.authenticate(context)
+        : isPublic
+          ? null
+          : this.throwAuthenticationRequired();
 
-    const userId =
-      user && !user.isAnonymous ? user._id || user.id || null : null;
-    await this.runGuards('post_auth', routePath, method, clientIp, userId);
-    await this.assertRouteAccess(routePath, routeAccessMethod, user);
+    // post_auth GQL guards: rate by user. Runs after the user is resolved but
+    // before the GraphQL operation permission check.
+    await this.runGqlGuards(
+      'post_auth',
+      mainTableName,
+      operation,
+      context,
+      user,
+    );
+
+    const access = hasGraphqlOperationAccess({
+      definition,
+      operation,
+      user,
+    });
+    if (!access.allowed) {
+      throwGqlError('403', 'Forbidden');
+    }
 
     return {
       user,
@@ -227,107 +245,114 @@ export class DynamicResolver {
     };
   }
 
-  private graphqlOperationToHttp(operation: string): string {
-    if (operation === 'create') return 'POST';
-    if (operation === 'update') return 'PATCH';
-    if (operation === 'delete') return 'DELETE';
-    return 'GET';
-  }
-
-  private async assertRouteAccess(
-    routePath: string,
-    method: string,
+  /**
+   * Run GraphQL guards for a given position. pre_auth runs before
+   * authenticate() (IP allow/block, rate by IP/operation); post_auth runs
+   * after the user is resolved (rate by user). Rejects are mapped to
+   * GraphQLError with extensions { code, statusCode, details, headers } so the
+   * 404/401/403/429 semantics are preserved inside the resolver.
+   */
+  private async runGqlGuards(
+    position: GuardPosition,
+    mainTableName: string,
+    operation: GraphqlOperationName,
+    context: any,
     user: any,
-  ) {
-    const match = matchRouteInRoutes(
-      this.runtimeRegistryService.requireRoutes(),
-      method,
-      routePath,
-    );
-    if (!match?.route) {
-      throwGqlError('403', 'Forbidden');
-    }
-    const decision = this.policyService.checkRequestAccess({
-      method,
-      routeData: match.route,
-      user,
-    });
-    if (isPolicyDeny(decision)) {
-      throwGqlError(String(decision.statusCode || 403), decision.message);
-    }
-  }
-
-  private async checkAccess(
-    tableName: string,
-    method: string,
-    accessToken: string,
-  ) {
-    if (!accessToken) {
-      throwGqlError('401', 'Authentication required');
-    }
-    let decoded: jwt.JwtPayload;
-    try {
-      decoded = jwt.verify(
-        accessToken,
-        this.envService.get('SECRET_KEY'),
-      ) as jwt.JwtPayload;
-    } catch {
-      throwGqlError('401', 'Unauthorized');
-    }
-    if (
-      decoded.tokenType === 'api_token' &&
-      !(await this.apiTokenService.validateAccessPayload(decoded))
-    ) {
-      throwGqlError('401', 'Token has been revoked');
-    }
-    const user = await loadCachedUserWithRole(
-      this.queryBuilderService,
-      decoded.id,
-    );
-    if (!user) {
-      throwGqlError('401', 'Invalid user');
-    }
-    return user;
-  }
-
-  private async runGuards(
-    position: 'pre_auth' | 'post_auth',
-    routePath: string,
-    method: string,
-    clientIp: string,
-    userId: string | null,
-  ) {
-    await this.guardCacheBuilder.ensureGuardsLoaded();
-    const guards = this.runtimeRegistryService.getGuardsForRoute(
+  ): Promise<void> {
+    const guards = this.runtimeRegistryService.getGuardsForGraphql(
       position,
-      routePath,
-      method,
+      mainTableName,
+      operation as any,
     );
     if (guards.length === 0) return;
 
+    const clientIp = context.clientIp || 'unknown';
+
+    const evalCtx: GuardEvalContext = {
+      clientIp,
+      routePath: '/graphql',
+      tableName: mainTableName,
+      operation,
+      targetType: 'graphql',
+      userId:
+        position === 'post_auth' && user?.id != null ? String(user.id) : null,
+    };
+
     for (const guard of guards) {
-      const reject = await this.guardEvaluatorService.evaluateGuard(guard, {
-        clientIp,
-        routePath,
-        userId,
-      });
+      const { reject } = await this.guardEvaluatorService.evaluateGuard(
+        guard,
+        evalCtx,
+      );
+
       if (reject) {
-        throwGqlError(String(reject.statusCode), reject.message);
+        const scope =
+          'reason' in reject.details && reject.details.reason === 'rate_limit'
+            ? reject.details.scope
+            : 'ip';
+        const scopeKey =
+          scope === 'ip'
+            ? clientIp
+            : scope === 'user'
+              ? evalCtx.userId || 'anonymous'
+              : scope === 'operation'
+                ? `${mainTableName}:${operation}`
+                : '/graphql';
+        this.guardAlertService.recordAlert({
+          scope,
+          scopeKey,
+          routePath: '/graphql',
+          method: operation,
+          errorCode: reject.errorCode,
+          guardName: guard.name,
+        });
+
+        const extensions: Record<string, any> = {
+          code: reject.errorCode,
+          statusCode: reject.statusCode,
+          details: reject.details,
+        };
+        if (reject.headers) {
+          extensions.headers = reject.headers;
+        }
+        throw new GraphQLError(reject.message, { extensions });
       }
     }
   }
 
-  private resolveClientIp(context: any): string {
-    const headers: Record<string, unknown> = {};
-    if (context.request?.headers) {
-      const reqHeaders = context.request.headers;
-      if (typeof reqHeaders.forEach === 'function') {
-        reqHeaders.forEach((value: string, key: string) => {
-          headers[key.toLowerCase()] = value;
-        });
+  private getBearerToken(context: any): string {
+    const authorization = context.request?.headers?.get('authorization') || '';
+    const match = authorization.match(/^Bearer\s+(.+)$/i);
+    return match?.[1]?.trim() || '';
+  }
+
+  private getPatToken(context: any): string {
+    return context.request?.headers?.get(ENFYRA_PAT_HEADER)?.trim() || '';
+  }
+
+  private throwAuthenticationRequired(): never {
+    return throwGqlError('401', 'Authentication required') as never;
+  }
+
+  private async authenticate(context: any) {
+    const requestAuth = context.auth as AuthenticatedRequest | null | undefined;
+    if (requestAuth) return requestAuth.user;
+
+    try {
+      const authenticated = await this.authenticationService.authenticate({
+        authorization: context.request?.headers?.get('authorization'),
+        patToken: context.request?.headers?.get(ENFYRA_PAT_HEADER),
+        allowAnonymous: false,
+      });
+      if (!authenticated) {
+        throwGqlError('401', 'Invalid user');
       }
+      return authenticated.user;
+    } catch (error: any) {
+      if (error?.statusCode === 401) {
+        throwGqlError('401', 'Unauthorized');
+      }
+      throw error;
     }
-    return resolveClientIpFromRequest({ headers, ip: undefined });
   }
 
   private sanitizeResult(result: any, _tableName?: string): any {

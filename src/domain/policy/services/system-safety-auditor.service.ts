@@ -2,25 +2,41 @@ import { isDeepStrictEqual as isEqual } from 'node:util';
 import { CommonService } from '../../../shared/common';
 import { SchemaMigrationValidatorService } from './schema-migration-validator.service';
 import { RuntimeRegistryService } from '../../../engines/cache';
+import { QueryBuilderService } from '@enfyra/kernel';
+import {
+  assertGraphqlPermissionScope,
+  assertNoPublicPermissionOverlap,
+  normalizeGraphqlOperationList,
+  type GraphqlOperationName,
+} from '../../../modules/graphql/utils/graphql-access.util';
 
 export class SystemSafetyAuditorService {
   private readonly commonService: CommonService;
   private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly schemaMigrationValidatorService: SchemaMigrationValidatorService;
+  private readonly queryBuilderService: QueryBuilderService;
 
   constructor(deps: {
     commonService: CommonService;
     runtimeRegistryService: RuntimeRegistryService;
     schemaMigrationValidatorService: SchemaMigrationValidatorService;
+    queryBuilderService: QueryBuilderService;
   }) {
     this.commonService = deps.commonService;
     this.runtimeRegistryService = deps.runtimeRegistryService;
     this.schemaMigrationValidatorService = deps.schemaMigrationValidatorService;
+    this.queryBuilderService = deps.queryBuilderService;
   }
 
   async assertSystemSafe(ctx: any) {
     const { operation, tableName, data, existing, currentUser } = ctx;
     let fullExisting = existing;
+    await this.assertGraphqlMetadataSafe({
+      operation,
+      tableName,
+      data,
+      existing,
+    });
     const hasSystemFlag = await this.tableHasSystemFlag(tableName);
 
     if (hasSystemFlag && operation === 'create' && data?.isSystem === true) {
@@ -461,6 +477,120 @@ export class SystemSafetyAuditorService {
         }
       }
     }
+  }
+
+  private async assertGraphqlMetadataSafe(ctx: {
+    operation: 'create' | 'update' | 'delete';
+    tableName: string;
+    data: any;
+    existing: any;
+  }): Promise<void> {
+    const { operation, tableName, data, existing } = ctx;
+
+    if (tableName === 'enfyra_graphql_operation') {
+      throw new Error(
+        'Canonical GraphQL operations are immutable and cannot be created, updated, or deleted',
+      );
+    }
+
+    if (tableName === 'enfyra_graphql' && operation !== 'delete') {
+      const publicOperationValues =
+        data && 'publicOperations' in data
+          ? data.publicOperations
+          : existing?.publicOperations;
+      const publicOperations = await this.resolveGraphqlOperations(
+        publicOperationValues,
+      );
+      const graphqlId = this.getItemId(existing);
+      if (!graphqlId) return;
+
+      const permissionResult = await this.queryBuilderService.find({
+        table: 'enfyra_graphql_permission',
+        fields: ['id', 'operations.name'],
+        filter: { graphql: { _eq: graphqlId } },
+        limit: 10000,
+      });
+      for (const permission of permissionResult?.data ?? []) {
+        assertNoPublicPermissionOverlap({
+          publicOperations,
+          permissionOperations: normalizeGraphqlOperationList(
+            permission.operations,
+          ),
+        });
+      }
+      return;
+    }
+
+    if (tableName !== 'enfyra_graphql_permission' || operation === 'delete') {
+      return;
+    }
+
+    const role = data && 'role' in data ? data.role : existing?.role;
+    const allowedUsers =
+      data && 'allowedUsers' in data
+        ? data.allowedUsers
+        : existing?.allowedUsers;
+    assertGraphqlPermissionScope({ role, allowedUsers });
+
+    const operationValues =
+      data && 'operations' in data ? data.operations : existing?.operations;
+    const permissionOperations = await this.resolveGraphqlOperations(
+      operationValues,
+    );
+    if (permissionOperations.length === 0) {
+      throw new Error('GraphQL permission must grant at least one operation');
+    }
+
+    const graphql = data && 'graphql' in data ? data.graphql : existing?.graphql;
+    const graphqlId = this.getItemId(graphql);
+    if (!graphqlId) {
+      throw new Error('GraphQL permission requires a GraphQL configuration');
+    }
+    const config = await this.queryBuilderService.findOne({
+      table: 'enfyra_graphql',
+      fields: ['id', 'publicOperations.name'],
+      where: { [this.queryBuilderService.getPkField()]: graphqlId },
+    });
+    if (!config) {
+      throw new Error('GraphQL configuration not found');
+    }
+    assertNoPublicPermissionOverlap({
+      publicOperations: normalizeGraphqlOperationList(config.publicOperations),
+      permissionOperations,
+    });
+  }
+
+  private async resolveGraphqlOperations(
+    values: readonly unknown[] | null | undefined,
+  ): Promise<GraphqlOperationName[]> {
+    const items = Array.isArray(values) ? values : [];
+    const resolved: unknown[] = [];
+    for (const value of items) {
+      if (value && typeof value === 'object' && 'name' in value) {
+        resolved.push((value as any).name);
+        continue;
+      }
+      const id = this.getItemId(value);
+      if (!id) {
+        resolved.push(value);
+        continue;
+      }
+      const record = await this.queryBuilderService.findOne({
+        table: 'enfyra_graphql_operation',
+        fields: ['id', 'name'],
+        where: { [this.queryBuilderService.getPkField()]: id },
+      });
+      if (!record) {
+        throw new Error(`Unknown GraphQL operation reference: ${id}`);
+      }
+      resolved.push(record.name);
+    }
+    return normalizeGraphqlOperationList(resolved);
+  }
+
+  private getItemId(value: any): string | number | null {
+    if (value === undefined || value === null) return null;
+    return value?._id ?? value?.id ?? value;
   }
 
   async assertRelationSystemRecordsNotRemoved(

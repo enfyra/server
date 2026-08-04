@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SqlTableMetadataWriterService } from '../../src/modules/table-management';
+import { DatabaseConfigService } from '../../src/shared/services';
+import { normalizeTableConstraints } from '../../src/modules/table-management/utils/table-constraints.util';
 
 function createQueryRunner(existingRelations: Record<number, any> = {}) {
   const inserts: Record<string, any[]> = {};
@@ -52,10 +54,7 @@ function createQueryRunner(existingRelations: Record<number, any> = {}) {
         ) {
           return Promise.resolve(null);
         }
-        if (
-          table === 'enfyra_relation' &&
-          state.whereValue?.id === 701
-        ) {
+        if (table === 'enfyra_relation' && state.whereValue?.id === 701) {
           return Promise.resolve(inserts.enfyra_relation?.[0] ?? null);
         }
         if (
@@ -96,6 +95,102 @@ function createQueryRunner(existingRelations: Record<number, any> = {}) {
 }
 
 describe('SqlTableMetadataWriterService relation onDelete metadata', () => {
+  it('persists a column isUnique intent as a table unique constraint', async () => {
+    const originalDatabaseConfig = (DatabaseConfigService as any).instance;
+    DatabaseConfigService.overrideForTesting('postgres');
+    const updates: any[] = [];
+    const runner: any = (table: string) => {
+      const builder: any = {
+        where: () => builder,
+        whereIn: () => builder,
+        select: async () => [],
+        first: async () => null,
+        update: async (data: any) => {
+          if (table === 'enfyra_table') updates.push(data);
+          return 1;
+        },
+        delete: async () => 1,
+        insert: () => ({
+          returning: async () => [{ id: 1 }],
+        }),
+      };
+      return builder;
+    };
+    const service = new SqlTableMetadataWriterService();
+    const constraints = normalizeTableConstraints({
+      uniques: [],
+      indexes: [],
+      columns: [{ name: 'as', isUnique: true }],
+    });
+
+    try {
+      await service.writeTableMetadataUpdates(
+        runner,
+        1,
+        {
+          name: 'gateway_models',
+          uniques: constraints.uniques as any,
+          indexes: constraints.indexes as any,
+          columns: [{ name: 'as', type: 'varchar', isUnique: true }],
+          relations: [],
+        },
+        { id: 1, name: 'gateway_models', uniques: '[]', indexes: '[]' },
+        new Set<string>(),
+      );
+    } finally {
+      (DatabaseConfigService as any).instance = originalDatabaseConfig;
+    }
+
+    expect(updates[0]?.uniques).toBe(JSON.stringify([['as']]));
+  });
+
+  it('removes a single-column unique when the column intent is explicitly false', async () => {
+    const originalDatabaseConfig = (DatabaseConfigService as any).instance;
+    DatabaseConfigService.overrideForTesting('postgres');
+    const updates: any[] = [];
+    const constraints = normalizeTableConstraints({
+      uniques: [['modelName']],
+      indexes: [],
+      columns: [{ name: 'modelName', isUnique: false }],
+    });
+    const runner: any = (table: string) => {
+      const query: any = {
+        where: () => query,
+        select: async () => [],
+        update: async (data: any) => updates.push(data),
+      };
+      if (table === 'enfyra_column') query.select = async () => [];
+      return query;
+    };
+
+    try {
+      await new SqlTableMetadataWriterService().writeTableMetadataUpdates(
+        runner,
+        1,
+        {
+          name: 'gateway_models',
+          uniques: constraints.uniques as any,
+          indexes: constraints.indexes as any,
+          columns: [
+            { id: 99, name: 'modelName', type: 'varchar', isUnique: false },
+          ],
+          relations: [],
+        },
+        {
+          id: 1,
+          name: 'gateway_models',
+          uniques: JSON.stringify([['modelName']]),
+          indexes: '[]',
+        },
+        new Set<string>(),
+      );
+    } finally {
+      (DatabaseConfigService as any).instance = originalDatabaseConfig;
+    }
+
+    expect(updates[0]?.uniques).toBe(JSON.stringify([]));
+  });
+
   it('persists onDelete for owning and inverse relations', async () => {
     const { runner, inserts } = createQueryRunner();
     const service = new SqlTableMetadataWriterService();
@@ -237,7 +332,9 @@ describe('SqlTableMetadataWriterService relation onDelete metadata', () => {
     );
 
     const relationRows = inserts.enfyra_relation || [];
-    const inverse = relationRows.find((row) => row.propertyName === 'mentoredCourses');
+    const inverse = relationRows.find(
+      (row) => row.propertyName === 'mentoredCourses',
+    );
 
     expect(inverse?.mappedById).toBe(701);
     expect(inverse?.foreignKeyColumn).toBe('teacherId');

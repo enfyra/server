@@ -114,7 +114,7 @@ export const RELOAD_CHAINS: Record<string, string[]> = {
   [SYSTEM_TABLES.routeHandler]: ['route'],
   [SYSTEM_TABLES.routePermission]: ['route'],
   [SYSTEM_TABLES.role]: ['route'],
-  [SYSTEM_TABLES.method]: ['route', 'graphql'],
+  [SYSTEM_TABLES.method]: ['route'],
 
   [SYSTEM_TABLES.guard]: ['guard'],
   [SYSTEM_TABLES.guardRule]: ['guard'],
@@ -137,6 +137,8 @@ export const RELOAD_CHAINS: Record<string, string[]> = {
   [SYSTEM_TABLES.menu]: ['menu', 'extension'],
   [SYSTEM_TABLES.extension]: ['extension'],
   [SYSTEM_TABLES.graphql]: ['graphql'],
+  [SYSTEM_TABLES.graphqlOperation]: ['graphql'],
+  [SYSTEM_TABLES.graphqlPermission]: ['graphql'],
 };
 
 export class CacheOrchestratorService implements LifecycleAware {

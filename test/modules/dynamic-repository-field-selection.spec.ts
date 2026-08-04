@@ -263,6 +263,7 @@ function makeRepo({
     tableHandlerService: {} as any,
     policyService: {} as any,
     tableValidationService: {} as any,
+    guardValidationService: {} as any,
     fieldPermissionCacheBuilder: fieldPermissionCacheBuilder as any,
     runtimeRegistryService: activeRuntimeRegistryService,
     eventEmitter: {} as any,

@@ -14,6 +14,7 @@ import {
   generateDropForeignKeySQL,
 } from './sql-dialect';
 import { getPrimaryKeyTypeForTable } from './pk-type.util';
+import { getCurrentDatabaseSchema } from '../provision/schema-comparison';
 import {
   buildSqlJunctionTableContract,
   resolveSqlRelationOnDelete,
@@ -169,6 +170,26 @@ export async function generateSQLFromDiff(
     }
     return true;
   };
+  const findExistingIndexNames = async (cols: string[]): Promise<string[]> => {
+    try {
+      const current = await getCurrentDatabaseSchema(knex, tableName);
+      const expected = cols.map((column) => column.toLowerCase());
+      return current.indexes
+        .filter(
+          (index) =>
+            index.columns.length === expected.length &&
+            index.columns.every(
+              (column, position) => column.toLowerCase() === expected[position],
+            ),
+        )
+        .map((index) => index.name)
+        .filter(Boolean);
+    } catch (error) {
+      throw new Error(
+        `Cannot safely plan index removal for ${tableName}(${cols.join(', ')}): ${getErrorMessage(error)}`,
+      );
+    }
+  };
   if (tableDiff.update) {
     sqlStatements.push(
       generateRenameTableSQL(
@@ -193,6 +214,32 @@ export async function generateSQLFromDiff(
     renamedColumns.add(rename.newName);
     plannedColumns.add(rename.newName);
   }
+  const pendingForeignKeyCreates: string[] = [];
+  for (const fkRecreate of ensureArray(fkDiff.recreate)) {
+    const {
+      tableName: fkTableName,
+      columnName,
+      targetTable,
+      targetColumn,
+      onDelete,
+    } = fkRecreate;
+    const fkName = `fk_${fkTableName}_${columnName}`;
+    logger.log(`Recreating FK constraint ${fkName} with onDelete: ${onDelete}`);
+    const existingConstraint = await findForeignKeyConstraintName(
+      knex,
+      fkTableName,
+      columnName,
+      dbType,
+    );
+    if (existingConstraint) {
+      sqlStatements.push(
+        generateDropForeignKeySQL(fkTableName, existingConstraint, dbType),
+      );
+    }
+    pendingForeignKeyCreates.push(
+      `ALTER TABLE ${qt(fkTableName)} ADD CONSTRAINT ${qt(fkName)} FOREIGN KEY (${qt(columnName)}) REFERENCES ${qt(targetTable)} (${qt(targetColumn || 'id')}) ON DELETE ${onDelete} ON UPDATE CASCADE`,
+    );
+  }
   for (const col of ensureArray(columnDiff.delete)) {
     if (col.isForeignKey) {
       const constraintName = await findForeignKeyConstraintName(
@@ -207,7 +254,9 @@ export async function generateSQLFromDiff(
         );
       }
     }
-    sqlStatements.push(generateDropColumnSQL(activeTableName, col.name, dbType));
+    sqlStatements.push(
+      generateDropColumnSQL(activeTableName, col.name, dbType),
+    );
   }
   for (const col of ensureArray(columnDiff.create)) {
     plannedColumns.add(col.name);
@@ -237,7 +286,12 @@ export async function generateSQLFromDiff(
     ) {
       const indexName = `idx_${activeTableName}_${col.name}`;
       sqlStatements.push(
-        generateAddIndexSQL(activeTableName, indexName, [col.name, 'id'], dbType),
+        generateAddIndexSQL(
+          activeTableName,
+          indexName,
+          [col.name, 'id'],
+          dbType,
+        ),
       );
       logger.log(`  Added index on datetime column: ${col.name}`);
     }
@@ -280,22 +334,31 @@ export async function generateSQLFromDiff(
   }
   for (const uniqueGroup of ensureArray(constraintDiff.uniques?.update) || []) {
     const columns = uniqueGroup.map((col: string) => qt(col)).join(', ');
-    sqlStatements.push(`ALTER TABLE ${qt(activeTableName)} ADD UNIQUE (${columns})`);
+    sqlStatements.push(
+      `ALTER TABLE ${qt(activeTableName)} ADD UNIQUE (${columns})`,
+    );
   }
   for (const indexGroup of ensureArray(constraintDiff.indexes?.delete) || []) {
     const cols = Array.isArray(indexGroup)
       ? indexGroup
       : indexGroup?.value || [];
     if (cols.length === 0) continue;
-    if (dbType === 'mysql' && cols.some((col: string) => renamedColumns.has(col))) {
+    if (
+      dbType === 'mysql' &&
+      cols.some((col: string) => renamedColumns.has(col))
+    ) {
       logger.log(
         `  Skip dropping index on renamed column(s): ${cols.join(', ')}`,
       );
       continue;
     }
-    const indexName = `idx_${activeTableName}_${cols.join('_')}`;
-    sqlStatements.push(generateDropIndexSQL(activeTableName, indexName, dbType));
-    logger.log(`  Drop index ${indexName} (columns: ${cols.join(', ')})`);
+    const existingIndexNames = await findExistingIndexNames(cols);
+    for (const indexName of existingIndexNames) {
+      sqlStatements.push(
+        generateDropIndexSQL(activeTableName, indexName, dbType),
+      );
+      logger.log(`  Drop index ${indexName} (columns: ${cols.join(', ')})`);
+    }
   }
   for (const indexGroup of ensureArray(constraintDiff.indexes?.create) || []) {
     const cols = Array.isArray(indexGroup)
@@ -466,31 +529,7 @@ export async function generateSQLFromDiff(
     const { tableName: junctionName } = junctionDrop;
     sqlStatements.push(`DROP TABLE IF EXISTS ${qt(junctionName)}`);
   }
-  for (const fkRecreate of ensureArray(fkDiff.recreate)) {
-    const {
-      tableName: fkTableName,
-      columnName,
-      targetTable,
-      targetColumn,
-      onDelete,
-    } = fkRecreate;
-    const fkName = `fk_${fkTableName}_${columnName}`;
-    logger.log(`Recreating FK constraint ${fkName} with onDelete: ${onDelete}`);
-    const existingConstraint = await findForeignKeyConstraintName(
-      knex,
-      fkTableName,
-      columnName,
-      dbType,
-    );
-    if (existingConstraint) {
-      sqlStatements.push(
-        generateDropForeignKeySQL(fkTableName, existingConstraint, dbType),
-      );
-    }
-    sqlStatements.push(
-      `ALTER TABLE ${qt(fkTableName)} ADD CONSTRAINT ${qt(fkName)} FOREIGN KEY (${qt(columnName)}) REFERENCES ${qt(targetTable)} (${qt(targetColumn || 'id')}) ON DELETE ${onDelete} ON UPDATE CASCADE`,
-    );
-  }
+  sqlStatements.push(...pendingForeignKeyCreates);
   return sqlStatements;
 }
 export function generateBatchSQL(sqlStatements: string[]): string {

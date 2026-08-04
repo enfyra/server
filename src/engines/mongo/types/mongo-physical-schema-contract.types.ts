@@ -19,6 +19,12 @@ export interface MongoColumnLike {
   name?: string;
   type?: string;
   isPrimary?: boolean;
+  isUnique?: boolean;
+}
+
+export interface MongoStoredFieldTable {
+  columns?: readonly MongoColumnLike[];
+  relations?: readonly MongoRelationLike[];
 }
 
 export interface MongoPhysicalIndexSpec {

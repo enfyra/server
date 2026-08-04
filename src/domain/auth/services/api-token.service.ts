@@ -1,70 +1,31 @@
-import { createHash, randomBytes, randomUUID } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { ObjectId } from 'mongodb';
 import * as jwt from 'jsonwebtoken';
 import { DatabaseConfigService, EnvService } from '../../../shared/services';
-import { ICache } from '../../shared/interfaces/cache.interface';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
-import { IRedisPubSub } from '../../shared/interfaces/redis-pubsub.interface';
 import { BadRequestException, UnauthorizedException } from '../../exceptions';
-import { Logger } from '../../../shared/logger';
-import {
-  loadUserWithRole,
-  primeCachedUserWithRole,
-  primeCachedUserSnapshot,
-} from '../../../shared/utils/load-user-with-role.util';
+import { primeCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
 import { parseOrBadRequest } from '../../../shared/utils/zod-parse.util';
 import {
   createApiTokenSchema,
   exchangeApiTokenSchema,
 } from '../schemas/auth.schemas';
-
-const API_TOKEN_TABLE = 'enfyra_api_token';
-const API_TOKEN_CACHE_PREFIX = 'auth:api-token';
-const API_TOKEN_REVOKED_CHANNEL = 'api-token:revoked';
-const API_TOKEN_STATE_TTL_MS = 60_000;
-const API_TOKEN_ACCESS_TTL_MS = API_TOKEN_STATE_TTL_MS;
-
-type ApiTokenState = {
-  id: string;
-  userId: string;
-  expiresAt: string | null;
-};
+import { API_TOKEN_ACCESS_TTL_MS, API_TOKEN_TABLE } from '../auth.constants';
+import type { PatVerifierService } from './pat-verifier.service';
 
 export class ApiTokenService {
-  private readonly logger = new Logger(ApiTokenService.name);
   private readonly queryBuilder: IQueryBuilder;
   private readonly envService: EnvService;
-  private readonly cacheService: ICache;
-  private readonly redisPubSubService: IRedisPubSub;
+  private readonly patVerifierService: PatVerifierService;
 
   constructor(deps: {
     queryBuilderService: IQueryBuilder;
     envService: EnvService;
-    cacheService: ICache;
-    redisPubSubService: IRedisPubSub;
+    patVerifierService: PatVerifierService;
   }) {
     this.queryBuilder = deps.queryBuilderService;
     this.envService = deps.envService;
-    this.cacheService = deps.cacheService;
-    this.redisPubSubService = deps.redisPubSubService;
-  }
-
-  async init(): Promise<void> {
-    this.redisPubSubService.subscribeWithHandler(
-      API_TOKEN_REVOKED_CHANNEL,
-      (_channel, message) => {
-        try {
-          const payload = JSON.parse(message);
-          if (payload?.tokenId !== undefined) {
-            this.invalidateTokenCache(payload.tokenId).catch((err) => {
-              this.logger.error('API token cache invalidation failed', err);
-            });
-          }
-        } catch (err) {
-          this.logger.error('Invalid API token revocation message', err as Error);
-        }
-      },
-    );
+    this.patVerifierService = deps.patVerifierService;
   }
 
   async list(req: any) {
@@ -99,7 +60,7 @@ export class ApiTokenService {
     const body = parseOrBadRequest(createApiTokenSchema, rawBody);
     const expiresAt = this.parseExpiresAt(body.expiresAt);
     const token = `efy_pat_${randomBytes(32).toString('base64url')}`;
-    const tokenHash = this.hashToken(token);
+    const tokenHash = this.patVerifierService.hashToken(token);
     const prefix = token.slice(0, 16);
     const last4 = token.slice(-4);
     const isMongoDB = this.queryBuilder.isMongoDb();
@@ -131,48 +92,15 @@ export class ApiTokenService {
     }
 
     await this.queryBuilder.delete(API_TOKEN_TABLE, this.recordId(record));
-    await this.invalidateTokenCache(tokenId);
-    await this.redisPubSubService.publish(API_TOKEN_REVOKED_CHANNEL, {
-      tokenId: String(tokenId),
-    });
+    await this.patVerifierService.handleTokenRevoked(String(tokenId));
 
     return { success: true };
   }
 
   async exchange(rawBody: unknown) {
     const body = parseOrBadRequest(exchangeApiTokenSchema, rawBody);
-    const tokenHash = this.hashToken(body.apiToken);
-    const record = await this.queryBuilder.findOne({
-      table: API_TOKEN_TABLE,
-      where: { tokenHash },
-    });
-
-    if (!record) {
-      throw new UnauthorizedException('Invalid API token');
-    }
-
-    const tokenId = String(this.recordId(record));
-    const userId = String(this.tokenUserId(record));
-    const expiresAt = this.recordExpiresAt(record);
-    if (expiresAt && expiresAt.getTime() <= Date.now()) {
-      await this.invalidateTokenCache(tokenId);
-      throw new UnauthorizedException('API token has expired');
-    }
-
-    const user = await loadUserWithRole(this.queryBuilder, userId);
-    if (!user) {
-      throw new UnauthorizedException('API token user not found');
-    }
-
-    await this.queryBuilder.update(API_TOKEN_TABLE, this.recordId(record), {
-      lastUsedAt: new Date(),
-    });
-    await this.cacheTokenState(tokenId, {
-      id: tokenId,
-      userId,
-      expiresAt: expiresAt ? expiresAt.toISOString() : null,
-    });
-    primeCachedUserSnapshot(userId, user);
+    const verified = await this.patVerifierService.verify(body.apiToken);
+    const { payload, expiresAt } = verified;
 
     const accessExpiresAtMs = Math.min(
       Date.now() + API_TOKEN_ACCESS_TTL_MS,
@@ -180,56 +108,23 @@ export class ApiTokenService {
     );
     const accessExp = Math.floor(accessExpiresAtMs / 1000);
 
-    const payload: any = {
-      id: userId,
-      loginProvider: 'api_token',
-      tokenType: 'api_token',
-      tokenId,
-      exp: accessExp,
-    };
-
     return {
-      accessToken: jwt.sign(payload, this.envService.get('SECRET_KEY')),
+      accessToken: jwt.sign(
+        { ...payload, exp: accessExp },
+        this.envService.get('SECRET_KEY'),
+      ),
       expTime: accessExp * 1000,
       loginProvider: 'api_token',
     };
-  }
-
-  async validateAccessPayload(payload: any): Promise<boolean> {
-    if (payload?.tokenType !== 'api_token') return true;
-    if (!payload?.tokenId || !payload?.id) return false;
-
-    const tokenId = String(payload.tokenId);
-    const userId = String(payload.id);
-    let state = await this.cacheService.get<ApiTokenState>(
-      this.cacheKey(tokenId),
-    );
-
-    if (!state) {
-      const record = await this.findTokenById(tokenId);
-      if (!record) return false;
-      state = {
-        id: tokenId,
-        userId: String(this.tokenUserId(record)),
-        expiresAt: this.recordExpiresAt(record)?.toISOString() ?? null,
-      };
-      await this.cacheTokenState(tokenId, state);
-    }
-
-    if (state.userId !== userId) return false;
-    if (state.expiresAt && new Date(state.expiresAt).getTime() <= Date.now()) {
-      await this.invalidateTokenCache(tokenId);
-      return false;
-    }
-
-    return true;
   }
 
   private parseExpiresAt(value: string): Date | null {
     if (value === 'never') return null;
     const expiresAt = new Date(value);
     if (Number.isNaN(expiresAt.getTime())) {
-      throw new BadRequestException('expiresAt must be "never" or an ISO datetime');
+      throw new BadRequestException(
+        'expiresAt must be "never" or an ISO datetime',
+      );
     }
     if (expiresAt.getTime() <= Date.now()) {
       throw new BadRequestException('expiresAt must be in the future');
@@ -249,34 +144,10 @@ export class ApiTokenService {
     await primeCachedUserWithRole(this.queryBuilder, userId);
   }
 
-  private hashToken(token: string): string {
-    return createHash('sha256').update(token).digest('hex');
-  }
-
-  private cacheKey(tokenId: string): string {
-    return `${API_TOKEN_CACHE_PREFIX}:${tokenId}`;
-  }
-
-  private async cacheTokenState(
-    tokenId: string,
-    state: ApiTokenState,
-  ): Promise<void> {
-    const expiresAtMs = state.expiresAt
-      ? new Date(state.expiresAt).getTime() - Date.now()
-      : API_TOKEN_STATE_TTL_MS;
-    await this.cacheService.set(
-      this.cacheKey(tokenId),
-      state,
-      Math.max(1, Math.min(API_TOKEN_STATE_TTL_MS, expiresAtMs)),
-    );
-  }
-
-  private async invalidateTokenCache(tokenId: unknown): Promise<void> {
-    await this.cacheService.deleteKey(this.cacheKey(String(tokenId)));
-  }
-
   private async findTokenById(tokenId: string): Promise<any> {
-    const id = this.queryBuilder.isMongoDb() ? this.toMongoId(tokenId) : tokenId;
+    const id = this.queryBuilder.isMongoDb()
+      ? this.toMongoId(tokenId)
+      : tokenId;
     return this.queryBuilder.findOne({
       table: API_TOKEN_TABLE,
       where: { [this.queryBuilder.getPkField()]: id },
@@ -294,7 +165,9 @@ export class ApiTokenService {
   }
 
   private relationUserId(userId: unknown): unknown {
-    return this.queryBuilder.isMongoDb() ? this.toMongoId(userId) : String(userId);
+    return this.queryBuilder.isMongoDb()
+      ? this.toMongoId(userId)
+      : String(userId);
   }
 
   private recordExpiresAt(record: any): Date | null {

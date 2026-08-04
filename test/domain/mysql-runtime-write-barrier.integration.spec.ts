@@ -67,6 +67,38 @@ describe('MySqlRuntimeWriteBarrierService', () => {
     await expect(schema).resolves.toBe('schema-done');
   });
 
+  it('serializes concurrent schema owners in the same instance', async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const entered: string[] = [];
+    const first = service.runExclusive(
+      { mutationId: 'runtime-schema:first' },
+      async () => {
+        entered.push('first');
+        await firstGate;
+        return 'first-done';
+      },
+    );
+    await vi.waitFor(() => expect(entered).toEqual(['first']));
+
+    const second = service.runExclusive(
+      { mutationId: 'runtime-schema:second' },
+      async () => {
+        entered.push('second');
+        return 'second-done';
+      },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(entered).toEqual(['first']);
+
+    releaseFirst();
+    await expect(first).resolves.toBe('first-done');
+    await expect(second).resolves.toBe('second-done');
+    expect(entered).toEqual(['first', 'second']);
+  });
+
   it('rejects new writes while the durable fence is held', async () => {
     let releaseSchema!: () => void;
     const schemaGate = new Promise<void>((resolve) => {

@@ -58,6 +58,9 @@ import {
   BcryptService,
   AuthService,
   ApiTokenService,
+  PatVerifierService,
+  JwtVerifierService,
+  AuthenticationService,
   OAuthService,
   OAuthExchangeCodeService,
   SessionCleanupService,
@@ -72,6 +75,7 @@ import {
   FlowStepDefinitionProcessor,
   FolderDefinitionProcessor,
   GraphQLDefinitionProcessor,
+  GraphQLOperationDefinitionProcessor,
   MenuDefinitionProcessor,
   MethodDefinitionProcessor,
   PostHookDefinitionProcessor,
@@ -116,12 +120,12 @@ import {
 
 import {
   CacheOrchestratorService,
-  CacheService,
   FieldPermissionCacheBuilder,
   ColumnRuleCacheBuilder,
   FlowCacheBuilder,
   FolderTreeCacheService,
   GqlDefinitionCacheService,
+  GuardAlertService,
   GuardCacheBuilder,
   GuardEvaluatorService,
   MetadataCacheService,
@@ -132,6 +136,7 @@ import {
   RateLimitService,
   RedisPubSubService,
   RedisRuntimeCacheStore,
+  RedisCacheService,
   RepoRegistryService,
   RouteCacheService,
   RuntimeNamespaceLifecycleService,
@@ -141,13 +146,13 @@ import {
   RuntimeScriptRepairService,
   SettingCacheService,
   StorageConfigCacheBuilder,
-  UserCacheService,
   WebsocketCacheBuilder,
 } from './engines/cache';
 import {
   DynamicRepositoryFactory,
   DynamicService,
   DynamicApiTableValidationService,
+  GuardValidationService,
 } from './modules/dynamic-api';
 
 import {
@@ -277,6 +282,9 @@ export interface Cradle {
   bcryptService: BcryptService;
   authService: AuthService;
   apiTokenService: ApiTokenService;
+  patVerifierService: PatVerifierService;
+  jwtVerifierService: JwtVerifierService;
+  authenticationService: AuthenticationService;
   oauthService: OAuthService;
   oauthExchangeCodeService: OAuthExchangeCodeService;
   sessionCleanupService: SessionCleanupService;
@@ -324,8 +332,8 @@ export interface Cradle {
   kernelExecutorEngineService: KernelExecutorEngineService;
   executorEngineService: RuntimeScriptExecutorService;
 
-  cacheService: CacheService;
-  userCacheService: UserCacheService;
+  cacheService: RedisCacheService;
+  userCacheService: RedisCacheService;
   redisPubSubService: RedisPubSubService;
   runtimeNamespaceLifecycleService: RuntimeNamespaceLifecycleService;
   redisRuntimeCacheStore: RedisRuntimeCacheStore;
@@ -342,6 +350,7 @@ export interface Cradle {
   packageCdnLoaderService: PackageCdnLoaderService;
   guardCacheBuilder: GuardCacheBuilder;
   guardEvaluatorService: GuardEvaluatorService;
+  guardAlertService: GuardAlertService;
   settingCacheService: SettingCacheService;
   fieldPermissionCacheBuilder: FieldPermissionCacheBuilder;
   columnRuleCacheBuilder: ColumnRuleCacheBuilder;
@@ -363,6 +372,7 @@ export interface Cradle {
   mongoTableDeleteService: MongoTableDeleteService;
   mongoTableHandlerService: MongoTableHandlerService;
   tableValidationService: DynamicApiTableValidationService;
+  guardValidationService: GuardValidationService;
   tableManagementValidationService: TableManagementValidationService;
   mongoMetadataSnapshotService: MongoMetadataSnapshotService;
   sqlTableMetadataBuilderService: SqlTableMetadataBuilderService;
@@ -440,6 +450,7 @@ export interface Cradle {
   flowStepDefinitionProcessor: FlowStepDefinitionProcessor;
   flowExecutionDefinitionProcessor: FlowExecutionDefinitionProcessor;
   graphqlDefinitionProcessor: GraphQLDefinitionProcessor;
+  graphqlOperationDefinitionProcessor: GraphQLOperationDefinitionProcessor;
 
   $req: any;
   $res: any;
@@ -508,6 +519,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     bcryptService: asClass(BcryptService).singleton(),
     authService: asClass(AuthService).singleton(),
     apiTokenService: asClass(ApiTokenService).singleton(),
+    patVerifierService: asClass(PatVerifierService).singleton(),
+    jwtVerifierService: asClass(JwtVerifierService).singleton(),
+    authenticationService: asClass(AuthenticationService).singleton(),
     oauthService: asClass(OAuthService).singleton(),
     oauthExchangeCodeService: asClass(OAuthExchangeCodeService)
       .singleton()
@@ -628,8 +642,34 @@ export function buildContainer(): AwilixContainer<Cradle> {
     ).singleton(),
     executorEngineService: asClass(RuntimeScriptExecutorService).singleton(),
 
-    cacheService: asClass(CacheService).singleton(),
-    userCacheService: asClass(UserCacheService).singleton(),
+    cacheService: asFunction(
+      (cradle) =>
+        new RedisCacheService({
+          redis: cradle.redis,
+          envService: cradle.envService,
+          runtimeNamespaceLifecycleService:
+            cradle.runtimeNamespaceLifecycleService,
+          policy: { keyPrefix: '', clearAllMode: 'namespace' },
+        }),
+    ).singleton(),
+    userCacheService: asFunction(
+      (cradle) =>
+        new RedisCacheService({
+          redis: cradle.redis,
+          envService: cradle.envService,
+          runtimeNamespaceLifecycleService:
+            cradle.runtimeNamespaceLifecycleService,
+          policy: {
+            keyPrefix: 'user_cache:',
+            requireNamespace: true,
+            quota: {
+              limitBytes: env.REDIS_USER_CACHE_LIMIT_MB * 1024 * 1024,
+              maxValueBytes: env.REDIS_USER_CACHE_MAX_VALUE_BYTES,
+            },
+            clearAllMode: 'prefix',
+          },
+        }),
+    ).singleton(),
     redisPubSubService: asClass(RedisPubSubService)
       .singleton()
       .disposer((service) => service.onDestroy()),
@@ -650,6 +690,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     packageCdnLoaderService: asClass(PackageCdnLoaderService).singleton(),
     guardCacheBuilder: asClass(GuardCacheBuilder).singleton(),
     guardEvaluatorService: asClass(GuardEvaluatorService).singleton(),
+    guardAlertService: asClass(GuardAlertService).singleton(),
     settingCacheService: asClass(SettingCacheService).singleton(),
     fieldPermissionCacheBuilder: asClass(
       FieldPermissionCacheBuilder,
@@ -695,6 +736,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     tableValidationService: asClass(
       DynamicApiTableValidationService,
     ).singleton(),
+    guardValidationService: asClass(GuardValidationService).singleton(),
     tableManagementValidationService: asClass(
       TableManagementValidationService,
     ).singleton(),
@@ -739,7 +781,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     ).singleton(),
     flowRuntimeService: asClass(FlowRuntimeService).singleton(),
     flowSchedulerService: asClass(FlowSchedulerService).singleton(),
-    flowTriggerDispatcherService: asClass(FlowTriggerDispatcherService).singleton(),
+    flowTriggerDispatcherService: asClass(
+      FlowTriggerDispatcherService,
+    ).singleton(),
     flowExecutionQueueService: asClass(FlowExecutionQueueService)
       .singleton()
       .disposer((service) => service.onDestroy()),
@@ -761,7 +805,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     firstRunInitializer: asClass(FirstRunInitializer).singleton(),
     schemaHealingService: asClass(SchemaHealingService).singleton(),
     systemCoreTableResolver: asClass(SystemCoreTableResolver).singleton(),
-    legacyStoreInventoryService: asClass(LegacyStoreInventoryService).singleton(),
+    legacyStoreInventoryService: asClass(
+      LegacyStoreInventoryService,
+    ).singleton(),
     legacyAssessmentService: asClass(LegacyAssessmentService).singleton(),
     metadataProvisionService: asClass(MetadataProvisionService).singleton(),
     metadataProvisionSqlService: asClass(
@@ -817,6 +863,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
       FlowExecutionDefinitionProcessor,
     ).singleton(),
     graphqlDefinitionProcessor: asClass(GraphQLDefinitionProcessor).singleton(),
+    graphqlOperationDefinitionProcessor: asClass(
+      GraphQLOperationDefinitionProcessor,
+    ).singleton(),
   });
 
   return container;

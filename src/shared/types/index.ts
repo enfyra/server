@@ -5,6 +5,7 @@ export * from './dynamic-context.types';
 export * from './file-management.types';
 export * from './query-builder.types';
 export * from './flow.types';
+export * from './graphql.types';
 export * from './cache.types';
 export * from './runtime-metrics.types';
 export * from './package-runtime.types';

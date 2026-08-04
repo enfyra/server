@@ -1,6 +1,10 @@
 import jwt from 'jsonwebtoken';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DynamicResolver } from '../../src/modules/graphql/resolvers/dynamic.resolver';
+import {
+  AuthenticationService,
+  JwtVerifierService,
+} from '../../src/domain/auth';
 
 const mocks = vi.hoisted(() => ({
   loadCachedUserWithRole: vi.fn(),
@@ -8,38 +12,45 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../src/shared/utils/load-user-with-role.util', () => ({
   loadCachedUserWithRole: mocks.loadCachedUserWithRole,
+  withUserRequestContext: (user: any) => user,
 }));
 
-function makeResolver(overrides: Record<string, any> = {}) {
+const baseDefinition = {
+  id: 'graphql-1',
+  isEnabled: true,
+  isSystem: false,
+  description: null,
+  metadata: null,
+  tableName: 'posts',
+  publicOperations: [],
+  permissions: [],
+};
+
+function makeResolver(definition: any = baseDefinition) {
+  const authenticationService = new AuthenticationService({
+    queryBuilderService: {},
+    patVerifierService: {
+      validateAccessPayload: vi.fn().mockResolvedValue(true),
+    } as any,
+    jwtVerifierService: new JwtVerifierService({
+      envService: { get: () => 'test-secret' } as any,
+    }),
+  });
   const executorEngineService = {
     run: vi.fn().mockResolvedValue({ data: [{ id: '1', title: 'Updated' }] }),
   };
   const runtimeRegistryService = {
-    requireRoutes: vi.fn().mockReturnValue([]),
-    isGraphqlEnabledForTable: vi.fn().mockReturnValue(true),
-    getGuardsForRoute: vi.fn().mockReturnValue([]),
+    getGraphqlDefinitionForTable: vi.fn().mockReturnValue(definition),
+    getGuardsForGraphql: vi.fn().mockReturnValue([]),
   };
   const resolver = new DynamicResolver({
     queryBuilderService: {},
     executorEngineService,
     repoRegistryService: {
-      createReposProxy: vi.fn().mockReturnValue({
-        main: {},
-      }),
-    },
-    guardCacheBuilder: {
-      ensureGuardsLoaded: vi.fn().mockResolvedValue(undefined),
-    },
-    guardEvaluatorService: {
-      evaluateGuard: vi.fn(),
+      createReposProxy: vi.fn().mockReturnValue({ main: {} }),
     },
     runtimeRegistryService,
-    policyService: {
-      checkRequestAccess: vi.fn().mockReturnValue({ allow: true }),
-    },
-    envService: {
-      get: vi.fn().mockReturnValue('test-secret'),
-    },
+    envService: { get: vi.fn().mockReturnValue('test-secret') },
     dynamicContextFactory: {
       createGraphql: vi.fn().mockImplementation((input) => ({
         $user: input.user,
@@ -47,23 +58,42 @@ function makeResolver(overrides: Record<string, any> = {}) {
         $params: input.params,
       })),
     },
-    cacheService: {},
-    ...overrides,
+    authenticationService,
+    guardCacheBuilder: {
+      ensureGuardsLoaded: vi.fn().mockResolvedValue(undefined),
+    },
+    guardEvaluatorService: {},
+    guardAlertService: { recordAlert: vi.fn() },
   } as any);
 
   return { resolver, executorEngineService, runtimeRegistryService };
 }
 
-function authContext() {
-  const token = jwt.sign({ id: 'user-1' }, 'test-secret');
+function requestContext(token?: string) {
   return {
     request: {
-      headers: new Map([['authorization', `Bearer ${token}`]]),
+      headers: new Map(token ? [['authorization', `Bearer ${token}`]] : []),
     },
   };
 }
 
-describe('DynamicResolver route permissions', () => {
+function sessionToken(id = 'user-1') {
+  return jwt.sign({ id, tokenType: 'session' }, 'test-secret');
+}
+
+async function runUpdate(
+  resolver: DynamicResolver,
+  context = requestContext(),
+) {
+  return resolver.dynamicMutationResolver(
+    'update_posts',
+    { id: '1', input: { title: 'Changed' } },
+    context,
+    {},
+  );
+}
+
+describe('DynamicResolver independent GraphQL operation access', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.loadCachedUserWithRole.mockResolvedValue({
@@ -73,70 +103,96 @@ describe('DynamicResolver route permissions', () => {
     });
   });
 
-  it('checks PATCH route permission for GraphQL update mutations', async () => {
-    const policyService = {
-      checkRequestAccess: vi.fn().mockReturnValue({
-        allow: false,
-        statusCode: 403,
-        message: 'Forbidden',
-      }),
-    };
-    const { resolver, executorEngineService, runtimeRegistryService } =
-      makeResolver({
-        policyService,
-      });
-    runtimeRegistryService.requireRoutes.mockReturnValue([
-      {
-        path: '/posts',
-        availableMethods: [{ name: 'PATCH' }],
-        routePermissions: [],
-        publicMethods: [],
-        skipRoleGuardMethods: [],
-      },
-    ]);
+  it('returns 404 when GraphQL is disabled', async () => {
+    const { resolver } = makeResolver({ ...baseDefinition, isEnabled: false });
+    await expect(runUpdate(resolver)).rejects.toMatchObject({
+      extensions: { code: '404' },
+    });
+  });
 
-    await expect(
-      resolver.dynamicMutationResolver(
-        'update_posts',
-        { id: '1', input: { title: 'Blocked' } },
-        authContext(),
-        {},
-      ),
-    ).rejects.toMatchObject({
-      extensions: { code: 'MUTATION_ERROR' },
+  it('allows anonymous access only for public operations', async () => {
+    const { resolver, executorEngineService } = makeResolver({
+      ...baseDefinition,
+      publicOperations: ['UPDATE'],
     });
 
-    expect(runtimeRegistryService.requireRoutes).toHaveBeenCalled();
-    expect(policyService.checkRequestAccess).toHaveBeenCalledWith(
-      expect.objectContaining({
-        method: 'PATCH',
-        user: expect.objectContaining({ id: 'user-1' }),
-      }),
-    );
+    await runUpdate(resolver);
+    expect(executorEngineService.run).toHaveBeenCalledOnce();
+    expect(mocks.loadCachedUserWithRole).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 for a private operation without a token', async () => {
+    const { resolver, executorEngineService } = makeResolver();
+    await expect(runUpdate(resolver)).rejects.toMatchObject({
+      extensions: { code: '401' },
+    });
     expect(executorEngineService.run).not.toHaveBeenCalled();
   });
 
-  it('checks DELETE route permission for GraphQL delete mutations', async () => {
-    const { resolver, runtimeRegistryService } = makeResolver();
-    runtimeRegistryService.requireRoutes.mockReturnValue([
-      {
-        path: '/posts',
-        availableMethods: [{ name: 'DELETE' }],
-        routePermissions: [
-          { methods: [{ name: 'DELETE' }], role: { id: 'role-user' } },
-        ],
-        publicMethods: [],
-        skipRoleGuardMethods: [],
-      },
-    ]);
+  it('returns 403 for an authenticated user without a matching permission', async () => {
+    const { resolver, executorEngineService } = makeResolver();
+    await expect(
+      runUpdate(resolver, requestContext(sessionToken())),
+    ).rejects.toMatchObject({ extensions: { code: '403' } });
+    expect(executorEngineService.run).not.toHaveBeenCalled();
+  });
 
-    await resolver.dynamicMutationResolver(
-      'delete_posts',
-      { id: '1' },
-      authContext(),
-      {},
-    );
+  it('allows a matching role permission', async () => {
+    const { resolver, executorEngineService } = makeResolver({
+      ...baseDefinition,
+      permissions: [
+        {
+          isEnabled: true,
+          roleId: 'role-user',
+          allowedUserIds: [],
+          operations: ['UPDATE'],
+        },
+      ],
+    });
 
-    expect(runtimeRegistryService.requireRoutes).toHaveBeenCalled();
+    await runUpdate(resolver, requestContext(sessionToken()));
+    expect(executorEngineService.run).toHaveBeenCalledOnce();
+  });
+
+  it('allows a matching explicit-user permission', async () => {
+    const { resolver, executorEngineService } = makeResolver({
+      ...baseDefinition,
+      permissions: [
+        {
+          isEnabled: true,
+          roleId: null,
+          allowedUserIds: ['user-1', 'user-2'],
+          operations: ['UPDATE'],
+        },
+      ],
+    });
+
+    await runUpdate(resolver, requestContext(sessionToken()));
+    expect(executorEngineService.run).toHaveBeenCalledOnce();
+  });
+
+  it('allows root admin for private operations', async () => {
+    mocks.loadCachedUserWithRole.mockResolvedValue({
+      id: 'root-1',
+      role: null,
+      isRootAdmin: true,
+    });
+    const { resolver, executorEngineService } = makeResolver();
+
+    await runUpdate(resolver, requestContext(sessionToken('root-1')));
+    expect(executorEngineService.run).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an invalid supplied token even when the operation is public', async () => {
+    const { resolver, executorEngineService } = makeResolver({
+      ...baseDefinition,
+      publicOperations: ['UPDATE'],
+    });
+    const invalidToken = jwt.sign({ id: 'user-1' }, 'wrong-secret');
+
+    await expect(
+      runUpdate(resolver, requestContext(invalidToken)),
+    ).rejects.toMatchObject({ extensions: { code: '401' } });
+    expect(executorEngineService.run).not.toHaveBeenCalled();
   });
 });

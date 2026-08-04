@@ -15,6 +15,7 @@ import {
 } from '../utils/mongo-primary-key.util';
 import { getRelationMappedByProperty } from '../utils/relation-target-id.util';
 import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
+import { normalizeTableConstraints } from '../utils/table-constraints.util';
 import { MongoTableHandlerService } from './mongo-table-handler-base.service';
 import {
   ensureMongoSingleRecord,
@@ -24,6 +25,7 @@ import { ensureMongoTableRouteArtifacts } from './table-route-artifacts.service'
 
 export class MongoTableCreateService extends MongoTableHandlerService {
   async createTable(body: TCreateTableBody, context?: TDynamicContext) {
+    this.tableValidationService.validateColumns(body.columns, 'mongodb');
     const decision = await this.policyService.checkSchemaMigration({
       operation: 'create',
       tableName: 'enfyra_table',
@@ -38,6 +40,13 @@ export class MongoTableCreateService extends MongoTableHandlerService {
       `mongo:create:${body?.name || 'unknown'}`,
       async () => {
         this.assertNotAborted();
+        const constraints = normalizeTableConstraints({
+          uniques: body.uniques,
+          indexes: body.indexes,
+          columns: body.columns,
+        });
+        body.uniques = constraints.uniques as any;
+        body.indexes = constraints.indexes as any;
         if (/[A-Z]/.test(body?.name)) {
           throw new ValidationException(
             'Table name must be lowercase (no uppercase letters).',

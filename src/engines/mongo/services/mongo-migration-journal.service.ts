@@ -1,7 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import { MongoService } from './mongo.service';
 import { randomUUID } from 'crypto';
-import { CacheService } from '../../cache';
+import type { RedisCacheService } from '../../cache';
 import { InstanceService } from '../../../shared/services';
 import {
   MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
@@ -20,13 +20,13 @@ export type MongoMigrationOperation = 'create' | 'update' | 'delete';
 export class MongoMigrationJournalService {
   private readonly logger = new Logger(MongoMigrationJournalService.name);
   private readonly mongoService: MongoService;
-  private readonly cacheService?: CacheService;
+  private readonly cacheService?: RedisCacheService;
   private readonly instanceService?: InstanceService;
   private readonly collectionName = 'enfyra_schema_migration';
 
   constructor(deps: {
     mongoService: MongoService;
-    cacheService?: CacheService;
+    cacheService?: RedisCacheService;
     instanceService?: InstanceService;
   }) {
     this.mongoService = deps.mongoService;
@@ -194,7 +194,6 @@ export class MongoMigrationJournalService {
         MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
         lockValue,
         REDIS_TTL.MONGO_MIGRATION_SAGA_RECOVERY_LOCK_TTL,
-        { global: true },
       );
       if (!acquired) {
         this.logger.log(
@@ -205,7 +204,6 @@ export class MongoMigrationJournalService {
           await new Promise((r) => setTimeout(r, 2000));
           const lockValue2 = await this.cacheService.get(
             MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
-            { global: true },
           );
           if (!lockValue2) break;
         }
@@ -227,7 +225,6 @@ export class MongoMigrationJournalService {
               MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
               lockValue,
               REDIS_TTL.MONGO_MIGRATION_SAGA_RECOVERY_LOCK_TTL,
-              { global: true },
             )
             .then((renewed) => {
               if (!renewed) leaseLost = true;
@@ -248,7 +245,6 @@ export class MongoMigrationJournalService {
         await this.cacheService.release(
           MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
           lockValue,
-          { global: true },
         );
       }
       return;

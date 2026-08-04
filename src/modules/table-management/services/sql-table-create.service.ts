@@ -15,12 +15,17 @@ import {
   relationTargetTableMapKey,
 } from '../utils/relation-target-id.util';
 import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
+import { normalizeTableConstraints } from '../utils/table-constraints.util';
 import { SqlTableHandlerService } from './sql-table-handler-base.service';
 import { ensureSqlSingleRecord } from './table-post-migration.service';
 import { ensureSqlTableRouteArtifacts } from './table-route-artifacts.service';
 
 export class SqlTableCreateService extends SqlTableHandlerService {
   async createTable(body: TCreateTableBody, context?: TDynamicContext) {
+    this.tableValidationService.validateColumns(
+      body.columns,
+      this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres',
+    );
     const decision = await this.policyService.checkSchemaMigration({
       operation: 'create',
       tableName: 'enfyra_table',
@@ -37,6 +42,13 @@ export class SqlTableCreateService extends SqlTableHandlerService {
     );
   }
   private async createTableInternal(body: TCreateTableBody) {
+    const constraints = normalizeTableConstraints({
+      uniques: body.uniques,
+      indexes: body.indexes,
+      columns: body.columns,
+    });
+    body.uniques = constraints.uniques as any;
+    body.indexes = constraints.indexes as any;
     if (/[A-Z]/.test(body?.name)) {
       throw new ValidationException(
         'Table name must be lowercase (no uppercase letters).',
@@ -61,14 +73,6 @@ export class SqlTableCreateService extends SqlTableHandlerService {
       throw new ValidationException('Table must have at least one column.', {
         tableName: body?.name,
       });
-    }
-    for (const col of body.columns) {
-      if (typeof col.name !== 'string' || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(col.name)) {
-        throw new ValidationException(
-          `Invalid column name: "${col.name}". Only letters, digits, and underscores are allowed.`,
-          { columnName: col.name },
-        );
-      }
     }
     const bodyRelations = body.relations ?? [];
     this.tableValidationService.validateRelations(bodyRelations);

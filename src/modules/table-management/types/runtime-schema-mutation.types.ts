@@ -63,6 +63,7 @@ export interface RuntimeSchemaNormalizationOptions {
 export type RuntimeSchemaChangeKind =
   | 'create-table'
   | 'delete-table'
+  | 'alter-table-metadata'
   | 'rename-table'
   | 'add-column'
   | 'remove-column'

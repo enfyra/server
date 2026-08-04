@@ -130,7 +130,7 @@ export interface TDynamicContext {
           string | number | readonly string[] | undefined | null
         >;
       },
-    ) => void;
+    ) => Promise<void>;
   };
   $share: {
     $logs: any[];

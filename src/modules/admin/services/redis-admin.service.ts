@@ -1,6 +1,6 @@
 import type { Redis } from 'ioredis';
 import { EnvService } from '../../../shared/services';
-import { UserCacheService } from '../../../engines/cache';
+import { RedisCacheService } from '../../../engines/cache';
 import { AuthorizationException } from '../../../domain/exceptions';
 import type { RuntimeNamespaceLifecycleService } from '../../../engines/cache/services/runtime-namespace-lifecycle.service';
 import {
@@ -43,13 +43,13 @@ export class RedisAdminService {
   private readonly nodeName: string;
   private readonly userCacheLimitBytes: number;
   private readonly userCacheMaxValueBytes: number;
-  private readonly userCacheService: UserCacheService;
+  private readonly userCacheService: RedisCacheService;
   private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
 
   constructor(deps: {
     redis: Redis;
     envService: EnvService;
-    userCacheService: UserCacheService;
+    userCacheService: RedisCacheService;
     runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
   }) {
     this.redis = deps.redis;
@@ -57,13 +57,9 @@ export class RedisAdminService {
     this.runtimeNamespaceLifecycleService =
       deps.runtimeNamespaceLifecycleService;
     this.nodeName = deps.envService.get('NODE_NAME') || 'enfyra';
-    this.userCacheLimitBytes =
-      Number(deps.envService.get('REDIS_USER_CACHE_LIMIT_MB') || 0) *
-      1024 *
-      1024;
-    this.userCacheMaxValueBytes = Number(
-      deps.envService.get('REDIS_USER_CACHE_MAX_VALUE_BYTES') || 0,
-    );
+    const quota = deps.userCacheService.getQuota();
+    this.userCacheLimitBytes = quota?.limitBytes ?? 0;
+    this.userCacheMaxValueBytes = quota?.maxValueBytes ?? 0;
   }
 
   async getOverview(): Promise<RedisAdminOverview> {
@@ -336,14 +332,7 @@ export class RedisAdminService {
         reason: `BullMQ system queue ${queue.queueName}`,
       };
     }
-    if (
-      [
-        BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
-        PROVISION_LOCK_KEY,
-        SAGA_ORPHAN_RECOVERY_LOCK_KEY,
-        MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
-      ].includes(key)
-    ) {
+    if (this.isSystemLockKey(key)) {
       return {
         isSystem: true,
         modifiable: false,
@@ -808,15 +797,8 @@ export class RedisAdminService {
     if (key.startsWith('user_cache:') || key.startsWith('user_cache_meta:')) {
       return `${this.nodeName}:${key}`;
     }
-    if (
-      [
-        BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
-        PROVISION_LOCK_KEY,
-        SAGA_ORPHAN_RECOVERY_LOCK_KEY,
-        MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
-      ].includes(key)
-    ) {
-      return key;
+    if (this.isSystemLockKey(key)) {
+      return `${this.nodeName}:${key}`;
     }
     return `${this.nodeName}:user_cache:${key}`;
   }
@@ -828,15 +810,8 @@ export class RedisAdminService {
     if (key.startsWith('user_cache:') || key.startsWith('user_cache_meta:')) {
       return `${this.nodeName}:${key}`;
     }
-    if (
-      [
-        BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
-        PROVISION_LOCK_KEY,
-        SAGA_ORPHAN_RECOVERY_LOCK_KEY,
-        MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
-      ].includes(key)
-    ) {
-      return key;
+    if (this.isSystemLockKey(key)) {
+      return `${this.nodeName}:${key}`;
     }
     const currentNamespaceKey = `${this.nodeName}:${key}`;
     if ((await this.redis.exists(currentNamespaceKey)) > 0) {
@@ -862,6 +837,19 @@ export class RedisAdminService {
       key.startsWith('runtime-monitor:') ||
       key.startsWith('cluster-telemetry:') ||
       Object.values(SYSTEM_QUEUES).includes(firstPart as any)
+    );
+  }
+
+  private isSystemLockKey(key: string): boolean {
+    const lockKeys = [
+      BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
+      PROVISION_LOCK_KEY,
+      SAGA_ORPHAN_RECOVERY_LOCK_KEY,
+      MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
+    ];
+    return lockKeys.some(
+      (lockKey) =>
+        key === lockKey || key === `${this.nodeName}:${lockKey}`,
     );
   }
 

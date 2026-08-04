@@ -42,9 +42,7 @@ export class SqlTableMetadataBuilderService {
         table.indexes = [];
       }
     }
-    table.columns = await trx('enfyra_column')
-      .where({ tableId })
-      .select('*');
+    table.columns = await trx('enfyra_column').where({ tableId }).select('*');
     for (const col of table.columns) {
       if (col.defaultValue && typeof col.defaultValue === 'string') {
         try {
@@ -62,10 +60,7 @@ export class SqlTableMetadataBuilderService {
         'enfyra_relation.targetTableId',
         'enfyra_table.id',
       )
-      .select(
-        'enfyra_relation.*',
-        'enfyra_table.name as targetTableName',
-      );
+      .select('enfyra_relation.*', 'enfyra_table.name as targetTableName');
     for (const rel of relations) {
       rel.sourceTableName = table.name;
       if (!rel.targetTableName && rel.targetTableId) {
@@ -133,6 +128,7 @@ export class SqlTableMetadataBuilderService {
           isSystem: col.isSystem || false,
           isUpdatable: col.isUpdatable ?? true,
           isPublished: col.isPublished ?? true,
+          isUnique: col.isUnique ?? oldCol?.isUnique ?? false,
           isEncrypted:
             col.id || col._id
               ? (oldCol?.isEncrypted ?? false)

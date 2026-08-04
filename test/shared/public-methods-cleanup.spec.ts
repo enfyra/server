@@ -1,4 +1,5 @@
-import { dataMigration, defaultData } from '../../src/data';
+import { bootstrapSourceArtifacts } from '../../src/data';
+const { dataMigration, defaultData } = bootstrapSourceArtifacts;
 
 const AUTH_PATHS = new Set([
   '/auth/login',

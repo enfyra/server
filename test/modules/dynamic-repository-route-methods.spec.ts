@@ -39,6 +39,7 @@ function makeRepo(
     tableHandlerService: {} as any,
     policyService: {} as any,
     tableValidationService: {} as any,
+    guardValidationService: {} as any,
     runtimeRegistryService: runtimeRegistryService as any,
     eventEmitter: {} as any,
     ...overrides,
@@ -59,9 +60,11 @@ describe('DynamicRepository route method relations', () => {
     const repo = makeRepo({
       tableName: 'enfyra_table',
       runtimeMetadataSchemaRouterService: {
-        updateTable: vi.fn().mockRejectedValue(
-          new ValidationException('Invalid table schema', details),
-        ),
+        updateTable: vi
+          .fn()
+          .mockRejectedValue(
+            new ValidationException('Invalid table schema', details),
+          ),
         markActivated: vi.fn().mockResolvedValue(undefined),
       } as any,
       tableValidationService: {

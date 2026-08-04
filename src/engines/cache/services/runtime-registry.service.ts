@@ -16,7 +16,8 @@ import type {
   GuardCache,
   GuardNode,
   GuardPosition,
-} from './guard-cache-builder.service';
+} from '../types/guard.types';
+import type { GraphqlOperationName } from '../../../shared/types/graphql.types';
 import type { OAuthConfig } from './oauth-config-cache-builder.service';
 import type { FlowDefinition } from '../../../shared/types/flow.types';
 import type {
@@ -225,6 +226,42 @@ export class RuntimeRegistryService {
       if (guard.methods.length === 0) return true;
       return guard.methods.includes(method);
     });
+  }
+
+  /**
+   * GraphQL guard lookup: merge the 4 matrix buckets (exact → byTable →
+   * byOperation → global) and sort by priority. GQL has no route/methods, so
+   * no method filtering is applied.
+   */
+  getGuardsForGraphql(
+    position: GuardPosition,
+    tableName: string,
+    operation: GraphqlOperationName,
+  ): GuardNode[] {
+    const cache = this.requireActiveData<GuardCache>(CACHE_IDENTIFIERS.GUARD);
+    const exactKey = `${tableName}:${operation}`;
+    const exactMap =
+      position === 'pre_auth' ? cache.gqlPreAuthExact : cache.gqlPostAuthExact;
+    const byTableMap =
+      position === 'pre_auth'
+        ? cache.gqlPreAuthByTable
+        : cache.gqlPostAuthByTable;
+    const byOpMap =
+      position === 'pre_auth'
+        ? cache.gqlPreAuthByOperation
+        : cache.gqlPostAuthByOperation;
+    const global =
+      position === 'pre_auth'
+        ? cache.gqlPreAuthGlobal
+        : cache.gqlPostAuthGlobal;
+
+    const all = [
+      ...(exactMap.get(exactKey) || []),
+      ...(byTableMap.get(tableName) || []),
+      ...(byOpMap.get(operation) || []),
+      ...global,
+    ];
+    return all.sort((a, b) => a.priority - b.priority);
   }
 
   getSettings(): SettingData | undefined {

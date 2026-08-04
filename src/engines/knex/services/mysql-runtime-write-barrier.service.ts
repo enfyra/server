@@ -16,6 +16,7 @@ export class MySqlRuntimeWriteBarrierService {
   private readonly schemaOwnerContext = new AsyncLocalStorage<boolean>();
   private readonly writerContext = new AsyncLocalStorage<boolean>();
   private readyPromise: Promise<void> | null = null;
+  private exclusiveTail: Promise<void> = Promise.resolve();
   private readonly instanceId: string;
 
   constructor(
@@ -39,7 +40,7 @@ export class MySqlRuntimeWriteBarrierService {
     const token = randomUUID();
     const leaseMs = 10 * 60 * 1000;
     const now = new Date();
-    await knex.transaction(async (trx) => {
+    await this.runControlTransaction(knex, async (trx) => {
       await trx(WRITER_TABLE).where('expiresAt', '<=', now).delete();
       const fence = await trx(FENCE_TABLE)
         .where({ id: 'global' })
@@ -94,10 +95,28 @@ export class MySqlRuntimeWriteBarrierService {
     context: MySqlRuntimeWriteFenceContext,
     callback: () => Promise<T>,
   ): Promise<T> {
+    if (this.schemaOwnerContext.getStore()) return callback();
+    const previous = this.exclusiveTail;
+    let release!: () => void;
+    this.exclusiveTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await this.runExclusiveNow(context, callback);
+    } finally {
+      release();
+    }
+  }
+
+  private async runExclusiveNow<T>(
+    context: MySqlRuntimeWriteFenceContext,
+    callback: () => Promise<T>,
+  ): Promise<T> {
     await this.ensureReady();
     const knex = this.deps.knexService.getSystemKnex();
     const token = randomUUID();
-    const acquired = await knex.transaction(async (trx) => {
+    const acquired = await this.runControlTransaction(knex, async (trx) => {
       const fence = await trx(FENCE_TABLE)
         .where({ id: 'global' })
         .forUpdate()
@@ -203,7 +222,7 @@ export class MySqlRuntimeWriteBarrierService {
     knex: Knex,
     token: string,
   ): Promise<{ claimed: boolean; leaseExpiresAt?: number }> {
-    return knex.transaction(async (trx) => {
+    return this.runControlTransaction(knex, async (trx) => {
       const fence = await trx(FENCE_TABLE)
         .where({ id: 'global' })
         .forUpdate()
@@ -309,6 +328,32 @@ export class MySqlRuntimeWriteBarrierService {
         reason: 'schema_lease_lost',
       });
     }
+  }
+
+  private async runControlTransaction<T>(
+    knex: Knex,
+    callback: (trx: Knex.Transaction) => Promise<T>,
+  ): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        return await knex.transaction(callback);
+      } catch (error) {
+        lastError = error;
+        if (!this.isDeadlock(error) || attempt === 3) throw error;
+        await new Promise((resolve) => setTimeout(resolve, attempt * 25));
+      }
+    }
+    throw lastError;
+  }
+
+  private isDeadlock(error: unknown): boolean {
+    const value = error as { code?: string; errno?: number; message?: string };
+    return (
+      value?.code === 'ER_LOCK_DEADLOCK' ||
+      value?.errno === 1213 ||
+      String(value?.message ?? '').includes('Deadlock found when trying to get lock')
+    );
   }
 
   private parseTime(value: unknown): number {

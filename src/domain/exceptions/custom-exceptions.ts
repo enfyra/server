@@ -125,6 +125,19 @@ export class RateLimitExceededException extends CustomException {
   }
 }
 
+import type { GuardRejectDetails } from '../../engines/cache/types/guard.types';
+
+export class GuardBlockedException extends CustomException {
+  constructor(
+    message: string,
+    statusCode: number,
+    errorCode: string,
+    details: GuardRejectDetails,
+  ) {
+    super(message, statusCode, errorCode, details);
+  }
+}
+
 export class ScriptExecutionException extends CustomException {
   constructor(message: string, scriptId?: string, details?: any) {
     super(

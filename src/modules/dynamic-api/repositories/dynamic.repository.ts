@@ -18,8 +18,12 @@ import {
 } from '../../table-management';
 import { PolicyService, isPolicyDeny } from '../../../domain/policy';
 import { DynamicApiTableValidationService } from '../services/table-validation.service';
+import { GuardValidationService } from '../services/guard-validation.service';
 import { TDynamicContext } from '../../../shared/types';
-import { CACHE_EVENTS, DATA_EVENTS } from '../../../shared/utils/cache-events.constants';
+import {
+  CACHE_EVENTS,
+  DATA_EVENTS,
+} from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import {
   buildRequestedShapeFromQuery,
@@ -40,7 +44,15 @@ import { logMemory } from '../../../shared/utils/memory-log.util';
 import { normalizeDynamicReadProjection } from '../utils/field-selection.util';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 import type { RuntimeSchemaActivationGateService } from '../../table-management';
-import type { RuntimeMetadataSchemaMutationResult } from '../../table-management/types/runtime-metadata-schema-router.types';
+import type {
+  RuntimeMetadataSchemaMutationResult,
+  RuntimeSchemaMetadataTable,
+} from '../../table-management/types/runtime-metadata-schema-router.types';
+import { TableRouteRouter } from './table-route.router';
+import type {
+  MutationContext,
+  TableRouteStrategy,
+} from '../types/table-route.types';
 
 interface DynamicBatchCreateResult {
   accepted: true;
@@ -57,6 +69,7 @@ export class DynamicRepository {
   private runtimeMetadataSchemaRouterService: RuntimeMetadataSchemaRouterService;
   private policyService: PolicyService;
   private tableValidationService: DynamicApiTableValidationService;
+  private guardValidationService: GuardValidationService;
   private eventEmitter: EventEmitter2;
   private userRevocationService?: UserRevocationService;
   private flowQueueMaintenanceService?: FlowQueueMaintenanceService;
@@ -64,6 +77,7 @@ export class DynamicRepository {
   private enforceFieldPermission: boolean;
   private tableMetadata: any;
   private readonly runtimeSchemaActivationGateService?: RuntimeSchemaActivationGateService;
+  private readonly routeRouter: TableRouteRouter;
 
   constructor({
     context,
@@ -73,6 +87,7 @@ export class DynamicRepository {
     runtimeMetadataSchemaRouterService,
     policyService,
     tableValidationService,
+    guardValidationService,
     eventEmitter,
     userRevocationService,
     flowQueueMaintenanceService,
@@ -87,6 +102,7 @@ export class DynamicRepository {
     runtimeMetadataSchemaRouterService: RuntimeMetadataSchemaRouterService;
     policyService: PolicyService;
     tableValidationService: DynamicApiTableValidationService;
+    guardValidationService: GuardValidationService;
     eventEmitter: EventEmitter2;
     fieldPermissionCacheBuilder?: unknown;
     userRevocationService?: UserRevocationService;
@@ -103,6 +119,7 @@ export class DynamicRepository {
       runtimeMetadataSchemaRouterService;
     this.policyService = policyService;
     this.tableValidationService = tableValidationService;
+    this.guardValidationService = guardValidationService;
     this.eventEmitter = eventEmitter;
     this.userRevocationService = userRevocationService;
     this.flowQueueMaintenanceService = flowQueueMaintenanceService;
@@ -110,6 +127,42 @@ export class DynamicRepository {
     this.enforceFieldPermission = enforceFieldPermission === true;
     this.runtimeSchemaActivationGateService =
       runtimeSchemaActivationGateService;
+    this.routeRouter = this.buildRouteRouter();
+  }
+
+  private buildRouteRouter(): TableRouteRouter {
+    return new TableRouteRouter({
+      isSchemaRoutedTable: (tableName) =>
+        this.runtimeMetadataSchemaRouterService.handles(tableName),
+      isTableDefinition: (tableName) => tableName === 'enfyra_table',
+      normalizeRouteMethods: (body, existing, field) =>
+        this.filterMethodsSubsetOfAvailable(body, existing, field),
+      normalizeExtension: async (body, method) => {
+        const { processExtensionDefinition } =
+          await import('../../extension-definition/utils/processor.util');
+        const { processedBody } = await processExtensionDefinition(
+          body,
+          method,
+        );
+        Object.assign(body, processedBody);
+      },
+      assertColumnRuleUnique: async (body, editingId) =>
+        this.assertColumnRuleUnique(body, editingId),
+      assertGuardCreate: async (body) =>
+        this.guardValidationService.assertGuardCreate(body),
+      assertGuardUpdate: async (id, body) =>
+        this.guardValidationService.assertGuardUpdate(id, body),
+      assertGuardRuleCreate: async (body) =>
+        this.guardValidationService.assertGuardRuleBody(body),
+      assertGuardRuleUpdate: async (id, body) =>
+        this.guardValidationService.assertGuardRuleUpdate(id, body),
+      assertFlowTriggerBody: (body) => this.assertFlowTriggerBody(body),
+      postStorageDefault: async (currentId) =>
+        this.clearOtherDefaultStorageConfigs(currentId),
+      postFlowJobs: async (id, name) =>
+        this.flowQueueMaintenanceService?.removeFlowJobs({ id, name }),
+      postUserRevocation: async (id) => this.userRevocationService?.publish(id),
+    });
   }
 
   async init() {
@@ -819,8 +872,6 @@ export class DynamicRepository {
       sortValue,
       cleanDeep || {},
     );
-    if (this.tableName === 'enfyra_table') {
-    }
     const result = await this.queryBuilderService.find({
       table: this.tableName,
       fields: cleanFields || '',
@@ -900,20 +951,45 @@ export class DynamicRepository {
         return result;
       }
 
-      const body = await this.prepareCreateBody(data);
+      const strategy = this.routeRouter.getStrategy(this.tableName);
+      const body = await this.prepareCreateBody(data, strategy);
       logMemory(this.logger, 'dynamic create body prepared', {
         ...writeMeta,
         bodyKeys: Object.keys(body).length,
       });
-      if (this.tableName === 'enfyra_flow_trigger') {
-        this.assertFlowTriggerBody(body);
-      }
-      if (this.tableName === 'enfyra_table') {
-        body.isSystem = false;
-        const mutation = await this.runtimeMetadataSchemaRouterService.createTable({
-          body: body as any,
+
+      const ctx: MutationContext = {
+        tableName: this.tableName,
+        id: body.id ?? body._id,
+        body,
+        existing: null,
+      };
+
+      if (strategy.kind === 'schema') {
+        const mutation = await this.runtimeMetadataSchemaRouterService.create({
+          tableName: this.tableName as RuntimeSchemaMetadataTable,
+          data: body,
           context: this.context,
         });
+        if (mutation.preview) return { data: [mutation.preview] };
+        await this.activateRuntimeSchemaMutation(mutation, {
+          ids: mutation.recordId == null ? undefined : [mutation.recordId],
+        });
+        return this.find({
+          filter: {
+            [this.getIdField()]: { _eq: mutation.recordId },
+          },
+          fields,
+        });
+      }
+
+      if (strategy.kind === 'table') {
+        body.isSystem = false;
+        const mutation =
+          await this.runtimeMetadataSchemaRouterService.createTable({
+            body: body as any,
+            context: this.context,
+          });
         if (mutation.preview) return { data: [mutation.preview] };
         const idValue = mutation.recordId;
         await this.activateRuntimeSchemaMutation(mutation, {
@@ -925,36 +1001,15 @@ export class DynamicRepository {
         });
         return result;
       }
-      if (this.runtimeMetadataSchemaRouterService.handles(this.tableName)) {
-        const mutation = await this.runtimeMetadataSchemaRouterService.create({
-          tableName: this.tableName,
-          data: body,
-          context: this.context,
-        });
-        if (mutation.preview) return { data: [mutation.preview] };
-        await this.activateRuntimeSchemaMutation(mutation, {
-          ids:
-            mutation.recordId == null ? undefined : [mutation.recordId],
-        });
-        return this.find({
-          filter: {
-            [this.getIdField()]: { _eq: mutation.recordId },
-          },
-          fields,
-        });
-      }
+
       const inserted = await this.executeCreateBody(body);
       logMemory(this.logger, 'dynamic create persisted', {
         ...writeMeta,
         durationMs: Date.now() - startedAt,
       });
       const createdId = inserted.id || inserted._id || body.id;
-      if (
-        this.tableName === 'enfyra_storage_config' &&
-        body.isDefault === true
-      ) {
-        await this.clearOtherDefaultStorageConfigs(createdId);
-      }
+      ctx.id = createdId;
+      await strategy.afterCreateWrite?.(ctx);
       try {
         const result = await this.find({
           filter: { [this.getIdField()]: { _eq: createdId } },
@@ -1008,13 +1063,13 @@ export class DynamicRepository {
   }
 
   private async createBatch(data: any): Promise<DynamicBatchCreateResult> {
-    if (this.tableName === 'enfyra_table') {
-      throw new BadRequestException('Batch create is not supported for tables');
-    }
     if (this.runtimeMetadataSchemaRouterService.handles(this.tableName)) {
       throw new BadRequestException(
         `Batch create is not supported for ${this.tableName}. Use single-record operations.`,
       );
+    }
+    if (this.tableName === 'enfyra_table') {
+      throw new BadRequestException('Batch create is not supported for tables');
     }
 
     const rows = Array.isArray(data) ? data : [data];
@@ -1023,8 +1078,9 @@ export class DynamicRepository {
     }
 
     const preparedRows: Record<string, any>[] = [];
+    const strategy = this.routeRouter.getStrategy(this.tableName);
     for (const row of rows) {
-      preparedRows.push(await this.prepareCreateBody(row));
+      preparedRows.push(await this.prepareCreateBody(row, strategy));
     }
 
     for (const body of preparedRows) {
@@ -1040,7 +1096,10 @@ export class DynamicRepository {
     };
   }
 
-  private async prepareCreateBody(raw: any): Promise<Record<string, any>> {
+  private async prepareCreateBody(
+    raw: any,
+    strategy?: TableRouteStrategy,
+  ): Promise<Record<string, any>> {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
       throw new BadRequestException('data is required and must be an object');
     }
@@ -1063,22 +1122,10 @@ export class DynamicRepository {
     if (isPolicyDeny(createDecision)) {
       throw new BadRequestException(createDecision.message);
     }
-    if (this.tableName === 'enfyra_route') {
-      this.filterMethodsSubsetOfAvailable(body, null, 'publicMethods');
-      this.filterMethodsSubsetOfAvailable(body, null, 'skipRoleGuardMethods');
-    }
-    if (this.tableName === 'enfyra_extension' && body.code) {
-      const { processExtensionDefinition } =
-        await import('../../extension-definition/utils/processor.util');
-      const { processedBody } = await processExtensionDefinition(body, 'POST');
-      Object.assign(body, processedBody);
-    }
+    await strategy?.normalizeCreate?.(body);
     Object.assign(body, this.normalizeScriptRecordOrThrow(body));
     if (this.tableName === 'enfyra_flow_step') {
       Object.assign(body, this.normalizeFlowStepScriptConfigOrThrow(body));
-    }
-    if (this.tableName === 'enfyra_column_rule') {
-      await this.assertColumnRuleUnique(body, null);
     }
     if (body.id !== undefined) {
       delete body.id;
@@ -1150,28 +1197,8 @@ export class DynamicRepository {
       if (isPolicyDeny(updateDecision)) {
         throw new BadRequestException(updateDecision.message);
       }
-      if (this.tableName === 'enfyra_flow_trigger') {
-        this.assertFlowTriggerBody({ ...exists, ...body });
-      }
-      if (this.tableName === 'enfyra_route' && body.publicMethods) {
-        this.filterMethodsSubsetOfAvailable(body, exists, 'publicMethods');
-      }
-      if (this.tableName === 'enfyra_route' && body.skipRoleGuardMethods) {
-        this.filterMethodsSubsetOfAvailable(
-          body,
-          exists,
-          'skipRoleGuardMethods',
-        );
-      }
-      if (this.tableName === 'enfyra_extension' && body.code) {
-        const { processExtensionDefinition } =
-          await import('../../extension-definition/utils/processor.util');
-        const { processedBody } = await processExtensionDefinition(
-          body,
-          'PATCH',
-        );
-        Object.assign(body, processedBody);
-      }
+      const strategy = this.routeRouter.getStrategy(this.tableName);
+      await strategy.normalizeUpdate?.(body, exists, id);
       Object.assign(body, this.normalizeScriptPatchOrThrow(body, exists));
       if (this.tableName === 'enfyra_flow_step') {
         const normalizedFlowStep = this.normalizeFlowStepScriptConfigOrThrow({
@@ -1191,16 +1218,22 @@ export class DynamicRepository {
           body.config = normalizedFlowStep.config;
         }
       }
-      if (this.tableName === 'enfyra_column_rule') {
-        await this.assertColumnRuleUnique(body, id);
-      }
-      if (this.tableName === 'enfyra_table') {
-        const mutation = await this.runtimeMetadataSchemaRouterService.updateTable({
-          tableId: id,
-          body: body as any,
-          existing: exists,
-          context: this.context,
-        });
+
+      const ctx: MutationContext = {
+        tableName: this.tableName,
+        id,
+        body,
+        existing: exists,
+      };
+
+      if (strategy.kind === 'table') {
+        const mutation =
+          await this.runtimeMetadataSchemaRouterService.updateTable({
+            tableId: id,
+            body: body as any,
+            existing: exists,
+            context: this.context,
+          });
         if (mutation.preview) return { data: [mutation.preview] };
         const tableId = mutation.recordId ?? id;
         await this.activateRuntimeSchemaMutation(mutation, {
@@ -1212,9 +1245,9 @@ export class DynamicRepository {
         });
         return result;
       }
-      if (this.runtimeMetadataSchemaRouterService.handles(this.tableName)) {
+      if (strategy.kind === 'schema') {
         const mutation = await this.runtimeMetadataSchemaRouterService.update({
-          tableName: this.tableName,
+          tableName: this.tableName as RuntimeSchemaMetadataTable,
           recordId: id,
           data: body,
           existing: exists,
@@ -1233,12 +1266,7 @@ export class DynamicRepository {
           () => this.queryBuilderService.update(this.tableName, id, body),
         ),
       );
-      if (
-        this.tableName === 'enfyra_storage_config' &&
-        body.isDefault === true
-      ) {
-        await this.clearOtherDefaultStorageConfigs(id);
-      }
+      await strategy.afterUpdateWrite?.(ctx);
       logMemory(this.logger, 'dynamic update persisted', {
         ...writeMeta,
         durationMs: Date.now() - startedAt,
@@ -1256,14 +1284,7 @@ export class DynamicRepository {
         ...writeMeta,
         durationMs: Date.now() - startedAt,
       });
-      if (
-        this.tableName === 'enfyra_user' &&
-        body &&
-        Object.prototype.hasOwnProperty.call(body, 'password') &&
-        this.userRevocationService
-      ) {
-        await this.userRevocationService.publish(id);
-      }
+      await strategy.afterUpdateReload?.(ctx);
       this.emitTableMutation('update', [id], body);
       return result;
     } catch (error: any) {
@@ -1310,19 +1331,27 @@ export class DynamicRepository {
       if (isPolicyDeny(deleteDecision)) {
         throw new BadRequestException(deleteDecision.message);
       }
-      if (this.tableName === 'enfyra_table') {
-        const mutation = await this.runtimeMetadataSchemaRouterService.deleteTable({
-          tableId: id,
-          existing: exists,
-          context: this.context,
-        });
+      const strategy = this.routeRouter.getStrategy(this.tableName);
+      const ctx: MutationContext = {
+        tableName: this.tableName,
+        id,
+        body: {},
+        existing: exists,
+      };
+      if (strategy.kind === 'table') {
+        const mutation =
+          await this.runtimeMetadataSchemaRouterService.deleteTable({
+            tableId: id,
+            existing: exists,
+            context: this.context,
+          });
         if (mutation.preview) return { data: [mutation.preview] };
         await this.activateRuntimeSchemaMutation(mutation, { ids: [id] });
         return { message: 'Success', statusCode: 200 };
       }
-      if (this.runtimeMetadataSchemaRouterService.handles(this.tableName)) {
+      if (strategy.kind === 'schema') {
         const mutation = await this.runtimeMetadataSchemaRouterService.delete({
-          tableName: this.tableName,
+          tableName: this.tableName as RuntimeSchemaMetadataTable,
           recordId: id,
           existing: exists,
           context: this.context,
@@ -1335,20 +1364,13 @@ export class DynamicRepository {
         (tbl, op, d) => this.cascadePolicyCheck(tbl, op, d),
         () => this.queryBuilderService.delete(this.tableName, id),
       );
-      if (this.tableName === 'enfyra_flow') {
-        await this.flowQueueMaintenanceService?.removeFlowJobs({
-          id,
-          name: exists.name,
-        });
-      }
+      await strategy.afterDeleteWrite?.(ctx);
       await this.reload({ ids: [id] });
       logMemory(this.logger, 'dynamic delete done', {
         ...writeMeta,
         durationMs: Date.now() - startedAt,
       });
-      if (this.tableName === 'enfyra_user' && this.userRevocationService) {
-        await this.userRevocationService.publish(id);
-      }
+      await strategy.afterDeleteReload?.(ctx);
       this.emitTableMutation('delete', [id]);
       return { message: 'Delete successfully!', statusCode: 200 };
     } catch (error: any) {
@@ -1613,9 +1635,7 @@ export class DynamicRepository {
       } catch (error) {
         lastError = error;
         if (attempt < 3) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, attempt * 100),
-          );
+          await new Promise((resolve) => setTimeout(resolve, attempt * 100));
         }
       }
     }
@@ -1651,7 +1671,11 @@ export class DynamicRepository {
     this.eventEmitter.emit(CACHE_EVENTS.INVALIDATE, payload);
   }
 
-  private emitTableMutation(action: 'create' | 'update' | 'delete', ids?: (string | number)[], data?: any) {
+  private emitTableMutation(
+    action: 'create' | 'update' | 'delete',
+    ids?: (string | number)[],
+    data?: any,
+  ) {
     this.eventEmitter.emit(DATA_EVENTS.TABLE_MUTATION, {
       table: this.tableName,
       action,
@@ -1664,20 +1688,33 @@ export class DynamicRepository {
   private assertFlowTriggerBody(body: any) {
     const type = body.type;
     if (!type || !['schedule', 'event', 'webhook'].includes(type)) {
-      throw new BadRequestException('Flow trigger type must be one of: schedule, event, webhook');
+      throw new BadRequestException(
+        'Flow trigger type must be one of: schedule, event, webhook',
+      );
     }
     if (type === 'schedule') {
-      const config = typeof body.config === 'string' ? JSON.parse(body.config) : body.config;
-      if (!config?.cron) throw new BadRequestException('Schedule trigger requires config.cron');
+      const config =
+        typeof body.config === 'string' ? JSON.parse(body.config) : body.config;
+      if (!config?.cron)
+        throw new BadRequestException('Schedule trigger requires config.cron');
     }
     if (type === 'event') {
-      if (!body.table && !body.tableId) throw new BadRequestException('Event trigger requires table reference');
-      if (!body.tableEvent || !['create', 'update', 'delete'].includes(body.tableEvent)) {
-        throw new BadRequestException('Event trigger requires tableEvent (create|update|delete)');
+      if (!body.table && !body.tableId)
+        throw new BadRequestException('Event trigger requires table reference');
+      if (
+        !body.tableEvent ||
+        !['create', 'update', 'delete'].includes(body.tableEvent)
+      ) {
+        throw new BadRequestException(
+          'Event trigger requires tableEvent (create|update|delete)',
+        );
       }
     }
     if (type === 'webhook') {
-      if (!body.route && !body.routeId) throw new BadRequestException('Webhook trigger requires route reference');
+      if (!body.route && !body.routeId)
+        throw new BadRequestException(
+          'Webhook trigger requires route reference',
+        );
     }
   }
 }

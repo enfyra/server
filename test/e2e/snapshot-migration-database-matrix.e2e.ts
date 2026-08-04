@@ -67,6 +67,26 @@ function buildDatabaseUri(
   return url.toString();
 }
 
+function redisUri(): string {
+  const databaseByMatrix = {
+    postgres: '10',
+    mysql: '11',
+    mongodb: '12',
+  } as const;
+  const matrixDatabase = process.env.MATRIX_DATABASES?.trim();
+  const defaultDatabase =
+    (matrixDatabase &&
+      databaseByMatrix[matrixDatabase as keyof typeof databaseByMatrix]) ||
+    '10';
+  const configuredUri =
+    process.env.MATRIX_REDIS_URI || `redis://127.0.0.1:6379/${defaultDatabase}`;
+  const database = process.env.MATRIX_REDIS_DB;
+  if (!database) return configuredUri;
+  const url = new URL(configuredUri);
+  url.pathname = `/${database}`;
+  return url.toString();
+}
+
 async function stopServer(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
   await new Promise<void>((resolve) => {
@@ -105,7 +125,7 @@ function serverEnvironment(
   return {
     ...process.env,
     DB_URI: dbUri,
-    REDIS_URI: process.env.MATRIX_REDIS_URI || 'redis://127.0.0.1:6379/14',
+    REDIS_URI: redisUri(),
     PORT: String(port),
     SECRET_KEY: options.secretKey || `snapshot-migration-e2e-${randomUUID()}`,
     ADMIN_EMAIL: 'snapshot-migration-e2e@localhost.test',
@@ -150,6 +170,9 @@ async function bootServer(
     }, 90_000);
     const onData = (chunk: Buffer) => {
       output += chunk.toString();
+      if (process.env.MATRIX_LIVE_BOOT_LOG === '1') {
+        process.stdout.write(`[snapshot-matrix:${port}] ${chunk.toString()}`);
+      }
       if (!output.includes(`HTTP listening on port ${port}`)) return;
       clearTimeout(timeout);
       resolve();
@@ -167,6 +190,33 @@ async function bootServer(
   });
 
   return child;
+}
+
+async function bootPrimaryAndPeer(
+  dbUri: string,
+  primaryPort: number,
+  primaryOptions: ServerBootOptions,
+  peerPort: number,
+  peerOptions: ServerBootOptions,
+): Promise<{ primary: ChildProcess; peer: ChildProcess }> {
+  const results = await Promise.allSettled([
+    bootServer(dbUri, primaryPort, primaryOptions),
+    bootServer(dbUri, peerPort, peerOptions),
+  ]);
+  const runningChildren = results.flatMap((result) =>
+    result.status === 'fulfilled' ? [result.value] : [],
+  );
+  const failure = results.find(
+    (result): result is PromiseRejectedResult => result.status === 'rejected',
+  );
+  if (failure) {
+    await Promise.all(runningChildren.map((child) => stopServer(child)));
+    throw failure.reason;
+  }
+  return {
+    primary: results[0].value,
+    peer: results[1].value,
+  };
 }
 
 async function crashServerAtProgress(
@@ -211,13 +261,10 @@ async function crashServerAtProgress(
   });
 }
 
-async function clearProvisionLock(): Promise<void> {
-  const redis = new Redis(
-    process.env.MATRIX_REDIS_URI || 'redis://127.0.0.1:6379/14',
-    { maxRetriesPerRequest: 1 },
-  );
+async function clearProvisionLock(nodeName: string): Promise<void> {
+  const redis = new Redis(redisUri(), { maxRetriesPerRequest: 1 });
   try {
-    await redis.del(PROVISION_LOCK_KEY);
+    await redis.del(`${nodeName}:${PROVISION_LOCK_KEY}`, PROVISION_LOCK_KEY);
   } finally {
     await redis.quit();
   }
@@ -1043,20 +1090,24 @@ async function runSqlBoot(database: SqlDatabase, port: number): Promise<void> {
       adminPassword: `e2e-${randomUUID()}`,
       secretKey: `snapshot-migration-cluster-${randomUUID()}`,
     };
+    const nodeName = `snapshot-migration-cluster-${database}-${suffix}`;
     const primaryOptions = {
       ...clusterIdentity,
-      nodeName: `snapshot-migration-cluster-${database}-${suffix}-primary`,
+      nodeName,
     };
     const peerOptions = {
       ...clusterIdentity,
-      nodeName: `snapshot-migration-cluster-${database}-${suffix}-peer`,
+      nodeName,
     };
-    await clearProvisionLock();
+    await clearProvisionLock(nodeName);
     target = createKnex(database, databaseName);
-    [server, peerServer] = await Promise.all([
-      bootServer(databaseUri, port, primaryOptions),
-      bootServer(databaseUri, port + 20, peerOptions),
-    ]);
+    ({ primary: server, peer: peerServer } = await bootPrimaryAndPeer(
+      databaseUri,
+      port,
+      primaryOptions,
+      port + 20,
+      peerOptions,
+    ));
     const setting = await target('enfyra_setting').first();
     assert.equal(
       setting.isInit === true || setting.isInit === 1,
@@ -1100,7 +1151,7 @@ async function runSqlBoot(database: SqlDatabase, port: number): Promise<void> {
       userExtensionField: 'preserved',
     });
 
-    server = await bootServer(databaseUri, port);
+    server = await bootServer(databaseUri, port, primaryOptions);
     const retriedSetting = await target('enfyra_setting').first();
     assert.equal(
       retriedSetting.isInit === true || retriedSetting.isInit === 1,
@@ -1144,13 +1195,13 @@ async function runSqlBoot(database: SqlDatabase, port: number): Promise<void> {
 
     const crashOptions = {
       adminPassword: `e2e-${randomUUID()}`,
-      nodeName: `snapshot-migration-crash-${database}-${suffix}`,
+      nodeName,
       secretKey: `snapshot-migration-crash-${randomUUID()}`,
     };
     for (const checkpoint of BOOTSTRAP_CRASH_CHECKPOINTS) {
       await target('enfyra_setting').update({ isInit: false });
       await crashServerAtProgress(databaseUri, port, checkpoint, crashOptions);
-      await clearProvisionLock();
+      await clearProvisionLock(nodeName);
       server = await bootServer(databaseUri, port, crashOptions);
       const resumedSetting = await target('enfyra_setting').first();
       assert.equal(
@@ -1170,7 +1221,7 @@ async function runSqlBoot(database: SqlDatabase, port: number): Promise<void> {
       table.text('description').notNullable().alter();
     });
     await target('enfyra_setting').update({ isInit: false });
-    server = await bootServer(databaseUri, port);
+    server = await bootServer(databaseUri, port, primaryOptions);
     const healedSetting = await target('enfyra_setting').first();
     assert.equal(
       healedSetting.isInit === true || healedSetting.isInit === 1,
@@ -1533,19 +1584,23 @@ async function runMongoBoot(port: number): Promise<void> {
       adminPassword: `e2e-${randomUUID()}`,
       secretKey: `snapshot-migration-cluster-${randomUUID()}`,
     };
+    const nodeName = `snapshot-migration-cluster-mongo-${databaseName}`;
     const primaryOptions = {
       ...clusterIdentity,
-      nodeName: `snapshot-migration-cluster-mongo-${databaseName}-primary`,
+      nodeName,
     };
     const peerOptions = {
       ...clusterIdentity,
-      nodeName: `snapshot-migration-cluster-mongo-${databaseName}-peer`,
+      nodeName,
     };
-    await clearProvisionLock();
-    [server, peerServer] = await Promise.all([
-      bootServer(databaseUri, port, primaryOptions),
-      bootServer(databaseUri, port + 20, peerOptions),
-    ]);
+    await clearProvisionLock(nodeName);
+    ({ primary: server, peer: peerServer } = await bootPrimaryAndPeer(
+      databaseUri,
+      port,
+      primaryOptions,
+      port + 20,
+      peerOptions,
+    ));
     const setting = await db.collection('enfyra_setting').findOne({});
     assert.equal(setting?.isInit, true);
     await stopServer(peerServer);
@@ -1605,7 +1660,7 @@ async function runMongoBoot(port: number): Promise<void> {
       },
     );
 
-    server = await bootServer(databaseUri, port);
+    server = await bootServer(databaseUri, port, primaryOptions);
     const retriedSetting = await db.collection('enfyra_setting').findOne({});
     assert.equal(retriedSetting?.isInit, true);
     assert.equal(retriedSetting?.userExtensionField, 'preserved');
@@ -1635,7 +1690,7 @@ async function runMongoBoot(port: number): Promise<void> {
 
     const crashOptions = {
       adminPassword: `e2e-${randomUUID()}`,
-      nodeName: `snapshot-migration-crash-mongo-${databaseName}`,
+      nodeName,
       secretKey: `snapshot-migration-crash-${randomUUID()}`,
     };
     for (const checkpoint of BOOTSTRAP_CRASH_CHECKPOINTS) {
@@ -1643,7 +1698,7 @@ async function runMongoBoot(port: number): Promise<void> {
         .collection('enfyra_setting')
         .updateOne({}, { $set: { isInit: false } });
       await crashServerAtProgress(databaseUri, port, checkpoint, crashOptions);
-      await clearProvisionLock();
+      await clearProvisionLock(nodeName);
       server = await bootServer(databaseUri, port, crashOptions);
       const resumedSetting = await db.collection('enfyra_setting').findOne({});
       assert.equal(
@@ -1669,11 +1724,23 @@ async function runMongoBoot(port: number): Promise<void> {
     await db
       .collection('enfyra_setting')
       .updateOne({}, { $set: { isInit: false } });
-    await assert.rejects(bootServer(databaseUri, port), /index|conflict/i);
+    server = await bootServer(databaseUri, port, primaryOptions);
+    const healedIndexSetting = await db
+      .collection('enfyra_setting')
+      .listIndexes()
+      .toArray();
+    const healedIndex = healedIndexSetting.find(
+      (index) => index.name === targetIndex.name,
+    );
+    assert.ok(healedIndex);
+    assert.deepEqual(healedIndex.key, targetIndex.key);
+    assert.equal(Boolean(healedIndex.unique), Boolean(targetIndex.unique));
     assert.equal(
       (await db.collection('enfyra_setting').findOne({}))?.isInit,
-      false,
+      true,
     );
+    await stopServer(server);
+    server = null;
   } finally {
     if (peerServer) await stopServer(peerServer);
     if (server) await stopServer(server);

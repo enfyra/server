@@ -52,7 +52,13 @@ export function requestLoggingEnd(
       userId: (req as any).user?.id,
     };
     if (Object.keys(req.query).length > 0) data.query = req.query;
-    httpLogger.log(data);
+    if (statusCode >= 500) {
+      httpLogger.error(data);
+    } else if (statusCode >= 400) {
+      httpLogger.warn(data);
+    } else {
+      httpLogger.log(data);
+    }
   }
 
   next();

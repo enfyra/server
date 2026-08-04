@@ -238,38 +238,6 @@ export class MongoTableHandlerService {
     return fields;
   }
 
-  protected filterConstraintGroups(
-    groups: any[],
-    allowedFields: Set<string>,
-  ): any[] {
-    return (groups || []).filter((group) =>
-      (Array.isArray(group) ? group : group?.value || []).every(
-        (field: string) => allowedFields.has(field),
-      ),
-    );
-  }
-
-  protected normalizeConstraintGroups(
-    groups: any[],
-    oldMetadata: any,
-    body: TCreateTableBody,
-    allowedFields: Set<string>,
-  ): any[] {
-    const renames = this.getConstraintFieldRenames(oldMetadata, body);
-    return (groups || [])
-      .map((group) => {
-        const values = (Array.isArray(group) ? group : group?.value || []).map(
-          (field: string) => renames.get(field) || field,
-        );
-        return Array.isArray(group) ? values : { ...group, value: values };
-      })
-      .filter((group) =>
-        (Array.isArray(group) ? group : group?.value || []).every(
-          (field: string) => allowedFields.has(field),
-        ),
-      );
-  }
-
   protected getConstraintFieldRenames(
     oldMetadata: any,
     body: TCreateTableBody,

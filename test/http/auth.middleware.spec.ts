@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SignJWT } from 'jose';
-import { jwtAuthMiddleware } from '../../src/http/middlewares/jwt-auth.middleware';
+import { authMiddleware } from '../../src/http/middlewares/auth.middleware';
+import {
+  AuthenticationService,
+  JwtVerifierService,
+} from '../../src/domain/auth';
 import { InvalidTokenException } from '../../src/domain/exceptions';
 import {
   clearLocalUserCacheForTesting,
@@ -9,12 +13,18 @@ import {
 
 const secret = 'test-secret';
 
-function makeMiddleware(
-  queryBuilder: any = {},
-  cacheService: any = {},
-  apiTokenService?: any,
-) {
-  return jwtAuthMiddleware(queryBuilder, cacheService, secret, apiTokenService);
+function makeMiddleware(queryBuilder: any = {}, patVerifierService: any = {}) {
+  const authenticationService = new AuthenticationService({
+    queryBuilderService: queryBuilder,
+    patVerifierService: {
+      validateAccessPayload: vi.fn().mockResolvedValue(true),
+      ...patVerifierService,
+    },
+    jwtVerifierService: new JwtVerifierService({
+      envService: { get: () => secret } as any,
+    }),
+  });
+  return authMiddleware(authenticationService);
 }
 
 async function signToken(payload: Record<string, any>) {
@@ -23,7 +33,7 @@ async function signToken(payload: Record<string, any>) {
     .sign(new TextEncoder().encode(secret));
 }
 
-describe('jwtAuthMiddleware', () => {
+describe('authMiddleware', () => {
   afterEach(() => {
     clearLocalUserCacheForTesting();
   });
@@ -62,7 +72,7 @@ describe('jwtAuthMiddleware', () => {
     expect(next).toHaveBeenCalledWith(expect.any(InvalidTokenException));
   });
 
-  it('caches hydrated users after a verified JWT', async () => {
+  it('hydrates and caches users after a verified JWT', async () => {
     const user = { id: '1', email: 'root@example.com', roleId: '2' };
     const role = { id: '2', name: 'Admin' };
     const findOne = vi.fn(async ({ table }) => {
@@ -105,6 +115,47 @@ describe('jwtAuthMiddleware', () => {
     expect(next).toHaveBeenCalledWith();
   });
 
+  it('verifies a PAT directly without creating a Bearer JWT', async () => {
+    primeCachedUserSnapshot('1', {
+      id: '1',
+      email: 'root@example.com',
+      role: { id: '2', name: 'Admin' },
+    });
+    const verify = vi.fn().mockResolvedValue({
+      payload: {
+        id: '1',
+        loginProvider: 'api_token',
+        tokenType: 'api_token',
+        tokenId: 'token-1',
+      },
+      expiresAt: null,
+    });
+    const req: any = {
+      method: 'GET',
+      headers: { 'x-enfyra-pat': 'efy_pat_test' },
+      routeData: { context: { $user: null } },
+    };
+    const next = vi.fn();
+
+    await makeMiddleware({ isMongoDb: () => false }, { verify })(
+      req,
+      {} as any,
+      next,
+    );
+
+    expect(verify).toHaveBeenCalledWith('efy_pat_test');
+    expect(req.headers.authorization).toBeUndefined();
+    expect(req.user).toEqual(
+      expect.objectContaining({
+        id: '1',
+        loginProvider: 'api_token',
+        tokenType: 'api_token',
+        apiTokenId: 'token-1',
+      }),
+    );
+    expect(next).toHaveBeenCalledWith();
+  });
+
   it('does not write request token context into cached user snapshots', async () => {
     const cachedUser: any = {
       id: '1',
@@ -127,7 +178,6 @@ describe('jwtAuthMiddleware', () => {
 
     await makeMiddleware(
       { isMongoDb: () => false },
-      {},
       {
         validateAccessPayload: vi.fn().mockResolvedValue(true),
       },

@@ -11,7 +11,7 @@ import {
   preAuthMetadataGuard,
   postAuthMetadataGuard,
 } from './http/middlewares/metadata-guard.middleware';
-import { jwtAuthMiddleware } from './http/middlewares/jwt-auth.middleware';
+import { authMiddleware } from './http/middlewares/auth.middleware';
 import { roleGuardMiddleware } from './http/middlewares/role-guard.middleware';
 import {
   requestLoggingBegin,
@@ -41,8 +41,9 @@ import { registerPackageRoutes } from './http/routes/package.routes';
 import { registerMeRoutes } from './http/routes/me.routes';
 import { registerDynamicRoutes } from './http/routes/dynamic.routes';
 import { DebugTrace } from './shared/utils/debug-trace.util';
+import { resolveClientIpFromRequest } from './shared/utils/client-ip.util';
 
-function disposeRequestScopeOnResponse(req: any, res: any): void {
+export function disposeRequestScopeOnResponse(req: any, res: any): void {
   let disposed = false;
   const dispose = () => {
     if (disposed) return;
@@ -94,7 +95,8 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
       return;
     }
     res.status(503).json({
-      message: 'Runtime schema activation is pending; this instance is not ready',
+      message:
+        'Runtime schema activation is pending; this instance is not ready',
     });
   });
 
@@ -137,7 +139,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   );
   app.use((req: any, _res: any, next: any) => {
     if (req._debug) req._debug.dur('mw_route_detect', req._perfRouteDetect);
-    req._perfJwt = performance.now();
+    req._perfAuth = performance.now();
     next();
   });
   app.use(notFoundDetectMiddleware);
@@ -146,18 +148,12 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
       c.guardCacheBuilder,
       c.runtimeRegistryService,
       c.guardEvaluatorService,
+      c.guardAlertService,
     ),
   );
-  app.use(
-    jwtAuthMiddleware(
-      c.queryBuilderService,
-      c.cacheService,
-      c.envService.get('SECRET_KEY'),
-      c.apiTokenService,
-    ),
-  );
+  app.use(authMiddleware(c.authenticationService));
   app.use((req: any, _res: any, next: any) => {
-    if (req._debug) req._debug.dur('mw_jwt_auth', req._perfJwt);
+    if (req._debug) req._debug.dur('mw_auth', req._perfAuth);
     next();
   });
   app.use(roleGuardMiddleware(c.policyService));
@@ -166,13 +162,11 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
       c.guardCacheBuilder,
       c.runtimeRegistryService,
       c.guardEvaluatorService,
+      c.guardAlertService,
     ),
   );
   app.use(
-    fileUploadMiddleware(
-      c.runtimeRegistryService,
-      c.dynamicWebSocketGateway,
-    ),
+    fileUploadMiddleware(c.runtimeRegistryService, c.dynamicWebSocketGateway),
   );
   app.use(requestLoggingBegin);
   app.use(bodyValidationMiddleware(container));
@@ -197,9 +191,12 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   registerMeRoutes(app, container);
 
   c.graphqlService.getYogaApp();
-  app.use('/graphql', (req: any, res: any, next: any) => {
+  app.use('/graphql', (req: any, res: any) => {
     const yogaApp = c.graphqlService.getYogaApp();
-    return yogaApp(req, res, next);
+    return yogaApp(req, res, {
+      clientIp: resolveClientIpFromRequest(req),
+      auth: req.auth ?? null,
+    });
   });
 
   registerDynamicRoutes(app, container);

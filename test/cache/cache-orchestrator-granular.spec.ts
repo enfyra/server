@@ -38,8 +38,9 @@ describe('CacheOrchestratorService — RELOAD_CHAINS + multi-instance', () => {
       expect(RELOAD_CHAINS['enfyra_setting']).not.toContain('graphql');
     });
 
-    it('enfyra_method should still trigger graphql (GQL_QUERY/GQL_MUTATION flags)', () => {
-      expect(RELOAD_CHAINS['enfyra_method']).toContain('graphql');
+    it('enfyra_method should trigger route reload but not graphql (GraphQL no longer uses HTTP methods)', () => {
+      expect(RELOAD_CHAINS['enfyra_method']).toContain('route');
+      expect(RELOAD_CHAINS['enfyra_method']).not.toContain('graphql');
     });
 
     it('every chain entry should have at least one step', () => {

@@ -1,6 +1,10 @@
 import jwt from 'jsonwebtoken';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DynamicResolver } from '../../src/modules/graphql/resolvers/dynamic.resolver';
+import {
+  AuthenticationService,
+  JwtVerifierService,
+} from '../../src/domain/auth';
 
 const mocks = vi.hoisted(() => ({
   loadCachedUserWithRole: vi.fn(),
@@ -8,87 +12,171 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../src/shared/utils/load-user-with-role.util', () => ({
   loadCachedUserWithRole: mocks.loadCachedUserWithRole,
+  withUserRequestContext: (user: any) => user,
 }));
 
-function makeResolver(overrides: Record<string, any> = {}) {
+const baseDefinition = {
+  id: 'graphql-1',
+  isEnabled: true,
+  isSystem: false,
+  description: null,
+  metadata: null,
+  tableName: 'users',
+  publicOperations: [],
+  permissions: [
+    {
+      isEnabled: true,
+      roleId: 'role-user',
+      allowedUserIds: [],
+      operations: ['UPDATE'],
+    },
+  ],
+};
+
+function makeResolver(
+  options: {
+    definition?: any;
+    validateAccessPayload?: ReturnType<typeof vi.fn>;
+  } = {},
+) {
+  const validateAccessPayload =
+    options.validateAccessPayload ?? vi.fn().mockResolvedValue(true);
+  const authenticationService = new AuthenticationService({
+    queryBuilderService: {},
+    patVerifierService: { validateAccessPayload } as any,
+    jwtVerifierService: new JwtVerifierService({
+      envService: { get: () => 'test-secret' } as any,
+    }),
+  });
+  const executorEngineService = {
+    run: vi.fn().mockResolvedValue({ data: [{ id: 'user-1' }] }),
+  };
   const resolver = new DynamicResolver({
     queryBuilderService: {},
-    executorEngineService: { run: vi.fn() },
-    repoRegistryService: { createReposProxy: vi.fn().mockReturnValue({}) },
-    guardCacheBuilder: { ensureGuardsLoaded: vi.fn().mockResolvedValue(undefined) },
-    guardEvaluatorService: { evaluateGuard: vi.fn() },
-    runtimeRegistryService: {
-      requireRoutes: vi.fn().mockReturnValue([]),
-      isGraphqlEnabledForTable: vi.fn().mockReturnValue(true),
-      getGuardsForRoute: vi.fn().mockReturnValue([]),
+    executorEngineService,
+    repoRegistryService: {
+      createReposProxy: vi.fn().mockReturnValue({ main: {} }),
     },
-    policyService: { checkRequestAccess: vi.fn().mockReturnValue({ allow: true }) },
+    runtimeRegistryService: {
+      getGraphqlDefinitionForTable: vi
+        .fn()
+        .mockReturnValue(options.definition ?? baseDefinition),
+      getGuardsForGraphql: vi.fn().mockReturnValue([]),
+    },
     envService: { get: vi.fn().mockReturnValue('test-secret') },
-    dynamicContextFactory: { createGraphql: vi.fn() },
-    apiTokenService: { validateAccessPayload: vi.fn().mockResolvedValue(true) },
-    ...overrides,
+    dynamicContextFactory: {
+      createGraphql: vi.fn().mockImplementation((input) => ({
+        $user: input.user,
+        $body: input.body,
+        $params: input.params,
+      })),
+    },
+    authenticationService,
+    guardCacheBuilder: {
+      ensureGuardsLoaded: vi.fn().mockResolvedValue(undefined),
+    },
+    guardEvaluatorService: {},
+    guardAlertService: { recordAlert: vi.fn() },
   } as any);
-  return resolver;
+
+  return { resolver, executorEngineService, validateAccessPayload };
+}
+
+function requestContext(token: string) {
+  return {
+    request: {
+      headers: new Map([['authorization', `Bearer ${token}`]]),
+    },
+  };
+}
+
+function apiToken() {
+  return jwt.sign(
+    { id: 'user-1', tokenType: 'api_token', tokenId: 'tok-1' },
+    'test-secret',
+  );
+}
+
+function sessionToken() {
+  return jwt.sign({ id: 'user-1', tokenType: 'session' }, 'test-secret');
+}
+
+async function runUpdate(resolver: DynamicResolver, token: string) {
+  return resolver.dynamicMutationResolver(
+    'update_users',
+    { id: 'user-1', input: { name: 'Updated' } },
+    requestContext(token),
+    {},
+  );
 }
 
 describe('GraphQL API token revocation check', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.loadCachedUserWithRole.mockResolvedValue({ id: 'user-1', role: 'admin' });
+    mocks.loadCachedUserWithRole.mockResolvedValue({
+      id: 'user-1',
+      role: { id: 'role-user' },
+      isRootAdmin: false,
+    });
   });
 
-  it('rejects revoked API token', async () => {
-    const validateAccessPayload = vi.fn().mockResolvedValue(false);
-    const resolver = makeResolver({
-      apiTokenService: { validateAccessPayload },
+  it('rejects a revoked API token for a private operation with 401', async () => {
+    const { resolver, executorEngineService, validateAccessPayload } =
+      makeResolver({
+        validateAccessPayload: vi.fn().mockResolvedValue(false),
+      });
+
+    await expect(runUpdate(resolver, apiToken())).rejects.toMatchObject({
+      extensions: { code: '401' },
     });
-
-    const token = jwt.sign({ id: 'user-1', tokenType: 'api_token', tokenId: 'tok-1' }, 'test-secret');
-
-    await expect(
-      (resolver as any).checkAccess('users', 'GET', token),
-    ).rejects.toThrow();
 
     expect(validateAccessPayload).toHaveBeenCalledOnce();
     expect(mocks.loadCachedUserWithRole).not.toHaveBeenCalled();
+    expect(executorEngineService.run).not.toHaveBeenCalled();
   });
 
-  it('accepts valid API token', async () => {
-    const validateAccessPayload = vi.fn().mockResolvedValue(true);
-    const resolver = makeResolver({
-      apiTokenService: { validateAccessPayload },
+  it('rejects a revoked supplied API token even when the operation is public', async () => {
+    const { resolver, executorEngineService } = makeResolver({
+      definition: { ...baseDefinition, publicOperations: ['UPDATE'] },
+      validateAccessPayload: vi.fn().mockResolvedValue(false),
     });
 
-    const token = jwt.sign({ id: 'user-1', tokenType: 'api_token', tokenId: 'tok-1' }, 'test-secret');
+    await expect(runUpdate(resolver, apiToken())).rejects.toMatchObject({
+      extensions: { code: '401' },
+    });
+    expect(executorEngineService.run).not.toHaveBeenCalled();
+  });
 
-    const user = await (resolver as any).checkAccess('users', 'GET', token);
+  it('accepts a valid API token with a matching GraphQL permission', async () => {
+    const { resolver, executorEngineService, validateAccessPayload } =
+      makeResolver();
+
+    await expect(runUpdate(resolver, apiToken())).resolves.toMatchObject({
+      id: 'user-1',
+    });
 
     expect(validateAccessPayload).toHaveBeenCalledOnce();
     expect(mocks.loadCachedUserWithRole).toHaveBeenCalledOnce();
-    expect(user).toMatchObject({ id: 'user-1' });
+    expect(executorEngineService.run).toHaveBeenCalledOnce();
   });
 
-  it('does not call validateAccessPayload for normal JWT', async () => {
-    const validateAccessPayload = vi.fn();
-    const resolver = makeResolver({
-      apiTokenService: { validateAccessPayload },
+  it('does not call validateAccessPayload for a normal session JWT', async () => {
+    const { resolver, validateAccessPayload } = makeResolver();
+
+    await expect(runUpdate(resolver, sessionToken())).resolves.toMatchObject({
+      id: 'user-1',
     });
-
-    const token = jwt.sign({ id: 'user-1', tokenType: 'session' }, 'test-secret');
-
-    const user = await (resolver as any).checkAccess('users', 'GET', token);
 
     expect(validateAccessPayload).not.toHaveBeenCalled();
     expect(mocks.loadCachedUserWithRole).toHaveBeenCalledOnce();
-    expect(user).toMatchObject({ id: 'user-1' });
   });
 
-  it('rejects invalid JWT signature', async () => {
-    const resolver = makeResolver();
+  it('rejects an invalid JWT signature with 401', async () => {
+    const { resolver } = makeResolver();
     const token = jwt.sign({ id: 'user-1' }, 'wrong-secret');
 
-    await expect(
-      (resolver as any).checkAccess('users', 'GET', token),
-    ).rejects.toThrow();
+    await expect(runUpdate(resolver, token)).rejects.toMatchObject({
+      extensions: { code: '401' },
+    });
   });
 });

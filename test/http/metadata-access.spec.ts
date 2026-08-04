@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  getAccessibleMetadataTableNames,
+  getAccessibleMetadataTableActions,
   projectMetadataForUser,
 } from '../../src/shared/utils/metadata-access.util';
 
@@ -207,7 +207,7 @@ describe('metadata access projection', () => {
     ]);
     const user = { id: 10, role: { id: 2 } };
 
-    const names = await getAccessibleMetadataTableNames({
+    const actions = await getAccessibleMetadataTableActions({
       metadata: meta,
       user,
       policyService: policyService(),
@@ -227,7 +227,10 @@ describe('metadata access projection', () => {
       ]),
     } as any);
 
-    expect([...names].sort()).toEqual(['enfyra_user', 'post_definition']);
+    expect([...actions.keys()].sort()).toEqual([
+      'enfyra_user',
+      'post_definition',
+    ]);
   });
 
   it('projects columns and relations by accessible action and field permissions', async () => {

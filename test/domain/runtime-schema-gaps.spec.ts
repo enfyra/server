@@ -10,15 +10,36 @@ import { RuntimeSchemaTargetAttestorService } from '../../src/modules/table-mana
 const baseBefore = {
   name: 'post',
   columns: [
-    { id: 1, name: 'id', type: 'int', isPrimary: true, isGenerated: true, isNullable: false },
+    {
+      id: 1,
+      name: 'id',
+      type: 'int',
+      isPrimary: true,
+      isGenerated: true,
+      isNullable: false,
+    },
   ],
   relations: [],
 };
 const baseAfter = {
   name: 'post',
   columns: [
-    { id: 1, name: 'id', type: 'int', isPrimary: true, isGenerated: true, isNullable: false },
-    { id: 2, name: 'title', type: 'varchar', isPrimary: false, isGenerated: false, isNullable: true },
+    {
+      id: 1,
+      name: 'id',
+      type: 'int',
+      isPrimary: true,
+      isGenerated: true,
+      isNullable: false,
+    },
+    {
+      id: 2,
+      name: 'title',
+      type: 'varchar',
+      isPrimary: false,
+      isGenerated: false,
+      isNullable: true,
+    },
   ],
   relations: [],
 };
@@ -26,7 +47,9 @@ const baseAfter = {
 function makeCompiler(dbType = 'postgres') {
   return new RuntimeSchemaContractCompilerService({
     databaseConfigService: { getDbType: () => dbType } as any,
-    runtimeRegistryService: { getMetadata: () => ({ tables: new Map() }) } as any,
+    runtimeRegistryService: {
+      getMetadata: () => ({ tables: new Map() }),
+    } as any,
     runtimeSchemaPhysicalPlannerService: { plan: async () => null } as any,
   });
 }
@@ -61,7 +84,8 @@ function makeExecutor(deps: Record<string, unknown> = {}) {
     run: vi.fn((cb: any) => cb()),
   }) as any;
   const queryBuilderService = (deps.queryBuilderService ?? {
-    findOne: vi.fn()
+    findOne: vi
+      .fn()
       .mockResolvedValueOnce(baseBefore)
       .mockResolvedValue(baseAfter),
   }) as any;
@@ -70,20 +94,69 @@ function makeExecutor(deps: Record<string, unknown> = {}) {
       tableHandlerService,
       runtimeSchemaUnitOfWorkService: unitOfWork,
       runtimeSchemaJournalService: journal,
-      databaseConfigService: { getDbType: () => 'postgres', isMongoDb: () => false } as any,
+      databaseConfigService: {
+        getDbType: () => 'postgres',
+        isMongoDb: () => false,
+      } as any,
       queryBuilderService,
-      runtimeSchemaTargetAttestorService: (deps.runtimeSchemaTargetAttestorService ?? {
-        assertSource: vi.fn().mockResolvedValue(undefined),
-        assertTarget: vi.fn().mockResolvedValue(undefined),
-      }) as any,
+      runtimeSchemaTargetAttestorService:
+        (deps.runtimeSchemaTargetAttestorService ?? {
+          assertSource: vi.fn().mockResolvedValue(undefined),
+          assertTarget: vi.fn().mockResolvedValue(undefined),
+        }) as any,
     }),
     tableHandlerService,
     journal,
     unitOfWork,
+    queryBuilderService,
   };
 }
 
 describe('Runtime schema normalization', () => {
+  it('canonicalizes column isUnique into the persisted table unique contract', () => {
+    const intent = normalizeRuntimeTableSchema({
+      name: 'gateway_models',
+      columns: [
+        { name: 'id', type: 'int', isPrimary: true, isGenerated: true },
+        { name: 'as', type: 'varchar', isUnique: true },
+      ],
+    });
+    const persisted = normalizeRuntimeTableSchema({
+      name: 'gateway_models',
+      columns: [
+        { name: 'id', type: 'int', isPrimary: true, isGenerated: true },
+        { name: 'as', type: 'varchar' },
+      ],
+      uniques: [['as']],
+    });
+
+    expect(intent?.contract.uniques).toEqual([['as']]);
+    expect(
+      persisted?.contract.columns.find((column) => column.name === 'as')
+        ?.isUnique,
+    ).toBe(true);
+    expect(hashCanonical(intent!.contract)).toBe(
+      hashCanonical(persisted!.contract),
+    );
+  });
+
+  it('removes a persisted single-column unique when isUnique is explicitly false', () => {
+    const target = normalizeRuntimeTableSchema({
+      name: 'gateway_models',
+      columns: [
+        { name: 'id', type: 'int', isPrimary: true, isGenerated: true },
+        { name: 'modelName', type: 'varchar', isUnique: false },
+      ],
+      uniques: [['modelName']],
+    });
+
+    expect(target?.contract.uniques).toEqual([]);
+    expect(
+      target?.contract.columns.find((column) => column.name === 'modelName')
+        ?.isUnique,
+    ).toBe(false);
+  });
+
   it('treats omitted constraints and persisted empty constraints as the same contract', () => {
     const request = normalizeRuntimeTableSchema({
       name: 'course',
@@ -103,6 +176,86 @@ describe('Runtime schema normalization', () => {
     });
 
     expect(hashCanonical(request!.contract)).toBe(
+      hashCanonical(persisted!.contract),
+    );
+  });
+
+  it('canonicalizes hydrated relation references without object string coercion', () => {
+    const hydrated = normalizeRuntimeTableSchema(
+      {
+        name: 'enfyra_user',
+        relations: [
+          {
+            id: 14,
+            propertyName: 'allowedRoutePermissions',
+            type: 'many-to-many',
+            targetTable: { id: 8, name: 'enfyra_route_permission' },
+            mappedBy: { id: 13, propertyName: 'allowedUsers' },
+            junctionTableName: 'j_9475348e0853',
+          },
+        ],
+      },
+      { backend: 'postgresql', mode: 'persisted' },
+    );
+    const scalar = normalizeRuntimeTableSchema(
+      {
+        name: 'enfyra_user',
+        relations: [
+          {
+            id: 14,
+            propertyName: 'allowedRoutePermissions',
+            type: 'many-to-many',
+            targetTableName: 'enfyra_route_permission',
+            mappedBy: 'allowedUsers',
+            junctionTableName: 'j_9475348e0853',
+          },
+        ],
+      },
+      { backend: 'postgresql', mode: 'persisted' },
+    );
+
+    expect(hydrated!.contract.relations[0]).toMatchObject({
+      targetTableName: 'enfyra_route_permission',
+      mappedBy: 'allowedUsers',
+    });
+    expect(hashCanonical(hydrated!.contract)).toBe(
+      hashCanonical(scalar!.contract),
+    );
+  });
+
+  it('ignores inverse-only physical mappings in the logical contract', () => {
+    const intent = normalizeRuntimeTableSchema(
+      {
+        name: 'student',
+        relations: [
+          {
+            propertyName: 'courses',
+            type: 'many-to-many',
+            targetTableName: 'course',
+            mappedBy: 'students',
+          },
+        ],
+      },
+      { backend: 'mongodb', mode: 'persisted' },
+    );
+    const persisted = normalizeRuntimeTableSchema(
+      {
+        name: 'student',
+        relations: [
+          {
+            propertyName: 'courses',
+            type: 'many-to-many',
+            targetTableName: 'course',
+            mappedBy: { propertyName: 'students' },
+            foreignKeyColumn: 'students',
+            junctionTableName: 'j_legacy_mapping',
+          },
+        ],
+      },
+      { backend: 'mongodb', mode: 'persisted' },
+    );
+
+    expect(hashCanonical(intent!.contract)).toBe(
       hashCanonical(persisted!.contract),
     );
   });
@@ -185,12 +338,14 @@ describe('Runtime schema normalization', () => {
         name: 'course',
         columns: [{ id: 1, name: 'id', type: 'int', isPrimary: true }],
         indexes: [['createdAt'], ['updatedAt']],
-        relations: [{
-          propertyName: 'students',
-          type: 'many-to-many',
-          targetTableName: 'student',
-          inversePropertyName: 'courses',
-        }],
+        relations: [
+          {
+            propertyName: 'students',
+            type: 'many-to-many',
+            targetTableName: 'student',
+            inversePropertyName: 'courses',
+          },
+        ],
       },
     });
 
@@ -239,7 +394,12 @@ describe('Runtime inverse metadata attestation', () => {
     const rows = [
       { id: 10, name: 'course' },
       { id: 20, name: 'student' },
-      { id: 30, sourceTableId: 10, targetTableId: 20, propertyName: 'students' },
+      {
+        id: 30,
+        sourceTableId: 10,
+        targetTableId: 20,
+        propertyName: 'students',
+      },
       undefined,
     ];
     const knex = vi.fn(() => ({
@@ -251,7 +411,9 @@ describe('Runtime inverse metadata attestation', () => {
       databaseConfigService: { isMongoDb: () => false } as any,
     });
     (service as any).assertPresent = vi.fn().mockResolvedValue(undefined);
-    (service as any).assertRemovedJunctions = vi.fn().mockResolvedValue(undefined);
+    (service as any).assertRemovedJunctions = vi
+      .fn()
+      .mockResolvedValue(undefined);
 
     await expect(
       service.assertTarget({
@@ -262,12 +424,14 @@ describe('Runtime inverse metadata attestation', () => {
           target: { name: 'course', relations: [] },
           executionTarget: {
             name: 'course',
-            relations: [{
-              propertyName: 'students',
-              type: 'many-to-many',
-              targetTableName: 'student',
-              inversePropertyName: 'courses',
-            }],
+            relations: [
+              {
+                propertyName: 'students',
+                type: 'many-to-many',
+                targetTableName: 'student',
+                inversePropertyName: 'courses',
+              },
+            ],
           },
         },
       } as any),
@@ -348,6 +512,70 @@ describe('Runtime inverse metadata attestation', () => {
         },
       } as any),
     ).rejects.toThrow(/validator/i);
+  });
+
+  it('does not treat a logical relation rename as a removed Mongo field when the stored field is stable', async () => {
+    const countDocuments = vi.fn().mockResolvedValue(1);
+    const service = new RuntimeSchemaTargetAttestorService({
+      queryBuilderService: {
+        getMongoDb: () => ({
+          collection: () => ({ countDocuments }),
+        }),
+      } as any,
+      databaseConfigService: { isMongoDb: () => true } as any,
+    });
+    const source = {
+      name: 'course',
+      columns: [],
+      relations: [
+        {
+          propertyName: 'teacher',
+          type: 'many-to-one',
+          targetTableName: 'teacher',
+          foreignKeyColumn: 'teacher',
+        },
+      ],
+    };
+    const target = {
+      name: 'course',
+      columns: [],
+      relations: [
+        {
+          propertyName: 'mentor',
+          type: 'many-to-one',
+          targetTableName: 'teacher',
+          foreignKeyColumn: 'teacher',
+        },
+      ],
+    };
+
+    await expect(
+      (service as any).assertRemovedMongoFields(source, target),
+    ).resolves.toBeUndefined();
+    expect(countDocuments).not.toHaveBeenCalled();
+  });
+
+  it('excludes inverse one-to-one relations from the SQL column definition', () => {
+    const service = new RuntimeSchemaTargetAttestorService({
+      queryBuilderService: {} as any,
+      databaseConfigService: { isMongoDb: () => false } as any,
+    });
+    const definition = (service as any).toSqlPhysicalDefinition({
+      name: 'room',
+      columns: [],
+      relations: [
+        {
+          propertyName: 'course',
+          type: 'one-to-one',
+          targetTableName: 'course',
+          mappedBy: 'room',
+        },
+      ],
+      uniques: [],
+      indexes: [],
+    });
+
+    expect(definition.relations).toEqual([]);
   });
 });
 
@@ -430,13 +658,29 @@ describe('C3: Source revision must be attested under lock', () => {
     const differentTable = {
       name: 'post',
       columns: [
-        { id: 1, name: 'id', type: 'int', isPrimary: true, isGenerated: true, isNullable: false },
-        { id: 99, name: 'extra', type: 'text', isPrimary: false, isGenerated: false, isNullable: true },
+        {
+          id: 1,
+          name: 'id',
+          type: 'int',
+          isPrimary: true,
+          isGenerated: true,
+          isNullable: false,
+        },
+        {
+          id: 99,
+          name: 'extra',
+          type: 'text',
+          isPrimary: false,
+          isGenerated: false,
+          isNullable: true,
+        },
       ],
       relations: [],
     };
     const { executor } = makeExecutor({
-      queryBuilderService: { findOne: vi.fn().mockResolvedValue(differentTable) },
+      queryBuilderService: {
+        findOne: vi.fn().mockResolvedValue(differentTable),
+      },
     });
     await expect(
       executor.execute({
@@ -451,7 +695,8 @@ describe('C3: Source revision must be attested under lock', () => {
     const contract = await compileRealContract();
     const { executor, tableHandlerService } = makeExecutor({
       queryBuilderService: {
-        findOne: vi.fn()
+        findOne: vi
+          .fn()
           .mockResolvedValueOnce(baseBefore)
           .mockResolvedValue(baseAfter),
       },
@@ -467,13 +712,44 @@ describe('C3: Source revision must be attested under lock', () => {
 });
 
 describe('C3b: Target revision must be attested inside the UOW', () => {
+  it('rejects source physical drift before the table handler can mutate', async () => {
+    const contract = await compileRealContract();
+    const targetAttestor = {
+      assertSource: vi
+        .fn()
+        .mockRejectedValue(
+          new Error('unexpected physical index post(title, id)'),
+        ),
+      assertTarget: vi.fn().mockResolvedValue(undefined),
+    };
+    const { executor, tableHandlerService, journal } = makeExecutor({
+      runtimeSchemaTargetAttestorService: targetAttestor,
+    });
+
+    await expect(
+      executor.execute({
+        contract,
+        ownerTableId: 42,
+        body: baseAfter as any,
+      }),
+    ).rejects.toThrow(/unexpected physical index/i);
+
+    expect(tableHandlerService.updateTable).not.toHaveBeenCalled();
+    expect(journal.markFailed).toHaveBeenCalledWith(
+      contract.mutationId,
+      expect.stringMatching(/unexpected physical index/i),
+    );
+  });
+
   it('does not publish target_attested when physical target proof fails', async () => {
     const contract = await compileRealContract();
     const targetAttestor = {
       assertSource: vi.fn().mockResolvedValue(undefined),
-      assertTarget: vi.fn().mockRejectedValue(
-        new Error('physical index post.idx_post_title is missing'),
-      ),
+      assertTarget: vi
+        .fn()
+        .mockRejectedValue(
+          new Error('physical index post.idx_post_title is missing'),
+        ),
     };
     const { executor, journal } = makeExecutor({
       runtimeSchemaTargetAttestorService: targetAttestor,
@@ -513,6 +789,100 @@ describe('C3b: Target revision must be attested inside the UOW', () => {
     );
   });
 
+  it('attests inverse deletion while preserving hydrated many-to-many relations', async () => {
+    const inverseRoute = {
+      id: 14,
+      propertyName: 'allowedRoutePermissions',
+      type: 'many-to-many',
+      targetTable: { id: 8, name: 'enfyra_route_permission' },
+      mappedBy: { id: 13, propertyName: 'allowedUsers' },
+      junctionTableName: 'j_9475348e0853',
+    };
+    const inverseGraphql = {
+      id: 2314,
+      propertyName: 'allowedGraphqlPermissions',
+      type: 'many-to-many',
+      targetTable: { id: 824, name: 'enfyra_graphql_permission' },
+      mappedBy: { id: 2309, propertyName: 'allowedUsers' },
+      junctionTableName: 'j_ab366c6a77d1',
+    };
+    const ownerRole = {
+      id: 6,
+      propertyName: 'role',
+      type: 'many-to-one',
+      targetTable: { id: 7, name: 'enfyra_role' },
+      foreignKeyColumn: 'roleId',
+    };
+    const deletedInverse = {
+      id: 2379,
+      propertyName: 'gwTestUsage',
+      type: 'one-to-many',
+      targetTable: { id: 896, name: 'gw_child' },
+      mappedBy: { id: 2378, propertyName: 'testUser' },
+    };
+    const before = {
+      name: 'enfyra_user',
+      columns: [],
+      relations: [ownerRole, inverseRoute, inverseGraphql, deletedInverse],
+    };
+    const target = {
+      ...before,
+      relations: [
+        ownerRole,
+        { ...inverseRoute, mappedBy: 'allowedUsers' },
+        { ...inverseGraphql, mappedBy: 'allowedUsers' },
+      ],
+    };
+    const persistedTarget = {
+      ...before,
+      relations: [ownerRole, inverseRoute, inverseGraphql],
+    };
+    const compiler = makeCompiler();
+    const { contract } = await compiler.compile({
+      operation: 'update',
+      tableName: 'enfyra_user',
+      tableId: '4',
+      beforeMetadata: before,
+      afterMetadata: target,
+    });
+    const updateTable = vi.fn(async () => ({
+      id: 4,
+      affectedTables: ['enfyra_user'],
+    }));
+    const { executor } = makeExecutor({
+      tableHandlerService: { updateTable },
+      queryBuilderService: {
+        findOne: vi
+          .fn()
+          .mockResolvedValueOnce(before)
+          .mockResolvedValue(persistedTarget),
+      },
+    });
+
+    await expect(
+      executor.execute({
+        contract,
+        ownerTableId: 4,
+        body: target as any,
+      }),
+    ).resolves.toMatchObject({ recordId: 4 });
+    expect(updateTable).toHaveBeenCalledWith(
+      4,
+      expect.objectContaining({
+        relations: expect.arrayContaining([
+          expect.objectContaining({ id: 6 }),
+          expect.objectContaining({ id: 14 }),
+          expect.objectContaining({ id: 2314 }),
+        ]),
+      }),
+      expect.any(Object),
+    );
+    expect(updateTable.mock.calls[0][1].relations).toHaveLength(3);
+    expect(updateTable.mock.calls[0][1].relations).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 2378 })]),
+    );
+  });
+
   it('rejects create when the created aggregate cannot be reloaded', async () => {
     const contract = await compileRealContract({
       operation: 'create',
@@ -521,7 +891,9 @@ describe('C3b: Target revision must be attested inside the UOW', () => {
       afterMetadata: baseAfter,
     });
     const tableHandlerService = {
-      createTable: vi.fn().mockResolvedValue({ id: 42, affectedTables: ['post'] }),
+      createTable: vi
+        .fn()
+        .mockResolvedValue({ id: 42, affectedTables: ['post'] }),
     };
     const { executor } = makeExecutor({
       tableHandlerService,
@@ -550,9 +922,9 @@ describe('C3b: Target revision must be attested inside the UOW', () => {
       queryBuilderService: { findOne: vi.fn().mockResolvedValue(baseBefore) },
     });
 
-    await expect(
-      executor.execute({ contract, tableId: 42 }),
-    ).rejects.toThrow(/target attestation failed/i);
+    await expect(executor.execute({ contract, tableId: 42 })).rejects.toThrow(
+      /target attestation failed/i,
+    );
   });
 });
 
@@ -604,7 +976,15 @@ describe('H1: Additive mutations must not become hidden previews', () => {
       markCompleted: vi.fn().mockResolvedValue(undefined),
       markFailed: vi.fn().mockResolvedValue(undefined),
     };
-    const { executor } = makeExecutor({ tableHandlerService, journal });
+    const runtimeSchemaTargetAttestorService = {
+      assertSource: vi.fn().mockResolvedValue(undefined),
+      assertTarget: vi.fn().mockResolvedValue(undefined),
+    };
+    const { executor } = makeExecutor({
+      tableHandlerService,
+      journal,
+      runtimeSchemaTargetAttestorService,
+    });
     const result = await executor.execute({
       contract,
       ownerTableId: 42,
@@ -612,14 +992,16 @@ describe('H1: Additive mutations must not become hidden previews', () => {
     });
     expect(journal.markCompleted).not.toHaveBeenCalled();
     expect((result as any).preview).toBeDefined();
+    expect(
+      runtimeSchemaTargetAttestorService.assertTarget,
+    ).not.toHaveBeenCalled();
   });
 });
 
 describe('Journal: must support retry after failure', () => {
   it('journal.create resets failed entry instead of throwing duplicate key', async () => {
-    const { RuntimeSchemaJournalService } = await import(
-      '../../src/modules/table-management/services/runtime-schema-journal.service'
-    );
+    const { RuntimeSchemaJournalService } =
+      await import('../../src/modules/table-management/services/runtime-schema-journal.service');
     const store = new Map<string, any>();
     const queryBuilderService = {
       isMongoDb: () => false,
@@ -649,12 +1031,20 @@ describe('Journal: must support retry after failure', () => {
     });
 
     // First attempt fails
-    await journal.create({ mutationId: 'test-mutation', contractHash: 'hash1', backend: 'postgresql' });
+    await journal.create({
+      mutationId: 'test-mutation',
+      contractHash: 'hash1',
+      backend: 'postgresql',
+    });
     await journal.markFailed('test-mutation', 'some error');
 
     // Retry with same mutationId must succeed (reset failed entry)
     await expect(
-      journal.create({ mutationId: 'test-mutation', contractHash: 'hash1', backend: 'postgresql' }),
+      journal.create({
+        mutationId: 'test-mutation',
+        contractHash: 'hash1',
+        backend: 'postgresql',
+      }),
     ).resolves.toBeUndefined();
   });
 
@@ -705,9 +1095,8 @@ describe('Journal: must support retry after failure', () => {
   });
 
   it('journal.create rejects in-progress mutation', async () => {
-    const { RuntimeSchemaJournalService } = await import(
-      '../../src/modules/table-management/services/runtime-schema-journal.service'
-    );
+    const { RuntimeSchemaJournalService } =
+      await import('../../src/modules/table-management/services/runtime-schema-journal.service');
     const store = new Map<string, any>();
     const queryBuilderService = {
       isMongoDb: () => false,
@@ -736,12 +1125,20 @@ describe('Journal: must support retry after failure', () => {
       queryBuilderService: queryBuilderService as any,
     });
 
-    await journal.create({ mutationId: 'test-mutation-2', contractHash: 'hash1', backend: 'postgresql' });
+    await journal.create({
+      mutationId: 'test-mutation-2',
+      contractHash: 'hash1',
+      backend: 'postgresql',
+    });
     await journal.advanceStage('test-mutation-2', 'executing');
 
     // In-progress mutation must be rejected
     await expect(
-      journal.create({ mutationId: 'test-mutation-2', contractHash: 'hash1', backend: 'postgresql' }),
+      journal.create({
+        mutationId: 'test-mutation-2',
+        contractHash: 'hash1',
+        backend: 'postgresql',
+      }),
     ).rejects.toThrow(/already in progress/i);
   });
 });
@@ -750,23 +1147,32 @@ describe('C4: Batch create must not bypass router', () => {
   it('DynamicRepository.createBatch checks handles() for schema tables', async () => {
     const fs = await import('node:fs');
     const source = fs.readFileSync(
-      new URL('../../src/modules/dynamic-api/repositories/dynamic.repository.ts', import.meta.url),
+      new URL(
+        '../../src/modules/dynamic-api/repositories/dynamic.repository.ts',
+        import.meta.url,
+      ),
       'utf-8',
     );
     const batchStart = source.indexOf('async createBatch(');
     expect(batchStart).toBeGreaterThan(0);
     const batchSection = source.slice(batchStart, batchStart + 2000);
     expect(batchSection).toContain("this.tableName === 'enfyra_table'");
-    expect(batchSection).toContain('runtimeMetadataSchemaRouterService.handles');
+    expect(batchSection).toContain(
+      'runtimeMetadataSchemaRouterService.handles',
+    );
   });
 });
 
 describe('C5: Delete must require confirmation', () => {
   it('policy returns preview for delete without confirmation hash', async () => {
-    const { SchemaMigrationValidatorService } = await import('../../src/domain/policy/services/schema-migration-validator.service');
+    const { SchemaMigrationValidatorService } =
+      await import('../../src/domain/policy/services/schema-migration-validator.service');
     const compiler = makeCompiler();
     const validator = new SchemaMigrationValidatorService({
-      runtimeRegistryService: { getMetadata: () => ({ tables: new Map() }), requireMetadata: () => ({ tables: new Map() }) } as any,
+      runtimeRegistryService: {
+        getMetadata: () => ({ tables: new Map() }),
+        requireMetadata: () => ({ tables: new Map() }),
+      } as any,
       runtimeSchemaContractCompilerService: compiler,
     });
     const result = await validator.checkSchemaMigration({
@@ -785,26 +1191,30 @@ describe('H2: Relation target identity must be consistent', () => {
     const before = normalizeRuntimeTableSchema({
       name: 'post',
       columns: [{ id: 1, name: 'id', type: 'int', isPrimary: true }],
-      relations: [{
-        id: 10,
-        propertyName: 'author',
-        type: 'many-to-one',
-        targetTable: { name: 'user' },
-        isNullable: true,
-      }],
+      relations: [
+        {
+          id: 10,
+          propertyName: 'author',
+          type: 'many-to-one',
+          targetTable: { name: 'user' },
+          isNullable: true,
+        },
+      ],
     });
     // After router fix: body preserves targetTableName alongside numeric ID
     const after = normalizeRuntimeTableSchema({
       name: 'post',
       columns: [{ id: 1, name: 'id', type: 'int', isPrimary: true }],
-      relations: [{
-        id: 10,
-        propertyName: 'author',
-        type: 'many-to-one',
-        targetTable: 5,
-        targetTableName: 'user',
-        isNullable: true,
-      }],
+      relations: [
+        {
+          id: 10,
+          propertyName: 'author',
+          type: 'many-to-one',
+          targetTable: 5,
+          targetTableName: 'user',
+          isNullable: true,
+        },
+      ],
     });
     const beforeKey = before!.contract.relations[0].targetTableName;
     const afterKey = after!.contract.relations[0].targetTableName;
@@ -817,29 +1227,51 @@ describe('H7: onDelete change must be detected as schema change', () => {
     const compiler = makeCompiler();
     const before = {
       name: 'post',
-      columns: [{ id: 1, name: 'id', type: 'int', isPrimary: true, isGenerated: true, isNullable: false }],
-      relations: [{
-        id: 10,
-        propertyName: 'author',
-        type: 'many-to-one',
-        targetTableName: 'user',
-        foreignKeyColumn: 'authorId',
-        isNullable: true,
-        onDelete: 'SET NULL',
-      }],
+      columns: [
+        {
+          id: 1,
+          name: 'id',
+          type: 'int',
+          isPrimary: true,
+          isGenerated: true,
+          isNullable: false,
+        },
+      ],
+      relations: [
+        {
+          id: 10,
+          propertyName: 'author',
+          type: 'many-to-one',
+          targetTableName: 'user',
+          foreignKeyColumn: 'authorId',
+          isNullable: true,
+          onDelete: 'SET NULL',
+        },
+      ],
     };
     const after = {
       name: 'post',
-      columns: [{ id: 1, name: 'id', type: 'int', isPrimary: true, isGenerated: true, isNullable: false }],
-      relations: [{
-        id: 10,
-        propertyName: 'author',
-        type: 'many-to-one',
-        targetTableName: 'user',
-        foreignKeyColumn: 'authorId',
-        isNullable: true,
-        onDelete: 'CASCADE',
-      }],
+      columns: [
+        {
+          id: 1,
+          name: 'id',
+          type: 'int',
+          isPrimary: true,
+          isGenerated: true,
+          isNullable: false,
+        },
+      ],
+      relations: [
+        {
+          id: 10,
+          propertyName: 'author',
+          type: 'many-to-one',
+          targetTableName: 'user',
+          foreignKeyColumn: 'authorId',
+          isNullable: true,
+          onDelete: 'CASCADE',
+        },
+      ],
     };
     const { contract } = await compiler.compile({
       operation: 'update',
@@ -849,5 +1281,54 @@ describe('H7: onDelete change must be detected as schema change', () => {
       afterMetadata: after,
     });
     expect(contract.context.diff.schemaChanged).toBe(true);
+  });
+});
+
+describe('H8: contract diff surfaces canonical drift', () => {
+  it('reports bounded structured diff on target revision mismatch', async () => {
+    const executor = makeExecutor({});
+    const contract = await compileRealContract({
+      afterMetadata: {
+        ...baseAfter,
+        relations: [
+          {
+            id: 10,
+            propertyName: 'author',
+            type: 'many-to-one',
+            targetTableName: 'user',
+            mappedBy: '13',
+            isNullable: true,
+            onDelete: 'SET NULL',
+          },
+        ],
+      },
+    });
+
+    const drifted = {
+      ...baseAfter,
+      relations: [
+        {
+          id: 10,
+          propertyName: 'author',
+          type: 'many-to-one',
+          targetTable: { id: 5, name: 'user' },
+          mappedBy: { id: 99, propertyName: 'posts' },
+          isNullable: true,
+          onDelete: 'SET NULL',
+        },
+      ],
+    };
+    executor.queryBuilderService.findOne
+      .mockReset()
+      .mockResolvedValueOnce(baseBefore)
+      .mockResolvedValue(drifted);
+
+    await expect(
+      executor.executor.execute({
+        contract,
+        tableId: '42',
+        context: {},
+      }),
+    ).rejects.toThrow(/diff=relations\[author\(mappedBy:13->posts\)\]/);
   });
 });

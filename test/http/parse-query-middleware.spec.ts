@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { parseQueryMiddleware } from '../../src/http/middlewares';
+import { parseQueryMiddleware } from '../../src/http/middlewares/parse-query.middleware';
 
 describe('parseQueryMiddleware aggregate parsing', () => {
   it('parses aggregate JSON query params', () => {

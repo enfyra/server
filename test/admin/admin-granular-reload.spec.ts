@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { registerAdminRoutes } from '../../src/http/routes';
+import { registerAdminRoutes } from '../../src/http/routes/admin.routes';
 
 function createHarness() {
   const handlers = new Map<string, any>();

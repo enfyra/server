@@ -3,7 +3,7 @@ import { getIoAbortSignal } from '@enfyra/kernel';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { TDynamicContext } from '../types';
 import type { BcryptService } from '../../domain/auth';
-import type { UserCacheService } from '../../engines/cache';
+import type { RedisCacheService } from '../../engines/cache';
 import { createCryptoHelper, createFetchHelper } from '../helpers';
 import type { UploadFileHelper } from '../helpers/upload-file.helper';
 import { autoSlug } from '../utils/auto-slug.helper';
@@ -47,7 +47,7 @@ const ENV_EXPOSE_DENY_KEYS = new Set([
 
 export class DynamicContextFactory {
   private readonly bcryptService: BcryptService;
-  private readonly userCacheService: UserCacheService;
+  private readonly userCacheService: RedisCacheService;
   private readonly envService: EnvService;
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly knexService: KnexService;
@@ -57,7 +57,7 @@ export class DynamicContextFactory {
 
   constructor(deps: {
     bcryptService: BcryptService;
-    userCacheService: UserCacheService;
+    userCacheService: RedisCacheService;
     envService: EnvService;
     databaseConfigService: DatabaseConfigService;
     knexService: KnexService;

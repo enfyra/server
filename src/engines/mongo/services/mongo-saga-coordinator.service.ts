@@ -9,7 +9,7 @@ import {
   IRollbackResult,
 } from './mongo-saga-snapshot.service';
 import { DatabaseException } from '../../../domain/exceptions';
-import { CacheService } from '../../cache';
+import type { RedisCacheService } from '../../cache';
 import { InstanceService } from '../../../shared/services';
 import {
   REDIS_TTL,
@@ -50,14 +50,14 @@ export class MongoSagaCoordinator {
   private readonly lockService: MongoSagaLockService;
   private readonly snapshotService: MongoSagaSnapshotService;
   private readonly instanceService: InstanceService;
-  private readonly cacheService?: CacheService;
+  private readonly cacheService?: RedisCacheService;
 
   constructor(deps: {
     mongoService: MongoService;
     lockService: MongoSagaLockService;
     snapshotService: MongoSagaSnapshotService;
     instanceService: InstanceService;
-    cacheService?: CacheService;
+    cacheService?: RedisCacheService;
   }) {
     this.mongoService = deps.mongoService;
     this.lockService = deps.lockService;
@@ -134,7 +134,6 @@ export class MongoSagaCoordinator {
             SAGA_ORPHAN_RECOVERY_LOCK_KEY,
             lockValue,
             REDIS_TTL.SAGA_ORPHAN_RECOVERY_LOCK_TTL,
-            { global: true },
           )
           .then((renewed) => {
             if (!renewed) leaseLost = true;
@@ -154,7 +153,6 @@ export class MongoSagaCoordinator {
         await this.cacheService.release(
           SAGA_ORPHAN_RECOVERY_LOCK_KEY,
           lockValue,
-          { global: true },
         );
       }
     }
@@ -225,7 +223,6 @@ export class MongoSagaCoordinator {
         SAGA_ORPHAN_RECOVERY_LOCK_KEY,
         lockValue,
         REDIS_TTL.SAGA_ORPHAN_RECOVERY_LOCK_TTL,
-        { global: true },
       );
       if (acquired) return true;
       this.recoveryMetrics.skippedDueToRedisLock++;

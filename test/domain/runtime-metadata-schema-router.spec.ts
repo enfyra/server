@@ -1,6 +1,12 @@
 import { RuntimeMetadataSchemaRouterService } from '../../src/modules/table-management';
+import { getSqlJunctionPhysicalNames } from '../../src/modules/table-management/utils/sql-junction-naming.util';
+import { TableManagementValidationService } from '../../src/modules/table-management/services/table-validation.service';
 
-function createHarness(input?: { mongo?: boolean; preview?: boolean }) {
+function createHarness(input?: {
+  mongo?: boolean;
+  preview?: boolean;
+  database?: 'postgres' | 'mysql';
+}) {
   const ownerTable = {
     id: 10,
     _id: 'owner-mongo',
@@ -84,7 +90,10 @@ function createHarness(input?: { mongo?: boolean; preview?: boolean }) {
     tableHandlerService: {} as any,
     databaseConfigService: {
       isMongoDb: () => input?.mongo === true,
+      getDbType: () =>
+        input?.mongo ? 'mongodb' : (input?.database ?? 'postgres'),
     } as any,
+    tableManagementValidationService: new TableManagementValidationService(),
     runtimeSchemaContractCompilerService:
       runtimeSchemaContractCompilerService as any,
     runtimeSchemaExecutorService: runtimeSchemaExecutorService as any,
@@ -99,6 +108,99 @@ function createHarness(input?: { mongo?: boolean; preview?: boolean }) {
 }
 
 describe('RuntimeMetadataSchemaRouterService', () => {
+  it.each(['postgres', 'mysql'] as const)(
+    'rejects reserved column names before compiling a %s schema mutation',
+    async (database) => {
+      const harness = createHarness({ database });
+
+      await expect(
+        harness.service.create({
+          tableName: 'enfyra_column',
+          data: {
+            name: 'as',
+            type: 'varchar',
+            isNullable: true,
+            table: { id: 10 },
+          },
+        }),
+      ).rejects.toThrow(/reserved keyword/i);
+
+      expect(harness.queryBuilderService.findOne).not.toHaveBeenCalled();
+      expect(
+        harness.runtimeSchemaContractCompilerService.compile,
+      ).not.toHaveBeenCalled();
+      expect(
+        harness.runtimeSchemaExecutorService.execute,
+      ).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    {
+      name: 'column rename',
+      run: (harness: ReturnType<typeof createHarness>) =>
+        harness.service.update({
+          tableName: 'enfyra_column',
+          recordId: 2,
+          existing: harness.ownerTable.columns[1],
+          data: { name: 'as' },
+        }),
+    },
+    {
+      name: 'table replacement',
+      run: (harness: ReturnType<typeof createHarness>) =>
+        harness.service.updateTable({
+          tableId: 10,
+          body: {
+            columns: [{ id: 1 }, { id: 2, name: 'as' }],
+          },
+        }),
+    },
+    {
+      name: 'table create',
+      run: (harness: ReturnType<typeof createHarness>) =>
+        harness.service.createTable({
+          body: {
+            name: 'comment',
+            columns: [{ name: 'as', type: 'varchar' }],
+          },
+        }),
+    },
+  ])(
+    'rejects a reserved keyword in a $name before compiling',
+    async ({ run }) => {
+      const harness = createHarness({ database: 'postgres' });
+
+      await expect(run(harness)).rejects.toThrow(/reserved keyword/i);
+
+      expect(harness.queryBuilderService.findOne).not.toHaveBeenCalled();
+      expect(
+        harness.runtimeSchemaContractCompilerService.compile,
+      ).not.toHaveBeenCalled();
+      expect(
+        harness.runtimeSchemaExecutorService.execute,
+      ).not.toHaveBeenCalled();
+    },
+  );
+
+  it('allows an SQL-keyword column name for MongoDB before compilation', async () => {
+    const harness = createHarness({ mongo: true });
+
+    await harness.service.create({
+      tableName: 'enfyra_column',
+      data: {
+        name: 'as',
+        type: 'varchar',
+        isNullable: true,
+        table: { _id: 'owner-mongo' },
+      },
+    });
+
+    expect(
+      harness.runtimeSchemaContractCompilerService.compile,
+    ).toHaveBeenCalledOnce();
+  });
+
   it('routes direct column creation through the owning table contract', async () => {
     const harness = createHarness();
     const result = await harness.service.create({
@@ -124,15 +226,33 @@ describe('RuntimeMetadataSchemaRouterService', () => {
       'slug',
     ]);
     expect(body.columns[2]).not.toHaveProperty('table');
-    expect(
-      harness.runtimeSchemaExecutorService.execute,
-    ).toHaveBeenCalledOnce();
+    expect(harness.runtimeSchemaExecutorService.execute).toHaveBeenCalledOnce();
     expect(result).toEqual({
       recordId: 99,
       ownerTableId: 10,
       affectedTables: ['user'],
       mutationId: 'test-mutation',
     });
+  });
+
+  it('canonicalizes unique and index constraints together before compiling a column mutation', async () => {
+    const harness = createHarness();
+    harness.ownerTable.indexes = [['createdAt']];
+
+    await harness.service.create({
+      tableName: 'enfyra_column',
+      data: {
+        name: 'slug',
+        type: 'varchar',
+        isUnique: true,
+        table: { id: 10 },
+      },
+    });
+
+    const compileInput =
+      harness.runtimeSchemaContractCompilerService.compile.mock.calls[0][0];
+    expect(compileInput.afterMetadata.uniques).toEqual([['slug']]);
+    expect(compileInput.afterMetadata.indexes).toEqual([['createdAt']]);
   });
 
   it('returns preview for destructive operations without confirm hash', async () => {
@@ -147,9 +267,7 @@ describe('RuntimeMetadataSchemaRouterService', () => {
     expect(result.preview).toBeDefined();
     expect(result.preview!._preview).toBe(true);
     expect(result.preview!.requiredConfirmHash).toBe('confirm-me');
-    expect(
-      harness.runtimeSchemaExecutorService.execute,
-    ).not.toHaveBeenCalled();
+    expect(harness.runtimeSchemaExecutorService.execute).not.toHaveBeenCalled();
   });
 
   it('routes relation deletion through a complete replacement aggregate', async () => {
@@ -166,9 +284,7 @@ describe('RuntimeMetadataSchemaRouterService', () => {
     const body = compileInput.afterMetadata;
     expect(body.relations).toEqual([]);
     expect(body.columns).toHaveLength(2);
-    expect(
-      harness.runtimeSchemaExecutorService.execute,
-    ).toHaveBeenCalledOnce();
+    expect(harness.runtimeSchemaExecutorService.execute).toHaveBeenCalledOnce();
   });
 
   it('reconstructs the complete table aggregate for sparse table patches', async () => {
@@ -272,14 +388,21 @@ describe('RuntimeMetadataSchemaRouterService', () => {
         columns: [],
         relations: [
           { propertyName: 'author', type: 'many-to-one', targetTable: 20 },
-          { propertyName: 'editor', type: 'many-to-one', targetTable: { id: 20 } },
+          {
+            propertyName: 'editor',
+            type: 'many-to-one',
+            targetTable: { id: 20 },
+          },
         ],
       },
     });
 
     const targetLookups = harness.queryBuilderService.findOne.mock.calls
       .map(([query]: any[]) => query)
-      .filter((query: any) => query.table === 'enfyra_table' && String(query.where?.id) === '20');
+      .filter(
+        (query: any) =>
+          query.table === 'enfyra_table' && String(query.where?.id) === '20',
+      );
     expect(targetLookups).toHaveLength(1);
   });
 
@@ -327,6 +450,140 @@ describe('RuntimeMetadataSchemaRouterService', () => {
       }),
     );
   });
+
+  it('matches Mongo relation ids supplied through the canonical id field', async () => {
+    const harness = createHarness({ mongo: true });
+    Object.assign(harness.ownerTable.relations[0], {
+      type: 'many-to-many',
+      junctionTableName: 'j_existing',
+      junctionSourceColumn: 'sourceId',
+      junctionTargetColumn: 'targetId',
+    });
+    await harness.service.updateTable({
+      tableId: 'owner-mongo',
+      body: {
+        relations: [
+          {
+            id: 'relation-author',
+            propertyName: 'writers',
+            type: 'many-to-many',
+            targetTable: { id: 'target-mongo' },
+          } as any,
+        ],
+      },
+      context: { $query: { schemaConfirmHash: 'confirm-me' } },
+    });
+
+    const compileInput =
+      harness.runtimeSchemaContractCompilerService.compile.mock.calls[0][0];
+    expect(compileInput.afterMetadata.relations[0]).toEqual(
+      expect.objectContaining({
+        _id: 'relation-author',
+        propertyName: 'writers',
+        junctionTableName: 'j_existing',
+      }),
+    );
+  });
+
+  it('materializes Mongo junction mappings for a replacement relation without an id', async () => {
+    const harness = createHarness({ mongo: true });
+    Object.assign(harness.ownerTable.relations[0], {
+      propertyName: 'targets_0',
+      type: 'many-to-many',
+      junctionTableName: 'j_existing',
+      junctionSourceColumn: 'sourceId',
+      junctionTargetColumn: 'targetId',
+    });
+    await harness.service.updateTable({
+      tableId: 'owner-mongo',
+      body: {
+        relations: [
+          {
+            propertyName: 'targets',
+            type: 'many-to-many',
+            targetTable: { id: 'target-mongo' },
+            inversePropertyName: 'owners',
+          } as any,
+        ],
+      },
+      context: { $query: { schemaConfirmHash: 'confirm-me' } },
+    });
+
+    const expected = getSqlJunctionPhysicalNames({
+      sourceTable: 'post',
+      propertyName: 'targets',
+      targetTable: 'user',
+    });
+    const compileInput =
+      harness.runtimeSchemaContractCompilerService.compile.mock.calls[0][0];
+    expect(compileInput.afterMetadata.relations[0]).toEqual(
+      expect.objectContaining(expected),
+    );
+  });
+
+  it('canonicalizes constraint fields with column and relation renames', async () => {
+    const harness = createHarness();
+    harness.ownerTable.indexes = [['author']];
+    harness.ownerTable.uniques = [['title']];
+    await harness.service.updateTable({
+      tableId: 10,
+      body: {
+        columns: [{ id: 1 }, { id: 2, name: 'heading' }] as any,
+        relations: [
+          {
+            id: 3,
+            propertyName: 'writer',
+            type: 'many-to-one',
+            targetTable: { id: 20 },
+          } as any,
+        ],
+        uniques: [['title']] as any,
+        indexes: [['author']] as any,
+      },
+      context: { $query: { schemaConfirmHash: 'confirm-me' } },
+    });
+
+    const compileInput =
+      harness.runtimeSchemaContractCompilerService.compile.mock.calls[0][0];
+    expect(compileInput.afterMetadata.uniques).toEqual([['heading']]);
+    expect(compileInput.afterMetadata.indexes).toEqual([['writer']]);
+  });
+
+  it.each([
+    { mongo: false, mappedBy: { id: 3 }, expected: 'author' },
+    {
+      mongo: true,
+      mappedBy: { _id: 'relation-author' },
+      expected: 'author',
+    },
+  ])(
+    'resolves hydrated mappedBy references before compiling a table update',
+    async ({ mongo, mappedBy, expected }) => {
+      const harness = createHarness({ mongo });
+      await harness.service.updateTable({
+        tableId: mongo ? 'owner-mongo' : 10,
+        body: {
+          relations: [
+            {
+              propertyName: 'comments',
+              type: 'one-to-many',
+              targetTable: mongo ? { _id: 'target-mongo' } : { id: 20 },
+              mappedBy,
+            } as any,
+          ],
+        },
+        context: { $query: { schemaConfirmHash: 'confirm-me' } },
+      });
+
+      const compileInput =
+        harness.runtimeSchemaContractCompilerService.compile.mock.calls[0][0];
+      expect(compileInput.afterMetadata.relations[0].mappedBy).toBe(expected);
+      expect(
+        harness.runtimeSchemaExecutorService.execute.mock.calls[0][0].body
+          .relations[0].mappedBy,
+      ).toBe(expected);
+    },
+  );
 
   it('uses Mongo ids and target references without leaking owner fields', async () => {
     const harness = createHarness({ mongo: true });

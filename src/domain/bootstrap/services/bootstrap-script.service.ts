@@ -78,7 +78,6 @@ export class BootstrapScriptService {
       lockKey,
       lockValue,
       lockTimeout,
-      { global: true },
     );
     if (!lockAcquired) {
       this.logger.log(`Skipped - another instance is executing`);
@@ -90,7 +89,7 @@ export class BootstrapScriptService {
       this.logger.error(`${context} failed:`, error);
       throw error;
     } finally {
-      await this.cacheService.release(lockKey, lockValue, { global: true });
+      await this.cacheService.release(lockKey, lockValue);
     }
   }
 

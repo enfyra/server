@@ -64,15 +64,6 @@ function callRuntime(child: ReturnType<typeof fork>, message: any) {
 }
 
 describe('package runtime child', () => {
-  it('published worker bundle forwards remaining package call timeout', async () => {
-    const workerBundlePath = require.resolve('@enfyra/kernel/execution/worker.js');
-    const workerBundle = await import('fs').then((fs) =>
-      fs.readFileSync(workerBundlePath, 'utf8'),
-    );
-
-    expect(workerBundle).toContain('timeoutMs:n.timeoutMs');
-  });
-
   it('uses the remaining task timeout for proxied package calls', async () => {
     tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-package-runtime-'));
     const modulePath = path.join(tempDir, 'slow-package.mjs');
@@ -182,6 +173,56 @@ describe('package runtime child', () => {
       });
     } finally {
       child.kill();
+    }
+  });
+
+  it('times out a package response stream at the bridge boundary', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-package-runtime-'));
+    const modulePath = path.join(tempDir, 'slow-stream-package.mjs');
+    await writeFile(
+      modulePath,
+      `
+        export default {
+          async *stream() {
+            await new Promise((resolve) => setTimeout(resolve, 5000));
+            yield new Uint8Array([111, 107]);
+          }
+        };
+      `,
+      'utf8',
+    );
+    const bridge = createPackageRuntimeBridge({
+      workerDir: path.dirname(bridgePath),
+      activeTaskContexts: new Map(),
+    });
+    bridge.setTaskPackages(
+      'stream-timeout',
+      new Map([
+        [
+          'slow-stream-package',
+          { name: 'slow-stream-package', fileUrl: modulePath },
+        ],
+      ]),
+    );
+    try {
+      const handle = await bridge.executePackageRuntimeCall('stream-timeout', {
+        packageName: 'slow-stream-package',
+        kind: 'call',
+        path: ['stream'],
+        argsJson: '[]',
+        timeoutMs: 500,
+      });
+      await expect(
+        bridge.streamPackageHandle(
+          'stream-timeout',
+          handle.__pkgHandle,
+          async () => {},
+          [],
+          500,
+        ),
+      ).rejects.toThrow(/Package runtime/);
+    } finally {
+      bridge.shutdownPackageRuntime();
     }
   });
 
@@ -490,6 +531,78 @@ describe('isolated executor package proxy', () => {
         nestedUrlHost: 'example.com',
         nestedSearch: '2',
       });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('bounds a package response stream by the remaining task timeout', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-package-proxy-'));
+    const modulePath = path.join(tempDir, 'slow-stream-package.mjs');
+    await writeFile(
+      modulePath,
+      `
+        export default {
+          async delay(ms) {
+            await new Promise((resolve) => setTimeout(resolve, ms));
+          },
+          async *stream() {
+            await new Promise((resolve) => setTimeout(resolve, 5000));
+            yield new Uint8Array([111, 107]);
+          }
+        };
+      `,
+      'utf8',
+    );
+
+    const service = new IsolatedExecutorService({
+      packageCacheService: {
+        getPackages: async () => ['slow-stream-package'],
+      } as any,
+      packageCdnLoaderService: {
+        getPackageSources: () => [
+          {
+            name: 'slow-stream-package',
+            safeName: 'slow_stream_package',
+            version: '1.0.0',
+            sourceCode: '',
+            filePath: modulePath,
+            fileUrl: modulePath,
+          },
+        ],
+      } as any,
+    });
+    const ctx: any = {
+      $body: {},
+      $query: {},
+      $params: {},
+      $share: { $logs: [] },
+      $helpers: {},
+      $cache: {},
+      $repos: {},
+      $user: null,
+      $res: {
+        stream: (stream: NodeJS.ReadableStream) => {
+          stream.on('error', () => {});
+          stream.resume();
+          return Promise.resolve();
+        },
+      },
+    };
+
+    try {
+      await expect(
+        service.run(
+          `
+            const pkg = $ctx.$pkgs['slow-stream-package'];
+            await pkg.delay(500);
+            const stream = await pkg.stream();
+            await $ctx.$res.stream(stream);
+          `,
+          ctx,
+          2000,
+        ),
+      ).rejects.toThrow(/Script execution timed out after 2000ms/);
     } finally {
       service.onDestroy();
     }

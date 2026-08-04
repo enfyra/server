@@ -1,19 +1,68 @@
 import { Logger } from '../../../shared/logger';
 import { RateLimitService, RateLimitResult } from './rate-limit.service';
-import { GuardNode, GuardRuleNode } from './guard-cache-builder.service';
+import type {
+  GuardNode,
+  GuardRuleNode,
+  GuardEvalContext,
+  GuardRateLimitScope,
+  GuardRateLimitDetails,
+  GuardIpRejectDetails,
+  GuardRejectDetails,
+  GuardRejectInfo,
+  GuardRateLimitSnapshot,
+  GuardEvaluationResult,
+} from '../types/guard.types';
 
-export interface GuardEvalContext {
-  clientIp: string;
-  routePath: string;
-  userId?: string | null;
+export type {
+  GuardEvalContext,
+  GuardRejectReason,
+  GuardRateLimitScope,
+  GuardRateLimitDetails,
+  GuardIpRejectDetails,
+  GuardRejectDetails,
+  GuardRejectInfo,
+  GuardRateLimitSnapshot,
+  GuardEvaluationResult,
+} from '../types/guard.types';
+
+const RATE_LIMIT_SCOPE_BY_RULE: Record<string, GuardRateLimitScope> = {
+  rate_limit_by_ip: 'ip',
+  rate_limit_by_user: 'user',
+  rate_limit_by_route: 'route',
+  rate_limit_by_operation: 'operation',
+};
+
+function buildGuardHeaders(
+  details: GuardRejectDetails,
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    'X-Enfyra-Guard-Reason': details.reason,
+    'X-Enfyra-Guard-Error-Code': errorCodeForDetails(details),
+  };
+  if (details.reason === 'rate_limit') {
+    headers['Retry-After'] = String(details.retryAfterSeconds);
+    headers['X-RateLimit-Limit'] = String(details.limit);
+    headers['X-RateLimit-Remaining'] = String(details.remaining);
+    headers['X-RateLimit-Reset'] = String(details.resetAt);
+    headers['X-RateLimit-Window'] = String(details.windowSeconds);
+    headers['X-RateLimit-Scope'] = details.scope;
+    headers['X-RateLimit-Used'] = String(
+      Math.max(0, details.limit - details.remaining),
+    );
+    headers['X-Enfyra-Guard-Scope'] = details.scope;
+  }
+  return headers;
 }
 
-export interface GuardRejectInfo {
-  guardName: string;
-  ruleType: string;
-  statusCode: number;
-  message: string;
-  headers?: Record<string, string>;
+function errorCodeForDetails(details: GuardRejectDetails): string {
+  switch (details.reason) {
+    case 'rate_limit':
+      return 'RATE_LIMIT_EXCEEDED';
+    case 'ip_not_allowed':
+      return 'IP_NOT_ALLOWED';
+    case 'ip_blocked':
+      return 'IP_BLOCKED';
+  }
 }
 
 export class GuardEvaluatorService {
@@ -27,8 +76,16 @@ export class GuardEvaluatorService {
   async evaluateGuard(
     guard: GuardNode,
     evalCtx: GuardEvalContext,
-  ): Promise<GuardRejectInfo | null> {
-    return this.evaluateNode(guard, evalCtx, guard.name);
+  ): Promise<GuardEvaluationResult> {
+    const rateLimitSnapshots: GuardRateLimitSnapshot[] = [];
+    const reject = await this.evaluateNode(
+      guard,
+      evalCtx,
+      guard.name,
+      rateLimitSnapshots,
+      guard.tableName,
+    );
+    return { reject, rateLimitSnapshots };
   }
 
   private readonly RULE_COST: Record<string, number> = {
@@ -37,12 +94,15 @@ export class GuardEvaluatorService {
     rate_limit_by_ip: 1,
     rate_limit_by_user: 1,
     rate_limit_by_route: 1,
+    rate_limit_by_operation: 1,
   };
 
   private async evaluateNode(
     node: GuardNode,
     evalCtx: GuardEvalContext,
     rootName: string,
+    rateLimitSnapshots: GuardRateLimitSnapshot[],
+    targetTableName: string | null,
   ): Promise<GuardRejectInfo | null> {
     const items: Array<() => Promise<GuardRejectInfo | null>> = [];
 
@@ -51,12 +111,28 @@ export class GuardEvaluatorService {
     );
 
     for (const rule of sortedRules) {
-      items.push(() => this.evaluateRule(rule, evalCtx, rootName));
+      items.push(() =>
+        this.evaluateRule(
+          rule,
+          evalCtx,
+          rootName,
+          rateLimitSnapshots,
+          targetTableName,
+        ),
+      );
     }
 
     for (const child of node.children) {
       if (!child.isEnabled) continue;
-      items.push(() => this.evaluateNode(child, evalCtx, rootName));
+      items.push(() =>
+        this.evaluateNode(
+          child,
+          evalCtx,
+          rootName,
+          rateLimitSnapshots,
+          targetTableName,
+        ),
+      );
     }
 
     if (items.length === 0) return null;
@@ -82,6 +158,8 @@ export class GuardEvaluatorService {
     rule: GuardRuleNode,
     evalCtx: GuardEvalContext,
     guardName: string,
+    rateLimitSnapshots: GuardRateLimitSnapshot[],
+    targetTableName: string | null,
   ): Promise<GuardRejectInfo | null> {
     if (rule.userIds.length > 0) {
       if (!evalCtx.userId || !rule.userIds.includes(evalCtx.userId)) {
@@ -95,18 +173,28 @@ export class GuardEvaluatorService {
           `guard_rule:${rule.id}:ip:${evalCtx.clientIp}`,
           rule,
           guardName,
+          rateLimitSnapshots,
         );
       case 'rate_limit_by_user':
         return this.evalRateLimit(
           `guard_rule:${rule.id}:user:${evalCtx.userId || 'anonymous'}`,
           rule,
           guardName,
+          rateLimitSnapshots,
         );
       case 'rate_limit_by_route':
         return this.evalRateLimit(
           `guard_rule:${rule.id}:route:${evalCtx.routePath}`,
           rule,
           guardName,
+          rateLimitSnapshots,
+        );
+      case 'rate_limit_by_operation':
+        return this.evalRateLimit(
+          `guard_rule:${rule.id}:operation:${targetTableName || '*'}:${evalCtx.operation || '*'}`,
+          rule,
+          guardName,
+          rateLimitSnapshots,
         );
       case 'ip_whitelist':
         return this.evalIpWhitelist(evalCtx.clientIp, rule, guardName);
@@ -121,6 +209,7 @@ export class GuardEvaluatorService {
     key: string,
     rule: GuardRuleNode,
     guardName: string,
+    rateLimitSnapshots: GuardRateLimitSnapshot[],
   ): Promise<GuardRejectInfo | null> {
     const { maxRequests, perSeconds } = rule.config || {};
     if (!maxRequests || !perSeconds) return null;
@@ -130,19 +219,36 @@ export class GuardEvaluatorService {
       perSeconds,
     });
 
+    const scope = RATE_LIMIT_SCOPE_BY_RULE[rule.type] ?? 'ip';
+    rateLimitSnapshots.push({
+      ruleId: rule.id,
+      scope,
+      limit: result.limit,
+      remaining: result.remaining,
+      windowSeconds: result.window,
+      resetAt: result.resetAt,
+    });
+
     if (result.allowed) return null;
+
+    const details: GuardRateLimitDetails = {
+      reason: 'rate_limit',
+      scope,
+      limit: result.limit,
+      remaining: result.remaining,
+      windowSeconds: result.window,
+      retryAfterSeconds: result.retryAfter,
+      resetAt: result.resetAt,
+    };
 
     return {
       guardName,
       ruleType: rule.type,
       statusCode: 429,
+      errorCode: 'RATE_LIMIT_EXCEEDED',
       message: 'Too Many Requests',
-      headers: {
-        'Retry-After': String(result.retryAfter),
-        'X-RateLimit-Limit': String(result.limit),
-        'X-RateLimit-Remaining': '0',
-        'X-RateLimit-Reset': String(result.resetAt),
-      },
+      details,
+      headers: buildGuardHeaders(details),
     };
   }
 
@@ -156,11 +262,17 @@ export class GuardEvaluatorService {
 
     if (this.matchIp(clientIp, ips)) return null;
 
+    const details: GuardIpRejectDetails = {
+      reason: 'ip_not_allowed',
+    };
     return {
       guardName,
       ruleType: rule.type,
       statusCode: 403,
+      errorCode: 'IP_NOT_ALLOWED',
       message: 'Forbidden',
+      details,
+      headers: buildGuardHeaders(details),
     };
   }
 
@@ -174,11 +286,17 @@ export class GuardEvaluatorService {
 
     if (!this.matchIp(clientIp, ips)) return null;
 
+    const details: GuardIpRejectDetails = {
+      reason: 'ip_blocked',
+    };
     return {
       guardName,
       ruleType: rule.type,
       statusCode: 403,
+      errorCode: 'IP_BLOCKED',
       message: 'Forbidden',
+      details,
+      headers: buildGuardHeaders(details),
     };
   }
 

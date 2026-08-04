@@ -1,9 +1,9 @@
 {
   "name": "enfyra-server",
-  "version": "2.2.14",
+  "version": "2.2.15",
   "description": "Dynamic backend platform that auto-generates REST and GraphQL APIs from database schemas",
   "author": "dothinh115 <dothinh115@gmail.com>",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "Elastic-2.0",
   "packageManager": "yarn@4.17.0+sha512.c2957de2f9025ab14d63b24d0d8be1f1655810e22c341042c27f7ecd017b180ec12db73d69ac366d71b304ef9f069349ce462de96f04f8f1da317f4f762c95ae",
   "engines": {
     "node": ">=24 <25",
@@ -42,7 +42,9 @@
     "test:e2e:flow-engine": "node test/flow-engine.e2e.js",
     "test:e2e:query-builder": "node test/query-builder.e2e.js",
     "test:e2e:compiled-code-db": "tsx test/compiled-code-db.e2e.ts",
+    "test:e2e:bootstrap-boot-race": "tsx test/e2e/bootstrap-boot-race.e2e.ts",
     "test:e2e:snapshot-migration-matrix": "tsx test/e2e/snapshot-migration-database-matrix.e2e.ts",
+    "test:e2e:bootstrap-randomized-matrix": "bash scripts/e2e-bootstrap-randomized-matrix.sh",
     "test:e2e:realtime-chat-load": "tsx test/realtime-chat-app.e2e.ts",
     "test:e2e:mock": "yarn test:e2e:cache-load && yarn test:e2e:metadata-reload && yarn test:e2e:flow-engine",
     "test:e2e": "yarn test:e2e:mock && yarn test:e2e:query-builder"
@@ -50,7 +52,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1024.0",
     "@aws-sdk/lib-storage": "3.1024.0",
-    "@enfyra/kernel": "1.1.33",
+    "@enfyra/kernel": "1.1.38",
     "@envelop/core": "^5.5.1",
     "@envelop/depth-limit": "^7.1.1",
     "@google-cloud/storage": "^7.19.0",
