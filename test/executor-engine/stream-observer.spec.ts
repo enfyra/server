@@ -119,4 +119,61 @@ describe('stream observer callback', () => {
       service.onDestroy();
     }
   });
+
+  it('observes local Readable.from chunks before relaying them', async () => {
+    const service = new IsolatedExecutorService({
+      packageCacheService: {
+        getPackages: async () => [],
+      } as any,
+      packageCdnLoaderService: {
+        getPackageSources: () => [],
+      } as any,
+    });
+    const received: Buffer[] = [];
+    const ctx: any = {
+      $body: {},
+      $query: {},
+      $params: {},
+      $share: { $logs: [] },
+      $helpers: {},
+      $cache: {},
+      $repos: {},
+      $user: null,
+      $res: {
+        stream: (stream: any, options: any) =>
+          new Promise<void>((resolve, reject) => {
+            expect(options.observer).toBeUndefined();
+            stream.on('data', (chunk: Buffer) => received.push(chunk));
+            stream.on('end', () => resolve());
+            stream.on('error', (error: Error) => reject(error));
+          }),
+      },
+    };
+
+    try {
+      const result = await service.run(
+        `
+          const { Readable } = require('stream');
+          const observed = [];
+          await $ctx.$res.stream(Readable.from(['a', 'b']), {
+            observer: (text, kind) => { observed.push({ text, kind }); },
+          });
+          return { observed };
+        `,
+        ctx,
+        5000,
+      );
+
+      expect(result).toEqual({
+        observed: [
+          { text: 'a', kind: 'chunk' },
+          { text: 'b', kind: 'chunk' },
+          { text: '', kind: 'end' },
+        ],
+      });
+      expect(Buffer.concat(received).toString('utf8')).toBe('ab');
+    } finally {
+      service.onDestroy();
+    }
+  });
 });
