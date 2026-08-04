@@ -15,6 +15,8 @@ import { RequestWithRouteData } from '../../../shared/types';
 import { Readable } from 'stream';
 import { RuntimeScriptRepairService } from '../../../engines/cache';
 
+const streamLogger = new Logger('DynamicResponseStream');
+
 export function attachStreamResponseHelper(res: any): void {
   if (!res || res.stream) return;
   res.stream = (
@@ -63,6 +65,13 @@ export function attachStreamResponseHelper(res: any): void {
       };
 
       readable.on('error', (error: Error) => {
+        streamLogger.error({
+          message: 'Dynamic response stream failed',
+          error: error.message,
+          method: res.req?.method,
+          url: res.req?.originalUrl ?? res.req?.url,
+          statusCode: res.statusCode,
+        });
         settle(() => reject(error));
         if (!res.headersSent) {
           res.status(500).json({

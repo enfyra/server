@@ -75,6 +75,30 @@ export function buildRuntimeSchemaChangePlan(input: {
     });
   };
 
+  const tableMetadataFields = [
+    'description',
+    'alias',
+    'isSingleRecord',
+    'graphqlEnabled',
+    'validateBody',
+  ] as const;
+  const changedTableMetadataFields = tableMetadataFields.filter((field) =>
+    !isDeepStrictEqual(before.contract[field], after.contract[field]),
+  );
+  if (changedTableMetadataFields.length > 0) {
+    addChange(
+      'alter-table-metadata',
+      changedTableMetadataFields.join(','),
+      `update table metadata ${changedTableMetadataFields.join(', ')}`,
+      Object.fromEntries(
+        changedTableMetadataFields.map((field) => [field, before.contract[field]]),
+      ),
+      Object.fromEntries(
+        changedTableMetadataFields.map((field) => [field, after.contract[field]]),
+      ),
+    );
+  }
+
   if (before.contract.name !== after.contract.name) {
     addChange(
       'rename-table',
@@ -246,7 +270,9 @@ export function buildRuntimeSchemaChangePlan(input: {
     diff: {
       tableName: input.tableName,
       operation: input.operation,
-      schemaChanged: changes.length > 0,
+      schemaChanged: changes.some(
+        (change) => change.kind !== 'alter-table-metadata',
+      ),
       isDestructive: removedColumns.length > 0 || removedRelations.length > 0,
       removedColumns,
       addedColumns,

@@ -190,4 +190,27 @@ describe('RuntimeSchemaContractCompilerService', () => {
     expect(result.contract.changes).toEqual([]);
     expect(result.contract.phases).toEqual([]);
   });
+
+  it('compiles table metadata-only changes into executable phases', async () => {
+    const compiler = createCompiler();
+    const result = await compiler.compile({
+      operation: 'update',
+      tableName: 'post',
+      tableId: 7,
+      beforeMetadata: { ...baseTable, isSingleRecord: true },
+      afterMetadata: { ...baseTable, isSingleRecord: false },
+    });
+
+    expect(result.contract.context.diff.schemaChanged).toBe(false);
+    expect(result.contract.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'alter-table-metadata' }),
+      ]),
+    );
+    expect(
+      result.contract.phases
+        .flatMap((phase) => phase.nodes)
+        .some((node) => node.command.kind === 'apply-physical-change'),
+    ).toBe(true);
+  });
 });
