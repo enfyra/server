@@ -842,7 +842,15 @@ describe('H1: Additive mutations must not become hidden previews', () => {
       markCompleted: vi.fn().mockResolvedValue(undefined),
       markFailed: vi.fn().mockResolvedValue(undefined),
     };
-    const { executor } = makeExecutor({ tableHandlerService, journal });
+    const runtimeSchemaTargetAttestorService = {
+      assertSource: vi.fn().mockResolvedValue(undefined),
+      assertTarget: vi.fn().mockResolvedValue(undefined),
+    };
+    const { executor } = makeExecutor({
+      tableHandlerService,
+      journal,
+      runtimeSchemaTargetAttestorService,
+    });
     const result = await executor.execute({
       contract,
       ownerTableId: 42,
@@ -850,6 +858,7 @@ describe('H1: Additive mutations must not become hidden previews', () => {
     });
     expect(journal.markCompleted).not.toHaveBeenCalled();
     expect((result as any).preview).toBeDefined();
+    expect(runtimeSchemaTargetAttestorService.assertTarget).not.toHaveBeenCalled();
   });
 });
 

@@ -264,6 +264,16 @@ const dataMigration = {
     {
       "_unique": {
         "path": {
+          "_eq": "/enfyra_relation"
+        }
+      },
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
           "_eq": "/admin/reload"
         }
       },

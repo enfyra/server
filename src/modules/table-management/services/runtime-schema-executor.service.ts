@@ -394,9 +394,13 @@ export class RuntimeSchemaExecutorService {
 
     dag.registerAdapter('attest-target', {
       async execute(ctx: RuntimeSchemaCommandAdapterContext) {
+        if (handlerResult?._preview) {
+          return { preview: handlerResult };
+        }
         const recordId = handlerResult?._id ?? handlerResult?.id ?? ownerTableId;
         await self.attestTargetRevision(ctx.contract, recordId);
         await self.targetAttestor.assertTarget(ctx.contract);
+        return undefined;
       },
     });
 

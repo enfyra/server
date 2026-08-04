@@ -103,10 +103,7 @@ const defaultData = {
       "isSystem": true,
       "icon": "lucide:git-branch",
       "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
+        "GET"
       ]
     },
     {
