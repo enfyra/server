@@ -28,7 +28,7 @@ export function attachStreamResponseHelper(res: any): void {
         string | number | readonly string[] | undefined | null
       >;
     },
-  ) => {
+  ): Promise<void> => {
     const readable =
       stream && typeof stream.pipe === 'function'
         ? stream
@@ -53,23 +53,36 @@ export function attachStreamResponseHelper(res: any): void {
     }
     res.status(options?.statusCode || 200);
     res.__enfyraStreamStarted = true;
-    readable.on('error', (error: Error) => {
-      if (!res.headersSent) {
-        res.status(500).json({
-          success: false,
-          message: 'Stream failed',
-          statusCode: 500,
-          error: {
-            code: 'STREAM_FAILED',
-            message: error.message,
-            timestamp: new Date().toISOString(),
-          },
-        });
-      } else {
-        res.destroy(error);
-      }
+
+    return new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const settle = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        callback();
+      };
+
+      readable.on('error', (error: Error) => {
+        settle(() => reject(error));
+        if (!res.headersSent) {
+          res.status(500).json({
+            success: false,
+            message: 'Stream failed',
+            statusCode: 500,
+            error: {
+              code: 'STREAM_FAILED',
+              message: error.message,
+              timestamp: new Date().toISOString(),
+            },
+          });
+        } else {
+          res.destroy(error);
+        }
+      });
+      readable.on('end', () => settle(resolve));
+      res.once('close', () => settle(resolve));
+      readable.pipe(res);
     });
-    readable.pipe(res);
   };
 }
 

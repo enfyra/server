@@ -199,7 +199,7 @@ function makeAppContainer(dispose = vi.fn()) {
         if (req.path === '/stream') {
           attachStreamResponseHelper(req.routeData.res);
           req.routeData.context.$res = req.routeData.res;
-          req.routeData.context.$res.stream(Readable.from(['backup-stream']), {
+          await req.routeData.context.$res.stream(Readable.from(['backup-stream']), {
             mimetype: 'application/sql',
             filename: 'backup.sql',
             headers: {
