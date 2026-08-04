@@ -19,6 +19,7 @@ export interface MongoColumnLike {
   name?: string;
   type?: string;
   isPrimary?: boolean;
+  isUnique?: boolean;
 }
 
 export interface MongoStoredFieldTable {

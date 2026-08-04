@@ -175,7 +175,7 @@ export function buildMongoFullIndexSpecs(input: {
   const specs: MongoPhysicalIndexSpec[] = [];
   const indexedFields = new Set<string>();
   const columns = input.columns || [];
-  const uniques = input.uniques || [];
+  const uniques = [...(input.uniques || [])];
   const indexes = input.indexes || [];
   const relations = input.relations || [];
   const storedRelationFields = new Set(
@@ -202,6 +202,17 @@ export function buildMongoFullIndexSpecs(input: {
         name: `${input.collectionName}_${column.name}_unique`,
         logicalFields: [column.name],
       });
+    }
+    if (
+      column.isUnique === true &&
+      !uniques.some(
+        (unique) =>
+          Array.isArray(unique) &&
+          unique.length === 1 &&
+          unique[0] === column.name,
+      )
+    ) {
+      uniques.push([column.name]);
     }
   }
 

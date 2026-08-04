@@ -136,6 +136,21 @@ describe('Mongo physical schema contract', () => {
     });
   });
 
+  it('builds a unique index from a column-level isUnique intent', () => {
+    const specs = buildMongoFullIndexSpecs({
+      collectionName: 'gateway_models',
+      columns: [{ name: 'as', type: 'varchar', isUnique: true }],
+    });
+
+    expect(specs).toContainEqual(
+      expect.objectContaining({
+        keys: { as: 1 },
+        name: 'gateway_models_as_unique',
+        logicalFields: ['as'],
+      }),
+    );
+  });
+
   it('keeps persisted temporal index metadata on the canonical descending direction', () => {
     const specs = buildMongoFullIndexSpecs({
       collectionName: 'post',
@@ -163,7 +178,8 @@ describe('Mongo physical schema contract', () => {
       relations: [{ propertyName: 'author', type: 'many-to-one' }],
     });
     const authorSpecs = specs.filter(
-      (spec) => spec.logicalFields.length === 1 && spec.logicalFields[0] === 'author',
+      (spec) =>
+        spec.logicalFields.length === 1 && spec.logicalFields[0] === 'author',
     );
 
     expect(authorSpecs).toEqual([

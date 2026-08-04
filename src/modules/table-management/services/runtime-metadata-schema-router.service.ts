@@ -16,6 +16,8 @@ import type { TableHandlerService } from './table-handler.service';
 import type { RuntimeSchemaContractCompilerService } from './runtime-schema-contract-compiler.service';
 import type { RuntimeSchemaExecutorService } from './runtime-schema-executor.service';
 import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
+import { normalizeTableConstraints } from '../utils/table-constraints.util';
+import type { TableManagementValidationService } from './table-validation.service';
 
 export class RuntimeMetadataSchemaRouterService {
   constructor(
@@ -23,6 +25,7 @@ export class RuntimeMetadataSchemaRouterService {
       queryBuilderService: QueryBuilderService;
       tableHandlerService: TableHandlerService;
       databaseConfigService: DatabaseConfigService;
+      tableManagementValidationService: TableManagementValidationService;
       runtimeSchemaContractCompilerService: RuntimeSchemaContractCompilerService;
       runtimeSchemaExecutorService: RuntimeSchemaExecutorService;
     },
@@ -35,12 +38,17 @@ export class RuntimeMetadataSchemaRouterService {
   async create(
     input: RuntimeMetadataSchemaMutationInput,
   ): Promise<RuntimeMetadataSchemaMutationResult> {
+    this.validateProvidedColumns(
+      input.tableName === 'enfyra_column' ? [input.data ?? {}] : [],
+    );
     const ownerTableId = this.getOwnerTableId(input.tableName, input.data);
     const table = await this.loadOwnerTable(ownerTableId);
     let body = this.buildTableBody(table);
     const list = this.getBodyList(body, input.tableName);
     const child = this.normalizeChild(input.tableName, input.data ?? {});
     list.push(child);
+    body = this.normalizeCompleteTableConstraints(body);
+    this.validateColumns(body);
     body = await this.resolveRelationTargetNames(body);
     const { contract, requiredConfirmHash } =
       await this.deps.runtimeSchemaContractCompilerService.compile({
@@ -54,9 +62,16 @@ export class RuntimeMetadataSchemaRouterService {
         requestContext: input.context,
       });
     const confirmHash = this.extractConfirmHash(input.context);
-    if (contract.context.diff.isDestructive && confirmHash !== requiredConfirmHash) {
+    if (
+      contract.context.diff.isDestructive &&
+      confirmHash !== requiredConfirmHash
+    ) {
       return {
-        preview: { _preview: true, requiredConfirmHash, schemaMutationContract: contract },
+        preview: {
+          _preview: true,
+          requiredConfirmHash,
+          schemaMutationContract: contract,
+        },
         ownerTableId,
       };
     }
@@ -69,8 +84,15 @@ export class RuntimeMetadataSchemaRouterService {
     if (execResult.preview) {
       return { preview: execResult.preview, ownerTableId };
     }
-    if (execResult.affectedTables.length === 0 && contract.context.diff.schemaChanged === false) {
-      return { ownerTableId, affectedTables: [], mutationId: execResult.mutationId };
+    if (
+      execResult.affectedTables.length === 0 &&
+      contract.context.diff.schemaChanged === false
+    ) {
+      return {
+        ownerTableId,
+        affectedTables: [],
+        mutationId: execResult.mutationId,
+      };
     }
     const created = await this.findCreatedChild(
       input.tableName,
@@ -92,6 +114,9 @@ export class RuntimeMetadataSchemaRouterService {
     if (input.recordId == null) {
       throw new ValidationException('Schema metadata record id is required');
     }
+    this.validateProvidedColumns(
+      input.tableName === 'enfyra_column' ? [input.data ?? {}] : [],
+    );
     const existing = input.existing ?? (await this.loadChild(input));
     const ownerTableId = this.getOwnerTableId(input.tableName, existing);
     const table = await this.loadOwnerTable(ownerTableId);
@@ -107,11 +132,23 @@ export class RuntimeMetadataSchemaRouterService {
         String(input.recordId),
       );
     }
+    const previousChild = list[index];
     list[index] = this.normalizeChild(input.tableName, {
       ...list[index],
       ...input.data,
       [this.getPkField()]: input.recordId,
     });
+    const fieldRenames = new Map<string, string>();
+    if (
+      input.tableName === 'enfyra_column' &&
+      previousChild.name &&
+      list[index].name &&
+      previousChild.name !== list[index].name
+    ) {
+      fieldRenames.set(previousChild.name, list[index].name);
+    }
+    body = this.normalizeCompleteTableConstraints(body, fieldRenames);
+    this.validateColumns(body);
     body = await this.resolveRelationTargetNames(body);
     const { contract, requiredConfirmHash } =
       await this.deps.runtimeSchemaContractCompilerService.compile({
@@ -125,9 +162,16 @@ export class RuntimeMetadataSchemaRouterService {
         requestContext: input.context,
       });
     const confirmHash = this.extractConfirmHash(input.context);
-    if (contract.context.diff.isDestructive && confirmHash !== requiredConfirmHash) {
+    if (
+      contract.context.diff.isDestructive &&
+      confirmHash !== requiredConfirmHash
+    ) {
       return {
-        preview: { _preview: true, requiredConfirmHash, schemaMutationContract: contract },
+        preview: {
+          _preview: true,
+          requiredConfirmHash,
+          schemaMutationContract: contract,
+        },
         ownerTableId,
         recordId: input.recordId,
       };
@@ -139,7 +183,11 @@ export class RuntimeMetadataSchemaRouterService {
       context: input.context,
     });
     if (execResult.preview) {
-      return { preview: execResult.preview, ownerTableId, recordId: input.recordId };
+      return {
+        preview: execResult.preview,
+        ownerTableId,
+        recordId: input.recordId,
+      };
     }
     return {
       recordId: input.recordId,
@@ -188,7 +236,11 @@ export class RuntimeMetadataSchemaRouterService {
     const confirmHash = this.extractConfirmHash(input.context);
     if (confirmHash !== requiredConfirmHash) {
       return {
-        preview: { _preview: true, requiredConfirmHash, schemaMutationContract: contract },
+        preview: {
+          _preview: true,
+          requiredConfirmHash,
+          schemaMutationContract: contract,
+        },
         ownerTableId,
         recordId: input.recordId,
       };
@@ -200,7 +252,11 @@ export class RuntimeMetadataSchemaRouterService {
       context: input.context,
     });
     if (execResult.preview) {
-      return { preview: execResult.preview, ownerTableId, recordId: input.recordId };
+      return {
+        preview: execResult.preview,
+        ownerTableId,
+        recordId: input.recordId,
+      };
     }
     return {
       recordId: input.recordId,
@@ -218,26 +274,37 @@ export class RuntimeMetadataSchemaRouterService {
   async createTable(
     input: RuntimeTableMutationInput,
   ): Promise<RuntimeMetadataSchemaMutationResult> {
-    const body = await this.resolveRelationTargetNames(input.body!);
-    this.assertNotReservedTableName(String(body.name));
+    const body = this.normalizeCompleteTableConstraints(input.body!);
+    this.validateColumns(body);
+    const resolvedBody = await this.resolveRelationTargetNames(body);
+    this.assertNotReservedTableName(String(resolvedBody.name));
     const { contract, requiredConfirmHash } =
       await this.deps.runtimeSchemaContractCompilerService.compile({
         operation: 'create',
-        tableName: String(body.name),
+        tableName: String(resolvedBody.name),
         tableId: null,
         currentUser: input.context?.$user,
         beforeMetadata: null,
-        afterMetadata: body,
-        data: body,
+        afterMetadata: resolvedBody,
+        data: resolvedBody,
         requestContext: input.context,
       });
     const confirmHash = this.extractConfirmHash(input.context);
-    if (contract.context.diff.isDestructive && confirmHash !== requiredConfirmHash) {
-      return { preview: { _preview: true, requiredConfirmHash, schemaMutationContract: contract } };
+    if (
+      contract.context.diff.isDestructive &&
+      confirmHash !== requiredConfirmHash
+    ) {
+      return {
+        preview: {
+          _preview: true,
+          requiredConfirmHash,
+          schemaMutationContract: contract,
+        },
+      };
     }
     const execResult = await this.deps.runtimeSchemaExecutorService.execute({
       contract,
-      body,
+      body: resolvedBody,
       context: input.context,
     });
     if (execResult.preview) {
@@ -254,6 +321,7 @@ export class RuntimeMetadataSchemaRouterService {
   async updateTable(
     input: RuntimeTableMutationInput,
   ): Promise<RuntimeMetadataSchemaMutationResult> {
+    this.validateProvidedColumns(input.body?.columns ?? []);
     const tableId = input.tableId!;
     const existing = await this.deps.queryBuilderService.findOne({
       table: 'enfyra_table',
@@ -275,6 +343,7 @@ export class RuntimeMetadataSchemaRouterService {
     const target = await this.resolveRelationTargetNames(
       this.buildCompleteTarget(existing, body),
     );
+    this.validateColumns(target);
     if (target.name !== existing.name) {
       this.assertNotReservedTableName(String(target.name));
     }
@@ -290,8 +359,17 @@ export class RuntimeMetadataSchemaRouterService {
         requestContext: input.context,
       });
     const confirmHash = this.extractConfirmHash(input.context);
-    if (contract.context.diff.schemaChanged && confirmHash !== requiredConfirmHash) {
-      return { preview: { _preview: true, requiredConfirmHash, schemaMutationContract: contract } };
+    if (
+      contract.context.diff.schemaChanged &&
+      confirmHash !== requiredConfirmHash
+    ) {
+      return {
+        preview: {
+          _preview: true,
+          requiredConfirmHash,
+          schemaMutationContract: contract,
+        },
+      };
     }
     const execResult = await this.deps.runtimeSchemaExecutorService.execute({
       contract,
@@ -344,7 +422,13 @@ export class RuntimeMetadataSchemaRouterService {
       });
     const confirmHash = this.extractConfirmHash(input.context);
     if (confirmHash !== requiredConfirmHash) {
-      return { preview: { _preview: true, requiredConfirmHash, schemaMutationContract: contract } };
+      return {
+        preview: {
+          _preview: true,
+          requiredConfirmHash,
+          schemaMutationContract: contract,
+        },
+      };
     }
     const execResult = await this.deps.runtimeSchemaExecutorService.execute({
       contract,
@@ -368,8 +452,12 @@ export class RuntimeMetadataSchemaRouterService {
     const target: any = { ...existing };
     const fieldRenames = new Map<string, string>();
     const scalarFields = [
-      'name', 'description', 'alias', 'isSingleRecord',
-      'graphqlEnabled', 'validateBody',
+      'name',
+      'description',
+      'alias',
+      'isSingleRecord',
+      'graphqlEnabled',
+      'validateBody',
     ];
     for (const field of scalarFields) {
       if (body[field] !== undefined) target[field] = body[field];
@@ -377,25 +465,30 @@ export class RuntimeMetadataSchemaRouterService {
     if (body.indexes !== undefined) {
       target.indexes = body.indexes;
     } else if (typeof target.indexes === 'string') {
-      try { target.indexes = JSON.parse(target.indexes); } catch {}
+      try {
+        target.indexes = JSON.parse(target.indexes);
+      } catch {}
     }
     if (body.uniques !== undefined) {
       target.uniques = body.uniques;
     } else if (typeof target.uniques === 'string') {
-      try { target.uniques = JSON.parse(target.uniques); } catch {}
+      try {
+        target.uniques = JSON.parse(target.uniques);
+      } catch {}
     }
     if (Array.isArray(body.columns)) {
       target.columns = body.columns.map((col: any) => {
         const childId = col[pk] ?? col.id ?? col._id;
-        const matchById = childId != null
-          ? (existing.columns || []).find(
-              (c: any) =>
-                String(c[pk] ?? c.id ?? c._id) === String(childId),
-            )
-          : null;
-        const matchByName = !matchById && col.name
-          ? (existing.columns || []).find((c: any) => c.name === col.name)
-          : null;
+        const matchById =
+          childId != null
+            ? (existing.columns || []).find(
+                (c: any) => String(c[pk] ?? c.id ?? c._id) === String(childId),
+              )
+            : null;
+        const matchByName =
+          !matchById && col.name
+            ? (existing.columns || []).find((c: any) => c.name === col.name)
+            : null;
         const match = matchById || matchByName;
         if (match) {
           if (match.name && col.name && match.name !== col.name) {
@@ -409,15 +502,18 @@ export class RuntimeMetadataSchemaRouterService {
     if (Array.isArray(body.relations)) {
       target.relations = body.relations.map((rel: any) => {
         const childId = rel[pk] ?? rel.id ?? rel._id;
-        const matchById = childId != null
-          ? (existing.relations || []).find(
-              (r: any) =>
-                String(r[pk] ?? r.id ?? r._id) === String(childId),
-            )
-          : null;
-        const matchByProp = !matchById && rel.propertyName
-          ? (existing.relations || []).find((r: any) => r.propertyName === rel.propertyName)
-          : null;
+        const matchById =
+          childId != null
+            ? (existing.relations || []).find(
+                (r: any) => String(r[pk] ?? r.id ?? r._id) === String(childId),
+              )
+            : null;
+        const matchByProp =
+          !matchById && rel.propertyName
+            ? (existing.relations || []).find(
+                (r: any) => r.propertyName === rel.propertyName,
+              )
+            : null;
         const match = matchById || matchByProp;
         if (match) {
           if (
@@ -432,57 +528,35 @@ export class RuntimeMetadataSchemaRouterService {
         return rel;
       });
     }
+    return this.normalizeCompleteTableConstraints(target, fieldRenames);
+  }
+
+  private normalizeCompleteTableConstraints(
+    body: TCreateTableBody,
+    fieldRenames: ReadonlyMap<string, string> = new Map(),
+  ): TCreateTableBody {
     const allowedConstraintFields = new Set<string>([
       'id',
       '_id',
       'createdAt',
       'updatedAt',
-      ...(target.columns || [])
-        .map((column: any) => column.name)
-        .filter(Boolean),
-      ...(target.relations || [])
+      ...(body.columns || []).map((column: any) => column.name).filter(Boolean),
+      ...(body.relations || [])
         .map((relation: any) => relation.propertyName)
         .filter(Boolean),
     ]);
-    target.uniques = this.canonicalizeConstraintGroups(
-      target.uniques,
-      fieldRenames,
-      allowedConstraintFields,
-    );
-    target.indexes = this.canonicalizeConstraintGroups(
-      target.indexes,
-      fieldRenames,
-      allowedConstraintFields,
-    );
-    return target;
-  }
-
-  private canonicalizeConstraintGroups(
-    value: unknown,
-    renames: Map<string, string>,
-    allowedFields: Set<string>,
-  ): any[] {
-    let groups = value;
-    if (typeof groups === 'string') {
-      try {
-        groups = JSON.parse(groups);
-      } catch {
-        return [];
-      }
-    }
-    if (!Array.isArray(groups)) return [];
-    return groups
-      .map((group: any) => {
-        const fields = Array.isArray(group) ? group : group?.value;
-        if (!Array.isArray(fields)) return null;
-        const normalized = fields.map((field: unknown) => {
-          const name = String(field);
-          return renames.get(name) ?? name;
-        });
-        if (!normalized.every((field) => allowedFields.has(field))) return null;
-        return Array.isArray(group) ? normalized : { ...group, value: normalized };
-      })
-      .filter((group): group is any => group !== null);
+    const constraints = normalizeTableConstraints({
+      uniques: body.uniques,
+      indexes: body.indexes,
+      columns: body.columns,
+      renames: fieldRenames,
+      allowedFields: allowedConstraintFields,
+    });
+    return {
+      ...body,
+      uniques: constraints.uniques as any,
+      indexes: constraints.indexes as any,
+    };
   }
 
   private async loadChild(
@@ -574,9 +648,10 @@ export class RuntimeMetadataSchemaRouterService {
           : value.targetTableName;
       if (this.deps.databaseConfigService.isMongoDb() && targetId != null) {
         normalized.targetTable = {
-          _id: typeof targetId === 'string' && ObjectId.isValid(targetId)
-            ? new ObjectId(targetId)
-            : targetId,
+          _id:
+            typeof targetId === 'string' && ObjectId.isValid(targetId)
+              ? new ObjectId(targetId)
+              : targetId,
         };
       } else {
         normalized.targetTable = targetId;
@@ -651,6 +726,24 @@ export class RuntimeMetadataSchemaRouterService {
       context?.$query?.schemaConfirmHash ??
       context?.$query?.confirmHash ??
       undefined
+    );
+  }
+
+  private validateColumns(body: TCreateTableBody): void {
+    this.deps.tableManagementValidationService.validateColumns(
+      body.columns,
+      this.deps.databaseConfigService.getDbType(),
+    );
+  }
+
+  private validateProvidedColumns(
+    columns: readonly { name?: unknown }[],
+  ): void {
+    const namedColumns = columns.filter((column) => column?.name !== undefined);
+    if (namedColumns.length === 0) return;
+    this.deps.tableManagementValidationService.validateColumns(
+      namedColumns,
+      this.deps.databaseConfigService.getDbType(),
     );
   }
 

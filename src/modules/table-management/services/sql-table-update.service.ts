@@ -15,6 +15,7 @@ import {
   getRelationTargetTableId,
   relationTargetTableMapKey,
 } from '../utils/relation-target-id.util';
+import { normalizeTableConstraints } from '../utils/table-constraints.util';
 import { SqlTableHandlerService } from './sql-table-handler-base.service';
 import {
   ensureSqlM2mJunctionTables,
@@ -23,14 +24,16 @@ import {
 } from './table-post-migration.service';
 
 export class SqlTableUpdateService extends SqlTableHandlerService {
-  private extractPrecompiledPlan(context?: TDynamicContext): {
-    upStatements: readonly string[];
-    upBatch: string;
-    downStatements: readonly string[];
-    downBatch: string;
-    metadataUpdate: unknown;
-    activeTableName: string;
-  } | undefined {
+  private extractPrecompiledPlan(context?: TDynamicContext):
+    | {
+        upStatements: readonly string[];
+        upBatch: string;
+        downStatements: readonly string[];
+        downBatch: string;
+        metadataUpdate: unknown;
+        activeTableName: string;
+      }
+    | undefined {
     const contract = (context as any)?.$schemaContract?.contract;
     if (!contract?.phases) return undefined;
     for (const phase of contract.phases) {
@@ -56,19 +59,27 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
     body: TCreateTableBody,
     context?: TDynamicContext,
   ) {
+    this.tableValidationService.validateColumns(
+      body.columns,
+      this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres',
+    );
     const t0 = Date.now();
     this.logger.log(`[updateTable:${id}] STEP 0 acquiring schema lock`);
     logMemory(this.logger, 'sql updateTable start', { tableId: id });
-    const result = await this.runWithSchemaLock(`table:update:${id}`, () => {
-      this.logger.log(
-        `[updateTable:${id}] STEP 1 lock acquired (+${Date.now() - t0}ms) → calling updateTableInternal`,
-      );
-      logMemory(this.logger, 'sql updateTable lock acquired', {
-        tableId: id,
-        waitMs: Date.now() - t0,
-      });
-      return this.updateTableInternal(id, body, context);
-    }, (context as any)?.$onLockAcquired);
+    const result = await this.runWithSchemaLock(
+      `table:update:${id}`,
+      () => {
+        this.logger.log(
+          `[updateTable:${id}] STEP 1 lock acquired (+${Date.now() - t0}ms) → calling updateTableInternal`,
+        );
+        logMemory(this.logger, 'sql updateTable lock acquired', {
+          tableId: id,
+          waitMs: Date.now() - t0,
+        });
+        return this.updateTableInternal(id, body, context);
+      },
+      (context as any)?.$onLockAcquired,
+    );
     this.logger.log(`[updateTable:${id}] STEP DONE total=${Date.now() - t0}ms`);
     logMemory(this.logger, 'sql updateTable done', {
       tableId: id,
@@ -138,16 +149,6 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
         tableName: body.name,
       });
     }
-    if (Array.isArray(body.columns)) {
-      for (const col of body.columns) {
-        if (typeof col.name !== 'string' || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(col.name)) {
-          throw new ValidationException(
-            `Invalid column name: "${col.name}". Only letters, digits, and underscores are allowed.`,
-            { columnName: col.name },
-          );
-        }
-      }
-    }
     const bodyRelations = body.relations ?? [];
     this.tableValidationService.validateRelations(bodyRelations);
     stepLog(`STEP 2 name+relation validate done (+${lap()}ms)`);
@@ -158,6 +159,26 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
       stepLog(`STEP 3 fetched enfyra_table row (+${lap()}ms)`);
       if (!exists) {
         throw new ResourceNotFoundException('enfyra_table', String(id));
+      }
+      const hasColumnUniqueIntent = (body.columns || []).some(
+        (column) => column.isUnique !== undefined,
+      );
+      if (
+        body.uniques !== undefined ||
+        body.indexes !== undefined ||
+        hasColumnUniqueIntent
+      ) {
+        const constraints = normalizeTableConstraints({
+          uniques: body.uniques ?? exists.uniques,
+          indexes: body.indexes,
+          columns: body.columns,
+        });
+        if (body.uniques !== undefined || hasColumnUniqueIntent) {
+          body.uniques = constraints.uniques as any;
+        }
+        if (body.indexes !== undefined) {
+          body.indexes = constraints.indexes as any;
+        }
       }
       const tableRenamed = !!body.name && body.name !== exists.name;
       if (tableRenamed) {
@@ -279,13 +300,14 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
           if (schemaChanged) {
             stepLog(`STEP 11 PG: running DDL inside metadata transaction...`);
             await trx.raw(`SET LOCAL statement_timeout = '90s'`);
-            const pendingUpdate: any = await this.schemaMigrationService.updateTable(
-              exists.name,
-              oldMetadata,
-              updatedFullMetadata,
-              trx,
-              this.extractPrecompiledPlan(context),
-            );
+            const pendingUpdate: any =
+              await this.schemaMigrationService.updateTable(
+                exists.name,
+                oldMetadata,
+                updatedFullMetadata,
+                trx,
+                this.extractPrecompiledPlan(context),
+              );
             await trx.raw(`SET LOCAL statement_timeout = '0'`);
             stepLog(`STEP 11 PG: DDL done (+${lap()}ms)`);
             if (pendingUpdate?.pendingMetadataUpdate) {
