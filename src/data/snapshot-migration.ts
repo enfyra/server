@@ -307,6 +307,43 @@ const snapshotMigration = {
     {
       _unique: {
         name: {
+          _eq: 'enfyra_graphql_permission',
+        },
+      },
+      relationsToModify: [
+        {
+          from: {
+            propertyName: 'role',
+            inversePropertyName: 'graphqlPermissions',
+          },
+          to: {
+            propertyName: 'role',
+            inversePropertyName: null,
+          },
+        },
+        {
+          from: {
+            propertyName: 'allowedUsers',
+            inversePropertyName: 'allowedGraphqlPermissions',
+          },
+          to: {
+            propertyName: 'allowedUsers',
+            inversePropertyName: null,
+          },
+        },
+      ],
+    },
+    {
+      _unique: {
+        name: {
+          _eq: 'enfyra_role',
+        },
+      },
+      relationsToRemove: ['graphqlPermissions'],
+    },
+    {
+      _unique: {
+        name: {
           _eq: 'enfyra_user',
         },
       },
@@ -322,6 +359,7 @@ const snapshotMigration = {
           },
         },
       ],
+      relationsToRemove: ['allowedGraphqlPermissions'],
     },
     {
       _unique: {
