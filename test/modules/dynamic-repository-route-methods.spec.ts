@@ -87,6 +87,168 @@ describe('DynamicRepository route method relations', () => {
     });
   });
 
+  it('strips empty unpublished fields from update payloads', async () => {
+    const queryBuilderService = {
+      getPkField: vi.fn(() => '_id'),
+      find: vi.fn().mockResolvedValue({
+        data: [
+          {
+            _id: 'row-1',
+            name: 'existing name',
+            secret: 'keep-me',
+          },
+        ],
+        count: 1,
+      }),
+      update: vi.fn().mockResolvedValue({}),
+      runWithPolicy: vi.fn().mockImplementation(async (_policy: any, fn: any) => fn()),
+    };
+    const repo = makeRepo({
+      queryBuilderService: queryBuilderService as any,
+      tableValidationService: {
+        assertTableValid: vi.fn().mockResolvedValue(undefined),
+      } as any,
+      policyService: {
+        checkMutationSafety: vi.fn().mockResolvedValue({ allowed: true }),
+      } as any,
+    });
+    vi.spyOn(repo as any, 'ensureInit').mockResolvedValue(undefined);
+    vi.spyOn(repo as any, 'reload').mockResolvedValue(undefined);
+    vi.spyOn(repo as any, 'emitTableMutation').mockImplementation(() => {});
+    (repo as any).tableMetadata = {
+      columns: [
+        { name: '_id', isPrimary: true },
+        { name: 'name', isPublished: true },
+        { name: 'secret', isPublished: false },
+      ],
+    };
+
+    await repo.update({
+      id: 'row-1',
+      data: {
+        name: 'updated name',
+        secret: null,
+      },
+    });
+
+    expect(queryBuilderService.update).toHaveBeenCalledWith(
+      'enfyra_route',
+      'row-1',
+      expect.objectContaining({
+        name: 'updated name',
+      }),
+    );
+    expect(queryBuilderService.update.mock.calls[0][2]).not.toHaveProperty(
+      'secret',
+    );
+  });
+
+  it('keeps non-empty unpublished field values on update', async () => {
+    const queryBuilderService = {
+      getPkField: vi.fn(() => '_id'),
+      find: vi.fn().mockResolvedValue({
+        data: [{ _id: 'row-1', name: 'existing', secret: 'old' }],
+        count: 1,
+      }),
+      update: vi.fn().mockResolvedValue({}),
+      runWithPolicy: vi.fn().mockImplementation(async (_policy: any, fn: any) => fn()),
+    };
+    const repo = makeRepo({
+      queryBuilderService: queryBuilderService as any,
+      tableValidationService: {
+        assertTableValid: vi.fn().mockResolvedValue(undefined),
+      } as any,
+      policyService: {
+        checkMutationSafety: vi.fn().mockResolvedValue({ allowed: true }),
+      } as any,
+    });
+    vi.spyOn(repo as any, 'ensureInit').mockResolvedValue(undefined);
+    vi.spyOn(repo as any, 'reload').mockResolvedValue(undefined);
+    vi.spyOn(repo as any, 'emitTableMutation').mockImplementation(() => {});
+    (repo as any).tableMetadata = {
+      columns: [
+        { name: '_id', isPrimary: true },
+        { name: 'name', isPublished: true },
+        { name: 'secret', isPublished: false },
+      ],
+    };
+
+    await repo.update({
+      id: 'row-1',
+      data: {
+        name: 'updated name',
+        secret: 'real-value',
+      },
+    });
+
+    expect(queryBuilderService.update).toHaveBeenCalledWith(
+      'enfyra_route',
+      'row-1',
+      expect.objectContaining({
+        name: 'updated name',
+        secret: 'real-value',
+      }),
+    );
+  });
+
+  it('keeps boolean false and numeric zero for unpublished fields', async () => {
+    const queryBuilderService = {
+      getPkField: vi.fn(() => '_id'),
+      find: vi.fn().mockResolvedValue({
+        data: [
+          {
+            _id: 'row-1',
+            name: 'existing',
+            active: true,
+            score: 5,
+          },
+        ],
+        count: 1,
+      }),
+      update: vi.fn().mockResolvedValue({}),
+      runWithPolicy: vi.fn().mockImplementation(async (_policy: any, fn: any) => fn()),
+    };
+    const repo = makeRepo({
+      queryBuilderService: queryBuilderService as any,
+      tableValidationService: {
+        assertTableValid: vi.fn().mockResolvedValue(undefined),
+      } as any,
+      policyService: {
+        checkMutationSafety: vi.fn().mockResolvedValue({ allowed: true }),
+      } as any,
+    });
+    vi.spyOn(repo as any, 'ensureInit').mockResolvedValue(undefined);
+    vi.spyOn(repo as any, 'reload').mockResolvedValue(undefined);
+    vi.spyOn(repo as any, 'emitTableMutation').mockImplementation(() => {});
+    (repo as any).tableMetadata = {
+      columns: [
+        { name: '_id', isPrimary: true },
+        { name: 'name', isPublished: true },
+        { name: 'active', type: 'boolean', isPublished: false },
+        { name: 'score', type: 'int', isPublished: false },
+      ],
+    };
+
+    await repo.update({
+      id: 'row-1',
+      data: {
+        name: 'updated name',
+        active: false,
+        score: 0,
+      },
+    });
+
+    expect(queryBuilderService.update).toHaveBeenCalledWith(
+      'enfyra_route',
+      'row-1',
+      expect.objectContaining({
+        name: 'updated name',
+        active: false,
+        score: 0,
+      }),
+    );
+  });
+
   it('keeps Mongo string/ObjectId-like publicMethods when they are available', () => {
     const repo = makeRepo();
     const getId = '507f1f77bcf86cd799439011';
