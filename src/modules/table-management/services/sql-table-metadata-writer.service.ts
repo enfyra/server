@@ -457,6 +457,7 @@ export class SqlTableMetadataWriterService {
         ruleType: rule.ruleType,
         value: rule.value != null ? JSON.stringify(rule.value) : null,
         message: rule.message ?? null,
+        description: rule.description ?? null,
         isEnabled: rule.isEnabled !== false,
         [opts.fkField]: opts.fkValue,
       };

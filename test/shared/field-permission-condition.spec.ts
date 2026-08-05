@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { matchFieldPermissionCondition as match } from '../../src/shared/utils/field-permission-condition.util';
+import { sanitizeFieldPermissionsResult } from '../../src/shared/utils/sanitize-field-permissions.util';
 
 describe('matchFieldPermissionCondition', () => {
   describe('shape / safety', () => {
@@ -372,5 +373,48 @@ describe('matchFieldPermissionCondition', () => {
       expect(match(cond, {}, {})).toBe(true);
       expect(match(cond, { deletedAt: '2024-01-01' }, {})).toBe(false);
     });
+  });
+});
+
+describe('sanitizeFieldPermissionsResult', () => {
+  it('evaluates conditional denies even when a field is published', async () => {
+    const policyReader = {
+      getFieldPermissionPoliciesFor: () => [{
+        unconditionalAllowedColumns: new Set(),
+        unconditionalAllowedRelations: new Set(),
+        unconditionalDeniedColumns: new Set(),
+        unconditionalDeniedRelations: new Set(),
+        rules: [{
+          id: 'deny-owner',
+          isEnabled: true,
+          action: 'read',
+          effect: 'deny',
+          tableName: 'posts',
+          roleId: null,
+          allowedUserIds: ['user-1'],
+          columnName: 'secret',
+          relationPropertyName: null,
+          condition: { ownerId: { _eq: '@USER.id' } },
+        }],
+      }],
+    };
+    const metadata = {
+      tables: new Map([['posts', {
+        columns: [{ name: 'ownerId', isPublished: true }, { name: 'secret', isPublished: true }],
+        relations: [],
+      }]]),
+    };
+
+    const result = await sanitizeFieldPermissionsResult({
+      value: [{ ownerId: 'user-1', secret: 'must-not-leak' }],
+      tableName: 'posts',
+      user: { id: 'user-1' },
+      action: 'read',
+      fieldPermissionPolicyReader: policyReader,
+      metadata,
+      requested: { includeAll: true },
+    });
+
+    expect(result).toEqual([{ ownerId: 'user-1' }]);
   });
 });

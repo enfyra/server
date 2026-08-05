@@ -26,6 +26,111 @@ export interface NormalizedRuntimeTableSchema {
   keyedColumns: readonly KeyedRuntimeSchemaColumn[];
 }
 
+export function normalizeRuntimePolicyMetadata(metadata: unknown): unknown | null {
+  if (!metadata || typeof metadata !== 'object') return null;
+  const value = metadata as Record<string, any>;
+  const normalizeEntries = (entries: unknown, kind: 'permission' | 'rule') => {
+    if (!Array.isArray(entries)) return [];
+    return entries
+      .map((entry: any) => {
+        if (kind === 'rule') {
+          return normalizeJsonValue({
+            ruleType: entry?.ruleType ?? null,
+            value: normalizeJsonFieldValue(entry?.value ?? null),
+            message: entry?.message ?? null,
+            description: entry?.description ?? null,
+            isEnabled: entry?.isEnabled !== false,
+          });
+        }
+        const role = entry?.role;
+        const allowedUsers = Array.isArray(entry?.allowedUsers)
+          ? entry.allowedUsers
+              .map((user: any) => stringValue(user?.id ?? user?._id ?? user))
+              .filter(Boolean)
+              .sort()
+          : [];
+        return normalizeJsonValue({
+          action: entry?.action ?? null,
+          effect: entry?.effect ?? entry?.decision ?? 'allow',
+          condition: normalizeJsonFieldValue(entry?.condition ?? null),
+          description: entry?.description ?? null,
+          isEnabled: entry?.isEnabled !== false,
+          role: stringValue(role?.id ?? role?._id ?? role),
+          allowedUsers,
+        });
+      })
+      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  };
+  const normalizeSubjects = (items: unknown, identity: 'column' | 'relation') =>
+    (Array.isArray(items) ? items : [])
+      .filter(
+        (item: any) =>
+          Object.prototype.hasOwnProperty.call(item ?? {}, 'fieldPermissions') ||
+          Object.prototype.hasOwnProperty.call(item ?? {}, 'rules'),
+      )
+      .map((item: any) =>
+        normalizeJsonValue({
+          key: stringValue(item?.name ?? item?.propertyName ?? item?.id ?? item?._id),
+          fieldPermissions: normalizeEntries(item?.fieldPermissions, 'permission'),
+          rules: normalizeEntries(item?.rules, 'rule'),
+          identity,
+        }),
+      )
+      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  return {
+    columns: normalizeSubjects(value.columns, 'column'),
+    relations: normalizeSubjects(value.relations, 'relation'),
+  };
+}
+
+export function assertRuntimeNestedMetadataIdsOwned(
+  operation: 'create' | 'update' | 'delete',
+  beforeMetadata: any,
+  afterMetadata: any,
+): void {
+  const owned = new Map<string, string>();
+  const collect = (metadata: any) => {
+    for (const subjectType of ['columns', 'relations'] as const) {
+      for (const subject of Array.isArray(metadata?.[subjectType]) ? metadata[subjectType] : []) {
+        const owner = `${subjectType === 'columns' ? 'column' : 'relation'}:${String(subject?.id ?? subject?._id ?? subject?.name ?? subject?.propertyName)}`;
+        for (const kind of ['fieldPermissions', 'rules'] as const) {
+          for (const item of Array.isArray(subject?.[kind]) ? subject[kind] : []) {
+            const id = item?.id ?? item?._id;
+            if (id != null) owned.set(`${kind}:${String(id)}`, owner);
+          }
+        }
+      }
+    }
+  };
+  collect(beforeMetadata);
+  if (operation === 'delete') return;
+  const seen = new Set<string>();
+  for (const subjectType of ['columns', 'relations'] as const) {
+    for (const subject of Array.isArray(afterMetadata?.[subjectType]) ? afterMetadata[subjectType] : []) {
+      const owner = `${subjectType === 'columns' ? 'column' : 'relation'}:${String(subject?.id ?? subject?._id ?? subject?.name ?? subject?.propertyName)}`;
+      for (const kind of ['fieldPermissions', 'rules'] as const) {
+        for (const item of Array.isArray(subject?.[kind]) ? subject[kind] : []) {
+          const id = item?.id ?? item?._id;
+          if (id == null) continue;
+          const key = `${kind}:${String(id)}`;
+          if (seen.has(key)) {
+            throw new Error(`${kind} id ${String(id)} appears more than once in the table aggregate`);
+          }
+          seen.add(key);
+          const previousOwner = owned.get(key);
+          if (!previousOwner) {
+            if (operation === 'update') throw new Error(`${kind} id ${String(id)} is not owned by this table aggregate`);
+            throw new Error(`${kind} id ${String(id)} cannot be supplied while creating a table`);
+          }
+          if (previousOwner !== owner) {
+            throw new Error(`${kind} id ${String(id)} is owned by ${previousOwner}, not ${owner}`);
+          }
+        }
+      }
+    }
+  }
+}
+
 export function normalizeRuntimeTableSchema(
   metadata: unknown,
   options: RuntimeSchemaNormalizationOptions = {},

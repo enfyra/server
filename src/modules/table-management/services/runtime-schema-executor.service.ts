@@ -15,7 +15,10 @@ import type {
   RuntimeSchemaCommandAdapterContext,
 } from '../types/runtime-schema-executor.types';
 import { verifySchemaMutationContractHash } from '../../../shared/utils/schema-mutation-contract.util';
-import { normalizeRuntimeTableSchema } from '../utils/runtime-schema-normalization.util';
+import {
+  normalizeRuntimePolicyMetadata,
+  normalizeRuntimeTableSchema,
+} from '../utils/runtime-schema-normalization.util';
 import { formatRuntimeSchemaContractDiff } from '../utils/runtime-schema-contract-diff.util';
 import { hashCanonical } from '../../../shared/utils/schema-mutation-contract.util';
 import type { QueryBuilderService } from '@enfyra/kernel';
@@ -189,6 +192,18 @@ export class RuntimeSchemaExecutorService {
         );
       }
     }
+    const expectedPolicyRevision = contract.context.targetPolicyMetadataRevision;
+    if (expectedPolicyRevision && body) {
+      const bodyPolicy = normalizeRuntimePolicyMetadata(body);
+      const bodyPolicyRevision = bodyPolicy
+        ? hashCanonical(bodyPolicy)
+        : null;
+      if (bodyPolicyRevision !== expectedPolicyRevision) {
+        throw new Error(
+          `Schema mutation execution body does not match target policy revision: expected=${expectedPolicyRevision}, body=${bodyPolicyRevision ?? 'unavailable'}`,
+        );
+      }
+    }
   }
 
   private async attestSourceRevision(contract: RuntimeSchemaMutationContract): Promise<void> {
@@ -204,6 +219,13 @@ export class RuntimeSchemaExecutorService {
       fields: [
         '*',
         'columns.*',
+        'columns.rules.*',
+        'columns.fieldPermissions.*',
+        'columns.fieldPermissions.role.id',
+        'columns.fieldPermissions.allowedUsers.id',
+        'relations.fieldPermissions.*',
+        'relations.fieldPermissions.role.id',
+        'relations.fieldPermissions.allowedUsers.id',
         'relations.*',
         'relations.targetTable.name',
         'relations.mappedBy.id',
@@ -253,6 +275,18 @@ export class RuntimeSchemaExecutorService {
         `Schema mutation source revision stale: expected=${expectedRevision}, current=${currentRevision}, diff=${details}. Re-compile the contract.`,
       );
     }
+    const expectedPolicyRevision = contract.context.sourcePolicyMetadataRevision;
+    if (expectedPolicyRevision) {
+      const currentPolicy = normalizeRuntimePolicyMetadata(tableMeta);
+      const currentPolicyRevision = currentPolicy
+        ? hashCanonical(currentPolicy)
+        : null;
+      if (currentPolicyRevision !== expectedPolicyRevision) {
+        throw new Error(
+          `Schema mutation source policy revision stale: expected=${expectedPolicyRevision}, current=${currentPolicyRevision ?? 'unavailable'}. Re-compile the contract.`,
+        );
+      }
+    }
   }
 
   private async attestTargetRevision(
@@ -270,6 +304,13 @@ export class RuntimeSchemaExecutorService {
       fields: [
         '*',
         'columns.*',
+        'columns.rules.*',
+        'columns.fieldPermissions.*',
+        'columns.fieldPermissions.role.id',
+        'columns.fieldPermissions.allowedUsers.id',
+        'relations.fieldPermissions.*',
+        'relations.fieldPermissions.role.id',
+        'relations.fieldPermissions.allowedUsers.id',
         'relations.*',
         'relations.targetTable.name',
         'relations.mappedBy.id',
@@ -319,6 +360,18 @@ export class RuntimeSchemaExecutorService {
       throw new Error(
         `Schema mutation target revision mismatch: expected=${expectedRevision}, current=${currentRevision}, diff=${details}. The database unit of work will be rolled back.`,
       );
+    }
+    const expectedPolicyRevision = contract.context.targetPolicyMetadataRevision;
+    if (expectedPolicyRevision) {
+      const currentPolicy = normalizeRuntimePolicyMetadata(tableMeta);
+      const currentPolicyRevision = currentPolicy
+        ? hashCanonical(currentPolicy)
+        : null;
+      if (currentPolicyRevision !== expectedPolicyRevision) {
+        throw new Error(
+          `Schema mutation target policy revision mismatch: expected=${expectedPolicyRevision}, current=${currentPolicyRevision ?? 'unavailable'}.`,
+        );
+      }
     }
   }
 

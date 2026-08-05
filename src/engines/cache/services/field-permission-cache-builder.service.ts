@@ -262,15 +262,16 @@ export class FieldPermissionCacheBuilder extends BaseCacheService<
   }
 
   private bucketKeysForRule(rule: TFieldPermissionRule): string[] {
+    const keys = new Set<string>();
     if (rule.allowedUserIds.length > 0) {
-      const keys = new Set<string>();
       for (const userId of rule.allowedUserIds) {
         keys.add(`u:${userId}|${rule.tableName}|${rule.action}`);
       }
-      return [...keys];
     }
-
-    return [`r:${rule.roleId ?? 'null'}|${rule.tableName}|${rule.action}`];
+    if (rule.roleId != null || keys.size === 0) {
+      keys.add(`r:${rule.roleId ?? 'null'}|${rule.tableName}|${rule.action}`);
+    }
+    return [...keys];
   }
 
   private emptyPolicy(): TCompiledFieldPolicy {

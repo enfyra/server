@@ -126,6 +126,25 @@ describe('SystemSafetyAuditorService isSystem field contract', () => {
     ).rejects.toThrow('Cannot create system-owned nested metadata');
   });
 
+  it('rejects field permissions that mix role and user scopes', async () => {
+    const { service } = makeService();
+
+    await expect(
+      service.assertSystemSafe({
+        operation: 'create',
+        tableName: 'enfyra_field_permission',
+        data: {
+          column: { id: 10 },
+          role: { id: 20 },
+          allowedUsers: [{ id: 30 }],
+          action: 'read',
+          effect: 'deny',
+        },
+        existing: null,
+      }),
+    ).rejects.toThrow('exactly one scope');
+  });
+
   it('rejects application deletes when cascade data identifies a system row', async () => {
     const { service } = makeService();
 

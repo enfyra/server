@@ -214,9 +214,9 @@ export class SystemSafetyAuditorService {
           const hasRole = data?.role != null;
           const hasUsers =
             Array.isArray(data?.allowedUsers) && data.allowedUsers.length > 0;
-          if (!hasRole && !hasUsers) {
+          if (hasRole === hasUsers) {
             throw new Error(
-              'enfyra_field_permission requires scope: role or allowedUsers',
+              'enfyra_field_permission requires exactly one scope: role or allowedUsers',
             );
           }
         }
@@ -234,9 +234,9 @@ export class SystemSafetyAuditorService {
             const hasRoleFinal = hasRoleInData ?? existingHasRole;
             const hasUsersFinal = hasUsersInData ?? existingHasUsers;
 
-            if (!hasRoleFinal && !hasUsersFinal) {
+            if (hasRoleFinal === hasUsersFinal) {
               throw new Error(
-                'enfyra_field_permission requires scope: role or allowedUsers',
+                'enfyra_field_permission requires exactly one scope: role or allowedUsers',
               );
             }
           }

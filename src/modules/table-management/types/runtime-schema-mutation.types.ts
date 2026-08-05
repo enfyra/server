@@ -64,6 +64,7 @@ export type RuntimeSchemaChangeKind =
   | 'create-table'
   | 'delete-table'
   | 'alter-table-metadata'
+  | 'sync-policy-metadata'
   | 'rename-table'
   | 'add-column'
   | 'remove-column'
@@ -98,6 +99,7 @@ export interface RuntimeSchemaDiff {
   tableName: string;
   operation: RuntimeSchemaOperation;
   schemaChanged: boolean;
+  policyMetadataChanged: boolean;
   isDestructive: boolean;
   removedColumns: readonly string[];
   addedColumns: readonly string[];
@@ -125,6 +127,8 @@ export interface RuntimeSchemaContractContext {
   tableName: string;
   sourceRevision: string | null;
   targetRevision: string | null;
+  sourcePolicyMetadataRevision: string | null;
+  targetPolicyMetadataRevision: string | null;
   executionBodyRevision: string | null;
   source: RuntimeTableSchemaContract | null;
   target: RuntimeTableSchemaContract | null;

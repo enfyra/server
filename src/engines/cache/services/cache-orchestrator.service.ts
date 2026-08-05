@@ -180,6 +180,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   private reloadLock: Promise<void> | null = null;
   private reloadEventSequence = 0;
   private processedVersions: Set<string> = new Set();
+  private signalRetryCounts: Map<string, number> = new Map();
 
   constructor(deps: {
     redisPubSubService: RedisPubSubService;
@@ -1338,22 +1339,18 @@ export class CacheOrchestratorService implements LifecycleAware {
 
     this.messageHandler = async (channel: string, message: string) => {
       if (this.redisPubSubService.isChannelForBase(channel, SYNC_CHANNEL)) {
+        let version: string | null = null;
         try {
           const signal = JSON.parse(message);
           if (signal.instanceId === this.instanceService.getInstanceId()) {
             return;
           }
-          const version = `${signal.instanceId}:${signal.timestamp}:${signal.payload?.table}:${signal.payload?.scope || 'full'}:${signal.payload?.ids?.join(',') || 'all'}`;
+          version = `${signal.instanceId}:${signal.timestamp}:${signal.payload?.table}:${signal.payload?.scope || 'full'}:${signal.payload?.ids?.join(',') || 'all'}`;
           if (this.processedVersions.has(version)) {
             this.logger.debug(
               `Skipping duplicate/out-of-order signal: ${version.slice(0, 40)}...`,
             );
             return;
-          }
-          this.processedVersions.add(version);
-          if (this.processedVersions.size > 1000) {
-            const first = this.processedVersions.values().next().value!;
-            this.processedVersions.delete(first);
           }
           this.logger.log(
             `Redis signal from ${signal.instanceId.slice(0, 8)}: ${signal.payload?.table} (${signal.payload?.scope || 'full'})`,
@@ -1363,8 +1360,20 @@ export class CacheOrchestratorService implements LifecycleAware {
           } else {
             await this.executeChain(signal.payload, false);
           }
+          this.signalRetryCounts.delete(version);
+          this.processedVersions.add(version);
+          if (this.processedVersions.size > 1000) {
+            const first = this.processedVersions.values().next().value!;
+            this.processedVersions.delete(first);
+          }
         } catch (error) {
           this.logger.error('Failed to process Redis signal:', error);
+          if (!version) return;
+          const retries = (this.signalRetryCounts.get(version) ?? 0) + 1;
+          if (retries <= 3) {
+            this.signalRetryCounts.set(version, retries);
+            setTimeout(() => this.messageHandler?.(channel, message), Math.min(1000 * retries, 5000));
+          }
         }
       }
     };

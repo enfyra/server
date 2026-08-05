@@ -55,4 +55,45 @@ describe('runtime schema table metadata changes', () => {
     );
     expect(plan.diff.schemaChanged).toBe(false);
   });
+
+  it('creates an executable metadata change when field permissions change', () => {
+    const before = normalizeRuntimeTableSchema(
+      {
+        ...table,
+        columns: [
+          {
+            ...table.columns[0],
+            fieldPermissions: [
+              { id: 12, action: 'read', effect: 'deny', role: { id: 3 } },
+            ],
+          },
+        ],
+      },
+      { backend: 'postgresql' },
+    );
+    const after = normalizeRuntimeTableSchema(
+      {
+        ...table,
+        columns: [{ ...table.columns[0], fieldPermissions: [] }],
+      },
+      { backend: 'postgresql' },
+    );
+
+    const plan = buildRuntimeSchemaChangePlan({
+      operation: 'update',
+      tableName: table.name,
+      before,
+      after,
+      policyMetadataChanged: true,
+      owningSideInverseCascadeWarnings: [],
+    });
+
+    expect(plan.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'sync-policy-metadata' }),
+      ]),
+    );
+    expect(plan.diff.schemaChanged).toBe(false);
+    expect(plan.diff.policyMetadataChanged).toBe(true);
+  });
 });
