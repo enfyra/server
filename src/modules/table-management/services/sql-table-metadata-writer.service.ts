@@ -480,22 +480,22 @@ export class SqlTableMetadataWriterService {
     },
   ): Promise<void> {
     if (!Array.isArray(opts.permissions)) return;
+    const allowedUsersJunction =
+      await this.getFieldPermissionAllowedUsersJunction(queryRunner);
     const existing = await queryRunner('enfyra_field_permission')
       .where({ [opts.subjectFk]: opts.subjectFkValue })
       .select('id');
     const deletedIds = getDeletedIds(existing, opts.permissions);
-    if (deletedIds.length > 0) {
+    if (deletedIds.length > 0 && allowedUsersJunction) {
       const junctionRows = await queryRunner(
-        'enfyra_field_permission_allowedUsers_enfyra_user',
+        allowedUsersJunction.junctionTableName,
       )
-        .whereIn('enfyra_field_permissionId', deletedIds)
-        .select('*')
-        .catch(() => [] as any[]);
+        .whereIn(allowedUsersJunction.junctionSourceColumn, deletedIds)
+        .select('*');
       if (Array.isArray(junctionRows) && junctionRows.length > 0) {
-        await queryRunner('enfyra_field_permission_allowedUsers_enfyra_user')
-          .whereIn('enfyra_field_permissionId', deletedIds)
-          .delete()
-          .catch((): undefined => undefined);
+        await queryRunner(allowedUsersJunction.junctionTableName)
+          .whereIn(allowedUsersJunction.junctionSourceColumn, deletedIds)
+          .delete();
       }
       await queryRunner('enfyra_field_permission')
         .whereIn('id', deletedIds)
@@ -532,34 +532,64 @@ export class SqlTableMetadataWriterService {
         );
       }
       if (Array.isArray(perm.allowedUsers)) {
-        await this.syncAllowedUsers(queryRunner, permId, perm.allowedUsers);
+        await this.syncAllowedUsers(
+          queryRunner,
+          permId,
+          perm.allowedUsers,
+          allowedUsersJunction,
+        );
       }
     }
+  }
+
+  private async getFieldPermissionAllowedUsersJunction(
+    queryRunner: any,
+  ): Promise<any | null> {
+    const physical = getSqlJunctionPhysicalNames({
+      sourceTable: 'enfyra_field_permission',
+      propertyName: 'allowedUsers',
+      targetTable: 'enfyra_user',
+    });
+    const legacy = {
+      junctionTableName: 'enfyra_field_permission_allowedUsers_enfyra_user',
+      junctionSourceColumn: 'enfyra_field_permissionId',
+      junctionTargetColumn: 'enfyra_userId',
+    };
+    if (!queryRunner.schema?.hasTable) return physical;
+    if (await queryRunner.schema.hasTable(physical.junctionTableName))
+      return physical;
+    if (await queryRunner.schema.hasTable(legacy.junctionTableName))
+      return legacy;
+    return null;
   }
 
   private async syncAllowedUsers(
     queryRunner: any,
     permId: number | string,
     users: any[],
+    junction: any | null,
   ): Promise<void> {
+    if (!junction) {
+      if (users.length > 0) {
+        throw new Error(
+          'Field permission allowedUsers junction table is missing',
+        );
+      }
+      return;
+    }
     const userIds = users
       .map((u: any) => (typeof u === 'object' ? (u.id ?? u._id) : u))
       .filter((v: any) => v != null);
-    const junctionTable = 'enfyra_field_permission_allowedUsers_enfyra_user';
-    try {
-      await queryRunner(junctionTable)
-        .where({ enfyra_field_permissionId: permId })
-        .delete();
-      if (userIds.length > 0) {
-        await queryRunner(junctionTable).insert(
-          userIds.map((uid: any) => ({
-            enfyra_field_permissionId: permId,
-            enfyra_userId: uid,
-          })),
-        );
-      }
-    } catch {
-      // Junction table name may vary by schema convention; best-effort sync.
+    await queryRunner(junction.junctionTableName)
+      .where({ [junction.junctionSourceColumn]: permId })
+      .delete();
+    if (userIds.length > 0) {
+      await queryRunner(junction.junctionTableName).insert(
+        userIds.map((uid: any) => ({
+          [junction.junctionSourceColumn]: permId,
+          [junction.junctionTargetColumn]: uid,
+        })),
+      );
     }
   }
 }
