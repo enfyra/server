@@ -334,6 +334,41 @@ export class DynamicRepository {
     return stripped;
   }
 
+  private stripUnpublishedEmptyFields(data: any, tableMetadata: any): any {
+    if (!data || typeof data !== 'object' || !tableMetadata?.columns) {
+      return data;
+    }
+
+    const stripped = { ...data };
+    for (const column of tableMetadata.columns) {
+      if (column.isPublished === false && column.name in stripped) {
+        const value = stripped[column.name];
+        const isStringLike = [
+          'varchar',
+          'text',
+          'uuid',
+          'ObjectId',
+          'enum',
+          'simple-json',
+          'code',
+          'array-select',
+          'richtext',
+          'date',
+          'datetime',
+          'timestamp',
+        ].includes(column.type);
+        const isEmpty =
+          value === null ||
+          value === undefined ||
+          (isStringLike && value === '');
+        if (isEmpty) {
+          delete stripped[column.name];
+        }
+      }
+    }
+    return stripped;
+  }
+
   private async assertQueryAllowed() {
     if (!this.enforceFieldPermission) return;
     if (this.context?.$user?.isRootAdmin) return;
@@ -1161,10 +1196,8 @@ export class DynamicRepository {
     try {
       const { id, fields } = opt;
       const originalBody = opt.data;
-      const body = this.stripNonUpdatableColumns(
-        originalBody,
-        this.tableMetadata,
-      );
+      let body = this.stripNonUpdatableColumns(originalBody, this.tableMetadata);
+      body = this.stripUnpublishedEmptyFields(body, this.tableMetadata);
       logMemory(this.logger, 'dynamic update body stripped', {
         ...writeMeta,
         bodyKeys:
