@@ -1329,6 +1329,6 @@ describe('H8: contract diff surfaces canonical drift', () => {
         tableId: '42',
         context: {},
       }),
-    ).rejects.toThrow(/diff=relations\[author\(mappedBy:13->posts\)\]/);
+    ).rejects.toThrow(/diff=relations\[author\(mappedBy:"13"->"posts"\)\]/);
   });
 });

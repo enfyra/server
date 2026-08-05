@@ -89,11 +89,17 @@ function diffColumns(
       'isNullable',
       'isPrimary',
       'isGenerated',
+      'defaultValue',
+      'description',
+      'values',
       'isUnique',
       'isPublished',
       'isUpdatable',
       'isEncrypted',
       'isIndex',
+      'options',
+      'metadata',
+      'placeholder',
     ] as const;
     const diffs: string[] = [];
     for (const key of scalarKeys) {
@@ -148,6 +154,7 @@ function diffRelations(
       'isNullable',
       'onDelete',
       'inversePropertyName',
+      'description',
       'isEager',
       'isInverseEager',
       'isPublished',
@@ -194,6 +201,8 @@ function capString(value: unknown): string {
   let text: string;
   if (value === null || value === undefined) {
     text = '';
+  } else if (typeof value === 'string') {
+    text = JSON.stringify(value);
   } else if (typeof value === 'object') {
     text = JSON.stringify(value);
   } else {
