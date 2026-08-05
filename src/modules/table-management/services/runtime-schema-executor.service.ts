@@ -235,8 +235,22 @@ export class RuntimeSchemaExecutorService {
     }
     const currentRevision = hashCanonical(normalized.contract);
     if (currentRevision !== expectedRevision) {
+      const details = contract.context.source
+        ? formatRuntimeSchemaContractDiff(
+            contract.context.source,
+            normalized.contract,
+          )
+        : 'source-contract-unavailable';
+      this.logger.error(
+        `[${contract.mutationId}] source attestation failed for table '${tableName}': expected=${expectedRevision}, current=${currentRevision}, diff=${details}`,
+      );
+      if (details === 'no-diff-detected') {
+        this.logger.error(
+          `[${contract.mutationId}] source attestation contract snapshots: expected=${JSON.stringify(contract.context.source ?? null)}, current=${JSON.stringify(normalized.contract)}`,
+        );
+      }
       throw new Error(
-        `Schema mutation source revision stale: expected=${expectedRevision}, current=${currentRevision}. Re-compile the contract.`,
+        `Schema mutation source revision stale: expected=${expectedRevision}, current=${currentRevision}, diff=${details}. Re-compile the contract.`,
       );
     }
   }
@@ -294,6 +308,14 @@ export class RuntimeSchemaExecutorService {
             normalized.contract,
           )
         : 'target-contract-unavailable';
+      this.logger.error(
+        `[${contract.mutationId}] target attestation failed for table '${tableName}': expected=${expectedRevision}, current=${currentRevision}, diff=${details}`,
+      );
+      if (details === 'no-diff-detected') {
+        this.logger.error(
+          `[${contract.mutationId}] target attestation contract snapshots: expected=${JSON.stringify(contract.context.target ?? null)}, current=${JSON.stringify(normalized.contract)}`,
+        );
+      }
       throw new Error(
         `Schema mutation target revision mismatch: expected=${expectedRevision}, current=${currentRevision}, diff=${details}. The database unit of work will be rolled back.`,
       );
