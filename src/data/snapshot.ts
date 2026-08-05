@@ -894,14 +894,12 @@ snapshot
       .description('GraphQL table configuration controlled by this permission'),
     role: rel
       .manyToOne('enfyra_role')
-      .inverse('graphqlPermissions')
       .system()
       .onDelete('CASCADE')
       .nullable()
       .description('Role that receives these private GraphQL operations'),
     allowedUsers: rel
       .manyToMany('enfyra_user')
-      .inverse('allowedGraphqlPermissions')
       .system()
       .description(
         'Explicit users that receive these private GraphQL operations',
