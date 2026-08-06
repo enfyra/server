@@ -14,6 +14,7 @@ import { PackageCacheService } from './package-cache.service';
 import { SettingCacheService } from './setting-cache.service';
 import { StorageConfigCacheBuilder } from './storage-config-cache-builder.service';
 import { OAuthConfigCacheBuilder } from './oauth-config-cache-builder.service';
+import { AuthHeaderCacheBuilder } from './auth-header-cache-builder.service';
 import { FolderTreeCacheService } from './folder-tree-cache.service';
 import { FieldPermissionCacheBuilder } from './field-permission-cache-builder.service';
 import { ColumnRuleCacheBuilder } from './column-rule-cache-builder.service';
@@ -52,6 +53,7 @@ const FLOW_PRIORITY = [
   'route',
   'fieldPermission',
   'setting',
+  'authHeader',
   'guard',
   'flow',
   'websocket',
@@ -124,6 +126,7 @@ export const RELOAD_CHAINS: Record<string, string[]> = {
   [SYSTEM_TABLES.columnRule]: ['column-rule'],
 
   [SYSTEM_TABLES.setting]: ['setting', 'settingGraphql'],
+  [SYSTEM_TABLES.authHeader]: ['authHeader'],
   [SYSTEM_TABLES.storageConfig]: ['storage'],
   [SYSTEM_TABLES.oauthConfig]: ['oauth'],
   [SYSTEM_TABLES.websocket]: ['websocket'],
@@ -154,6 +157,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   private readonly websocketCacheBuilder: WebsocketCacheBuilder;
   private readonly packageCacheService: PackageCacheService;
   private readonly settingCacheService: SettingCacheService;
+  private readonly authHeaderCacheBuilder: AuthHeaderCacheBuilder;
   private readonly storageConfigCacheBuilder: StorageConfigCacheBuilder;
   private readonly oauthConfigCacheBuilder: OAuthConfigCacheBuilder;
   private readonly folderTreeCacheService: FolderTreeCacheService;
@@ -194,6 +198,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     websocketCacheBuilder: WebsocketCacheBuilder;
     packageCacheService: PackageCacheService;
     settingCacheService: SettingCacheService;
+    authHeaderCacheBuilder: AuthHeaderCacheBuilder;
     storageConfigCacheBuilder: StorageConfigCacheBuilder;
     oauthConfigCacheBuilder: OAuthConfigCacheBuilder;
     folderTreeCacheService: FolderTreeCacheService;
@@ -219,6 +224,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     this.websocketCacheBuilder = deps.websocketCacheBuilder;
     this.packageCacheService = deps.packageCacheService;
     this.settingCacheService = deps.settingCacheService;
+    this.authHeaderCacheBuilder = deps.authHeaderCacheBuilder;
     this.storageConfigCacheBuilder = deps.storageConfigCacheBuilder;
     this.oauthConfigCacheBuilder = deps.oauthConfigCacheBuilder;
     this.folderTreeCacheService = deps.folderTreeCacheService;
@@ -249,6 +255,8 @@ export class CacheOrchestratorService implements LifecycleAware {
         this.reloadSimple(this.packageCacheService, p, options?.sharedReplay),
       setting: (p, options) =>
         this.reloadSimple(this.settingCacheService, p, options?.sharedReplay),
+      authHeader: (p, options) =>
+        this.reloadSimple(this.authHeaderCacheBuilder, p, options?.sharedReplay),
       storage: (p, options) =>
         this.reloadSimple(
           this.storageConfigCacheBuilder,
@@ -786,6 +794,12 @@ export class CacheOrchestratorService implements LifecycleAware {
           service: this
             .settingCacheService as unknown as RuntimeCacheViewSource,
         };
+      case 'authHeader':
+        return {
+          identifier: CACHE_IDENTIFIERS.AUTH_HEADER,
+          service: this
+            .authHeaderCacheBuilder as unknown as RuntimeCacheViewSource,
+        };
       case 'storage':
         return {
           identifier: CACHE_IDENTIFIERS.STORAGE,
@@ -1224,6 +1238,13 @@ export class CacheOrchestratorService implements LifecycleAware {
               sharedReplay
                 ? this.settingCacheService.syncFromSharedCache()
                 : this.settingCacheService.reload(false),
+          },
+          {
+            name: 'authHeader',
+            run: () =>
+              sharedReplay
+                ? this.authHeaderCacheBuilder.syncFromSharedCache()
+                : this.authHeaderCacheBuilder.reload(false),
           },
           {
             name: 'storage',

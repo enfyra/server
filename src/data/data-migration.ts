@@ -372,6 +372,12 @@ const dataMigration = {
             "methods": [
               "GET"
             ]
+          },
+          {
+            "route": "/enfyra_auth_header",
+            "methods": [
+              "GET"
+            ]
           }
         ]
       }
@@ -444,6 +450,31 @@ const dataMigration = {
       },
       "isPublic": false,
       "path": "/settings/runtime"
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/settings/auth-headers"
+        }
+      },
+      "type": "Menu",
+      "label": "Authentication Headers",
+      "icon": "lucide:key-round",
+      "isEnabled": true,
+      "isPublic": false,
+      "isSystem": true,
+      "description": "Configure accepted authentication header keys and their priority",
+      "order": 12,
+      "permission": {
+        "or": [
+          {
+            "route": "/enfyra_auth_header",
+            "methods": [
+              "GET"
+            ]
+          }
+        ]
+      }
     }
   ],
   "enfyra_post_hook": [
@@ -466,6 +497,22 @@ const dataMigration = {
       },
       "availableMethods": [
         "GET"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/enfyra_auth_header"
+        }
+      },
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:key-round",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
       ]
     },
     {
@@ -562,19 +609,32 @@ const dataMigration = {
         "POST"
       ]
     },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/admin/menu/reorder"
-        }
+      {
+        "_unique": {
+          "path": {
+            "_eq": "/admin/menu/reorder"
+          }
       },
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:list-ordered",
-      "availableMethods": [
-        "POST"
-      ]
-    },
+        "availableMethods": [
+          "POST"
+        ]
+      },
+      {
+        "_unique": {
+          "path": {
+            "_eq": "/admin/auth-header/reorder"
+          }
+        },
+        "isEnabled": true,
+        "isSystem": true,
+        "icon": "lucide:list-ordered",
+        "availableMethods": [
+          "POST"
+        ]
+      },
     {
       "_unique": {
         "path": {

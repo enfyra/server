@@ -1,6 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
 import {
-  ENFYRA_PAT_HEADER,
   type AuthenticationService,
   type AuthenticatedRequest,
 } from '../../domain/auth';
@@ -21,22 +20,13 @@ function setAnonymousUser(req: Request): void {
   if (routeData) routeData.context.$user = null;
 }
 
-function readHeaderValue(req: Request, name: string): string | null {
-  const rawValue = req.headers[name];
-  const value = Array.isArray(rawValue) ? rawValue[0] : rawValue;
-  if (typeof value !== 'string') return null;
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized : null;
-}
-
 export function authMiddleware(
   authenticationService: Pick<AuthenticationService, 'authenticate'>,
 ) {
   return async (req: Request, _res: Response, next: NextFunction) => {
     try {
       const authenticated = await authenticationService.authenticate({
-        patToken: readHeaderValue(req, ENFYRA_PAT_HEADER),
-        authorization: readHeaderValue(req, 'authorization'),
+        headers: req.headers,
         allowAnonymous: isPublicRequest(req),
       });
 

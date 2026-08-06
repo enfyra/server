@@ -244,6 +244,29 @@ export class SystemSafetyAuditorService {
       }
     }
 
+    if (tableName === 'enfyra_auth_header') {
+      const headerKey =
+        operation === 'update'
+          ? data?.headerKey ?? fullExisting?.headerKey
+          : data?.headerKey;
+      if (typeof headerKey !== 'string' || headerKey.trim() !== headerKey.toLowerCase()) {
+        throw new Error('enfyra_auth_header.headerKey must be normalized lowercase');
+      }
+
+      if (operation === 'update' && fullExisting?.isSystem) {
+        const allowed = this.schemaMigrationValidatorService.getAllowedFields([
+          'description',
+          'priority',
+        ]);
+        const disallowed = changedFields.filter((field) => !allowed.includes(field));
+        if (disallowed.length > 0) {
+          throw new Error(
+            `Cannot modify system auth header (only allowed: ${allowed.join(', ')}): ${disallowed.join(', ')}`,
+          );
+        }
+      }
+    }
+
     if (tableName === 'enfyra_table') {
       const isSystem = fullExisting?.isSystem;
       if (operation === 'create' && data?.isSystem)

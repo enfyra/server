@@ -1,4 +1,5 @@
 export * from './base-cache.service';
+export * from './auth-header-cache-builder.service';
 export * from './cache-orchestrator.service';
 export * from './column-rule-cache-builder.service';
 export * from './field-permission-cache-builder.service';

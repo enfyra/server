@@ -625,6 +625,24 @@ snapshot
   .relations({});
 
 snapshot
+  .table('enfyra_auth_header', {
+    description: 'Configures request headers accepted for authentication',
+    system: true,
+  })
+  .columns({
+    id: col.int().primary().generated().notNull().system().description('Primary key identifier'),
+    headerKey: col.varchar().notNull().system().description('Request header name, normalized to lowercase'),
+    credentialType: col.enum(['pat', 'jwt']).notNull().system().default('pat').description('Credential verifier used for this header'),
+    scheme: col.enum(['raw', 'bearer']).notNull().system().default('raw').description('Whether the header contains a raw token or a Bearer token'),
+    priority: col.int().notNull().system().default(0).description('Lower values are checked first when multiple headers are present'),
+    isEnabled: col.boolean().notNull().system().default(true).description('Whether this header mapping is active'),
+    isSystem: col.boolean().notNull().system().default(false).description('Whether this mapping is built-in and immutable'),
+    description: col.text().system().nullable().description('Description of this authentication header mapping'),
+  })
+  .relations({})
+  .uniques([['headerKey', 'scheme']]);
+
+snapshot
   .table('enfyra_cors_origin', {
     description:
       'Allowed CORS origins served by the public /enfyra_cors_origin endpoint',

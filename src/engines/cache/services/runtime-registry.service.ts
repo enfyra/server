@@ -19,6 +19,7 @@ import type {
 } from '../types/guard.types';
 import type { GraphqlOperationName } from '../../../shared/types/graphql.types';
 import type { OAuthConfig } from './oauth-config-cache-builder.service';
+import type { AuthHeaderConfig } from '../../../domain/auth/types/auth.types';
 import type { FlowDefinition } from '../../../shared/types/flow.types';
 import type {
   TCompiledFieldPolicy,
@@ -364,6 +365,12 @@ export class RuntimeRegistryService {
       CACHE_IDENTIFIERS.OAUTH_CONFIG,
     );
     return Array.from(cache.keys());
+  }
+
+  getAuthHeaderConfigs(): AuthHeaderConfig[] {
+    return this.requireActiveData<AuthHeaderConfig[]>(
+      CACHE_IDENTIFIERS.AUTH_HEADER,
+    );
   }
 
   getFlows(): FlowDefinition[] {

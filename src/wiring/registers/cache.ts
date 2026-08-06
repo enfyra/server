@@ -1,6 +1,7 @@
 import { asClass, asFunction } from 'awilix';
 import { env } from '../../env';
 import {
+  AuthHeaderCacheBuilder,
   CacheOrchestratorService,
   FieldPermissionCacheBuilder,
   ColumnRuleCacheBuilder,
@@ -81,6 +82,7 @@ export const cacheRegisters = {
   guardEvaluatorService: asClass(GuardEvaluatorService).singleton(),
   guardAlertService: asClass(GuardAlertService).singleton(),
   settingCacheService: asClass(SettingCacheService).singleton(),
+  authHeaderCacheBuilder: asClass(AuthHeaderCacheBuilder).singleton(),
   fieldPermissionCacheBuilder: asClass(FieldPermissionCacheBuilder).singleton(),
   columnRuleCacheBuilder: asClass(ColumnRuleCacheBuilder).singleton(),
   gqlDefinitionCacheService: asClass(GqlDefinitionCacheService).singleton(),
