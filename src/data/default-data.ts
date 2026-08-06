@@ -1074,7 +1074,10 @@ const defaultData = {
       "description": "Data management",
       "order": 2,
       "permission": {
-        "allowAll": true
+        "route": "/enfyra_route",
+        "methods": [
+          "GET"
+        ]
       }
     },
     {
@@ -1107,7 +1110,92 @@ const defaultData = {
       "description": "System settings",
       "order": 4,
       "permission": {
-        "allowAll": true
+        "or": [
+          {
+            "route": "/enfyra_setting",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_menu",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_extension",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_bootstrap_script",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_user",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_role",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_websocket",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_oauth_config",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_oauth_account",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/logs",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_route",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_flow",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_guard",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_method",
+            "methods": [
+              "GET"
+            ]
+          }
+        ]
       }
     },
     {
@@ -1563,7 +1651,13 @@ const defaultData = {
       "isSystem": true,
       "description": "Install Package",
       "order": 1,
-      "parent": "Packages"
+      "parent": "Packages",
+      "permission": {
+        "route": "/enfyra_package",
+        "methods": [
+          "GET"
+        ]
+      }
     },
     {
       "type": "Menu",
@@ -1574,7 +1668,13 @@ const defaultData = {
       "isSystem": true,
       "description": "App packages management",
       "order": 2,
-      "parent": "Packages"
+      "parent": "Packages",
+      "permission": {
+        "route": "/enfyra_package",
+        "methods": [
+          "GET"
+        ]
+      }
     },
     {
       "type": "Menu",
@@ -1585,7 +1685,13 @@ const defaultData = {
       "isSystem": true,
       "description": "Backend packages management",
       "order": 3,
-      "parent": "Packages"
+      "parent": "Packages",
+      "permission": {
+        "route": "/enfyra_package",
+        "methods": [
+          "GET"
+        ]
+      }
     }
   ],
   "enfyra_websocket": [

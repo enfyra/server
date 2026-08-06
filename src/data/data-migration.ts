@@ -226,6 +226,153 @@ const dataMigration = {
     {
       "_unique": {
         "path": {
+          "_eq": "/data"
+        }
+      },
+      "permission": {
+        "route": "/enfyra_route",
+        "methods": [
+          "GET"
+        ]
+      }
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/settings"
+        }
+      },
+      "permission": {
+        "or": [
+          {
+            "route": "/enfyra_setting",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_menu",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_extension",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_bootstrap_script",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_user",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_role",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_websocket",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_oauth_config",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_oauth_account",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/logs",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_route",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_flow",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_guard",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_method",
+            "methods": [
+              "GET"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/packages/install"
+        }
+      },
+      "permission": {
+        "route": "/enfyra_package",
+        "methods": [
+          "GET"
+        ]
+      }
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/packages/app"
+        }
+      },
+      "permission": {
+        "route": "/enfyra_package",
+        "methods": [
+          "GET"
+        ]
+      }
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/packages/backend"
+        }
+      },
+      "permission": {
+        "route": "/enfyra_package",
+        "methods": [
+          "GET"
+        ]
+      }
+    },
+    {
+      "_unique": {
+        "path": {
           "_eq": "/settings/api-tester"
         }
       },
