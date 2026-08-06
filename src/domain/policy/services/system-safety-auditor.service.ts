@@ -389,6 +389,7 @@ export class SystemSafetyAuditorService {
           'description',
           'icon',
           'isEnabled',
+          'isPublic',
           'order',
           'permission',
         ]);

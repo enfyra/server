@@ -756,6 +756,13 @@ snapshot
       .system()
       .description("Description of the role's purpose and permissions"),
   })
+  .relations({
+    menuPermissions: rel
+      .oneToMany('enfyra_menu_permission')
+      .inverse('role')
+      .system()
+      .description('Menu visibility rules granted to this role'),
+  })
   .uniques([['name']]);
 
 snapshot
@@ -1503,6 +1510,12 @@ snapshot
       .system()
       .default(true)
       .description('Whether the menu item is visible'),
+    isPublic: col
+      .boolean()
+      .notNull()
+      .system()
+      .default(false)
+      .description('Whether every role can see this menu item'),
     isSystem: col
       .boolean()
       .notNull()
@@ -1532,9 +1545,52 @@ snapshot
       .system()
       .nullable()
       .description('Parent menu item (null for top-level items)'),
+    menuPermissions: rel
+      .oneToMany('enfyra_menu_permission')
+      .inverse('menu')
+      .system()
+      .description('Role-specific visibility rules for this menu item'),
   })
   .uniques([['type', 'label'], ['path']])
   .indexes([['order']]);
+
+snapshot
+  .table('enfyra_menu_permission', {
+    description: 'Controls which roles can see a non-public admin menu item',
+    system: true,
+  })
+  .columns({
+    id: col
+      .int()
+      .primary()
+      .generated()
+      .notNull()
+      .system()
+      .description('Primary key identifier'),
+    isEnabled: col
+      .boolean()
+      .notNull()
+      .system()
+      .default(true)
+      .description('Whether this menu visibility rule is active'),
+  })
+  .relations({
+    menu: rel
+      .manyToOne('enfyra_menu')
+      .inverse('menuPermissions')
+      .notNull()
+      .system()
+      .onDelete('CASCADE')
+      .description('Menu item controlled by this visibility rule'),
+    role: rel
+      .manyToOne('enfyra_role')
+      .inverse('menuPermissions')
+      .notNull()
+      .system()
+      .onDelete('CASCADE')
+      .description('Role allowed to see the menu item'),
+  })
+  .uniques([['menu', 'role']]);
 
 snapshot
   .table('enfyra_extension', {

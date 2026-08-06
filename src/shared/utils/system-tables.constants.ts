@@ -20,6 +20,7 @@ export const SYSTEM_TABLES = {
   schemaMigration: 'enfyra_schema_migration',
   method: 'enfyra_method',
   menu: 'enfyra_menu',
+  menuPermission: 'enfyra_menu_permission',
   extension: 'enfyra_extension',
   folder: 'enfyra_folder',
   file: 'enfyra_file',

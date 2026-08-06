@@ -220,6 +220,7 @@ const dataMigration = {
           "_eq": "/dashboard"
         }
       },
+      "isPublic": true,
       "type": "Menu",
       "isSystem": true
     },
@@ -229,6 +230,7 @@ const dataMigration = {
           "_eq": "/data"
         }
       },
+      "isPublic": false,
       "permission": {
         "route": "/enfyra_route",
         "methods": [
@@ -239,9 +241,52 @@ const dataMigration = {
     {
       "_unique": {
         "path": {
+          "_eq": "/storage"
+        }
+      },
+      "isPublic": false,
+      "permission": {
+        "or": [
+          {
+            "route": "/enfyra_file",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_storage_config",
+            "methods": [
+              "GET"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/storage/config"
+        }
+      },
+      "isPublic": false,
+      "permission": {
+        "or": [
+          {
+            "route": "/enfyra_storage_config",
+            "methods": [
+              "GET"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "_unique": {
+        "path": {
           "_eq": "/settings"
         }
       },
+      "isPublic": false,
       "permission": {
         "or": [
           {
@@ -337,6 +382,7 @@ const dataMigration = {
           "_eq": "/packages/install"
         }
       },
+      "isPublic": false,
       "permission": {
         "route": "/enfyra_package",
         "methods": [
@@ -350,6 +396,7 @@ const dataMigration = {
           "_eq": "/packages/app"
         }
       },
+      "isPublic": false,
       "permission": {
         "route": "/enfyra_package",
         "methods": [
@@ -363,6 +410,7 @@ const dataMigration = {
           "_eq": "/packages/backend"
         }
       },
+      "isPublic": false,
       "permission": {
         "route": "/enfyra_package",
         "methods": [
@@ -376,6 +424,7 @@ const dataMigration = {
           "_eq": "/settings/api-tester"
         }
       },
+      "isPublic": false,
       "permission": {
         "or": [
           {
@@ -393,6 +442,7 @@ const dataMigration = {
           "_eq": "/settings/admin/runtime"
         }
       },
+      "isPublic": false,
       "path": "/settings/runtime"
     }
   ],
@@ -416,6 +466,22 @@ const dataMigration = {
       },
       "availableMethods": [
         "GET"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/enfyra_menu_permission"
+        }
+      },
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:menu",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
       ]
     },
     {

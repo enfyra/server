@@ -135,6 +135,7 @@ export const RELOAD_CHAINS: Record<string, string[]> = {
   [SYSTEM_TABLES.folder]: ['folder'],
   [SYSTEM_TABLES.bootstrapScript]: ['bootstrap'],
   [SYSTEM_TABLES.menu]: ['menu', 'extension'],
+  [SYSTEM_TABLES.menuPermission]: ['menu'],
   [SYSTEM_TABLES.extension]: ['extension'],
   [SYSTEM_TABLES.graphql]: ['graphql'],
   [SYSTEM_TABLES.graphqlOperation]: ['graphql'],
