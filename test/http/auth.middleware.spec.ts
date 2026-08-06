@@ -177,6 +177,166 @@ describe('authMiddleware', () => {
     expect(next).toHaveBeenCalledWith();
   });
 
+  it('verifies a PAT sent as an Authorization Bearer credential', async () => {
+    primeCachedUserSnapshot('1', {
+      id: '1',
+      email: 'root@example.com',
+      role: { id: '2', name: 'Admin' },
+    });
+    const verify = vi.fn().mockResolvedValue({
+      payload: {
+        id: '1',
+        loginProvider: 'api_token',
+        tokenType: 'api_token',
+        tokenId: 'token-1',
+      },
+      expiresAt: null,
+    });
+    const req: any = {
+      method: 'GET',
+      headers: { authorization: 'Bearer efy_pat_test' },
+      routeData: { context: { $user: null } },
+    };
+    const next = vi.fn();
+
+    await makeMiddlewareWithAuthHeaders(
+      [
+        {
+          id: 1,
+          headerKey: 'authorization',
+          credentialType: 'pat',
+          scheme: 'bearer',
+          priority: 0,
+          isEnabled: true,
+          isSystem: false,
+        },
+        {
+          id: 2,
+          headerKey: 'authorization',
+          credentialType: 'jwt',
+          scheme: 'bearer',
+          priority: 1,
+          isEnabled: true,
+          isSystem: true,
+        },
+      ],
+      { isMongoDb: () => false },
+      { verify },
+    )(
+      req,
+      {} as any,
+      next,
+    );
+
+    expect(verify).toHaveBeenCalledWith('efy_pat_test');
+    expect(req.user).toEqual(
+      expect.objectContaining({
+        id: '1',
+        loginProvider: 'api_token',
+        tokenType: 'api_token',
+        apiTokenId: 'token-1',
+      }),
+    );
+    expect(next).toHaveBeenCalledWith();
+  });
+
+  it('routes a Bearer JWT by token format when an earlier PAT mapping shares Authorization', async () => {
+    primeCachedUserSnapshot('1', {
+      id: '1',
+      email: 'root@example.com',
+      role: { id: '2', name: 'Admin' },
+    });
+    const verify = vi.fn();
+    const token = await signToken({ id: '1' });
+    const req: any = {
+      method: 'GET',
+      headers: { authorization: `Bearer ${token}` },
+      routeData: { context: { $user: null } },
+    };
+    const next = vi.fn();
+
+    await makeMiddlewareWithAuthHeaders(
+      [
+        {
+          id: 1,
+          headerKey: 'authorization',
+          credentialType: 'pat',
+          scheme: 'bearer',
+          priority: 0,
+          isEnabled: true,
+          isSystem: false,
+        },
+        {
+          id: 2,
+          headerKey: 'authorization',
+          credentialType: 'jwt',
+          scheme: 'bearer',
+          priority: 1,
+          isEnabled: true,
+          isSystem: true,
+        },
+      ],
+      { isMongoDb: () => false },
+      { verify },
+    )(req, {} as any, next);
+
+    expect(verify).not.toHaveBeenCalled();
+    expect(req.user).toEqual(expect.objectContaining({ id: '1' }));
+    expect(next).toHaveBeenCalledWith();
+  });
+
+  it('routes a Bearer PAT by token format when an earlier JWT mapping shares Authorization', async () => {
+    primeCachedUserSnapshot('1', {
+      id: '1',
+      email: 'root@example.com',
+      role: { id: '2', name: 'Admin' },
+    });
+    const verify = vi.fn().mockResolvedValue({
+      payload: {
+        id: '1',
+        loginProvider: 'api_token',
+        tokenType: 'api_token',
+        tokenId: 'token-1',
+      },
+      expiresAt: null,
+    });
+    const req: any = {
+      method: 'GET',
+      headers: { authorization: 'Bearer efy_pat_test' },
+      routeData: { context: { $user: null } },
+    };
+    const next = vi.fn();
+
+    await makeMiddlewareWithAuthHeaders(
+      [
+        {
+          id: 1,
+          headerKey: 'authorization',
+          credentialType: 'jwt',
+          scheme: 'bearer',
+          priority: 0,
+          isEnabled: true,
+          isSystem: true,
+        },
+        {
+          id: 2,
+          headerKey: 'authorization',
+          credentialType: 'pat',
+          scheme: 'bearer',
+          priority: 1,
+          isEnabled: true,
+          isSystem: false,
+        },
+      ],
+      { isMongoDb: () => false },
+      { verify },
+    )(req, {} as any, next);
+
+    expect(verify).toHaveBeenCalledWith('efy_pat_test');
+    expect(req.user).toEqual(expect.objectContaining({ id: '1' }));
+    expect(next).toHaveBeenCalledWith();
+  });
+
   it('skips token verification when no configured auth header is present', async () => {
     const verify = vi.fn();
     const req: any = {

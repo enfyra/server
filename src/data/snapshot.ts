@@ -639,8 +639,7 @@ snapshot
     isSystem: col.boolean().notNull().system().default(false).description('Whether this mapping is built-in and immutable'),
     description: col.text().system().nullable().description('Description of this authentication header mapping'),
   })
-  .relations({})
-  .uniques([['headerKey', 'scheme']]);
+  .relations({});
 
 snapshot
   .table('enfyra_cors_origin', {

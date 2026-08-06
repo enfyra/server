@@ -54,15 +54,22 @@ export class AuthHeaderCacheBuilder extends BaseCacheService<AuthHeaderConfig[]>
       .filter((record): record is AuthHeaderConfig => record !== null)
       .filter((record) => record.isEnabled);
 
-    const byHeader = new Map<string, AuthHeaderConfig>();
-    for (const config of dynamicConfigs) {
-      byHeader.set(this.keyFor(config.headerKey, config.scheme), config);
-    }
+    const persistedSystemConfigs = new Map(
+      dynamicConfigs
+        .filter((config) => config.isSystem)
+        .map((config) => [this.keyFor(config), config]),
+    );
+    const configs = dynamicConfigs.filter(
+      (config) =>
+        !config.isSystem ||
+        !SYSTEM_AUTH_HEADER_CONFIGS.some(
+          (systemConfig) => this.keyFor(systemConfig) === this.keyFor(config),
+        ),
+    );
 
     for (const systemConfig of SYSTEM_AUTH_HEADER_CONFIGS) {
-      const key = this.keyFor(systemConfig.headerKey, systemConfig.scheme);
-      const persisted = byHeader.get(key);
-      byHeader.set(key, {
+      const persisted = persistedSystemConfigs.get(this.keyFor(systemConfig));
+      configs.push({
         ...systemConfig,
         id: persisted?.id ?? systemConfig.id,
         priority: persisted?.priority ?? systemConfig.priority,
@@ -70,10 +77,13 @@ export class AuthHeaderCacheBuilder extends BaseCacheService<AuthHeaderConfig[]>
       });
     }
 
-    return Array.from(byHeader.values()).sort(
+    return configs.sort(
       (left, right) =>
         left.priority - right.priority ||
-        left.headerKey.localeCompare(right.headerKey),
+        left.headerKey.localeCompare(right.headerKey) ||
+        left.scheme.localeCompare(right.scheme) ||
+        left.credentialType.localeCompare(right.credentialType) ||
+        String(left.id).localeCompare(String(right.id)),
     );
   }
 
@@ -110,7 +120,9 @@ export class AuthHeaderCacheBuilder extends BaseCacheService<AuthHeaderConfig[]>
     };
   }
 
-  private keyFor(headerKey: string, scheme: AuthHeaderScheme): string {
-    return `${headerKey.toLowerCase()}::${scheme}`;
+  private keyFor(
+    config: Pick<AuthHeaderConfig, 'headerKey' | 'scheme' | 'credentialType'>,
+  ): string {
+    return `${config.headerKey.toLowerCase()}::${config.scheme}::${config.credentialType}`;
   }
 }

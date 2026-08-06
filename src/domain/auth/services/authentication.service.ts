@@ -12,6 +12,7 @@ import type {
   AuthenticationInput,
   AuthTokenPayload,
   AuthHeaderConfig,
+  AuthHeaderCredentialType,
 } from '../types/auth.types';
 import { SYSTEM_AUTH_HEADER_CONFIGS as DEFAULT_AUTH_HEADER_CONFIGS } from '../types/auth.types';
 
@@ -48,6 +49,10 @@ export class AuthenticationService {
     if (input.headers) {
       const resolved = this.resolveHeaderCredentials(input.headers);
       if (!resolved.hasCredential) return null;
+      if (!resolved.patToken && !resolved.authorization) {
+        if (input.allowAnonymous) return null;
+        throw new InvalidTokenException();
+      }
       return this.authenticateTokens({
         ...input,
         patToken: resolved.patToken,
@@ -114,12 +119,16 @@ export class AuthenticationService {
         return { hasCredential: false, patToken: null, authorization: null };
       }
 
+      let hasConfiguredCredential = false;
       for (const config of configs) {
         const rawValue = normalizeHeaderValue(values.get(config.headerKey));
         if (!rawValue) continue;
 
         const token = extractHeaderToken(rawValue, config);
         if (!token) continue;
+        hasConfiguredCredential = true;
+        const detectedCredentialType = detectCredentialType(token);
+        if (detectedCredentialType !== config.credentialType) continue;
 
         if (config.credentialType === 'pat') {
           return { hasCredential: true, patToken: token, authorization: null };
@@ -132,15 +141,19 @@ export class AuthenticationService {
         };
       }
 
-      return { hasCredential: false, patToken: null, authorization: null };
+      return { hasCredential: hasConfiguredCredential, patToken: null, authorization: null };
     }
 
+    let hasConfiguredCredential = false;
     for (const config of configs) {
       const rawValue = readHeaderValue(headers, config.headerKey);
       if (!rawValue) continue;
 
       const token = extractHeaderToken(rawValue, config);
       if (!token) continue;
+      hasConfiguredCredential = true;
+      const detectedCredentialType = detectCredentialType(token);
+      if (detectedCredentialType !== config.credentialType) continue;
 
       if (config.credentialType === 'pat') {
         return { hasCredential: true, patToken: token, authorization: null };
@@ -153,7 +166,7 @@ export class AuthenticationService {
       };
     }
 
-    return { hasCredential: false, patToken: null, authorization: null };
+    return { hasCredential: hasConfiguredCredential, patToken: null, authorization: null };
   }
 
   private getAuthHeaderConfigs(): readonly AuthHeaderConfig[] {
@@ -244,6 +257,19 @@ function extractHeaderToken(value: string, config: AuthHeaderConfig): string | n
   if (config.scheme === 'raw') return value.trim() || null;
   const match = value.match(/^Bearer\s+(.+)$/i);
   return match?.[1]?.trim() || null;
+}
+
+function detectCredentialType(token: string): AuthHeaderCredentialType | null {
+  if (token.startsWith('efy_pat_')) return 'pat';
+  return isCompactJwt(token) ? 'jwt' : null;
+}
+
+function isCompactJwt(token: string): boolean {
+  const parts = token.split('.');
+  return (
+    parts.length === 3 &&
+    parts.every((part) => part.length > 0 && /^[A-Za-z0-9_-]+$/.test(part))
+  );
 }
 
 function normalizeToken(value: unknown): string | null {

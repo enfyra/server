@@ -77,6 +77,21 @@ const snapshotMigration = {
     {
       _unique: {
         name: {
+          _eq: 'enfyra_auth_header',
+        },
+      },
+      tableToModify: {
+        from: {
+          uniques: [['headerKey', 'scheme']],
+        },
+        to: {
+          uniques: [],
+        },
+      },
+    },
+    {
+      _unique: {
+        name: {
           _eq: 'enfyra_pre_hook',
         },
       },

@@ -80,6 +80,7 @@ function createHarness() {
     tokens,
     cacheService,
     redisPubSubService,
+    queryBuilder,
     userId,
     req: { user: { id: userId } },
   };
@@ -136,6 +137,23 @@ describe('ApiTokenService', () => {
       tokenId: created.id,
     });
     expect(verified.expiresAt).toBeNull();
+  });
+
+  it('caches a verified raw PAT and avoids database reads until its short TTL expires', async () => {
+    const { service, patVerifierService, req, queryBuilder } = createHarness();
+    const created = await service.create(
+      { name: 'Cached PAT', expiresAt: 'never' },
+      req,
+    );
+
+    queryBuilder.findOne.mockClear();
+    await patVerifierService.verify(created.token);
+    expect(queryBuilder.findOne).toHaveBeenCalledTimes(1);
+    const readsAfterFirstVerification = queryBuilder.findOne.mock.calls.length;
+
+    await patVerifierService.verify(created.token);
+
+    expect(queryBuilder.findOne).toHaveBeenCalledTimes(readsAfterFirstVerification);
   });
 
   it('exchanges a valid API token into a JWT tied to the token record', async () => {
@@ -202,15 +220,22 @@ describe('ApiTokenService', () => {
     await service.revoke(created.id, req);
 
     expect(tokens.has(created.id)).toBe(false);
+    const tokenHash = patVerifierService.hashToken(created.token);
     expect(cacheService.deleteKey).toHaveBeenCalledWith(
       `auth:api-token:${created.id}`,
     );
+    expect(cacheService.deleteKey).toHaveBeenCalledWith(
+      `auth:api-token:hash:${tokenHash}`,
+    );
     expect(redisPubSubService.publish).toHaveBeenCalledWith(
       'api-token:revoked',
-      { tokenId: created.id },
+      { tokenId: created.id, tokenHash },
     );
     await expect(
       patVerifierService.validateAccessPayload(decoded),
     ).resolves.toBe(false);
+    await expect(patVerifierService.verify(created.token)).rejects.toThrow(
+      /Invalid API token/,
+    );
   });
 });

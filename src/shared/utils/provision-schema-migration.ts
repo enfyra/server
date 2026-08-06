@@ -17,6 +17,7 @@ import {
   generateColumnDefinition,
   supportsSqlColumnDefault,
 } from '../../engines/knex/utils/migration/sql-generator';
+import { getCurrentDatabaseSchema } from '../../engines/knex/utils/provision/schema-comparison';
 
 /**
  * Apply SQL schema migrations (physical database)
@@ -246,6 +247,64 @@ async function applySqlTableMigration(
       tableName,
       migration.relationsToRemove,
     );
+  }
+
+  await applySqlTableConstraintMigrations(
+    knex,
+    tableName,
+    migration.tableToModify,
+  );
+}
+
+function normalizeConstraintGroups(value: unknown): string[][] {
+  if (typeof value === 'string') {
+    try {
+      return normalizeConstraintGroups(JSON.parse(value));
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (group): group is string[] =>
+      Array.isArray(group) && group.every((column) => typeof column === 'string'),
+  );
+}
+
+function constraintGroupKey(columns: string[]): string {
+  return columns.map((column) => column.toLowerCase()).join('|');
+}
+
+async function applySqlTableConstraintMigrations(
+  knex: Knex,
+  tableName: string,
+  modification: TableMigrationDef['tableToModify'],
+): Promise<void> {
+  if (!modification) return;
+
+  const fromUniques = normalizeConstraintGroups(modification.from?.uniques);
+  const toUniqueKeys = new Set(
+    normalizeConstraintGroups(modification.to?.uniques).map(constraintGroupKey),
+  );
+  const removedUniqueKeys = new Set(
+    fromUniques
+      .map(constraintGroupKey)
+      .filter((key) => !toUniqueKeys.has(key)),
+  );
+  if (removedUniqueKeys.size === 0) return;
+
+  const current = await getCurrentDatabaseSchema(knex, tableName);
+  for (const unique of current.uniques ?? []) {
+    if (!removedUniqueKeys.has(constraintGroupKey(unique.columns))) continue;
+    const dbType = normalizeSqlMigrationDbType(knex);
+    if (dbType === 'postgres') {
+      await knex.raw('ALTER TABLE ?? DROP CONSTRAINT ??', [
+        tableName,
+        unique.name,
+      ]);
+    } else {
+      await knex.raw('ALTER TABLE ?? DROP INDEX ??', [tableName, unique.name]);
+    }
   }
 }
 
@@ -1711,5 +1770,43 @@ async function applyMongoCollectionMigration(
     for (const relName of toRemove) {
       await cleanupMongoRemovedRelation(db, collectionName, relName);
     }
+  }
+
+  await applyMongoTableConstraintMigrations(
+    db,
+    collectionName,
+    migration.tableToModify,
+  );
+}
+
+async function applyMongoTableConstraintMigrations(
+  db: Db,
+  collectionName: string,
+  modification: TableMigrationDef['tableToModify'],
+): Promise<void> {
+  if (!modification) return;
+
+  const fromUniques = normalizeConstraintGroups(modification.from?.uniques);
+  const toUniqueKeys = new Set(
+    normalizeConstraintGroups(modification.to?.uniques).map(constraintGroupKey),
+  );
+  const removedUniqueKeys = new Set(
+    fromUniques
+      .map(constraintGroupKey)
+      .filter((key) => !toUniqueKeys.has(key)),
+  );
+  if (removedUniqueKeys.size === 0) return;
+
+  const indexes = await db.collection(collectionName).listIndexes().toArray();
+  for (const index of indexes) {
+    if (
+      index.name === '_id_' ||
+      index.unique !== true ||
+      !index.key ||
+      !removedUniqueKeys.has(constraintGroupKey(Object.keys(index.key)))
+    ) {
+      continue;
+    }
+    await db.collection(collectionName).dropIndex(index.name);
   }
 }

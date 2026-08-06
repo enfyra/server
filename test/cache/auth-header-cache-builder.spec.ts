@@ -24,6 +24,15 @@ describe('AuthHeaderCacheBuilder', () => {
             isEnabled: false,
             isSystem: true,
           },
+          {
+            id: 12,
+            headerKey: 'authorization',
+            credentialType: 'pat',
+            scheme: 'bearer',
+            priority: 0,
+            isEnabled: true,
+            isSystem: false,
+          },
         ],
       }),
     };
@@ -35,6 +44,7 @@ describe('AuthHeaderCacheBuilder', () => {
     const configs = await builder.getCacheAsync();
 
     expect(configs.map((config) => config.headerKey)).toEqual([
+      'authorization',
       'x-api-key',
       'x-enfyra-pat',
       'authorization',
