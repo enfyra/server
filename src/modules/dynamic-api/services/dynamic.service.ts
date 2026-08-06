@@ -17,6 +17,38 @@ import { RuntimeScriptRepairService } from '../../../engines/cache';
 
 const streamLogger = new Logger('DynamicResponseStream');
 
+export function persistDynamicScriptLogs(
+  req: RequestWithRouteData,
+  statusCode: number,
+  logger: Logger,
+): void {
+  const logs = req.routeData?.context?.$share?.$logs;
+  if (!Array.isArray(logs) || logs.length === 0) return;
+
+  const routeData = req.routeData as any;
+  if (routeData.__scriptLogsPersisted) return;
+  routeData.__scriptLogsPersisted = true;
+
+  const metadata = {
+    route: req.routeData?.route?.path || req.url,
+    method: req.method,
+    statusCode,
+  };
+  for (const [index, entry] of logs.entries()) {
+    const payload = {
+      message: 'Dynamic script log',
+      ...metadata,
+      index,
+      entry,
+    };
+    if (statusCode >= 400) {
+      logger.warn(payload);
+    } else {
+      logger.debug(payload);
+    }
+  }
+}
+
 export function attachStreamResponseHelper(res: any): void {
   if (!res || res.stream) return;
   res.stream = (
@@ -131,27 +163,7 @@ export class DynamicService {
     req: RequestWithRouteData,
     statusCode: number,
   ): void {
-    const logs = req.routeData?.context?.$share?.$logs;
-    if (!Array.isArray(logs) || logs.length === 0) return;
-
-    const metadata = {
-      route: req.routeData?.route?.path || req.url,
-      method: req.method,
-      statusCode,
-    };
-    for (const [index, entry] of logs.entries()) {
-      const payload = {
-        message: 'Dynamic script log',
-        ...metadata,
-        index,
-        entry,
-      };
-      if (statusCode >= 400) {
-        this.logger.warn(payload);
-      } else {
-        this.logger.debug(payload);
-      }
-    }
+    persistDynamicScriptLogs(req, statusCode, this.logger);
   }
 
   async runHandler(req: RequestWithRouteData) {

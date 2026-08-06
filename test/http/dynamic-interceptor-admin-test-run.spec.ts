@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { dynamicInterceptorBegin } from '../../src/http/middlewares/dynamic-interceptor.middleware';
+import { Logger } from '../../src/shared/logger';
 
 describe('dynamicInterceptorBegin admin test run isolation', () => {
   it('does not run global hooks or wrap responses for /admin/test/run', async () => {
@@ -154,5 +155,48 @@ describe('dynamicInterceptorBegin admin test run isolation', () => {
     expect(executorEngineService.register).not.toHaveBeenCalled();
     expect(executorEngineService.runBatch).not.toHaveBeenCalled();
     expect(json).toHaveBeenCalledWith(errorBody);
+  });
+
+  it('persists pre-hook logs when a pre-hook throws a client error', async () => {
+    const executorEngineService = {
+      register: vi.fn(),
+      runBatch: vi.fn(async (req: any) => {
+        req.routeData.context.$share.$logs.push('unsupported model');
+        const error: any = new Error('Unsupported model');
+        error.statusCode = 400;
+        throw error;
+      }),
+    };
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    const req = {
+      method: 'POST',
+      path: '/gateway/v1/chat/completions',
+      originalUrl: '/gateway/v1/chat/completions',
+      routeData: {
+        route: { path: '/gateway/v1/*' },
+        context: { $share: { $logs: [] } },
+        preHooks: [{ code: '@THROW400(\'Unsupported model\')' }],
+        postHooks: [],
+      },
+    };
+    const next = vi.fn();
+
+    await dynamicInterceptorBegin(executorEngineService as any)(
+      req,
+      { statusCode: 200, json: vi.fn() } as any,
+      next,
+    );
+
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 400 }));
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Dynamic script log',
+        route: '/gateway/v1/*',
+        method: 'POST',
+        statusCode: 400,
+        entry: 'unsupported model',
+      }),
+    );
+    warn.mockRestore();
   });
 });

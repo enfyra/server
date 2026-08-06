@@ -1,3 +1,9 @@
+/**
+ * Express app assembly — thin facade.
+ *
+ * Middleware grouping lives in `src/http/pipelines/middleware-pipelines.ts`.
+ * Route mounting order and pipeline order are still defined here explicitly.
+ */
 import express from 'express';
 import cors from 'cors';
 import qs from 'qs';
@@ -5,27 +11,13 @@ import type { AwilixContainer } from 'awilix';
 import { buildRequestScope, type Cradle } from './container';
 import { globalExceptionMiddleware } from './domain/exceptions';
 
-import { routeDetectMiddleware } from './http/middlewares/route-detect.middleware';
-import { notFoundDetectMiddleware } from './http/middlewares/not-found-detect.middleware';
-import {
-  preAuthMetadataGuard,
-  postAuthMetadataGuard,
-} from './http/middlewares/metadata-guard.middleware';
-import { authMiddleware } from './http/middlewares/auth.middleware';
-import { roleGuardMiddleware } from './http/middlewares/role-guard.middleware';
-import {
-  requestLoggingBegin,
-  requestLoggingEnd,
-} from './http/middlewares/request-logging.middleware';
-import { bodyValidationMiddleware } from './http/middlewares/body-validation.middleware';
-import {
-  dynamicInterceptorBegin,
-  dynamicInterceptorEnd,
-} from './http/middlewares/dynamic-interceptor.middleware';
-import { parseQueryMiddleware } from './http/middlewares/parse-query.middleware';
-import { bodyParserMiddleware } from './http/middlewares/body-parser.middleware';
-import { fileUploadMiddleware } from './http/middlewares/file-upload.middleware';
 import { captureRawBody } from './http/utils/raw-body-capture.util';
+import {
+  pipelinePreRouting,
+  pipelineGuardsAuth,
+  pipelineRequestHandling,
+  pipelineTail,
+} from './http/pipelines/middleware-pipelines';
 
 import { registerAuthRoutes } from './http/routes/auth.routes';
 import { registerOAuthRoutes } from './http/routes/oauth.routes';
@@ -68,16 +60,17 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
     });
   });
 
+  // ── Foundation ────────────────────────────────────────────────────
   app.use(cors({ origin: true, credentials: true }));
   app.use(express.json({ limit: '10mb', verify: captureRawBody }));
   app.use(express.urlencoded({ extended: true }));
   app.use(express.text({ type: 'text/plain' }));
 
+  // ── Request scope + debug trace ──────────────────────────────────
   app.use((req: any, res, next) => {
     const start = performance.now();
     req._perfStart = start;
-    const debugMode =
-      req.query?.debugMode === 'true' || req.query?.debugMode === true;
+    const debugMode = req.query?.debugMode === 'true' || req.query?.debugMode === true;
     if (debugMode) {
       req._debug = new DebugTrace();
       req._debug.dur('mw_scope_create', start);
@@ -89,17 +82,18 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
 
   const c = container.cradle;
 
+  // ── Activation gate (503 while schema reload pending) ─────────────
   app.use((_req, res, next) => {
     if (!c.runtimeSchemaActivationGateService?.isBlocked?.()) {
       next();
       return;
     }
     res.status(503).json({
-      message:
-        'Runtime schema activation is pending; this instance is not ready',
+      message: 'Runtime schema activation is pending; this instance is not ready',
     });
   });
 
+  // ── Metrics (runWithQueryContext) ─────────────────────────────────
   app.use((req: any, res, next) => {
     const startedAt = performance.now();
     res.on('finish', () => {
@@ -116,67 +110,15 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
         durationMs: performance.now() - startedAt,
       });
     });
-    c.runtimeMetricsCollectorService
-      .runWithQueryContext('runtime', async () => next())
-      .catch(next);
+    c.runtimeMetricsCollectorService.runWithQueryContext('runtime', async () => next()).catch(next);
   });
 
-  app.use(bodyParserMiddleware(c.runtimeRegistryService));
-  app.use(parseQueryMiddleware);
-  app.use((req: any, _res: any, next: any) => {
-    req._perfRouteDetect = performance.now();
-    next();
-  });
-  app.use(
-    routeDetectMiddleware(
-      c.runtimeRegistryService,
-      c.repoRegistryService,
-      c.uploadFileHelper,
-      c.rateLimitService,
-      c.flowService,
-      c.dynamicContextFactory,
-    ),
-  );
-  app.use((req: any, _res: any, next: any) => {
-    if (req._debug) req._debug.dur('mw_route_detect', req._perfRouteDetect);
-    req._perfAuth = performance.now();
-    next();
-  });
-  app.use(notFoundDetectMiddleware);
-  app.use(
-    preAuthMetadataGuard(
-      c.guardCacheBuilder,
-      c.runtimeRegistryService,
-      c.guardEvaluatorService,
-      c.guardAlertService,
-    ),
-  );
-  app.use(authMiddleware(c.authenticationService));
-  app.use((req: any, _res: any, next: any) => {
-    if (req._debug) req._debug.dur('mw_auth', req._perfAuth);
-    next();
-  });
-  app.use(roleGuardMiddleware(c.policyService));
-  app.use(
-    postAuthMetadataGuard(
-      c.guardCacheBuilder,
-      c.runtimeRegistryService,
-      c.guardEvaluatorService,
-      c.guardAlertService,
-    ),
-  );
-  app.use(
-    fileUploadMiddleware(c.runtimeRegistryService, c.dynamicWebSocketGateway),
-  );
-  app.use(requestLoggingBegin);
-  app.use(bodyValidationMiddleware(container));
-  app.use(
-    dynamicInterceptorBegin(
-      c.executorEngineService,
-      c.runtimeScriptRepairService,
-    ),
-  );
+  // ── Pipelines (order matters — see skill `enfyra-http-pipeline`) ──
+  for (const mw of pipelinePreRouting(c, container)) app.use(mw);
+  for (const mw of pipelineGuardsAuth(c)) app.use(mw);
+  for (const mw of pipelineRequestHandling(c, container)) app.use(mw);
 
+  // ── Built-in routes ───────────────────────────────────────────────
   registerAuthRoutes(app, container);
   registerOAuthRoutes(app, container);
   registerAdminRoutes(app, container);
@@ -190,6 +132,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   registerPackageRoutes(app, container);
   registerMeRoutes(app, container);
 
+  // ── GraphQL ───────────────────────────────────────────────────────
   c.graphqlService.getYogaApp();
   app.use('/graphql', (req: any, res: any) => {
     const yogaApp = c.graphqlService.getYogaApp();
@@ -199,11 +142,11 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
     });
   });
 
+  // ── Dynamic catch-all ─────────────────────────────────────────────
   registerDynamicRoutes(app, container);
 
-  app.use(dynamicInterceptorEnd);
-  app.use(requestLoggingEnd);
-
+  // ── Tail ──────────────────────────────────────────────────────────
+  for (const mw of pipelineTail()) app.use(mw);
   app.use(globalExceptionMiddleware);
 
   return app;
