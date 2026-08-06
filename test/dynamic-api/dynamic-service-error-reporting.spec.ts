@@ -22,6 +22,43 @@ function createRequest(overrides: any = {}) {
 }
 
 describe('DynamicService error reporting', () => {
+  it('persists dynamic script diagnostics for client errors', async () => {
+    const executorError: any = new Error('upstream rejected request');
+    executorError.statusCode = 400;
+    const service = new DynamicService({
+      executorEngineService: {
+        register: vi.fn(),
+        runBatch: vi.fn(async () => {
+          throw executorError;
+        }),
+      },
+      loggingService: {
+        error: vi.fn(),
+      },
+    } as any);
+    const warn = vi.spyOn((service as any).logger, 'warn');
+    const request = createRequest({
+      routeData: {
+        context: {
+          $share: { $logs: ['upstream status=400'] },
+          $query: {},
+        },
+      },
+    });
+
+    await expect(service.runHandler(request)).rejects.toMatchObject({
+      statusCode: 400,
+    });
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Dynamic script log',
+        statusCode: 400,
+        entry: 'upstream status=400',
+      }),
+    );
+  });
+
   it('keeps script client error message separate from object details', async () => {
     const executorError: any = new Error(
       'Script execution failed: missingValue is not defined (handler, line 2)',

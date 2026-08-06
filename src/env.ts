@@ -80,6 +80,7 @@ const EnvSchema = z.object({
     .enum(['development', 'production', 'test'])
     .default('development'),
   LOG_LEVEL: z.string().optional().default('info'),
+  LOG_DIR: z.string().trim().min(1).optional(),
   INSTANCE_ID: z.string().optional(),
   HOSTNAME: z.string().optional(),
   MONGO_FORCE_APP_TRANSACTION: z

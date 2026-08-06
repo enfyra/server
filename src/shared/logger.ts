@@ -4,8 +4,9 @@ import { createRequire } from 'module';
 import pino, { Logger as PinoLogger } from 'pino';
 import { logStore } from './log-store';
 import { getBootstrapLogMode } from './bootstrap-log-context';
+import { resolveLogDirectory } from './log-directory';
 
-const LOG_DIR = path.join(process.cwd(), 'logs');
+const LOG_DIR = resolveLogDirectory();
 if (!fs.existsSync(LOG_DIR)) {
   fs.mkdirSync(LOG_DIR, { recursive: true });
 }
