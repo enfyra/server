@@ -17,6 +17,38 @@ import { RuntimeScriptRepairService } from '../../../engines/cache';
 
 const streamLogger = new Logger('DynamicResponseStream');
 
+export function persistDynamicScriptLogs(
+  req: RequestWithRouteData,
+  statusCode: number,
+  logger: Logger,
+): void {
+  const logs = req.routeData?.context?.$share?.$logs;
+  if (!Array.isArray(logs) || logs.length === 0) return;
+
+  const routeData = req.routeData as any;
+  if (routeData.__scriptLogsPersisted) return;
+  routeData.__scriptLogsPersisted = true;
+
+  const metadata = {
+    route: req.routeData?.route?.path || req.url,
+    method: req.method,
+    statusCode,
+  };
+  for (const [index, entry] of logs.entries()) {
+    const payload = {
+      message: 'Dynamic script log',
+      ...metadata,
+      index,
+      entry,
+    };
+    if (statusCode >= 400) {
+      logger.warn(payload);
+    } else {
+      logger.debug(payload);
+    }
+  }
+}
+
 export function attachStreamResponseHelper(res: any): void {
   if (!res || res.stream) return;
   res.stream = (
@@ -127,6 +159,13 @@ export class DynamicService {
     };
   }
 
+  private persistScriptLogs(
+    req: RequestWithRouteData,
+    statusCode: number,
+  ): void {
+    persistDynamicScriptLogs(req, statusCode, this.logger);
+  }
+
   async runHandler(req: RequestWithRouteData) {
     const routeData = req.routeData;
     if (!routeData) {
@@ -208,6 +247,8 @@ export class DynamicService {
         delete routeData.context.$res;
       }
 
+      this.persistScriptLogs(req, Number(routeData.res?.statusCode) || 200);
+
       if (shortCircuit) {
         const httpRes = routeData.res;
         if (httpRes && !httpRes.headersSent) {
@@ -239,6 +280,10 @@ export class DynamicService {
           : typeof err.statusCode === 'number'
             ? err.statusCode
             : undefined;
+      this.persistScriptLogs(
+        req,
+        httpStatus || Number(routeData.res?.statusCode) || 500,
+      );
       const isClientError =
         httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500;
 

@@ -92,7 +92,10 @@ export class ApiTokenService {
     }
 
     await this.queryBuilder.delete(API_TOKEN_TABLE, this.recordId(record));
-    await this.patVerifierService.handleTokenRevoked(String(tokenId));
+    await this.patVerifierService.handleTokenRevoked(
+      String(tokenId),
+      typeof record.tokenHash === 'string' ? record.tokenHash : undefined,
+    );
 
     return { success: true };
   }

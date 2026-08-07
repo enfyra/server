@@ -214,9 +214,9 @@ export class SystemSafetyAuditorService {
           const hasRole = data?.role != null;
           const hasUsers =
             Array.isArray(data?.allowedUsers) && data.allowedUsers.length > 0;
-          if (!hasRole && !hasUsers) {
+          if (hasRole === hasUsers) {
             throw new Error(
-              'enfyra_field_permission requires scope: role or allowedUsers',
+              'enfyra_field_permission requires exactly one scope: role or allowedUsers',
             );
           }
         }
@@ -234,12 +234,35 @@ export class SystemSafetyAuditorService {
             const hasRoleFinal = hasRoleInData ?? existingHasRole;
             const hasUsersFinal = hasUsersInData ?? existingHasUsers;
 
-            if (!hasRoleFinal && !hasUsersFinal) {
+            if (hasRoleFinal === hasUsersFinal) {
               throw new Error(
-                'enfyra_field_permission requires scope: role or allowedUsers',
+                'enfyra_field_permission requires exactly one scope: role or allowedUsers',
               );
             }
           }
+        }
+      }
+    }
+
+    if (tableName === 'enfyra_auth_header') {
+      const headerKey =
+        operation === 'update'
+          ? data?.headerKey ?? fullExisting?.headerKey
+          : data?.headerKey;
+      if (typeof headerKey !== 'string' || headerKey.trim() !== headerKey.toLowerCase()) {
+        throw new Error('enfyra_auth_header.headerKey must be normalized lowercase');
+      }
+
+      if (operation === 'update' && fullExisting?.isSystem) {
+        const allowed = this.schemaMigrationValidatorService.getAllowedFields([
+          'description',
+          'priority',
+        ]);
+        const disallowed = changedFields.filter((field) => !allowed.includes(field));
+        if (disallowed.length > 0) {
+          throw new Error(
+            `Cannot modify system auth header (only allowed: ${allowed.join(', ')}): ${disallowed.join(', ')}`,
+          );
         }
       }
     }
@@ -389,6 +412,7 @@ export class SystemSafetyAuditorService {
           'description',
           'icon',
           'isEnabled',
+          'isPublic',
           'order',
           'permission',
         ]);

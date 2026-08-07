@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as readline from 'readline';
 import * as path from 'path';
 import type { LogContent, LogFile, ParsedLogEntry } from '../types';
+import { resolveLogDirectory } from '../../../shared/log-directory';
 
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE = 1000;
@@ -33,7 +34,7 @@ export class LogReaderService {
   private readonly logDir: string;
 
   constructor() {
-    this.logDir = path.resolve(process.cwd(), 'logs');
+    this.logDir = resolveLogDirectory();
   }
 
   private validateFilePath(filename: string): string {

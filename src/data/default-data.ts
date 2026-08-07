@@ -10,6 +10,26 @@ const defaultData = {
     "projectName": "Enfyra CMS",
     "projectDescription": "Description for Enfyra CMS"
   },
+  "enfyra_auth_header": [
+    {
+      "headerKey": "x-enfyra-pat",
+      "credentialType": "pat",
+      "scheme": "raw",
+      "priority": 0,
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Built-in Enfyra personal access token header"
+    },
+    {
+      "headerKey": "authorization",
+      "credentialType": "jwt",
+      "scheme": "bearer",
+      "priority": 1,
+      "isEnabled": true,
+      "isSystem": true,
+      "description": "Built-in Bearer access token header"
+    }
+  ],
   "enfyra_method": [
     {
       "buttonColor": "#dbeafe",
@@ -128,6 +148,19 @@ const defaultData = {
       "skipRoleGuardMethods": [
         "GET"
       ],
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/enfyra_auth_header",
+      "mainTable": "enfyra_auth_header",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:key-round",
       "availableMethods": [
         "GET",
         "POST",
@@ -432,6 +465,19 @@ const defaultData = {
       ]
     },
     {
+      "path": "/enfyra_menu_permission",
+      "mainTable": "enfyra_menu_permission",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:menu",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
       "path": "/enfyra_extension",
       "mainTable": "enfyra_extension",
       "isEnabled": true,
@@ -629,6 +675,16 @@ const defaultData = {
       "isSystem": true,
       "icon": "lucide:list-ordered",
       "description": "Reorder menu records in one operation",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/admin/auth-header/reorder",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:list-ordered",
+      "description": "Reorder authentication header mappings in one operation",
       "availableMethods": [
         "POST"
       ]
@@ -1057,6 +1113,7 @@ const defaultData = {
       "icon": "lucide:layout-dashboard",
       "path": "/dashboard",
       "isEnabled": true,
+      "isPublic": true,
       "isSystem": true,
       "description": "Main dashboard",
       "order": 1,
@@ -1070,11 +1127,15 @@ const defaultData = {
       "icon": "lucide:list",
       "path": "/data",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Data management",
       "order": 2,
       "permission": {
-        "allowAll": true
+        "route": "/enfyra_route",
+        "methods": [
+          "GET"
+        ]
       }
     },
     {
@@ -1083,6 +1144,7 @@ const defaultData = {
       "icon": "lucide:database",
       "path": "/collections",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Table collections management",
       "order": 3,
@@ -1103,11 +1165,103 @@ const defaultData = {
       "icon": "lucide:settings",
       "path": "/settings",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "System settings",
       "order": 4,
       "permission": {
-        "allowAll": true
+        "or": [
+          {
+            "route": "/enfyra_setting",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_menu",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_extension",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_bootstrap_script",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_user",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_role",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_websocket",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_oauth_config",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_oauth_account",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/logs",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_route",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_flow",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_guard",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_method",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_auth_header",
+            "methods": [
+              "GET"
+            ]
+          }
+        ]
       }
     },
     {
@@ -1116,6 +1270,7 @@ const defaultData = {
       "icon": "heroicons:cog-8-tooth",
       "path": "/settings/general",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "General settings",
       "order": 1,
@@ -1137,6 +1292,7 @@ const defaultData = {
       "icon": "heroicons:bars-3",
       "path": "/settings/menus",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Menu management",
       "order": 3,
@@ -1158,6 +1314,7 @@ const defaultData = {
       "icon": "heroicons:puzzle-piece",
       "path": "/settings/extensions",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Extension management",
       "order": 4,
@@ -1179,6 +1336,7 @@ const defaultData = {
       "icon": "heroicons:map",
       "path": "/settings/routes",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Route management",
       "order": 6,
@@ -1200,6 +1358,7 @@ const defaultData = {
       "icon": "lucide:badge",
       "path": "/settings/methods",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "HTTP method management",
       "order": 5,
@@ -1221,6 +1380,7 @@ const defaultData = {
       "icon": "lucide:shield",
       "path": "/settings/guards",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Guard management (rate limiting, IP filtering)",
       "order": 7,
@@ -1242,6 +1402,7 @@ const defaultData = {
       "icon": "lucide:flask-conical",
       "path": "/settings/api-tester",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Test API endpoints",
       "order": 8,
@@ -1263,6 +1424,7 @@ const defaultData = {
       "icon": "lucide:radio-tower",
       "path": "/settings/websockets",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "WebSocket gateway and event management",
       "order": 9,
@@ -1284,6 +1446,7 @@ const defaultData = {
       "icon": "lucide:workflow",
       "path": "/settings/flows",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Flow management",
       "order": 10,
@@ -1305,6 +1468,7 @@ const defaultData = {
       "icon": "heroicons:play",
       "path": "/settings/bootstrap",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Bootstrap script management",
       "order": 11,
@@ -1322,10 +1486,33 @@ const defaultData = {
     },
     {
       "type": "Menu",
+      "label": "Authentication Headers",
+      "icon": "lucide:key-round",
+      "path": "/settings/auth-headers",
+      "isEnabled": true,
+      "isPublic": false,
+      "isSystem": true,
+      "description": "Configure accepted authentication header keys and their priority",
+      "order": 12,
+      "parent": "Settings",
+      "permission": {
+        "or": [
+          {
+            "route": "/enfyra_auth_header",
+            "methods": [
+              "GET"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
       "label": "Server Logs",
       "icon": "lucide:file-text",
       "path": "/settings/admin/logs",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Xem file log của backend",
       "order": 13,
@@ -1347,6 +1534,7 @@ const defaultData = {
       "icon": "lucide:activity",
       "path": "/settings/runtime",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Live runtime metrics",
       "order": 14,
@@ -1361,6 +1549,7 @@ const defaultData = {
       "icon": "lucide:package",
       "path": "/packages",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Packages management",
       "order": 8,
@@ -1381,6 +1570,7 @@ const defaultData = {
       "icon": "heroicons:users",
       "path": "/settings/users",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "User management",
       "order": 9,
@@ -1402,6 +1592,7 @@ const defaultData = {
       "icon": "heroicons:shield-check",
       "path": "/settings/roles",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Role management",
       "order": 10,
@@ -1423,6 +1614,7 @@ const defaultData = {
       "icon": "heroicons:key",
       "path": "/settings/oauth",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "OAuth provider configuration and linked accounts",
       "order": 11,
@@ -1450,6 +1642,7 @@ const defaultData = {
       "icon": "heroicons:cog-8-tooth",
       "path": "/settings/oauth/config",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "OAuth provider configuration",
       "order": 1,
@@ -1471,6 +1664,7 @@ const defaultData = {
       "icon": "heroicons:link",
       "path": "/settings/oauth/accounts",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Linked OAuth accounts",
       "order": 2,
@@ -1492,6 +1686,7 @@ const defaultData = {
       "icon": "heroicons:server",
       "path": "/storage",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Storage management",
       "order": 5,
@@ -1504,7 +1699,7 @@ const defaultData = {
             ]
           },
           {
-            "route": "/storage/config",
+            "route": "/enfyra_storage_config",
             "methods": [
               "GET"
             ]
@@ -1518,6 +1713,7 @@ const defaultData = {
       "icon": "heroicons:cloud-arrow-up",
       "path": "/storage/config",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Storage backend configurations",
       "order": 2,
@@ -1525,7 +1721,7 @@ const defaultData = {
       "permission": {
         "or": [
           {
-            "route": "/storage/config",
+            "route": "/enfyra_storage_config",
             "methods": [
               "GET"
             ]
@@ -1539,6 +1735,7 @@ const defaultData = {
       "icon": "lucide:folder-tree",
       "path": "/storage/management",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Files Management",
       "order": 1,
@@ -1560,10 +1757,17 @@ const defaultData = {
       "icon": "lucide:plus",
       "path": "/packages/install",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Install Package",
       "order": 1,
-      "parent": "Packages"
+      "parent": "Packages",
+      "permission": {
+        "route": "/enfyra_package",
+        "methods": [
+          "GET"
+        ]
+      }
     },
     {
       "type": "Menu",
@@ -1571,10 +1775,17 @@ const defaultData = {
       "icon": "lucide:package-2",
       "path": "/packages/app",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "App packages management",
       "order": 2,
-      "parent": "Packages"
+      "parent": "Packages",
+      "permission": {
+        "route": "/enfyra_package",
+        "methods": [
+          "GET"
+        ]
+      }
     },
     {
       "type": "Menu",
@@ -1582,16 +1793,24 @@ const defaultData = {
       "icon": "lucide:box",
       "path": "/packages/backend",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "description": "Backend packages management",
       "order": 3,
-      "parent": "Packages"
+      "parent": "Packages",
+      "permission": {
+        "route": "/enfyra_package",
+        "methods": [
+          "GET"
+        ]
+      }
     }
   ],
   "enfyra_websocket": [
     {
       "path": "/enfyra-admin",
       "isEnabled": true,
+      "isPublic": false,
       "isSystem": true,
       "requireAuth": true,
       "description": "Built-in admin UI real-time gateway",

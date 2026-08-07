@@ -31,6 +31,8 @@ import {
 } from '../../../shared/utils/sanitize-field-permissions.util';
 import {
   decideFieldPermission,
+  fieldPermissionRuleAppliesToUser,
+  fieldPermissionRuleMatchesSubject,
   formatFieldPermissionErrorMessage,
 } from '../../../shared/utils/field-permission.util';
 import { UserRevocationService } from '../../../domain/auth';
@@ -383,32 +385,28 @@ export class DynamicRepository {
         'read',
       ) ?? [];
 
-    const allowedColumns = new Set<string>();
-    const allowedRelations = new Set<string>();
-    for (const p of policies) {
-      for (const c of p.unconditionalAllowedColumns) allowedColumns.add(c);
-      for (const r of p.unconditionalAllowedRelations) allowedRelations.add(r);
-    }
-
     const deniedQueryFields: Array<{
       type: 'column' | 'relation';
       name: string;
     }> = [];
 
+    const queryColumns = new Set<string>();
+    const queryRelations = new Set<string>();
     const checkColumn = (name: string) => {
       const col = meta.columns?.find((c: any) => c.name === name);
       if (!col) return;
-      if (col.isPublished !== false) return;
-      if (allowedColumns.has(name)) return;
-      deniedQueryFields.push({ type: 'column', name });
+      queryColumns.add(name);
     };
 
     const checkRelation = (name: string) => {
       const rel = meta.relations?.find((r: any) => r.propertyName === name);
       if (!rel) return;
-      if (rel.isPublished !== false) return;
-      if (allowedRelations.has(name)) return;
-      deniedQueryFields.push({ type: 'relation', name });
+      queryRelations.add(name);
+    };
+
+    const checkField = (name: string) => {
+      checkColumn(name);
+      checkRelation(name);
     };
 
     const filter = this.context.$query?.filter;
@@ -421,13 +419,14 @@ export class DynamicRepository {
       }
       if (Array.isArray(node._and)) node._and.forEach(walkFilter);
       if (Array.isArray(node._or)) node._or.forEach(walkFilter);
+      if (node._not && typeof node._not === 'object') walkFilter(node._not);
       for (const k of Object.keys(node)) {
         if (k === '_and' || k === '_or' || k === '_not') continue;
         if (k.includes('.')) {
           const [first] = k.split('.');
           if (first) checkRelation(first);
         } else {
-          checkColumn(k);
+          checkField(k);
         }
       }
     };
@@ -449,9 +448,51 @@ export class DynamicRepository {
         const [first] = clean.split('.');
         if (first) checkRelation(first);
       } else {
-        checkColumn(clean);
+        checkField(clean);
       }
     }
+
+    const checkQueryField = async (subjectType: 'column' | 'relation', name: string) => {
+      const subject = subjectType === 'column'
+        ? meta.columns?.find((c: any) => c.name === name)
+        : meta.relations?.find((r: any) => r.propertyName === name);
+      if (!subject) return;
+      const rules = policies.flatMap((policy: any) => policy.rules || [])
+        .filter((rule: any) => rule.isEnabled === true)
+        .filter((rule: any) => fieldPermissionRuleMatchesSubject(rule, {
+          tableName: this.tableName,
+          action: 'read',
+          subjectType,
+          subjectName: name,
+        }))
+        .filter((rule: any) => fieldPermissionRuleAppliesToUser(rule, this.context.$user));
+      if (rules.length === 0) {
+        if (subject.isPublished === false) deniedQueryFields.push({ type: subjectType, name });
+        return;
+      }
+      if (rules.some((rule: any) => rule.condition != null)) {
+        deniedQueryFields.push({ type: subjectType, name });
+        return;
+      }
+      const decision = await decideFieldPermission(
+        this.runtimeRegistryService,
+        {
+          user: this.context.$user,
+          tableName: this.tableName,
+          action: 'read',
+          subjectType,
+          subjectName: name,
+          record: null,
+        },
+        { defaultAllowed: subject.isPublished !== false },
+      );
+      if (!decision.allowed) deniedQueryFields.push({ type: subjectType, name });
+    };
+
+    await Promise.all([
+      ...[...queryColumns].map((name) => checkQueryField('column', name)),
+      ...[...queryRelations].map((name) => checkQueryField('relation', name)),
+    ]);
 
     if (deniedQueryFields.length > 0) {
       throw new ForbiddenException(
@@ -1206,7 +1247,13 @@ export class DynamicRepository {
       const existsResult = await this.find({
         filter: { [this.getIdField()]: { _eq: id } },
       });
-      const exists = existsResult?.data?.[0];
+      const canonicalExistsResult = await this.queryBuilderService.find({
+        table: this.tableName,
+        fields: '*',
+        filter: { [this.getIdField()]: { _eq: id } },
+        limit: 1,
+      });
+      const exists = canonicalExistsResult?.data?.[0] ?? existsResult?.data?.[0];
       if (!exists) throw new BadRequestException(`id ${id} is not exists!`);
       logMemory(this.logger, 'dynamic update existing loaded', {
         ...writeMeta,

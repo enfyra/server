@@ -105,6 +105,20 @@ export class RedisPubSubService implements IRedisPubSub {
           `[RedisPubSub] Subscribe error for ${decoratedChannel}:`,
           err.message,
         );
+        const handlers = this.subscribedChannels.get(decoratedChannel) ?? [handler];
+        this.subscribedChannels.delete(decoratedChannel);
+        if (retryCount >= 50) {
+          console.error(
+            `[RedisPubSub] Giving up subscribing to ${decoratedChannel} after ${retryCount} retries`,
+          );
+          return;
+        }
+        const delay = Math.min(100 * Math.pow(2, Math.min(retryCount, 10)), 30000);
+        setTimeout(() => {
+          for (const registeredHandler of handlers) {
+            this.subscribeWithHandler(channel, registeredHandler, retryCount + 1);
+          }
+        }, delay);
       });
 
     return true;

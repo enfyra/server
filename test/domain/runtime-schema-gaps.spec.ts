@@ -627,6 +627,43 @@ describe('C2: Executor must verify contract inputs', () => {
     expect(journal.create).not.toHaveBeenCalled();
     expect(tableHandlerService.updateTable).not.toHaveBeenCalled();
   });
+
+  it('executes policy-only changes through the table metadata writer', async () => {
+    const before = {
+      ...baseBefore,
+      columns: [
+        {
+          ...baseBefore.columns[0],
+          fieldPermissions: [
+            { id: 9, action: 'read', effect: 'deny', role: { id: 2 } },
+          ],
+        },
+      ],
+    };
+    const after = {
+      ...before,
+      columns: [{ ...before.columns[0], fieldPermissions: [] }],
+    };
+    const contract = await compileRealContract({
+      beforeMetadata: before,
+      afterMetadata: after,
+    });
+    const { executor, tableHandlerService } = makeExecutor({
+      queryBuilderService: {
+        findOne: vi.fn().mockResolvedValueOnce(before).mockResolvedValue(after),
+      },
+    });
+
+    await executor.execute({
+      contract,
+      ownerTableId: 42,
+      body: after as any,
+    });
+
+    expect(contract.context.diff.schemaChanged).toBe(false);
+    expect(contract.context.diff.policyMetadataChanged).toBe(true);
+    expect(tableHandlerService.updateTable).toHaveBeenCalledOnce();
+  });
 });
 
 describe('C3: Source revision must be attested under lock', () => {

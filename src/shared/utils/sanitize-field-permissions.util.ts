@@ -85,20 +85,18 @@ export async function sanitizeFieldPermissionsResult(params: {
       if (!wasRequested) continue;
 
       const published = col?.isPublished !== false;
-      const decision = published
-        ? { allowed: true }
-        : await decideFieldPermission(
-            fieldPermissionPolicyReader,
-            {
-              user,
-              tableName: currentTable,
-              action,
-              subjectType: 'column',
-              subjectName: colName,
-              record: out,
-            },
-            { defaultAllowed: false },
-          );
+      const decision = await decideFieldPermission(
+        fieldPermissionPolicyReader,
+        {
+          user,
+          tableName: currentTable,
+          action,
+          subjectType: 'column',
+          subjectName: colName,
+          record: out,
+        },
+        { defaultAllowed: published },
+      );
 
       if (!decision.allowed) {
         delete out[colName];
@@ -116,20 +114,18 @@ export async function sanitizeFieldPermissionsResult(params: {
       if (!wasRequested) continue;
 
       const published = rel?.isPublished !== false;
-      const decision = published
-        ? { allowed: true }
-        : await decideFieldPermission(
-            fieldPermissionPolicyReader,
-            {
-              user,
-              tableName: currentTable,
-              action,
-              subjectType: 'relation',
-              subjectName: relName,
-              record: out,
-            },
-            { defaultAllowed: false },
-          );
+      const decision = await decideFieldPermission(
+        fieldPermissionPolicyReader,
+        {
+          user,
+          tableName: currentTable,
+          action,
+          subjectType: 'relation',
+          subjectName: relName,
+          record: out,
+        },
+        { defaultAllowed: published },
+      );
 
       if (!decision.allowed) {
         delete out[relName];

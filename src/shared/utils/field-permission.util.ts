@@ -70,6 +70,17 @@ function isRuleForSubject(
   return rule.relationPropertyName === ctx.subjectName;
 }
 
+export function fieldPermissionRuleMatchesSubject(
+  rule: TFieldPermissionRule,
+  ctx: Pick<TFieldPermissionContext, 'tableName' | 'action' | 'subjectType' | 'subjectName'>,
+): boolean {
+  return isRuleForSubject(rule, { ...ctx, user: null });
+}
+
+export function fieldPermissionRuleAppliesToUser(rule: TFieldPermissionRule, user: any): boolean {
+  return ruleAppliesToUser(rule, user);
+}
+
 function ruleAppliesToUser(rule: TFieldPermissionRule, user: any): boolean {
   const userId = getUserId(user);
   const roleId = getRoleId(user);
@@ -78,6 +89,10 @@ function ruleAppliesToUser(rule: TFieldPermissionRule, user: any): boolean {
     userId != null && rule.allowedUserIds?.includes(userId);
   const isRoleMatch =
     rule.roleId != null && roleId != null && rule.roleId === roleId;
+
+  if (rule.roleId != null && rule.allowedUserIds.length > 0) {
+    return Boolean(isUserSpecific || isRoleMatch);
+  }
 
   if (rule.allowedUserIds && rule.allowedUserIds.length > 0) {
     return isUserSpecific;
@@ -113,6 +128,12 @@ export async function decideFieldPermission(
     }
   }
   if (rules.length === 0) return { allowed: defaultAllowed };
+  if (rules.some((rule) => rule.roleId != null && rule.allowedUserIds.length > 0)) {
+    return {
+      allowed: false,
+      reason: 'Invalid field permission scope: role and allowedUsers cannot be combined',
+    };
+  }
 
   const record = ctx.record ?? null;
 

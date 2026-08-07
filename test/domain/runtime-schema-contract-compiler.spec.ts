@@ -213,4 +213,56 @@ describe('RuntimeSchemaContractCompilerService', () => {
         .some((node) => node.command.kind === 'apply-physical-change'),
     ).toBe(true);
   });
+
+  it('compiles field permission-only changes into executable metadata phases', async () => {
+    const compiler = createCompiler();
+    const result = await compiler.compile({
+      operation: 'update',
+      tableName: 'post',
+      tableId: 7,
+      beforeMetadata: {
+        ...baseTable,
+        columns: [
+          ...baseTable.columns,
+          {
+            id: 3,
+            name: 'secret',
+            type: 'varchar',
+            isNullable: true,
+            isPrimary: false,
+            isGenerated: false,
+            defaultValue: null,
+            fieldPermissions: [
+              { id: 9, action: 'read', effect: 'deny', role: { id: 2 } },
+            ],
+          },
+        ],
+      },
+      afterMetadata: {
+        ...baseTable,
+        columns: [
+          ...baseTable.columns,
+          {
+            id: 3,
+            name: 'secret',
+            type: 'varchar',
+            isNullable: true,
+            isPrimary: false,
+            isGenerated: false,
+            defaultValue: null,
+            fieldPermissions: [],
+          },
+        ],
+      },
+    });
+
+    expect(result.contract.context.diff.schemaChanged).toBe(false);
+    expect(result.contract.context.diff.policyMetadataChanged).toBe(true);
+    expect(result.contract.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'sync-policy-metadata' }),
+      ]),
+    );
+    expect(result.contract.phases).not.toEqual([]);
+  });
 });

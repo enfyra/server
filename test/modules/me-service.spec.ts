@@ -54,6 +54,14 @@ describe('MeService', () => {
     expect(repoRegistryService.createReposProxy).toHaveBeenCalledWith(context);
     expect(userRepo.find).toHaveBeenCalledWith({
       filter: { id: { _eq: 'user-1' } },
+      limit: 1,
+      deep: {
+        role: {
+          deep: {
+            routePermissions: { limit: 0 },
+          },
+        },
+      },
     });
     expect(result.data[0]).toMatchObject({
       id: 'user-1',

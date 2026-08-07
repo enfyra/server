@@ -16,6 +16,7 @@ export function buildRuntimeSchemaChangePlan(input: {
   before: NormalizedRuntimeTableSchema | null;
   after: NormalizedRuntimeTableSchema | null;
   owningSideInverseCascadeWarnings: readonly RuntimeSchemaCascadeWarning[];
+  policyMetadataChanged?: boolean;
 }): {
   changes: readonly RuntimeSchemaLogicalChange[];
   diff: RuntimeSchemaDiff;
@@ -96,6 +97,14 @@ export function buildRuntimeSchemaChangePlan(input: {
       Object.fromEntries(
         changedTableMetadataFields.map((field) => [field, after.contract[field]]),
       ),
+    );
+  }
+
+  if (input.policyMetadataChanged) {
+    addChange(
+      'sync-policy-metadata',
+      'field-permissions-and-rules',
+      'sync field permissions and column rules',
     );
   }
 
@@ -271,8 +280,11 @@ export function buildRuntimeSchemaChangePlan(input: {
       tableName: input.tableName,
       operation: input.operation,
       schemaChanged: changes.some(
-        (change) => change.kind !== 'alter-table-metadata',
+        (change) =>
+          change.kind !== 'alter-table-metadata' &&
+          change.kind !== 'sync-policy-metadata',
       ),
+      policyMetadataChanged: input.policyMetadataChanged === true,
       isDestructive: removedColumns.length > 0 || removedRelations.length > 0,
       removedColumns,
       addedColumns,
@@ -298,6 +310,7 @@ function emptyDiff(
     tableName,
     operation,
     schemaChanged,
+    policyMetadataChanged: false,
     isDestructive: false,
     removedColumns: [],
     addedColumns: [],

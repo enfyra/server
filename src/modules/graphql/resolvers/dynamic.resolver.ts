@@ -1,7 +1,6 @@
 import { BadRequestException } from '../../../domain/exceptions';
 import {
   AuthenticationService,
-  ENFYRA_PAT_HEADER,
   type AuthenticatedRequest,
 } from '../../../domain/auth';
 import { throwGqlError } from '../utils/throw-error';
@@ -199,8 +198,6 @@ export class DynamicResolver {
       );
     }
 
-    const accessToken = this.getBearerToken(context);
-    const patToken = this.getPatToken(context);
     const isPublic = definition.publicOperations.includes(operation);
 
     // pre_auth GQL guards: IP allow/block + rate by IP/operation. Runs before
@@ -213,12 +210,10 @@ export class DynamicResolver {
       null,
     );
 
-    const user =
-      accessToken || patToken
-        ? await this.authenticate(context)
-        : isPublic
-          ? null
-          : this.throwAuthenticationRequired();
+    const requestAuth = context.auth as AuthenticatedRequest | null | undefined;
+    const user = requestAuth?.user ?? (await this.authenticate(context));
+    const resolvedUser =
+      user ?? (isPublic ? null : this.throwAuthenticationRequired());
 
     // post_auth GQL guards: rate by user. Runs after the user is resolved but
     // before the GraphQL operation permission check.
@@ -227,20 +222,20 @@ export class DynamicResolver {
       mainTableName,
       operation,
       context,
-      user,
+      resolvedUser,
     );
 
     const access = hasGraphqlOperationAccess({
       definition,
       operation,
-      user,
+      user: resolvedUser,
     });
     if (!access.allowed) {
       throwGqlError('403', 'Forbidden');
     }
 
     return {
-      user,
+      user: resolvedUser,
       mainTable: { name: mainTableName },
     };
   }
@@ -319,16 +314,6 @@ export class DynamicResolver {
     }
   }
 
-  private getBearerToken(context: any): string {
-    const authorization = context.request?.headers?.get('authorization') || '';
-    const match = authorization.match(/^Bearer\s+(.+)$/i);
-    return match?.[1]?.trim() || '';
-  }
-
-  private getPatToken(context: any): string {
-    return context.request?.headers?.get(ENFYRA_PAT_HEADER)?.trim() || '';
-  }
-
   private throwAuthenticationRequired(): never {
     return throwGqlError('401', 'Authentication required') as never;
   }
@@ -339,14 +324,10 @@ export class DynamicResolver {
 
     try {
       const authenticated = await this.authenticationService.authenticate({
-        authorization: context.request?.headers?.get('authorization'),
-        patToken: context.request?.headers?.get(ENFYRA_PAT_HEADER),
+        headers: context.request?.headers,
         allowAnonymous: false,
       });
-      if (!authenticated) {
-        throwGqlError('401', 'Invalid user');
-      }
-      return authenticated.user;
+      return authenticated?.user ?? null;
     } catch (error: any) {
       if (error?.statusCode === 401) {
         throwGqlError('401', 'Unauthorized');

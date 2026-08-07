@@ -14,6 +14,7 @@ import { PackageCacheService } from './package-cache.service';
 import { SettingCacheService } from './setting-cache.service';
 import { StorageConfigCacheBuilder } from './storage-config-cache-builder.service';
 import { OAuthConfigCacheBuilder } from './oauth-config-cache-builder.service';
+import { AuthHeaderCacheBuilder } from './auth-header-cache-builder.service';
 import { FolderTreeCacheService } from './folder-tree-cache.service';
 import { FieldPermissionCacheBuilder } from './field-permission-cache-builder.service';
 import { ColumnRuleCacheBuilder } from './column-rule-cache-builder.service';
@@ -52,6 +53,7 @@ const FLOW_PRIORITY = [
   'route',
   'fieldPermission',
   'setting',
+  'authHeader',
   'guard',
   'flow',
   'websocket',
@@ -124,6 +126,7 @@ export const RELOAD_CHAINS: Record<string, string[]> = {
   [SYSTEM_TABLES.columnRule]: ['column-rule'],
 
   [SYSTEM_TABLES.setting]: ['setting', 'settingGraphql'],
+  [SYSTEM_TABLES.authHeader]: ['authHeader'],
   [SYSTEM_TABLES.storageConfig]: ['storage'],
   [SYSTEM_TABLES.oauthConfig]: ['oauth'],
   [SYSTEM_TABLES.websocket]: ['websocket'],
@@ -135,6 +138,7 @@ export const RELOAD_CHAINS: Record<string, string[]> = {
   [SYSTEM_TABLES.folder]: ['folder'],
   [SYSTEM_TABLES.bootstrapScript]: ['bootstrap'],
   [SYSTEM_TABLES.menu]: ['menu', 'extension'],
+  [SYSTEM_TABLES.menuPermission]: ['menu'],
   [SYSTEM_TABLES.extension]: ['extension'],
   [SYSTEM_TABLES.graphql]: ['graphql'],
   [SYSTEM_TABLES.graphqlOperation]: ['graphql'],
@@ -153,6 +157,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   private readonly websocketCacheBuilder: WebsocketCacheBuilder;
   private readonly packageCacheService: PackageCacheService;
   private readonly settingCacheService: SettingCacheService;
+  private readonly authHeaderCacheBuilder: AuthHeaderCacheBuilder;
   private readonly storageConfigCacheBuilder: StorageConfigCacheBuilder;
   private readonly oauthConfigCacheBuilder: OAuthConfigCacheBuilder;
   private readonly folderTreeCacheService: FolderTreeCacheService;
@@ -180,6 +185,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   private reloadLock: Promise<void> | null = null;
   private reloadEventSequence = 0;
   private processedVersions: Set<string> = new Set();
+  private signalRetryCounts: Map<string, number> = new Map();
 
   constructor(deps: {
     redisPubSubService: RedisPubSubService;
@@ -192,6 +198,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     websocketCacheBuilder: WebsocketCacheBuilder;
     packageCacheService: PackageCacheService;
     settingCacheService: SettingCacheService;
+    authHeaderCacheBuilder: AuthHeaderCacheBuilder;
     storageConfigCacheBuilder: StorageConfigCacheBuilder;
     oauthConfigCacheBuilder: OAuthConfigCacheBuilder;
     folderTreeCacheService: FolderTreeCacheService;
@@ -217,6 +224,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     this.websocketCacheBuilder = deps.websocketCacheBuilder;
     this.packageCacheService = deps.packageCacheService;
     this.settingCacheService = deps.settingCacheService;
+    this.authHeaderCacheBuilder = deps.authHeaderCacheBuilder;
     this.storageConfigCacheBuilder = deps.storageConfigCacheBuilder;
     this.oauthConfigCacheBuilder = deps.oauthConfigCacheBuilder;
     this.folderTreeCacheService = deps.folderTreeCacheService;
@@ -247,6 +255,8 @@ export class CacheOrchestratorService implements LifecycleAware {
         this.reloadSimple(this.packageCacheService, p, options?.sharedReplay),
       setting: (p, options) =>
         this.reloadSimple(this.settingCacheService, p, options?.sharedReplay),
+      authHeader: (p, options) =>
+        this.reloadSimple(this.authHeaderCacheBuilder, p, options?.sharedReplay),
       storage: (p, options) =>
         this.reloadSimple(
           this.storageConfigCacheBuilder,
@@ -784,6 +794,12 @@ export class CacheOrchestratorService implements LifecycleAware {
           service: this
             .settingCacheService as unknown as RuntimeCacheViewSource,
         };
+      case 'authHeader':
+        return {
+          identifier: CACHE_IDENTIFIERS.AUTH_HEADER,
+          service: this
+            .authHeaderCacheBuilder as unknown as RuntimeCacheViewSource,
+        };
       case 'storage':
         return {
           identifier: CACHE_IDENTIFIERS.STORAGE,
@@ -1224,6 +1240,13 @@ export class CacheOrchestratorService implements LifecycleAware {
                 : this.settingCacheService.reload(false),
           },
           {
+            name: 'authHeader',
+            run: () =>
+              sharedReplay
+                ? this.authHeaderCacheBuilder.syncFromSharedCache()
+                : this.authHeaderCacheBuilder.reload(false),
+          },
+          {
             name: 'storage',
             run: () =>
               sharedReplay
@@ -1338,22 +1361,18 @@ export class CacheOrchestratorService implements LifecycleAware {
 
     this.messageHandler = async (channel: string, message: string) => {
       if (this.redisPubSubService.isChannelForBase(channel, SYNC_CHANNEL)) {
+        let version: string | null = null;
         try {
           const signal = JSON.parse(message);
           if (signal.instanceId === this.instanceService.getInstanceId()) {
             return;
           }
-          const version = `${signal.instanceId}:${signal.timestamp}:${signal.payload?.table}:${signal.payload?.scope || 'full'}:${signal.payload?.ids?.join(',') || 'all'}`;
+          version = `${signal.instanceId}:${signal.timestamp}:${signal.payload?.table}:${signal.payload?.scope || 'full'}:${signal.payload?.ids?.join(',') || 'all'}`;
           if (this.processedVersions.has(version)) {
             this.logger.debug(
               `Skipping duplicate/out-of-order signal: ${version.slice(0, 40)}...`,
             );
             return;
-          }
-          this.processedVersions.add(version);
-          if (this.processedVersions.size > 1000) {
-            const first = this.processedVersions.values().next().value!;
-            this.processedVersions.delete(first);
           }
           this.logger.log(
             `Redis signal from ${signal.instanceId.slice(0, 8)}: ${signal.payload?.table} (${signal.payload?.scope || 'full'})`,
@@ -1363,8 +1382,20 @@ export class CacheOrchestratorService implements LifecycleAware {
           } else {
             await this.executeChain(signal.payload, false);
           }
+          this.signalRetryCounts.delete(version);
+          this.processedVersions.add(version);
+          if (this.processedVersions.size > 1000) {
+            const first = this.processedVersions.values().next().value!;
+            this.processedVersions.delete(first);
+          }
         } catch (error) {
           this.logger.error('Failed to process Redis signal:', error);
+          if (!version) return;
+          const retries = (this.signalRetryCounts.get(version) ?? 0) + 1;
+          if (retries <= 3) {
+            this.signalRetryCounts.set(version, retries);
+            setTimeout(() => this.messageHandler?.(channel, message), Math.min(1000 * retries, 5000));
+          }
         }
       }
     };

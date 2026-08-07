@@ -20,6 +20,8 @@ import type {
 } from '../types/runtime-schema-mutation.types';
 import { buildRuntimeSchemaChangePlan } from '../utils/runtime-schema-change-plan.util';
 import {
+  normalizeRuntimePolicyMetadata,
+  assertRuntimeNestedMetadataIdsOwned,
   normalizeRuntimeTableSchema,
   runtimeRelationDiffKey,
 } from '../utils/runtime-schema-normalization.util';
@@ -48,6 +50,7 @@ export class RuntimeSchemaContractCompilerService {
     const targetInput =
       input.afterMetadata ??
       (input.operation === 'create' ? input.data : undefined);
+    assertRuntimeNestedMetadataIdsOwned(input.operation, input.beforeMetadata, targetInput);
     const executionTarget = normalizeRuntimeTableSchema(targetInput, {
       backend,
       mode: 'intent',
@@ -56,6 +59,16 @@ export class RuntimeSchemaContractCompilerService {
       backend,
       mode: 'persisted',
     });
+    const sourcePolicyMetadata = normalizeRuntimePolicyMetadata(input.beforeMetadata);
+    const targetPolicyMetadata = normalizeRuntimePolicyMetadata(targetInput);
+    const sourcePolicyMetadataRevision = sourcePolicyMetadata
+      ? hashCanonical(sourcePolicyMetadata)
+      : null;
+    const targetPolicyMetadataRevision = targetPolicyMetadata
+      ? hashCanonical(targetPolicyMetadata)
+      : null;
+    const policyMetadataChanged =
+      sourcePolicyMetadataRevision !== targetPolicyMetadataRevision;
     const warnings = await this.collectCascadeWarnings(
       input.beforeMetadata,
       before?.contract.relations ?? [],
@@ -68,6 +81,7 @@ export class RuntimeSchemaContractCompilerService {
       before,
       after: executionTarget,
       owningSideInverseCascadeWarnings: warnings,
+      policyMetadataChanged,
     });
     const confirmationPayload = {
       version: 1,
@@ -99,6 +113,8 @@ export class RuntimeSchemaContractCompilerService {
       sourceRevision,
       targetRevision,
       executionBodyRevision,
+      sourcePolicyMetadataRevision,
+      targetPolicyMetadataRevision,
     });
     const requestIdempotencyKey = getRequestIdempotencyKey(
       input.requestContext,
@@ -125,6 +141,8 @@ export class RuntimeSchemaContractCompilerService {
         tableName: diff.tableName,
         sourceRevision,
         targetRevision,
+        sourcePolicyMetadataRevision,
+        targetPolicyMetadataRevision,
         executionBodyRevision,
         source: before?.contract ?? null,
         target: after?.contract ?? null,

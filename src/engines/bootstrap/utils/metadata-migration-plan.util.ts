@@ -230,6 +230,7 @@ function compileExecutionPhases(
   const previousPhysicalByTable = new Map<string, string>();
   for (const operation of operations) {
     if (
+      operation.kind !== 'modify-table' &&
       operation.kind !== 'modify-column' &&
       operation.kind !== 'remove-column' &&
       operation.kind !== 'modify-relation' &&

@@ -3,6 +3,7 @@ import { EventEmitter2 } from 'eventemitter2';
 import { FieldPermissionCacheBuilder } from '../../src/engines/cache';
 import { RuntimeRegistryService } from '../../src/engines/cache/services/runtime-registry.service';
 import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants';
+import { decideFieldPermission } from '../../src/shared/utils/field-permission.util';
 
 function makeRow(overrides: any) {
   return {
@@ -112,6 +113,34 @@ describe('FieldPermissionCacheBuilder — partial reload', () => {
   it('supportsPartialReload returns true', () => {
     const { svc } = makeService([]);
     expect(svc.supportsPartialReload()).toBe(true);
+  });
+
+  it('indexes legacy mixed scopes for both principals and fails closed', async () => {
+    const data = [
+      makeRow({
+        role: { id: 10 },
+        allowedUsers: [{ id: 20 }],
+        effect: 'allow',
+      }),
+    ];
+    const { svc, registry } = makeService(data);
+    await svc.reload(false);
+
+    await expect(decideFieldPermission(registry, {
+      user: { id: 99, role: { id: 10 } },
+      tableName: 'post',
+      action: 'read',
+      subjectType: 'column',
+      subjectName: 'name',
+    })).resolves.toMatchObject({ allowed: false });
+
+    await expect(decideFieldPermission(registry, {
+      user: { id: 20, role: { id: 11 } },
+      tableName: 'post',
+      action: 'read',
+      subjectType: 'column',
+      subjectName: 'name',
+    })).resolves.toMatchObject({ allowed: false });
   });
 
   it('partialReload inserts new rule, indexes column into allow Set', async () => {

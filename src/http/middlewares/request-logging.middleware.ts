@@ -2,7 +2,6 @@ import { Request, Response, NextFunction } from 'express';
 import { Logger } from '../../shared/logger';
 import { logStore, setCorrelationId } from '../../shared/log-store';
 
-const SLOW_REQUEST_THRESHOLD_MS = 2000;
 const httpLogger = new Logger('HTTP');
 
 interface RequestWithStartTime extends Request {
@@ -42,7 +41,7 @@ export function requestLoggingEnd(
   const responseTime = req.startTime ? Date.now() - req.startTime : 0;
   const statusCode = res.statusCode;
 
-  if (statusCode >= 400 || responseTime > SLOW_REQUEST_THRESHOLD_MS) {
+  if (statusCode >= 400) {
     const data: Record<string, any> = {
       message: 'API Response',
       method: req.method,
@@ -56,8 +55,6 @@ export function requestLoggingEnd(
       httpLogger.error(data);
     } else if (statusCode >= 400) {
       httpLogger.warn(data);
-    } else {
-      httpLogger.log(data);
     }
   }
 

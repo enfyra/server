@@ -33,6 +33,7 @@ export class GenericTableProcessor extends BaseTableProcessor {
       enfyra_relation: ['table', 'propertyName'],
       enfyra_route_permission: ['route', 'role'],
       enfyra_route_handler: ['route', 'method'],
+      enfyra_auth_header: ['headerKey', 'credentialType', 'scheme'],
     };
 
     const knownKey = criticalUniqueKeys[this.tableName];
@@ -116,6 +117,14 @@ export class GenericTableProcessor extends BaseTableProcessor {
         'code',
       ],
       enfyra_folder: ['name', 'order', 'icon', 'description'],
+      enfyra_auth_header: [
+        'headerKey',
+        'credentialType',
+        'scheme',
+        'priority',
+        'isEnabled',
+        'description',
+      ],
     };
 
     return fieldMap[this.tableName] || ['name', 'description'];

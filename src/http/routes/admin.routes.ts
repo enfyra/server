@@ -15,6 +15,11 @@ type MenuReorderUpdate = {
   parent?: string | number | null;
 };
 
+type AuthHeaderReorderUpdate = {
+  id: string | number;
+  priority: number;
+};
+
 function resolveOrchestrator(req: any, container: AwilixContainer<Cradle>) {
   return (
     req.scope?.cradle?.cacheOrchestratorService ??
@@ -86,6 +91,49 @@ function normalizeMenuReorderUpdates(body: any): MenuReorderUpdate[] {
   });
 }
 
+function normalizeAuthHeaderReorderUpdates(
+  body: any,
+): AuthHeaderReorderUpdate[] {
+  const input = Array.isArray(body?.updates)
+    ? body.updates
+    : Array.isArray(body?.ids)
+      ? body.ids.map((id: string | number, priority: number) => ({
+          id,
+          priority,
+        }))
+      : Array.isArray(body)
+        ? body
+        : null;
+
+  if (!input) {
+    throw new BadRequestException('updates must be an array');
+  }
+
+  const seen = new Set<string>();
+  return input.map((item: any, index: number) => {
+    const id = item?.id ?? item;
+    if (id == null || String(id).trim() === '') {
+      throw new BadRequestException(`updates[${index}].id is required`);
+    }
+    const idKey = String(id);
+    if (seen.has(idKey)) {
+      throw new BadRequestException(
+        `Duplicate auth header id in reorder payload: ${idKey}`,
+      );
+    }
+    seen.add(idKey);
+
+    const priority = Number(item?.priority ?? index);
+    if (!Number.isInteger(priority) || priority < 0) {
+      throw new BadRequestException(
+        `updates[${index}].priority must be a non-negative integer`,
+      );
+    }
+
+    return { id, priority };
+  });
+}
+
 function isSameId(a: unknown, b: unknown) {
   return String(a ?? '') === String(b ?? '');
 }
@@ -117,6 +165,28 @@ async function emitMenuReload(
     req.scope?.cradle?.eventEmitter ?? container.cradle.eventEmitter;
   const payload: TCacheInvalidationPayload = {
     table: 'enfyra_menu',
+    action: 'reload',
+    timestamp: Date.now(),
+    scope: ids.length ? 'partial' : 'full',
+    ids,
+  };
+
+  if (typeof eventEmitter.emitAsync === 'function') {
+    await eventEmitter.emitAsync(CACHE_EVENTS.INVALIDATE, payload);
+    return;
+  }
+  eventEmitter.emit(CACHE_EVENTS.INVALIDATE, payload);
+}
+
+async function emitAuthHeaderReload(
+  req: any,
+  container: AwilixContainer<Cradle>,
+  ids: (string | number)[],
+) {
+  const eventEmitter =
+    req.scope?.cradle?.eventEmitter ?? container.cradle.eventEmitter;
+  const payload: TCacheInvalidationPayload = {
+    table: 'enfyra_auth_header',
     action: 'reload',
     timestamp: Date.now(),
     scope: ids.length ? 'partial' : 'full',
@@ -270,6 +340,56 @@ export function registerAdminRoutes(
     }
 
     await emitMenuReload(req, container, ids);
+
+    res.json({
+      success: true,
+      data: {
+        updated: updates.length,
+        ids,
+      },
+    });
+  });
+
+  app.post('/admin/auth-header/reorder', async (req: any, res: Response) => {
+    const updates = normalizeAuthHeaderReorderUpdates(
+      req.routeData?.context?.$body ?? req.body ?? {},
+    );
+    if (updates.length === 0) {
+      res.json({ success: true, data: { updated: 0, ids: [] } });
+      return;
+    }
+
+    const queryBuilderService =
+      req.scope?.cradle?.queryBuilderService ??
+      container.cradle.queryBuilderService;
+    const pkField = queryBuilderService.getPkField();
+    const existingResult = await queryBuilderService.find({
+      table: 'enfyra_auth_header',
+      fields: [pkField, 'headerKey', 'scheme', 'isSystem'],
+      limit: 0,
+    });
+    const existingById = new Map<string, any>();
+    for (const record of existingResult?.data ?? []) {
+      const recordId = getRecordId(record, pkField);
+      if (recordId != null) existingById.set(String(recordId), record);
+    }
+
+    for (const update of updates) {
+      if (!existingById.has(String(update.id))) {
+        throw new BadRequestException(
+          `Authentication header not found: ${String(update.id)}`,
+        );
+      }
+    }
+
+    for (const update of updates) {
+      await queryBuilderService.update('enfyra_auth_header', update.id, {
+        priority: update.priority,
+      });
+    }
+
+    const ids = updates.map((update) => update.id);
+    await emitAuthHeaderReload(req, container, ids);
 
     res.json({
       success: true,

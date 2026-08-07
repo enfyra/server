@@ -85,6 +85,7 @@ export class MongoTableHandlerService {
         ruleType: rule.ruleType,
         value: rule.value ?? null,
         message: rule.message ?? null,
+        description: rule.description ?? null,
         isEnabled: rule.isEnabled !== false,
         [opts.subjectFk]: opts.subjectFkValue,
       };

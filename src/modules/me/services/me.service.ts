@@ -39,12 +39,46 @@ export class MeService {
 
   async find(req: Request & { user: any; routeData?: any }) {
     if (!req.user) throw new UnauthorizedException();
-    const repo = this.getSecureRepo(req, 'enfyra_user');
+    const context = this.getRepoContext(req);
+    const repo = context.$repos?.secure?.enfyra_user;
     if (!repo) {
       throw new Error('Repository not found in route context');
     }
     const userId = req.user._id || req.user.id;
-    const result = await repo.find({ filter: { id: { _eq: userId } } });
+    const queryDeep =
+      context.$query?.deep && typeof context.$query.deep === 'object'
+        ? context.$query.deep
+        : {};
+    const roleDeep =
+      queryDeep.role && typeof queryDeep.role === 'object'
+        ? queryDeep.role
+        : {};
+    const roleNestedDeep =
+      roleDeep.deep && typeof roleDeep.deep === 'object'
+        ? roleDeep.deep
+        : {};
+    const routePermissionsDeep =
+      roleNestedDeep.routePermissions &&
+      typeof roleNestedDeep.routePermissions === 'object'
+        ? roleNestedDeep.routePermissions
+        : {};
+    const result = await repo.find({
+      filter: { id: { _eq: userId } },
+      limit: 1,
+      deep: {
+        ...queryDeep,
+        role: {
+          ...roleDeep,
+          deep: {
+            ...roleNestedDeep,
+            routePermissions: {
+              ...routePermissionsDeep,
+              limit: 0,
+            },
+          },
+        },
+      },
+    });
     const loginProvider = req.user.loginProvider ?? null;
     if (result?.data && Array.isArray(result.data)) {
       return {

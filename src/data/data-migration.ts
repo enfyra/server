@@ -220,8 +220,209 @@ const dataMigration = {
           "_eq": "/dashboard"
         }
       },
+      "isPublic": true,
       "type": "Menu",
       "isSystem": true
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/data"
+        }
+      },
+      "isPublic": false,
+      "permission": {
+        "route": "/enfyra_route",
+        "methods": [
+          "GET"
+        ]
+      }
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/storage"
+        }
+      },
+      "isPublic": false,
+      "permission": {
+        "or": [
+          {
+            "route": "/enfyra_file",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_storage_config",
+            "methods": [
+              "GET"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/storage/config"
+        }
+      },
+      "isPublic": false,
+      "permission": {
+        "or": [
+          {
+            "route": "/enfyra_storage_config",
+            "methods": [
+              "GET"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/settings"
+        }
+      },
+      "isPublic": false,
+      "permission": {
+        "or": [
+          {
+            "route": "/enfyra_setting",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_menu",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_extension",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_bootstrap_script",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_user",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_role",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_websocket",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_oauth_config",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_oauth_account",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/logs",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_route",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_flow",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_guard",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_method",
+            "methods": [
+              "GET"
+            ]
+          },
+          {
+            "route": "/enfyra_auth_header",
+            "methods": [
+              "GET"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/packages/install"
+        }
+      },
+      "isPublic": false,
+      "permission": {
+        "route": "/enfyra_package",
+        "methods": [
+          "GET"
+        ]
+      }
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/packages/app"
+        }
+      },
+      "isPublic": false,
+      "permission": {
+        "route": "/enfyra_package",
+        "methods": [
+          "GET"
+        ]
+      }
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/packages/backend"
+        }
+      },
+      "isPublic": false,
+      "permission": {
+        "route": "/enfyra_package",
+        "methods": [
+          "GET"
+        ]
+      }
     },
     {
       "_unique": {
@@ -229,6 +430,7 @@ const dataMigration = {
           "_eq": "/settings/api-tester"
         }
       },
+      "isPublic": false,
       "permission": {
         "or": [
           {
@@ -246,7 +448,33 @@ const dataMigration = {
           "_eq": "/settings/admin/runtime"
         }
       },
+      "isPublic": false,
       "path": "/settings/runtime"
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/settings/auth-headers"
+        }
+      },
+      "type": "Menu",
+      "label": "Authentication Headers",
+      "icon": "lucide:key-round",
+      "isEnabled": true,
+      "isPublic": false,
+      "isSystem": true,
+      "description": "Configure accepted authentication header keys and their priority",
+      "order": 12,
+      "permission": {
+        "or": [
+          {
+            "route": "/enfyra_auth_header",
+            "methods": [
+              "GET"
+            ]
+          }
+        ]
+      }
     }
   ],
   "enfyra_post_hook": [
@@ -269,6 +497,38 @@ const dataMigration = {
       },
       "availableMethods": [
         "GET"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/enfyra_auth_header"
+        }
+      },
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:key-round",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "_unique": {
+        "path": {
+          "_eq": "/enfyra_menu_permission"
+        }
+      },
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:menu",
+      "availableMethods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
       ]
     },
     {
@@ -349,19 +609,32 @@ const dataMigration = {
         "POST"
       ]
     },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/admin/menu/reorder"
-        }
+      {
+        "_unique": {
+          "path": {
+            "_eq": "/admin/menu/reorder"
+          }
       },
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:list-ordered",
-      "availableMethods": [
-        "POST"
-      ]
-    },
+        "availableMethods": [
+          "POST"
+        ]
+      },
+      {
+        "_unique": {
+          "path": {
+            "_eq": "/admin/auth-header/reorder"
+          }
+        },
+        "isEnabled": true,
+        "isSystem": true,
+        "icon": "lucide:list-ordered",
+        "availableMethods": [
+          "POST"
+        ]
+      },
     {
       "_unique": {
         "path": {

@@ -625,6 +625,23 @@ snapshot
   .relations({});
 
 snapshot
+  .table('enfyra_auth_header', {
+    description: 'Configures request headers accepted for authentication',
+    system: true,
+  })
+  .columns({
+    id: col.int().primary().generated().notNull().system().description('Primary key identifier'),
+    headerKey: col.varchar().notNull().system().description('Request header name, normalized to lowercase'),
+    credentialType: col.enum(['pat', 'jwt']).notNull().system().default('pat').description('Credential verifier used for this header'),
+    scheme: col.enum(['raw', 'bearer']).notNull().system().default('raw').description('Whether the header contains a raw token or a Bearer token'),
+    priority: col.int().notNull().system().default(0).description('Lower values are checked first when multiple headers are present'),
+    isEnabled: col.boolean().notNull().system().default(true).description('Whether this header mapping is active'),
+    isSystem: col.boolean().notNull().system().default(false).description('Whether this mapping is built-in and immutable'),
+    description: col.text().system().nullable().description('Description of this authentication header mapping'),
+  })
+  .relations({});
+
+snapshot
   .table('enfyra_cors_origin', {
     description:
       'Allowed CORS origins served by the public /enfyra_cors_origin endpoint',
@@ -755,6 +772,13 @@ snapshot
       .text()
       .system()
       .description("Description of the role's purpose and permissions"),
+  })
+  .relations({
+    menuPermissions: rel
+      .oneToMany('enfyra_menu_permission')
+      .inverse('role')
+      .system()
+      .description('Menu visibility rules granted to this role'),
   })
   .uniques([['name']]);
 
@@ -1503,6 +1527,12 @@ snapshot
       .system()
       .default(true)
       .description('Whether the menu item is visible'),
+    isPublic: col
+      .boolean()
+      .notNull()
+      .system()
+      .default(false)
+      .description('Whether every role can see this menu item'),
     isSystem: col
       .boolean()
       .notNull()
@@ -1532,9 +1562,52 @@ snapshot
       .system()
       .nullable()
       .description('Parent menu item (null for top-level items)'),
+    menuPermissions: rel
+      .oneToMany('enfyra_menu_permission')
+      .inverse('menu')
+      .system()
+      .description('Role-specific visibility rules for this menu item'),
   })
   .uniques([['type', 'label'], ['path']])
   .indexes([['order']]);
+
+snapshot
+  .table('enfyra_menu_permission', {
+    description: 'Controls which roles can see a non-public admin menu item',
+    system: true,
+  })
+  .columns({
+    id: col
+      .int()
+      .primary()
+      .generated()
+      .notNull()
+      .system()
+      .description('Primary key identifier'),
+    isEnabled: col
+      .boolean()
+      .notNull()
+      .system()
+      .default(true)
+      .description('Whether this menu visibility rule is active'),
+  })
+  .relations({
+    menu: rel
+      .manyToOne('enfyra_menu')
+      .inverse('menuPermissions')
+      .notNull()
+      .system()
+      .onDelete('CASCADE')
+      .description('Menu item controlled by this visibility rule'),
+    role: rel
+      .manyToOne('enfyra_role')
+      .inverse('menuPermissions')
+      .notNull()
+      .system()
+      .onDelete('CASCADE')
+      .description('Role allowed to see the menu item'),
+  })
+  .uniques([['menu', 'role']]);
 
 snapshot
   .table('enfyra_extension', {
