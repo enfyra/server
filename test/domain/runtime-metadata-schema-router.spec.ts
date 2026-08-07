@@ -66,8 +66,22 @@ function createHarness(input?: {
     contractHash: 'test-hash',
     context: {
       diff: {
+        tableName: 'post',
+        operation: 'update',
         schemaChanged: true,
+        policyMetadataChanged: false,
         isDestructive: input?.preview === true,
+        removedColumns: [],
+        addedColumns: [],
+        renamedColumns: [],
+        changedColumns: [],
+        removedRelations: [],
+        addedRelations: [],
+        removedUniques: [],
+        addedUniques: [],
+        removedIndexes: [],
+        addedIndexes: [],
+        owningSideInverseCascadeWarnings: [],
       },
     },
   };
@@ -104,6 +118,7 @@ function createHarness(input?: {
     runtimeSchemaContractCompilerService,
     runtimeSchemaExecutorService,
     ownerTable,
+    contract,
   };
 }
 
@@ -268,6 +283,36 @@ describe('RuntimeMetadataSchemaRouterService', () => {
     expect(result.preview!._preview).toBe(true);
     expect(result.preview!.requiredConfirmHash).toBe('confirm-me');
     expect(harness.runtimeSchemaExecutorService.execute).not.toHaveBeenCalled();
+  });
+
+  it('accepts the snake_case confirmation query used by the app', async () => {
+    const harness = createHarness();
+
+    const result = await harness.service.updateTable({
+      tableId: 10,
+      body: { description: 'Updated description' },
+      context: { $query: { schema_confirm_hash: 'confirm-me' } } as any,
+    });
+
+    expect(result.preview).toBeUndefined();
+    expect(harness.runtimeSchemaExecutorService.execute).toHaveBeenCalledOnce();
+  });
+
+  it('exposes flattened diff details in a schema preview', async () => {
+    const harness = createHarness();
+    harness.contract.context.diff.changedColumns = ['title'];
+
+    const result = await harness.service.updateTable({
+      tableId: 10,
+      body: { description: 'Updated description' },
+    });
+
+    expect(result.preview).toEqual(expect.objectContaining({
+      _preview: true,
+      changedColumns: ['title'],
+      addedRelationsCount: 0,
+      removedRelationsCount: 0,
+    }));
   });
 
   it('routes relation deletion through a complete replacement aggregate', async () => {

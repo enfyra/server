@@ -173,6 +173,22 @@ describe('RuntimeNamespaceLifecycleService', () => {
     );
   });
 
+  it('does not extend a lease from a previous process', async () => {
+    const redis = new FakeRedis();
+    redis.values.set('app-a:runtime_lifecycle:lease:previous-instance', 'old');
+    redis.expiries.set('app-a:runtime_lifecycle:lease:previous-instance', 100);
+
+    const service = createService(redis);
+    await service.renewCurrentNamespaceKeys();
+
+    expect(redis.expiries.get('app-a:runtime_lifecycle:lease:inst-a')).toBe(
+      1000,
+    );
+    expect(
+      redis.expiries.get('app-a:runtime_lifecycle:lease:previous-instance'),
+    ).toBe(100);
+  });
+
   it('renews one system queue namespace on demand', async () => {
     const redis = new FakeRedis();
     redis.values.set('app-a:sys_flow-execution:wait', 'queue');

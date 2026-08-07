@@ -59,16 +59,29 @@ export class RuntimeSchemaContractCompilerService {
       backend,
       mode: 'persisted',
     });
-    const sourcePolicyMetadata = normalizeRuntimePolicyMetadata(input.beforeMetadata);
-    const targetPolicyMetadata = normalizeRuntimePolicyMetadata(targetInput);
+    const sourcePolicyMetadata = normalizeRuntimePolicyMetadata(
+      input.beforeMetadata,
+      { includeEmptySubjects: false },
+    );
+    const targetPolicyMetadata = normalizeRuntimePolicyMetadata(targetInput, {
+      includeEmptySubjects: false,
+    });
     const sourcePolicyMetadataRevision = sourcePolicyMetadata
       ? hashCanonical(sourcePolicyMetadata)
       : null;
     const targetPolicyMetadataRevision = targetPolicyMetadata
       ? hashCanonical(targetPolicyMetadata)
       : null;
-    const policyMetadataChanged =
-      sourcePolicyMetadataRevision !== targetPolicyMetadataRevision;
+    const sourcePolicyMetadataForDiff = normalizeRuntimePolicyMetadata(
+      input.beforeMetadata,
+      { includeEmptySubjects: false },
+    );
+    const targetPolicyMetadataForDiff = normalizeRuntimePolicyMetadata(
+      targetInput,
+      { includeEmptySubjects: false },
+    );
+    const policyMetadataChanged = hashCanonical(sourcePolicyMetadataForDiff)
+      !== hashCanonical(targetPolicyMetadataForDiff);
     const warnings = await this.collectCascadeWarnings(
       input.beforeMetadata,
       before?.contract.relations ?? [],

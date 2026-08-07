@@ -531,6 +531,13 @@ export class KnexService implements LifecycleAware {
     return this.getKnexForWrite() as Knex;
   }
 
+  getUnscopedWriteKnex(): Knex {
+    if (!this.knexInstance) {
+      throw new Error('Knex instance not initialized. Call init first.');
+    }
+    return this.replicationManager?.getMasterKnex() || this.knexInstance;
+  }
+
   private async runWithRuntimeWriteLease<T>(
     callback: () => Promise<T>,
     context: string,
