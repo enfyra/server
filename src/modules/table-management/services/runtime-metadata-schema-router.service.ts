@@ -48,7 +48,7 @@ export class RuntimeMetadataSchemaRouterService {
     const child = this.normalizeChild(input.tableName, input.data ?? {});
     list.push(child);
     body = this.normalizeCompleteTableConstraints(body);
-    this.validateColumns(body);
+    this.validateSchemaBody(body);
     body = await this.resolveRelationTargetNames(body);
     const { contract, requiredConfirmHash } =
       await this.deps.runtimeSchemaContractCompilerService.compile({
@@ -129,11 +129,13 @@ export class RuntimeMetadataSchemaRouterService {
       );
     }
     const previousChild = list[index];
-    list[index] = this.normalizeChild(input.tableName, {
-      ...list[index],
-      ...input.data,
-      [this.getPkField()]: input.recordId,
-    });
+    list[index] = this.normalizeChild(
+      input.tableName,
+      this.mergeNestedSchemaSubject(list[index], {
+        ...input.data,
+        [this.getPkField()]: input.recordId,
+      }),
+    );
     const fieldRenames = new Map<string, string>();
     if (
       input.tableName === 'enfyra_column' &&
@@ -144,7 +146,7 @@ export class RuntimeMetadataSchemaRouterService {
       fieldRenames.set(previousChild.name, list[index].name);
     }
     body = this.normalizeCompleteTableConstraints(body, fieldRenames);
-    this.validateColumns(body);
+    this.validateSchemaBody(body);
     body = await this.resolveRelationTargetNames(body);
     const { contract, requiredConfirmHash } =
       await this.deps.runtimeSchemaContractCompilerService.compile({
@@ -263,7 +265,7 @@ export class RuntimeMetadataSchemaRouterService {
     input: RuntimeTableMutationInput,
   ): Promise<RuntimeMetadataSchemaMutationResult> {
     const body = this.normalizeCompleteTableConstraints(input.body!);
-    this.validateColumns(body);
+    this.validateSchemaBody(body);
     const resolvedBody = await this.resolveRelationTargetNames(body);
     this.assertNotReservedTableName(String(resolvedBody.name));
     const { contract, requiredConfirmHash } =
@@ -334,7 +336,7 @@ export class RuntimeMetadataSchemaRouterService {
     const target = await this.resolveRelationTargetNames(
       this.buildCompleteTarget(existing, body),
     );
-    this.validateColumns(target);
+    this.validateSchemaBody(target);
     if (target.name !== existing.name) {
       this.assertNotReservedTableName(String(target.name));
     }
@@ -484,7 +486,7 @@ export class RuntimeMetadataSchemaRouterService {
           if (match.name && col.name && match.name !== col.name) {
             fieldRenames.set(match.name, col.name);
           }
-          return { ...match, ...col };
+          return this.mergeNestedSchemaSubject(match, col);
         }
         return col;
       });
@@ -513,12 +515,47 @@ export class RuntimeMetadataSchemaRouterService {
           ) {
             fieldRenames.set(match.propertyName, rel.propertyName);
           }
-          return { ...match, ...rel };
+          return this.mergeNestedSchemaSubject(match, rel);
         }
         return rel;
       });
     }
     return this.normalizeCompleteTableConstraints(target, fieldRenames);
+  }
+
+  private mergeNestedSchemaSubject(existing: any, incoming: any): any {
+    return {
+      ...existing,
+      ...incoming,
+      ...(Array.isArray(incoming.fieldPermissions) && {
+        fieldPermissions: this.mergeNestedSchemaMetadata(
+          existing.fieldPermissions,
+          incoming.fieldPermissions,
+        ),
+      }),
+      ...(Array.isArray(incoming.rules) && {
+        rules: this.mergeNestedSchemaMetadata(existing.rules, incoming.rules),
+      }),
+    };
+  }
+
+  private mergeNestedSchemaMetadata(
+    existingEntries: unknown,
+    incomingEntries: unknown[],
+  ): unknown[] {
+    if (!Array.isArray(existingEntries)) return incomingEntries;
+    const existingById = new Map(
+      existingEntries
+        .filter((entry: any) => entry && typeof entry === 'object')
+        .map((entry: any) => [String(this.getRecordId(entry)), entry]),
+    );
+    return incomingEntries.map((entry: any) => {
+      if (!entry || typeof entry !== 'object') return entry;
+      const entryId = this.getRecordId(entry);
+      if (entryId == null) return entry;
+      const existing = existingById.get(String(entryId));
+      return existing ? { ...existing, ...entry } : entry;
+    });
   }
 
   private normalizeCompleteTableConstraints(
@@ -761,6 +798,13 @@ export class RuntimeMetadataSchemaRouterService {
     this.deps.tableManagementValidationService.validateColumns(
       body.columns,
       this.deps.databaseConfigService.getDbType(),
+    );
+  }
+
+  private validateSchemaBody(body: TCreateTableBody): void {
+    this.validateColumns(body);
+    this.deps.tableManagementValidationService.validateRelations(
+      body.relations ?? [],
     );
   }
 

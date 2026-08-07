@@ -32,7 +32,7 @@ describe('SqlTableMetadataWriterService field-permission junctions', () => {
     );
   });
 
-  it('skips optional junction cleanup when no physical table exists', async () => {
+  it('deletes permissions even when no allowed-users junction table exists', async () => {
     const calls: string[] = [];
     const runner: any = (table: string) => {
       calls.push(table);
@@ -55,6 +55,9 @@ describe('SqlTableMetadataWriterService field-permission junctions', () => {
       subjectFkValue: 10,
     });
 
-    expect(calls).toEqual(['enfyra_field_permission']);
+    expect(calls).toEqual([
+      'enfyra_field_permission',
+      'enfyra_field_permission',
+    ]);
   });
 });
