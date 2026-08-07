@@ -82,11 +82,15 @@ function normalizeMenuReorderUpdates(body: any): MenuReorderUpdate[] {
       );
     }
 
-    const parent = item?.parent ?? null;
+    const hasParent = item !== null && typeof item === 'object' &&
+      Object.prototype.hasOwnProperty.call(item, 'parent');
+    const parent = hasParent ? item.parent : undefined;
     return {
       id,
       order,
-      parent: parent == null || String(parent).trim() === '' ? null : parent,
+      ...(parent === undefined
+        ? {}
+        : { parent: parent == null || String(parent).trim() === '' ? null : parent }),
     };
   });
 }
@@ -282,11 +286,19 @@ export function registerAdminRoutes(
       parentById.set(String(recordId), getRecordId(record.parent, pkField));
     }
 
-    for (const update of updates) {
+    const resolvedUpdates = updates.map((update) => {
+      const existing = existingById.get(String(update.id));
+      const parent = update.parent === undefined
+        ? getRecordId(existing?.parent, pkField)
+        : update.parent;
+      return { ...update, parent };
+    });
+
+    for (const update of resolvedUpdates) {
       parentById.set(String(update.id), update.parent ?? null);
     }
 
-    for (const update of updates) {
+    for (const update of resolvedUpdates) {
       const existing = existingById.get(String(update.id));
       if (!existing) {
         throw new BadRequestException(`Menu not found: ${String(update.id)}`);
@@ -325,7 +337,7 @@ export function registerAdminRoutes(
 
     const persistedIds: (string | number)[] = [];
     try {
-      for (const update of updates) {
+      for (const update of resolvedUpdates) {
         await queryBuilderService.update('enfyra_menu', update.id, {
           order: update.order,
           parent: update.parent,
