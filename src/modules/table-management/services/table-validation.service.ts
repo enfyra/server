@@ -33,6 +33,15 @@ export class TableManagementValidationService {
 
   validateRelations(relations: any[]) {
     for (const relation of relations || []) {
+      if (Array.isArray(relation.rules) && relation.rules.length > 0) {
+        throw new ValidationException(
+          `Relation '${relation.propertyName}' does not support validation rules`,
+          {
+            code: 'SCHEMA_RELATION_RULES_UNSUPPORTED',
+            relationName: relation.propertyName,
+          },
+        );
+      }
       if (relation.type === 'one-to-many' && !relation.mappedBy) {
         throw new ValidationException(
           `One-to-many relation '${relation.propertyName}' must have mappedBy`,

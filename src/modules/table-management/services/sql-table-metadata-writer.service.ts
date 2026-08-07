@@ -486,16 +486,18 @@ export class SqlTableMetadataWriterService {
       .where({ [opts.subjectFk]: opts.subjectFkValue })
       .select('id');
     const deletedIds = getDeletedIds(existing, opts.permissions);
-    if (deletedIds.length > 0 && allowedUsersJunction) {
-      const junctionRows = await queryRunner(
-        allowedUsersJunction.junctionTableName,
-      )
-        .whereIn(allowedUsersJunction.junctionSourceColumn, deletedIds)
-        .select('*');
-      if (Array.isArray(junctionRows) && junctionRows.length > 0) {
-        await queryRunner(allowedUsersJunction.junctionTableName)
+    if (deletedIds.length > 0) {
+      if (allowedUsersJunction) {
+        const junctionRows = await queryRunner(
+          allowedUsersJunction.junctionTableName,
+        )
           .whereIn(allowedUsersJunction.junctionSourceColumn, deletedIds)
-          .delete();
+          .select('*');
+        if (Array.isArray(junctionRows) && junctionRows.length > 0) {
+          await queryRunner(allowedUsersJunction.junctionTableName)
+            .whereIn(allowedUsersJunction.junctionSourceColumn, deletedIds)
+            .delete();
+        }
       }
       await queryRunner('enfyra_field_permission')
         .whereIn('id', deletedIds)
