@@ -191,6 +191,27 @@ describe('RuntimeSchemaContractCompilerService', () => {
     expect(result.contract.phases).toEqual([]);
   });
 
+  it('treats publication visibility changes as altered columns', async () => {
+    const result = await createCompiler().compile({
+      operation: 'update',
+      tableName: 'post',
+      tableId: 7,
+      beforeMetadata: baseTable,
+      afterMetadata: {
+        ...baseTable,
+        columns: [
+          baseTable.columns[0],
+          { ...baseTable.columns[1], isPublished: false },
+        ],
+      },
+    });
+
+    expect(result.contract.context.diff.changedColumns).toEqual(['title']);
+    expect(result.contract.changes).toEqual([
+      expect.objectContaining({ kind: 'alter-column', label: 'alter column title' }),
+    ]);
+  });
+
   it('compiles table metadata-only changes into executable phases', async () => {
     const compiler = createCompiler();
     const result = await compiler.compile({
@@ -264,5 +285,113 @@ describe('RuntimeSchemaContractCompilerService', () => {
       ]),
     );
     expect(result.contract.phases).not.toEqual([]);
+  });
+
+  it('treats omitted policy collections on a new column as empty', async () => {
+    const compiler = createCompiler();
+    const before = {
+      ...baseTable,
+      columns: baseTable.columns.map((column) => ({
+        ...column,
+        fieldPermissions: [],
+        rules: [],
+      })),
+    };
+    const addedColumn = {
+      id: 3,
+      name: 'transport',
+      type: 'enum',
+      isNullable: false,
+      isPrimary: false,
+      isGenerated: false,
+      defaultValue: 'unified',
+      options: ['unified', 'codex'],
+    };
+    const omittedPolicy = await compiler.compile({
+      operation: 'update',
+      tableName: 'post',
+      tableId: 7,
+      beforeMetadata: before,
+      afterMetadata: {
+        ...before,
+        columns: [...before.columns, addedColumn],
+      },
+    });
+    const materializedPolicy = await compiler.compile({
+      operation: 'update',
+      tableName: 'post',
+      tableId: 7,
+      beforeMetadata: before,
+      afterMetadata: {
+        ...before,
+        columns: [
+          ...before.columns,
+          { ...addedColumn, fieldPermissions: [], rules: [] },
+        ],
+      },
+    });
+
+    expect(
+      omittedPolicy.contract.context.targetPolicyMetadataRevision,
+    ).toBe(materializedPolicy.contract.context.targetPolicyMetadataRevision);
+    expect(omittedPolicy.contract.context.diff.policyMetadataChanged).toBe(false);
+  });
+
+  it('does not include policy-empty generated timestamp columns in policy revision', async () => {
+    const compiler = createCompiler();
+    const policyColumn = {
+      id: 3,
+      name: 'secret',
+      type: 'varchar',
+      isNullable: true,
+      isPrimary: false,
+      isGenerated: false,
+      defaultValue: null,
+      fieldPermissions: [
+        { id: 9, action: 'read', effect: 'deny', role: { id: 2 } },
+      ],
+      rules: [],
+    };
+    const logicalTarget = {
+      ...baseTable,
+      columns: [...baseTable.columns, policyColumn],
+    };
+    const persistedTarget = {
+      ...logicalTarget,
+      columns: [
+        ...logicalTarget.columns,
+        {
+          name: 'createdAt',
+          type: 'datetime',
+          fieldPermissions: [],
+          rules: [],
+        },
+        {
+          name: 'updatedAt',
+          type: 'datetime',
+          fieldPermissions: [],
+          rules: [],
+        },
+      ],
+    };
+
+    const logical = await compiler.compile({
+      operation: 'update',
+      tableName: 'post',
+      tableId: 7,
+      beforeMetadata: logicalTarget,
+      afterMetadata: logicalTarget,
+    });
+    const persisted = await compiler.compile({
+      operation: 'update',
+      tableName: 'post',
+      tableId: 7,
+      beforeMetadata: logicalTarget,
+      afterMetadata: persistedTarget,
+    });
+
+    expect(logical.contract.context.targetPolicyMetadataRevision).toBe(
+      persisted.contract.context.targetPolicyMetadataRevision,
+    );
   });
 });

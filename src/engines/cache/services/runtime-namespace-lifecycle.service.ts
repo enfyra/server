@@ -159,7 +159,6 @@ export class RuntimeNamespaceLifecycleService {
 
   private renewableNamespacePatterns(namespace: string): string[] {
     return [
-      `${namespace}:runtime_lifecycle:*`,
       `${namespace}:runtime_cache:*`,
       `${namespace}:runtime-monitor:*`,
       `${namespace}:cluster-telemetry:*`,

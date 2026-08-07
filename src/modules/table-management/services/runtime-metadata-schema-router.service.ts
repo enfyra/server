@@ -67,11 +67,7 @@ export class RuntimeMetadataSchemaRouterService {
       confirmHash !== requiredConfirmHash
     ) {
       return {
-        preview: {
-          _preview: true,
-          requiredConfirmHash,
-          schemaMutationContract: contract,
-        },
+        preview: this.buildPreview(contract, requiredConfirmHash),
         ownerTableId,
       };
     }
@@ -167,11 +163,7 @@ export class RuntimeMetadataSchemaRouterService {
       confirmHash !== requiredConfirmHash
     ) {
       return {
-        preview: {
-          _preview: true,
-          requiredConfirmHash,
-          schemaMutationContract: contract,
-        },
+        preview: this.buildPreview(contract, requiredConfirmHash),
         ownerTableId,
         recordId: input.recordId,
       };
@@ -236,11 +228,7 @@ export class RuntimeMetadataSchemaRouterService {
     const confirmHash = this.extractConfirmHash(input.context);
     if (confirmHash !== requiredConfirmHash) {
       return {
-        preview: {
-          _preview: true,
-          requiredConfirmHash,
-          schemaMutationContract: contract,
-        },
+        preview: this.buildPreview(contract, requiredConfirmHash),
         ownerTableId,
         recordId: input.recordId,
       };
@@ -295,11 +283,7 @@ export class RuntimeMetadataSchemaRouterService {
       confirmHash !== requiredConfirmHash
     ) {
       return {
-        preview: {
-          _preview: true,
-          requiredConfirmHash,
-          schemaMutationContract: contract,
-        },
+        preview: this.buildPreview(contract, requiredConfirmHash),
       };
     }
     const execResult = await this.deps.runtimeSchemaExecutorService.execute({
@@ -371,11 +355,7 @@ export class RuntimeMetadataSchemaRouterService {
       confirmHash !== requiredConfirmHash
     ) {
       return {
-        preview: {
-          _preview: true,
-          requiredConfirmHash,
-          schemaMutationContract: contract,
-        },
+        preview: this.buildPreview(contract, requiredConfirmHash),
       };
     }
     const execResult = await this.deps.runtimeSchemaExecutorService.execute({
@@ -437,11 +417,7 @@ export class RuntimeMetadataSchemaRouterService {
     const confirmHash = this.extractConfirmHash(input.context);
     if (confirmHash !== requiredConfirmHash) {
       return {
-        preview: {
-          _preview: true,
-          requiredConfirmHash,
-          schemaMutationContract: contract,
-        },
+        preview: this.buildPreview(contract, requiredConfirmHash),
       };
     }
     const execResult = await this.deps.runtimeSchemaExecutorService.execute({
@@ -743,11 +719,42 @@ export class RuntimeMetadataSchemaRouterService {
   }
 
   private extractConfirmHash(context: any): string | undefined {
-    return (
+    const value =
       context?.$query?.schemaConfirmHash ??
+      context?.$query?.schema_confirm_hash ??
       context?.$query?.confirmHash ??
-      undefined
-    );
+      context?.$query?.confirm_hash;
+    return typeof value === 'string' ? value.trim().toLowerCase() : undefined;
+  }
+
+  private buildPreview(contract: any, requiredConfirmHash: string): Record<string, any> {
+    const diff = contract.context?.diff ?? {};
+    return {
+      _preview: true,
+      tableName: diff.tableName,
+      operation: diff.operation,
+      schemaChanged: diff.schemaChanged,
+      policyMetadataChanged: diff.policyMetadataChanged,
+      isDestructive: diff.isDestructive,
+      removedColumns: diff.removedColumns ?? [],
+      addedColumns: diff.addedColumns ?? [],
+      renamedColumns: diff.renamedColumns ?? [],
+      changedColumns: diff.changedColumns ?? [],
+      removedRelationsCount: Array.isArray(diff.removedRelations)
+        ? diff.removedRelations.length
+        : 0,
+      addedRelationsCount: Array.isArray(diff.addedRelations)
+        ? diff.addedRelations.length
+        : 0,
+      removedUniques: diff.removedUniques ?? [],
+      addedUniques: diff.addedUniques ?? [],
+      removedIndexes: diff.removedIndexes ?? [],
+      addedIndexes: diff.addedIndexes ?? [],
+      owningSideInverseCascadeWarnings:
+        diff.owningSideInverseCascadeWarnings ?? [],
+      requiredConfirmHash,
+      schemaMutationContract: contract,
+    };
   }
 
   private validateColumns(body: TCreateTableBody): void {

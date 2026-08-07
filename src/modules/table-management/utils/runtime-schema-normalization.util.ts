@@ -26,8 +26,12 @@ export interface NormalizedRuntimeTableSchema {
   keyedColumns: readonly KeyedRuntimeSchemaColumn[];
 }
 
-export function normalizeRuntimePolicyMetadata(metadata: unknown): unknown | null {
+export function normalizeRuntimePolicyMetadata(
+  metadata: unknown,
+  options: { includeEmptySubjects?: boolean } = {},
+): unknown | null {
   if (!metadata || typeof metadata !== 'object') return null;
+  const includeEmptySubjects = options.includeEmptySubjects === true;
   const value = metadata as Record<string, any>;
   const normalizeEntries = (entries: unknown, kind: 'permission' | 'rule') => {
     if (!Array.isArray(entries)) return [];
@@ -63,18 +67,20 @@ export function normalizeRuntimePolicyMetadata(metadata: unknown): unknown | nul
   };
   const normalizeSubjects = (items: unknown, identity: 'column' | 'relation') =>
     (Array.isArray(items) ? items : [])
+      .filter((item: any) => item && typeof item === 'object')
+      .map((item: any) => {
+        const fieldPermissions = normalizeEntries(item?.fieldPermissions, 'permission');
+        const rules = normalizeEntries(item?.rules, 'rule');
+        return normalizeJsonValue({
+          key: stringValue(item?.name ?? item?.propertyName ?? item?.id ?? item?._id),
+          fieldPermissions,
+          rules,
+          identity,
+        });
+      })
       .filter(
         (item: any) =>
-          Object.prototype.hasOwnProperty.call(item ?? {}, 'fieldPermissions') ||
-          Object.prototype.hasOwnProperty.call(item ?? {}, 'rules'),
-      )
-      .map((item: any) =>
-        normalizeJsonValue({
-          key: stringValue(item?.name ?? item?.propertyName ?? item?.id ?? item?._id),
-          fieldPermissions: normalizeEntries(item?.fieldPermissions, 'permission'),
-          rules: normalizeEntries(item?.rules, 'rule'),
-          identity,
-        }),
+          includeEmptySubjects || item.fieldPermissions.length > 0 || item.rules.length > 0,
       )
       .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
   return {

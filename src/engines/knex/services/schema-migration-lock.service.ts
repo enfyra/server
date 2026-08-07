@@ -33,14 +33,14 @@ export class SchemaMigrationLockService {
     if (!handle) {
       return;
     }
-    const knex = this.knexService.getKnex();
+    const knex = this.getLockKnex();
 
     await this.clearLockRow(knex, handle.token);
   }
 
   async isStillHeld(handle: SchemaMigrationLockHandle): Promise<boolean> {
     if (!handle) return false;
-    const knex = this.knexService.getKnex();
+    const knex = this.getLockKnex();
     await this.ensureLockTable();
     const query = knex(this.tableName).where({
       id: 1,
@@ -117,7 +117,7 @@ export class SchemaMigrationLockService {
     if (!handle) {
       return false;
     }
-    const knex = this.knexService.getKnex();
+    const knex = this.getLockKnex();
     const dbType = this.queryBuilderService.getDatabaseType() || 'mysql';
 
     try {
@@ -143,7 +143,7 @@ export class SchemaMigrationLockService {
     context: string,
     token: string,
   ): Promise<SchemaMigrationLockHandle> {
-    const knex = this.knexService.getKnex();
+    const knex = this.getLockKnex();
     await this.ensureLockTable();
 
     const handle = await knex.transaction(async (trx) => {
@@ -228,7 +228,7 @@ export class SchemaMigrationLockService {
       return;
     }
 
-    const baseKnex = this.knexService.getKnex();
+    const baseKnex = this.getLockKnex();
     const exists = await baseKnex.schema.hasTable(this.tableName);
     if (!exists) {
       await baseKnex.schema.createTable(this.tableName, (table) => {
@@ -357,6 +357,10 @@ export class SchemaMigrationLockService {
         await knex(this.tableName).where({ id: 1 }).update(updatePayload);
       }
     }
+  }
+
+  private getLockKnex(): Knex {
+    return this.knexService.getUnscopedWriteKnex();
   }
 
   private async buildLockedError(knex: KnexLike): Promise<DatabaseException> {
