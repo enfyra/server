@@ -63,10 +63,20 @@ export async function loadUserWithRole(
 
   if (!user) return null;
 
-  const roleField = isMongoDB ? 'role' : 'roleId';
+  const relationRole = user.role;
+  const rawRoleId = isMongoDB
+    ? relationRole &&
+      typeof relationRole === 'object' &&
+      !(relationRole instanceof ObjectId)
+      ? relationRole._id ?? relationRole.id
+      : relationRole
+    : user.roleId ??
+      (relationRole && typeof relationRole === 'object'
+        ? relationRole.id ?? relationRole._id
+        : relationRole);
   const roleId = isMongoDB
-    ? toMongoObjectId(user[roleField])
-    : toSqlId(user[roleField]);
+    ? toMongoObjectId(rawRoleId)
+    : toSqlId(rawRoleId);
   if (roleId) {
     user.role = await queryBuilder.findOne({
       table: 'enfyra_role',
