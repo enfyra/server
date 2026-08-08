@@ -111,6 +111,33 @@ describe('loadUserWithRole', () => {
     expect(result?.role).toEqual(role);
   });
 
+  it('hydrates the full SQL role from the wildcard relation stub', async () => {
+    DatabaseConfigService.overrideForTesting('postgres');
+    const user = {
+      id: '6dcaf98d-07a0-4d7e-88ad-87dd1e3b113d',
+      email: 'member@example.com',
+      role: { id: 2 },
+    };
+    const role = { id: 2, name: 'Member' };
+    const findOne = vi.fn(async ({ table }) => {
+      if (table === 'enfyra_user') return user;
+      if (table === 'enfyra_role') return role;
+      return null;
+    });
+    const queryBuilder = {
+      isMongoDb: () => false,
+      findOne,
+    } as any;
+
+    const result = await loadUserWithRole(queryBuilder, user.id);
+
+    expect(findOne).toHaveBeenNthCalledWith(2, {
+      table: 'enfyra_role',
+      where: { id: 2 },
+    });
+    expect(result?.role).toEqual(role);
+  });
+
   it('returns local cached users without querying the database', async () => {
     DatabaseConfigService.overrideForTesting('postgres');
     const cachedUser = { id: '1', email: 'cached@example.com' };
