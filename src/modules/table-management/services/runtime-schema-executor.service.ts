@@ -20,6 +20,7 @@ import {
   normalizeRuntimeTableSchema,
 } from '../utils/runtime-schema-normalization.util';
 import { formatRuntimeSchemaContractDiff } from '../utils/runtime-schema-contract-diff.util';
+import { RUNTIME_SCHEMA_METADATA_READ_DEEP } from '../utils/runtime-schema-metadata-read.util';
 import { hashCanonical } from '../../../shared/utils/schema-mutation-contract.util';
 import type { QueryBuilderService } from '@enfyra/kernel';
 import type { RuntimeSchemaTargetAttestorService } from './runtime-schema-target-attestor.service';
@@ -216,6 +217,7 @@ export class RuntimeSchemaExecutorService {
       where: expectedRevision && tableId != null
         ? { [pkField]: tableId }
         : { name: tableName },
+      deep: RUNTIME_SCHEMA_METADATA_READ_DEEP,
       fields: [
         '*',
         'columns.*',
@@ -301,6 +303,7 @@ export class RuntimeSchemaExecutorService {
       where: tableId != null
         ? { [pkField]: tableId }
         : { name: tableName },
+      deep: RUNTIME_SCHEMA_METADATA_READ_DEEP,
       fields: [
         '*',
         'columns.*',

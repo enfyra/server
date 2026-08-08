@@ -501,6 +501,11 @@ export function isTypeCompatible(type1: string, type2: string): boolean {
       'datetime',
       'timestamp without time zone',
       'timestamp with time zone',
+      // Enfyra `date` columns are created as physical DATE by the runtime
+      // DDL path (column-operations/sql-generator) while getKnexColumnType
+      // normalizes date/datetime/timestamp to 'timestamp'. Accept physical
+      // DATE so runtime-added date columns pass target attestation.
+      'date',
     ],
     boolean: ['tinyint', 'boolean', 'bool'],
     real: ['real', 'float', 'double precision'],
