@@ -17,6 +17,7 @@ import type { RuntimeSchemaContractCompilerService } from './runtime-schema-cont
 import type { RuntimeSchemaExecutorService } from './runtime-schema-executor.service';
 import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
 import { normalizeTableConstraints } from '../utils/table-constraints.util';
+import { RUNTIME_SCHEMA_METADATA_READ_DEEP } from '../utils/runtime-schema-metadata-read.util';
 import type { TableManagementValidationService } from './table-validation.service';
 
 export class RuntimeMetadataSchemaRouterService {
@@ -312,6 +313,7 @@ export class RuntimeMetadataSchemaRouterService {
     const existing = await this.deps.queryBuilderService.findOne({
       table: 'enfyra_table',
       where: { [this.getPkField()]: tableId },
+      deep: RUNTIME_SCHEMA_METADATA_READ_DEEP,
       fields: [
         '*',
         'columns.*',
@@ -385,6 +387,7 @@ export class RuntimeMetadataSchemaRouterService {
     const existing = await this.deps.queryBuilderService.findOne({
       table: 'enfyra_table',
       where: { [this.getPkField()]: tableId },
+      deep: RUNTIME_SCHEMA_METADATA_READ_DEEP,
       fields: [
         '*',
         'columns.*',
@@ -607,6 +610,7 @@ export class RuntimeMetadataSchemaRouterService {
     const table = await this.deps.queryBuilderService.findOne({
       table: 'enfyra_table',
       where: { [this.getPkField()]: ownerTableId },
+      deep: RUNTIME_SCHEMA_METADATA_READ_DEEP,
       fields: [
         '*',
         'columns.*',
