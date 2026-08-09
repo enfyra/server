@@ -260,10 +260,34 @@ export class SqlSchemaDiffService {
         diff.metadataUpdate.indexes = finalIndexes;
       }
     } else if (!this.arraysEqual(oldUniques, newUniques)) {
-      diff.constraints.uniques.update = buildSqlUniqueContracts(
+      const oldPhysicalUniques = buildSqlUniqueContracts(
+        oldMetadata.name,
+        oldMetadata,
+      ).map((unique) => unique.physicalColumns);
+      const newPhysicalUniques = buildSqlUniqueContracts(
         newMetadata.name,
         newMetadata,
       ).map((unique) => unique.physicalColumns);
+      const oldUniqueKeys = new Set(
+        oldPhysicalUniques.map((columns) => this.indexKey(columns)),
+      );
+      const newUniqueKeys = new Set(
+        newPhysicalUniques.map((columns) => this.indexKey(columns)),
+      );
+      const toDelete = oldPhysicalUniques.filter(
+        (columns) =>
+          columns.length > 0 && !newUniqueKeys.has(this.indexKey(columns)),
+      );
+      const toCreate = newPhysicalUniques.filter(
+        (columns) =>
+          columns.length > 0 && !oldUniqueKeys.has(this.indexKey(columns)),
+      );
+      if (toDelete.length > 0) {
+        diff.constraints.uniques.delete = toDelete;
+      }
+      if (toCreate.length > 0) {
+        diff.constraints.uniques.create = toCreate;
+      }
     }
 
     const oldIndexes = this.filterIndexesToKnownColumns(

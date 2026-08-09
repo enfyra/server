@@ -169,6 +169,45 @@ describe('resolveSqlRelationOnDelete', () => {
     );
   });
 
+  it('drops an existing PostgreSQL unique constraint by its physical name', async () => {
+    const knex = {
+      raw: vi.fn(async (query: string) => {
+        const normalizedQuery = query.toLowerCase();
+        if (normalizedQuery.includes('information_schema.columns')) {
+          return { rows: [] };
+        }
+        if (normalizedQuery.includes('table_constraints')) {
+          return { rows: [] };
+        }
+        if (normalizedQuery.includes('pg_index')) {
+          return {
+            rows: [
+              {
+                index_name: 'uq_ai_gateway_models_upstreamModel',
+                is_unique: true,
+                columns: ['upstreamModel'],
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+      schema: { hasColumn: vi.fn().mockResolvedValue(true) },
+      client: { config: { client: 'pg' } },
+    } as any;
+
+    const statements = await generateSQLFromDiff(
+      knex,
+      'ai_gateway_models',
+      { constraints: { uniques: { delete: [['upstreamModel']] } } },
+      'postgres',
+    );
+
+    expect(statements).toContain(
+      'ALTER TABLE "ai_gateway_models" DROP CONSTRAINT "uq_ai_gateway_models_upstreamModel"',
+    );
+  });
+
   it('fails planning before DDL when it cannot inspect an index slated for removal', async () => {
     const knex = {
       raw: vi.fn().mockRejectedValue(new Error('database connection lost')),
