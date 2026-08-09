@@ -387,6 +387,42 @@ describe('SQL schema diff identity normalization', () => {
       rename: [],
     });
   });
+
+  it('emits a unique deletion when a table-level unique is removed', () => {
+    const service = new SqlSchemaDiffService({
+      knexService: {} as any,
+      metadataCacheService: {} as any,
+      queryBuilderService: {} as any,
+    });
+    const diff = {
+      columns: { create: [], update: [], delete: [], rename: [] },
+      constraints: {
+        uniques: { create: [], update: [], delete: [] },
+        indexes: { create: [], update: [], delete: [] },
+      },
+    };
+
+    (service as any).analyzeConstraintChanges(
+      {
+        name: 'ai_gateway_models',
+        columns: [],
+        relations: [],
+        uniques: [['modelName'], ['upstreamModel']],
+        indexes: [],
+      },
+      {
+        name: 'ai_gateway_models',
+        columns: [],
+        relations: [],
+        uniques: [['modelName']],
+        indexes: [],
+      },
+      diff,
+    );
+
+    expect(diff.constraints.uniques.delete).toEqual([['upstreamModel']]);
+    expect(diff.constraints.uniques.create).toEqual([]);
+  });
 });
 
 describe('Runtime inverse metadata attestation', () => {

@@ -251,6 +251,23 @@ export function generateDropIndexSQL(
   }
 }
 
+export function generateDropUniqueSQL(
+  tableName: string,
+  constraintName: string,
+  dbType: 'mysql' | 'postgres',
+): string {
+  const table = quoteIdentifier(tableName, dbType);
+  const constraint = quoteIdentifier(constraintName, dbType);
+
+  switch (dbType) {
+    case 'postgres':
+      return `ALTER TABLE ${table} DROP CONSTRAINT ${constraint}`;
+    case 'mysql':
+    default:
+      return `ALTER TABLE ${table} DROP INDEX ${constraint}`;
+  }
+}
+
 export function generateAddIndexSQL(
   tableName: string,
   indexName: string,

@@ -10,6 +10,7 @@ import {
   generateModifyColumnSQL,
   generateAddIndexSQL,
   generateDropIndexSQL,
+  generateDropUniqueSQL,
   generateDropColumnSQL,
   generateDropForeignKeySQL,
 } from './sql-dialect';
@@ -190,6 +191,26 @@ export async function generateSQLFromDiff(
       );
     }
   };
+  const findExistingUniqueNames = async (cols: string[]): Promise<string[]> => {
+    try {
+      const current = await getCurrentDatabaseSchema(knex, tableName);
+      const expected = cols.map((column) => column.toLowerCase());
+      return current.uniques
+        .filter(
+          (unique) =>
+            unique.columns.length === expected.length &&
+            unique.columns.every(
+              (column, position) => column.toLowerCase() === expected[position],
+            ),
+        )
+        .map((unique) => unique.name)
+        .filter(Boolean);
+    } catch (error) {
+      throw new Error(
+        `Cannot safely plan unique removal for ${tableName}(${cols.join(', ')}): ${getErrorMessage(error)}`,
+      );
+    }
+  };
   if (tableDiff.update) {
     sqlStatements.push(
       generateRenameTableSQL(
@@ -331,6 +352,21 @@ export async function generateSQLFromDiff(
     logger.log(
       `  Added UNIQUE constraint ${constraintName} on (${uniqueGroup.join(', ')})`,
     );
+  }
+  for (const uniqueGroup of ensureArray(constraintDiff.uniques?.delete) || []) {
+    const columns = Array.isArray(uniqueGroup)
+      ? uniqueGroup
+      : uniqueGroup?.value || [];
+    if (columns.length === 0) continue;
+    const existingConstraintNames = await findExistingUniqueNames(columns);
+    for (const constraintName of existingConstraintNames) {
+      sqlStatements.push(
+        generateDropUniqueSQL(activeTableName, constraintName, dbType),
+      );
+      logger.log(
+        `  Dropped UNIQUE constraint ${constraintName} (columns: ${columns.join(', ')})`,
+      );
+    }
   }
   for (const uniqueGroup of ensureArray(constraintDiff.uniques?.update) || []) {
     const columns = uniqueGroup.map((col: string) => qt(col)).join(', ');
