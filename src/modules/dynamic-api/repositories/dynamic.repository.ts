@@ -35,7 +35,7 @@ import {
   fieldPermissionRuleMatchesSubject,
   formatFieldPermissionErrorMessage,
 } from '../../../shared/utils/field-permission.util';
-import { UserRevocationService } from '../../../domain/auth';
+import { type BcryptService, UserRevocationService } from '../../../domain/auth';
 import {
   normalizeFlowStepScriptConfig,
   normalizeScriptPatch,
@@ -44,6 +44,7 @@ import {
 import { FlowQueueMaintenanceService } from '../../flow';
 import { logMemory } from '../../../shared/utils/memory-log.util';
 import { normalizeDynamicReadProjection } from '../utils/field-selection.util';
+import { autoSlug } from '../../../shared/utils/auto-slug.helper';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 import type { RuntimeSchemaActivationGateService } from '../../table-management';
 import type {
@@ -74,6 +75,7 @@ export class DynamicRepository {
   private guardValidationService: GuardValidationService;
   private eventEmitter: EventEmitter2;
   private userRevocationService?: UserRevocationService;
+  private readonly bcryptService: BcryptService;
   private flowQueueMaintenanceService?: FlowQueueMaintenanceService;
   private runtimeRegistryService: RuntimeRegistryService;
   private enforceFieldPermission: boolean;
@@ -92,6 +94,7 @@ export class DynamicRepository {
     guardValidationService,
     eventEmitter,
     userRevocationService,
+    bcryptService,
     flowQueueMaintenanceService,
     runtimeRegistryService,
     enforceFieldPermission,
@@ -108,6 +111,7 @@ export class DynamicRepository {
     eventEmitter: EventEmitter2;
     fieldPermissionCacheBuilder?: unknown;
     userRevocationService?: UserRevocationService;
+    bcryptService: BcryptService;
     flowQueueMaintenanceService?: FlowQueueMaintenanceService;
     runtimeRegistryService: RuntimeRegistryService;
     enforceFieldPermission?: boolean;
@@ -124,6 +128,7 @@ export class DynamicRepository {
     this.guardValidationService = guardValidationService;
     this.eventEmitter = eventEmitter;
     this.userRevocationService = userRevocationService;
+    this.bcryptService = bcryptService;
     this.flowQueueMaintenanceService = flowQueueMaintenanceService;
     this.runtimeRegistryService = runtimeRegistryService;
     this.enforceFieldPermission = enforceFieldPermission === true;
@@ -159,6 +164,8 @@ export class DynamicRepository {
       assertGuardRuleUpdate: async (id, body) =>
         this.guardValidationService.assertGuardRuleUpdate(id, body),
       assertFlowTriggerBody: (body) => this.assertFlowTriggerBody(body),
+      normalizeUserPassword: async (body) => this.normalizeUserPassword(body),
+      normalizeFolderSlug: (body) => this.normalizeFolderSlug(body),
       postStorageDefault: async (currentId) =>
         this.clearOtherDefaultStorageConfigs(currentId),
       postFlowJobs: async (id, name) =>
@@ -320,6 +327,16 @@ export class DynamicRepository {
         isDefault: false,
       });
     }
+  }
+
+  private async normalizeUserPassword(body: Record<string, any>): Promise<void> {
+    if (!body.password || typeof body.password !== 'string') return;
+    if (/^\$2[aby]\$\d{2}\$/.test(body.password)) return;
+    body.password = await this.bcryptService.hash(body.password);
+  }
+
+  private normalizeFolderSlug(body: Record<string, any>): void {
+    if (body.name) body.slug = autoSlug(String(body.name));
   }
 
   private stripNonUpdatableColumns(data: any, tableMetadata: any): any {

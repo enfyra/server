@@ -12,6 +12,11 @@ import {
 } from '../schemas/auth.schemas';
 import { API_TOKEN_ACCESS_TTL_MS, API_TOKEN_TABLE } from '../auth.constants';
 import type { PatVerifierService } from './pat-verifier.service';
+import type {
+  DynamicPatCreateInput,
+  DynamicPatCreateResult,
+  DynamicPatVerificationResult,
+} from '../../../shared/types';
 
 export class ApiTokenService {
   private readonly queryBuilder: IQueryBuilder;
@@ -58,6 +63,22 @@ export class ApiTokenService {
   async create(rawBody: unknown, req: any) {
     const userId = this.currentUserId(req);
     const body = parseOrBadRequest(createApiTokenSchema, rawBody);
+    return await this.createForUser({
+      userId,
+      name: body.name,
+      expiresAt: body.expiresAt,
+    });
+  }
+
+  async createForUser(
+    input: DynamicPatCreateInput,
+  ): Promise<DynamicPatCreateResult> {
+    const userId = String(input?.userId ?? '');
+    if (!userId) throw new BadRequestException('userId is required');
+    const body = parseOrBadRequest(createApiTokenSchema, {
+      name: input?.name,
+      expiresAt: input?.expiresAt ?? 'never',
+    });
     const expiresAt = this.parseExpiresAt(body.expiresAt);
     const token = `efy_pat_${randomBytes(32).toString('base64url')}`;
     const tokenHash = this.patVerifierService.hashToken(token);
@@ -80,6 +101,15 @@ export class ApiTokenService {
     return {
       ...this.serializeToken(inserted || data),
       token,
+      expiresAt: expiresAt ? expiresAt.toISOString() : 'never',
+    };
+  }
+
+  async verifyForScript(token: string): Promise<DynamicPatVerificationResult> {
+    const { payload, expiresAt } = await this.patVerifierService.verify(token);
+    return {
+      userId: String(payload.id),
+      tokenId: String(payload.tokenId),
       expiresAt: expiresAt ? expiresAt.toISOString() : 'never',
     };
   }

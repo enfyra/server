@@ -34,6 +34,8 @@ describe('MeService', () => {
     const service = new MeService({
       repoRegistryService: repoRegistryService as any,
       dynamicContextFactory: dynamicContextFactory as any,
+      policyService: {} as any,
+      runtimeRegistryService: {} as any,
     });
 
     const result = await service.find({
@@ -73,40 +75,31 @@ describe('MeService', () => {
   });
 
 
-  it('rejects protected user fields on /me updates while allowing profile fields', async () => {
+  it('strips user relations from self updates without direct user PATCH access', async () => {
     const userRepo = {
       update: vi.fn(async ({ data }) => ({ data: [{ id: 'user-1', ...data }] })),
     };
-    const tableRepo = {
-      find: vi.fn(async () => ({
-        data: [
-          {
-            id: 1,
-            name: 'enfyra_user',
-            columns: [
-              { name: 'id', isPrimary: true, isSystem: true },
-              { name: 'email', isSystem: true, isPublished: true, isUpdatable: true },
-              { name: 'password', isSystem: true, isPublished: false, isUpdatable: true },
-              { name: 'isRootAdmin', isSystem: true, isPublished: true, isUpdatable: false },
-              { name: 'isSystem', isSystem: true, isPublished: true, isUpdatable: true },
-              { name: 'emailVerificationStatus', isSystem: true, isPublished: true, isUpdatable: true },
-              { name: 'fullName', isSystem: false, isPublished: true, isUpdatable: true },
-              { name: 'secretNote', isSystem: false, isPublished: false, isUpdatable: true },
-            ],
-            relations: [{ propertyName: 'role', isSystem: true }],
-          },
-        ],
-      })),
-    };
     const context: any = {};
+    const policyService = {
+      checkRequestAccess: vi.fn(() => ({ allow: false })),
+    };
     const service = new MeService({
       dynamicContextFactory: {
         createHttp: vi.fn(() => context),
       } as any,
       repoRegistryService: {
         createReposProxy: vi.fn(() => ({
-          enfyra_table: tableRepo,
           secure: { enfyra_user: userRepo },
+        })),
+      } as any,
+      policyService: policyService as any,
+      runtimeRegistryService: {
+        getRoutes: vi.fn(() => [{ path: '/enfyra_user', routePermissions: [] }]),
+        requireTableMetadata: vi.fn(() => ({
+          relations: [
+            { propertyName: 'role' },
+            { propertyName: 'allowedRoutePermissions' },
+          ],
         })),
       } as any,
     });
@@ -124,29 +117,87 @@ describe('MeService', () => {
       ip: '127.0.0.1',
     } as any;
 
-    await expect(service.update({ role: { id: 1 } }, req)).rejects.toThrow(
-      'Protected user fields cannot be updated through /me: role',
-    );
-    await expect(service.update({ isSystem: true }, req)).rejects.toThrow(
-      'Protected user fields cannot be updated through /me: isSystem',
-    );
-    await expect(service.update({ email: 'new@test.dev' }, req)).rejects.toThrow(
-      'Protected user fields cannot be updated through /me: email',
-    );
-    await expect(service.update({ secretNote: 'x' }, req)).rejects.toThrow(
-      'Protected user fields cannot be updated through /me: secretNote',
-    );
-
     await expect(
-      service.update({ fullName: 'Safe Profile', password: 'hashed' }, req),
+      service.update({
+        id: 'user-1',
+        fullName: 'Safe Profile',
+        role: { id: 1 },
+        allowedRoutePermissions: [{ id: 2 }],
+      }, req),
     ).resolves.toEqual({
-      data: [{ id: 'user-1', fullName: 'Safe Profile', password: 'hashed' }],
+      data: [{ id: 'user-1', fullName: 'Safe Profile' }],
     });
     expect(userRepo.update).toHaveBeenCalledTimes(1);
     expect(userRepo.update).toHaveBeenCalledWith({
       id: 'user-1',
-      data: { fullName: 'Safe Profile', password: 'hashed' },
+      data: { id: 'user-1', fullName: 'Safe Profile' },
     });
+  });
+
+  it('keeps user relations when the authenticated user can PATCH users', async () => {
+    const userRepo = {
+      update: vi.fn(async ({ data }) => ({ data: [{ id: 'user-1', ...data }] })),
+    };
+    const service = new MeService({
+      dynamicContextFactory: {
+        createHttp: vi.fn(() => ({})),
+      } as any,
+      repoRegistryService: {
+        createReposProxy: vi.fn(() => ({
+          secure: { enfyra_user: userRepo },
+        })),
+      } as any,
+      policyService: {
+        checkRequestAccess: vi.fn(() => ({ allow: true })),
+      } as any,
+      runtimeRegistryService: {
+        getRoutes: vi.fn(() => [{ path: '/enfyra_user', routePermissions: [] }]),
+        requireTableMetadata: vi.fn(),
+      } as any,
+    });
+    const req = { user: { id: 'user-1' } } as any;
+
+    await service.update({ fullName: 'Admin', role: { id: 1 } }, req);
+
+    expect(userRepo.update).toHaveBeenCalledWith({
+      id: 'user-1',
+      data: { fullName: 'Admin', role: { id: 1 } },
+    });
+  });
+
+  it('keeps user relations for a root administrator without route permission lookup', async () => {
+    const userRepo = {
+      update: vi.fn(async ({ data }) => ({ data: [{ id: 'root-1', ...data }] })),
+    };
+    const policyService = {
+      checkRequestAccess: vi.fn(),
+    };
+    const service = new MeService({
+      dynamicContextFactory: {
+        createHttp: vi.fn(() => ({})),
+      } as any,
+      repoRegistryService: {
+        createReposProxy: vi.fn(() => ({
+          secure: { enfyra_user: userRepo },
+        })),
+      } as any,
+      policyService: policyService as any,
+      runtimeRegistryService: {
+        getRoutes: vi.fn(),
+        requireTableMetadata: vi.fn(),
+      } as any,
+    });
+
+    await service.update(
+      { fullName: 'Root', role: { id: 1 } },
+      { user: { id: 'root-1', isRootAdmin: true } } as any,
+    );
+
+    expect(userRepo.update).toHaveBeenCalledWith({
+      id: 'root-1',
+      data: { fullName: 'Root', role: { id: 1 } },
+    });
+    expect(policyService.checkRequestAccess).not.toHaveBeenCalled();
   });
 
   it('uses enforced repository reads for /me/oauth-accounts', async () => {

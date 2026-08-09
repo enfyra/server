@@ -71,6 +71,9 @@ function makeRepo(
     runtimeRegistryService: runtimeRegistryService as any,
     eventEmitter: { emit: vi.fn() } as any,
     flowQueueMaintenanceService: flowQueueMaintenanceService as any,
+    bcryptService: {
+      hash: vi.fn(async (value: string) => `hashed:${value}`),
+    } as any,
     ...overrides,
   });
   vi.spyOn(repo as any, 'ensureInit').mockResolvedValue(undefined);
@@ -156,5 +159,20 @@ describe('DynamicRepository table-route side-effect ordering', () => {
     await repo.update({ id: 42, data: { description: 'Updated' } });
 
     expect(flowQueueMaintenanceService.removeFlowJobs).not.toHaveBeenCalled();
+  });
+
+  it('handles user passwords and folder slugs without system hooks', async () => {
+    const { repo: userRepo, queryBuilderService: userQuery } = makeRepo('enfyra_user');
+    await userRepo.create({ data: { password: 'plain-password' } });
+    expect(userQuery.insert).toHaveBeenCalledWith('enfyra_user', {
+      password: 'hashed:plain-password',
+    });
+
+    const { repo: folderRepo, queryBuilderService: folderQuery } = makeRepo('enfyra_folder');
+    await folderRepo.create({ data: { name: 'Project Files' } });
+    expect(folderQuery.insert).toHaveBeenCalledWith('enfyra_folder', {
+      name: 'Project Files',
+      slug: 'project-files',
+    });
   });
 });

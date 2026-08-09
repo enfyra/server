@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { IsolatedExecutorService } from '@enfyra/kernel';
 import { WebsocketContextFactory } from '../../src/modules/websocket';
 import { DynamicContextFactory } from '../../src/shared/services';
@@ -15,17 +15,36 @@ function createService() {
 }
 
 function createContextFactory() {
-  return new DynamicContextFactory({
+  const apiTokenService = {
+    createForUser: vi.fn(async ({ userId, name, expiresAt }) => ({
+      id: 'token-1',
+      name,
+      prefix: 'efy_pat_test',
+      last4: 'test',
+      expiresAt: expiresAt || 'never',
+      token: `efy_pat_${userId}`,
+    })),
+    verifyForScript: vi.fn(async () => ({
+      userId: 'user-1',
+      tokenId: 'token-1',
+      expiresAt: 'never',
+    })),
+  };
+  return {
+    apiTokenService,
+    factory: new DynamicContextFactory({
     bcryptService: {
       hash: async (plain: string) => `hashed:${plain}`,
       compare: async (plain: string, hash: string) => hash === `hashed:${plain}`,
     } as any,
+    apiTokenService: apiTokenService as any,
     userCacheService: {} as any,
     envService: { get: () => 'test-secret' } as any,
     websocketContextFactory: new WebsocketContextFactory({
       dynamicWebSocketGateway: {},
     }),
-  });
+    }),
+  };
 }
 
 describe('dynamic context env and crypto helpers', () => {
@@ -40,7 +59,7 @@ describe('dynamic context env and crypto helpers', () => {
 
     const service = createService();
     try {
-      const ctx = createContextFactory().createBase();
+      const ctx = createContextFactory().factory.createBase();
       const result = await service.run(
         `return {
           nodeName: $ctx.$env.NODE_NAME,
@@ -74,7 +93,7 @@ describe('dynamic context env and crypto helpers', () => {
   it('exposes bounded crypto helpers without exposing legacy ssh helper', async () => {
     const service = createService();
     try {
-      const ctx = createContextFactory().createBase();
+      const ctx = createContextFactory().factory.createBase();
       const result = await service.run(
         `const pair = await $ctx.$helpers.$crypto.generateSshKeyPair('test-host');
          let sshError = null;
@@ -114,7 +133,7 @@ describe('dynamic context env and crypto helpers', () => {
   it('exposes request headers and rawBody through isolated execution', async () => {
     const service = createService();
     try {
-      const ctx = createContextFactory().createBase({
+      const ctx = createContextFactory().factory.createBase({
         body: { event_type: 'transaction.completed' },
         req: {
           headers: { 'paddle-signature': 'ts=1;h1=test' },
@@ -136,6 +155,48 @@ describe('dynamic context env and crypto helpers', () => {
         rawBody: '{"event_type":"transaction.completed"}',
         body: { event_type: 'transaction.completed' },
       });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('exposes PAT issuance and verification through the dynamic helper', async () => {
+    const service = createService();
+    const { factory, apiTokenService } = createContextFactory();
+    try {
+      const result = await service.run(
+        `const created = await $ctx.$helpers.$pat.create({
+           userId: 'user-42',
+           name: 'Script token',
+           expiresAt: 'never'
+         });
+         const verified = await $ctx.$helpers.$pat.verify(created.token);
+         return { created, verified };`,
+        factory.createBase(),
+        5000,
+      );
+
+      expect(result).toEqual({
+        created: {
+          id: 'token-1',
+          name: 'Script token',
+          prefix: 'efy_pat_test',
+          last4: 'test',
+          expiresAt: 'never',
+          token: 'efy_pat_user-42',
+        },
+        verified: {
+          userId: 'user-1',
+          tokenId: 'token-1',
+          expiresAt: 'never',
+        },
+      });
+      expect(apiTokenService.createForUser).toHaveBeenCalledWith({
+        userId: 'user-42',
+        name: 'Script token',
+        expiresAt: 'never',
+      });
+      expect(apiTokenService.verifyForScript).toHaveBeenCalledWith('efy_pat_user-42');
     } finally {
       service.onDestroy();
     }

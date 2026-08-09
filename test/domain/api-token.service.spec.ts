@@ -107,6 +107,25 @@ describe('ApiTokenService', () => {
     expect(created).not.toHaveProperty('tokenHash');
   });
 
+  it('issues and verifies a PAT for trusted dynamic scripts without exposing hashes', async () => {
+    const { service, userId } = createHarness();
+
+    const created = await service.createForUser({
+      userId,
+      name: 'Dynamic script token',
+      expiresAt: 'never',
+    });
+    const verified = await service.verifyForScript(created.token);
+
+    expect(created.token).toMatch(/^efy_pat_/);
+    expect(created).not.toHaveProperty('tokenHash');
+    expect(verified).toEqual({
+      userId,
+      tokenId: created.id,
+      expiresAt: 'never',
+    });
+  });
+
   it('rejects missing or past expiration values before returning a token', async () => {
     const { service, req } = createHarness();
 

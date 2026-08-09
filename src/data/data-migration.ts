@@ -3,6 +3,46 @@ import type { BootstrapDataMigration } from '../engines/bootstrap/types';
 const dataMigration = {
   "_deletedRecords": [
     {
+      "table": "enfyra_pre_hook",
+      "filter": {
+        "name": {
+          "_eq": "User definition hash password"
+        }
+      }
+    },
+    {
+      "table": "enfyra_pre_hook",
+      "filter": {
+        "name": {
+          "_eq": "Me route hash password"
+        }
+      }
+    },
+    {
+      "table": "enfyra_pre_hook",
+      "filter": {
+        "name": {
+          "_eq": "Folder definition auto slug"
+        }
+      }
+    },
+    {
+      "table": "enfyra_pre_hook",
+      "filter": {
+        "name": {
+          "_eq": "Me route protected field guard"
+        }
+      }
+    },
+    {
+      "table": "enfyra_pre_hook",
+      "filter": {
+        "name": {
+          "_eq": "me_guard_protected_user_fields"
+        }
+      }
+    },
+    {
       "table": "enfyra_route",
       "filter": {
         "path": {

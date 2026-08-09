@@ -87,6 +87,12 @@ export class TableRouteRouter {
     });
     this.register('enfyra_user', {
       kind: 'generic',
+      async normalizeCreate(body) {
+        await handlers.normalizeUserPassword(body);
+      },
+      async normalizeUpdate(body) {
+        await handlers.normalizeUserPassword(body);
+      },
       async afterUpdateReload(ctx) {
         if (
           ctx.body &&
@@ -97,6 +103,15 @@ export class TableRouteRouter {
       },
       async afterDeleteReload(ctx) {
         await handlers.postUserRevocation(ctx.id);
+      },
+    });
+    this.register('enfyra_folder', {
+      kind: 'generic',
+      normalizeCreate(body) {
+        handlers.normalizeFolderSlug(body);
+      },
+      normalizeUpdate(body) {
+        handlers.normalizeFolderSlug(body);
       },
     });
     this.register('enfyra_flow', {

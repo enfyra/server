@@ -1028,59 +1028,7 @@ const defaultData = {
       ]
     }
   ],
-  "enfyra_pre_hook": [
-    {
-      "isEnabled": true,
-      "isGlobal": false,
-      "name": "User definition hash password",
-      "isSystem": true,
-      "route": "/enfyra_user",
-      "methods": [
-        "POST",
-        "PATCH"
-      ],
-      "sourceCode": "if (@BODY.password) { @BODY.password = await @HELPERS.$bcrypt.hash(@BODY.password); }",
-      "scriptLanguage": "typescript"
-    },
-    {
-      "isEnabled": true,
-      "isGlobal": false,
-      "name": "Me route protected field guard",
-      "isSystem": true,
-      "route": "/me",
-      "methods": [
-        "PATCH"
-      ],
-      "priority": 100,
-      "sourceCode": "const body = @BODY || {};\nconst allowedProtectedSelfFields = new Set(['password']);\nconst alwaysBlocked = new Set(['id', '_id', 'createdAt', 'updatedAt', 'roleId']);\nconst tableResult = await @REPOS.enfyra_table.find({ filter: { name: { _eq: 'enfyra_user' } }, fields: ['id', 'name', 'columns.name', 'columns.isSystem', 'columns.isPublished', 'columns.isUpdatable', 'columns.isPrimary', 'relations.propertyName', 'relations.isSystem'], limit: 1 });\nconst userTable = tableResult.data?.[0];\nconst columns = Array.isArray(userTable?.columns) ? userTable.columns : [];\nconst relations = Array.isArray(userTable?.relations) ? userTable.relations : [];\nconst blocked = [];\nfor (const key of Object.keys(body)) {\n  if (allowedProtectedSelfFields.has(key)) continue;\n  if (alwaysBlocked.has(key)) { blocked.push(key); continue; }\n  const column = columns.find((item) => item?.name === key);\n  if (column) {\n    if (column.isPrimary || column.isSystem || column.isPublished === false || column.isUpdatable === false) blocked.push(key);\n    continue;\n  }\n  const relation = relations.find((item) => item?.propertyName === key);\n  if (relation?.isSystem) blocked.push(key);\n}\nif (blocked.length) @THROW400('Protected user fields cannot be updated through /me: ' + [...new Set(blocked)].join(', '));",
-      "scriptLanguage": "typescript"
-    },
-    {
-      "isEnabled": true,
-      "isGlobal": false,
-      "name": "Me route hash password",
-      "isSystem": true,
-      "route": "/me",
-      "methods": [
-        "PATCH"
-      ],
-      "sourceCode": "if (@BODY.password) { @BODY.password = await @HELPERS.$bcrypt.hash(@BODY.password); }",
-      "scriptLanguage": "typescript"
-    },
-    {
-      "isEnabled": true,
-      "isGlobal": false,
-      "name": "Folder definition auto slug",
-      "isSystem": true,
-      "route": "/enfyra_folder",
-      "methods": [
-        "POST",
-        "PATCH"
-      ],
-      "sourceCode": "if (@BODY.name) { @BODY.slug = await @HELPERS.autoSlug(@BODY.name); }",
-      "scriptLanguage": "typescript"
-    }
-  ],
+  "enfyra_pre_hook": [],
   "enfyra_post_hook": [
     {
       "isEnabled": true,
