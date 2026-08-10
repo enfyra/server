@@ -31,6 +31,11 @@ import {
 } from '../../../shared/services';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+import { FlowExecutionHistoryService } from '../services/flow-execution-history.service';
+import type {
+  FlowExecutionHistoryId,
+  FlowProgressSnapshot,
+} from '../types/flow-execution-history.types';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 import type { RuntimeNamespaceLifecycleService } from '../../../engines/cache/services/runtime-namespace-lifecycle.service';
 import type { RuntimeScriptRepairService } from '../../../engines/cache';
@@ -40,13 +45,6 @@ const MAX_STEP_TIMEOUT = 300000;
 const MAX_PAYLOAD_SIZE = 1024 * 1024;
 const DEFAULT_MAX_CONCURRENCY_MULTIPLIER = 2;
 
-type FlowProgressSnapshot = {
-  completedSteps?: any[];
-  currentStep?: string | null;
-  failedStep?: string | null;
-  totalSteps?: number;
-};
-
 type FlowWorkerConcurrencyTuning = {
   mode: 'adaptive' | 'fixed';
   initial: number;
@@ -55,8 +53,6 @@ type FlowWorkerConcurrencyTuning = {
   intervalMs: number;
   maxEventLoopLagMs: number;
 };
-
-type FlowExecutionHistoryId = number | string | null;
 
 export class FlowExecutionQueueService {
   private readonly logger = new Logger(FlowExecutionQueueService.name);
@@ -72,6 +68,7 @@ export class FlowExecutionQueueService {
   private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
   private readonly runtimeScriptRepairService?: RuntimeScriptRepairService;
   private readonly flowQueue: Queue;
+  private readonly flowExecutionHistoryService: FlowExecutionHistoryService;
   private readonly traceFile?: string;
   private readonly flowWorkerEventLoopDelay = monitorEventLoopDelay({
     resolution: 20,
@@ -109,6 +106,9 @@ export class FlowExecutionQueueService {
       deps.runtimeNamespaceLifecycleService;
     this.runtimeScriptRepairService = deps.runtimeScriptRepairService;
     this.flowQueue = deps.flowQueue;
+    this.flowExecutionHistoryService = new FlowExecutionHistoryService({
+      queryBuilderService: this.queryBuilderService,
+    });
     const traceFile = this.envService.get('FLOW_WORKER_TRACE_FILE');
     this.traceFile =
       traceFile &&
@@ -366,7 +366,7 @@ export class FlowExecutionQueueService {
 
     const startTime = Date.now();
     this.runtimeMetricsCollectorService?.startFlow(flow.id, flow.name);
-    const executionHistoryId = await this.createExecutionHistory(
+    const executionHistoryId = await this.flowExecutionHistoryService.start(
       flow,
       payload,
       triggeredBy,
@@ -395,7 +395,7 @@ export class FlowExecutionQueueService {
       const executeFlowMs = Date.now() - executeFlowStarted;
 
       const historyEnqueueStarted = Date.now();
-      await this.finalizeExecutionHistory(
+      await this.flowExecutionHistoryService.finalize(
         flow,
         payload,
         triggeredBy,
@@ -444,7 +444,7 @@ export class FlowExecutionQueueService {
     } catch (error) {
       const progress = this.getFailureProgressSnapshot(error, job);
       const historyEnqueueStarted = Date.now();
-      await this.finalizeExecutionHistory(
+      await this.flowExecutionHistoryService.finalize(
         flow,
         payload,
         triggeredBy,
@@ -536,10 +536,9 @@ export class FlowExecutionQueueService {
         filter: { flow: { _eq: flow.id } },
         fields: ['id'],
         limit: 1,
-        meta: 'total_count',
+        meta: 'filterCount',
       });
-      const total =
-        countResult.meta?.total_count ?? countResult.meta?.totalCount ?? 0;
+      const total = countResult.meta?.filterCount ?? 0;
       if (total <= maxExecutions) return;
 
       const deleteCount = Math.min(total - maxExecutions, 200);
@@ -552,9 +551,11 @@ export class FlowExecutionQueueService {
       });
 
       for (const record of oldResult.data || []) {
+        const recordId = record.id ?? record._id;
+        if (recordId == null) continue;
         await this.queryBuilderService.delete(
           'enfyra_flow_execution',
-          record.id,
+          recordId,
         );
       }
     } catch (err) {
@@ -562,97 +563,6 @@ export class FlowExecutionQueueService {
         `Failed to cleanup old executions for flow ${flow.name}: ${(err as Error).message}`,
       );
     }
-  }
-
-  private async createExecutionHistory(
-    flow: FlowDefinition,
-    payload: any,
-    triggeredBy: any,
-    startTime: number,
-  ): Promise<FlowExecutionHistoryId> {
-    try {
-      const result = await (this.queryBuilderService as any).insert(
-        'enfyra_flow_execution',
-        {
-          flow: flow.id,
-          status: 'running',
-          triggeredBy: triggeredBy?.id || null,
-          payload: payload || {},
-          completedSteps: [],
-          currentStep: null,
-          error: null,
-          startedAt: new Date(startTime),
-          completedAt: null,
-          duration: null,
-        },
-      );
-      return this.getExecutionHistoryId(result);
-    } catch (error: any) {
-      this.logger.error(
-        `Flow execution history start failed for ${flow.name}: ${getErrorMessage(error)}`,
-      );
-      return null;
-    }
-  }
-
-  private async finalizeExecutionHistory(
-    flow: FlowDefinition,
-    payload: any,
-    triggeredBy: any,
-    executionHistoryId: FlowExecutionHistoryId,
-    finalState: Record<string, any>,
-  ): Promise<void> {
-    try {
-      if (executionHistoryId != null) {
-        await (this.queryBuilderService as any).update(
-          'enfyra_flow_execution',
-          executionHistoryId,
-          finalState,
-        );
-        return;
-      }
-
-      await (this.queryBuilderService as any).insert('enfyra_flow_execution', {
-        flow: flow.id,
-        status: finalState.status,
-        triggeredBy: triggeredBy?.id || null,
-        payload: payload || {},
-        ...finalState,
-      });
-    } catch (error: any) {
-      this.logger.error(
-        `Flow execution history finalize failed for ${flow.name}: ${getErrorMessage(error)}`,
-      );
-    }
-  }
-
-  private async updateExecutionProgress(
-    flow: FlowDefinition,
-    executionHistoryId: FlowExecutionHistoryId,
-    progress: FlowProgressSnapshot,
-  ): Promise<void> {
-    if (executionHistoryId == null) return;
-    try {
-      await (this.queryBuilderService as any).update(
-        'enfyra_flow_execution',
-        executionHistoryId,
-        {
-          status: 'running',
-          completedSteps: progress.completedSteps || [],
-          currentStep: progress.currentStep || null,
-        },
-      );
-    } catch (error: any) {
-      this.logger.warn(
-        `Flow execution progress update failed for ${flow.name}: ${getErrorMessage(error)}`,
-      );
-    }
-  }
-
-  private getExecutionHistoryId(result: any): number | string | null {
-    const data = result?.data;
-    const record = Array.isArray(data) ? data[0] : data || result;
-    return record?.id ?? record?._id ?? null;
   }
 
   private async executeFlow(
@@ -744,7 +654,7 @@ export class FlowExecutionQueueService {
         currentStep: step.key,
         totalSteps: allSteps.length,
       };
-      await this.updateExecutionProgress(
+      await this.flowExecutionHistoryService.updateProgress(
         flow,
         executionHistoryId,
         stepStartedProgress,
@@ -800,7 +710,7 @@ export class FlowExecutionQueueService {
             totalSteps: allSteps.length,
           })
           .catch(() => {});
-        await this.updateExecutionProgress(flow, executionHistoryId, {
+        await this.flowExecutionHistoryService.updateProgress(flow, executionHistoryId, {
           completedSteps,
           currentStep: step.key,
           totalSteps: allSteps.length,
@@ -833,7 +743,7 @@ export class FlowExecutionQueueService {
           };
           (error as any).flowProgress = failureProgress;
           await job.updateProgress(failureProgress).catch(() => {});
-          await this.updateExecutionProgress(
+          await this.flowExecutionHistoryService.updateProgress(
             flow,
             executionHistoryId,
             failureProgress,
@@ -867,7 +777,7 @@ export class FlowExecutionQueueService {
                 duration: Date.now() - stepStart,
                 retries: i + 1,
               });
-              await this.updateExecutionProgress(flow, executionHistoryId, {
+              await this.flowExecutionHistoryService.updateProgress(flow, executionHistoryId, {
                 completedSteps,
                 currentStep: step.key,
                 totalSteps: allSteps.length,
@@ -896,7 +806,7 @@ export class FlowExecutionQueueService {
             error: getErrorMessage(error),
             duration: Date.now() - stepStart,
           });
-          await this.updateExecutionProgress(flow, executionHistoryId, {
+          await this.flowExecutionHistoryService.updateProgress(flow, executionHistoryId, {
             completedSteps,
             currentStep: step.key,
             totalSteps: allSteps.length,
