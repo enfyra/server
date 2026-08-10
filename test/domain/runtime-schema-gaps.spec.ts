@@ -1217,21 +1217,18 @@ describe('Journal: must support retry after failure', () => {
 });
 
 describe('C4: Batch create must not bypass router', () => {
-  it('DynamicRepository.createBatch checks handles() for schema tables', async () => {
+  it('DynamicBatchCreationService checks handles() for schema tables', async () => {
     const fs = await import('node:fs');
     const source = fs.readFileSync(
       new URL(
-        '../../src/modules/dynamic-api/repositories/dynamic.repository.ts',
+        '../../src/modules/dynamic-api/services/dynamic-batch-creation.service.ts',
         import.meta.url,
       ),
       'utf-8',
     );
-    const batchStart = source.indexOf('async createBatch(');
-    expect(batchStart).toBeGreaterThan(0);
-    const batchSection = source.slice(batchStart, batchStart + 2000);
-    expect(batchSection).toContain("this.tableName === 'enfyra_table'");
-    expect(batchSection).toContain(
-      'runtimeMetadataSchemaRouterService.handles',
+    expect(source).toContain("tableName === 'enfyra_table'");
+    expect(source).toContain(
+      'runtimeMetadataSchemaRouterService.handles(tableName)',
     );
   });
 });

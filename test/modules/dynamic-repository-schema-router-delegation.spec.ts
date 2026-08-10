@@ -150,13 +150,19 @@ describe('DynamicRepository schema router delegation', () => {
         mutationId: 'runtime-schema:activation-failure',
       },
     });
-    (repo as any).reload.mockRejectedValue(new Error('cache reload failed'));
+
+    vi.spyOn(
+      (repo as any).schemaActivationService as any,
+      'reload',
+    ).mockRejectedValue(new Error('cache reload failed'));
 
     await expect(
       repo.create({ data: { name: 'slug', type: 'varchar', table: 10 } }),
     ).rejects.toThrow(/instance fenced/i);
 
-    expect((repo as any).reload).toHaveBeenCalledTimes(3);
+    expect((repo as any).schemaActivationService.reload).toHaveBeenCalledTimes(
+      3,
+    );
     expect(
       runtimeMetadataSchemaRouterService.markActivated,
     ).not.toHaveBeenCalled();

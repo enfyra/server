@@ -1,3 +1,10 @@
+import { BadRequestException } from '../../../domain/exceptions';
+import {
+  normalizeFlowStepScriptConfig,
+  normalizeScriptPatch,
+  normalizeScriptRecord,
+} from '../../../shared/utils/script-code.util';
+
 type MutableColumnMetadata = {
   name: string;
   isPublished?: boolean;
@@ -63,7 +70,85 @@ export class DynamicMutationPreparationService {
     return prepared;
   }
 
-  private isEmptyUnpublishedValue(value: unknown, type: string | undefined): boolean {
+  async prepareCreateBody(
+    raw: any,
+    tableName: string,
+    tableMetadata: unknown,
+    mutationAuthorizationService: {
+      assertDirectFieldPermission: (
+        operation: 'create' | 'update',
+        body: any,
+      ) => Promise<void>;
+      assertMutationSafety: (
+        operation: 'create' | 'update' | 'delete',
+        body: any,
+        existing: any,
+      ) => Promise<void>;
+    },
+    tableValidationService: {
+      assertTableValid: (options: {
+        operation: 'create' | 'update' | 'delete';
+        tableName: string;
+        tableMetadata: any;
+      }) => Promise<void>;
+    },
+    strategy?: { normalizeCreate?: (body: any) => Promise<void> | void },
+  ): Promise<Record<string, any>> {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new BadRequestException('data is required and must be an object');
+    }
+
+    const body = { ...raw };
+    await mutationAuthorizationService.assertDirectFieldPermission(
+      'create' as const,
+      body,
+    );
+    await tableValidationService.assertTableValid({
+      operation: 'create',
+      tableName,
+      tableMetadata,
+    });
+    await mutationAuthorizationService.assertMutationSafety(
+      'create',
+      body,
+      null,
+    );
+    await strategy?.normalizeCreate?.(body);
+    Object.assign(body, this.normalizeCreate(tableName, body));
+    if (tableName === 'enfyra_flow_step') {
+      Object.assign(body, this.normalizeFlowStep(body));
+    }
+    if (body.id !== undefined) {
+      delete body.id;
+    }
+    if (body._id !== undefined) {
+      delete body._id;
+    }
+    return body;
+  }
+
+  async executeCreateBody(
+    body: Record<string, any>,
+    tableName: string,
+    mutationAuthorizationService: {
+      runWithFieldPermissionCheck: <T>(fn: () => Promise<T>) => Promise<T>;
+      runWithMutationPolicy: <T>(fn: () => Promise<T>) => Promise<T>;
+    },
+    queryBuilderService: {
+      insert: (tableName: string, body: any) => Promise<any>;
+    },
+  ): Promise<any> {
+    return mutationAuthorizationService.runWithFieldPermissionCheck(() =>
+      mutationAuthorizationService.runWithMutationPolicy(() =>
+        queryBuilderService.insert(tableName, body),
+      ),
+    );
+  }
+
+  private isEmptyUnpublishedValue(
+    value: unknown,
+    type: string | undefined,
+  ): boolean {
     const stringLike = [
       'varchar',
       'text',
@@ -78,7 +163,9 @@ export class DynamicMutationPreparationService {
       'datetime',
       'timestamp',
     ].includes(type ?? '');
-    return value === null || value === undefined || (stringLike && value === '');
+    return (
+      value === null || value === undefined || (stringLike && value === '')
+    );
   }
 
   private toScriptBadRequest(error: unknown): BadRequestException {
@@ -89,14 +176,8 @@ export class DynamicMutationPreparationService {
         code:
           isRecord(error) && typeof error.code === 'string'
             ? error.code
-            : details?.name ?? 'SCRIPT_VALIDATION_ERROR',
+            : (details?.name ?? 'SCRIPT_VALIDATION_ERROR'),
       },
     );
   }
 }
-import { BadRequestException } from '../../../domain/exceptions';
-import {
-  normalizeFlowStepScriptConfig,
-  normalizeScriptPatch,
-  normalizeScriptRecord,
-} from '../../../shared/utils/script-code.util';
