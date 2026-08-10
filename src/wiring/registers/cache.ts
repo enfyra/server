@@ -1,4 +1,5 @@
 import { asClass, asFunction } from 'awilix';
+import type { Cradle } from '../cradle';
 import { env } from '../../env';
 import {
   AuthHeaderCacheBuilder,
@@ -35,7 +36,7 @@ import { DynamicRepositoryFactory } from '../../modules/dynamic-api';
 
 export const cacheRegisters = {
   cacheService: asFunction(
-    (cradle: any) =>
+    (cradle: Cradle) =>
       new RedisCacheService({
         redis: cradle.redis,
         envService: cradle.envService,
@@ -44,7 +45,7 @@ export const cacheRegisters = {
       }),
   ).singleton(),
   userCacheService: asFunction(
-    (cradle: any) =>
+    (cradle: Cradle) =>
       new RedisCacheService({
         redis: cradle.redis,
         envService: cradle.envService,
@@ -62,10 +63,10 @@ export const cacheRegisters = {
   ).singleton(),
   redisPubSubService: asClass(RedisPubSubService)
     .singleton()
-    .disposer((service: any) => service.onDestroy()),
+    .disposer((service: RedisPubSubService) => service.onDestroy()),
   runtimeNamespaceLifecycleService: asClass(RuntimeNamespaceLifecycleService)
     .singleton()
-    .disposer((service: any) => service.onDestroy()),
+    .disposer((service: RuntimeNamespaceLifecycleService) => service.onDestroy()),
   redisRuntimeCacheStore: asClass(RedisRuntimeCacheStore).singleton(),
   metadataCacheService: asClass(MetadataCacheService).singleton(),
   routeCacheService: asClass(RouteCacheService).singleton(),
@@ -93,5 +94,5 @@ export const cacheRegisters = {
   dynamicRepositoryFactory: asClass(DynamicRepositoryFactory).singleton(),
   cacheOrchestratorService: asClass(CacheOrchestratorService)
     .singleton()
-    .disposer((service: any) => service.onDestroy()),
+    .disposer((service: CacheOrchestratorService) => service.onDestroy()),
 } as const;

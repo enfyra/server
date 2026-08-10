@@ -160,19 +160,15 @@ export class AuthService {
       where: { [sessionIdField]: sessionId },
     });
 
-    if (!req.user) {
+    if (!session) {
       throw new BadRequestException(`Logout failed!`);
     }
 
-    const userIdToCheck = this.queryBuilder.isMongoDb()
-      ? req.user._id
-      : req.user.id;
-    const sessionUserId = this.queryBuilder.isMongoDb()
-      ? session?.user?._id || session?.user
-      : session?.userId;
-
-    if (!session || String(sessionUserId) !== String(userIdToCheck)) {
-      throw new BadRequestException(`Logout failed!`);
+    if (
+      session.refreshTokenHash &&
+      session.refreshTokenHash !== this.hashToken(body.refreshToken)
+    ) {
+      throw new BadRequestException('Refresh token has been revoked!');
     }
 
     await this.queryBuilder.delete(

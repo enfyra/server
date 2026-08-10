@@ -1,9 +1,6 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { DynamicRepository } from './dynamic.repository';
-import {
-  RuntimeMetadataSchemaRouterService,
-  TableHandlerService,
-} from '../../table-management';
+import { RuntimeMetadataSchemaRouterService } from '../../table-management';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { PolicyService } from '../../../domain/policy';
 import { DynamicApiTableValidationService } from '../services/table-validation.service';
@@ -15,7 +12,6 @@ import type { RuntimeRegistryService } from '../../../engines/cache/services/run
 import type { RuntimeSchemaActivationGateService } from '../../table-management';
 
 export class DynamicRepositoryFactory {
-  private readonly tableHandlerService: TableHandlerService;
   private readonly runtimeMetadataSchemaRouterService: RuntimeMetadataSchemaRouterService;
   private readonly queryBuilderService: QueryBuilderService;
   private readonly policyService: PolicyService;
@@ -29,7 +25,6 @@ export class DynamicRepositoryFactory {
   private readonly runtimeSchemaActivationGateService: RuntimeSchemaActivationGateService;
 
   constructor(deps: {
-    tableHandlerService: TableHandlerService;
     runtimeMetadataSchemaRouterService: RuntimeMetadataSchemaRouterService;
     queryBuilderService: QueryBuilderService;
     policyService: PolicyService;
@@ -42,7 +37,6 @@ export class DynamicRepositoryFactory {
     eventEmitter: EventEmitter2;
     runtimeSchemaActivationGateService: RuntimeSchemaActivationGateService;
   }) {
-    this.tableHandlerService = deps.tableHandlerService;
     this.runtimeMetadataSchemaRouterService =
       deps.runtimeMetadataSchemaRouterService;
     this.queryBuilderService = deps.queryBuilderService;
@@ -67,7 +61,6 @@ export class DynamicRepositoryFactory {
       tableName,
       context,
       enforceFieldPermission,
-      tableHandlerService: this.tableHandlerService,
       runtimeMetadataSchemaRouterService:
         this.runtimeMetadataSchemaRouterService,
       queryBuilderService: this.queryBuilderService,

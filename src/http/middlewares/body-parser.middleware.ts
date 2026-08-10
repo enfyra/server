@@ -30,6 +30,13 @@ export function bodyParserMiddleware(
         next,
       );
     }
+    if (contentType.includes('text/plain')) {
+      return express.text({ limit: limitStr, verify: captureRawBody })(
+        req,
+        res,
+        next,
+      );
+    }
     next();
   };
 }

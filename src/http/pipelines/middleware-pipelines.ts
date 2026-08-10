@@ -12,14 +12,12 @@ import { requestLoggingBegin, requestLoggingEnd } from '../middlewares/request-l
 import { bodyValidationMiddleware } from '../middlewares/body-validation.middleware';
 import { dynamicInterceptorBegin, dynamicInterceptorEnd } from '../middlewares/dynamic-interceptor.middleware';
 import { parseQueryMiddleware } from '../middlewares/parse-query.middleware';
-import { bodyParserMiddleware } from '../middlewares/body-parser.middleware';
 import { fileUploadMiddleware } from '../middlewares/file-upload.middleware';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 
 export function pipelinePreRouting(cradle: Cradle, container: AwilixContainer<Cradle>) {
   return [
-    bodyParserMiddleware(cradle.runtimeRegistryService),
     parseQueryMiddleware,
     // perf marker before routeDetect
     ((req: any, _res: any, next: any) => {

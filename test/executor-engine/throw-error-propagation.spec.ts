@@ -303,6 +303,52 @@ describe('Runtime error line location in error response', () => {
     }
   });
 
+  it('does not recompile a runtime SyntaxError', async () => {
+    const failure = Object.assign(
+      new Error('Unexpected token in payload'),
+      {
+        details: {
+          errorName: 'SyntaxError',
+          executionStage: 'runtime',
+        },
+      },
+    );
+    const kernelExecutorEngineService = {
+      run: async () => {
+        throw failure;
+      },
+    };
+    const service = new RuntimeScriptExecutorService({
+      kernelExecutorEngineService:
+        kernelExecutorEngineService as unknown as ExecutorEngineService,
+    });
+    let repairCalled = false;
+    try {
+      await service.run(
+        "throw new SyntaxError('Unexpected token in payload');",
+        {
+          $body: { name: 'Enfyra' },
+          $query: {},
+          $params: {},
+          $user: null,
+          $share: { $logs: [] },
+        },
+        5000,
+        {
+          sourceCode: 'const broken: string = ; return broken;',
+          scriptLanguage: 'typescript',
+          onCompiledCodeRepair: () => {
+            repairCalled = true;
+          },
+        },
+      );
+      fail('should have thrown');
+    } catch (err: any) {
+      expect(err.message).toContain('Unexpected token in payload');
+      expect(repairCalled).toBe(false);
+    }
+  });
+
   it('$throw errors do NOT get line info appended (intentional throw)', async () => {
     try {
       await single('$ctx.$throw["401"]("Custom auth error");');

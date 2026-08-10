@@ -21,33 +21,15 @@ import {
 } from '../../modules/table-management';
 
 export const tableManagementRegisters = {
-  tableHandlerService: asClass(TableHandlerService)
-    .singleton()
-    .inject((container: any) => ({
-      sqlTableHandlerService: container.cradle.sqlTableHandlerService,
-      mongoTableHandlerService: container.cradle.mongoTableHandlerService,
-      databaseConfigService: container.cradle.databaseConfigService,
-    })),
+  tableHandlerService: asClass(TableHandlerService).singleton(),
   sqlTableCreateService: asClass(SqlTableCreateService).singleton(),
   sqlTableUpdateService: asClass(SqlTableUpdateService).singleton(),
   sqlTableDeleteService: asClass(SqlTableDeleteService).singleton(),
-  sqlTableHandlerService: asClass(SqlTableHandlerService)
-    .singleton()
-    .inject((container: any) => ({
-      sqlTableCreateService: container.cradle.sqlTableCreateService,
-      sqlTableUpdateService: container.cradle.sqlTableUpdateService,
-      sqlTableDeleteService: container.cradle.sqlTableDeleteService,
-    })),
+  sqlTableHandlerService: asClass(SqlTableHandlerService).singleton(),
   mongoTableCreateService: asClass(MongoTableCreateService).singleton(),
   mongoTableUpdateService: asClass(MongoTableUpdateService).singleton(),
   mongoTableDeleteService: asClass(MongoTableDeleteService).singleton(),
-  mongoTableHandlerService: asClass(MongoTableHandlerService)
-    .singleton()
-    .inject((container: any) => ({
-      mongoTableCreateService: container.cradle.mongoTableCreateService,
-      mongoTableUpdateService: container.cradle.mongoTableUpdateService,
-      mongoTableDeleteService: container.cradle.mongoTableDeleteService,
-    })),
+  mongoTableHandlerService: asClass(MongoTableHandlerService).singleton(),
   tableValidationService: asClass(DynamicApiTableValidationService).singleton(),
   guardValidationService: asClass(GuardValidationService).singleton(),
   tableManagementValidationService: asClass(TableManagementValidationService).singleton(),

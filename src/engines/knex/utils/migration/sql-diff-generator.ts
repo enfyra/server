@@ -262,19 +262,75 @@ export async function generateSQLFromDiff(
     );
   }
   for (const col of ensureArray(columnDiff.delete)) {
-    if (col.isForeignKey) {
-      const constraintName = await findForeignKeyConstraintName(
-        knex,
-        tableName,
-        col.name,
-        dbType,
+    if (!col.isForeignKey) continue;
+    const constraintName = await findForeignKeyConstraintName(
+      knex,
+      tableName,
+      col.name,
+      dbType,
+    );
+    if (constraintName) {
+      sqlStatements.push(
+        generateDropForeignKeySQL(tableName, constraintName, dbType),
       );
-      if (constraintName) {
-        sqlStatements.push(
-          generateDropForeignKeySQL(tableName, constraintName, dbType),
-        );
-      }
     }
+  }
+  for (const crossOp of crossTableOps) {
+    if (crossOp.operation !== 'dropColumn') continue;
+    const constraintName = await findForeignKeyConstraintName(
+      knex,
+      crossOp.targetTable,
+      crossOp.columnName,
+      dbType,
+    );
+    if (constraintName) {
+      sqlStatements.push(
+        generateDropForeignKeySQL(
+          crossOp.targetTable,
+          constraintName,
+          dbType,
+        ),
+      );
+    }
+  }
+  for (const uniqueGroup of ensureArray(constraintDiff.uniques?.delete) || []) {
+    const columns = Array.isArray(uniqueGroup)
+      ? uniqueGroup
+      : uniqueGroup?.value || [];
+    if (columns.length === 0) continue;
+    const existingConstraintNames = await findExistingUniqueNames(columns);
+    for (const constraintName of existingConstraintNames) {
+      sqlStatements.push(
+        generateDropUniqueSQL(activeTableName, constraintName, dbType),
+      );
+      logger.log(
+        `  Dropped UNIQUE constraint ${constraintName} (columns: ${columns.join(', ')})`,
+      );
+    }
+  }
+  for (const indexGroup of ensureArray(constraintDiff.indexes?.delete) || []) {
+    const cols = Array.isArray(indexGroup)
+      ? indexGroup
+      : indexGroup?.value || [];
+    if (cols.length === 0) continue;
+    if (
+      dbType === 'mysql' &&
+      cols.some((col: string) => renamedColumns.has(col))
+    ) {
+      logger.log(
+        `  Skip dropping index on renamed column(s): ${cols.join(', ')}`,
+      );
+      continue;
+    }
+    const existingIndexNames = await findExistingIndexNames(cols);
+    for (const indexName of existingIndexNames) {
+      sqlStatements.push(
+        generateDropIndexSQL(activeTableName, indexName, dbType),
+      );
+      logger.log(`  Drop index ${indexName} (columns: ${cols.join(', ')})`);
+    }
+  }
+  for (const col of ensureArray(columnDiff.delete)) {
     sqlStatements.push(
       generateDropColumnSQL(activeTableName, col.name, dbType),
     );
@@ -353,48 +409,11 @@ export async function generateSQLFromDiff(
       `  Added UNIQUE constraint ${constraintName} on (${uniqueGroup.join(', ')})`,
     );
   }
-  for (const uniqueGroup of ensureArray(constraintDiff.uniques?.delete) || []) {
-    const columns = Array.isArray(uniqueGroup)
-      ? uniqueGroup
-      : uniqueGroup?.value || [];
-    if (columns.length === 0) continue;
-    const existingConstraintNames = await findExistingUniqueNames(columns);
-    for (const constraintName of existingConstraintNames) {
-      sqlStatements.push(
-        generateDropUniqueSQL(activeTableName, constraintName, dbType),
-      );
-      logger.log(
-        `  Dropped UNIQUE constraint ${constraintName} (columns: ${columns.join(', ')})`,
-      );
-    }
-  }
   for (const uniqueGroup of ensureArray(constraintDiff.uniques?.update) || []) {
     const columns = uniqueGroup.map((col: string) => qt(col)).join(', ');
     sqlStatements.push(
       `ALTER TABLE ${qt(activeTableName)} ADD UNIQUE (${columns})`,
     );
-  }
-  for (const indexGroup of ensureArray(constraintDiff.indexes?.delete) || []) {
-    const cols = Array.isArray(indexGroup)
-      ? indexGroup
-      : indexGroup?.value || [];
-    if (cols.length === 0) continue;
-    if (
-      dbType === 'mysql' &&
-      cols.some((col: string) => renamedColumns.has(col))
-    ) {
-      logger.log(
-        `  Skip dropping index on renamed column(s): ${cols.join(', ')}`,
-      );
-      continue;
-    }
-    const existingIndexNames = await findExistingIndexNames(cols);
-    for (const indexName of existingIndexNames) {
-      sqlStatements.push(
-        generateDropIndexSQL(activeTableName, indexName, dbType),
-      );
-      logger.log(`  Drop index ${indexName} (columns: ${cols.join(', ')})`);
-    }
   }
   for (const indexGroup of ensureArray(constraintDiff.indexes?.create) || []) {
     const cols = Array.isArray(indexGroup)
@@ -421,21 +440,6 @@ export async function generateSQLFromDiff(
         );
       }
     } else if (crossOp.operation === 'dropColumn') {
-      const constraintName = await findForeignKeyConstraintName(
-        knex,
-        crossOp.targetTable,
-        crossOp.columnName,
-        dbType,
-      );
-      if (constraintName) {
-        sqlStatements.push(
-          generateDropForeignKeySQL(
-            crossOp.targetTable,
-            constraintName,
-            dbType,
-          ),
-        );
-      }
       sqlStatements.push(
         generateDropColumnSQL(crossOp.targetTable, crossOp.columnName, dbType),
       );

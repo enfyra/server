@@ -10,16 +10,16 @@ describe('SnapshotDefinition', () => {
   it('defines the complete current system target', () => {
     const tables = Object.values(snapshot);
 
-    expect(tables).toHaveLength(41);
+    expect(tables).toHaveLength(43);
     expect(
       tables.reduce((total, table) => total + table.columns.length, 0),
-    ).toBe(338);
+    ).toBe(349);
     expect(
       tables.reduce(
         (total, table) => total + (table.relations?.length ?? 0),
         0,
       ),
-    ).toBe(71);
+    ).toBe(75);
   });
 
   it('builds table, column, relation, unique, and index contracts', () => {

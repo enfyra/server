@@ -1,4 +1,5 @@
 import { asClass, asFunction } from 'awilix';
+import type { Cradle } from '../cradle';
 import {
   MongoMigrationJournalService,
   MongoPhysicalMigrationService,
@@ -16,12 +17,12 @@ import {
 export const mongoRegisters = {
   mongoService: asClass(MongoService)
     .singleton()
-    .disposer((service: any) => service.onDestroy()),
+    .disposer((service: MongoService) => service.onDestroy()),
   mongoSchemaMigrationService: asClass(MongoSchemaMigrationService).singleton(),
   mongoSchemaMigrationLockService: asClass(MongoSchemaMigrationLockService).singleton(),
   mongoSagaLockService: asClass(MongoSagaLockService).singleton(),
   mongoSagaCoordinator: asFunction(
-    (cradle: any) =>
+    (cradle: Cradle) =>
       new MongoSagaCoordinator({
         mongoService: cradle.mongoService,
         lockService: cradle.mongoSagaLockService,
@@ -31,12 +32,12 @@ export const mongoRegisters = {
       }),
   )
     .singleton()
-    .disposer((service: any) => service.onDestroy()),
+    .disposer((service: MongoSagaCoordinator) => service.onDestroy()),
   mongoSagaSnapshotService: asClass(MongoSagaSnapshotService).singleton(),
   mongoMigrationJournalService: asClass(MongoMigrationJournalService).singleton(),
   mongoPhysicalMigrationService: asClass(MongoPhysicalMigrationService)
     .singleton()
-    .disposer((service: any) => service.onDestroy()),
+    .disposer((service: MongoPhysicalMigrationService) => service.onDestroy()),
   mongoSchemaDiffService: asClass(MongoSchemaDiffService).singleton(),
   mongoHookManagerService: asClass(MongoHookManagerService).singleton(),
   mongoRelationManagerService: asClass(MongoRelationManagerService).singleton(),

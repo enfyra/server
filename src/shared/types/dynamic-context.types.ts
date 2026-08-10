@@ -192,6 +192,7 @@ export interface TDynamicContext {
 export interface RequestWithRouteData extends Request {
   rawBody?: string;
   routeData?: {
+    path?: string;
     context: TDynamicContext;
     params: any;
     handler: string;

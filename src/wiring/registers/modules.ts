@@ -56,12 +56,12 @@ export const adminRegisters = {
   runtimeDbMetricsService: asClass(RuntimeDbMetricsService).singleton(),
   runtimeProcessMetricsService: asClass(RuntimeProcessMetricsService)
     .singleton()
-    .disposer((service: any) => service.onDestroy()),
+    .disposer((service: RuntimeProcessMetricsService) => service.onDestroy()),
   runtimeQueueMetricsService: asClass(RuntimeQueueMetricsService).singleton(),
   redisAdminService: asClass(RedisAdminService).singleton(),
   runtimeMonitorService: asClass(RuntimeMonitorService)
     .singleton()
-    .disposer((service: any) => service.onDestroy()),
+    .disposer((service: RuntimeMonitorService) => service.onDestroy()),
   meService: asClass(MeService).singleton(),
   graphqlService: asClass(GraphqlService).singleton(),
   dynamicResolver: asClass(DynamicResolver).singleton(),
@@ -75,14 +75,14 @@ export const flowRegisters = {
   flowTriggerDispatcherService: asClass(FlowTriggerDispatcherService).singleton(),
   flowExecutionQueueService: asClass(FlowExecutionQueueService)
     .singleton()
-    .disposer((service: any) => service.onDestroy()),
+    .disposer((service: FlowExecutionQueueService) => service.onDestroy()),
 } as const;
 
 export const websocketRegisters = {
   builtInSocketRegistry: asClass(BuiltInSocketRegistry).singleton(),
   dynamicWebSocketGateway: asClass(DynamicWebSocketGateway)
     .singleton()
-    .disposer((service: any) => service.onDestroy()),
+    .disposer((service: DynamicWebSocketGateway) => service.onDestroy()),
   websocketRuntimeService: asClass(WebsocketRuntimeService).singleton(),
   websocketEmitService: asClass(WebsocketEmitService).singleton(),
   websocketContextFactory: asClass(WebsocketContextFactory).singleton(),

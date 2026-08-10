@@ -19,6 +19,9 @@ function bootstrapContainer(overrides: Record<string, unknown> = {}) {
       redisPubSubService: { init: record('redisPubSubService.init') },
       runtimeNamespaceLifecycleService: {
         init: record('runtimeNamespaceLifecycleService.init'),
+        renewCurrentNamespaceKeys: record(
+          'runtimeNamespaceLifecycleService.renewCurrentNamespaceKeys',
+        ),
       },
       mongoSagaCoordinator: { init: record('mongoSagaCoordinator.init') },
       provisionService: {
@@ -56,8 +59,14 @@ function runtimeContainer(bootstrapOverrides: Record<string, unknown> = {}) {
   const { container, calls } = bootstrapContainer(bootstrapOverrides);
   const runtime: Record<string, unknown> = {
     eventEmitter: { emit: vi.fn() },
+    runtimeReloadAuditService: {
+      markInterruptedReloadsFailed: vi.fn(async () => undefined),
+    },
     cacheOrchestratorService: { init: vi.fn(async () => undefined) },
-    runtimeRegistryService: { init: vi.fn(async () => undefined) },
+    runtimeRegistryService: {
+      init: vi.fn(async () => undefined),
+      publishFromCache: vi.fn(async () => undefined),
+    },
     metadataCacheService: { reload: vi.fn(async () => undefined) },
     repoRegistryService: {
       rebuildFromMetadata: vi.fn(async () => undefined),
@@ -68,6 +77,7 @@ function runtimeContainer(bootstrapOverrides: Record<string, unknown> = {}) {
     fieldPermissionCacheBuilder: cacheService(),
     columnRuleCacheBuilder: cacheService(),
     settingCacheService: cacheService(),
+    authHeaderCacheBuilder: cacheService(),
     storageConfigCacheBuilder: cacheService(),
     oauthConfigCacheBuilder: cacheService(),
     websocketCacheBuilder: cacheService(),
@@ -88,6 +98,9 @@ function runtimeContainer(bootstrapOverrides: Record<string, unknown> = {}) {
     patVerifierService: { init: vi.fn(async () => undefined) },
     oauthExchangeCodeService: { init: vi.fn(async () => undefined) },
     mongoPhysicalMigrationService: { init: vi.fn(async () => undefined) },
+    runtimeSchemaJournalService: {
+      completeRecoveredActivations: vi.fn(async () => undefined),
+    },
   };
   Object.assign(container.cradle, runtime);
   return { container, calls };
@@ -197,6 +210,7 @@ describe('initBootstrap lifecycle', () => {
       'legacyAssessmentService.assess',
       'firstRunInitializer.isNeeded',
       'firstRunInitializer.run',
+      'runtimeNamespaceLifecycleService.renewCurrentNamespaceKeys',
     ]);
     expect(container.cradle.cacheOrchestratorService.init).toHaveBeenCalled();
     expect(container.cradle.metadataCacheService.reload).toHaveBeenCalled();

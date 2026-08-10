@@ -9,6 +9,7 @@
  * so no consumer needs to change.
  */
 import { createContainer, asValue, InjectionMode, type AwilixContainer } from 'awilix';
+import type { Response } from 'express';
 
 import { coreRegisters } from './wiring/registers/core';
 import { authRegisters } from './wiring/registers/auth';
@@ -29,6 +30,7 @@ import {
   bootstrapInfraRegisters,
   bootstrapProcessorRegisters,
 } from './wiring/registers/bootstrap';
+import type { RequestWithRouteData } from './shared/types/dynamic-context.types';
 
 export type { Cradle } from './wiring/cradle';
 
@@ -61,8 +63,8 @@ export function buildContainer(): AwilixContainer<import('./wiring/cradle').Crad
 
 export function buildRequestScope(
   root: AwilixContainer<import('./wiring/cradle').Cradle>,
-  req: any,
-  res: any,
+  req: RequestWithRouteData,
+  res: Response,
 ): AwilixContainer<import('./wiring/cradle').Cradle> {
   const scope = root.createScope<import('./wiring/cradle').Cradle>();
   scope.register({

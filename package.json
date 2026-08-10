@@ -14,6 +14,8 @@
   },
   "scripts": {
     "check:node": "node scripts/check-node-version.js",
+    "ci:architecture": "node scripts/check-architecture-guard.mjs",
+    "ci:large-files": "node scripts/report-large-files.mjs",
     "preinstall": "node scripts/check-node-version.js",
     "prebuild": "node scripts/check-node-version.js",
     "prestart": "node scripts/check-node-version.js",
@@ -35,6 +37,7 @@
     "bench:m2m-pg": "NODE_OPTIONS=\"--no-node-snapshot\" node scripts/benchmark-m2m-dataloader-pg.mjs",
     "test": "node scripts/test-prompt.js",
     "test:all": "NODE_OPTIONS=\"--no-node-snapshot${NODE_OPTIONS:+ $NODE_OPTIONS}\" vitest run",
+    "typecheck": "tsc --noEmit --pretty false",
     "test:watch": "NODE_OPTIONS=\"--no-node-snapshot${NODE_OPTIONS:+ $NODE_OPTIONS}\" vitest",
     "test:ui": "NODE_OPTIONS=\"--no-node-snapshot${NODE_OPTIONS:+ $NODE_OPTIONS}\" vitest --ui",
     "test:e2e:cache-load": "node test/cache-load.e2e.js",
@@ -52,7 +55,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1024.0",
     "@aws-sdk/lib-storage": "3.1024.0",
-    "@enfyra/kernel": "1.1.40",
+    "@enfyra/kernel": "1.1.41",
     "@envelop/core": "^5.5.1",
     "@envelop/depth-limit": "^7.1.1",
     "@google-cloud/storage": "^7.19.0",

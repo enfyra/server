@@ -11,7 +11,7 @@ export function buildQueueConnectionOptions(redisUri: string): ConnectionOptions
         : 6379;
   const dbPath = parsed.pathname.replace(/^\//, '');
   const db = dbPath.length > 0 ? Number(dbPath) : undefined;
-  const options: any = {
+  const options: ConnectionOptions = {
     host: parsed.hostname,
     port,
   };
@@ -29,7 +29,7 @@ export function buildQueueConnectionOptions(redisUri: string): ConnectionOptions
     options.tls = {};
   }
 
-  return options as ConnectionOptions;
+  return options;
 }
 
 export function createRuntimeQueue(name: string): Queue {

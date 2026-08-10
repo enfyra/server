@@ -127,6 +127,49 @@ describe('resolveSqlRelationOnDelete', () => {
     );
   });
 
+  it('drops a MySQL foreign key before its supporting index', async () => {
+    const knex = {
+      raw: vi.fn(async (query: string) => {
+        const normalizedQuery = query.toLowerCase();
+        if (normalizedQuery.includes('key_column_usage')) {
+          return [[{ CONSTRAINT_NAME: 'fk_course_teacherId' }]];
+        }
+        if (normalizedQuery.includes('information_schema.statistics')) {
+          return [
+            [
+              {
+                indexName: 'idx_course_teacherId_id',
+                isNonUnique: 1,
+                columns: 'teacherId,id',
+              },
+            ],
+          ];
+        }
+        return [[]];
+      }),
+      schema: { hasColumn: vi.fn().mockResolvedValue(true) },
+      client: { config: { client: 'mysql2' } },
+    } as any;
+
+    const statements = await generateSQLFromDiff(
+      knex,
+      'course',
+      {
+        columns: { delete: [{ name: 'teacherId', isForeignKey: true }] },
+        constraints: { indexes: { delete: [['teacherId', 'id']] } },
+      },
+      'mysql',
+    );
+
+    const dropForeignKeyIndex = statements.findIndex((sql) =>
+      sql.includes('DROP FOREIGN KEY'),
+    );
+    const dropIndexIndex = statements.findIndex((sql) =>
+      sql.includes('DROP INDEX'),
+    );
+    expect(dropForeignKeyIndex).toBeLessThan(dropIndexIndex);
+  });
+
   it('resolves the existing PostgreSQL index name by physical columns', async () => {
     const knex = {
       raw: vi.fn(async (query: string) => {
@@ -205,6 +248,54 @@ describe('resolveSqlRelationOnDelete', () => {
 
     expect(statements).toContain(
       'ALTER TABLE "ai_gateway_models" DROP CONSTRAINT "uq_ai_gateway_models_upstreamModel"',
+    );
+  });
+
+  it('drops PostgreSQL unique constraints before their columns', async () => {
+    const knex = {
+      raw: vi.fn(async (query: string) => {
+        const normalizedQuery = query.toLowerCase();
+        if (normalizedQuery.includes('information_schema.columns')) {
+          return { rows: [] };
+        }
+        if (normalizedQuery.includes('table_constraints')) {
+          return { rows: [] };
+        }
+        if (normalizedQuery.includes('pg_index')) {
+          return {
+            rows: [
+              {
+                index_name: 'course_name_key',
+                is_unique: true,
+                columns: ['name'],
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+      schema: { hasColumn: vi.fn().mockResolvedValue(true) },
+      client: { config: { client: 'pg' } },
+    } as any;
+
+    const statements = await generateSQLFromDiff(
+      knex,
+      'course',
+      {
+        columns: { delete: [{ name: 'name' }] },
+        constraints: { uniques: { delete: [['name']] } },
+      },
+      'postgres',
+    );
+
+    expect(
+      statements.findIndex((statement) =>
+        statement.includes('DROP CONSTRAINT "course_name_key"'),
+      ),
+    ).toBeLessThan(
+      statements.findIndex((statement) =>
+        statement.includes('DROP COLUMN IF EXISTS "name"'),
+      ),
     );
   });
 

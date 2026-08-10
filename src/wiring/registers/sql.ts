@@ -15,11 +15,11 @@ import { SqlFunctionService } from '../../engines/sql';
 export const sqlRegisters = {
   knexService: asClass(KnexService)
     .singleton()
-    .disposer((service: any) => service.onDestroy()),
+    .disposer((service: KnexService) => service.onDestroy()),
   knexHookManagerService: asClass(KnexHookManagerService).singleton(),
   replicationManager: asClass(ReplicationManager)
     .singleton()
-    .disposer((service: any) => service.onDestroy()),
+    .disposer((service: ReplicationManager) => service.onDestroy()),
   sqlSchemaMigrationService: asClass(SqlSchemaMigrationService).singleton(),
   sqlSchemaDiffService: asClass(SqlSchemaDiffService).singleton(),
   migrationJournalService: asClass(MigrationJournalService).singleton(),
@@ -27,6 +27,6 @@ export const sqlRegisters = {
   schemaMigrationLockService: asClass(SchemaMigrationLockService).singleton(),
   sqlPoolClusterCoordinatorService: asClass(SqlPoolClusterCoordinatorService)
     .singleton()
-    .disposer((service: any) => service.onDestroy()),
+    .disposer((service: SqlPoolClusterCoordinatorService) => service.onDestroy()),
   sqlFunctionService: asClass(SqlFunctionService).singleton(),
 } as const;

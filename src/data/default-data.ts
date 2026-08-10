@@ -1758,7 +1758,6 @@ const defaultData = {
     {
       "path": "/enfyra-admin",
       "isEnabled": true,
-      "isPublic": false,
       "isSystem": true,
       "requireAuth": true,
       "description": "Built-in admin UI real-time gateway",
