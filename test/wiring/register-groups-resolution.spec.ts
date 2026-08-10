@@ -34,4 +34,31 @@ describe('Awilix registration groups', () => {
   it('resolves every kernel and executor registration through the typed cradle', async () => {
     await expectRegistrationsToResolve(kernelExecutorRegisters);
   });
+
+  it('resolves cache, auth, and kernel-executor graphs together in one container', async () => {
+    const container = buildContainer();
+    try {
+      for (const registers of [
+        cacheRegisters,
+        authRegisters,
+        kernelExecutorRegisters,
+      ]) {
+        for (const name of registrationNames(registers)) {
+          expect(container.resolve(name)).toBeDefined();
+        }
+      }
+
+      expect(container.resolve('runtimeRegistryService')).toBe(
+        container.resolve('runtimeRegistryService'),
+      );
+      expect(container.resolve('authenticationService')).toBe(
+        container.resolve('authenticationService'),
+      );
+      expect(container.resolve('queryBuilderService')).toBe(
+        container.resolve('queryBuilderService'),
+      );
+    } finally {
+      await container.dispose();
+    }
+  });
 });
