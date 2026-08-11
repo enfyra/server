@@ -58,7 +58,7 @@ describe('MeService', () => {
       filter: { id: { _eq: 'user-1' } },
       limit: 1,
       deep: {
-        role: {
+        roles: {
           deep: {
             routePermissions: { limit: 0 },
           },

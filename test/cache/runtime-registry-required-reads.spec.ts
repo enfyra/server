@@ -138,7 +138,7 @@ describe('runtime registry required reads', () => {
 
     expect(
       registry.getFieldPermissionPoliciesFor(
-        { role: { id: 'editor' } },
+        { roles: [{ id: 'editor' }] },
         'posts',
         'read',
       ),

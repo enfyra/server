@@ -585,6 +585,56 @@ async function runSqlPartialJunctionResume(
   }
 }
 
+async function runSqlUserRolesMigration(database: SqlDatabase): Promise<void> {
+  const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
+  const databaseName = `enfyra_user_roles_${suffix}`;
+  const admin = createKnex(database);
+  let target: Knex | null = null;
+  const migration: SchemaMigrationDef = {
+    tables: [
+      {
+        _unique: { name: { _eq: 'enfyra_user' } },
+        relationsToRemove: ['role'],
+      },
+    ],
+  };
+
+  try {
+    await admin.raw('CREATE DATABASE ??', [databaseName]);
+    target = createKnex(database, databaseName);
+    await target.schema.createTable('enfyra_role', (table) => {
+      table.integer('id').unsigned().primary();
+    });
+    await target.schema.createTable('enfyra_user', (table) => {
+      table.integer('id').unsigned().primary();
+      table.integer('roleId').unsigned().references('id').inTable('enfyra_role');
+    });
+    await target('enfyra_role').insert([{ id: 10 }, { id: 20 }]);
+    await target('enfyra_user').insert([
+      { id: 1, roleId: 10 },
+      { id: 2, roleId: 20 },
+      { id: 3, roleId: null },
+    ]);
+    await applySqlSchemaMigrations(target, migration);
+    await applySqlSchemaMigrations(target, migration);
+
+    assert.equal(await target.schema.hasColumn('enfyra_user', 'roleId'), false);
+    assert.equal(await target.schema.hasTable('enfyra_user_roles'), true);
+    assert.deepEqual(await target('enfyra_user_roles').orderBy(['userId', 'roleId']), [
+      { userId: 1, roleId: 10 },
+      { userId: 2, roleId: 20 },
+    ]);
+  } finally {
+    await target?.destroy();
+    if (database === 'postgres') {
+      await admin.raw('DROP DATABASE IF EXISTS ?? WITH (FORCE)', [databaseName]);
+    } else {
+      await admin.raw('DROP DATABASE IF EXISTS ??', [databaseName]);
+    }
+    await admin.destroy();
+  }
+}
+
 async function runSqlRenameConflict(database: SqlDatabase): Promise<void> {
   const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
   const databaseName = `enfyra_snapshot_conflict_${suffix}`;
@@ -1541,6 +1591,62 @@ async function runMongoRenameConflict(): Promise<void> {
   }
 }
 
+async function runMongoUserRolesMigration(): Promise<void> {
+  const mongoUser = encodeURIComponent(required('MATRIX_MONGO_USER'));
+  const mongoPassword = encodeURIComponent(required('MATRIX_MONGO_PASSWORD'));
+  const mongoHost = process.env.MATRIX_MONGO_HOST || '127.0.0.1';
+  const mongoPort = Number(process.env.MATRIX_MONGO_PORT || 27017);
+  const mongoAuthDatabase = encodeURIComponent(
+    process.env.MATRIX_MONGO_AUTH_DATABASE || 'admin',
+  );
+  const client = new MongoClient(
+    `mongodb://${mongoUser}:${mongoPassword}@${mongoHost}:${mongoPort}/?authSource=${mongoAuthDatabase}`,
+  );
+  const databaseName = `enfyra_user_roles_${randomUUID()
+    .replaceAll('-', '')
+    .slice(0, 12)}`;
+  const migration: SchemaMigrationDef = {
+    tables: [
+      {
+        _unique: { name: { _eq: 'enfyra_user' } },
+        relationsToRemove: ['role'],
+      },
+    ],
+  };
+
+  try {
+    await client.connect();
+    const db = client.db(databaseName);
+    await db.collection('enfyra_user').insertMany([
+      { _id: 'user-1', role: 'role-1' },
+      { _id: 'user-2', role: 'role-2' },
+      { _id: 'user-3' },
+    ]);
+    await applyMongoSchemaMigrations(db, migration);
+    await applyMongoSchemaMigrations(db, migration);
+
+    const userRoles = await db
+      .collection('enfyra_user_roles')
+      .find({})
+      .sort({ userId: 1 })
+      .toArray();
+    assert.deepEqual(
+      userRoles.map(({ _id, ...role }) => role),
+      [
+        { userId: 'user-1', roleId: 'role-1' },
+        { userId: 'user-2', roleId: 'role-2' },
+      ],
+    );
+    assert.deepEqual(
+      await db.collection('enfyra_user').find({}).sort({ _id: 1 }).toArray(),
+      [{ _id: 'user-1' }, { _id: 'user-2' }, { _id: 'user-3' }],
+    );
+  } finally {
+    await client.db(databaseName).dropDatabase();
+    await client.close();
+  }
+}
+
 async function runMongoBoot(port: number): Promise<void> {
   const mongoUser = required('MATRIX_MONGO_USER');
   const mongoPassword = required('MATRIX_MONGO_PASSWORD');
@@ -1779,6 +1885,8 @@ async function main(): Promise<void> {
       console.log('PostgreSQL pre-mutation failure guards E2E passed');
       await runSqlPartialJunctionResume('postgres');
       console.log('PostgreSQL partial junction resume E2E passed');
+      await runSqlUserRolesMigration('postgres');
+      console.log('PostgreSQL user roles migration E2E passed');
     }
     await runSqlBoot('postgres', 18105);
     console.log('PostgreSQL full bootstrap E2E passed');
@@ -1797,6 +1905,8 @@ async function main(): Promise<void> {
       console.log('MySQL pre-mutation failure guards E2E passed');
       await runSqlPartialJunctionResume('mysql');
       console.log('MySQL partial junction resume E2E passed');
+      await runSqlUserRolesMigration('mysql');
+      console.log('MySQL user roles migration E2E passed');
     }
     await runSqlBoot('mysql', 18106);
     console.log('MySQL full bootstrap E2E passed');
@@ -1807,6 +1917,8 @@ async function main(): Promise<void> {
       console.log('MongoDB snapshot migration E2E passed');
       await runMongoRenameConflict();
       console.log('MongoDB conflict and retry E2E passed');
+      await runMongoUserRolesMigration();
+      console.log('MongoDB user roles migration E2E passed');
     }
     await runMongoBoot(18107);
     console.log('MongoDB full bootstrap E2E passed');

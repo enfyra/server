@@ -15,7 +15,7 @@ import {
   RepoRegistryService,
   type RuntimeScriptRepairService,
 } from '../../../engines/cache';
-import { primeCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
+import { primeCachedUserWithRoles } from '../../../shared/utils/load-user-with-role.util';
 import type { OAuthExchangeTokenPayload } from '../types/oauth-exchange-code.types';
 import type { OAuthConfig } from '../../../engines/cache/services/oauth-config-cache-builder.service';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
@@ -456,7 +456,11 @@ export class OAuthService {
       { refreshTokenHash },
     );
 
-    await primeCachedUserWithRole(this.queryBuilderService, userId);
+    await primeCachedUserWithRoles(
+      this.queryBuilderService,
+      this.cacheService,
+      userId,
+    );
 
     const decoded: any = jwt.decode(accessToken);
 

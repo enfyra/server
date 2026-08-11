@@ -362,19 +362,7 @@ const snapshotMigration = {
           _eq: 'enfyra_user',
         },
       },
-      relationsToModify: [
-        {
-          from: {
-            propertyName: 'role',
-            isSystem: false,
-          },
-          to: {
-            propertyName: 'role',
-            isSystem: true,
-          },
-        },
-      ],
-      relationsToRemove: ['allowedGraphqlPermissions'],
+      relationsToRemove: ['role', 'allowedGraphqlPermissions'],
     },
     {
       _unique: {

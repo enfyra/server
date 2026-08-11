@@ -8,11 +8,11 @@ import {
 } from '../../src/domain/auth';
 
 const mocks = vi.hoisted(() => ({
-  loadCachedUserWithRole: vi.fn(),
+  loadCachedUserWithRoles: vi.fn(),
 }));
 
 vi.mock('../../src/shared/utils/load-user-with-role.util', () => ({
-  loadCachedUserWithRole: mocks.loadCachedUserWithRole,
+  loadCachedUserWithRoles: mocks.loadCachedUserWithRoles,
   withUserRequestContext: (user: any) => user,
 }));
 
@@ -167,9 +167,9 @@ async function runUpdate(
 describe('DynamicResolver GraphQL guards', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.loadCachedUserWithRole.mockResolvedValue({
+    mocks.loadCachedUserWithRoles.mockResolvedValue({
       id: 'user-1',
-      role: { id: 'role-user' },
+      roles: [{ id: 'role-user' }],
       isRootAdmin: false,
     });
   });
@@ -191,7 +191,7 @@ describe('DynamicResolver GraphQL guards', () => {
     ).rejects.toMatchObject({
       extensions: { code: 'IP_BLOCKED', statusCode: 403 },
     });
-    expect(mocks.loadCachedUserWithRole).not.toHaveBeenCalled();
+    expect(mocks.loadCachedUserWithRoles).not.toHaveBeenCalled();
     expect(executorEngineService.run).not.toHaveBeenCalled();
   });
 
@@ -241,7 +241,7 @@ describe('DynamicResolver GraphQL guards', () => {
     ).rejects.toMatchObject({
       extensions: { code: 'RATE_LIMIT_EXCEEDED', statusCode: 429 },
     });
-    expect(mocks.loadCachedUserWithRole).toHaveBeenCalled();
+    expect(mocks.loadCachedUserWithRoles).toHaveBeenCalled();
     expect(executorEngineService.run).not.toHaveBeenCalled();
   });
 
@@ -286,7 +286,7 @@ describe('DynamicResolver GraphQL guards', () => {
     await expect(runUpdate(resolver, requestContext())).rejects.toMatchObject({
       extensions: { code: 'RATE_LIMIT_EXCEEDED', statusCode: 429 },
     });
-    expect(mocks.loadCachedUserWithRole).not.toHaveBeenCalled();
+    expect(mocks.loadCachedUserWithRoles).not.toHaveBeenCalled();
     expect(executorEngineService.run).not.toHaveBeenCalled();
   });
 

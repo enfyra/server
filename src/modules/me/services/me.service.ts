@@ -57,13 +57,13 @@ export class MeService {
       context.$query?.deep && typeof context.$query.deep === 'object'
         ? context.$query.deep
         : {};
-    const roleDeep =
-      queryDeep.role && typeof queryDeep.role === 'object'
-        ? queryDeep.role
+    const rolesDeep =
+      queryDeep.roles && typeof queryDeep.roles === 'object'
+        ? queryDeep.roles
         : {};
     const roleNestedDeep =
-      roleDeep.deep && typeof roleDeep.deep === 'object'
-        ? roleDeep.deep
+      rolesDeep.deep && typeof rolesDeep.deep === 'object'
+        ? rolesDeep.deep
         : {};
     const routePermissionsDeep =
       roleNestedDeep.routePermissions &&
@@ -75,8 +75,8 @@ export class MeService {
       limit: 1,
       deep: {
         ...queryDeep,
-        role: {
-          ...roleDeep,
+        roles: {
+          ...rolesDeep,
           deep: {
             ...roleNestedDeep,
             routePermissions: {

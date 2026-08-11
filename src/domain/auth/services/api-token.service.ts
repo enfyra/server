@@ -3,8 +3,9 @@ import { ObjectId } from 'mongodb';
 import * as jwt from 'jsonwebtoken';
 import { DatabaseConfigService, EnvService } from '../../../shared/services';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
+import type { ICache } from '../../shared/interfaces/cache.interface';
 import { BadRequestException, UnauthorizedException } from '../../exceptions';
-import { primeCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
+import { primeCachedUserWithRoles } from '../../../shared/utils/load-user-with-role.util';
 import { parseOrBadRequest } from '../../../shared/utils/zod-parse.util';
 import {
   createApiTokenSchema,
@@ -22,15 +23,18 @@ export class ApiTokenService {
   private readonly queryBuilder: IQueryBuilder;
   private readonly envService: EnvService;
   private readonly patVerifierService: PatVerifierService;
+  private readonly cacheService?: ICache;
 
   constructor(deps: {
     queryBuilderService: IQueryBuilder;
     envService: EnvService;
     patVerifierService: PatVerifierService;
+    cacheService?: ICache;
   }) {
     this.queryBuilder = deps.queryBuilderService;
     this.envService = deps.envService;
     this.patVerifierService = deps.patVerifierService;
+    this.cacheService = deps.cacheService;
   }
 
   async list(req: any) {
@@ -174,7 +178,11 @@ export class ApiTokenService {
   }
 
   private async seedUserCache(userId: unknown): Promise<void> {
-    await primeCachedUserWithRole(this.queryBuilder, userId);
+    await primeCachedUserWithRoles(
+      this.queryBuilder,
+      this.cacheService,
+      userId,
+    );
   }
 
   private async findTokenById(tokenId: string): Promise<any> {

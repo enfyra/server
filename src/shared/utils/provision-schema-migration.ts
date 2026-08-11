@@ -17,7 +17,9 @@ import {
   generateColumnDefinition,
   supportsSqlColumnDefault,
 } from '../../engines/knex/utils/migration/sql-generator';
+import { quoteIdentifier } from '../../engines/knex/utils/migration/sql-dialect';
 import { getCurrentDatabaseSchema } from '../../engines/knex/utils/provision/schema-comparison';
+import { buildSqlJunctionTableContract } from '../../engines/knex/utils/sql-physical-schema-contract';
 
 /**
  * Apply SQL schema migrations (physical database)
@@ -236,6 +238,9 @@ async function applySqlTableMigration(
   }
 
   if (migration.relationsToRemove && migration.relationsToRemove.length > 0) {
+    if (tableName === 'enfyra_user' && migration.relationsToRemove.includes('role')) {
+      await migrateUserRoleToRolesJunction(knex);
+    }
     if (
       tableName === 'enfyra_file_permission' &&
       migration.relationsToRemove.includes('allowedUsers')
@@ -357,19 +362,147 @@ async function migrateFilePermissionAllowedUsersToJunction(
     .select('id', fkColumn)
     .whereNotNull(fkColumn);
   if (rows.length > 0) {
-    await knex(junctionTableName)
-      .insert(
-        rows.map((row) => ({
-          [sourceColumn]: row.id,
-          [targetColumn]: row[fkColumn],
-        })),
-      )
-      .onConflict([sourceColumn, targetColumn])
-      .ignore();
+    await insertSqlJunctionRowsIgnoringDuplicates(
+      knex,
+      junctionTableName,
+      sourceColumn,
+      targetColumn,
+      rows.map((row) => ({
+        [sourceColumn]: row.id,
+        [targetColumn]: row[fkColumn],
+      })),
+    );
   }
   console.log(
     `  ✅ Created junction and migrated ${rows.length} row(s): ${junctionTableName}`,
   );
+}
+
+async function migrateUserRoleToRolesJunction(knex: Knex): Promise<void> {
+  const tableName = 'enfyra_user';
+  const fkColumn = getForeignKeyColumnName('role');
+  const hasOldColumn = await knex.schema.hasColumn(tableName, fkColumn);
+  if (!hasOldColumn) return;
+
+  const junctionTableName = 'enfyra_user_roles';
+  const sourceColumn = 'userId';
+  const targetColumn = 'roleId';
+  const contract = buildSqlJunctionTableContract({
+    tableName: junctionTableName,
+    sourceTable: tableName,
+    targetTable: 'enfyra_role',
+    sourceColumn,
+    targetColumn,
+    sourcePropertyName: 'roles',
+  });
+  const exists = await knex.schema.hasTable(junctionTableName);
+  if (!exists) {
+    const userPkType = await getPrimaryKeyType(knex, tableName);
+    const rolePkType = await getPrimaryKeyType(knex, 'enfyra_role');
+    await knex.schema.createTable(junctionTableName, (table) => {
+      if (userPkType === 'uuid') {
+        table.uuid(sourceColumn).notNullable();
+      } else {
+        table.integer(sourceColumn).unsigned().notNullable();
+      }
+      if (rolePkType === 'uuid') {
+        table.uuid(targetColumn).notNullable();
+      } else {
+        table.integer(targetColumn).unsigned().notNullable();
+      }
+      table.primary([sourceColumn, targetColumn], contract.primaryKeyName);
+      table
+        .foreign(sourceColumn)
+        .references('id')
+        .inTable(tableName)
+        .onDelete(contract.onDelete)
+        .onUpdate(contract.onUpdate)
+        .withKeyName(contract.sourceForeignKeyName);
+      table
+        .foreign(targetColumn)
+        .references('id')
+        .inTable('enfyra_role')
+        .onDelete(contract.onDelete)
+        .onUpdate(contract.onUpdate)
+        .withKeyName(contract.targetForeignKeyName);
+      table.index([sourceColumn], contract.sourceIndexName);
+      table.index([targetColumn], contract.targetIndexName);
+      table.index(
+        [targetColumn, sourceColumn],
+        contract.reverseIndexName,
+      );
+    });
+  }
+
+  const rows = await knex(tableName)
+    .select('id', fkColumn)
+    .whereNotNull(fkColumn);
+  if (rows.length > 0) {
+    await insertSqlJunctionRowsIgnoringDuplicates(
+      knex,
+      junctionTableName,
+      sourceColumn,
+      targetColumn,
+      rows.map((row) => ({
+        [sourceColumn]: row.id,
+        [targetColumn]: row[fkColumn],
+      })),
+    );
+  }
+}
+
+async function insertSqlJunctionRowsIgnoringDuplicates(
+  knex: Knex,
+  tableName: string,
+  sourceColumn: string,
+  targetColumn: string,
+  rows: Array<Record<string, unknown>>,
+): Promise<void> {
+  if (rows.length === 0) return;
+
+  const dbType = String(knex.client.config.client || '').toLowerCase();
+  const identifiers = [tableName, sourceColumn, targetColumn].map((identifier) =>
+    quoteIdentifier(identifier, dbType),
+  );
+  const placeholders = rows.map(() => '(?, ?)').join(', ');
+  const bindings: Knex.RawBinding[] = rows.flatMap((row) => [
+    row[sourceColumn] as Knex.RawBinding,
+    row[targetColumn] as Knex.RawBinding,
+  ]);
+  const isPostgres = dbType === 'pg' || dbType === 'postgres';
+  const insert = isPostgres ? 'INSERT INTO' : 'INSERT IGNORE INTO';
+  const conflict = isPostgres
+    ? ` ON CONFLICT (${identifiers[1]}, ${identifiers[2]}) DO NOTHING`
+    : '';
+
+  await knex.raw(
+    `${insert} ${identifiers[0]} (${identifiers[1]}, ${identifiers[2]}) VALUES ${placeholders}${conflict}`,
+    bindings,
+  );
+}
+
+async function migrateMongoUserRoleToRolesJunction(
+  db: Db,
+  users: ReturnType<Db['collection']>,
+): Promise<void> {
+  const junction = db.collection('enfyra_user_roles');
+  await junction.createIndex(
+    { userId: 1, roleId: 1 },
+    { unique: true, name: 'enfyra_user_roles_src_tgt_uq' },
+  );
+
+  const cursor = users.find({ role: { $exists: true, $ne: null } });
+  for await (const user of cursor) {
+    const roles = Array.isArray(user.role) ? user.role : [user.role];
+    for (const roleId of roles) {
+      if (roleId === undefined || roleId === null) continue;
+      await junction.updateOne(
+        { userId: user._id, roleId },
+        { $setOnInsert: { userId: user._id, roleId } },
+        { upsert: true },
+      );
+    }
+  }
 }
 
 async function getPrimaryKeyType(
@@ -1739,6 +1872,9 @@ async function applyMongoCollectionMigration(
     const toRemove = migration.relationsToRemove.filter(
       (field) => !preservedFields.has(field),
     );
+    if (collectionName === 'enfyra_user' && toRemove.includes('role')) {
+      await migrateMongoUserRoleToRolesJunction(db, collection);
+    }
     if (
       collectionName === 'enfyra_file_permission' &&
       toRemove.includes('allowedUsers')

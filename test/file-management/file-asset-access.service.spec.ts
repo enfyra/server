@@ -4,11 +4,10 @@ import { FileAssetAccessService } from '../../src/modules/file-management/servic
 import { CACHE_EVENTS } from '../../src/shared/utils/cache-events.constants';
 
 vi.mock('../../src/shared/utils/load-user-with-role.util', () => ({
-  loadCachedUserWithRole: vi.fn(
+  loadCachedUserWithRoles: vi.fn(
     async (_qb: any, userId: string) => ({
       id: userId,
-      role: { id: 'role-1', name: 'member' },
-      roleId: 'role-1',
+      roles: [{ id: 'role-1', name: 'member' }],
     }),
   ),
 }));
@@ -140,10 +139,10 @@ describe('FileAssetAccessService', () => {
     });
 
     const req1 = makeReq({
-      user: { id: 'u1', role: { id: 'role-1' }, roleId: 'role-1' },
+      user: { id: 'u1', roles: [{ id: 'role-1' }] },
     });
     const req2 = makeReq({
-      user: { id: 'u1', role: { id: 'role-1' }, roleId: 'role-1' },
+      user: { id: 'u1', roles: [{ id: 'role-1' }] },
     });
 
     await service.resolveAuthorizedFile(req1, 'file-1');
@@ -185,7 +184,7 @@ describe('FileAssetAccessService', () => {
     const service = new FileAssetAccessService({ queryBuilderService: qb });
 
     await service.resolveAuthorizedFile(
-      makeReq({ user: { _id: 'user-1', role: { _id: 'role-1' } } }),
+      makeReq({ user: { _id: 'user-1', roles: [{ _id: 'role-1' }] } }),
       'file-1',
     );
 
@@ -212,7 +211,7 @@ describe('FileAssetAccessService', () => {
     const service = new FileAssetAccessService({ queryBuilderService: qb, eventEmitter: emitter });
 
     await service.resolveAuthorizedFile(
-      makeReq({ user: { _id: 'user-1', role: { _id: 'role-1' } } }),
+      makeReq({ user: { _id: 'user-1', roles: [{ _id: 'role-1' }] } }),
       'file-1',
     );
     await emitter.emitAsync(CACHE_EVENTS.INVALIDATE, {
@@ -243,8 +242,8 @@ describe('FileAssetAccessService', () => {
     expect(permissionCalls).toHaveLength(0);
   });
 
-  it('hydrates user role for private file when user lacks role data', async () => {
-    const { loadCachedUserWithRole } = await import(
+  it('hydrates user roles for private file when user lacks role data', async () => {
+    const { loadCachedUserWithRoles } = await import(
       '../../src/shared/utils/load-user-with-role.util'
     );
     const file = makeFile({ isPublic: false });
@@ -254,6 +253,6 @@ describe('FileAssetAccessService', () => {
 
     const req = makeReq({ user: { id: 'u1' } });
     await service.resolveAuthorizedFile(req, 'file-1');
-    expect(loadCachedUserWithRole).toHaveBeenCalled();
+    expect(loadCachedUserWithRoles).toHaveBeenCalled();
   });
 });

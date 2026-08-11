@@ -3,13 +3,17 @@ import { IRedisPubSub } from '../../shared/interfaces/redis-pubsub.interface';
 import { ICache } from '../../shared/interfaces/cache.interface';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { Logger } from '../../../shared/logger';
-import { invalidateCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
+import {
+  bumpUserAuthorizationRevision,
+  invalidateCachedUserWithRoles,
+} from '../../../shared/utils/load-user-with-role.util';
 
 const USER_REVOKED_CHANNEL = 'user:revoked';
 
 export class UserRevocationService {
   private readonly logger = new Logger(UserRevocationService.name);
   private readonly redisPubSubService: IRedisPubSub;
+  private readonly cacheService: ICache;
   private readonly queryBuilderService: IQueryBuilder;
 
   constructor(deps: {
@@ -18,6 +22,7 @@ export class UserRevocationService {
     queryBuilderService: IQueryBuilder;
   }) {
     this.redisPubSubService = deps.redisPubSubService;
+    this.cacheService = deps.cacheService;
     this.queryBuilderService = deps.queryBuilderService;
   }
 
@@ -41,13 +46,14 @@ export class UserRevocationService {
 
   async publish(userId: unknown): Promise<void> {
     if (userId === undefined || userId === null) return;
+    await bumpUserAuthorizationRevision(this.cacheService, userId);
     await this.redisPubSubService.publish(USER_REVOKED_CHANNEL, {
       userId: String(userId),
     });
   }
 
   private async handleRevocation(userId: unknown): Promise<void> {
-    invalidateCachedUserWithRole(userId);
+    invalidateCachedUserWithRoles(userId);
 
     const isMongoDB = this.queryBuilderService.isMongoDb();
     if (isMongoDB) {

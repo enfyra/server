@@ -96,7 +96,8 @@ export class TableRouteRouter {
       async afterUpdateReload(ctx) {
         if (
           ctx.body &&
-          Object.prototype.hasOwnProperty.call(ctx.body, 'password')
+          (Object.prototype.hasOwnProperty.call(ctx.body, 'password') ||
+            Object.prototype.hasOwnProperty.call(ctx.body, 'roles'))
         ) {
           await handlers.postUserRevocation(ctx.id);
         }

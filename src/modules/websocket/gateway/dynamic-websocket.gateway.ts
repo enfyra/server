@@ -20,7 +20,7 @@ import {
 import { QueryBuilderService } from '@enfyra/kernel';
 import { RedisAdminService } from '../../admin/services/redis-admin.service';
 import {
-  loadCachedUserWithRole,
+  loadCachedUserWithRoles,
   withUserRequestContext,
 } from '../../../shared/utils/load-user-with-role.util';
 import type { Cradle } from '../../../container';
@@ -657,8 +657,9 @@ export class DynamicWebSocketGateway {
     if (currentUser?.isRootAdmin !== undefined) return currentUser;
     const id = currentUser?.id ?? currentUser?.userId;
     if (id === undefined || id === null) return null;
-    const cachedUser = await loadCachedUserWithRole(
+    const cachedUser = await loadCachedUserWithRoles(
       this.queryBuilderService,
+      undefined,
       id,
     );
     if (cachedUser) {

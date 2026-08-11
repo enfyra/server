@@ -4,7 +4,7 @@ import type { EventEmitter2 } from 'eventemitter2';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import type { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import type { RequestWithRouteData } from '../../../shared/types/dynamic-context.types';
-import { loadCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
+import { loadCachedUserWithRoles } from '../../../shared/utils/load-user-with-role.util';
 import { FileValidationHelper } from '../utils/file-validation.helper';
 import type { AssetFileRecord, AssetPermissionRow } from '../types/file-asset.types';
 
@@ -64,10 +64,11 @@ export class FileAssetAccessService {
       if (
         currentUserId &&
         !isRootAdmin &&
-        (!req.user || (!req.user.role && !req.user.roleId))
+        (!req.user || !Array.isArray(req.user.roles))
       ) {
-        req.user = await loadCachedUserWithRole(
+        req.user = await loadCachedUserWithRoles(
           this.queryBuilderService,
+          undefined,
           currentUserId,
         );
       }

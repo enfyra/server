@@ -420,10 +420,7 @@ snapshot
       .description('Whether this is a system-generated user account'),
   })
   .relations({
-    role: rel
-      .manyToOne('enfyra_role')
-      .system()
-      .description("User's assigned role for permissions"),
+    roles: rel.manyToMany('enfyra_role').system().description("User's assigned roles for permissions").junction({ table: 'enfyra_user_roles', source: 'userId', target: 'roleId' }),
   })
   .uniques([['email']]);
 

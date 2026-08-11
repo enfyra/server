@@ -813,6 +813,36 @@ describe('explicit M2M junction columns (Mongo)', () => {
       collection: (name: string) => db.collection(name),
     });
 
+    const batchRows = [{ _id: permissionId }];
+    await executeMongoBatchFetches(
+      db,
+      batchRows,
+      [
+        {
+          relationName: 'allowedUsers',
+          type: 'many-to-many',
+          targetTable: 'tags',
+          fields: ['_id'],
+          isInverse: false,
+          junctionTableName: junctionTable,
+          junctionSourceColumn: 'permissionRecord',
+          junctionTargetColumn: 'allowedUserRecord',
+        },
+      ],
+      async (table: string) => customMetadata.tables.get(table) ?? null,
+      3,
+      0,
+      'posts',
+      customMetadata,
+    );
+
+    expect(batchRows).toEqual([
+      {
+        _id: permissionId,
+        allowedUsers: [{ _id: allowedUserId }],
+      },
+    ]);
+
     const result = await executor.execute({
       tableName: 'posts',
       fields: ['_id', 'allowedUsers._id'],

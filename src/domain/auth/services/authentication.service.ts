@@ -1,7 +1,8 @@
 import type { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
+import type { ICache } from '../../shared/interfaces/cache.interface';
 import { InvalidTokenException } from '../../exceptions';
 import {
-  loadCachedUserWithRole,
+  loadCachedUserWithRoles,
   withUserRequestContext,
 } from '../../../shared/utils/load-user-with-role.util';
 import type { PatVerifierService } from './pat-verifier.service';
@@ -21,6 +22,7 @@ export class AuthenticationService {
   private readonly patVerifierService: PatVerifierService;
   private readonly jwtVerifierService: JwtVerifierService;
   private readonly runtimeRegistryService?: RuntimeRegistryService;
+  private readonly cacheService?: ICache;
   private authHeaderConfigSource: readonly AuthHeaderConfig[] | null = null;
   private authHeaderConfigs: readonly AuthHeaderConfig[] = [];
   private configuredHeaderKeys = new Set<string>();
@@ -30,11 +32,13 @@ export class AuthenticationService {
     patVerifierService: PatVerifierService;
     jwtVerifierService: JwtVerifierService;
     runtimeRegistryService?: RuntimeRegistryService;
+    cacheService?: ICache;
   }) {
     this.queryBuilder = deps.queryBuilderService;
     this.patVerifierService = deps.patVerifierService;
     this.jwtVerifierService = deps.jwtVerifierService;
     this.runtimeRegistryService = deps.runtimeRegistryService;
+    this.cacheService = deps.cacheService;
   }
 
   hasCredentials(
@@ -187,8 +191,9 @@ export class AuthenticationService {
     source: AuthenticatedRequest['source'],
     payload: AuthTokenPayload,
   ): Promise<AuthenticatedRequest | null> {
-    const cachedUser = await loadCachedUserWithRole(
+    const cachedUser = await loadCachedUserWithRoles(
       this.queryBuilder,
+      this.cacheService,
       payload.id,
     );
     if (!cachedUser) return null;

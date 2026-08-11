@@ -96,7 +96,7 @@ describe('GraphQL access utility', () => {
       hasGraphqlOperationAccess({
         definition: baseDefinition,
         operation: 'QUERY',
-        user: { id: 'user-1', role: { id: 'role-1' } },
+        user: { id: 'user-1', roles: [{ id: 'role-1' }] },
       }).allowed,
     ).toBe(false);
   });
@@ -138,21 +138,31 @@ describe('GraphQL access utility', () => {
       hasGraphqlOperationAccess({
         definition,
         operation: 'UPDATE',
-        user: { id: 'user-1', role: { id: 'role-editor' } },
+        user: { id: 'user-1', roles: [{ id: 'role-editor' }] },
+      }).allowed,
+    ).toBe(true);
+    expect(
+      hasGraphqlOperationAccess({
+        definition,
+        operation: 'UPDATE',
+        user: {
+          id: 'user-1',
+          roles: [{ id: 'role-member' }, { id: 'role-editor' }],
+        },
       }).allowed,
     ).toBe(true);
     expect(
       hasGraphqlOperationAccess({
         definition,
         operation: 'DELETE',
-        user: { _id: 'user-special', role: null },
+        user: { _id: 'user-special', roles: [] },
       }).allowed,
     ).toBe(true);
     expect(
       hasGraphqlOperationAccess({
         definition,
         operation: 'CREATE',
-        user: { id: 'user-1', role: { id: 'role-editor' } },
+        user: { id: 'user-1', roles: [{ id: 'role-editor' }] },
       }).allowed,
     ).toBe(false);
   });
