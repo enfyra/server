@@ -14,6 +14,7 @@ export function bodyParserMiddleware(
     if (contentType.includes('multipart/')) return next();
 
     const limit = runtimeRegistryService.getMaxRequestBodySizeBytes();
+    (req as Request & { requestBodyLimitBytes?: number }).requestBodyLimitBytes = limit;
     const limitStr = `${limit}`;
 
     if (contentType.includes('json')) {
