@@ -351,10 +351,29 @@ const snapshotMigration = {
     {
       _unique: {
         name: {
+          _eq: 'enfyra_menu_permission',
+        },
+      },
+      relationsToModify: [
+        {
+          from: {
+            propertyName: 'role',
+            inversePropertyName: 'menuPermissions',
+          },
+          to: {
+            propertyName: 'role',
+            inversePropertyName: null,
+          },
+        },
+      ],
+    },
+    {
+      _unique: {
+        name: {
           _eq: 'enfyra_role',
         },
       },
-      relationsToRemove: ['graphqlPermissions'],
+      relationsToRemove: ['graphqlPermissions', 'menuPermissions'],
     },
     {
       _unique: {

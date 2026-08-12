@@ -5,6 +5,7 @@ import {
   col,
   rel,
 } from '../../src/engines/bootstrap/definitions';
+import { buildExpectedRelations } from '../../src/engines/bootstrap/utils/metadata-comparison.util';
 
 describe('SnapshotDefinition', () => {
   it('defines the complete current system target', () => {
@@ -19,7 +20,7 @@ describe('SnapshotDefinition', () => {
         (total, table) => total + (table.relations?.length ?? 0),
         0,
       ),
-    ).toBe(75);
+    ).toBe(74);
   });
 
   it('builds table, column, relation, unique, and index contracts', () => {
@@ -84,6 +85,19 @@ describe('SnapshotDefinition', () => {
         indexes: [['owner']],
       },
     });
+  });
+
+  it('keeps menu permission ownership one-way from the permission record to role', () => {
+    const relations = buildExpectedRelations(snapshot);
+
+    expect(relations.get('enfyra_role.menuPermissions')).toBeUndefined();
+    const roleRelation = relations.get('enfyra_menu_permission.role');
+    expect(roleRelation).toMatchObject({
+      propertyName: 'role',
+      targetTable: 'enfyra_role',
+      type: 'many-to-one',
+    });
+    expect(roleRelation).not.toHaveProperty('inversePropertyName');
   });
 
   it('rejects duplicate table declarations', () => {

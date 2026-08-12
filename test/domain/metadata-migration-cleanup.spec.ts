@@ -452,4 +452,149 @@ describe('MetadataMigrationService destructive cleanup', () => {
       }),
     ]);
   });
+
+  it('removes the role inverse without changing SQL menu-permission records', async () => {
+    const tables = {
+      enfyra_relation: [
+        {
+          id: 1,
+          sourceTableId: 10,
+          targetTableId: 20,
+          propertyName: 'role',
+          type: 'many-to-one',
+          mappedById: null,
+        },
+        {
+          id: 2,
+          sourceTableId: 20,
+          targetTableId: 10,
+          propertyName: 'menuPermissions',
+          type: 'one-to-many',
+          mappedById: 1,
+        },
+      ],
+      enfyra_menu_permission: [{ id: 3, menuId: 4, roleId: 5 }],
+    };
+    const knex = makeSqlKnex(tables);
+    const service = makeMigrationService(MetadataRelationMigrationService, {
+      queryBuilderService: {
+        isMongoDb: vi.fn(() => false),
+        getKnex: vi.fn(() => knex),
+      } as any,
+      systemCoreTableResolver: {
+        getNames: vi.fn(async () => ({
+          table: 'enfyra_table',
+          column: 'enfyra_column',
+          relation: 'enfyra_relation',
+        })),
+      } as any,
+    });
+
+    await service.modifyRelationMetadata(10, false, [
+      {
+        from: { propertyName: 'role', inversePropertyName: 'menuPermissions' },
+        to: { propertyName: 'role', inversePropertyName: null },
+      },
+    ]);
+
+    expect(tables.enfyra_relation).toEqual([
+      expect.objectContaining({
+        id: 1,
+        sourceTableId: 10,
+        propertyName: 'role',
+        type: 'many-to-one',
+      }),
+    ]);
+    expect(tables.enfyra_menu_permission).toEqual([
+      { id: 3, menuId: 4, roleId: 5 },
+    ]);
+
+    await service.removeRelationMetadata(20, false, ['menuPermissions']);
+
+    expect(tables.enfyra_relation).toEqual([
+      expect.objectContaining({
+        id: 1,
+        sourceTableId: 10,
+        propertyName: 'role',
+        type: 'many-to-one',
+      }),
+    ]);
+    expect(tables.enfyra_menu_permission).toEqual([
+      { id: 3, menuId: 4, roleId: 5 },
+    ]);
+  });
+
+  it('removes the role inverse without changing Mongo menu-permission records', async () => {
+    const mongo = makeMongoDb({
+      enfyra_relation: [
+        {
+          _id: 'role-relation-id',
+          sourceTable: 'menu-permission-table-id',
+          targetTable: 'role-table-id',
+          propertyName: 'role',
+          type: 'many-to-one',
+          mappedBy: null,
+        },
+        {
+          _id: 'role-inverse-id',
+          sourceTable: 'role-table-id',
+          targetTable: 'menu-permission-table-id',
+          propertyName: 'menuPermissions',
+          type: 'one-to-many',
+          mappedBy: 'role-relation-id',
+        },
+      ],
+      enfyra_menu_permission: [
+        { _id: 'permission-id', menu: 'menu-id', role: 'role-id' },
+      ],
+    });
+    const service = makeMigrationService(MetadataRelationMigrationService, {
+      queryBuilderService: {
+        isMongoDb: vi.fn(() => true),
+        getMongoDb: vi.fn(() => mongo.db),
+      } as any,
+      systemCoreTableResolver: {
+        getNames: vi.fn(async () => ({
+          table: 'enfyra_table',
+          column: 'enfyra_column',
+          relation: 'enfyra_relation',
+        })),
+      } as any,
+    });
+
+    await service.modifyRelationMetadata('menu-permission-table-id', true, [
+      {
+        from: { propertyName: 'role', inversePropertyName: 'menuPermissions' },
+        to: { propertyName: 'role', inversePropertyName: null },
+      },
+    ]);
+
+    expect(mongo.collections.enfyra_relation).toEqual([
+      expect.objectContaining({
+        _id: 'role-relation-id',
+        sourceTable: 'menu-permission-table-id',
+        propertyName: 'role',
+        type: 'many-to-one',
+      }),
+    ]);
+    expect(mongo.collections.enfyra_menu_permission).toEqual([
+      { _id: 'permission-id', menu: 'menu-id', role: 'role-id' },
+    ]);
+
+    await service.removeRelationMetadata('role-table-id', true, [
+      'menuPermissions',
+    ]);
+
+    expect(mongo.collections.enfyra_relation).toEqual([
+      expect.objectContaining({
+        _id: 'role-relation-id',
+        sourceTable: 'menu-permission-table-id',
+        propertyName: 'role',
+        type: 'many-to-one',
+      }),
+    ]);
+    expect(mongo.collections.enfyra_menu_permission).toEqual([
+      { _id: 'permission-id', menu: 'menu-id', role: 'role-id' },
+    ]);
+  });
 });

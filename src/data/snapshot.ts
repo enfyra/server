@@ -770,13 +770,6 @@ snapshot
       .system()
       .description("Description of the role's purpose and permissions"),
   })
-  .relations({
-    menuPermissions: rel
-      .oneToMany('enfyra_menu_permission')
-      .inverse('role')
-      .system()
-      .description('Menu visibility rules granted to this role'),
-  })
   .uniques([['name']]);
 
 snapshot
@@ -1598,7 +1591,6 @@ snapshot
       .description('Menu item controlled by this visibility rule'),
     role: rel
       .manyToOne('enfyra_role')
-      .inverse('menuPermissions')
       .notNull()
       .system()
       .onDelete('CASCADE')
