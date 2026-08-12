@@ -123,6 +123,30 @@ describe('FileAssetAccessService', () => {
     expect(qb.find).toHaveBeenCalledTimes(3);
   });
 
+  it('invalidates a cached replacement target from another server instance', async () => {
+    const file = makeFile({ location: 'uploads/old.txt' });
+    const qb = makeQueryBuilder({ files: [file], permissions: [] });
+    const emitter = new EventEmitter2();
+    const service = new FileAssetAccessService({
+      queryBuilderService: qb,
+      eventEmitter: emitter,
+    });
+
+    await service.resolveAuthorizedFile(makeReq(), 'file-1');
+    file.location = 'uploads/replacement.txt';
+
+    await emitter.emitAsync(CACHE_EVENTS.SYNC_INVALIDATE, {
+      table: 'enfyra_file',
+      scope: 'partial',
+      ids: ['file-1'],
+    });
+
+    await expect(service.resolveAuthorizedFile(makeReq(), 'file-1')).resolves.toMatchObject({
+      location: 'uploads/replacement.txt',
+    });
+    expect(qb.find).toHaveBeenCalledTimes(2);
+  });
+
   it('invalidates only affected file permission caches on partial permission event', async () => {
     const file1 = makeFile({ id: 'file-1', isPublic: false });
     const file2 = makeFile({ id: 'file-2', isPublic: false });

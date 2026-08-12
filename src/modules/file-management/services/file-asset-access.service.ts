@@ -42,9 +42,11 @@ export class FileAssetAccessService {
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.eventEmitter = deps.eventEmitter;
+    const handleCacheInvalidation = this.handleCacheInvalidation.bind(this);
+    this.eventEmitter?.on(CACHE_EVENTS.INVALIDATE, handleCacheInvalidation);
     this.eventEmitter?.on(
-      CACHE_EVENTS.INVALIDATE,
-      this.handleCacheInvalidation.bind(this),
+      CACHE_EVENTS.SYNC_INVALIDATE,
+      handleCacheInvalidation,
     );
   }
 

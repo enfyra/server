@@ -1433,6 +1433,10 @@ export class CacheOrchestratorService implements LifecycleAware {
           this.logger.log(
             `Redis signal from ${signal.instanceId.slice(0, 8)}: ${signal.payload?.table} (${signal.payload?.scope || 'full'})`,
           );
+          await this.eventEmitter.emitAsync(
+            CACHE_EVENTS.SYNC_INVALIDATE,
+            signal.payload,
+          );
           if (signal.payload?.table === '__admin_reload_all') {
             await this.reloadAllLocal(false, this.usesSharedRuntimeCache());
           } else {
