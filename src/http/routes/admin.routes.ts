@@ -439,6 +439,7 @@ export function registerAdminRoutes(
       success: true,
       data: await redisAdminService.getKey(String(req.query?.key || ''), {
         limit: req.query?.limit,
+        includeValue: req.query?.includeValue !== 'false',
       }),
     });
   });

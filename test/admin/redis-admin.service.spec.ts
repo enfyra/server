@@ -115,6 +115,11 @@ class FakeRedis {
     return this.values.get(key)?.ttl ?? -2;
   }
 
+  async pttl(key: string) {
+    const ttl = this.values.get(key)?.ttl;
+    return ttl == null ? -2 : ttl < 0 ? ttl : ttl * 1000;
+  }
+
   async strlen(key: string) {
     return String(this.values.get(key)?.value ?? '').length;
   }
@@ -489,6 +494,29 @@ describe('RedisAdminService', () => {
 
     await expect(service.deleteKey('user_cache_meta:sizes')).resolves.toEqual({
       deleted: 1,
+    });
+  });
+
+  it('reports millisecond TTL and protects user-cache locks', async () => {
+    const { redis, service } = makeService();
+    redis.setSync('app-a:user_cache_lock:renewal', 'owner-token');
+    redis.expireSync('app-a:user_cache_lock:renewal', 5);
+
+    const detail = await service.getKey('user_cache_lock:renewal');
+
+    expect(detail).toEqual(
+      expect.objectContaining({
+        key: 'user_cache_lock:renewal',
+        ttlSeconds: 5,
+        ttlMilliseconds: 5000,
+        isSystem: true,
+        modifiable: false,
+        systemKind: 'user_cache_lock',
+      }),
+    );
+    await expect(service.deleteKey('user_cache_lock:renewal')).rejects.toMatchObject({
+      statusCode: 403,
+      errorCode: 'AUTHORIZATION_ERROR',
     });
   });
 

@@ -35,33 +35,19 @@ export class RedisCacheService implements ICache {
   }
 
   async acquire(key: string, value: any, ttlMs: number): Promise<boolean> {
-    const decoratedKey = this.decorateKey(key);
-    const serializedValue = this.serialize(value);
-    const size = this.valueSize(serializedValue);
-    if (this.policy.quota) {
-      this.assertValueSize(size);
-      this.assertFitsLimit(size);
-    }
+    const decoratedKey = this.decorateLockKey(key);
     const result = await this.redis.set(
       decoratedKey,
-      serializedValue,
+      this.serialize(value),
       'PX',
       ttlMs > 0 ? ttlMs : this.lifecycleTtlMs(),
       'NX',
     );
-    if (result !== 'OK') {
-      if (this.policy.quota) await this.touch(decoratedKey);
-      return false;
-    }
-    if (this.policy.quota) {
-      await this.track(decoratedKey, size);
-      await this.evictIfNeeded();
-    }
-    return true;
+    return result === 'OK';
   }
 
   async renew(key: string, value: any, ttlMs: number): Promise<boolean> {
-    const decoratedKey = this.decorateKey(key);
+    const decoratedKey = this.decorateLockKey(key);
     const lua = `
       if redis.call("get", KEYS[1]) == ARGV[1] then
         return redis.call("pexpire", KEYS[1], ARGV[2])
@@ -74,20 +60,16 @@ export class RedisCacheService implements ICache {
         1,
         decoratedKey,
         this.serialize(value),
-        ttlMs,
+        ttlMs > 0 ? ttlMs : this.lifecycleTtlMs(),
       );
-      if (renewed === 1) {
-        if (this.policy.quota) await this.touch(decoratedKey);
-        return true;
-      }
-      return false;
+      return renewed === 1;
     } catch {
       return false;
     }
   }
 
   async release(key: string, value: any): Promise<boolean> {
-    const decoratedKey = this.decorateKey(key);
+    const decoratedKey = this.decorateLockKey(key);
     const serializedValue = this.serialize(value);
     const lua = `
       if redis.call("get", KEYS[1]) == ARGV[1] then
@@ -102,9 +84,6 @@ export class RedisCacheService implements ICache {
         decoratedKey,
         serializedValue,
       );
-      if (deleted === 1 && this.policy.quota) {
-        await this.untrack(decoratedKey);
-      }
       return deleted === 1;
     } catch {
       return false;
@@ -224,6 +203,15 @@ export class RedisCacheService implements ICache {
     }
     if (!this.namespace) return key;
     return `${this.namespace}:${key}`;
+  }
+
+  private decorateLockKey(key: string): string {
+    if (!this.policy.quota) return this.decorateKey(key);
+    if (!key || typeof key !== 'string') {
+      throw new Error('cache key is required');
+    }
+    const prefix = `${this.namespace}:${this.policy.keyPrefix.replace(/:$/, '')}_lock:`;
+    return key.startsWith(prefix) ? key : `${prefix}${key}`;
   }
 
   private dataPrefix(): string {

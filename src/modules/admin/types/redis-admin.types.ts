@@ -18,6 +18,7 @@ export interface RedisAdminSystemMark {
 export type RedisAdminSystemKind =
   | 'runtime_cache'
   | 'user_cache'
+  | 'user_cache_lock'
   | 'bullmq'
   | 'socket_io'
   | 'runtime_monitor'
@@ -35,6 +36,7 @@ export interface RedisAdminKeySummary extends RedisAdminSystemMark {
   namespaceScope: RedisAdminNamespaceScope;
   type: RedisAdminValueType;
   ttlSeconds: number;
+  ttlMilliseconds: number;
   size?: number;
   memoryBytes?: number | null;
 }

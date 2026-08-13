@@ -143,7 +143,12 @@ describe('RuntimeNamespaceLifecycleService', () => {
     const redis = new FakeRedis();
     redis.values.set('app-a:runtime_cache:metadata', 'cache');
     redis.values.set('app-a:sys_flow-execution:completed', 'queue');
+    redis.values.set('app-a:user_cache_meta:lru', 'metadata');
+    redis.values.set('app-a:user_cache:short-lived', 'value');
+    redis.values.set('app-a:user_cache_lock:lease', 'token');
     redis.values.set('other:runtime_cache:metadata', 'other');
+    redis.expiries.set('app-a:user_cache:short-lived', 5000);
+    redis.expiries.set('app-a:user_cache_lock:lease', 5000);
 
     const service = createService(redis);
 
@@ -153,6 +158,9 @@ describe('RuntimeNamespaceLifecycleService', () => {
     expect(redis.expiries.get('app-a:sys_flow-execution:completed')).toBe(
       10000,
     );
+    expect(redis.expiries.get('app-a:user_cache_meta:lru')).toBe(10000);
+    expect(redis.expiries.get('app-a:user_cache:short-lived')).toBe(5000);
+    expect(redis.expiries.get('app-a:user_cache_lock:lease')).toBe(5000);
     expect(redis.expiries.has('other:runtime_cache:metadata')).toBe(false);
     expect(redis.values.has('app-a:runtime_lifecycle:lease:inst-a')).toBe(true);
   });

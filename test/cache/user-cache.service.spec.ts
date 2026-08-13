@@ -234,14 +234,18 @@ describe('RedisCacheService — user cache policy', () => {
     );
   });
 
-  it('does not overwrite an existing key on acquire and touches LRU metadata', async () => {
-    const { service } = makeService(1);
+  it('stores locks outside the user-cache data and LRU namespaces', async () => {
+    const { redis, service } = makeService(1);
 
     expect(await service.acquire('lock', 'a', 1000)).toBe(true);
     expect(await service.acquire('lock', 'b', 1000)).toBe(false);
-    expect(await service.get('lock')).toBe('a');
-    expect(await service.release('lock', 'a')).toBe(true);
+    expect(redis.strings.get('app-a:user_cache_lock:lock')).toBe('a');
+    expect(redis.expiries.get('app-a:user_cache_lock:lock')).toBe(1000);
+    expect(redis.strings.has('app-a:user_cache:lock')).toBe(false);
+    expect(redis.hashes.get('app-a:user_cache_meta:sizes')?.has('app-a:user_cache_lock:lock') ?? false).toBe(false);
     expect(await service.get('lock')).toBeNull();
+    expect(await service.release('lock', 'a')).toBe(true);
+    expect(redis.strings.has('app-a:user_cache_lock:lock')).toBe(false);
   });
 
   it('acquires zero-ttl locks with lifecycle ttl', async () => {
@@ -249,6 +253,6 @@ describe('RedisCacheService — user cache policy', () => {
 
     expect(await service.acquire('lock', 'a', 0)).toBe(true);
 
-    expect(redis.expiries.get('app-a:user_cache:lock')).toBe(5000);
+    expect(redis.expiries.get('app-a:user_cache_lock:lock')).toBe(5000);
   });
 });
