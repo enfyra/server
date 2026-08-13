@@ -162,7 +162,6 @@ export class RuntimeNamespaceLifecycleService {
       `${namespace}:runtime_cache:*`,
       `${namespace}:runtime-monitor:*`,
       `${namespace}:cluster-telemetry:*`,
-      `${namespace}:user_cache:*`,
       `${namespace}:user_cache_meta:*`,
       `${namespace}:rl:*`,
       `${namespace}:socket.io:*`,

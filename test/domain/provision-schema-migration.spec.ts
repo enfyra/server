@@ -197,6 +197,64 @@ function makeSqlKnex(input: {
 }
 
 describe('provision schema migration physical cleanup', () => {
+  it('migrates legacy user roles through a hook-decorated Knex builder', async () => {
+    const raw = vi.fn(async () => ({ rows: [] }));
+    const decoratedInsert = vi.fn(async () => []);
+    const knex = vi.fn((tableName: string) => {
+      if (tableName === 'enfyra_user') {
+        return {
+          select: vi.fn(() => ({
+            whereNotNull: vi.fn(async () => [
+              { id: 'user-1', roleId: 'role-1' },
+            ]),
+          })),
+        };
+      }
+      if (tableName === 'enfyra_user_roles') {
+        return { insert: decoratedInsert };
+      }
+      return { select: vi.fn(async () => []) };
+    }) as any;
+    knex.client = { config: { client: 'pg' } };
+    knex.raw = raw;
+    knex.schema = {
+      hasTable: vi.fn(async (tableName: string) =>
+        [
+          'enfyra_table',
+          'enfyra_relation',
+          'enfyra_user',
+          'enfyra_user_roles',
+        ].includes(tableName),
+      ),
+      hasColumn: vi.fn(
+        async (tableName: string, columnName: string) =>
+          tableName === 'enfyra_user' && columnName === 'roleId',
+      ),
+      alterTable: vi.fn(async (_tableName: string, callback: any) => {
+        callback({ dropColumn: vi.fn() });
+      }),
+    };
+
+    await applySqlSchemaMigrations(knex, {
+      tables: [
+        {
+          _unique: { name: { _eq: 'enfyra_user' } },
+          relationsToRemove: ['role'],
+        },
+      ],
+    });
+
+    expect(decoratedInsert).not.toHaveBeenCalled();
+    expect(raw).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO "enfyra_user_roles"'),
+      ['user-1', 'role-1'],
+    );
+    expect(raw).toHaveBeenCalledWith(
+      expect.stringContaining('ON CONFLICT ("userId", "roleId") DO NOTHING'),
+      ['user-1', 'role-1'],
+    );
+  });
+
   it('removes incoming SQL foreign-key columns and junction tables before dropping a target table', async () => {
     const sql = makeSqlKnex({
       tables: {

@@ -32,13 +32,17 @@ function policyService() {
       if (published) return { allow: true };
       if (!ctx.user) return { allow: false };
       if (ctx.user.isRootAdmin) return { allow: true };
-      const roleId = String(ctx.user.role?.id ?? ctx.user.role?._id ?? '');
+      const roleIds = new Set(
+        (Array.isArray(ctx.user.roles) ? ctx.user.roles : []).map((role: any) =>
+          String(role?.id ?? role?._id ?? role),
+        ),
+      );
       const allowed = ctx.routeData?.routePermissions?.some(
         (permission: any) => {
           const methodAllowed = permission.methods?.some(
             (item: any) => item.name === ctx.method,
           );
-          return methodAllowed && String(permission.role?.id) === roleId;
+          return methodAllowed && roleIds.has(String(permission.role?.id));
         },
       );
       return { allow: !!allowed };
@@ -57,12 +61,16 @@ function fieldPermissionPolicyReader(rules: any[]) {
       tableName: string,
       action: string,
     ) {
-      const roleId = String(user?.role?.id ?? '');
+      const roleIds = new Set(
+        (Array.isArray(user?.roles) ? user.roles : []).map((role: any) =>
+          String(role?.id ?? role?._id ?? role),
+        ),
+      );
       const matched = rules.filter(
         (rule) =>
           rule.tableName === tableName &&
           rule.action === action &&
-          (rule.roleId == null || String(rule.roleId) === roleId),
+          (rule.roleId == null || roleIds.has(String(rule.roleId))),
       );
       if (matched.length === 0) return [];
       return [
@@ -205,7 +213,7 @@ describe('metadata access projection', () => {
       table('secret_definition'),
       table('enfyra_user'),
     ]);
-    const user = { id: 10, role: { id: 2 } };
+    const user = { id: 10, roles: [{ id: 2 }] };
 
     const actions = await getAccessibleMetadataTableActions({
       metadata: meta,
@@ -247,7 +255,7 @@ describe('metadata access projection', () => {
         [rel('author'), rel('internalAudit', { isPublished: false })],
       ),
     ]);
-    const user = { id: 10, role: { id: 2 } };
+    const user = { id: 10, roles: [{ id: 2 }] };
 
     const data = await projectMetadataForUser({
       metadata: meta,
@@ -340,7 +348,7 @@ describe('metadata access projection', () => {
 
     const data = await projectMetadataForUser({
       metadata: meta,
-      user: { id: 10, role: { id: 2 } },
+      user: { id: 10, roles: [{ id: 2 }] },
       policyService: policyService(),
       routeCacheService: routeCacheService([
         {
@@ -379,7 +387,7 @@ describe('metadata access projection', () => {
 
     const data = await projectMetadataForUser({
       metadata: meta,
-      user: { id: 10, role: { id: 2 } },
+      user: { id: 10, roles: [{ id: 2 }] },
       policyService: policyService(),
       routeCacheService: routeCacheService([
         {
@@ -415,7 +423,7 @@ describe('metadata access projection', () => {
 
     const data = await projectMetadataForUser({
       metadata: meta,
-      user: { id: 10, role: { id: 2 } },
+      user: { id: 10, roles: [{ id: 2 }] },
       policyService: policyService(),
       routeCacheService: routeCacheService([
         {

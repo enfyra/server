@@ -6,6 +6,7 @@ import {
 } from './policy.types';
 import { SystemSafetyAuditorService } from './services/system-safety-auditor.service';
 import { SchemaMigrationValidatorService } from './services/schema-migration-validator.service';
+import { userHasRole } from '../../shared/utils/user-role.util';
 
 export class PolicyService {
   private readonly systemSafetyAuditorService: SystemSafetyAuditorService;
@@ -53,10 +54,6 @@ export class PolicyService {
     }
 
     const userId = String(ctx.user._id || ctx.user.id);
-    const userRoleId = ctx.user.role
-      ? String(ctx.user.role._id || ctx.user.role.id)
-      : null;
-
     const canPass = ctx.routeData.routePermissions.find((permission: any) => {
       const hasMethodAccess = permission.methods.some(
         (item: any) => item.name === ctx.method,
@@ -69,9 +66,7 @@ export class PolicyService {
       ) {
         return true;
       }
-      if (!userRoleId) return false;
-      const permRoleId = String(permission?.role?._id || permission?.role?.id);
-      return permRoleId === userRoleId;
+      return userHasRole(ctx.user, permission?.role);
     });
 
     if (canPass) return { allow: true };

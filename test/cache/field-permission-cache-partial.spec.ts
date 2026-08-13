@@ -127,7 +127,7 @@ describe('FieldPermissionCacheBuilder — partial reload', () => {
     await svc.reload(false);
 
     await expect(decideFieldPermission(registry, {
-      user: { id: 99, role: { id: 10 } },
+      user: { id: 99, roles: [{ id: 10 }] },
       tableName: 'post',
       action: 'read',
       subjectType: 'column',
@@ -135,7 +135,7 @@ describe('FieldPermissionCacheBuilder — partial reload', () => {
     })).resolves.toMatchObject({ allowed: false });
 
     await expect(decideFieldPermission(registry, {
-      user: { id: 20, role: { id: 11 } },
+      user: { id: 20, roles: [{ id: 11 }] },
       tableName: 'post',
       action: 'read',
       subjectType: 'column',
@@ -171,7 +171,7 @@ describe('FieldPermissionCacheBuilder — partial reload', () => {
     );
 
     const policies = await registry.getFieldPermissionPoliciesFor(
-      { id: 99, role: { id: 10 } },
+      { id: 99, roles: [{ id: 10 }] },
       'post',
       'read',
     );
@@ -222,7 +222,7 @@ describe('FieldPermissionCacheBuilder — partial reload', () => {
     );
 
     const policies = await registry.getFieldPermissionPoliciesFor(
-      { id: 99, role: { id: 10 } },
+      { id: 99, roles: [{ id: 10 }] },
       'post',
       'read',
     );
@@ -256,7 +256,7 @@ describe('FieldPermissionCacheBuilder — partial reload', () => {
     await svc.reload(false);
 
     const policies = await registry.getFieldPermissionPoliciesFor(
-      { id: 99, role: { id: 10 } },
+      { id: 99, roles: [{ id: 10 }] },
       'post',
       'read',
     );
@@ -292,7 +292,7 @@ describe('FieldPermissionCacheBuilder — partial reload', () => {
     );
 
     const policies = await registry.getFieldPermissionPoliciesFor(
-      { id: 99, role: { id: 10 } },
+      { id: 99, roles: [{ id: 10 }] },
       'post',
       'read',
     );
@@ -325,7 +325,7 @@ describe('FieldPermissionCacheBuilder — partial reload', () => {
     );
 
     const policies = await registry.getFieldPermissionPoliciesFor(
-      { id: 99, role: { id: 10 } },
+      { id: 99, roles: [{ id: 10 }] },
       'post',
       'read',
     );
@@ -363,14 +363,14 @@ describe('FieldPermissionCacheBuilder — partial reload', () => {
     );
 
     const oldBucket = await registry.getFieldPermissionPoliciesFor(
-      { id: 99, role: { id: 10 } },
+      { id: 99, roles: [{ id: 10 }] },
       'post',
       'read',
     );
     expect(oldBucket).toHaveLength(0);
 
     const newBucket = await registry.getFieldPermissionPoliciesFor(
-      { id: 99, role: { id: 20 } },
+      { id: 99, roles: [{ id: 20 }] },
       'post',
       'update',
     );
@@ -397,7 +397,7 @@ describe('FieldPermissionCacheBuilder — partial reload', () => {
     expect(cache.has('u:100,200|post|read')).toBe(false);
 
     const matchingPolicies = await registry.getFieldPermissionPoliciesFor(
-      { id: 100, role: { id: 10 } },
+      { id: 100, roles: [{ id: 10 }] },
       'post',
       'read',
     );
@@ -405,7 +405,7 @@ describe('FieldPermissionCacheBuilder — partial reload', () => {
     expect(matchingPolicies[0].rules[0].id).toBe(1);
 
     const otherPolicies = await registry.getFieldPermissionPoliciesFor(
-      { id: 300, role: { id: 10 } },
+      { id: 300, roles: [{ id: 10 }] },
       'post',
       'read',
     );
@@ -439,7 +439,7 @@ describe('FieldPermissionCacheBuilder — partial reload', () => {
     );
 
     const policies = await registry.getFieldPermissionPoliciesFor(
-      { id: 99, role: { id: 10 } },
+      { id: 99, roles: [{ id: 10 }] },
       'post',
       'read',
     );
@@ -462,7 +462,7 @@ describe('FieldPermissionCacheBuilder — partial reload', () => {
     await svc.reload(false);
 
     let policies = await registry.getFieldPermissionPoliciesFor(
-      { id: 99, role: { id: 10 } },
+      { id: 99, roles: [{ id: 10 }] },
       'enfyra_user',
       'read',
     );
@@ -481,7 +481,7 @@ describe('FieldPermissionCacheBuilder — partial reload', () => {
     );
 
     policies = await registry.getFieldPermissionPoliciesFor(
-      { id: 99, role: { id: 10 } },
+      { id: 99, roles: [{ id: 10 }] },
       'enfyra_user',
       'read',
     );
@@ -517,7 +517,7 @@ describe('FieldPermissionCacheBuilder — partial reload', () => {
     );
 
     const policies = await registry.getFieldPermissionPoliciesFor(
-      { id: 99, role: { id: 10 } },
+      { id: 99, roles: [{ id: 10 }] },
       'post',
       'read',
     );

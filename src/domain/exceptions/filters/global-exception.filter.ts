@@ -33,7 +33,7 @@ export function globalExceptionMiddleware(
 ): void {
   const correlationId =
     (req.headers['x-correlation-id'] as string) || generateCorrelationId();
-  const { statusCode, errorCode, message, details } = getErrorDetails(err);
+  const { statusCode, errorCode, message, details } = getErrorDetails(err, req);
   logError(err, req, correlationId, statusCode);
 
   if (req.url?.includes('/graphql')) {
@@ -68,7 +68,7 @@ export function globalExceptionMiddleware(
   res.status(statusCode).json(errorResponse);
 }
 
-function getErrorDetails(exception: unknown): {
+function getErrorDetails(exception: unknown, request?: Request): {
   statusCode: number;
   errorCode: string;
   message: string | string[];
@@ -99,6 +99,10 @@ function getErrorDetails(exception: unknown): {
       message: exception.message,
       details: exception.details,
     };
+  }
+  const bodyParserDetails = getBodyParserErrorDetails(exception, request);
+  if (bodyParserDetails) {
+    return bodyParserDetails;
   }
   if (
     exception instanceof Error &&
@@ -143,6 +147,87 @@ function getErrorDetails(exception: unknown): {
     errorCode: 'UNKNOWN_ERROR',
     message: 'An unknown error occurred',
     details: exception,
+  };
+}
+
+function getBodyParserErrorDetails(exception: unknown, request?: Request) {
+  const candidate = exception as (Error & {
+    type?: string;
+    status?: number;
+    statusCode?: number;
+    code?: string;
+    limit?: number | string;
+    length?: number | string;
+    received?: number | string;
+    expected?: number | string;
+  }) | null;
+  const requestMetadata = request as Request & {
+    requestBodyLimitBytes?: number;
+    uploadFileSizeLimitBytes?: number;
+    uploadProgressLoaded?: number;
+    uploadProgressTotal?: number;
+  };
+  const formatMb = (bytes: number) => Number.isFinite(bytes) && bytes > 0
+    ? Number((bytes / (1024 * 1024)).toFixed(2))
+    : null;
+  const requestDetails = {
+    path: request?.originalUrl || request?.url || null,
+    method: request?.method || null,
+    contentType: request?.headers?.['content-type'] || null,
+  };
+  const contentLengthBytes = Number(request?.headers?.['content-length']);
+
+  if (candidate?.code === 'LIMIT_FILE_SIZE') {
+    const limitBytes = Number(requestMetadata.uploadFileSizeLimitBytes);
+    const receivedBytes = Number(
+      candidate.received
+        ?? candidate.length
+        ?? (Number.isFinite(contentLengthBytes) ? contentLengthBytes : undefined)
+        ?? requestMetadata.uploadProgressLoaded,
+    );
+    return {
+      statusCode: 413,
+      errorCode: 'FILE_TOO_LARGE',
+      message: 'Uploaded file exceeds the configured file-size limit.',
+      details: {
+        phase: 'multipart_upload',
+        ...requestDetails,
+        configuredLimitBytes: Number.isFinite(limitBytes) ? limitBytes : null,
+        configuredLimitMb: formatMb(limitBytes),
+        receivedBytes: Number.isFinite(receivedBytes) && receivedBytes > 0
+          ? receivedBytes
+          : null,
+        receivedMb: formatMb(receivedBytes),
+        guidance: 'Reduce the file size or increase the configured upload limit for this route or deployment.',
+      },
+    };
+  }
+
+  const isPayloadTooLarge = candidate?.type === 'entity.too.large'
+    || candidate?.status === 413
+    || candidate?.statusCode === 413
+    || candidate?.name === 'PayloadTooLargeError';
+  if (!isPayloadTooLarge) return null;
+
+  const limitBytes = Number(
+    candidate?.limit ?? requestMetadata.requestBodyLimitBytes,
+  );
+  const receivedBytes = Number(candidate?.length ?? candidate?.received);
+  return {
+    statusCode: 413,
+    errorCode: 'REQUEST_ENTITY_TOO_LARGE',
+    message: 'Request body exceeds the configured request limit.',
+    details: {
+      phase: 'body_parser',
+      ...requestDetails,
+      configuredLimitBytes: Number.isFinite(limitBytes) ? limitBytes : null,
+      configuredLimitMb: formatMb(limitBytes),
+      receivedBytes: Number.isFinite(receivedBytes) && receivedBytes > 0
+        ? receivedBytes
+        : null,
+      receivedMb: formatMb(receivedBytes),
+      guidance: 'Reduce the request context or increase enfyra_setting.maxRequestBodySize for this deployment. The request was rejected before route handling or upstream forwarding.',
+    },
   };
 }
 

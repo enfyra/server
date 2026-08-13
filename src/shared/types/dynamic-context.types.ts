@@ -2,6 +2,11 @@ import { Request, Response } from 'express';
 import type { UploadedFileInfo } from './file-management.types';
 import type { CryptoHelper } from '../helpers/crypto.helper';
 import type { FetchHelper } from '../helpers/fetch.helper';
+import type {
+  DynamicPatCreateInput,
+  DynamicPatCreateResult,
+  DynamicPatVerificationResult,
+} from './dynamic-pat.types';
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -56,6 +61,10 @@ export interface TDynamicContext {
     $fetch?: FetchHelper;
     $sleep?: (ms: number) => Promise<void>;
     $crypto?: CryptoHelper;
+    $pat?: {
+      create?: (input: DynamicPatCreateInput) => Promise<DynamicPatCreateResult>;
+      verify?: (token: string) => Promise<DynamicPatVerificationResult>;
+    };
   };
   $storage?: {
     $upload?: (options: {
@@ -183,6 +192,7 @@ export interface TDynamicContext {
 export interface RequestWithRouteData extends Request {
   rawBody?: string;
   routeData?: {
+    path?: string;
     context: TDynamicContext;
     params: any;
     handler: string;

@@ -3,8 +3,9 @@ import { ObjectId } from 'mongodb';
 import * as jwt from 'jsonwebtoken';
 import { DatabaseConfigService, EnvService } from '../../../shared/services';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
+import type { ICache } from '../../shared/interfaces/cache.interface';
 import { BadRequestException, UnauthorizedException } from '../../exceptions';
-import { primeCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
+import { primeCachedUserWithRoles } from '../../../shared/utils/load-user-with-role.util';
 import { parseOrBadRequest } from '../../../shared/utils/zod-parse.util';
 import {
   createApiTokenSchema,
@@ -12,20 +13,28 @@ import {
 } from '../schemas/auth.schemas';
 import { API_TOKEN_ACCESS_TTL_MS, API_TOKEN_TABLE } from '../auth.constants';
 import type { PatVerifierService } from './pat-verifier.service';
+import type {
+  DynamicPatCreateInput,
+  DynamicPatCreateResult,
+  DynamicPatVerificationResult,
+} from '../../../shared/types';
 
 export class ApiTokenService {
   private readonly queryBuilder: IQueryBuilder;
   private readonly envService: EnvService;
   private readonly patVerifierService: PatVerifierService;
+  private readonly cacheService?: ICache;
 
   constructor(deps: {
     queryBuilderService: IQueryBuilder;
     envService: EnvService;
     patVerifierService: PatVerifierService;
+    cacheService?: ICache;
   }) {
     this.queryBuilder = deps.queryBuilderService;
     this.envService = deps.envService;
     this.patVerifierService = deps.patVerifierService;
+    this.cacheService = deps.cacheService;
   }
 
   async list(req: any) {
@@ -58,6 +67,22 @@ export class ApiTokenService {
   async create(rawBody: unknown, req: any) {
     const userId = this.currentUserId(req);
     const body = parseOrBadRequest(createApiTokenSchema, rawBody);
+    return await this.createForUser({
+      userId,
+      name: body.name,
+      expiresAt: body.expiresAt,
+    });
+  }
+
+  async createForUser(
+    input: DynamicPatCreateInput,
+  ): Promise<DynamicPatCreateResult> {
+    const userId = String(input?.userId ?? '');
+    if (!userId) throw new BadRequestException('userId is required');
+    const body = parseOrBadRequest(createApiTokenSchema, {
+      name: input?.name,
+      expiresAt: input?.expiresAt ?? 'never',
+    });
     const expiresAt = this.parseExpiresAt(body.expiresAt);
     const token = `efy_pat_${randomBytes(32).toString('base64url')}`;
     const tokenHash = this.patVerifierService.hashToken(token);
@@ -80,6 +105,15 @@ export class ApiTokenService {
     return {
       ...this.serializeToken(inserted || data),
       token,
+      expiresAt: expiresAt ? expiresAt.toISOString() : 'never',
+    };
+  }
+
+  async verifyForScript(token: string): Promise<DynamicPatVerificationResult> {
+    const { payload, expiresAt } = await this.patVerifierService.verify(token);
+    return {
+      userId: String(payload.id),
+      tokenId: String(payload.tokenId),
       expiresAt: expiresAt ? expiresAt.toISOString() : 'never',
     };
   }
@@ -144,7 +178,11 @@ export class ApiTokenService {
   }
 
   private async seedUserCache(userId: unknown): Promise<void> {
-    await primeCachedUserWithRole(this.queryBuilder, userId);
+    await primeCachedUserWithRoles(
+      this.queryBuilder,
+      this.cacheService,
+      userId,
+    );
   }
 
   private async findTokenById(tokenId: string): Promise<any> {

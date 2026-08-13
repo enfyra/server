@@ -1,6 +1,9 @@
 import type { Queue } from 'bullmq';
 import type { EventEmitter2 } from 'eventemitter2';
+import type { Request, Response } from 'express';
 import type Redis from 'ioredis';
+import type { ConfigService } from '../shared/interfaces/config-service.interface';
+import type { RequestWithRouteData, TDynamicContext } from '../shared/types/dynamic-context.types';
 import type { EnvService, DatabaseConfigService, InstanceService, DynamicContextFactory, RuntimeMetricsCollectorService, ClusterTelemetryService } from '../shared/services';
 import type { CommonService } from '../shared/common';
 import type { UploadFileHelper } from '../shared/helpers';
@@ -35,7 +38,7 @@ export interface Cradle {
   dynamicContextFactory: DynamicContextFactory;
   runtimeMetricsCollectorService: RuntimeMetricsCollectorService;
   clusterTelemetryService: ClusterTelemetryService;
-  configService: any;
+  configService: ConfigService;
   lazyRef: Cradle;
   bcryptService: BcryptService;
   authService: AuthService;
@@ -211,11 +214,11 @@ export interface Cradle {
   graphqlDefinitionProcessor: GraphQLDefinitionProcessor;
   graphqlOperationDefinitionProcessor: GraphQLOperationDefinitionProcessor;
 
-  $req: any;
-  $res: any;
-  $body: any;
-  $query: any;
-  $params: any;
-  $user: any;
-  $ctx: any;
+  $req: RequestWithRouteData;
+  $res: Response;
+  $body: unknown;
+  $query: Request['query'];
+  $params: Request['params'];
+  $user: unknown;
+  $ctx: TDynamicContext | null;
 }

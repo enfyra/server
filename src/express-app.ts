@@ -8,10 +8,11 @@ import express from 'express';
 import cors from 'cors';
 import qs from 'qs';
 import type { AwilixContainer } from 'awilix';
+import type { NextFunction, Response } from 'express';
 import { buildRequestScope, type Cradle } from './container';
 import { globalExceptionMiddleware } from './domain/exceptions';
 
-import { captureRawBody } from './http/utils/raw-body-capture.util';
+import { bodyParserMiddleware } from './http/middlewares/body-parser.middleware';
 import {
   pipelinePreRouting,
   pipelineGuardsAuth,
@@ -34,8 +35,19 @@ import { registerMeRoutes } from './http/routes/me.routes';
 import { registerDynamicRoutes } from './http/routes/dynamic.routes';
 import { DebugTrace } from './shared/utils/debug-trace.util';
 import { resolveClientIpFromRequest } from './shared/utils/client-ip.util';
+import type { RequestWithRouteData } from './shared/types/dynamic-context.types';
 
-export function disposeRequestScopeOnResponse(req: any, res: any): void {
+type RuntimeRequest = RequestWithRouteData & {
+  auth?: unknown;
+  scope?: AwilixContainer<Cradle>;
+  _perfStart?: number;
+  _debug?: DebugTrace;
+};
+
+export function disposeRequestScopeOnResponse(
+  req: RuntimeRequest,
+  res: Response,
+): void {
   let disposed = false;
   const dispose = () => {
     if (disposed) return;
@@ -50,6 +62,7 @@ export function disposeRequestScopeOnResponse(req: any, res: any): void {
 
 export function buildExpressApp(container: AwilixContainer<Cradle>) {
   const app = express();
+  const c = container.cradle;
   app.set('query parser', (str: string) => {
     return qs.parse(str, {
       allowPrototypes: false,
@@ -62,15 +75,13 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
 
   // ── Foundation ────────────────────────────────────────────────────
   app.use(cors({ origin: true, credentials: true }));
-  app.use(express.json({ limit: '10mb', verify: captureRawBody }));
-  app.use(express.urlencoded({ extended: true }));
-  app.use(express.text({ type: 'text/plain' }));
+  app.use(bodyParserMiddleware(c.runtimeRegistryService));
 
   // ── Request scope + debug trace ──────────────────────────────────
-  app.use((req: any, res, next) => {
+  app.use((req: RuntimeRequest, res: Response, next: NextFunction) => {
     const start = performance.now();
     req._perfStart = start;
-    const debugMode = req.query?.debugMode === 'true' || req.query?.debugMode === true;
+    const debugMode = req.query?.debugMode === 'true';
     if (debugMode) {
       req._debug = new DebugTrace();
       req._debug.dur('mw_scope_create', start);
@@ -79,8 +90,6 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
     disposeRequestScopeOnResponse(req, res);
     next();
   });
-
-  const c = container.cradle;
 
   // ── Activation gate (503 while schema reload pending) ─────────────
   app.use((_req, res, next) => {
@@ -94,7 +103,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   });
 
   // ── Metrics (runWithQueryContext) ─────────────────────────────────
-  app.use((req: any, res, next) => {
+  app.use((req: RuntimeRequest, res: Response, next: NextFunction) => {
     const startedAt = performance.now();
     res.on('finish', () => {
       const route =
@@ -134,7 +143,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
 
   // ── GraphQL ───────────────────────────────────────────────────────
   c.graphqlService.getYogaApp();
-  app.use('/graphql', (req: any, res: any) => {
+  app.use('/graphql', (req: RuntimeRequest, res: Response) => {
     const yogaApp = c.graphqlService.getYogaApp();
     return yogaApp(req, res, {
       clientIp: resolveClientIpFromRequest(req),

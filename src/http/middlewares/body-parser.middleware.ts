@@ -14,6 +14,7 @@ export function bodyParserMiddleware(
     if (contentType.includes('multipart/')) return next();
 
     const limit = runtimeRegistryService.getMaxRequestBodySizeBytes();
+    (req as Request & { requestBodyLimitBytes?: number }).requestBodyLimitBytes = limit;
     const limitStr = `${limit}`;
 
     if (contentType.includes('json')) {
@@ -25,6 +26,13 @@ export function bodyParserMiddleware(
     }
     if (contentType.includes('urlencoded')) {
       return express.urlencoded({ limit: limitStr, extended: true })(
+        req,
+        res,
+        next,
+      );
+    }
+    if (contentType.includes('text/plain')) {
+      return express.text({ limit: limitStr, verify: captureRawBody })(
         req,
         res,
         next,

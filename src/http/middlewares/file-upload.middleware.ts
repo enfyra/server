@@ -46,13 +46,15 @@ export function fileUploadMiddleware(
       return next();
     }
     setupUploadProgress(req, dynamicWebSocketGateway);
+    const fileSizeLimitBytes = resolveUploadFileSizeLimitBytes(
+      runtimeRegistryService.getMaxUploadFileSizeBytes(),
+      req.routeData?.maxUploadFileSize,
+    );
+    req.uploadFileSizeLimitBytes = fileSizeLimitBytes;
     const upload = multer({
       storage: diskStorage,
       limits: {
-        fileSize: resolveUploadFileSizeLimitBytes(
-          runtimeRegistryService.getMaxUploadFileSizeBytes(),
-          req.routeData?.maxUploadFileSize,
-        ),
+        fileSize: fileSizeLimitBytes,
       },
     });
     upload.single('file')(req, res, (error: any) => {

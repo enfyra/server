@@ -7,11 +7,11 @@ import {
 } from '../../src/domain/auth';
 
 const mocks = vi.hoisted(() => ({
-  loadCachedUserWithRole: vi.fn(),
+  loadCachedUserWithRoles: vi.fn(),
 }));
 
 vi.mock('../../src/shared/utils/load-user-with-role.util', () => ({
-  loadCachedUserWithRole: mocks.loadCachedUserWithRole,
+  loadCachedUserWithRoles: mocks.loadCachedUserWithRoles,
   withUserRequestContext: (user: any) => user,
 }));
 
@@ -113,9 +113,9 @@ async function runUpdate(resolver: DynamicResolver, token: string) {
 describe('GraphQL API token revocation check', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.loadCachedUserWithRole.mockResolvedValue({
+    mocks.loadCachedUserWithRoles.mockResolvedValue({
       id: 'user-1',
-      role: { id: 'role-user' },
+      roles: [{ id: 'role-user' }],
       isRootAdmin: false,
     });
   });
@@ -131,7 +131,7 @@ describe('GraphQL API token revocation check', () => {
     });
 
     expect(validateAccessPayload).toHaveBeenCalledOnce();
-    expect(mocks.loadCachedUserWithRole).not.toHaveBeenCalled();
+    expect(mocks.loadCachedUserWithRoles).not.toHaveBeenCalled();
     expect(executorEngineService.run).not.toHaveBeenCalled();
   });
 
@@ -156,7 +156,7 @@ describe('GraphQL API token revocation check', () => {
     });
 
     expect(validateAccessPayload).toHaveBeenCalledOnce();
-    expect(mocks.loadCachedUserWithRole).toHaveBeenCalledOnce();
+    expect(mocks.loadCachedUserWithRoles).toHaveBeenCalledOnce();
     expect(executorEngineService.run).toHaveBeenCalledOnce();
   });
 
@@ -168,7 +168,7 @@ describe('GraphQL API token revocation check', () => {
     });
 
     expect(validateAccessPayload).not.toHaveBeenCalled();
-    expect(mocks.loadCachedUserWithRole).toHaveBeenCalledOnce();
+    expect(mocks.loadCachedUserWithRoles).toHaveBeenCalledOnce();
   });
 
   it('rejects an invalid JWT signature with 401', async () => {

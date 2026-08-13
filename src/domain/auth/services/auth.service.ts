@@ -7,7 +7,7 @@ import * as jwt from 'jsonwebtoken';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { ICache } from '../../shared/interfaces/cache.interface';
 import { BcryptService } from './bcrypt.service';
-import { primeCachedUserWithRole } from '../../../shared/utils/load-user-with-role.util';
+import { primeCachedUserWithRoles } from '../../../shared/utils/load-user-with-role.util';
 import { parseOrBadRequest } from '../../../shared/utils/zod-parse.util';
 import {
   loginSchema,
@@ -21,6 +21,7 @@ export class AuthService {
   private bcryptService: BcryptService;
   private queryBuilder: IQueryBuilder;
   private envService: EnvService;
+  private cacheService: ICache;
 
   constructor(deps: {
     bcryptService: BcryptService;
@@ -31,10 +32,15 @@ export class AuthService {
     this.bcryptService = deps.bcryptService;
     this.queryBuilder = deps.queryBuilderService;
     this.envService = deps.envService;
+    this.cacheService = deps.cacheService;
   }
 
   private async seedUserCache(userIdForJwt: unknown): Promise<void> {
-    await primeCachedUserWithRole(this.queryBuilder, userIdForJwt);
+    await primeCachedUserWithRoles(
+      this.queryBuilder,
+      this.cacheService,
+      userIdForJwt,
+    );
   }
 
   private hashToken(token: string): string {
@@ -160,19 +166,15 @@ export class AuthService {
       where: { [sessionIdField]: sessionId },
     });
 
-    if (!req.user) {
+    if (!session) {
       throw new BadRequestException(`Logout failed!`);
     }
 
-    const userIdToCheck = this.queryBuilder.isMongoDb()
-      ? req.user._id
-      : req.user.id;
-    const sessionUserId = this.queryBuilder.isMongoDb()
-      ? session?.user?._id || session?.user
-      : session?.userId;
-
-    if (!session || String(sessionUserId) !== String(userIdToCheck)) {
-      throw new BadRequestException(`Logout failed!`);
+    if (
+      session.refreshTokenHash &&
+      session.refreshTokenHash !== this.hashToken(body.refreshToken)
+    ) {
+      throw new BadRequestException('Refresh token has been revoked!');
     }
 
     await this.queryBuilder.delete(

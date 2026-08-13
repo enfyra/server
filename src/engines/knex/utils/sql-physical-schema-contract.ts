@@ -262,20 +262,17 @@ export function buildSqlJunctionTableContract(
     ),
     sourceIndexName: getShortSqlIdentifier(
       'idx',
-      junction.sourceTable,
-      junction.sourcePropertyName,
+      junction.tableName,
       'src',
     ),
     targetIndexName: getShortSqlIdentifier(
       'idx',
-      junction.sourceTable,
-      junction.sourcePropertyName,
+      junction.tableName,
       'tgt',
     ),
     reverseIndexName: getShortSqlIdentifier(
       'idx',
-      junction.sourceTable,
-      junction.sourcePropertyName,
+      junction.tableName,
       'rev',
     ),
     onDelete: 'CASCADE',

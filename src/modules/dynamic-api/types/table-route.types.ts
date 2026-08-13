@@ -40,6 +40,8 @@ export interface TableRouteHandlers {
   assertGuardRuleCreate: (body: any) => Promise<void>;
   assertGuardRuleUpdate: (id: string | number, body: any) => Promise<void>;
   assertFlowTriggerBody: (body: any) => void;
+  normalizeUserPassword: (body: Record<string, any>) => Promise<void>;
+  normalizeFolderSlug: (body: Record<string, any>) => void;
   postStorageDefault: (currentId: string | number) => Promise<void>;
   postFlowJobs: (id: string | number, name: string) => Promise<unknown>;
   postUserRevocation: (id: string | number) => Promise<unknown>;

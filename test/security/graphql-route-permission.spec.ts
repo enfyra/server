@@ -7,11 +7,11 @@ import {
 } from '../../src/domain/auth';
 
 const mocks = vi.hoisted(() => ({
-  loadCachedUserWithRole: vi.fn(),
+  loadCachedUserWithRoles: vi.fn(),
 }));
 
 vi.mock('../../src/shared/utils/load-user-with-role.util', () => ({
-  loadCachedUserWithRole: mocks.loadCachedUserWithRole,
+  loadCachedUserWithRoles: mocks.loadCachedUserWithRoles,
   withUserRequestContext: (user: any) => user,
 }));
 
@@ -96,9 +96,9 @@ async function runUpdate(
 describe('DynamicResolver independent GraphQL operation access', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.loadCachedUserWithRole.mockResolvedValue({
+    mocks.loadCachedUserWithRoles.mockResolvedValue({
       id: 'user-1',
-      role: { id: 'role-user' },
+      roles: [{ id: 'role-user' }],
       isRootAdmin: false,
     });
   });
@@ -118,7 +118,7 @@ describe('DynamicResolver independent GraphQL operation access', () => {
 
     await runUpdate(resolver);
     expect(executorEngineService.run).toHaveBeenCalledOnce();
-    expect(mocks.loadCachedUserWithRole).not.toHaveBeenCalled();
+    expect(mocks.loadCachedUserWithRoles).not.toHaveBeenCalled();
   });
 
   it('returns 401 for a private operation without a token', async () => {
@@ -172,9 +172,9 @@ describe('DynamicResolver independent GraphQL operation access', () => {
   });
 
   it('allows root admin for private operations', async () => {
-    mocks.loadCachedUserWithRole.mockResolvedValue({
+    mocks.loadCachedUserWithRoles.mockResolvedValue({
       id: 'root-1',
-      role: null,
+      roles: [],
       isRootAdmin: true,
     });
     const { resolver, executorEngineService } = makeResolver();

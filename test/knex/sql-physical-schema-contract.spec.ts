@@ -180,9 +180,9 @@ describe('SQL physical schema contract', () => {
 
     expect(contract).toMatchObject({
       primaryKeyName: 'enfyra_route_availableMethods_enfyra_method_pk',
-      sourceIndexName: 'idx_enfyra_route_availableMethods_src',
-      targetIndexName: 'idx_enfyra_route_availableMethods_tgt',
-      reverseIndexName: 'idx_enfyra_route_availableMethods_rev',
+      sourceIndexName: 'idx_enfyra_route_availableMethods_enfyra_method_src',
+      targetIndexName: 'idx_enfyra_route_availableMethods_enfyra_method_tgt',
+      reverseIndexName: 'idx_enfyra_route_availableMethods_enfyra_method_rev',
       onDelete: 'CASCADE',
       onUpdate: 'CASCADE',
     });

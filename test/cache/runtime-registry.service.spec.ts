@@ -47,6 +47,16 @@ describe('RuntimeRegistryService', () => {
     );
   });
 
+  it('uses the activated setting for the request-body policy', async () => {
+    const service = new RuntimeRegistryService();
+
+    await service.publishFromCache(CACHE_IDENTIFIERS.SETTING, {
+      getCacheAsync: vi.fn(async () => ({ maxRequestBodySize: 11 })),
+    });
+
+    expect(service.getMaxRequestBodySizeBytes()).toBe(11 * 1024 * 1024);
+  });
+
   it('publishes metadata caches through the metadata active-view API', async () => {
     const metadataCacheService = {
       getMetadata: vi.fn(async () => ({

@@ -42,12 +42,11 @@ import type {
   RuntimeCacheIdentifier,
   RuntimeRegistrySnapshot,
 } from '../types/runtime-registry.types';
+import { CACHE_ORCHESTRATOR_DEFAULTS } from '../config/cache-orchestrator.config';
 
 const COLOR = '\x1b[33m';
 const RESET = '\x1b[0m';
 const SYNC_CHANNEL = 'enfyra:cache-orchestrator-sync';
-const FULL_RELOAD_BUILDER_CONCURRENCY = 3;
-
 const FLOW_PRIORITY = [
   'metadata',
   'route',
@@ -69,6 +68,30 @@ const FLOW_PRIORITY = [
   'repoRegistry',
 ];
 
+type ReloadStepName =
+  | 'metadata'
+  | 'repoRegistry'
+  | 'route'
+  | 'graphql'
+  | 'guard'
+  | 'flow'
+  | 'websocket'
+  | 'package'
+  | 'setting'
+  | 'authHeader'
+  | 'storage'
+  | 'oauth'
+  | 'folder'
+  | 'menu'
+  | 'extension'
+  | 'fieldPermission'
+  | 'column-rule'
+  | 'settingGraphql'
+  | 'bootstrap';
+type CacheBuilderReloadStepName = Exclude<
+  ReloadStepName,
+  'settingGraphql' | 'menu' | 'extension'
+>;
 type ReloadStep = (
   payload: TCacheInvalidationPayload,
   options?: { sharedReplay?: boolean },
@@ -84,7 +107,24 @@ type CacheReloadStepMetric = {
   error?: string;
 };
 
-export const RELOAD_CHAINS: Record<string, string[]> = {
+const CLIENT_NOTIFICATION_STEPS = new Set<ReloadStepName>([
+  'menu',
+  'extension',
+]);
+const RUNTIME_ARTIFACT_STEPS = new Set<ReloadStepName>([
+  'graphql',
+  'settingGraphql',
+]);
+
+function isCacheBuilderReloadStep(
+  step: ReloadStepName,
+): step is CacheBuilderReloadStepName {
+  return (
+    !CLIENT_NOTIFICATION_STEPS.has(step) && step !== 'settingGraphql'
+  );
+}
+
+export const RELOAD_CHAINS: Record<string, ReloadStepName[]> = {
   [SYSTEM_TABLES.table]: [
     'metadata',
     'repoRegistry',
@@ -172,7 +212,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   private readonly dynamicWebSocketGateway: DynamicWebSocketGateway;
   private readonly runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
   private readonly redisRuntimeCacheStore?: RedisRuntimeCacheStore;
-  private stepMap: Record<string, ReloadStep>;
+  private stepMap: Record<CacheBuilderReloadStepName, ReloadStep>;
   private messageHandler: ((channel: string, message: string) => void) | null =
     null;
   private readonly invalidationHandler: (
@@ -275,8 +315,6 @@ export class CacheOrchestratorService implements LifecycleAware {
           p,
           options?.sharedReplay,
         ),
-      menu: async () => undefined,
-      extension: async () => undefined,
       fieldPermission: (p, options) =>
         this.reloadSimple(
           this.fieldPermissionCacheBuilder,
@@ -289,7 +327,6 @@ export class CacheOrchestratorService implements LifecycleAware {
           p,
           options?.sharedReplay,
         ),
-      settingGraphql: async () => undefined,
       bootstrap: () => this.reloadBootstrapScripts(),
     };
 
@@ -338,7 +375,7 @@ export class CacheOrchestratorService implements LifecycleAware {
           }
           resolvers.forEach((r) => r.resolve());
         }
-      }, 50);
+      }, CACHE_ORCHESTRATOR_DEFAULTS.invalidationDebounceMs);
     });
   }
 
@@ -478,7 +515,8 @@ export class CacheOrchestratorService implements LifecycleAware {
         }
 
         const middleSteps = chain.filter(
-          (s) => s !== 'metadata' && s !== 'graphql' && s !== 'settingGraphql',
+          (step): step is Exclude<CacheBuilderReloadStepName, 'metadata'> =>
+            step !== 'metadata' && isCacheBuilderReloadStep(step),
         );
         if (middleSteps.length > 0) {
           const s = Date.now();
@@ -574,8 +612,16 @@ export class CacheOrchestratorService implements LifecycleAware {
         });
         throw error;
       } finally {
-        if (!reloadFailed && elapsed < 500) {
-          await new Promise((r) => setTimeout(r, 500 - elapsed));
+        if (
+          !reloadFailed &&
+          elapsed < CACHE_ORCHESTRATOR_DEFAULTS.minimumClientReloadStatusMs
+        ) {
+          await new Promise((r) =>
+            setTimeout(
+              r,
+              CACHE_ORCHESTRATOR_DEFAULTS.minimumClientReloadStatusMs - elapsed,
+            ),
+          );
         }
         this.notifyClients(
           reloadFailed ? 'failed' : 'done',
@@ -900,9 +946,12 @@ export class CacheOrchestratorService implements LifecycleAware {
     steps: string[],
     payload?: TCacheInvalidationPayload,
   ): Promise<void> {
-    if (steps.includes('graphql')) {
+    if (RUNTIME_ARTIFACT_STEPS.has('graphql') && steps.includes('graphql')) {
       await this.graphqlService?.reloadSchema?.(payload);
-    } else if (steps.includes('settingGraphql')) {
+    } else if (
+      RUNTIME_ARTIFACT_STEPS.has('settingGraphql') &&
+      steps.includes('settingGraphql')
+    ) {
       await this.reloadSettingGraphql();
     }
   }
@@ -1291,7 +1340,7 @@ export class CacheOrchestratorService implements LifecycleAware {
         ];
         await this.runBoundedReloadSteps(
           builderSteps,
-          FULL_RELOAD_BUILDER_CONCURRENCY,
+          CACHE_ORCHESTRATOR_DEFAULTS.fullReloadBuilderConcurrency,
           (step) => runStep(step.name, step.run),
         );
         await this.commitRuntimeReloadTransaction(steps);
@@ -1314,8 +1363,15 @@ export class CacheOrchestratorService implements LifecycleAware {
         if (notify) {
           if (!reloadError) {
             const elapsed = Date.now() - start;
-            if (elapsed < 200) {
-              await new Promise((r) => setTimeout(r, 200 - elapsed));
+            if (
+              elapsed < CACHE_ORCHESTRATOR_DEFAULTS.minimumFullReloadStatusMs
+            ) {
+              await new Promise((r) =>
+                setTimeout(
+                  r,
+                  CACHE_ORCHESTRATOR_DEFAULTS.minimumFullReloadStatusMs - elapsed,
+                ),
+              );
             }
           }
           this.notifyClients(
@@ -1377,6 +1433,10 @@ export class CacheOrchestratorService implements LifecycleAware {
           this.logger.log(
             `Redis signal from ${signal.instanceId.slice(0, 8)}: ${signal.payload?.table} (${signal.payload?.scope || 'full'})`,
           );
+          await this.eventEmitter.emitAsync(
+            CACHE_EVENTS.SYNC_INVALIDATE,
+            signal.payload,
+          );
           if (signal.payload?.table === '__admin_reload_all') {
             await this.reloadAllLocal(false, this.usesSharedRuntimeCache());
           } else {
@@ -1392,9 +1452,15 @@ export class CacheOrchestratorService implements LifecycleAware {
           this.logger.error('Failed to process Redis signal:', error);
           if (!version) return;
           const retries = (this.signalRetryCounts.get(version) ?? 0) + 1;
-          if (retries <= 3) {
+          if (retries <= CACHE_ORCHESTRATOR_DEFAULTS.signalRetryMaxAttempts) {
             this.signalRetryCounts.set(version, retries);
-            setTimeout(() => this.messageHandler?.(channel, message), Math.min(1000 * retries, 5000));
+            setTimeout(
+              () => this.messageHandler?.(channel, message),
+              Math.min(
+                CACHE_ORCHESTRATOR_DEFAULTS.signalRetryBaseDelayMs * retries,
+                CACHE_ORCHESTRATOR_DEFAULTS.signalRetryMaxDelayMs,
+              ),
+            );
           }
         }
       }

@@ -4,6 +4,7 @@ import {
   TFieldPermissionRule,
 } from '../../engines/cache';
 import { matchFieldPermissionCondition } from './field-permission-condition.util';
+import { getUserRoleIds } from './user-role.util';
 
 export type TFieldPermissionDecision = {
   allowed: boolean;
@@ -18,11 +19,6 @@ function toIdString(v: any): string | null {
 function getUserId(user: any): string | null {
   if (!user || user.isAnonymous) return null;
   return toIdString(user);
-}
-
-function getRoleId(user: any): string | null {
-  if (!user || user.isAnonymous) return null;
-  return toIdString(user?.role);
 }
 
 type TFieldPermissionSubject = 'column' | 'relation';
@@ -83,12 +79,11 @@ export function fieldPermissionRuleAppliesToUser(rule: TFieldPermissionRule, use
 
 function ruleAppliesToUser(rule: TFieldPermissionRule, user: any): boolean {
   const userId = getUserId(user);
-  const roleId = getRoleId(user);
+  const roleIds = getUserRoleIds(user);
 
   const isUserSpecific =
     userId != null && rule.allowedUserIds?.includes(userId);
-  const isRoleMatch =
-    rule.roleId != null && roleId != null && rule.roleId === roleId;
+  const isRoleMatch = rule.roleId != null && roleIds.has(rule.roleId);
 
   if (rule.roleId != null && rule.allowedUserIds.length > 0) {
     return Boolean(isUserSpecific || isRoleMatch);

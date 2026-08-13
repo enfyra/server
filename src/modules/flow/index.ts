@@ -1,4 +1,5 @@
 export * from './queues/flow-execution-queue.service';
+export * from './services/flow-execution-history.service';
 export * from './services/flow-queue-maintenance.service';
 export * from './services/flow-runtime.service';
 export * from './services/flow-scheduler.service';

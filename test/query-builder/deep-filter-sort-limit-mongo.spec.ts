@@ -765,6 +765,102 @@ describe('deep sort on m2m (Mongo)', () => {
   });
 });
 
+describe('explicit M2M junction columns (Mongo)', () => {
+  test('uses metadata junction columns when hydrating through MongoQueryExecutor', async () => {
+    const permissionId = new ObjectId();
+    const allowedUserId = new ObjectId();
+    const junctionTable = `permission_users_${Date.now()}`;
+
+    await db.collection('posts').insertOne({
+      _id: permissionId,
+      title: 'Permission parent',
+      author: userIds[0],
+    });
+    await db.collection('tags').insertOne({
+      _id: allowedUserId,
+      label: 'Allowed user',
+      priority: 1,
+    });
+    await db.collection(junctionTable).insertOne({
+      permissionRecord: permissionId,
+      allowedUserRecord: allowedUserId,
+    });
+
+    const customMetadata = {
+      tables: new Map([
+        ...Object.entries(META).filter(([name]) => name !== 'posts'),
+        [
+          'posts',
+          {
+            ...META.posts,
+            relations: [
+              {
+                propertyName: 'allowedUsers',
+                type: 'many-to-many',
+                targetTableName: 'tags',
+                isInverse: false,
+                junctionTableName: junctionTable,
+                junctionSourceColumn: 'permissionRecord',
+                junctionTargetColumn: 'allowedUserRecord',
+              },
+            ],
+          },
+        ],
+      ]),
+    };
+    const executor = new MongoQueryExecutor({
+      getDb: () => db,
+      collection: (name: string) => db.collection(name),
+    });
+
+    const batchRows = [{ _id: permissionId }];
+    await executeMongoBatchFetches(
+      db,
+      batchRows,
+      [
+        {
+          relationName: 'allowedUsers',
+          type: 'many-to-many',
+          targetTable: 'tags',
+          fields: ['_id'],
+          isInverse: false,
+          junctionTableName: junctionTable,
+          junctionSourceColumn: 'permissionRecord',
+          junctionTargetColumn: 'allowedUserRecord',
+        },
+      ],
+      async (table: string) => customMetadata.tables.get(table) ?? null,
+      3,
+      0,
+      'posts',
+      customMetadata,
+    );
+
+    expect(batchRows).toEqual([
+      {
+        _id: permissionId,
+        allowedUsers: [{ _id: allowedUserId }],
+      },
+    ]);
+
+    const result = await executor.execute({
+      tableName: 'posts',
+      fields: ['_id', 'allowedUsers._id'],
+      filter: { _id: { _eq: permissionId } },
+      deep: { allowedUsers: { fields: ['_id'] } },
+      metadata: customMetadata,
+      dbType: 'mongodb',
+    });
+
+    expect(result.data).toEqual([
+      {
+        _id: permissionId.toHexString(),
+        allowedUsers: [{ _id: allowedUserId.toHexString() }],
+      },
+    ]);
+  });
+});
+
 describe('debug trace (Mongo)', () => {
   test('trace emits batch_fetch entry', async () => {
     const {

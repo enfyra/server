@@ -17,15 +17,6 @@ type RunOptions = {
   onCompiledCodeRepair?: RepairCallback;
 };
 
-const SCRIPT_PARSE_FAILURE_PATTERNS = [
-  'Invalid or unexpected token',
-  'Unexpected identifier',
-  'Unexpected token',
-  'Expression expected',
-  'Missing initializer in const declaration',
-  'await is only valid',
-];
-
 export class RuntimeScriptExecutorService {
   private readonly kernelExecutorEngineService: KernelExecutorEngineService;
 
@@ -55,7 +46,7 @@ export class RuntimeScriptExecutorService {
         scriptLanguage: options.scriptLanguage,
       });
     } catch (error) {
-      if (!this.isScriptParseFailure(error)) {
+      if (!this.isStaleCompiledCodeFailure(error)) {
         throw error;
       }
       const fallbackCode = compileScriptSource(
@@ -88,7 +79,7 @@ export class RuntimeScriptExecutorService {
     try {
       return await this.kernelExecutorEngineService.runBatch(req, timeoutMs);
     } catch (error) {
-      if (!this.isScriptParseFailure(error)) {
+      if (!this.isStaleCompiledCodeFailure(error)) {
         throw error;
       }
 
@@ -134,12 +125,16 @@ export class RuntimeScriptExecutorService {
     }
   }
 
-  private isScriptParseFailure(error: any): boolean {
-    const message = String(error?.message ?? '');
-    const errorName = error?.details?.errorName;
-    if (errorName !== 'SyntaxError') return false;
-    return SCRIPT_PARSE_FAILURE_PATTERNS.some((pattern) =>
-      message.includes(pattern),
+  private isStaleCompiledCodeFailure(error: unknown): boolean {
+    if (!error || typeof error !== 'object' || !('details' in error)) {
+      return false;
+    }
+    const details = error.details;
+    if (!details || typeof details !== 'object') return false;
+    const executionDetails = details as Record<string, unknown>;
+    return (
+      executionDetails.errorName === 'SyntaxError' &&
+      executionDetails.executionStage === 'compile'
     );
   }
 

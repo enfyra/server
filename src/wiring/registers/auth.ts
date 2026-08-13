@@ -23,10 +23,10 @@ export const authRegisters = {
   oauthService: asClass(OAuthService).singleton(),
   oauthExchangeCodeService: asClass(OAuthExchangeCodeService)
     .singleton()
-    .disposer((service: any) => service.onDestroy()),
+    .disposer((service: OAuthExchangeCodeService) => service.onDestroy()),
   sessionCleanupService: asClass(SessionCleanupService)
     .singleton()
-    .disposer((service: any) => service.onDestroy()),
+    .disposer((service: SessionCleanupService) => service.onDestroy()),
   userRevocationService: asClass(UserRevocationService).singleton(),
   loggingService: asClass(LoggingService).singleton(),
 } as const;

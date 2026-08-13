@@ -42,6 +42,33 @@ function makeService() {
   return { service };
 }
 
+function makeFilePermissionService() {
+  const permissionMeta = {
+    name: 'enfyra_file_permission',
+    relations: [
+      {
+        propertyName: 'allowedUsers',
+        type: 'many-to-many',
+        targetTable: 'enfyra_user',
+        junctionTableName: 'j_8110450610b3',
+        junctionSourceColumn: 'enfyra_file_permissionId',
+        junctionTargetColumn: 'enfyra_userId',
+      },
+    ],
+  };
+  const runtimeRegistryService = {
+    lookupTableByName: vi.fn((name: string) =>
+      name === 'enfyra_file_permission'
+        ? permissionMeta
+        : { name, relations: [] },
+    ),
+  };
+  const service = new MongoRelationManagerService({
+    runtimeRegistryService: runtimeRegistryService as any,
+  });
+  return { service };
+}
+
 describe('MongoRelationManagerService relation reference validation', () => {
   it('batch-validates many-to-many ids before nested creates run', async () => {
     const { service } = makeService();
@@ -128,5 +155,39 @@ describe('MongoRelationManagerService relation reference validation', () => {
     expect(insertOne).toHaveBeenCalledWith('tag', { name: 'new tag' });
     expect(processed.author).toEqual(authorId);
     expect(processed.tags).toBeUndefined();
+  });
+
+  it('writes file permission allowedUsers into its declared Mongo junction', async () => {
+    const { service } = makeFilePermissionService();
+    const userId = new ObjectId();
+    const permissionId = new ObjectId();
+    const users = makeCollection([{ _id: userId }]);
+    const junction = { insertMany: vi.fn(async () => ({ acknowledged: true })) };
+
+    const processed = await service.processNestedRelations(
+      'enfyra_file_permission',
+      { allowedUsers: [userId.toHexString()] },
+      (name) => (name === 'enfyra_user' ? users : junction) as any,
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+    );
+
+    await service.writeM2mJunctionsForInsert(
+      'enfyra_file_permission',
+      permissionId,
+      processed,
+      (name) => (name === 'j_8110450610b3' ? junction : users) as any,
+    );
+
+    expect(junction.insertMany).toHaveBeenCalledWith(
+      [
+        {
+          enfyra_file_permissionId: permissionId,
+          enfyra_userId: userId,
+        },
+      ],
+      { ordered: false },
+    );
   });
 });

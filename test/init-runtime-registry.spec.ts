@@ -37,6 +37,10 @@ describe('init runtime registry publish', () => {
           init: vi.fn(async () => undefined),
         },
         redisPubSubService: { init: vi.fn(async () => undefined) },
+        runtimeNamespaceLifecycleService: {
+          init: vi.fn(async () => undefined),
+          renewCurrentNamespaceKeys: vi.fn(async () => undefined),
+        },
         mongoSagaCoordinator: { init: vi.fn(async () => undefined) },
         provisionService: {
           waitForDatabase: vi.fn(async () => undefined),
@@ -61,6 +65,9 @@ describe('init runtime registry publish', () => {
           isNeeded: vi.fn(async () => false),
           run: vi.fn(async () => undefined),
         },
+        runtimeReloadAuditService: {
+          markInterruptedReloadsFailed: vi.fn(async () => undefined),
+        },
         cacheOrchestratorService: { init: vi.fn(async () => undefined) },
         runtimeRegistryService,
         metadataCacheService,
@@ -73,6 +80,7 @@ describe('init runtime registry publish', () => {
         fieldPermissionCacheBuilder: cacheService([]),
         columnRuleCacheBuilder: cacheService([]),
         settingCacheService: cacheService([]),
+        authHeaderCacheBuilder: cacheService([]),
         storageConfigCacheBuilder: cacheService([]),
         oauthConfigCacheBuilder: cacheService([]),
         websocketCacheBuilder: cacheService([]),
@@ -88,12 +96,16 @@ describe('init runtime registry publish', () => {
           installExtensions: vi.fn(async () => undefined),
         },
         flowRuntimeService: { init: vi.fn(async () => undefined) },
+        flowTriggerDispatcherService: { init: vi.fn(async () => undefined) },
         graphqlService: { reloadSchema: vi.fn(async () => undefined) },
         sessionCleanupService: { init: vi.fn(async () => undefined) },
         userRevocationService: { init: vi.fn(async () => undefined) },
         patVerifierService: { init: vi.fn(async () => undefined) },
         oauthExchangeCodeService: { init: vi.fn(async () => undefined) },
         mongoPhysicalMigrationService: { init: vi.fn(async () => undefined) },
+        runtimeSchemaJournalService: {
+          completeRecoveredActivations: vi.fn(async () => undefined),
+        },
       },
     } as any);
 

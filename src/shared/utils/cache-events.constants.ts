@@ -3,6 +3,7 @@ import { SYSTEM_TABLES } from './system-tables.constants';
 
 export const CACHE_EVENTS = {
   INVALIDATE: 'cache:invalidate',
+  SYNC_INVALIDATE: 'cache:sync-invalidate',
   METADATA_LOADED: 'cache:metadata:loaded',
   METADATA_CHANGED: 'cache:metadata:changed',
   ROUTE_LOADED: 'cache:route:loaded',

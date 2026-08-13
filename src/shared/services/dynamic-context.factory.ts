@@ -3,6 +3,7 @@ import { getIoAbortSignal } from '@enfyra/kernel';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { TDynamicContext } from '../types';
 import type { BcryptService } from '../../domain/auth';
+import type { ApiTokenService } from '../../domain/auth';
 import type { RedisCacheService } from '../../engines/cache';
 import { createCryptoHelper, createFetchHelper } from '../helpers';
 import type { UploadFileHelper } from '../helpers/upload-file.helper';
@@ -47,6 +48,7 @@ const ENV_EXPOSE_DENY_KEYS = new Set([
 
 export class DynamicContextFactory {
   private readonly bcryptService: BcryptService;
+  private readonly apiTokenService: ApiTokenService;
   private readonly userCacheService: RedisCacheService;
   private readonly envService: EnvService;
   private readonly databaseConfigService: DatabaseConfigService;
@@ -57,6 +59,7 @@ export class DynamicContextFactory {
 
   constructor(deps: {
     bcryptService: BcryptService;
+    apiTokenService: ApiTokenService;
     userCacheService: RedisCacheService;
     envService: EnvService;
     databaseConfigService: DatabaseConfigService;
@@ -66,6 +69,7 @@ export class DynamicContextFactory {
     uploadFileHelper?: UploadFileHelper;
   }) {
     this.bcryptService = deps.bcryptService;
+    this.apiTokenService = deps.apiTokenService;
     this.userCacheService = deps.userCacheService;
     this.envService = deps.envService;
     this.databaseConfigService = deps.databaseConfigService;
@@ -252,6 +256,10 @@ export class DynamicContextFactory {
         }
       },
       $crypto: crypto,
+      $pat: {
+        create: async (input) => await this.apiTokenService.createForUser(input),
+        verify: async (token) => await this.apiTokenService.verifyForScript(token),
+      },
       ...(helpers ?? {}),
     };
   }

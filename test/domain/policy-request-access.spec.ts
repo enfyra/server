@@ -33,17 +33,17 @@ describe('PolicyService.checkRequestAccess', () => {
   it('returns 403 when route has no permissions', () => {
     const d = policy.checkRequestAccess({
       method: 'GET',
-      user: { id: 1, role: { id: 5 } },
+      user: { id: 1, roles: [{ id: 5 }] },
       routeData: {},
     });
     expect(d.allow).toBe(false);
     expect(d.statusCode).toBe(403);
   });
 
-  it('does not throw when user.role is null', () => {
+  it('does not throw when user.roles is empty', () => {
     const d = policy.checkRequestAccess({
       method: 'GET',
-      user: { id: 1, role: null },
+      user: { id: 1, roles: [] },
       routeData: {
         routePermissions: [{ methods: [{ name: 'GET' }], role: { id: 5 } }],
       },
@@ -51,7 +51,7 @@ describe('PolicyService.checkRequestAccess', () => {
     expect(d.allow).toBe(false);
   });
 
-  it('does not throw when user.role is undefined', () => {
+  it('does not throw when user.roles is undefined', () => {
     const d = policy.checkRequestAccess({
       method: 'GET',
       user: { id: 1 },
@@ -65,7 +65,7 @@ describe('PolicyService.checkRequestAccess', () => {
   it('matches role by numeric id', () => {
     const d = policy.checkRequestAccess({
       method: 'GET',
-      user: { id: 1, role: { id: 5 } },
+      user: { id: 1, roles: [{ id: 5 }] },
       routeData: {
         routePermissions: [{ methods: [{ name: 'GET' }], role: { id: 5 } }],
       },
@@ -76,7 +76,7 @@ describe('PolicyService.checkRequestAccess', () => {
   it('matches role by Mongo _id', () => {
     const d = policy.checkRequestAccess({
       method: 'GET',
-      user: { _id: 'abc', role: { _id: 'role1' } },
+      user: { _id: 'abc', roles: [{ _id: 'role1' }] },
       routeData: {
         routePermissions: [
           { methods: [{ name: 'GET' }], role: { _id: 'role1' } },
@@ -86,10 +86,48 @@ describe('PolicyService.checkRequestAccess', () => {
     expect(d.allow).toBe(true);
   });
 
+  it('allows a permission granted by any assigned role', () => {
+    const d = policy.checkRequestAccess({
+      method: 'PATCH',
+      user: {
+        id: 1,
+        roles: [{ id: 'member' }, { id: 'moderator' }],
+      },
+      routeData: {
+        routePermissions: [
+          {
+            methods: [{ name: 'PATCH' }],
+            role: { id: 'moderator' },
+          },
+        ],
+      },
+    });
+    expect(d.allow).toBe(true);
+  });
+
+  it('does not grant a permission for an unassigned role', () => {
+    const d = policy.checkRequestAccess({
+      method: 'PATCH',
+      user: {
+        id: 1,
+        roles: [{ id: 'member' }, { id: 'moderator' }],
+      },
+      routeData: {
+        routePermissions: [
+          {
+            methods: [{ name: 'PATCH' }],
+            role: { id: 'admin' },
+          },
+        ],
+      },
+    });
+    expect(d.allow).toBe(false);
+  });
+
   it('matches allowedUsers by _id when role null', () => {
     const d = policy.checkRequestAccess({
       method: 'GET',
-      user: { _id: 'user1', role: null },
+      user: { _id: 'user1', roles: [] },
       routeData: {
         routePermissions: [
           {
@@ -106,7 +144,7 @@ describe('PolicyService.checkRequestAccess', () => {
   it('normalizes number vs string role id', () => {
     const d = policy.checkRequestAccess({
       method: 'GET',
-      user: { id: 1, role: { id: 5 } },
+      user: { id: 1, roles: [{ id: 5 }] },
       routeData: {
         routePermissions: [{ methods: [{ name: 'GET' }], role: { id: '5' } }],
       },
@@ -117,7 +155,7 @@ describe('PolicyService.checkRequestAccess', () => {
   it('rejects when method does not match', () => {
     const d = policy.checkRequestAccess({
       method: 'DELETE',
-      user: { id: 1, role: { id: 5 } },
+      user: { id: 1, roles: [{ id: 5 }] },
       routeData: {
         routePermissions: [{ methods: [{ name: 'GET' }], role: { id: 5 } }],
       },
@@ -129,7 +167,7 @@ describe('PolicyService.checkRequestAccess', () => {
   it('allows skipRoleGuardMethods when user authenticated but no routePermissions match', () => {
     const d = policy.checkRequestAccess({
       method: 'GET',
-      user: { id: 1, role: { id: 5 } },
+      user: { id: 1, roles: [{ id: 5 }] },
       routeData: {
         skipRoleGuardMethods: [{ name: 'GET' }],
         routePermissions: [],
@@ -163,7 +201,7 @@ describe('PolicyService.checkRequestAccess', () => {
   it('does not bypass role check when method is not in skipRoleGuardMethods', () => {
     const d = policy.checkRequestAccess({
       method: 'DELETE',
-      user: { id: 1, role: { id: 5 } },
+      user: { id: 1, roles: [{ id: 5 }] },
       routeData: {
         skipRoleGuardMethods: [{ name: 'GET' }],
         routePermissions: [{ methods: [{ name: 'GET' }], role: { id: 5 } }],

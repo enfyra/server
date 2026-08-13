@@ -12,6 +12,10 @@ import {
 } from '../../src/shared/utils/load-user-with-role.util';
 
 const secret = 'test-secret';
+const authRevisionCache = {
+  get: vi.fn(async () => 'test'),
+  set: vi.fn(async () => undefined),
+};
 
 function makeMiddleware(queryBuilder: any = {}, patVerifierService: any = {}) {
   const authenticationService = new AuthenticationService({
@@ -23,6 +27,7 @@ function makeMiddleware(queryBuilder: any = {}, patVerifierService: any = {}) {
     jwtVerifierService: new JwtVerifierService({
       envService: { get: () => secret } as any,
     }),
+    cacheService: authRevisionCache as any,
   });
   return authMiddleware(authenticationService);
 }
@@ -44,6 +49,7 @@ function makeMiddlewareWithAuthHeaders(
     runtimeRegistryService: {
       getAuthHeaderConfigs: () => authHeaderConfigs,
     } as any,
+    cacheService: authRevisionCache as any,
   });
   return authMiddleware(authenticationService);
 }
@@ -94,7 +100,7 @@ describe('authMiddleware', () => {
   });
 
   it('hydrates and caches users after a verified JWT', async () => {
-    const user = { id: '1', email: 'root@example.com', roleId: '2' };
+    const user = { id: '1', email: 'root@example.com', roles: [{ id: '2' }] };
     const role = { id: '2', name: 'Admin' };
     const findOne = vi.fn(async ({ table }) => {
       if (table === 'enfyra_user') return user;
@@ -125,13 +131,13 @@ describe('authMiddleware', () => {
     expect(req.user).toEqual(
       expect.objectContaining({
         id: '1',
-        role,
+        roles: [role],
         loginProvider: null,
         tokenType: null,
         apiTokenId: null,
       }),
     );
-    expect(secondReq.user).toEqual(expect.objectContaining({ id: '1', role }));
+    expect(secondReq.user).toEqual(expect.objectContaining({ id: '1', roles: [role] }));
     expect(req.routeData.context.$user).toBe(req.user);
     expect(next).toHaveBeenCalledWith();
   });
@@ -140,7 +146,7 @@ describe('authMiddleware', () => {
     primeCachedUserSnapshot('1', {
       id: '1',
       email: 'root@example.com',
-      role: { id: '2', name: 'Admin' },
+      roles: [{ id: '2', name: 'Admin' }],
     });
     const verify = vi.fn().mockResolvedValue({
       payload: {

@@ -274,7 +274,7 @@ describe('assets route cache e2e', () => {
     const req = {
       params: { id: 'file-1' },
       query: {},
-      user: { id: 'user-1', role: { id: 'role-1' } },
+      user: { id: 'user-1', roles: [{ id: 'role-1' }] },
     };
 
     await service.streamFile(req, makeResponse());

@@ -437,19 +437,25 @@ export class RuntimeRegistryService {
     const policies: TCompiledFieldPolicy[] = [];
 
     const userId = this.toIdString(user);
-    const roleId = this.toIdString(user?.role);
+    const roleIds = new Set(
+      Array.isArray(user?.roles)
+        ? user.roles
+            .map((role: any) => this.toIdString(role))
+            .filter((roleId: string | null): roleId is string => roleId !== null)
+        : [],
+    );
 
     if (userId) {
       const userKey = `u:${userId}|${tableName}|${action}`;
       if (cache.has(userKey)) policies.push(cache.get(userKey)!);
     }
 
-    const roleKey = `r:${roleId ?? 'null'}|${tableName}|${action}`;
-    if (cache.has(roleKey)) policies.push(cache.get(roleKey)!);
+    const catchAllKey = `r:null|${tableName}|${action}`;
+    if (cache.has(catchAllKey)) policies.push(cache.get(catchAllKey)!);
 
-    if (roleId != null) {
-      const catchAllKey = `r:null|${tableName}|${action}`;
-      if (cache.has(catchAllKey)) policies.push(cache.get(catchAllKey)!);
+    for (const roleId of roleIds) {
+      const roleKey = `r:${roleId}|${tableName}|${action}`;
+      if (cache.has(roleKey)) policies.push(cache.get(roleKey)!);
     }
 
     return policies;

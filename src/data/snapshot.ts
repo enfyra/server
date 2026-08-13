@@ -420,10 +420,7 @@ snapshot
       .description('Whether this is a system-generated user account'),
   })
   .relations({
-    role: rel
-      .manyToOne('enfyra_role')
-      .system()
-      .description("User's assigned role for permissions"),
+    roles: rel.manyToMany('enfyra_role').system().description("User's assigned roles for permissions").junction({ table: 'enfyra_user_roles', source: 'userId', target: 'roleId' }),
   })
   .uniques([['email']]);
 
@@ -772,13 +769,6 @@ snapshot
       .text()
       .system()
       .description("Description of the role's purpose and permissions"),
-  })
-  .relations({
-    menuPermissions: rel
-      .oneToMany('enfyra_menu_permission')
-      .inverse('role')
-      .system()
-      .description('Menu visibility rules granted to this role'),
   })
   .uniques([['name']]);
 
@@ -1601,7 +1591,6 @@ snapshot
       .description('Menu item controlled by this visibility rule'),
     role: rel
       .manyToOne('enfyra_role')
-      .inverse('menuPermissions')
       .notNull()
       .system()
       .onDelete('CASCADE')

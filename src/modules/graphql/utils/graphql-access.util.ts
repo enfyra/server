@@ -2,6 +2,7 @@ import {
   GRAPHQL_OPERATION_NAMES,
   type GraphqlOperationName,
 } from '../../../shared/types/graphql.types';
+import { userHasRole } from '../../../shared/utils/user-role.util';
 
 export { GRAPHQL_OPERATION_NAMES };
 export type { GraphqlOperationName };
@@ -100,7 +101,6 @@ export function hasGraphqlOperationAccess(input: {
   }
 
   const userId = toIdString(user);
-  const roleId = toIdString(user.role);
   const allowed = definition.permissions.some((permission) => {
     if (!permission.isEnabled || !permission.operations.includes(operation)) {
       return false;
@@ -108,7 +108,7 @@ export function hasGraphqlOperationAccess(input: {
     if (permission.allowedUserIds.length > 0) {
       return userId !== null && permission.allowedUserIds.includes(userId);
     }
-    return permission.roleId !== null && permission.roleId === roleId;
+    return permission.roleId !== null && userHasRole(user, permission.roleId);
   });
 
   return { allowed, isPublic: false };

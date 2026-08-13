@@ -171,7 +171,7 @@ export class RedisAdminService {
 
   async getKey(
     key: string,
-    options?: { limit?: number },
+    options?: { limit?: number; includeValue?: boolean },
   ): Promise<RedisAdminKeyDetail> {
     const redisKey = await this.resolveKeyForOperation(key);
     this.assertValidKey(redisKey);
@@ -182,7 +182,9 @@ export class RedisAdminService {
       MAX_VALUE_LIMIT,
     );
     const [value, encoding] = await Promise.all([
-      this.readKeyValue(redisKey, summary.type, limit),
+      options?.includeValue === false
+        ? Promise.resolve({ value: null, truncated: false })
+        : this.readKeyValue(redisKey, summary.type, limit),
       this.objectEncoding(redisKey),
     ]);
 
@@ -278,6 +280,14 @@ export class RedisAdminService {
         systemKind: 'runtime_monitor' as const,
       },
     ];
+    if (key.startsWith(`${this.nodeName}:user_cache_lock:`)) {
+      return {
+        isSystem: true,
+        modifiable: false,
+        systemKind: 'user_cache_lock',
+        reason: '$cache distributed lock',
+      };
+    }
     if (key.startsWith(`${this.nodeName}:user_cache_meta:`)) {
       return {
         isSystem: false,
@@ -344,9 +354,10 @@ export class RedisAdminService {
   }
 
   private async describeKey(key: string): Promise<RedisAdminKeySummary> {
-    const [type, ttlSeconds, size, memoryBytes] = await Promise.all([
+    const [type, ttlSeconds, ttlMilliseconds, size, memoryBytes] = await Promise.all([
       this.redis.type(key) as Promise<RedisAdminValueType>,
       this.redis.ttl(key),
+      this.redis.pttl(key),
       this.readSize(key),
       this.memoryUsage(key),
     ]);
@@ -355,6 +366,7 @@ export class RedisAdminService {
       ...this.namespaceForKey(key),
       type,
       ttlSeconds,
+      ttlMilliseconds,
       size,
       memoryBytes,
       ...this.markSystemKey(key),
@@ -753,6 +765,7 @@ export class RedisAdminService {
     }
     if (
       pattern.startsWith('user_cache:') ||
+      pattern.startsWith('user_cache_lock:') ||
       pattern.startsWith('user_cache_meta:')
     ) {
       return `${this.nodeName}:${pattern}`;
@@ -794,7 +807,11 @@ export class RedisAdminService {
     this.assertValidKey(key);
     if (key.startsWith(`${this.nodeName}:`)) return key;
     if (this.isSystemPublicKey(key)) return `${this.nodeName}:${key}`;
-    if (key.startsWith('user_cache:') || key.startsWith('user_cache_meta:')) {
+    if (
+      key.startsWith('user_cache:') ||
+      key.startsWith('user_cache_lock:') ||
+      key.startsWith('user_cache_meta:')
+    ) {
       return `${this.nodeName}:${key}`;
     }
     if (this.isSystemLockKey(key)) {
@@ -807,7 +824,11 @@ export class RedisAdminService {
     this.assertValidKey(key);
     if (key.startsWith(`${this.nodeName}:`)) return key;
     if (this.isSystemPublicKey(key)) return `${this.nodeName}:${key}`;
-    if (key.startsWith('user_cache:') || key.startsWith('user_cache_meta:')) {
+    if (
+      key.startsWith('user_cache:') ||
+      key.startsWith('user_cache_lock:') ||
+      key.startsWith('user_cache_meta:')
+    ) {
       return `${this.nodeName}:${key}`;
     }
     if (this.isSystemLockKey(key)) {
@@ -898,6 +919,8 @@ export class RedisAdminService {
         return 'runtime cache';
       case 'user_cache':
         return 'user cache';
+      case 'user_cache_lock':
+        return 'user cache lock';
       case 'bullmq':
         return 'BullMQ';
       case 'socket_io':

@@ -3,6 +3,7 @@ import {
   AuthorizationException,
 } from '../../../domain/exceptions';
 import { RequestWithRouteData } from '../../../shared/types';
+import { getUserRoleIds, toRoleId } from '../../../shared/utils/user-role.util';
 import * as fs from 'fs';
 
 export class FileValidationHelper {
@@ -51,16 +52,7 @@ export class FileValidationHelper {
     if (!userIdValue) throw new AuthenticationException('Authentication required');
 
     const userId = String(userIdValue);
-    const userRoleId =
-      user.role?._id !== undefined && user.role?._id !== null
-        ? String(user.role._id)
-        : user.role?.id !== undefined && user.role?.id !== null
-          ? String(user.role.id)
-        : user.role !== undefined && user.role !== null
-          ? String(user.role)
-          : user.roleId !== undefined && user.roleId !== null
-            ? String(user.roleId)
-            : null;
+    const userRoleIds = getUserRoleIds(user);
 
     const hasAccess = (file.permissions || []).some(
       (p: any) => {
@@ -70,21 +62,10 @@ export class FileValidationHelper {
           : p.allowedUsers
             ? String(p.allowedUsers?._id ?? p.allowedUsers?.id ?? p.allowedUsers) === userId
             : false;
-        const permissionRoleId =
-          p.role?._id !== undefined && p.role?._id !== null
-            ? String(p.role._id)
-            : p.role?.id !== undefined && p.role?.id !== null
-              ? String(p.role.id)
-            : p.role !== undefined && p.role !== null
-              ? String(p.role)
-              : p.roleId !== undefined && p.roleId !== null
-                ? String(p.roleId)
-                : null;
+        const permissionRoleId = toRoleId(p.role ?? p.roleId);
         return (
           allowedUserMatch ||
-          (userRoleId !== null &&
-            permissionRoleId !== null &&
-            userRoleId === permissionRoleId)
+          (permissionRoleId !== null && userRoleIds.has(permissionRoleId))
         );
       },
     );

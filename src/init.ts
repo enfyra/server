@@ -24,7 +24,7 @@ import {
 } from './wiring/init/phases';
 
 export async function init(container: AwilixContainer<Cradle>): Promise<void> {
-  const c: any = container.cradle;
+  const c = container.cradle;
 
   await initBootstrap(container);
 
@@ -39,7 +39,7 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
 }
 
 export async function initBootstrap(container: AwilixContainer<Cradle>): Promise<void> {
-  const c: any = container.cradle;
+  const c = container.cradle;
 
   await phaseStorageEngines(c);
   await phaseRedisAndNamespace(c);
