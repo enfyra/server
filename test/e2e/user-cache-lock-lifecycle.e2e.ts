@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import {
   RedisCacheService,
+  RedisRuntimeCacheStore,
   RuntimeNamespaceLifecycleService,
 } from '../../src/engines/cache';
 
@@ -61,6 +62,15 @@ async function main(): Promise<void> {
       clearAllMode: 'prefix',
     },
   });
+  const runtimeStore = new RedisRuntimeCacheStore({
+    redis,
+    envService: {
+      ...envService,
+      get: (key: string) =>
+        key === 'REDIS_RUNTIME_CACHE' ? true : envService.get(key),
+    } as any,
+    runtimeNamespaceLifecycleService: lifecycle,
+  });
   const lockKey = 'quota-renewal';
   const redisLockKey = `${nodeName}:user_cache_lock:${lockKey}`;
 
@@ -90,6 +100,77 @@ async function main(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, explicitTtlMs));
     if (await redis.exists(redisLockKey)) {
       throw new Error('Explicit lock did not expire after its requested TTL');
+    }
+
+    await cache.set('lifecycle-value', { ok: true });
+    const lifecycleValueKey = `${nodeName}:user_cache:lifecycle-value`;
+    const initialLifecycleValueTtl = await redis.pttl(lifecycleValueKey);
+    if (initialLifecycleValueTtl <= 0 || initialLifecycleValueTtl > lifecycleTtlMs) {
+      throw new Error(`Unexpected lifecycle value TTL: ${initialLifecycleValueTtl}`);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await lifecycle.renewCurrentNamespaceKeys();
+    const renewedLifecycleValueTtl = await redis.pttl(lifecycleValueKey);
+    if (
+      renewedLifecycleValueTtl <= initialLifecycleValueTtl ||
+      renewedLifecycleValueTtl > lifecycleTtlMs
+    ) {
+      throw new Error(
+        `Lifecycle-managed value was not renewed: ${renewedLifecycleValueTtl}`,
+      );
+    }
+
+    await cache.set('explicit-value', { ok: true }, explicitTtlMs);
+    const explicitValueKey = `${nodeName}:user_cache:explicit-value`;
+    const initialExplicitValueTtl = await redis.pttl(explicitValueKey);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await lifecycle.renewCurrentNamespaceKeys();
+    const renewedExplicitValueTtl = await redis.pttl(explicitValueKey);
+    if (
+      renewedExplicitValueTtl <= 0 ||
+      renewedExplicitValueTtl >= initialExplicitValueTtl ||
+      renewedExplicitValueTtl >= lifecycleTtlMs
+    ) {
+      throw new Error(
+        `Lifecycle renewal overwrote explicit value TTL: ${renewedExplicitValueTtl}`,
+      );
+    }
+
+    await runtimeStore.setSnapshot('route', { version: 1 });
+    const snapshotKey = `${nodeName}:runtime_cache:route`;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const snapshotTtlBeforeRenewal = await redis.pttl(snapshotKey);
+    await lifecycle.renewCurrentNamespaceKeys();
+    const renewedSnapshotTtl = await redis.pttl(snapshotKey);
+    if (
+      renewedSnapshotTtl <= snapshotTtlBeforeRenewal ||
+      renewedSnapshotTtl > lifecycleTtlMs
+    ) {
+      throw new Error(`Runtime snapshot was not renewed: ${renewedSnapshotTtl}`);
+    }
+
+    const refreshLockToken = await runtimeStore.acquireRefreshLock('route', explicitTtlMs);
+    if (!refreshLockToken) {
+      throw new Error('Expected runtime refresh lock acquisition to succeed');
+    }
+    const runtimeLockKey = `${nodeName}:runtime_cache:route:lock`;
+    const initialRefreshLockTtl = await redis.pttl(runtimeLockKey);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await lifecycle.renewCurrentNamespaceKeys();
+    const renewedRefreshLockTtl = await redis.pttl(runtimeLockKey);
+    if (
+      renewedRefreshLockTtl <= 0 ||
+      renewedRefreshLockTtl >= initialRefreshLockTtl ||
+      renewedRefreshLockTtl >= lifecycleTtlMs
+    ) {
+      throw new Error(
+        `Lifecycle renewal overwrote runtime refresh-lock TTL: ${renewedRefreshLockTtl}`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, explicitTtlMs));
+    if (await redis.exists(runtimeLockKey)) {
+      throw new Error('Runtime refresh lock did not expire after its requested TTL');
     }
 
     if (!(await cache.acquire('lifecycle-lock', 'owner-token', 0))) {

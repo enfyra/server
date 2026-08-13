@@ -15,6 +15,8 @@ function makeSystemCache(redis: any, nodeName: string | null) {
     } as any,
     runtimeNamespaceLifecycleService: {
       getKeyTtlMs: () => 7000,
+      registerManagedKey: vi.fn(async () => {}),
+      unregisterManagedKey: vi.fn(async () => {}),
     } as any,
     policy: SYSTEM_POLICY,
   });

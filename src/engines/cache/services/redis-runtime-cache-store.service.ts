@@ -173,6 +173,7 @@ export class RedisRuntimeCacheStore {
       'PX',
       this.lifecycleTtlMs(),
     );
+    await this.runtimeNamespaceLifecycleService?.registerManagedKey(key);
     return snapshot;
   }
 
@@ -198,6 +199,7 @@ export class RedisRuntimeCacheStore {
       'PX',
       this.lifecycleTtlMs(),
     );
+    await this.runtimeNamespaceLifecycleService?.registerManagedKey(redisKey);
   }
 
   async deleteAuxByPrefix(
@@ -217,6 +219,11 @@ export class RedisRuntimeCacheStore {
       );
       if (keys.length > 0) {
         await this.redis.del(...keys);
+        await Promise.all(
+          keys.map((key) =>
+            this.runtimeNamespaceLifecycleService?.unregisterManagedKey(key),
+          ),
+        );
       }
       cursor = nextCursor;
     } while (cursor !== '0');
@@ -292,5 +299,6 @@ export class RedisRuntimeCacheStore {
       throw new Error('Runtime namespace lifecycle TTL is required');
     }
     await this.runtimeNamespaceLifecycleService.touchKey(key);
+    await this.runtimeNamespaceLifecycleService.registerManagedKey(key);
   }
 }

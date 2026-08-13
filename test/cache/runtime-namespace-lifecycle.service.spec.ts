@@ -11,13 +11,13 @@ class FakePipeline {
     return this;
   }
 
-  zadd(key: string, score: number, member: string) {
-    this.ops.push(() => this.redis.zaddSync(key, score, member));
+  hset(key: string, field: string, value: string) {
+    this.ops.push(() => this.redis.hsetSync(key, field, value));
     return this;
   }
 
-  hset(key: string, value: Record<string, string>) {
-    this.ops.push(() => this.redis.hsetSync(key, value));
+  hdel(key: string, field: string) {
+    this.ops.push(() => this.redis.hdelSync(key, field));
     return this;
   }
 
@@ -27,7 +27,7 @@ class FakePipeline {
   }
 
   async exec() {
-    for (const op of this.ops) op();
+    for (const operation of this.ops) operation();
     return [];
   }
 }
@@ -35,10 +35,13 @@ class FakePipeline {
 class FakeRedis {
   values = new Map<string, string>();
   hashes = new Map<string, Map<string, string>>();
-  zsets = new Map<string, Map<string, number>>();
   expiries = new Map<string, number>();
 
   pipeline() {
+    return new FakePipeline(this);
+  }
+
+  multi() {
     return new FakePipeline(this);
   }
 
@@ -48,42 +51,33 @@ class FakeRedis {
   }
 
   async del(...keys: string[]) {
-    let deleted = 0;
-    for (const key of keys) deleted += this.delSync(key);
-    return deleted;
-  }
-
-  async unlink(...keys: string[]) {
-    return this.del(...keys);
+    return keys.reduce((count, key) => count + this.delSync(key), 0);
   }
 
   async pexpire(key: string, ttlMs: number) {
     this.pexpireSync(key, ttlMs);
+    return this.hasKey(key) ? 1 : 0;
+  }
+
+  async pttl(key: string) {
+    if (!this.hasKey(key)) return -2;
+    return this.expiries.get(key) ?? -1;
+  }
+
+  async hset(key: string, field: string, value: string) {
+    this.hsetSync(key, field, value);
     return 1;
   }
 
-  async scan(cursor: string, _match: string, pattern: string) {
-    const prefix = pattern.endsWith('*') ? pattern.slice(0, -1) : pattern;
-    const keys = [
-      ...this.values.keys(),
-      ...this.hashes.keys(),
-      ...this.zsets.keys(),
-    ].filter((key, index, all) => all.indexOf(key) === index);
-    return [
-      '0',
-      cursor === '0' ? keys.filter((key) => key.startsWith(prefix)) : [],
-    ];
+  async hdel(key: string, field: string) {
+    return this.hdelSync(key, field);
   }
 
-  async zrangebyscore(key: string, min: number, max: number) {
-    return [...(this.zsets.get(key)?.entries() ?? [])]
-      .filter(([, score]) => score >= min && score <= max)
-      .sort((a, b) => a[1] - b[1])
-      .map(([member]) => member);
-  }
-
-  async zrem(key: string, member: string) {
-    return this.zsets.get(key)?.delete(member) ? 1 : 0;
+  async hscan(key: string, cursor: string) {
+    const fields = [...(this.hashes.get(key)?.entries() ?? [])].flatMap(
+      ([field, value]) => [field, value],
+    );
+    return [cursor === '0' ? '0' : cursor, cursor === '0' ? fields : []];
   }
 
   setSync(key: string, value: string, mode?: string, ttlMs?: number) {
@@ -93,41 +87,38 @@ class FakeRedis {
     }
   }
 
-  zaddSync(key: string, score: number, member: string) {
-    const zset = this.zsets.get(key) ?? new Map<string, number>();
-    zset.set(member, score);
-    this.zsets.set(key, zset);
-  }
-
-  hsetSync(key: string, value: Record<string, string>) {
+  hsetSync(key: string, field: string, value: string) {
     const hash = this.hashes.get(key) ?? new Map<string, string>();
-    for (const [field, fieldValue] of Object.entries(value)) {
-      hash.set(field, fieldValue);
-    }
+    hash.set(field, value);
     this.hashes.set(key, hash);
   }
 
+  hdelSync(key: string, field: string) {
+    return this.hashes.get(key)?.delete(field) ? 1 : 0;
+  }
+
   pexpireSync(key: string, ttlMs: number) {
-    this.expiries.set(key, ttlMs);
+    if (this.hasKey(key)) this.expiries.set(key, ttlMs);
   }
 
   delSync(key: string) {
-    const existed =
-      this.values.delete(key) ||
-      this.hashes.delete(key) ||
-      this.zsets.delete(key);
+    const existed = this.values.delete(key) || this.hashes.delete(key);
     this.expiries.delete(key);
     return existed ? 1 : 0;
   }
+
+  hasKey(key: string) {
+    return this.values.has(key) || this.hashes.has(key);
+  }
 }
 
-function createService(redis: FakeRedis, nodeName = 'app-a') {
+function createService(redis: FakeRedis) {
   return new RuntimeNamespaceLifecycleService({
     redis: redis as any,
     instanceService: { getInstanceId: () => 'inst-a' } as any,
     envService: {
       get: (key: string) => {
-        if (key === 'NODE_NAME') return nodeName;
+        if (key === 'NODE_NAME') return 'app-a';
         if (key === 'REDIS_NAMESPACE_KEY_TTL_MS') return 10000;
         if (key === 'REDIS_NAMESPACE_LEASE_TTL_MS') return 1000;
         if (key === 'REDIS_NAMESPACE_RENEW_INTERVAL_MS') return 1000000;
@@ -139,46 +130,37 @@ function createService(redis: FakeRedis, nodeName = 'app-a') {
 }
 
 describe('RuntimeNamespaceLifecycleService', () => {
-  it('renews TTL for safe runtime keys in the current namespace', async () => {
+  it('renews registered lifecycle-managed keys only', async () => {
     const redis = new FakeRedis();
-    redis.values.set('app-a:runtime_cache:metadata', 'cache');
-    redis.values.set('app-a:sys_flow-execution:completed', 'queue');
-    redis.values.set('app-a:user_cache_meta:lru', 'metadata');
-    redis.values.set('app-a:user_cache:short-lived', 'value');
-    redis.values.set('app-a:user_cache_lock:lease', 'token');
-    redis.values.set('other:runtime_cache:metadata', 'other');
-    redis.expiries.set('app-a:user_cache:short-lived', 5000);
-    redis.expiries.set('app-a:user_cache_lock:lease', 5000);
-
     const service = createService(redis);
+    const managedKey = 'app-a:runtime_cache:route';
+    const explicitTtlKey = 'app-a:runtime_cache:route:lock';
+
+    redis.values.set(managedKey, 'snapshot');
+    redis.values.set(explicitTtlKey, 'lock-token');
+    redis.expiries.set(managedKey, 100);
+    redis.expiries.set(explicitTtlKey, 30000);
+    await service.registerManagedKey(managedKey);
 
     await service.renewCurrentNamespaceKeys();
 
-    expect(redis.expiries.get('app-a:runtime_cache:metadata')).toBe(10000);
-    expect(redis.expiries.get('app-a:sys_flow-execution:completed')).toBe(
-      10000,
-    );
-    expect(redis.expiries.get('app-a:user_cache_meta:lru')).toBe(10000);
-    expect(redis.expiries.get('app-a:user_cache:short-lived')).toBe(5000);
-    expect(redis.expiries.get('app-a:user_cache_lock:lease')).toBe(5000);
-    expect(redis.expiries.has('other:runtime_cache:metadata')).toBe(false);
-    expect(redis.values.has('app-a:runtime_lifecycle:lease:inst-a')).toBe(true);
+    expect(redis.expiries.get(managedKey)).toBe(10000);
+    expect(redis.expiries.get(explicitTtlKey)).toBe(30000);
   });
 
-  it('renews existing lifecycle keys for the same namespace after restart', async () => {
+  it('removes expired and manually deleted entries from the managed registry', async () => {
     const redis = new FakeRedis();
-    redis.values.set('app-a:runtime_cache:metadata', 'old-cache');
-    redis.values.set('app-a:sys_session-cleanup:completed', 'old-queue');
-    redis.expiries.set('app-a:runtime_cache:metadata', 100);
-    redis.expiries.set('app-a:sys_session-cleanup:completed', 100);
+    const service = createService(redis);
+    const deletedKey = 'app-a:runtime_cache:metadata';
 
-    const restartedService = createService(redis, 'app-a');
-    await restartedService.renewCurrentNamespaceKeys();
+    await service.registerManagedKey(deletedKey);
+    await service.renewCurrentNamespaceKeys();
 
-    expect(redis.expiries.get('app-a:runtime_cache:metadata')).toBe(10000);
-    expect(redis.expiries.get('app-a:sys_session-cleanup:completed')).toBe(
-      10000,
-    );
+    expect(
+      redis.hashes
+        .get('app-a:runtime_lifecycle:managed_cache_keys')
+        ?.has(deletedKey),
+    ).toBe(false);
   });
 
   it('does not extend a lease from a previous process', async () => {
@@ -195,18 +177,5 @@ describe('RuntimeNamespaceLifecycleService', () => {
     expect(
       redis.expiries.get('app-a:runtime_lifecycle:lease:previous-instance'),
     ).toBe(100);
-  });
-
-  it('renews one system queue namespace on demand', async () => {
-    const redis = new FakeRedis();
-    redis.values.set('app-a:sys_flow-execution:wait', 'queue');
-    redis.values.set('app-a:sys_session-cleanup:wait', 'queue');
-
-    const service = createService(redis);
-
-    await service.renewSystemQueueKeys('sys_flow-execution');
-
-    expect(redis.expiries.get('app-a:sys_flow-execution:wait')).toBe(10000);
-    expect(redis.expiries.has('app-a:sys_session-cleanup:wait')).toBe(false);
   });
 });

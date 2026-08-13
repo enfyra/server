@@ -1,8 +1,6 @@
 import type { Redis } from 'ioredis';
 import { EnvService, InstanceService } from '../../../shared/services';
 import { Logger } from '../../../shared/logger';
-import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
-
 type Timer = ReturnType<typeof setInterval>;
 
 const DEFAULT_KEY_TTL_MS = 30 * 60 * 1000;
@@ -83,33 +81,23 @@ export class RuntimeNamespaceLifecycleService {
     await this.redis.pexpire(key, ttlMs);
   }
 
-  async touchKeys(keys: string[], ttlMs = this.keyTtlMs): Promise<void> {
-    if (ttlMs <= 0 || keys.length === 0) return;
-    const pipeline = this.redis.pipeline();
-    for (const key of keys) pipeline.pexpire(key, ttlMs);
-    await pipeline.exec();
+  async registerManagedKey(key: string): Promise<void> {
+    if (!key) return;
+    await this.redis
+      .multi()
+      .hset(this.managedKeyRegistry(), key, '1')
+      .pexpire(this.managedKeyRegistry(), this.keyTtlMs)
+      .exec();
   }
 
-  async renewKeysByPattern(
-    pattern: string,
-    ttlMs = this.keyTtlMs,
-  ): Promise<void> {
-    if (ttlMs <= 0 || !pattern) return;
-    try {
-      await this.expireByPattern(pattern, ttlMs);
-    } catch (error) {
-      this.logger.warn(
-        `Runtime namespace pattern renew failed for ${pattern}: ${(error as Error).message}`,
-      );
-    }
+  async unregisterManagedKey(key: string): Promise<void> {
+    if (!key) return;
+    await this.redis.hdel(this.managedKeyRegistry(), key);
   }
 
   async renewSystemQueueKeys(queueName: string): Promise<void> {
     if (!queueName) return;
-    await this.renewKeysByPattern(
-      `${this.nodeName}:${queueName}:*`,
-      this.keyTtlMs,
-    );
+    await this.expireKeysByPattern(`${this.nodeName}:${queueName}:*`);
   }
 
   async renewCurrentNamespaceKeys(): Promise<void> {
@@ -117,9 +105,7 @@ export class RuntimeNamespaceLifecycleService {
     this.renewing = true;
     try {
       await this.heartbeat();
-      for (const pattern of this.renewableNamespacePatterns(this.nodeName)) {
-        await this.expireByPattern(pattern, this.keyTtlMs);
-      }
+      await this.renewManagedKeys();
     } catch (error) {
       this.logger.warn(
         `Runtime namespace renew failed: ${(error as Error).message}`,
@@ -142,7 +128,32 @@ export class RuntimeNamespaceLifecycleService {
       .exec();
   }
 
-  private async expireByPattern(pattern: string, ttlMs: number): Promise<void> {
+  private async renewManagedKeys(): Promise<void> {
+    const registryKey = this.managedKeyRegistry();
+    let cursor = '0';
+    do {
+      const [nextCursor, fields] = await this.redis.hscan(
+        registryKey,
+        cursor,
+        'COUNT',
+        SCAN_COUNT,
+      );
+      const keys = fields.filter((_, index) => index % 2 === 0);
+      for (const key of keys) {
+        if ((await this.redis.pttl(key)) > 0) {
+          await this.redis.pexpire(key, this.keyTtlMs);
+        } else {
+          await this.redis.hdel(registryKey, key);
+        }
+      }
+      if (keys.length > 0) {
+        await this.redis.pexpire(registryKey, this.keyTtlMs);
+      }
+      cursor = nextCursor;
+    } while (cursor !== '0');
+  }
+
+  private async expireKeysByPattern(pattern: string): Promise<void> {
     let cursor = '0';
     do {
       const [nextCursor, keys] = await this.redis.scan(
@@ -152,22 +163,17 @@ export class RuntimeNamespaceLifecycleService {
         'COUNT',
         SCAN_COUNT,
       );
-      await this.touchKeys(keys, ttlMs);
+      if (keys.length > 0) {
+        const pipeline = this.redis.pipeline();
+        for (const key of keys) pipeline.pexpire(key, this.keyTtlMs);
+        await pipeline.exec();
+      }
       cursor = nextCursor;
     } while (cursor !== '0');
   }
 
-  private renewableNamespacePatterns(namespace: string): string[] {
-    return [
-      `${namespace}:runtime_cache:*`,
-      `${namespace}:runtime-monitor:*`,
-      `${namespace}:cluster-telemetry:*`,
-      `${namespace}:user_cache_meta:*`,
-      `${namespace}:rl:*`,
-      `${namespace}:socket.io:*`,
-      `${namespace}:coord:sql:*`,
-      ...Object.values(SYSTEM_QUEUES).map((queue) => `${namespace}:${queue}:*`),
-    ];
+  private managedKeyRegistry(): string {
+    return `${this.nodeName}:runtime_lifecycle:managed_cache_keys`;
   }
 
   private currentLeaseKey(): string {
