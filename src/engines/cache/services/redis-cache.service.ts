@@ -103,7 +103,7 @@ export class RedisCacheService implements ICache {
     return this.deserialize(current);
   }
 
-  async set<T = any>(key: string, value: T, ttlMs: number): Promise<void> {
+  async set<T = any>(key: string, value: T, ttlMs?: number): Promise<void> {
     const decoratedKey = this.decorateKey(key);
     const serializedValue = this.serialize(value);
     const size = this.valueSize(serializedValue);
@@ -111,15 +111,17 @@ export class RedisCacheService implements ICache {
       this.assertValueSize(size);
       this.assertFitsLimit(size);
     }
-    if (ttlMs > 0) {
-      await this.redis.set(decoratedKey, serializedValue, 'PX', ttlMs);
+    const usesLifecycleTtl = !ttlMs || ttlMs <= 0;
+    await this.redis.set(
+      decoratedKey,
+      serializedValue,
+      'PX',
+      usesLifecycleTtl ? this.lifecycleTtlMs() : ttlMs,
+    );
+    if (usesLifecycleTtl) {
+      await this.runtimeNamespaceLifecycleService?.registerManagedKey(decoratedKey);
     } else {
-      await this.redis.set(
-        decoratedKey,
-        serializedValue,
-        'PX',
-        this.lifecycleTtlMs(),
-      );
+      await this.runtimeNamespaceLifecycleService?.unregisterManagedKey(decoratedKey);
     }
     if (this.policy.quota) {
       await this.track(decoratedKey, size);
@@ -145,6 +147,7 @@ export class RedisCacheService implements ICache {
   async deleteKey(key: string): Promise<void> {
     const decoratedKey = this.decorateKey(key);
     await this.redis.del(decoratedKey);
+    await this.runtimeNamespaceLifecycleService?.unregisterManagedKey(decoratedKey);
     if (this.policy.quota) await this.untrack(decoratedKey);
   }
 

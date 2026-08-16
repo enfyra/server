@@ -48,6 +48,7 @@ export class RuntimeSchemaTargetAttestorService {
       await this.assertAbsent(target?.name ?? contract.context.tableName, 'source');
       return;
     }
+    if (contract.context.operation === 'delete') return;
     await this.assertPresent(source, 'source');
   }
 

@@ -70,6 +70,8 @@ function createStore(redis = new MemoryRedis()) {
       touchKey: async (key: string) => {
         redis.expiries.set(key, 5000);
       },
+      registerManagedKey: async () => {},
+      unregisterManagedKey: async () => {},
     } as any,
   });
 }
