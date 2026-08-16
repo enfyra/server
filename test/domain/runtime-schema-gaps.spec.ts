@@ -426,6 +426,29 @@ describe('SQL schema diff identity normalization', () => {
 });
 
 describe('Runtime inverse metadata attestation', () => {
+  it('allows a delete to remediate source physical drift', async () => {
+    const hasTable = vi.fn();
+    const service = new RuntimeSchemaTargetAttestorService({
+      queryBuilderService: {
+        getKnex: () => ({ schema: { hasTable } }),
+      } as any,
+      databaseConfigService: { isMongoDb: () => false } as any,
+    });
+
+    await expect(
+      service.assertSource({
+        context: {
+          operation: 'delete',
+          tableName: 'legacy_landing_content',
+          source: { name: 'legacy_landing_content', columns: [], relations: [] },
+          target: null,
+        },
+      } as any),
+    ).resolves.toBeUndefined();
+
+    expect(hasTable).not.toHaveBeenCalled();
+  });
+
   it('rejects a target when requested inverse metadata was not materialized', async () => {
     const rows = [
       { id: 10, name: 'course' },
