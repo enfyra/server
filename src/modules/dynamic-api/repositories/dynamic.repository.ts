@@ -175,6 +175,10 @@ export class DynamicRepository {
     return this.readService.find(opt);
   }
 
+  async aggregate(opt: Record<string, unknown>) {
+    return this.readService.aggregate(opt);
+  }
+
   async exists(filter?: unknown): Promise<boolean> {
     return this.readService.exists(filter);
   }
