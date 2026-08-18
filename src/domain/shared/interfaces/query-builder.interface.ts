@@ -9,6 +9,7 @@ export interface IQueryBuilder {
     limit?: number;
     page?: number;
   }): Promise<{ data: any[] }>;
+  aggregate(options: { table: string; aggregate: Record<string, unknown> }): Promise<{ data: any[] }>;
   findOne(options: {
     table: string;
     where?: any;

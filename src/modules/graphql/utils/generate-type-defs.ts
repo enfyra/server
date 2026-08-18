@@ -86,7 +86,6 @@ export const MetaResultType = new GraphQLObjectType({
   fields: {
     totalCount: { type: GraphQLInt },
     filterCount: { type: GraphQLInt },
-    aggregate: { type: GraphQLJSON },
   },
 });
 
@@ -273,7 +272,6 @@ export function buildTableGraphQLDef(
     type: new GraphQLNonNull(resultType),
     args: {
       filter: { type: GraphQLJSON },
-      aggregate: { type: GraphQLJSON },
       sort: { type: new GraphQLList(new GraphQLNonNull(GraphQLString)) },
       page: { type: GraphQLInt },
       limit: { type: GraphQLInt },

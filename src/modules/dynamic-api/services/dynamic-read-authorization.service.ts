@@ -471,6 +471,75 @@ export class DynamicReadAuthorizationService {
     return subject?.isPublished !== false;
   }
 
+  async assertAggregateFieldsAllowed(
+    tableName: string,
+    aggregate: unknown,
+    context: DynamicReadAuthorizationContext,
+    enforceFieldPermission: boolean,
+  ): Promise<void> {
+    if (!enforceFieldPermission || context.$user?.isRootAdmin === true) return;
+    if (!isRecord(aggregate)) return;
+    const metadata = this.deps.runtimeRegistryService.requireMetadata();
+    const table = getTableMetadata(metadata, tableName);
+    if (!table) return;
+    const fields = new Set<string>();
+    const walkFilter = (value: unknown): void => {
+      if (Array.isArray(value)) {
+        value.forEach(walkFilter);
+        return;
+      }
+      if (!isRecord(value)) return;
+      for (const [key, nested] of Object.entries(value)) {
+        if (key === '_and' || key === '_or' || key === '_not') {
+          walkFilter(nested);
+        } else if (!key.startsWith('_')) {
+          fields.add(key.split('.')[0]);
+          walkFilter(nested);
+        }
+      }
+    };
+    walkFilter(aggregate.filter);
+    const dimensions = Array.isArray(aggregate.dimensions) ? aggregate.dimensions : [];
+    for (const dimension of dimensions) {
+      if (isRecord(dimension) && typeof dimension.field === 'string') fields.add(dimension.field);
+    }
+    if (isRecord(aggregate.measures)) {
+      for (const measure of Object.values(aggregate.measures)) {
+        if (!isRecord(measure)) continue;
+        for (const field of Object.values(measure)) {
+          if (typeof field === 'string') fields.add(field);
+        }
+      }
+    }
+    if (Array.isArray(aggregate.sort)) {
+      for (const sort of aggregate.sort) {
+        if (isRecord(sort) && typeof sort.field === 'string') fields.add(sort.field);
+      }
+    }
+    const denied: Array<{ type: 'column'; name: string }> = [];
+    for (const field of fields) {
+      const column = table.columns?.find((item) => item.name === field);
+      if (!column) continue;
+      const decision = await this.decideReadField(
+        tableName,
+        'column',
+        field,
+        column.isPublished !== false,
+        context,
+      );
+      if (!decision.allowed) denied.push({ type: 'column', name: field });
+    }
+    if (denied.length > 0) {
+      throw new ForbiddenException(
+        formatFieldPermissionErrorMessage({
+          action: 'filter',
+          tableName,
+          fields: denied,
+        }),
+      );
+    }
+  }
+
   async assertEncryptedQueryFieldsAllowed(
     tableName: string,
     filter: unknown,

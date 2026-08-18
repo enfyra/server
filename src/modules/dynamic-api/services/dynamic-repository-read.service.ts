@@ -80,7 +80,6 @@ export class DynamicRepositoryReadService {
       page: context.$query?.page || 1,
       limit: 'limit' in options ? options.limit : (context.$query?.limit ?? 10),
       meta: options.meta || context.$query?.meta,
-      aggregate: options.aggregate || context.$query?.aggregate,
       sort,
       deep: prepared.deep || {},
       debugMode,
@@ -102,6 +101,48 @@ export class DynamicRepositoryReadService {
       }),
     });
     return { ...result, data };
+  }
+
+  async aggregate(aggregate: unknown): Promise<any> {
+    const { context, runtimeRegistryService, tableName } = this.deps;
+    runtimeRegistryService.lookupTableByName(tableName);
+    await this.deps.readAuthorizationService.assertQueryAllowed({
+      tableName,
+      context,
+      enforceFieldPermission: this.deps.enforceFieldPermission,
+    });
+    const metadata = runtimeRegistryService.requireMetadata();
+    const filter =
+      aggregate && typeof aggregate === 'object' && !Array.isArray(aggregate) && 'filter' in aggregate
+        ? (aggregate as Record<string, unknown>).filter
+        : undefined;
+    const sort =
+      aggregate && typeof aggregate === 'object' && !Array.isArray(aggregate) && 'sort' in aggregate
+        ? (aggregate as Record<string, unknown>).sort
+        : undefined;
+    await this.deps.readAuthorizationService.assertAggregateFieldsAllowed(
+      tableName,
+      aggregate,
+      context,
+      this.deps.enforceFieldPermission,
+    );
+    await this.deps.readAuthorizationService.assertEncryptedQueryFieldsAllowed(
+      tableName,
+      filter,
+      Array.isArray(sort)
+        ? sort.map((item: any) => `${item.direction === 'desc' ? '-' : ''}${item.field}`).join(',')
+        : undefined,
+      {},
+    );
+    const result = await this.deps.queryBuilderService.aggregate({
+      table: tableName,
+      aggregate: aggregate as any,
+      debugMode:
+        context.$query?.debugMode === 'true' || context.$query?.debugMode === true,
+      debugTrace: context.$debug || undefined,
+    });
+    if (!this.deps.enforceFieldPermission) return result;
+    return result;
   }
 
   async exists(filter?: unknown): Promise<boolean> {

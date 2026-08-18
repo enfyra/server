@@ -59,8 +59,8 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
     DatabaseConfigService.resetForTesting();
   });
 
-  describe('aggregate query argument', () => {
-    it('emits aggregate JSON arg and aggregate meta field for queryable tables', () => {
+  describe('query result metadata', () => {
+    it('does not expose legacy aggregate query argument or metadata', () => {
       const schema = generateGraphQLTypeDefsFromTables(
         [
           makeTable('sales', [
@@ -71,9 +71,9 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
         new Set(['sales']),
       );
 
-      expect(schema).toContain('aggregate: JSON');
+      expect(schema).not.toContain('aggregate: JSON');
       expect(schema).toContain('type MetaResult');
-      expect(schema).toMatch(/type MetaResult \{[\s\S]*aggregate: JSON/);
+      expect(schema).not.toMatch(/type MetaResult \{[\s\S]*aggregate: JSON/);
     });
   });
 

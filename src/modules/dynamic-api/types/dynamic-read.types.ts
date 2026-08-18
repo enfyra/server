@@ -4,6 +4,5 @@ export interface DynamicReadOptions {
   limit?: number;
   sort?: string;
   meta?: string | string[];
-  aggregate?: unknown;
   deep?: Record<string, unknown>;
 }
