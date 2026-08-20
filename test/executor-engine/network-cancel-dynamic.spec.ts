@@ -61,13 +61,19 @@ function makeContext(): any {
 /** Local server that accepts connections and never responds. */
 async function startSilentServer(): Promise<{
   port: number;
+  waitForConnection: () => Promise<void>;
   waitForConnectionClose: () => Promise<void>;
 }> {
+  let resolveConnection: (() => void) | null = null;
   let resolveClose: (() => void) | null = null;
+  const connectionPromise = new Promise<void>((resolve) => {
+    resolveConnection = resolve;
+  });
   const closePromise = new Promise<void>((resolve) => {
     resolveClose = resolve;
   });
   silentServer = createServer((socket) => {
+    resolveConnection?.();
     socket.on('close', () => resolveClose?.());
     // Never write a response; keep the connection open.
   });
@@ -75,6 +81,7 @@ async function startSilentServer(): Promise<{
   const port = (silentServer.address() as AddressInfo).port;
   return {
     port,
+    waitForConnection: () => connectionPromise,
     waitForConnectionClose: () => closePromise,
   };
 }
@@ -92,19 +99,26 @@ async function startEchoServer(): Promise<number> {
 /** Raw TCP server that accepts connections and never responds. */
 async function startSilentTcpServer(): Promise<{
   port: number;
+  waitForConnection: () => Promise<void>;
   waitForConnectionClose: () => Promise<void>;
 }> {
+  let resolveConnection: (() => void) | null = null;
   let resolveClose: (() => void) | null = null;
+  const connectionPromise = new Promise<void>((resolve) => {
+    resolveConnection = resolve;
+  });
   const closePromise = new Promise<void>((resolve) => {
     resolveClose = resolve;
   });
   silentTcpServer = createNetServer((socket) => {
+    resolveConnection?.();
     socket.on('close', () => resolveClose?.());
   });
   await new Promise<void>((resolve) => silentTcpServer!.listen(0, '127.0.0.1', resolve));
   const port = (silentTcpServer.address() as AddressInfo).port;
   return {
     port,
+    waitForConnection: () => connectionPromise,
     waitForConnectionClose: () => closePromise,
   };
 }
@@ -136,7 +150,8 @@ describe('dynamic package network cancellation (not undici-locked)', () => {
       'utf8',
     );
 
-    const { port, waitForConnectionClose } = await startSilentTcpServer();
+    const { port, waitForConnection, waitForConnectionClose } =
+      await startSilentTcpServer();
     const service = makeService(modulePath, 'fake-tcp-client');
     const controller = new AbortController();
 
@@ -152,7 +167,8 @@ describe('dynamic package network cancellation (not undici-locked)', () => {
         10000,
         { signal: controller.signal },
       );
-      setTimeout(() => controller.abort(), 150);
+      await waitForConnection();
+      controller.abort();
 
       await expect(result).rejects.toMatchObject({
         code: 'ERR_EXECUTION_ABORTED',
@@ -190,7 +206,8 @@ describe('dynamic package network cancellation (not undici-locked)', () => {
       'utf8',
     );
 
-    const { port, waitForConnectionClose } = await startSilentServer();
+    const { port, waitForConnection, waitForConnectionClose } =
+      await startSilentServer();
     const service = makeService(modulePath, 'fake-http-client');
     const controller = new AbortController();
 
@@ -206,8 +223,8 @@ describe('dynamic package network cancellation (not undici-locked)', () => {
         10000,
         { signal: controller.signal },
       );
-      // Give the request time to reach the silent server, then disconnect.
-      setTimeout(() => controller.abort(), 150);
+      await waitForConnection();
+      controller.abort();
 
       await expect(result).rejects.toMatchObject({
         code: 'ERR_EXECUTION_ABORTED',
@@ -234,7 +251,8 @@ describe('dynamic package network cancellation (not undici-locked)', () => {
       'utf8',
     );
 
-    const { port, waitForConnectionClose } = await startSilentServer();
+    const { port, waitForConnection, waitForConnectionClose } =
+      await startSilentServer();
     const service = makeService(modulePath, 'fake-fetch-client');
     const controller = new AbortController();
 
@@ -250,7 +268,8 @@ describe('dynamic package network cancellation (not undici-locked)', () => {
         10000,
         { signal: controller.signal },
       );
-      setTimeout(() => controller.abort(), 150);
+      await waitForConnection();
+      controller.abort();
 
       await expect(result).rejects.toMatchObject({
         code: 'ERR_EXECUTION_ABORTED',

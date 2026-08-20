@@ -2,14 +2,25 @@
 
 const { parentPort } = require('worker_threads');
 
-parentPort.on('message', (msg) => {
+const runnerPort = parentPort || {
+  on(event, listener) {
+    if (event === 'message') {
+      process.on('message', listener);
+    }
+  },
+  postMessage(message) {
+    process.send?.(message);
+  },
+};
+
+runnerPort.on('message', (msg) => {
   if (msg.type !== 'execute' && msg.type !== 'executeBatch') return;
   const { id, triggerHeapRatio, delayMs } = msg;
   const ratio = typeof triggerHeapRatio === 'number' ? triggerHeapRatio : 0;
   const delay = typeof delayMs === 'number' ? delayMs : 0;
 
   const send = () => {
-    parentPort.postMessage({
+    runnerPort.postMessage({
       type: 'result',
       id,
       success: true,

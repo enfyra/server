@@ -87,6 +87,7 @@ export function executeBatchSequence(
     const results: any[] = [];
     let index = 0;
     let settled = false;
+    let awaitingRelease = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const cleanup = () => {
@@ -127,6 +128,12 @@ export function executeBatchSequence(
     };
 
     worker.on('message', (msg) => {
+      if (msg.type === 'taskReleased' && awaitingRelease) {
+        awaitingRelease = false;
+        index++;
+        sendNext();
+        return;
+      }
       if (msg.type !== 'result') return;
       if (timer) clearTimeout(timer);
       if (msg.success) {
@@ -137,8 +144,7 @@ export function executeBatchSequence(
         };
         if (msg.shortCircuit) res.shortCircuit = true;
         results.push(res);
-        index++;
-        sendNext();
+        awaitingRelease = true;
       } else {
         const err: any = new Error(
           msg.error?.message || 'Handler execution failed',
