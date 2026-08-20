@@ -17,7 +17,9 @@ export const authRegisters = {
   bcryptService: asClass(BcryptService).singleton(),
   authService: asClass(AuthService).singleton(),
   apiTokenService: asClass(ApiTokenService).singleton(),
-  patVerifierService: asClass(PatVerifierService).singleton(),
+  patVerifierService: asClass(PatVerifierService)
+    .singleton()
+    .disposer((service: PatVerifierService) => service.onDestroy()),
   jwtVerifierService: asClass(JwtVerifierService).singleton(),
   authenticationService: asClass(AuthenticationService).singleton(),
   oauthService: asClass(OAuthService).singleton(),

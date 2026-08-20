@@ -1,6 +1,9 @@
 import { Redis } from 'ioredis';
 import type { EnvService } from '../../../shared/services';
-import type { ICache } from '../../../domain/shared/interfaces/cache.interface';
+import type {
+  CacheSetEntry,
+  ICache,
+} from '../../../domain/shared/interfaces/cache.interface';
 import type { RuntimeNamespaceLifecycleService } from './runtime-namespace-lifecycle.service';
 import type { RedisCachePolicy } from '../types/redis-cache-policy.types';
 
@@ -127,6 +130,136 @@ export class RedisCacheService implements ICache {
       await this.track(decoratedKey, size);
       await this.evictIfNeeded();
     }
+  }
+
+  async setManyIfKeyAbsent(
+    guardKey: string,
+    entries: CacheSetEntry[],
+  ): Promise<boolean> {
+    if (entries.length === 0) return true;
+
+    const writes = entries.map((entry) => ({
+      decoratedKey: this.decorateKey(entry.key),
+      serializedValue: this.serialize(entry.value),
+      ttlMs: entry.ttlMs > 0 ? entry.ttlMs : this.lifecycleTtlMs(),
+    }));
+    if (this.policy.quota) {
+      for (const write of writes) {
+        const size = this.valueSize(write.serializedValue);
+        this.assertValueSize(size);
+        this.assertFitsLimit(size);
+      }
+    }
+
+    const lua = `
+      if redis.call("exists", KEYS[1]) == 1 then
+        return 0
+      end
+      for index = 2, #KEYS do
+        local offset = (index - 2) * 2
+        redis.call("set", KEYS[index], ARGV[offset + 1], "PX", ARGV[offset + 2])
+      end
+      return 1`;
+    const result = await this.redis.eval(
+      lua,
+      writes.length + 1,
+      this.decorateKey(guardKey),
+      ...writes.flatMap((write) => [write.decoratedKey]),
+      ...writes.flatMap((write) => [write.serializedValue, write.ttlMs]),
+    );
+    if (result !== 1) return false;
+
+    for (const write of writes) {
+      await this.runtimeNamespaceLifecycleService?.unregisterManagedKey(
+        write.decoratedKey,
+      );
+      if (this.policy.quota) {
+        await this.track(
+          write.decoratedKey,
+          this.valueSize(write.serializedValue),
+        );
+      }
+    }
+    if (this.policy.quota) await this.evictIfNeeded();
+    return true;
+  }
+
+  async setManyAndDelete(
+    entries: CacheSetEntry[],
+    keysToDelete: string[],
+  ): Promise<void> {
+    const writes = entries.map((entry) => ({
+      decoratedKey: this.decorateKey(entry.key),
+      serializedValue: this.serialize(entry.value),
+      ttlMs: entry.ttlMs > 0 ? entry.ttlMs : this.lifecycleTtlMs(),
+    }));
+    if (this.policy.quota) {
+      for (const write of writes) {
+        const size = this.valueSize(write.serializedValue);
+        this.assertValueSize(size);
+        this.assertFitsLimit(size);
+      }
+    }
+
+    const deletedKeys = keysToDelete.map((key) => this.decorateKey(key));
+    const lua = `
+      local entryCount = tonumber(ARGV[1])
+      for index = 1, entryCount do
+        local offset = 2 + (index - 1) * 2
+        redis.call("set", KEYS[index], ARGV[offset], "PX", ARGV[offset + 1])
+      end
+      for index = entryCount + 1, #KEYS do
+        redis.call("del", KEYS[index])
+      end`;
+    await this.redis.eval(
+      lua,
+      writes.length + deletedKeys.length,
+      ...writes.map((write) => write.decoratedKey),
+      ...deletedKeys,
+      writes.length,
+      ...writes.flatMap((write) => [write.serializedValue, write.ttlMs]),
+    );
+
+    for (const write of writes) {
+      await this.runtimeNamespaceLifecycleService?.unregisterManagedKey(
+        write.decoratedKey,
+      );
+      if (this.policy.quota) {
+        await this.track(
+          write.decoratedKey,
+          this.valueSize(write.serializedValue),
+        );
+      }
+    }
+    for (const key of deletedKeys) {
+      await this.runtimeNamespaceLifecycleService?.unregisterManagedKey(key);
+      if (this.policy.quota) await this.untrack(key);
+    }
+    if (this.policy.quota) await this.evictIfNeeded();
+  }
+
+  async compareAndSet<T = any>(
+    key: string,
+    expectedValue: T,
+    value: T,
+    ttlMs: number,
+  ): Promise<boolean> {
+    const decoratedKey = this.decorateKey(key);
+    const lua = `
+      if redis.call("get", KEYS[1]) ~= ARGV[1] then
+        return 0
+      end
+      redis.call("set", KEYS[1], ARGV[2], "PX", ARGV[3])
+      return 1`;
+    const result = await this.redis.eval(
+      lua,
+      1,
+      decoratedKey,
+      this.serialize(expectedValue),
+      this.serialize(value),
+      ttlMs > 0 ? ttlMs : this.lifecycleTtlMs(),
+    );
+    return result === 1;
   }
 
   async exists(key: string, value: any): Promise<boolean> {

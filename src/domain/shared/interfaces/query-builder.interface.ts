@@ -17,8 +17,16 @@ export interface IQueryBuilder {
     fields?: string[];
   }): Promise<any>;
   insert(table: string, data: any): Promise<any>;
+  insertMany(table: string, rows: Record<string, any>[]): Promise<any[]>;
   update(table: string, id: any, data: any): Promise<any>;
+  updateMany(
+    table: string,
+    ids: any[],
+    data: Record<string, unknown>,
+    idField?: string,
+  ): Promise<number>;
   delete(table: string, idOrOptions: any): Promise<any>;
+  deleteMany(table: string, ids: any[], idField?: string): Promise<number>;
   insertWithOptions(options: InsertOptions): Promise<any>;
   isMongoDb(): boolean;
   getPkField(): string;
