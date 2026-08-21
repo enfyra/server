@@ -72,6 +72,9 @@ export type RuntimeAverageSample = {
   executorWaitingTasks: number;
   executorP95TaskMs: number;
   executorP99TaskMs: number;
+  executorP95QueueWaitMs: number;
+  executorP99QueueWaitMs: number;
+  executorRunnerRssMb: number;
   executorMaxHeapRatio: number;
   websocketConnections: number;
   queueDepth: number;

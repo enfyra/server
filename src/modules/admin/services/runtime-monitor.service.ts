@@ -141,6 +141,9 @@ export class RuntimeMonitorService {
       executorWaitingTasks: executor.pool.waitingTasks,
       executorP95TaskMs: executor.p95TaskMs,
       executorP99TaskMs: executor.p99TaskMs,
+      executorP95QueueWaitMs: executor.p95QueueWaitMs ?? 0,
+      executorP99QueueWaitMs: executor.p99QueueWaitMs ?? 0,
+      executorRunnerRssMb: (executor.runnerRssBytes ?? 0) / 1024 / 1024,
       executorMaxHeapRatio: executor.maxHeapRatio,
       websocketConnections: websocket.total,
       queueDepth: queueTotals.depth,
@@ -269,6 +272,7 @@ export class RuntimeMonitorService {
     const waitingTasks = metrics.executor.pool?.waitingTasks ?? 0;
     const maxHeapRatio = metrics.executor.maxHeapRatio ?? 0;
     const p99TaskMs = metrics.executor.p99TaskMs ?? 0;
+    const p99QueueWaitMs = metrics.executor.p99QueueWaitMs ?? 0;
     const taskErrorTotal = metrics.executor.taskErrorTotal ?? 0;
     const taskTimeoutTotal = metrics.executor.taskTimeoutTotal ?? 0;
     const crashesTotal = metrics.executor.crashesTotal ?? 0;
@@ -286,6 +290,11 @@ export class RuntimeMonitorService {
     }
     if (p99TaskMs >= 1000) {
       messages.push(`Executor p99 latency is ${this.formatMs(p99TaskMs)}.`);
+    }
+    if (p99QueueWaitMs >= 1000) {
+      messages.push(
+        `Executor queue p99 wait is ${this.formatMs(p99QueueWaitMs)}.`,
+      );
     }
     if (taskErrorTotal > 0) {
       messages.push(`${taskErrorTotal} executor task error${taskErrorTotal > 1 ? 's' : ''}.`);
@@ -307,6 +316,11 @@ export class RuntimeMonitorService {
         waitingTasks >= 100 ? 'error' : waitingTasks > 0 ? 'warning' : 'ok',
         maxHeapRatio >= 0.85 ? 'error' : maxHeapRatio >= 0.65 ? 'warning' : 'ok',
         p99TaskMs >= 5000 ? 'error' : p99TaskMs >= 1000 ? 'warning' : 'ok',
+        p99QueueWaitMs >= 5000
+          ? 'error'
+          : p99QueueWaitMs >= 1000
+            ? 'warning'
+            : 'ok',
         taskTimeoutTotal > 0 || crashesTotal > 0 ? 'error' : taskErrorTotal > 0 ? 'warning' : 'ok',
         scrubFailed ? 'error' : 'ok',
         rotationsTotal >= 10 ? 'warning' : 'ok',
