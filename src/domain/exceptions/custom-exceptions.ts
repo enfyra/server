@@ -1,3 +1,5 @@
+import type { CrossBoundaryCustomException } from './types/cross-boundary-custom-exception.type';
+
 export abstract class CustomException extends Error {
   public messages?: string[];
 
@@ -261,8 +263,17 @@ export class InternalServerErrorException extends CustomException {
 
 export function isCustomException(
   exception: any,
-): exception is CustomException {
-  return exception instanceof CustomException;
+): exception is CustomException | CrossBoundaryCustomException {
+  if (exception instanceof CustomException) return true;
+  if (!exception || typeof exception !== 'object') return false;
+  const statusCode = Number(exception.statusCode);
+  return (
+    Number.isInteger(statusCode) &&
+    statusCode >= 400 &&
+    statusCode <= 599 &&
+    typeof exception.errorCode === 'string' &&
+    exception.errorCode.length > 0
+  );
 }
 
 export function getErrorCode(exception: any): string {

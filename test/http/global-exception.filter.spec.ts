@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
+import { HttpException as KernelHttpException } from '@enfyra/kernel';
 import { globalExceptionMiddleware } from '../../src/domain/exceptions/filters/global-exception.filter';
 
 type ErrorResponse = {
   success: boolean;
   statusCode: number;
+  retry_after_seconds?: number;
   error: {
     code: string;
     details?: Record<string, unknown>;
@@ -27,6 +29,24 @@ function runFilter(exception: unknown, request: Record<string, unknown>) {
 }
 
 describe('global exception middleware request-size errors', () => {
+  it('preserves a custom exception that crossed the ESV boundary', () => {
+    const response = runFilter(
+      new KernelHttpException('Retry in five seconds', 503, {
+        retry_after_seconds: 5,
+      }),
+      {
+        method: 'POST',
+        url: '/v1/chat/completions',
+        headers: {},
+      },
+    );
+
+    expect(response.statusCode).toBe(503);
+    expect(response.error.code).toBe('HTTP_503');
+    expect(response.error.details).toEqual({ retry_after_seconds: 5 });
+    expect(response.retry_after_seconds).toBe(5);
+  });
+
   it('reports the configured request-body limit for parser rejections', () => {
     const error = Object.assign(new Error('request entity too large'), {
       name: 'PayloadTooLargeError',

@@ -12,6 +12,7 @@ interface ErrorResponse {
   success: false;
   message: string | string[];
   statusCode: number;
+  retry_after_seconds?: number;
   error: {
     code: string;
     message: string | string[];
@@ -61,11 +62,26 @@ export function globalExceptionMiddleware(
       correlationId,
     },
   };
+  const retryAfterSeconds = getRetryAfterSeconds(details);
+  if (retryAfterSeconds !== null) {
+    errorResponse.retry_after_seconds = retryAfterSeconds;
+  }
   const logs = (err as any)?.logs;
   if (logs && Array.isArray(logs) && logs.length > 0) {
     (errorResponse as any).logs = logs;
   }
   res.status(statusCode).json(errorResponse);
+}
+
+function getRetryAfterSeconds(details: unknown): number | null {
+  if (!details || typeof details !== 'object') return null;
+  const retryAfterSeconds = Number(
+    (details as Record<string, unknown>).retry_after_seconds,
+  );
+  if (!Number.isFinite(retryAfterSeconds) || retryAfterSeconds <= 0) {
+    return null;
+  }
+  return Math.ceil(retryAfterSeconds);
 }
 
 function getErrorDetails(exception: unknown, request?: Request): {
