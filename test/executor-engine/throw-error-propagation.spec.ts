@@ -414,6 +414,23 @@ describe('$throw error propagation across isolated-vm boundary', () => {
       }
     });
 
+    it('$throw preserves metadata from a handler when post-hooks run', async () => {
+      await expect(
+        batch([
+          {
+            code: `$ctx.$throw['503']('retry later', { retry_after_seconds: 5 });`,
+            type: 'handler',
+          },
+          { code: 'return undefined;', type: 'postHook' },
+        ]),
+      ).rejects.toMatchObject({
+        statusCode: 503,
+        code: 'HTTP_503',
+        message: 'retry later',
+        details: { retry_after_seconds: 5 },
+      });
+    });
+
     it('$throw propagates statusCode in single mode (matrix)', async () => {
       for (const code of STATUS_CODES) {
         try {
