@@ -9,7 +9,7 @@ export function addColumnToTable(
   let column: Knex.ColumnBuilder;
   switch (col.type) {
     case 'uuid':
-      column = table.string(col.name, 36);
+      column = table.uuid(col.name);
       if (col.isPrimary) {
         column.primary();
       }

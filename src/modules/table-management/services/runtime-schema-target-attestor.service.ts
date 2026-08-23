@@ -215,7 +215,7 @@ export class RuntimeSchemaTargetAttestorService {
     const definition = this.toSqlPhysicalDefinition(state);
     const schema = parseSnapshotToSchema({ [state.name]: definition })[0];
     const current = await getCurrentDatabaseSchema(knex, state.name);
-    const diff = compareSchemas(schema, current);
+    const diff = compareSchemas(schema, current, knex.client.config.client);
     const errors: string[] = [];
     for (const column of diff.columnsToAdd) {
       errors.push(`physical column ${state.name}.${column.name} is missing`);

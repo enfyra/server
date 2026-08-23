@@ -27,7 +27,14 @@ async function getSqlPrimaryKeyType(
   const columnInfo = await knex(tableName).columnInfo();
   const idColumn = columnInfo.id || columnInfo._id;
   const type = String(idColumn?.type || '').toLowerCase();
-  if (type.includes('uuid')) return 'uuid';
+  const maxLength = Number(idColumn?.maxLength ?? idColumn?.length);
+  if (
+    type.includes('uuid') ||
+    ((type.includes('char') || type.includes('varchar')) &&
+      (maxLength === 36 || type.includes('(36)')))
+  ) {
+    return 'uuid';
+  }
   if (
     type.includes('char') ||
     type.includes('text') ||
@@ -45,9 +52,7 @@ function addSqlJunctionColumn(
   dbType: string,
 ) {
   if (pkType === 'uuid') {
-    return dbType === 'postgres'
-      ? table.uuid(columnName)
-      : table.string(columnName, 36);
+    return table.uuid(columnName);
   }
   if (pkType === 'varchar') {
     return table.string(columnName, 255);

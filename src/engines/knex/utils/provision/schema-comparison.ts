@@ -225,6 +225,7 @@ export async function getCurrentDatabaseSchema(
 export function compareSchemas(
   snapshotSchema: KnexTableSchema,
   currentSchema: CurrentSchema,
+  dbClient?: string,
 ): {
   columnsToAdd: ColumnDef[];
   columnsToRemove: string[];
@@ -293,7 +294,7 @@ export function compareSchemas(
       const snapshotType = getKnexColumnType(snapshotCol);
       if (
         snapshotType !== currentCol.type &&
-        !isTypeCompatible(snapshotType, currentCol.type)
+        !isTypeCompatible(snapshotType, currentCol.type, dbClient)
       ) {
         changes.push('type');
       }
@@ -491,7 +492,19 @@ function isDefaultEquivalent(
   }
   return String(snapshotDefault) === String(currentDefault);
 }
-export function isTypeCompatible(type1: string, type2: string): boolean {
+export function isTypeCompatible(
+  type1: string,
+  type2: string,
+  dbClient?: string,
+): boolean {
+  const isMySql = String(dbClient).toLowerCase().includes('mysql');
+  if (
+    isMySql &&
+    ((type1 === 'uuid' && ['varchar', 'char'].includes(type2)) ||
+      (type2 === 'uuid' && ['varchar', 'char'].includes(type1)))
+  ) {
+    return true;
+  }
   const compatibleTypes: Record<string, string[]> = {
     integer: ['int', 'integer', 'bigint', 'bigInteger', 'smallint', 'tinyint'],
     string: ['varchar', 'text', 'char', 'character varying'],

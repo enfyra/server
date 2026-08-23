@@ -89,7 +89,7 @@ export class SqlSchemaMigrationService {
       } else if (dbType === 'mysql') {
         const result = await knex.raw(
           `
-          SELECT DATA_TYPE, COLUMN_TYPE
+          SELECT DATA_TYPE, COLUMN_TYPE, CHARACTER_MAXIMUM_LENGTH
           FROM INFORMATION_SCHEMA.COLUMNS
           WHERE TABLE_SCHEMA = DATABASE()
             AND TABLE_NAME = ?
@@ -99,6 +99,16 @@ export class SqlSchemaMigrationService {
         );
         if (result[0] && result[0].length > 0) {
           const colType = result[0][0].DATA_TYPE?.toLowerCase() || '';
+          const fullType = result[0][0].COLUMN_TYPE?.toLowerCase() || '';
+          const maxLength = Number(
+            result[0][0].CHARACTER_MAXIMUM_LENGTH,
+          );
+          if (
+            (colType === 'varchar' || colType === 'char') &&
+            (maxLength === 36 || fullType.includes('(36)'))
+          ) {
+            return 'uuid';
+          }
           if (colType === 'varchar' || colType === 'char') {
             return 'varchar';
           }
@@ -179,14 +189,9 @@ export class SqlSchemaMigrationService {
     table: any,
     columnName: string,
     pkType: 'uuid' | 'varchar' | 'integer',
-    dbType: string,
   ): any {
     if (pkType === 'uuid') {
-      if (dbType === 'postgres') {
-        return table.uuid(columnName);
-      } else {
-        return table.string(columnName, 36);
-      }
+      return table.uuid(columnName);
     } else if (pkType === 'varchar') {
       return table.string(columnName, 36);
     } else {
@@ -268,12 +273,10 @@ export class SqlSchemaMigrationService {
             const fkColumn = getSqlRelationForeignKeyColumn(rel);
             const targetPkType =
               targetPkTypes.get(targetTableName) || 'integer';
-            const dbType = this.queryBuilderService.getDatabaseType();
             const fkCol = this.createFKColumn(
               table,
               fkColumn,
               targetPkType,
-              dbType,
             );
             this.applyNullability(fkCol, rel.isNullable);
           }
@@ -413,7 +416,6 @@ export class SqlSchemaMigrationService {
                   table,
                   fkColumn,
                   sourcePkType,
-                  dbType,
                 );
                 this.applyNullability(fkCol, rel.isNullable);
                 table.index([fkColumn, 'id'], `idx_${targetTable}_${fkColumn}`);
@@ -487,21 +489,18 @@ export class SqlSchemaMigrationService {
           const targetPkType = await this.getPrimaryKeyType(
             junction.targetTable,
           );
-          const dbType = this.queryBuilderService.getDatabaseType();
           try {
             await knex.schema.createTable(junction.tableName, (table) => {
               const sourceCol = this.createFKColumn(
                 table,
                 junction.sourceColumn,
                 sourcePkType,
-                dbType,
               );
               sourceCol.notNullable();
               const targetCol = this.createFKColumn(
                 table,
                 junction.targetColumn,
                 targetPkType,
-                dbType,
               );
               targetCol.notNullable();
 

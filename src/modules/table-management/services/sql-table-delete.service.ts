@@ -6,7 +6,8 @@ import {
   ValidationException,
 } from '../../../domain/exceptions';
 import { isPolicyDeny, isPolicyPreview } from '../../../domain/policy';
-import { TDynamicContext } from '../../../shared/types';
+import { generateDropForeignKeySQL } from '../../../engines/knex/utils/migration/sql-dialect';
+import type { TDynamicContext } from '../../../shared/types';
 import { SqlTableHandlerService } from './sql-table-handler-base.service';
 
 export class SqlTableDeleteService extends SqlTableHandlerService {
@@ -60,157 +61,23 @@ export class SqlTableDeleteService extends SqlTableHandlerService {
           .where({ sourceTableId: id })
           .orWhere({ targetTableId: id })
           .select('*');
-        const targetRelations = await trx('enfyra_relation')
-          .where({ targetTableId: id })
-          .select('*');
-        for (const rel of targetRelations) {
-          if (['one-to-many', 'many-to-one', 'one-to-one'].includes(rel.type)) {
-            const sourceTable = await trx('enfyra_table')
-              .where({ id: rel.sourceTableId })
-              .first();
-            if (sourceTable) {
-              const { getForeignKeyColumnName } =
-                await import('@enfyra/kernel');
-              const fkColumn = getForeignKeyColumnName(tableName);
-              const columnExists = await trx.schema.hasColumn(
-                sourceTable.name,
-                fkColumn,
-              );
-              if (columnExists) {
-                try {
-                  const dbType = this.queryBuilderService.getDatabaseType();
-                  let constraintName: string | null = null;
-                  if (dbType === 'postgres') {
-                    const result = await trx.raw(
-                      `
-                      SELECT tc.constraint_name
-                      FROM information_schema.table_constraints AS tc
-                      JOIN information_schema.key_column_usage AS kcu
-                        ON tc.constraint_name = kcu.constraint_name
-                        AND tc.table_schema = kcu.table_schema
-                      WHERE tc.constraint_type = 'FOREIGN KEY'
-                        AND tc.table_schema = 'public'
-                        AND tc.table_name = ?
-                        AND kcu.column_name = ?
-                    `,
-                      [sourceTable.name, fkColumn],
-                    );
-                    constraintName = result.rows[0]?.constraint_name || null;
-                  } else if (dbType === 'mysql') {
-                    const result = await trx.raw(
-                      `
-                      SELECT CONSTRAINT_NAME as constraint_name
-                      FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-                      WHERE TABLE_SCHEMA = DATABASE()
-                        AND TABLE_NAME = ?
-                        AND COLUMN_NAME = ?
-                        AND REFERENCED_TABLE_NAME IS NOT NULL
-                    `,
-                      [sourceTable.name, fkColumn],
-                    );
-                    constraintName = result[0][0]?.constraint_name || null;
-                  }
-                  if (constraintName) {
-                    const qt =
-                      dbType === 'mysql'
-                        ? (id: string) => `\`${id}\``
-                        : (id: string) => `"${id}"`;
-                    await trx.raw(
-                      `ALTER TABLE ${qt(sourceTable.name)} DROP CONSTRAINT ${qt(constraintName)}`,
-                    );
-                  } else {
-                  }
-                } catch (error: any) {}
-                try {
-                  await trx.schema.alterTable(
-                    sourceTable.name,
-                    (table: any) => {
-                      table.dropColumn(fkColumn);
-                    },
-                  );
-                } catch (error: any) {}
-              }
-            }
-          }
-        }
-        try {
-          const dbType = this.queryBuilderService.getDatabaseType();
-          let allFkConstraints;
-          if (dbType === 'postgres') {
-            const result = await trx.raw(
-              `
-              SELECT
-                tc.table_name,
-                kcu.column_name,
-                tc.constraint_name,
-                ccu.table_name AS referenced_table_name,
-                ccu.column_name AS referenced_column_name
-              FROM information_schema.table_constraints AS tc
-              JOIN information_schema.key_column_usage AS kcu
-                ON tc.constraint_name = kcu.constraint_name
-                AND tc.table_schema = kcu.table_schema
-              JOIN information_schema.constraint_column_usage AS ccu
-                ON ccu.constraint_name = tc.constraint_name
-                AND ccu.table_schema = tc.table_schema
-              WHERE tc.constraint_type = 'FOREIGN KEY'
-                AND tc.table_schema = 'public'
-                AND ccu.table_name = ?
-            `,
-              [tableName],
-            );
-            allFkConstraints = result.rows || [];
-          } else {
-            const result = await trx.raw(
-              `
-              SELECT
-                TABLE_NAME as table_name,
-                COLUMN_NAME as column_name,
-                CONSTRAINT_NAME as constraint_name,
-                REFERENCED_TABLE_NAME as referenced_table_name,
-                REFERENCED_COLUMN_NAME as referenced_column_name
-              FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-              WHERE TABLE_SCHEMA = DATABASE()
-              AND REFERENCED_TABLE_NAME = ?
-              AND REFERENCED_COLUMN_NAME IS NOT NULL
-            `,
-              [tableName],
-            );
-            allFkConstraints = result[0] || [];
-          }
-          if (allFkConstraints && allFkConstraints.length > 0) {
-            for (const fk of allFkConstraints) {
-              try {
-                const qt =
-                  dbType === 'mysql'
-                    ? (id: string) => `\`${id}\``
-                    : (id: string) => `"${id}"`;
-                await trx.raw(
-                  `ALTER TABLE ${qt(fk.table_name)} DROP CONSTRAINT ${qt(fk.constraint_name)}`,
-                );
-              } catch (error: any) {}
-              try {
-                await trx.schema.alterTable(fk.table_name, (table: any) => {
-                  table.dropColumn(fk.column_name);
-                });
-              } catch (error: any) {}
-            }
-          } else {
-          }
-        } catch (error: any) {}
-        for (const rel of targetRelations) {
+        await this.removeReferencingForeignKeys(trx, tableName);
+        for (const rel of allRelations.filter(
+          (relation) => String(relation.targetTableId) === String(id),
+        )) {
           const sourceTable = await trx('enfyra_table')
             .where({ id: rel.sourceTableId })
             .select('name')
             .first();
           if (sourceTable?.name) affectedTableNames.add(sourceTable.name);
         }
-        await trx('enfyra_relation').where({ targetTableId: id }).delete();
-        await trx('enfyra_table').where({ id }).delete();
         await this.schemaMigrationService.dropTable(
           tableName,
           allRelations,
           trx,
         );
+        await trx('enfyra_relation').where({ targetTableId: id }).delete();
+        await trx('enfyra_table').where({ id }).delete();
         exists.affectedTables = [...affectedTableNames];
         return exists;
       } catch (error: any) {
@@ -238,5 +105,70 @@ export class SqlTableDeleteService extends SqlTableHandlerService {
         );
       }
     });
+  }
+
+  private async removeReferencingForeignKeys(
+    trx: Knex.Transaction,
+    tableName: string,
+  ): Promise<void> {
+    const dbType = this.queryBuilderService.getDatabaseType() as
+      | 'mysql'
+      | 'postgres';
+    const result = await trx.raw(
+      dbType === 'postgres'
+        ? `
+          SELECT rel.relname AS table_name,
+                 con.conname AS constraint_name,
+                 att.attname AS column_name
+          FROM pg_constraint con
+          INNER JOIN pg_class rel ON rel.oid = con.conrelid
+          INNER JOIN pg_class referenced ON referenced.oid = con.confrelid
+          INNER JOIN pg_attribute att
+            ON att.attrelid = con.conrelid AND att.attnum = ANY(con.conkey)
+          WHERE referenced.relname = ? AND con.contype = 'f'
+        `
+        : `
+          SELECT TABLE_NAME AS table_name,
+                 CONSTRAINT_NAME AS constraint_name,
+                 COLUMN_NAME AS column_name
+          FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND REFERENCED_TABLE_NAME = ?
+            AND REFERENCED_COLUMN_NAME IS NOT NULL
+        `,
+      [tableName],
+    );
+    const foreignKeys = dbType === 'postgres' ? result.rows : result[0];
+    const columnsByConstraint = new Map<
+      string,
+      { tableName: string; constraintName: string; columns: string[] }
+    >();
+    for (const foreignKey of foreignKeys ?? []) {
+      const key = `${foreignKey.table_name}:${foreignKey.constraint_name}`;
+      const current = columnsByConstraint.get(key);
+      if (current) {
+        current.columns.push(foreignKey.column_name);
+        continue;
+      }
+      columnsByConstraint.set(key, {
+        tableName: foreignKey.table_name,
+        constraintName: foreignKey.constraint_name,
+        columns: [foreignKey.column_name],
+      });
+    }
+    for (const foreignKey of columnsByConstraint.values()) {
+      await trx.raw(
+        generateDropForeignKeySQL(
+          foreignKey.tableName,
+          foreignKey.constraintName,
+          dbType,
+        ),
+      );
+      await trx.schema.alterTable(foreignKey.tableName, (table: any) => {
+        for (const columnName of foreignKey.columns) {
+          table.dropColumn(columnName);
+        }
+      });
+    }
   }
 }
