@@ -1,18 +1,30 @@
-import { Job, Queue, Worker } from 'bullmq';
-import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
+import { randomUUID } from 'node:crypto';
+import { Worker } from 'bullmq';
+import type { Job, Queue } from 'bullmq';
+import type { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
+import type { ICache } from '../../shared/interfaces/cache.interface';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
-import { EnvService } from '../../../shared/services';
+import type { EnvService } from '../../../shared/services';
 import { Logger } from '../../../shared/logger';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import type { RuntimeNamespaceLifecycleService } from '../../../engines/cache/services/runtime-namespace-lifecycle.service';
 
 const BATCH_SIZE = 20;
+const SESSION_CLEANUP_SCHEDULER_ID = 'session-cleanup-daily';
+const SESSION_CLEANUP_SCHEDULER_LOCK_KEY =
+  'scheduler-registration:session-cleanup-daily';
+const SESSION_CLEANUP_SCHEDULER_LOCK_TTL_MS = 30_000;
+const SESSION_CLEANUP_SCHEDULE_PATTERN = '0 2 * * *';
+const SESSION_CLEANUP_JOB_NAME = 'cleanup-expired-sessions';
+const SCHEDULER_ITERATION_EXISTS_ERROR =
+  'Cannot create job scheduler iteration - job ID already exists';
 
 export class SessionCleanupService {
   private readonly logger = new Logger(SessionCleanupService.name);
   private readonly queryBuilderService: IQueryBuilder;
   private readonly cleanupQueue: Queue;
   private readonly envService: EnvService;
+  private readonly cacheService: ICache;
   private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
   private worker?: Worker;
 
@@ -20,11 +32,13 @@ export class SessionCleanupService {
     queryBuilderService: IQueryBuilder;
     cleanupQueue: Queue;
     envService: EnvService;
+    cacheService: ICache;
     runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.cleanupQueue = deps.cleanupQueue;
     this.envService = deps.envService;
+    this.cacheService = deps.cacheService;
     this.runtimeNamespaceLifecycleService =
       deps.runtimeNamespaceLifecycleService;
   }
@@ -46,19 +60,79 @@ export class SessionCleanupService {
       },
     );
 
-    await this.cleanupQueue.upsertJobScheduler(
-      'session-cleanup-daily',
-      { pattern: '0 2 * * *' },
-      {
-        name: 'cleanup-expired-sessions',
-        opts: {
-          removeOnComplete: { count: 30, age: 3600 * 24 * 7 },
-          removeOnFail: { count: 30, age: 3600 * 24 * 30 },
-        },
-      },
-    );
+    await this.registerScheduler();
     await this.runtimeNamespaceLifecycleService?.renewSystemQueueKeys(
       SYSTEM_QUEUES.SESSION_CLEANUP,
+    );
+  }
+
+  private async registerScheduler(): Promise<void> {
+    const lockValue = randomUUID();
+    const lockAcquired = await this.cacheService.acquire(
+      SESSION_CLEANUP_SCHEDULER_LOCK_KEY,
+      lockValue,
+      SESSION_CLEANUP_SCHEDULER_LOCK_TTL_MS,
+    );
+    if (!lockAcquired) {
+      this.logger.log(
+        'Skipped scheduler registration; another instance is registering it',
+      );
+      return;
+    }
+
+    try {
+      if (await this.hasExpectedScheduler()) {
+        this.logger.log(
+          'Skipped scheduler registration; scheduler already exists',
+        );
+        return;
+      }
+
+      await this.cleanupQueue.upsertJobScheduler(
+        SESSION_CLEANUP_SCHEDULER_ID,
+        { pattern: SESSION_CLEANUP_SCHEDULE_PATTERN },
+        {
+          name: SESSION_CLEANUP_JOB_NAME,
+          opts: {
+            removeOnComplete: { count: 30, age: 3600 * 24 * 7 },
+            removeOnFail: { count: 30, age: 3600 * 24 * 30 },
+          },
+        },
+      );
+    } catch (error) {
+      if (await this.isVerifiedDuplicateSchedulerError(error)) {
+        this.logger.warn(
+          'Scheduler iteration already exists after concurrent registration; continuing',
+        );
+        return;
+      }
+      throw error;
+    } finally {
+      await this.cacheService.release(
+        SESSION_CLEANUP_SCHEDULER_LOCK_KEY,
+        lockValue,
+      );
+    }
+  }
+
+  private async isVerifiedDuplicateSchedulerError(
+    error: unknown,
+  ): Promise<boolean> {
+    if (!getErrorMessage(error).includes(SCHEDULER_ITERATION_EXISTS_ERROR)) {
+      return false;
+    }
+
+    return await this.hasExpectedScheduler();
+  }
+
+  private async hasExpectedScheduler(): Promise<boolean> {
+    const scheduler = await this.cleanupQueue.getJobScheduler(
+      SESSION_CLEANUP_SCHEDULER_ID,
+    );
+    return (
+      scheduler?.id === SESSION_CLEANUP_SCHEDULER_ID &&
+      scheduler.name === SESSION_CLEANUP_JOB_NAME &&
+      scheduler.pattern === SESSION_CLEANUP_SCHEDULE_PATTERN
     );
   }
 
