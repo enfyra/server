@@ -481,6 +481,38 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
               }
               await this.queryBuilderService.delete('enfyra_relation', relId);
             }
+            const detachedInverseOwnerIds = body.relations
+              .filter(
+                (relation: any) =>
+                  (relation._id || relation.id) &&
+                  !getRelationMappedByProperty(relation) &&
+                  !relation.inversePropertyName,
+              )
+              .map((relation: any) => relation._id || relation.id);
+            for (const ownerId of detachedInverseOwnerIds) {
+              this.assertNotAborted();
+              const mappedBy =
+                typeof ownerId === 'string' ? new ObjectId(ownerId) : ownerId;
+              const { data: detachedInverses } =
+                await this.queryBuilderService.find({
+                  table: 'enfyra_relation',
+                  where: { mappedBy },
+                });
+              for (const inverse of detachedInverses) {
+                this.assertNotAborted();
+                if (inverse.sourceTableName) {
+                  affectedTableNames.add(inverse.sourceTableName);
+                }
+                await this.mongoService
+                  .getDb()
+                  .collection('enfyra_field_permission')
+                  .deleteMany({ relation: inverse._id });
+                await this.queryBuilderService.delete(
+                  'enfyra_relation',
+                  inverse._id,
+                );
+              }
+            }
             const relationIds = [];
             for (const rel of body.relations) {
               this.assertNotAborted();
