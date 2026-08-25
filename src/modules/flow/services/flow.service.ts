@@ -34,6 +34,8 @@ interface FlowStepTestInput {
   key?: string;
 }
 
+const DEFAULT_FLOW_STEP_TEST_TIMEOUT_MS = 60_000;
+
 export class FlowService {
   private readonly logger = new Logger(FlowService.name);
   private readonly flowQueue: Queue;
@@ -153,12 +155,11 @@ export class FlowService {
       note: 'test mode',
     });
 
-    const MAX_TEST_TIMEOUT = 5000;
     const rawTimeout = Number(step.timeout);
     const timeout =
       Number.isFinite(rawTimeout) && rawTimeout > 0
-        ? Math.min(rawTimeout, MAX_TEST_TIMEOUT)
-        : MAX_TEST_TIMEOUT;
+        ? rawTimeout
+        : DEFAULT_FLOW_STEP_TEST_TIMEOUT_MS;
 
     try {
       const resolved = await this.resolveTestFlowStep(step);

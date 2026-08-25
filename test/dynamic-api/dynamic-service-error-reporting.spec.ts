@@ -178,7 +178,7 @@ describe('DynamicService error reporting', () => {
     await expect(service.runHandler(request)).resolves.toBeUndefined();
     expect(runBatch).toHaveBeenCalledWith(
       request,
-      undefined,
+      60_000,
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(loggingService.error).not.toHaveBeenCalled();

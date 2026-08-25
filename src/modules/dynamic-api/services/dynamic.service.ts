@@ -16,6 +16,7 @@ import { Readable } from 'stream';
 import { RuntimeScriptRepairService } from '../../../engines/cache';
 
 const streamLogger = new Logger('DynamicResponseStream');
+const DEFAULT_DYNAMIC_ROUTE_TIMEOUT_MS = 60_000;
 
 export function persistDynamicScriptLogs(
   req: RequestWithRouteData,
@@ -230,7 +231,7 @@ export class DynamicService {
       const routeHandler = routeData.handlers?.find(
         (h) => h.method?.name === req.method,
       );
-      const timeoutMs = routeHandler?.timeout || undefined;
+      const timeoutMs = routeHandler?.timeout || DEFAULT_DYNAMIC_ROUTE_TIMEOUT_MS;
 
       let value: any;
       let shortCircuit = false;
