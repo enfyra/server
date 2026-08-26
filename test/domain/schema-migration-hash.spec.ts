@@ -137,7 +137,7 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
     expect(decision.code).toBe('SCHEMA_CONFIRM_HASH_MISMATCH');
   });
 
-  it('rejects create schema when an index includes a unique field', async () => {
+  it('canonicalizes an exact index duplicate of a unique field before compiling a create schema', async () => {
     const v = makeValidator();
     const decision = await v.checkSchemaMigration({
       operation: 'create',
@@ -153,18 +153,11 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
       requestContext: { $query: {} },
     });
 
-    expect(decision.allow).toBe(false);
-    expect(decision.statusCode).toBe(422);
-    expect(decision.code).toBe('SCHEMA_INDEX_OVER_UNIQUE_FIELD');
-    expect(decision.details.code).toBe('SCHEMA_INDEX_OVER_UNIQUE_FIELD');
-    expect(decision.details.conflicts).toEqual([
-      {
-        index: ['version'],
-        uniqueFields: ['version'],
-        uniqueConstraints: [
-          { fields: ['version'], matchingFields: ['version'] },
-        ],
-      },
+    expect(decision.allow).toBe(true);
+    expect(decision.details.schemaMutationContract.context.target.indexes).toEqual([
+      ['createdAt'],
+      ['is_active', 'sort_order'],
+      ['updatedAt'],
     ]);
   });
 
@@ -200,6 +193,101 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
       },
     ]);
     expect(decision.details.guidance).toMatch(/Remove unique fields/);
+  });
+
+  it('allows an update when a persisted automatic id-suffix index duplicates a unique field', async () => {
+    const v = makeValidator();
+    const before = {
+      ...baseBefore,
+      name: 'payment_order',
+      columns: [
+        ...baseBefore.columns,
+        columnWithId(3, 'providerOrderId'),
+      ],
+      uniques: [['providerOrderId']],
+      indexes: [['providerOrderId']],
+    };
+    const after = {
+      ...before,
+      columns: [...before.columns, columnWithId(4, 'note')],
+    };
+
+    const decision = await v.checkSchemaMigration({
+      operation: 'update',
+      tableName: 'payment_order',
+      beforeMetadata: before,
+      afterMetadata: after,
+      requestContext: { $query: {} },
+    });
+
+    expect(decision.allow).toBe(false);
+    expect(decision.preview).toBe(true);
+    expect(decision.code).not.toBe('SCHEMA_INDEX_OVER_UNIQUE_FIELD');
+  });
+
+  it('allows an update when a persisted owning relation index duplicates its unique relation', async () => {
+    const v = makeValidator();
+    const before = {
+      ...baseBefore,
+      name: 'member_profile',
+      relations: [
+        {
+          propertyName: 'user',
+          type: 'one-to-one',
+          targetTableName: 'enfyra_user',
+          foreignKeyColumn: 'userId',
+        },
+      ],
+      uniques: [['user']],
+      indexes: [['user']],
+    };
+    const after = {
+      ...before,
+      columns: [...before.columns, columnWithId(3, 'nickname')],
+    };
+
+    const decision = await v.checkSchemaMigration({
+      operation: 'update',
+      tableName: 'member_profile',
+      beforeMetadata: before,
+      afterMetadata: after,
+      requestContext: { $query: {} },
+    });
+
+    expect(decision.allow).toBe(false);
+    expect(decision.preview).toBe(true);
+    expect(decision.code).not.toBe('SCHEMA_INDEX_OVER_UNIQUE_FIELD');
+  });
+
+  it('continues rejecting a persisted composite index that overlaps a unique field', async () => {
+    const v = makeValidator();
+    const before = {
+      ...baseBefore,
+      name: 'payment_order',
+      columns: [
+        ...baseBefore.columns,
+        columnWithId(3, 'providerOrderId'),
+        columnWithId(4, 'status'),
+      ],
+      uniques: [['providerOrderId']],
+      indexes: [['providerOrderId', 'status']],
+    };
+    const after = {
+      ...before,
+      columns: [...before.columns, columnWithId(5, 'note')],
+    };
+
+    const decision = await v.checkSchemaMigration({
+      operation: 'update',
+      tableName: 'payment_order',
+      beforeMetadata: before,
+      afterMetadata: after,
+      requestContext: { $query: {} },
+    });
+
+    expect(decision.allow).toBe(false);
+    expect(decision.statusCode).toBe(422);
+    expect(decision.code).toBe('SCHEMA_INDEX_OVER_UNIQUE_FIELD');
   });
 
   it('lists every unique constraint that conflicts with an index', async () => {

@@ -63,7 +63,7 @@ describe('MongoSchemaDiffService junction changes', () => {
     });
   });
 
-  it('persists logical auto-generated index fields without the physical _id tie-breaker', async () => {
+  it('does not mutate metadata after creating an automatic physical index', async () => {
     const createIndex = vi.fn().mockResolvedValue('course_teacher_fk_idx');
     const update = vi.fn().mockResolvedValue(undefined);
     const service = new MongoSchemaDiffService({
@@ -94,12 +94,7 @@ describe('MongoSchemaDiffService junction changes', () => {
 
     await service.executeMongoSchemaDiff('course', diff, before, after);
 
-    expect(update).toHaveBeenCalledWith(
-      'enfyra_table',
-      expect.anything(),
-      {
-        indexes: [['createdAt'], ['updatedAt'], ['teacher']],
-      },
-    );
+    expect(createIndex).toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
   });
 });

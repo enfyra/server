@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildSqlForeignKeyContracts,
+  getSqlCanonicalConstraintGroups,
   buildSqlIndexContracts,
   buildSqlJunctionTableContract,
   buildSqlUniqueContracts,
@@ -118,35 +119,36 @@ describe('SQL physical schema contract', () => {
   });
 
   it('includes the implicit owning one-to-one FK unique in the physical contract', () => {
-    expect(
-      buildSqlUniqueContracts('course_definition', {
-        uniques: [],
-        relations: [
-          {
-            propertyName: 'room',
-            type: 'one-to-one',
-            targetTable: 'room_definition',
-            foreignKeyColumn: 'roomId',
-          },
-        ],
-      } as any),
-    ).toEqual([
+    const course = {
+      uniques: [],
+      indexes: [],
+      columns: [{ name: 'id', type: 'int', isPrimary: true }],
+      relations: [
+        {
+          propertyName: 'room',
+          type: 'one-to-one',
+          targetTable: 'room_definition',
+          foreignKeyColumn: 'roomId',
+        },
+      ],
+    } as any;
+
+    expect(buildSqlUniqueContracts('course_definition', course)).toEqual([
       {
         name: 'uq_course_definition_roomId',
         logicalColumns: ['room'],
         physicalColumns: ['roomId'],
       },
     ]);
+    expect(
+      buildSqlIndexContracts('course_definition', course).filter(
+        (idx) => idx.source === 'relation-fk',
+      ),
+    ).toEqual([]);
   });
 
   it('appends id tie-breakers to non-unique physical indexes once', () => {
     expect(buildSqlIndexContracts('enfyra_route', table)).toEqual([
-      {
-        name: 'idx_enfyra_route_mainTableId',
-        logicalColumns: ['mainTable'],
-        physicalColumns: ['mainTableId', 'id'],
-        source: 'metadata',
-      },
       {
         name: 'idx_enfyra_route_scheduledAt',
         logicalColumns: ['scheduledAt'],
@@ -166,6 +168,120 @@ describe('SQL physical schema contract', () => {
         source: 'system-timestamp',
       },
     ]);
+  });
+
+  it('does not generate an id-suffix index already backed by a unique constraint', () => {
+    const paymentOrder = {
+      name: 'payment_order',
+      columns: [
+        { name: 'id', type: 'int', isPrimary: true },
+        { name: 'providerOrderId', type: 'varchar' },
+      ],
+      relations: [],
+      uniques: [['providerOrderId']],
+      indexes: [],
+    } as any;
+
+    expect(buildSqlIndexContracts('payment_order', paymentOrder)).toEqual([
+      {
+        name: 'idx_payment_order_createdAt',
+        logicalColumns: ['createdAt'],
+        physicalColumns: ['createdAt', 'id'],
+        source: 'system-timestamp',
+      },
+      {
+        name: 'idx_payment_order_updatedAt',
+        logicalColumns: ['updatedAt'],
+        physicalColumns: ['updatedAt', 'id'],
+        source: 'system-timestamp',
+      },
+    ]);
+  });
+
+  it('materializes a single canonical constraint snapshot before SQL DDL', () => {
+    const paymentOrder = {
+      name: 'payment_order',
+      columns: [
+        { name: 'id', type: 'int', isPrimary: true },
+        { name: 'providerOrderId', type: 'varchar' },
+        { name: 'status', type: 'varchar' },
+      ],
+      relations: [],
+      uniques: [['providerOrderId']],
+      indexes: [['providerOrderId'], ['status']],
+    } as any;
+
+    expect(
+      getSqlCanonicalConstraintGroups('payment_order', paymentOrder),
+    ).toEqual({
+      uniques: [['providerOrderId']],
+      indexes: [['status'], ['createdAt'], ['updatedAt']],
+    });
+  });
+
+  it('keeps automatic indexes for non-unique scalar IDs, owning relation FKs, and temporal fields', () => {
+    const auditEntry = {
+      name: 'audit_entry',
+      columns: [
+        { name: 'id', type: 'int', isPrimary: true },
+        { name: 'externalId', type: 'varchar' },
+        { name: 'expiresAt', type: 'datetime' },
+      ],
+      relations: [
+        {
+          propertyName: 'owner',
+          type: 'many-to-one',
+          targetTable: 'enfyra_user',
+          foreignKeyColumn: 'ownerId',
+        },
+      ],
+      uniques: [],
+      indexes: [],
+    } as any;
+
+    expect(buildSqlIndexContracts('audit_entry', auditEntry)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          logicalColumns: ['owner'],
+          physicalColumns: ['ownerId', 'id'],
+          source: 'relation-fk',
+        }),
+        expect.objectContaining({
+          logicalColumns: ['externalId'],
+          physicalColumns: ['externalId', 'id'],
+          source: 'id-suffix-column',
+        }),
+        expect.objectContaining({
+          logicalColumns: ['expiresAt'],
+          physicalColumns: ['expiresAt', 'id'],
+          source: 'temporal-column',
+        }),
+      ]),
+    );
+  });
+
+  it('does not suppress a non-overlapping explicit index when another field is unique', () => {
+    const paymentOrder = {
+      name: 'payment_order',
+      columns: [
+        { name: 'id', type: 'int', isPrimary: true },
+        { name: 'providerOrderId', type: 'varchar' },
+        { name: 'status', type: 'varchar' },
+      ],
+      relations: [],
+      uniques: [['providerOrderId']],
+      indexes: [['status']],
+    } as any;
+
+    expect(buildSqlIndexContracts('payment_order', paymentOrder)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          logicalColumns: ['status'],
+          physicalColumns: ['status', 'id'],
+          source: 'metadata',
+        }),
+      ]),
+    );
   });
 
   it('centralizes junction table names, indexes, and FK actions', () => {
