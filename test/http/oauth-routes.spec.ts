@@ -116,4 +116,51 @@ describe('OAuth routes', () => {
       );
     },
   );
+
+  it('returns custom state unchanged after the cookie bridge callback', async () => {
+    const { get } = createHarness();
+    const clientState = 'opaque-state+/= referral';
+    const start = await get(
+      '/auth/:provider',
+      { provider: 'google' },
+      {
+        redirect: 'https://demo.enfyra.io/login',
+        state: clientState,
+      },
+    );
+    const callback = await get(
+      '/auth/:provider/callback',
+      { provider: 'google' },
+      { code: 'oauth-code', state: getStateFromLocation(start.location) },
+    );
+
+    expect(new URL(callback.location).searchParams.get('state')).toBe(
+      clientState,
+    );
+  });
+
+  it('returns custom state unchanged when the provider denies authorization', async () => {
+    const { get } = createHarness();
+    const clientState = 'opaque-state+/= referral';
+    const start = await get(
+      '/auth/:provider',
+      { provider: 'google' },
+      {
+        redirect: 'https://demo.enfyra.io/login',
+        state: clientState,
+      },
+    );
+    const callback = await get(
+      '/auth/:provider/callback',
+      { provider: 'google' },
+      {
+        error: 'access_denied',
+        state: getStateFromLocation(start.location),
+      },
+    );
+
+    expect(new URL(callback.location).searchParams.get('state')).toBe(
+      clientState,
+    );
+  });
 });

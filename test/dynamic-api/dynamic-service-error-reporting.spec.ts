@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'events';
+import {
+  HttpException as KernelHttpException,
+  ValidationException as KernelValidationException,
+} from '@enfyra/kernel';
 import { DynamicService } from '../../src/modules/dynamic-api/services/dynamic.service';
 import { HttpException } from '../../src/domain/exceptions';
 
@@ -110,6 +114,31 @@ describe('DynamicService error reporting', () => {
     }
   });
 
+  it.each([
+    new KernelHttpException('Retry in five seconds', 503, {
+      retry_after_seconds: 5,
+    }),
+    new KernelValidationException('Referral code is invalid', {
+      field: 'code',
+    }),
+  ])('preserves cross-boundary custom throws', async (executorError) => {
+    const service = new DynamicService({
+      executorEngineService: {
+        register: vi.fn(),
+        runBatch: vi.fn(async () => {
+          throw executorError;
+        }),
+      },
+      loggingService: {
+        error: vi.fn(),
+      },
+    } as any);
+
+    await expect(service.runHandler(createRequest())).rejects.toBe(
+      executorError,
+    );
+  });
+
   it('treats response-close cancellation as a normal disconnect', async () => {
     const response: any = new EventEmitter();
     response.writableEnded = false;
@@ -149,7 +178,7 @@ describe('DynamicService error reporting', () => {
     await expect(service.runHandler(request)).resolves.toBeUndefined();
     expect(runBatch).toHaveBeenCalledWith(
       request,
-      undefined,
+      60_000,
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(loggingService.error).not.toHaveBeenCalled();

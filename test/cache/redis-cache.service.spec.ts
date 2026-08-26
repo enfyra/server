@@ -116,4 +116,87 @@ describe('RedisCacheService — system policy', () => {
       false,
     );
   });
+
+  it('refreshes a cache value only while it still matches the expected state', async () => {
+    const redis = {
+      eval: vi.fn(async () => 1),
+    };
+    const service = makeSystemCache(redis, 'app-a');
+
+    await expect(
+      service.compareAndSet('auth:api-token:token-1', { version: 1 }, { version: 2 }, 60000),
+    ).resolves.toBe(true);
+
+    expect(redis.eval).toHaveBeenCalledWith(
+      expect.stringContaining('redis.call("set"'),
+      1,
+      'app-a:auth:api-token:token-1',
+      JSON.stringify({ version: 1 }),
+      JSON.stringify({ version: 2 }),
+      60000,
+    );
+  });
+
+  it('writes related cache entries only while the revocation guard is absent', async () => {
+    const redis = {
+      eval: vi.fn(async () => 1),
+    };
+    const service = makeSystemCache(redis, 'app-a');
+
+    await expect(
+      service.setManyIfKeyAbsent('auth:api-token:revoked:token-1', [
+        {
+          key: 'auth:api-token:token-1',
+          value: { id: 'token-1' },
+          ttlMs: 60000,
+        },
+        {
+          key: 'auth:api-token:hash:hash-1',
+          value: { id: 'token-1' },
+          ttlMs: 60000,
+        },
+      ]),
+    ).resolves.toBe(true);
+
+    expect(redis.eval).toHaveBeenCalledWith(
+      expect.stringContaining('redis.call("exists"'),
+      3,
+      'app-a:auth:api-token:revoked:token-1',
+      'app-a:auth:api-token:token-1',
+      'app-a:auth:api-token:hash:hash-1',
+      JSON.stringify({ id: 'token-1' }),
+      60000,
+      JSON.stringify({ id: 'token-1' }),
+      60000,
+    );
+  });
+
+  it('marks revocation and deletes token states in one Redis script', async () => {
+    const redis = {
+      eval: vi.fn(async () => null),
+    };
+    const service = makeSystemCache(redis, 'app-a');
+
+    await service.setManyAndDelete(
+      [
+        {
+          key: 'auth:api-token:revoked:token-1',
+          value: true,
+          ttlMs: 900000,
+        },
+      ],
+      ['auth:api-token:token-1', 'auth:api-token:hash:hash-1'],
+    );
+
+    expect(redis.eval).toHaveBeenCalledWith(
+      expect.stringContaining('redis.call("del"'),
+      3,
+      'app-a:auth:api-token:revoked:token-1',
+      'app-a:auth:api-token:token-1',
+      'app-a:auth:api-token:hash:hash-1',
+      1,
+      'true',
+      900000,
+    );
+  });
 });

@@ -462,9 +462,7 @@ export class SqlSchemaHealingService {
     dbType: string,
   ): Knex.ColumnBuilder {
     if (pkType === 'uuid') {
-      return dbType === 'postgres'
-        ? table.uuid(columnName)
-        : table.string(columnName, 36);
+      return table.uuid(columnName);
     }
     if (pkType === 'varchar') {
       return table.string(columnName, 255);

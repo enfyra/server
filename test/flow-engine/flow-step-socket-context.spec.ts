@@ -176,6 +176,30 @@ describe('flow step socket context', () => {
     expect(result.logs).toEqual(['visible-log', { ok: true }]);
   });
 
+  it('uses a one-minute default timeout for flow step tests', async () => {
+    const timeouts: number[] = [];
+    const service = new FlowService({
+      flowQueue: {} as any,
+      runtimeRegistryService: runtimeRegistryWithFlows() as any,
+      executorEngineService: {
+        run: (code: string, ctx: any, timeout: number) => {
+          timeouts.push(timeout);
+          return new InlineExecutor().run(code, ctx);
+        },
+      } as any,
+      repoRegistryService: new MockRepoRegistry() as any,
+      dynamicContextFactory: createDynamicContextFactory({}),
+    });
+
+    const result = await service.testStep({
+      type: 'script',
+      config: { sourceCode: 'return true;', scriptLanguage: 'typescript' },
+    });
+
+    expect(result.success).toBe(true);
+    expect(timeouts).toEqual([60_000]);
+  });
+
   it('triggers flows from the active registry view', async () => {
     const addedJobs: any[] = [];
     const service = new FlowService({

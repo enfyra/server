@@ -611,18 +611,13 @@ export async function applyRelationMigrations(
         const fkColumn = foreignKey.columnName;
         console.log(`    + ${fkColumn} → ${foreignKey.targetTable}.id`);
         const targetPkType = getPrimaryKeyType(schemas, foreignKey.targetTable);
-        const dbType = knex.client.config.client;
         try {
           const hasCol = await knex.schema.hasColumn(tableName, fkColumn);
           if (!hasCol) {
             await knex.schema.alterTable(tableName, (table) => {
               let col;
               if (targetPkType === 'uuid') {
-                if (dbType === 'pg') {
-                  col = table.uuid(fkColumn);
-                } else {
-                  col = table.string(fkColumn, 36);
-                }
+                col = table.uuid(fkColumn);
               } else {
                 col = table.integer(fkColumn).unsigned();
               }
@@ -760,7 +755,11 @@ export async function syncTable(
 ): Promise<void> {
   const { tableName } = schema;
   const currentSchema = await getCurrentDatabaseSchema(knex, tableName);
-  const detectedDiff = compareSchemas(schema, currentSchema);
+  const detectedDiff = compareSchemas(
+    schema,
+    currentSchema,
+    knex.client.config.client,
+  );
   const diff = options.additiveOnly
     ? {
         ...detectedDiff,

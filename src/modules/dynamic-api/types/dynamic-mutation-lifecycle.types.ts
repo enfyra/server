@@ -44,6 +44,17 @@ export interface DynamicBatchCreateResult {
   count: number;
 }
 
+export interface DynamicMutationManyResult {
+  data: Array<Record<string, unknown>>;
+  count: number;
+}
+
+export interface DynamicMutationManyDeleteResult {
+  message: 'Delete successfully!';
+  statusCode: 200;
+  count: number;
+}
+
 interface DynamicMutationOperationOptions {
   runtime: DynamicMutationRuntime;
   routeRouter: TableRouteRouter;
@@ -78,6 +89,29 @@ export interface DynamicMutationDeleteOptions extends DynamicMutationOperationOp
   mutationAuthorizationService: DynamicMutationAuthorizationService;
   tableValidationService: DynamicApiTableValidationService;
   id: DynamicMutationId;
+}
+
+export interface DynamicMutationCreateManyOptions extends DynamicMutationOperationOptions {
+  mutationPreparationService: DynamicMutationPreparationService;
+  mutationAuthorizationService: DynamicMutationAuthorizationService;
+  tableValidationService: DynamicApiTableValidationService;
+  data: Array<Record<string, unknown>>;
+  fields?: string | string[];
+}
+
+export interface DynamicMutationUpdateManyOptions extends DynamicMutationOperationOptions {
+  mutationPreparationService: DynamicMutationPreparationService;
+  mutationAuthorizationService: DynamicMutationAuthorizationService;
+  tableValidationService: DynamicApiTableValidationService;
+  ids: DynamicMutationId[];
+  data: Record<string, unknown>;
+  fields?: string | string[];
+}
+
+export interface DynamicMutationDeleteManyOptions extends DynamicMutationOperationOptions {
+  mutationAuthorizationService: DynamicMutationAuthorizationService;
+  tableValidationService: DynamicApiTableValidationService;
+  ids: DynamicMutationId[];
 }
 
 export interface DynamicMutationLifecycleOptions<TPersisted, TResult> {

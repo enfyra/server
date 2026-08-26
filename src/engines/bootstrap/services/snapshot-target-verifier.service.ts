@@ -83,7 +83,7 @@ export class SnapshotTargetVerifierService {
       }
 
       const current = await getCurrentDatabaseSchema(knex, schema.tableName);
-      const diff = compareSchemas(schema, current);
+      const diff = compareSchemas(schema, current, knex.client.config.client);
       for (const column of diff.columnsToAdd) {
         errors.push(
           `physical column ${schema.tableName}.${column.name} is missing`,

@@ -1,7 +1,13 @@
 import type {
+  DynamicMutationCreateManyOptions,
   DynamicMutationCreateOptions,
+  DynamicMutationDeleteManyOptions,
   DynamicMutationDeleteOptions,
   DynamicMutationLifecycleOptions,
+  DynamicMutationManyDeleteResult,
+  DynamicMutationManyResult,
+  DynamicMutationId,
+  DynamicMutationUpdateManyOptions,
   DynamicMutationUpdateOptions,
 } from '../types/dynamic-mutation-lifecycle.types';
 import { BadRequestException } from '../../../domain/exceptions';
@@ -211,6 +217,78 @@ export class DynamicMutationLifecycleService {
       );
     }
   }
+
+  async createMany(
+    options: DynamicMutationCreateManyOptions,
+  ): Promise<DynamicMutationManyResult> {
+    const {
+      runtime,
+      routeRouter,
+      queryBuilderService,
+      mutationPreparationService,
+      mutationAuthorizationService,
+      tableValidationService,
+      tableName,
+      tableMetadata,
+      data,
+      fields,
+    } = options;
+
+    try {
+      this.assertBulkSupported(routeRouter, tableName);
+      const rows = this.requireManyRecords(data, 'data');
+      const bodies: Record<string, any>[] = [];
+      for (const row of rows) {
+        bodies.push(
+          await mutationPreparationService.prepareCreateBody(
+            row,
+            tableName,
+            tableMetadata,
+            mutationAuthorizationService,
+            tableValidationService,
+          ),
+        );
+      }
+
+      const created =
+        await mutationAuthorizationService.runWithFieldPermissionCheck(() =>
+          mutationAuthorizationService.runWithMutationPolicy(() =>
+            (queryBuilderService as any).createMany(tableName, bodies),
+          ),
+        );
+      const ids = this.extractIds(created, runtime.getIdField());
+      if (ids.length !== bodies.length) {
+        throw new BadRequestException(
+          'Bulk create did not return a primary key for every record',
+        );
+      }
+
+      return this.run({
+        context: {
+          tableName,
+          id: ids[0],
+          body: bodies[0],
+          existing: null,
+        },
+        persist: async () => ids,
+        buildResult: async () => {
+          const result = await runtime.find({
+            filter: { [runtime.getIdField()]: { _in: ids } },
+            fields,
+            limit: -1,
+          });
+          return {
+            data: result.data ?? [],
+            count: result.count ?? result.data?.length ?? 0,
+          };
+        },
+        reload: () => runtime.reload({ ids }),
+        emit: () => runtime.emit('create', ids),
+      });
+    } catch (error: any) {
+      this.throwCreateError(error);
+    }
+  }
   async update(options: DynamicMutationUpdateOptions): Promise<unknown> {
     const {
       runtime,
@@ -391,6 +469,94 @@ export class DynamicMutationLifecycleService {
     }
   }
 
+  async updateMany(
+    options: DynamicMutationUpdateManyOptions,
+  ): Promise<DynamicMutationManyResult> {
+    const {
+      runtime,
+      routeRouter,
+      queryBuilderService,
+      mutationPreparationService,
+      mutationAuthorizationService,
+      tableValidationService,
+      tableName,
+      tableMetadata,
+      ids: requestedIds,
+      data,
+      fields,
+    } = options;
+
+    try {
+      this.assertBulkSupported(routeRouter, tableName);
+      const ids = this.requireManyIds(requestedIds);
+      const body = mutationPreparationService.prepareUpdateBody(
+        data,
+        tableMetadata,
+      );
+      this.assertNoRelationPayload(body, tableMetadata);
+      const existingRecords = await this.loadExistingRecords(
+        queryBuilderService,
+        tableName,
+        runtime.getIdField(),
+        ids,
+      );
+
+      await tableValidationService.assertTableValid({
+        operation: 'update',
+        tableName,
+        tableMetadata,
+      });
+      for (const id of ids) {
+        const existing = existingRecords.get(String(id))!;
+        await mutationAuthorizationService.assertDirectFieldPermission(
+          'update',
+          body,
+          existing,
+        );
+        await mutationAuthorizationService.assertMutationSafety(
+          'update',
+          body,
+          existing,
+        );
+      }
+
+      return this.run({
+        context: {
+          tableName,
+          id: ids[0],
+          body,
+          existing: existingRecords.get(String(ids[0]))!,
+        },
+        persist: () =>
+          mutationAuthorizationService.runWithFieldPermissionCheck(() =>
+            mutationAuthorizationService.runWithMutationPolicy(() =>
+              queryBuilderService.updateMany(
+                tableName,
+                ids,
+                body,
+                runtime.getIdField(),
+              ),
+            ),
+          ),
+        buildResult: async () => {
+          const result = await runtime.find({
+            filter: { [runtime.getIdField()]: { _in: ids } },
+            fields,
+            limit: -1,
+          });
+          return {
+            data: result.data ?? [],
+            count: result.count ?? result.data?.length ?? 0,
+          };
+        },
+        reload: () => runtime.reload({ ids }),
+        emit: () => runtime.emit('update', ids, body),
+      });
+    } catch (error: any) {
+      this.throwMutationError(error);
+    }
+  }
+
   async delete(options: DynamicMutationDeleteOptions): Promise<unknown> {
     const {
       runtime,
@@ -492,5 +658,195 @@ export class DynamicMutationLifecycleService {
       }
       throw new BadRequestException(error.message);
     }
+  }
+
+  async deleteMany(
+    options: DynamicMutationDeleteManyOptions,
+  ): Promise<DynamicMutationManyDeleteResult> {
+    const {
+      runtime,
+      routeRouter,
+      queryBuilderService,
+      mutationAuthorizationService,
+      tableValidationService,
+      tableName,
+      tableMetadata,
+      ids: requestedIds,
+    } = options;
+
+    try {
+      this.assertBulkSupported(routeRouter, tableName);
+      const ids = this.requireManyIds(requestedIds);
+      const existingRecords = await this.loadExistingRecords(
+        queryBuilderService,
+        tableName,
+        runtime.getIdField(),
+        ids,
+      );
+
+      await tableValidationService.assertTableValid({
+        operation: 'delete',
+        tableName,
+        tableMetadata,
+      });
+      for (const id of ids) {
+        await mutationAuthorizationService.assertMutationSafety(
+          'delete',
+          {},
+          existingRecords.get(String(id))!,
+        );
+      }
+
+      return this.run({
+        context: {
+          tableName,
+          id: ids[0],
+          body: {},
+          existing: existingRecords.get(String(ids[0]))!,
+        },
+        persist: () =>
+          mutationAuthorizationService.runWithMutationPolicy(() =>
+            queryBuilderService.deleteMany(
+              tableName,
+              ids,
+              runtime.getIdField(),
+            ),
+          ),
+        buildResult: () => ({
+          message: 'Delete successfully!' as const,
+          statusCode: 200 as const,
+          count: ids.length,
+        }),
+        reload: () => runtime.reload({ ids }),
+        emit: () => runtime.emit('delete', ids),
+      });
+    } catch (error: any) {
+      this.throwMutationError(error);
+    }
+  }
+
+  private assertBulkSupported(routeRouter: any, tableName: string): void {
+    const strategy = routeRouter.getStrategy(tableName);
+    if (
+      strategy.kind !== 'generic' ||
+      Object.keys(strategy).some((key) => key !== 'kind')
+    ) {
+      throw new BadRequestException(
+        `Bulk mutations are not supported for ${tableName}. Use single-record operations.`,
+      );
+    }
+  }
+
+  private requireManyRecords(
+    records: Array<Record<string, unknown>>,
+    fieldName: string,
+  ): Array<Record<string, unknown>> {
+    if (!Array.isArray(records) || records.length === 0) {
+      throw new BadRequestException(
+        `${fieldName} must contain at least one record`,
+      );
+    }
+    return records;
+  }
+
+  private requireManyIds(ids: DynamicMutationId[]): DynamicMutationId[] {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new BadRequestException('ids must contain at least one id');
+    }
+    const unique = new Set<string>();
+    for (const id of ids) {
+      if (id === null || id === undefined || id === '') {
+        throw new BadRequestException('ids must not contain empty values');
+      }
+      const key = String(id);
+      if (unique.has(key)) {
+        throw new BadRequestException('ids must not contain duplicates');
+      }
+      unique.add(key);
+    }
+    return ids;
+  }
+
+  private async loadExistingRecords(
+    queryBuilderService: any,
+    tableName: string,
+    idField: string,
+    ids: DynamicMutationId[],
+  ): Promise<Map<string, Record<string, any>>> {
+    const result = await queryBuilderService.find({
+      table: tableName,
+      fields: '*',
+      filter: { [idField]: { _in: ids } },
+      limit: -1,
+    });
+    const records = new Map<string, Record<string, any>>();
+    for (const record of result?.data ?? []) {
+      const id = record?.[idField] ?? record?.id ?? record?._id;
+      if (id !== null && id !== undefined) records.set(String(id), record);
+    }
+    const missing = ids.filter((id) => !records.has(String(id)));
+    if (missing.length > 0) {
+      throw new BadRequestException(`id ${missing[0]} is not exists!`);
+    }
+    return records;
+  }
+
+  private assertNoRelationPayload(
+    body: Record<string, unknown>,
+    tableMetadata: any,
+  ): void {
+    const relationFields = new Set(
+      Array.isArray(tableMetadata?.relations)
+        ? tableMetadata.relations.map((relation: any) => relation.propertyName)
+        : [],
+    );
+    if (Object.keys(body).some((key) => relationFields.has(key))) {
+      throw new BadRequestException(
+        'Bulk update does not support relation payloads. Use single-record operations.',
+      );
+    }
+  }
+
+  private extractIds(records: any, idField: string): DynamicMutationId[] {
+    if (!Array.isArray(records)) return [];
+    const ids: DynamicMutationId[] = [];
+    for (const record of records) {
+      const id =
+        typeof record === 'object' && record !== null
+          ? (record[idField] ?? record.id ?? record._id)
+          : record;
+      if (typeof id !== 'string' && typeof id !== 'number') return [];
+      ids.push(id);
+    }
+    return ids;
+  }
+
+  private throwCreateError(error: any): never {
+    if (
+      error.constructor?.name &&
+      [
+        'BadRequestException',
+        'NotFoundException',
+        'ForbiddenException',
+      ].includes(error.constructor.name)
+    ) {
+      throw error;
+    }
+    if (error.errInfo) {
+      const errorMessage = error.errInfo?.details?.details
+        ? JSON.stringify(error.errInfo.details.details, null, 2)
+        : error.message || 'Document failed validation';
+      throw new BadRequestException(errorMessage);
+    }
+    throw new BadRequestException(
+      error.message || 'Document failed validation',
+    );
+  }
+
+  private throwMutationError(error: any): never {
+    if (isCustomException(error)) {
+      throw error;
+    }
+    throw new BadRequestException(error.message);
   }
 }

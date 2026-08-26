@@ -5,14 +5,23 @@ import { normalizeTableConstraints } from '../../src/modules/table-management/ut
 
 function createQueryRunner(existingRelations: Record<number, any> = {}) {
   const inserts: Record<string, any[]> = {};
+  const deletes: Array<{ table: string; where?: any; whereIn?: any }> = [];
   let nextRelationId = 700;
 
   const runner: any = (table: string) => {
     const state: any = { table, whereValue: null, whereInValue: null };
     const resolveRows = () => {
       if (table === 'enfyra_relation') {
-        if (state.whereValue?.sourceTableId === 1) return [];
-        if (state.whereValue?.sourceTableId === 2) return [];
+        if (state.whereValue?.sourceTableId !== undefined) {
+          return Object.values(existingRelations).filter(
+            (row: any) => row.sourceTableId === state.whereValue.sourceTableId,
+          );
+        }
+        if (state.whereInValue?.column === 'mappedById') {
+          return Object.values(existingRelations).filter((row: any) =>
+            state.whereInValue.values.includes(row.mappedById),
+          );
+        }
       }
       if (table === 'enfyra_table' && state.whereInValue?.column === 'id') {
         return [
@@ -71,6 +80,11 @@ function createQueryRunner(existingRelations: Record<number, any> = {}) {
         return Promise.resolve(1);
       },
       delete() {
+        deletes.push({
+          table,
+          where: state.whereValue,
+          whereIn: state.whereInValue,
+        });
         return Promise.resolve(1);
       },
       insert(data: any) {
@@ -91,7 +105,7 @@ function createQueryRunner(existingRelations: Record<number, any> = {}) {
     return builder;
   };
 
-  return { runner, inserts };
+  return { runner, inserts, deletes };
 }
 
 describe('SqlTableMetadataWriterService relation onDelete metadata', () => {
@@ -295,6 +309,52 @@ describe('SqlTableMetadataWriterService relation onDelete metadata', () => {
     expect(update?.junctionSourceColumn).toBe('studentId');
     expect(update?.junctionTargetColumn).toBe('courseId');
     expect(update?.foreignKeyColumn).toBeUndefined();
+  });
+
+  it('detaches an auto-generated inverse when the owning relation snapshot omits it', async () => {
+    const { runner, deletes } = createQueryRunner({
+      700: {
+        id: 700,
+        sourceTableId: 1,
+        targetTableId: 2,
+        propertyName: 'forceVisibleForUsers',
+        type: 'many-to-many',
+      },
+      801: {
+        id: 801,
+        sourceTableId: 2,
+        targetTableId: 1,
+        propertyName: 'forcedAnnouncements',
+        type: 'many-to-many',
+        mappedById: 700,
+      },
+    });
+    const service = new SqlTableMetadataWriterService();
+
+    await service.writeTableMetadataUpdates(
+      runner,
+      1,
+      {
+        name: 'announcements',
+        columns: [],
+        relations: [
+          {
+            id: 700,
+            propertyName: 'forceVisibleForUsers',
+            type: 'many-to-many',
+            targetTable: { id: 2 },
+          },
+        ],
+      },
+      { id: 1, name: 'announcements', uniques: '[]', indexes: '[]' },
+      new Set<string>(),
+    );
+
+    expect(deletes).toContainEqual({
+      table: 'enfyra_relation',
+      where: null,
+      whereIn: { column: 'mappedById', values: [700] },
+    });
   });
 
   it('copies owning FK metadata when creating an inverse relation via mappedBy', async () => {

@@ -8,8 +8,11 @@ import type { OAuthConfig } from '../../engines/cache/services/oauth-config-cach
 type OAuthStatePayload = {
   redirect: string;
   cookieBridgePrefix?: string;
+  clientState?: string;
   ts: number;
 };
+
+const MAX_OAUTH_CLIENT_STATE_LENGTH = 4096;
 
 export function registerOAuthRoutes(
   app: Express,
@@ -50,6 +53,7 @@ export function registerOAuthRoutes(
     const provider = req.params.provider;
     const redirectUrl = req.query.redirect as string;
     const cookieBridgePrefixValue = req.query.cookieBridgePrefix;
+    const clientState = normalizeClientState(req.query.state);
     let cookieBridgePrefix: string | undefined;
 
     if (!VALID_OAUTH_PROVIDERS.includes(provider as any)) {
@@ -75,6 +79,7 @@ export function registerOAuthRoutes(
     const payload = JSON.stringify({
       redirect: redirectUrl,
       cookieBridgePrefix: cookieBridgePrefix ?? undefined,
+      clientState,
       ts: Date.now(),
     } satisfies OAuthStatePayload);
     const sig = signState(payload, configService);
@@ -139,6 +144,9 @@ export function registerOAuthRoutes(
       const callbackUrl = getSuccessCallbackUrl(statePayload, config);
       callbackUrl.searchParams.set('code', exchangeCode);
       callbackUrl.searchParams.set('redirect', statePayload.redirect);
+      if (statePayload.clientState !== undefined) {
+        callbackUrl.searchParams.set('state', statePayload.clientState);
+      }
 
       return res.redirect(callbackUrl.toString());
     } catch (err: any) {
@@ -190,10 +198,12 @@ function parseStatePayload(
       parsed.cookieBridgePrefix === undefined
         ? undefined
         : normalizeCookieBridgePrefix(parsed.cookieBridgePrefix);
+    const clientState = normalizeClientState(parsed.clientState);
 
     return {
       redirect: parsed.redirect,
       cookieBridgePrefix,
+      clientState,
       ts: parsed.ts || 0,
     };
   } catch {
@@ -226,6 +236,16 @@ function normalizeCookieBridgePrefix(prefix: unknown): string {
   return `/${segment}`;
 }
 
+function normalizeClientState(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || value.length > MAX_OAUTH_CLIENT_STATE_LENGTH) {
+    throw new BadRequestException(
+      'OAuth state must be a string no longer than 4096 characters',
+    );
+  }
+  return value;
+}
+
 function getSuccessCallbackUrl(
   statePayload: OAuthStatePayload,
   config: OAuthConfig,
@@ -251,6 +271,9 @@ function getSafeRedirectUrl(
     : getFallbackCallbackUrl(statePayload, config);
   url.searchParams.set('redirect', statePayload.redirect);
   url.searchParams.set('error', errorMessage);
+  if (statePayload.clientState !== undefined) {
+    url.searchParams.set('state', statePayload.clientState);
+  }
   return url.toString();
 }
 

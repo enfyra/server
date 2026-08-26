@@ -147,6 +147,29 @@ export class SqlTableMetadataWriterService {
           .whereIn('id', deletedRelationIds)
           .delete();
       }
+      const detachedInverseOwnerIds = body.relations
+        .filter(
+          (relation: any) =>
+            relation.id &&
+            !getRelationMappedByProperty(relation) &&
+            !relation.inversePropertyName,
+        )
+        .map((relation: any) => relation.id);
+      if (detachedInverseOwnerIds.length > 0) {
+        const detachedInverses = await queryRunner('enfyra_relation')
+          .whereIn('mappedById', detachedInverseOwnerIds)
+          .select('sourceTableId');
+        for (const inverse of detachedInverses) {
+          const inverseTable = await queryRunner('enfyra_table')
+            .where({ id: inverse.sourceTableId })
+            .select('name')
+            .first();
+          if (inverseTable?.name) affectedTableNames.add(inverseTable.name);
+        }
+        await queryRunner('enfyra_relation')
+          .whereIn('mappedById', detachedInverseOwnerIds)
+          .delete();
+      }
       const targetTableIds = body.relations
         .map((rel: any) => getRelationTargetTableId(rel))
         .filter((tid: any) => tid != null);

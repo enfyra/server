@@ -49,4 +49,44 @@ describe('isolated executor secure repository proxy', () => {
       service.onDestroy();
     }
   });
+
+  it('exposes the many-mutation repository methods to dynamic scripts', async () => {
+    const service = createService();
+    const updateMany = vi.fn(async (options: any) => ({
+      data: [{ id: 1, status: 'done' }],
+      count: 1,
+      options,
+    }));
+    const context = {
+      $body: {},
+      $query: {},
+      $params: {},
+      $share: { $logs: [] },
+      $helpers: {},
+      $cache: {},
+      $user: { id: 1 },
+      $repos: {
+        projects: { updateMany },
+      },
+    };
+
+    try {
+      const result = await service.run(
+        `return await $ctx.$repos.projects.updateMany({ ids: [1], data: { status: 'done' } });`,
+        context,
+        5000,
+      );
+
+      expect(result).toMatchObject({
+        data: [{ id: 1, status: 'done' }],
+        count: 1,
+      });
+      expect(updateMany).toHaveBeenCalledWith({
+        ids: [1],
+        data: { status: 'done' },
+      });
+    } finally {
+      service.onDestroy();
+    }
+  });
 });

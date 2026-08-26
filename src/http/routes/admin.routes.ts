@@ -20,6 +20,15 @@ type AuthHeaderReorderUpdate = {
   priority: number;
 };
 
+const DEFAULT_ADMIN_TEST_TIMEOUT_MS = 60_000;
+
+function resolveAdminTestTimeout(value: unknown) {
+  const timeout = Number(value);
+  return Number.isFinite(timeout) && timeout > 0
+    ? timeout
+    : DEFAULT_ADMIN_TEST_TIMEOUT_MS;
+}
+
 function resolveOrchestrator(req: any, container: AwilixContainer<Cradle>) {
   return (
     req.scope?.cradle?.cacheOrchestratorService ??
@@ -551,6 +560,7 @@ export function registerAdminRoutes(
 
 async function runTest(body: any, cradle: any, currentUser: any = null) {
   const kind = String(body?.kind || '').trim();
+  const timeout = resolveAdminTestTimeout(body?.timeoutMs ?? body?.timeout);
 
   if (kind === 'flow_step') {
     const flowService = cradle.flowService;
@@ -565,7 +575,7 @@ async function runTest(body: any, cradle: any, currentUser: any = null) {
         sourceCode: body.sourceCode,
         scriptLanguage: body.scriptLanguage,
         compiledCode: body.compiledCode,
-        timeout: body.timeout,
+        timeout,
         key: body.key,
       },
       {
@@ -585,7 +595,7 @@ async function runTest(body: any, cradle: any, currentUser: any = null) {
     const script = String(resolved.script || '').trim();
     const gatewayPath = resolved.gatewayPath;
     const eventName = resolved.eventName;
-    const timeoutMs = Number(body?.timeoutMs ?? body?.timeout ?? 5000);
+    const timeoutMs = timeout;
     const payload = body?.payload ?? body?.body ?? {};
     const user = body?.user ?? null;
     const headers = body?.headers ?? {};
@@ -655,7 +665,7 @@ async function runTest(body: any, cradle: any, currentUser: any = null) {
   if (kind === 'script') {
     const resolved = await resolveScriptTest(body, cradle);
     const script = String(resolved.script || '').trim();
-    const timeoutMs = Number(body?.timeoutMs ?? body?.timeout ?? 5000);
+    const timeoutMs = timeout;
     const tableName = resolved.mainTableName;
 
     if (!script) {
@@ -713,7 +723,7 @@ async function runTest(body: any, cradle: any, currentUser: any = null) {
     const resolved = await resolveWebsocketConnectionTest(body, cradle);
     const script = String(resolved.script || '').trim();
     const gatewayPath = resolved.gatewayPath;
-    const timeoutMs = Number(body?.timeoutMs ?? body?.timeout ?? 5000);
+    const timeoutMs = timeout;
     const payload = body?.payload ?? body?.body ?? {};
     const user = body?.user ?? null;
     const headers = body?.headers ?? {};

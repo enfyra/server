@@ -166,6 +166,38 @@ describe('admin test run', () => {
     expect(result.logs).toEqual(['admin-log', { ok: true }]);
   });
 
+  it('uses a one-minute default for every admin test runner kind', async () => {
+    const executorTimeouts: number[] = [];
+    const flowTimeouts: number[] = [];
+    const cradle = {
+      executorEngineService: {
+        run: async (_code: string, _ctx: unknown, timeout: number) => {
+          executorTimeouts.push(timeout);
+          return 'done';
+        },
+      },
+      repoRegistryService: {
+        createReposProxy: () => ({}),
+      },
+      dynamicContextFactory: createDynamicContextFactory(),
+      flowService: {
+        testStep: async (step: { timeout: number }) => {
+          flowTimeouts.push(step.timeout);
+          return { success: true, duration: 0 };
+        },
+      },
+    };
+    const postTest = createAppHarness(cradle);
+
+    await postTest({ kind: 'script', script: 'return true;' });
+    await postTest({ kind: 'websocket_event', eventName: 'message', script: 'return true;' });
+    await postTest({ kind: 'websocket_connection', script: 'return true;' });
+    await postTest({ kind: 'flow_step', type: 'script', config: { sourceCode: 'return true;' } });
+
+    expect(executorTimeouts).toEqual([60_000, 60_000, 60_000]);
+    expect(flowTimeouts).toEqual([60_000]);
+  });
+
   it('validates dynamic scripts without executing them', async () => {
     const cradle = {
       executorEngineService: new InlineExecutor(),

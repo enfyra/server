@@ -13,6 +13,8 @@ import { DynamicRepositoryReadService } from '../services/dynamic-repository-rea
 import { DynamicTableRouteHandlerService } from '../services/dynamic-table-route-handler.service';
 import type {
   DynamicBatchCreateResult,
+  DynamicMutationManyDeleteResult,
+  DynamicMutationManyResult,
   DynamicMutationRuntime,
 } from '../types/dynamic-mutation-lifecycle.types';
 import type { DynamicReadOptions } from '../types/dynamic-read.types';
@@ -209,6 +211,29 @@ export class DynamicRepository {
     });
   }
 
+  async createMany(opt: {
+    data: Array<Record<string, unknown>>;
+    fields?: string | string[];
+  }): Promise<DynamicMutationManyResult> {
+    await this.ensureInit();
+    return this.mutationLifecycleService.createMany({
+      runtime: this.getMutationRuntime(),
+      routeRouter: this.routeRouter,
+      queryBuilderService: this.queryBuilderService,
+      mutationPreparationService: this.mutationPreparationService,
+      mutationAuthorizationService: this.mutationAuthorizationService,
+      tableValidationService: this.tableValidationService,
+      schemaActivationService: this.schemaActivationService,
+      runtimeMetadataSchemaRouterService:
+        this.runtimeMetadataSchemaRouterService,
+      tableName: this.tableName,
+      tableMetadata: this.tableMetadata,
+      context: this.context,
+      data: opt.data,
+      fields: opt.fields,
+    });
+  }
+
   async update(opt: {
     id: string | number;
     data: any;
@@ -234,6 +259,31 @@ export class DynamicRepository {
     });
   }
 
+  async updateMany(opt: {
+    ids: Array<string | number>;
+    data: Record<string, unknown>;
+    fields?: string | string[];
+  }): Promise<DynamicMutationManyResult> {
+    await this.ensureInit();
+    return this.mutationLifecycleService.updateMany({
+      runtime: this.getMutationRuntime(),
+      routeRouter: this.routeRouter,
+      queryBuilderService: this.queryBuilderService,
+      mutationPreparationService: this.mutationPreparationService,
+      mutationAuthorizationService: this.mutationAuthorizationService,
+      tableValidationService: this.tableValidationService,
+      schemaActivationService: this.schemaActivationService,
+      runtimeMetadataSchemaRouterService:
+        this.runtimeMetadataSchemaRouterService,
+      tableName: this.tableName,
+      tableMetadata: this.tableMetadata,
+      context: this.context,
+      ids: opt.ids,
+      data: opt.data,
+      fields: opt.fields,
+    });
+  }
+
   async delete(opt: { id: string | number }) {
     await this.ensureInit();
     return this.mutationLifecycleService.delete({
@@ -249,6 +299,26 @@ export class DynamicRepository {
       context: this.context,
       id: opt.id,
       schemaActivationService: this.schemaActivationService,
+    });
+  }
+
+  async deleteMany(opt: {
+    ids: Array<string | number>;
+  }): Promise<DynamicMutationManyDeleteResult> {
+    await this.ensureInit();
+    return this.mutationLifecycleService.deleteMany({
+      runtime: this.getMutationRuntime(),
+      routeRouter: this.routeRouter,
+      queryBuilderService: this.queryBuilderService,
+      mutationAuthorizationService: this.mutationAuthorizationService,
+      tableValidationService: this.tableValidationService,
+      schemaActivationService: this.schemaActivationService,
+      runtimeMetadataSchemaRouterService:
+        this.runtimeMetadataSchemaRouterService,
+      tableName: this.tableName,
+      tableMetadata: this.tableMetadata,
+      context: this.context,
+      ids: opt.ids,
     });
   }
 

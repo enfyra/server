@@ -102,12 +102,16 @@ describe('RuntimeMonitorService', () => {
   });
 
   it('returns a multi-instance runtime payload contract', async () => {
+    const pushAverageSample = vi.fn().mockResolvedValue(undefined);
     const service = makeService({
       isolatedExecutorService: {
         getMetrics: vi.fn().mockReturnValue({
           pool: { activeTasks: 1, waitingTasks: 2 },
           p95TaskMs: 30,
           p99TaskMs: 40,
+          p95QueueWaitMs: 50,
+          p99QueueWaitMs: 60,
+          runnerRssBytes: 32 * 1024 * 1024,
           maxHeapRatio: 0.2,
         }),
       },
@@ -124,7 +128,7 @@ describe('RuntimeMonitorService', () => {
           },
           hardware: { effectiveCpuCount: 2, effectiveMemoryMb: 1024 },
         }),
-        pushAverageSample: vi.fn().mockResolvedValue(undefined),
+        pushAverageSample,
         getAverages: vi.fn().mockResolvedValue({ samples: 1, rssMb: 100 }),
       },
       runtimeQueueMetricsService: {
@@ -177,6 +181,13 @@ describe('RuntimeMonitorService', () => {
           activeCount: expect.any(Number),
           instances: expect.any(Array),
         }),
+      }),
+    );
+    expect(pushAverageSample).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executorP95QueueWaitMs: 50,
+        executorP99QueueWaitMs: 60,
+        executorRunnerRssMb: 32,
       }),
     );
   });

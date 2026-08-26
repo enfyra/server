@@ -90,7 +90,11 @@ async function repairTargetIndexesAndUniques(
 ): Promise<number> {
   const current = await getCurrentDatabaseSchema(knex, tableName);
   const schema = { tableName, definition, junctionTables: [] };
-  const diff = compareSchemas(schema as any, current);
+  const diff = compareSchemas(
+    schema as any,
+    current,
+    knex.client.config.client,
+  );
   const target = {
     columns: definition.columns ?? [],
     relations: definition.relations ?? [],

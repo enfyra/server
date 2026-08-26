@@ -11,6 +11,20 @@ export interface IDynamicRepository {
   findAndCount(): Promise<{ data: any[]; count: number }>;
   exists(filter: any): Promise<boolean>;
   create(data: any): Promise<any>;
+  createMany(options: {
+    data: Array<Record<string, unknown>>;
+    fields?: string | string[];
+  }): Promise<{ data: Array<Record<string, unknown>>; count: number }>;
   update(id: any, data: any): Promise<any>;
+  updateMany(options: {
+    ids: Array<string | number>;
+    data: Record<string, unknown>;
+    fields?: string | string[];
+  }): Promise<{ data: Array<Record<string, unknown>>; count: number }>;
   delete(id: any): Promise<boolean>;
+  deleteMany(options: { ids: Array<string | number> }): Promise<{
+    message: 'Delete successfully!';
+    statusCode: 200;
+    count: number;
+  }>;
 }
