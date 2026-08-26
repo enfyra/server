@@ -3,7 +3,6 @@ export type SqlRelationOnDelete = 'CASCADE' | 'SET NULL' | 'RESTRICT';
 export type SqlPhysicalIndexSource =
   | 'metadata'
   | 'relation-fk'
-  | 'id-suffix-column'
   | 'system-timestamp'
   | 'temporal-column';
 

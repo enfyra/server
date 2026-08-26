@@ -161,7 +161,7 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
     ]);
   });
 
-  it('rejects update schema when any index group includes a unique field', async () => {
+  it('allows an index that overlaps a unique field without duplicating its lookup', async () => {
     const v = makeValidator();
     const after = {
       ...baseBefore,
@@ -180,19 +180,8 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
       requestContext: { $query: {} },
     });
 
-    expect(decision.allow).toBe(false);
-    expect(decision.statusCode).toBe(422);
-    expect(decision.code).toBe('SCHEMA_INDEX_OVER_UNIQUE_FIELD');
-    expect(decision.details.conflicts).toEqual([
-      {
-        index: ['version', 'is_active'],
-        uniqueFields: ['version'],
-        uniqueConstraints: [
-          { fields: ['version'], matchingFields: ['version'] },
-        ],
-      },
-    ]);
-    expect(decision.details.guidance).toMatch(/Remove unique fields/);
+    expect(decision.code).not.toBe('SCHEMA_INDEX_OVER_UNIQUE_FIELD');
+    expect(decision.details.requiredConfirmHash).toHaveLength(64);
   });
 
   it('allows an update when a persisted automatic id-suffix index duplicates a unique field', async () => {
@@ -259,7 +248,7 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
     expect(decision.code).not.toBe('SCHEMA_INDEX_OVER_UNIQUE_FIELD');
   });
 
-  it('continues rejecting a persisted composite index that overlaps a unique field', async () => {
+  it('allows a narrow id-suffix lookup alongside a composite unique constraint', async () => {
     const v = makeValidator();
     const before = {
       ...baseBefore,
@@ -269,8 +258,8 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
         columnWithId(3, 'providerOrderId'),
         columnWithId(4, 'status'),
       ],
-      uniques: [['providerOrderId']],
-      indexes: [['providerOrderId', 'status']],
+      uniques: [['paymentProvider', 'providerOrderId']],
+      indexes: [['providerOrderId']],
     };
     const after = {
       ...before,
@@ -285,12 +274,11 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
       requestContext: { $query: {} },
     });
 
-    expect(decision.allow).toBe(false);
-    expect(decision.statusCode).toBe(422);
-    expect(decision.code).toBe('SCHEMA_INDEX_OVER_UNIQUE_FIELD');
+    expect(decision.code).not.toBe('SCHEMA_INDEX_OVER_UNIQUE_FIELD');
+    expect(decision.details.requiredConfirmHash).toHaveLength(64);
   });
 
-  it('lists every unique constraint that conflicts with an index', async () => {
+  it('allows a shared lookup index for multiple composite unique constraints', async () => {
     const v = makeValidator();
     const decision = await v.checkSchemaMigration({
       operation: 'create',
@@ -305,15 +293,9 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
       requestContext: { $query: {} },
     });
 
-    expect(decision.details.conflicts).toEqual([
-      {
-        index: ['host'],
-        uniqueFields: ['host'],
-        uniqueConstraints: [
-          { fields: ['host', 'db_name'], matchingFields: ['host'] },
-          { fields: ['host', 'db_user'], matchingFields: ['host'] },
-        ],
-      },
+    expect(decision.code).not.toBe('SCHEMA_INDEX_OVER_UNIQUE_FIELD');
+    expect(decision.details.schemaMutationContract.context.target.indexes).toContainEqual([
+      'host',
     ]);
   });
 

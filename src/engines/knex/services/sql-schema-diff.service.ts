@@ -15,6 +15,7 @@ import {
   buildSqlIndexContracts,
   buildSqlUniqueContracts,
   getSqlRelationForeignKeyColumn,
+  resolveSqlPhysicalColumns,
 } from '../utils/sql-physical-schema-contract';
 
 export class SqlSchemaDiffService {
@@ -291,9 +292,12 @@ export class SqlSchemaDiffService {
 
     const oldIndexes = this.filterIndexesToKnownColumns(
       oldMetadata,
-      buildSqlIndexContracts(oldMetadata.name, oldMetadata).map(
-        (index) => index.physicalColumns,
-      ),
+      [
+        ...buildSqlIndexContracts(oldMetadata.name, oldMetadata).map(
+          (index) => index.physicalColumns,
+        ),
+        ...this.getLegacySqlAutoIndexes(oldMetadata),
+      ],
     );
     const newIndexes = this.filterIndexesToKnownColumns(
       newMetadata,
@@ -325,6 +329,42 @@ export class SqlSchemaDiffService {
 
   private isInverseRelation(rel: any): boolean {
     return Boolean(rel?.mappedBy || rel?.mappedById);
+  }
+
+  private getLegacySqlAutoIndexes(metadata: any): string[][] {
+    const relations = metadata.relations || [];
+    const uniqueKeys = new Set(
+      buildSqlUniqueContracts(metadata.name, metadata).map((unique) =>
+        this.indexKey(unique.physicalColumns),
+      ),
+    );
+    const legacyIndexes: string[][] = [];
+
+    for (const index of metadata.indexes || []) {
+      const logicalColumns = Array.isArray(index) ? index : index?.value;
+      if (!Array.isArray(logicalColumns) || logicalColumns.length === 0) {
+        continue;
+      }
+      const physicalColumns = resolveSqlPhysicalColumns(
+        logicalColumns,
+        relations,
+      );
+      if (
+        physicalColumns.includes('id')
+        || !uniqueKeys.has(this.indexKey(physicalColumns))
+      ) {
+        continue;
+      }
+      legacyIndexes.push([...physicalColumns, 'id']);
+    }
+
+    for (const column of metadata.columns || []) {
+      const name = typeof column?.name === 'string' ? column.name : '';
+      if (!name || name === 'id' || !name.endsWith('Id')) continue;
+      legacyIndexes.push([name, 'id']);
+    }
+
+    return [...new Map(legacyIndexes.map((columns) => [this.indexKey(columns), columns])).values()];
   }
 
   private filterIndexesToKnownColumns(metadata: any, indexes: string[][]): string[][] {
