@@ -17,6 +17,7 @@ import type { RuntimeSchemaContractCompilerService } from './runtime-schema-cont
 import type { RuntimeSchemaExecutorService } from './runtime-schema-executor.service';
 import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
 import { normalizeTableConstraints } from '../utils/table-constraints.util';
+import { normalizeRuntimeTableSchema } from '../utils/runtime-schema-normalization.util';
 import { RUNTIME_SCHEMA_METADATA_READ_DEEP } from '../utils/runtime-schema-metadata-read.util';
 import type { TableManagementValidationService } from './table-validation.service';
 
@@ -582,10 +583,25 @@ export class RuntimeMetadataSchemaRouterService {
       renames: fieldRenames,
       allowedFields: allowedConstraintFields,
     });
+    const databaseType = this.deps.databaseConfigService.getDbType();
+    const backend =
+      databaseType === 'postgres'
+        ? 'postgresql'
+        : databaseType === 'mysql' || databaseType === 'mongodb'
+          ? databaseType
+          : undefined;
+    const normalized = normalizeRuntimeTableSchema(
+      {
+        ...body,
+        uniques: constraints.uniques,
+        indexes: constraints.indexes,
+      },
+      { backend, mode: 'persisted' },
+    );
     return {
       ...body,
-      uniques: constraints.uniques as any,
-      indexes: constraints.indexes as any,
+      uniques: (normalized?.contract.uniques ?? constraints.uniques) as any,
+      indexes: (normalized?.contract.indexes ?? constraints.indexes) as any,
     };
   }
 

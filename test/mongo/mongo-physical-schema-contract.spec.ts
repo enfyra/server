@@ -3,6 +3,7 @@ import {
   buildMongoFullIndexSpecs,
   buildMongoStoredRelationContracts,
   buildMongoWritableFieldSet,
+  getMongoCanonicalConstraintGroups,
   getRemovedMongoStoredFields,
   getMongoInverseRelationForeignField,
   getMongoStoredRelationField,
@@ -149,6 +150,27 @@ describe('Mongo physical schema contract', () => {
         logicalFields: ['as'],
       }),
     );
+  });
+
+  it('materializes unique scalar and owning one-to-one constraints before Mongo DDL', () => {
+    expect(
+      getMongoCanonicalConstraintGroups({
+        collectionName: 'payment_order',
+        columns: [{ name: 'providerOrderId', type: 'varchar' }],
+        uniques: [['providerOrderId']],
+        indexes: [['providerOrderId'], ['user']],
+        relations: [
+          {
+            propertyName: 'user',
+            type: 'one-to-one',
+            foreignKeyColumn: 'user',
+          },
+        ],
+      }),
+    ).toEqual({
+      uniques: [['providerOrderId'], ['user']],
+      indexes: [['createdAt'], ['updatedAt']],
+    });
   });
 
   it('keeps persisted temporal index metadata on the canonical descending direction', () => {

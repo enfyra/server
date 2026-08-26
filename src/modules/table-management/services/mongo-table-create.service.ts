@@ -15,7 +15,11 @@ import {
 } from '../utils/mongo-primary-key.util';
 import { getRelationMappedByProperty } from '../utils/relation-target-id.util';
 import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
-import { normalizeTableConstraints } from '../utils/table-constraints.util';
+import {
+  getTableConstraintFields,
+  normalizeTableConstraints,
+} from '../utils/table-constraints.util';
+import { getMongoCanonicalConstraintGroups } from '../../../engines/mongo';
 import { MongoTableHandlerService } from './mongo-table-handler-base.service';
 import {
   ensureMongoSingleRecord,
@@ -98,6 +102,15 @@ export class MongoTableCreateService extends MongoTableHandlerService {
           body.columns = (body.columns || []).map((col: any) =>
             normalizeMongoPrimaryKeyColumn(col),
           );
+          const effectiveConstraints = getMongoCanonicalConstraintGroups({
+            collectionName: body.name,
+            uniques: constraints.uniques.map(getTableConstraintFields),
+            indexes: constraints.indexes.map(getTableConstraintFields),
+            columns: body.columns as any[],
+            relations: (body.relations ?? []) as any[],
+          });
+          body.uniques = effectiveConstraints.uniques as any;
+          body.indexes = effectiveConstraints.indexes as any;
           const idCol = body.columns.find(
             (col: any) => col.name === '_id' && col.isPrimary,
           );

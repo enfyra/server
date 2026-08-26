@@ -316,3 +316,48 @@ export function buildMongoFullIndexSpecs(input: {
 
   return specs;
 }
+
+export function getMongoCanonicalConstraintGroups(input: {
+  collectionName: string;
+  columns?: MongoColumnLike[];
+  uniques?: string[][];
+  indexes?: string[][];
+  relations?: MongoRelationLike[];
+}): { uniques: string[][]; indexes: string[][] } {
+  const uniques = [...(input.uniques || [])]
+    .filter((group) => Array.isArray(group) && group.length > 0)
+    .map((group) => [...group]);
+  const uniqueKeys = new Set(uniques.map((group) => group.join('|')));
+  const addUnique = (group: string[]) => {
+    const key = group.join('|');
+    if (uniqueKeys.has(key)) return;
+    uniqueKeys.add(key);
+    uniques.push(group);
+  };
+
+  for (const column of input.columns || []) {
+    if (column.name && column.isUnique === true) {
+      addUnique([column.name]);
+    }
+  }
+  for (const relation of input.relations || []) {
+    if (relation.type !== 'one-to-one') continue;
+    const field = getMongoStoredRelationField(relation);
+    if (field) addUnique([field]);
+  }
+
+  const indexes = (input.indexes || []).filter(
+    (group) => !uniqueKeys.has(group.join('|')),
+  );
+  const specs = buildMongoFullIndexSpecs({
+    ...input,
+    uniques,
+    indexes,
+  });
+  return {
+    uniques,
+    indexes: specs
+      .filter((spec) => spec.options.unique !== true)
+      .map((spec) => spec.logicalFields),
+  };
+}

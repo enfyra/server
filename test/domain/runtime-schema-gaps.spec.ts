@@ -296,6 +296,62 @@ describe('Runtime schema normalization', () => {
     );
   });
 
+  it('canonicalizes unique scalar and owning one-to-one indexes before SQL snapshotting', () => {
+    const normalized = normalizeRuntimeTableSchema(
+      {
+        name: 'payment_order',
+        columns: [
+          { name: 'id', type: 'int', isPrimary: true, isGenerated: true },
+          { name: 'providerOrderId', type: 'varchar', isNullable: false },
+        ],
+        relations: [
+          {
+            propertyName: 'user',
+            type: 'one-to-one',
+            targetTableName: 'enfyra_user',
+            foreignKeyColumn: 'userId',
+          },
+        ],
+        uniques: [['providerOrderId']],
+        indexes: [['providerOrderId'], ['user']],
+      },
+      { backend: 'postgresql', mode: 'persisted' },
+    );
+
+    expect(normalized?.contract.uniques).toEqual([
+      ['providerOrderId'],
+      ['user'],
+    ]);
+    expect(normalized?.contract.indexes).toEqual([
+      ['createdAt'],
+      ['updatedAt'],
+    ]);
+  });
+
+  it('uses the same canonical unique and index snapshot for MySQL', () => {
+    const metadata = {
+      name: 'payment_order',
+      columns: [
+        { name: 'id', type: 'int', isPrimary: true, isGenerated: true },
+        { name: 'providerOrderId', type: 'varchar', isNullable: false },
+      ],
+      uniques: [['providerOrderId']],
+      indexes: [['providerOrderId']],
+    };
+
+    expect(
+      normalizeRuntimeTableSchema(metadata, {
+        backend: 'postgresql',
+        mode: 'persisted',
+      })?.contract,
+    ).toEqual(
+      normalizeRuntimeTableSchema(metadata, {
+        backend: 'mysql',
+        mode: 'persisted',
+      })?.contract,
+    );
+  });
+
   it('compiles Mongo create against the effective metadata including generated indexes', async () => {
     const compiler = makeCompiler('mongodb');
     const { contract } = await compiler.compile({

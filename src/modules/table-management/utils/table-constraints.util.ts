@@ -35,9 +35,13 @@ export function normalizeTableConstraints({
     allowedFields,
   );
 
+  const effectiveUniques = applyColumnUniqueIntent(
+    canonicalUniques,
+    columns,
+  );
   return {
-    uniques: applyColumnUniqueIntent(canonicalUniques, columns),
-    indexes: canonicalIndexes,
+    uniques: effectiveUniques,
+    indexes: removeExactUniqueIndexes(canonicalIndexes, effectiveUniques),
   };
 }
 
@@ -61,6 +65,18 @@ export function getTableConstraintFields(
   group: TableConstraintGroup,
 ): string[] {
   return getConstraintFields(group);
+}
+
+export function removeExactUniqueIndexes(
+  indexes: readonly TableConstraintGroup[],
+  uniques: readonly TableConstraintGroup[],
+): TableConstraintGroup[] {
+  const uniqueKeys = new Set(
+    uniques.map((group) => JSON.stringify(getConstraintFields(group))),
+  );
+  return indexes.filter(
+    (group) => !uniqueKeys.has(JSON.stringify(getConstraintFields(group))),
+  );
 }
 
 function canonicalizeConstraintGroups(

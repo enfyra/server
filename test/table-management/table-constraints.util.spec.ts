@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { normalizeTableConstraints } from '../../src/modules/table-management/utils/table-constraints.util';
 
 describe('normalizeTableConstraints', () => {
-  it('canonicalizes indexes and uniques together before execution', () => {
+  it('canonicalizes constraints and removes indexes covered by an exact unique', () => {
     const constraints = normalizeTableConstraints({
       uniques: JSON.stringify([['modelId'], ['legacy']]),
       indexes: [{ value: ['modelId'] }, ['legacy']],
@@ -16,7 +16,7 @@ describe('normalizeTableConstraints', () => {
 
     expect(constraints).toEqual({
       uniques: [['modelName']],
-      indexes: [{ value: ['modelName'] }, ['legacy']],
+      indexes: [['legacy']],
     });
   });
 });
