@@ -1,7 +1,6 @@
 import { isDeepStrictEqual as isEqual } from 'node:util';
 import { RuntimeRegistryService } from '../../../engines/cache';
 import { RuntimeSchemaContractCompilerService } from '../../../modules/table-management/services/runtime-schema-contract-compiler.service';
-import { findRuntimeSchemaConstraintConflicts } from '../../../modules/table-management/utils/runtime-schema-normalization.util';
 
 export class SchemaMigrationValidatorService {
   private readonly runtimeRegistryService: RuntimeRegistryService;
@@ -18,25 +17,6 @@ export class SchemaMigrationValidatorService {
 
   async checkSchemaMigration(ctx: any): Promise<any> {
     const tableName = String(ctx.tableName ?? '').trim();
-    const targetMetadata = ctx.afterMetadata ?? ctx.data;
-    const conflicts = findRuntimeSchemaConstraintConflicts(targetMetadata);
-    if (conflicts.length > 0) {
-      return {
-        allow: false,
-        statusCode: 422 as const,
-        code: 'SCHEMA_INDEX_OVER_UNIQUE_FIELD',
-        message:
-          'Invalid table schema: indexes must not include fields that are already covered by unique constraints. Unique constraints already create indexed lookups.',
-        details: {
-          code: 'SCHEMA_INDEX_OVER_UNIQUE_FIELD',
-          tableName,
-          conflicts,
-          guidance:
-            'Remove unique fields from indexes and keep those fields only in uniques.',
-        },
-      };
-    }
-
     const precompiled = ctx.requestContext?.$schemaContract;
     if (precompiled?.contract && precompiled?.requiredConfirmHash) {
       const { contract, requiredConfirmHash } = precompiled;

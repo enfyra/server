@@ -218,12 +218,6 @@ export function buildSqlIndexContracts(
     add([fk.propertyName], [fk.columnName], 'relation-fk', [fk.columnName]);
   }
 
-  for (const col of table.columns || []) {
-    if (col.name === 'id') continue;
-    if (!col.name.endsWith('Id')) continue;
-    add([col.name], [col.name], 'id-suffix-column');
-  }
-
   add(['createdAt'], ['createdAt'], 'system-timestamp');
   add(['updatedAt'], ['updatedAt'], 'system-timestamp');
 

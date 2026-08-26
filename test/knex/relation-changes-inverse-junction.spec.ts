@@ -179,6 +179,42 @@ describe('analyzeRelationChanges inverse relation handling', () => {
     expect(diff.columns.rename).toEqual([]);
   });
 
+  it('normalizes an inverse mappedBy object before comparing a retained one-to-many relation', async () => {
+    const diff = createDiff();
+
+    await analyzeRelationChanges(
+      createKnexMock(),
+      [
+        {
+          id: 347,
+          type: 'one-to-many',
+          propertyName: 'dismissals',
+          mappedBy: { id: 346, propertyName: 'announcement' },
+          mappedById: 346,
+          targetTable: { id: 181 },
+          targetTableName: 'announcement_dismissals',
+        },
+      ],
+      [
+        {
+          id: 347,
+          type: 'one-to-many',
+          propertyName: 'dismissals',
+          mappedBy: 'announcement',
+          mappedById: 346,
+          targetTable: { id: 181 },
+          targetTableName: 'announcement_dismissals',
+        },
+      ],
+      diff,
+      'announcements',
+      [],
+      [],
+    );
+
+    expect(diff.crossTableOperations).toEqual([]);
+  });
+
   it('does not rename the junction table when renaming an owning many-to-many relation', async () => {
     const diff = createDiff();
 

@@ -479,6 +479,73 @@ describe('SQL schema diff identity normalization', () => {
     expect(diff.constraints.uniques.delete).toEqual([['upstreamModel']]);
     expect(diff.constraints.uniques.create).toEqual([]);
   });
+
+  it('drops a legacy index that duplicates a retained unique constraint', () => {
+    const service = new SqlSchemaDiffService({
+      knexService: {} as any,
+      metadataCacheService: {} as any,
+      queryBuilderService: {} as any,
+    });
+    const diff = {
+      columns: { create: [], update: [], delete: [], rename: [] },
+      constraints: {
+        uniques: { create: [], update: [], delete: [] },
+        indexes: { create: [], update: [], delete: [] },
+      },
+    };
+    const base = {
+      name: 'referral_credit_rewards',
+      columns: [
+        { name: 'id', type: 'int', isPrimary: true },
+        { name: 'paymentOrderId', type: 'int' },
+      ],
+      relations: [],
+      uniques: [['paymentOrderId']],
+    };
+
+    (service as any).analyzeConstraintChanges(
+      { ...base, indexes: [['paymentOrderId']] },
+      { ...base, indexes: [] },
+      diff,
+    );
+
+    expect(diff.constraints.indexes.delete).toEqual([['paymentOrderId', 'id']]);
+    expect(diff.constraints.uniques).toEqual({ create: [], update: [], delete: [] });
+  });
+
+  it('drops a legacy Id-suffix index when it is not declared by the new schema', () => {
+    const service = new SqlSchemaDiffService({
+      knexService: {} as any,
+      metadataCacheService: {} as any,
+      queryBuilderService: {} as any,
+    });
+    const diff = {
+      columns: { create: [], update: [], delete: [], rename: [] },
+      constraints: {
+        uniques: { create: [], update: [], delete: [] },
+        indexes: { create: [], update: [], delete: [] },
+      },
+    };
+    const oldMetadata = {
+      name: 'referral_credit_rewards',
+      columns: [
+        { name: 'id', type: 'int', isPrimary: true },
+        { name: 'paymentProvider', type: 'varchar' },
+        { name: 'paymentOrderId', type: 'int' },
+      ],
+      relations: [],
+      uniques: [['paymentProvider', 'paymentOrderId']],
+      indexes: [],
+    };
+
+    (service as any).analyzeConstraintChanges(
+      oldMetadata,
+      oldMetadata,
+      diff,
+    );
+
+    expect(diff.constraints.indexes.delete).toEqual([['paymentOrderId', 'id']]);
+  });
 });
 
 describe('Runtime inverse metadata attestation', () => {
@@ -691,6 +758,52 @@ describe('Runtime inverse metadata attestation', () => {
     });
 
     expect(definition.relations).toEqual([]);
+  });
+
+  it('recognizes a pre-canonical redundant index as source-only drift', () => {
+    const service = new RuntimeSchemaTargetAttestorService({
+      queryBuilderService: {} as any,
+      databaseConfigService: { isMongoDb: () => false } as any,
+    });
+
+    expect(
+      (service as any).isLegacySqlAutoIndex(
+        {
+          name: 'referral_credit_rewards',
+          columns: [
+            { name: 'id', type: 'int', isPrimary: true },
+            { name: 'paymentOrderId', type: 'int' },
+          ],
+          relations: [],
+          uniques: [['paymentOrderId']],
+          indexes: [['paymentOrderId']],
+        },
+        ['paymentOrderId', 'id'],
+      ),
+    ).toBe(true);
+  });
+
+  it('recognizes a legacy Id-suffix index as source-only drift', () => {
+    const service = new RuntimeSchemaTargetAttestorService({
+      queryBuilderService: {} as any,
+      databaseConfigService: { isMongoDb: () => false } as any,
+    });
+
+    expect(
+      (service as any).isLegacySqlAutoIndex(
+        {
+          name: 'paypal_payment_order',
+          columns: [
+            { name: 'id', type: 'int', isPrimary: true },
+            { name: 'paymentOrderId', type: 'int' },
+          ],
+          relations: [],
+          uniques: [['paymentProvider', 'paymentOrderId']],
+          indexes: [],
+        },
+        ['paymentOrderId', 'id'],
+      ),
+    ).toBe(true);
   });
 });
 

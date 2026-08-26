@@ -170,7 +170,7 @@ describe('SQL physical schema contract', () => {
     ]);
   });
 
-  it('does not generate an id-suffix index already backed by a unique constraint', () => {
+  it('does not infer an index from an Id-suffixed scalar column', () => {
     const paymentOrder = {
       name: 'payment_order',
       columns: [
@@ -219,7 +219,7 @@ describe('SQL physical schema contract', () => {
     });
   });
 
-  it('keeps automatic indexes for non-unique scalar IDs, owning relation FKs, and temporal fields', () => {
+  it('keeps automatic indexes for owning relation FKs and temporal fields only', () => {
     const auditEntry = {
       name: 'audit_entry',
       columns: [
@@ -247,15 +247,15 @@ describe('SQL physical schema contract', () => {
           source: 'relation-fk',
         }),
         expect.objectContaining({
-          logicalColumns: ['externalId'],
-          physicalColumns: ['externalId', 'id'],
-          source: 'id-suffix-column',
-        }),
-        expect.objectContaining({
           logicalColumns: ['expiresAt'],
           physicalColumns: ['expiresAt', 'id'],
           source: 'temporal-column',
         }),
+      ]),
+    );
+    expect(buildSqlIndexContracts('audit_entry', auditEntry)).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ logicalColumns: ['externalId'] }),
       ]),
     );
   });

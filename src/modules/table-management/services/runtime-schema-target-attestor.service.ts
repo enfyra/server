@@ -10,6 +10,7 @@ import {
 } from '../../../engines/mongo/utils/mongo-validation-schema.util';
 import {
   buildSqlForeignKeyContracts,
+  buildSqlUniqueContracts,
   isSqlForeignKeyRelation,
 } from '../../../engines/knex/utils/sql-physical-schema-contract';
 import {
@@ -180,7 +181,7 @@ export class RuntimeSchemaTargetAttestorService {
     }
     const errors = this.deps.databaseConfigService.isMongoDb()
       ? await this.collectMongoErrors(state)
-      : await this.collectSqlErrors(state);
+      : await this.collectSqlErrors(state, phase === 'source');
     if (errors.length > 0) {
       throw new Error(
         `Runtime schema ${phase} physical attestation failed:\n- ${errors.join('\n- ')}`,
@@ -207,6 +208,7 @@ export class RuntimeSchemaTargetAttestorService {
 
   private async collectSqlErrors(
     state: RuntimeTableSchemaContract,
+    allowLegacyRedundantIndexes = false,
   ): Promise<string[]> {
     const knex = this.deps.queryBuilderService.getKnex();
     if (!(await knex.schema.hasTable(state.name))) {
@@ -240,6 +242,12 @@ export class RuntimeSchemaTargetAttestorService {
       errors.push(`physical index ${state.name}(${columns.join(', ')}) is missing`);
     }
     for (const index of diff.indexesToRemove) {
+      if (
+        allowLegacyRedundantIndexes
+        && this.isLegacySqlAutoIndex(state, index.columns)
+      ) {
+        continue;
+      }
       errors.push(
         `unexpected physical index ${state.name}(${index.columns.join(', ')})`,
       );
@@ -257,6 +265,35 @@ export class RuntimeSchemaTargetAttestorService {
     await this.collectSqlForeignKeyErrors(knex, state, errors);
     await this.collectSqlJunctionErrors(knex, state, errors);
     return errors;
+  }
+
+  private isLegacySqlAutoIndex(
+    state: RuntimeTableSchemaContract,
+    indexColumns: string[],
+  ): boolean {
+    if (indexColumns.length < 2 || indexColumns.at(-1) !== 'id') {
+      return false;
+    }
+    const indexPrefix = indexColumns
+      .slice(0, -1)
+      .map((column) => column.toLowerCase());
+    if (
+      state.columns.some(
+        (column) =>
+          column.name !== 'id' &&
+          column.name.endsWith('Id') &&
+          column.name.toLowerCase() === indexPrefix[0] &&
+          indexPrefix.length === 1,
+      )
+    ) {
+      return true;
+    }
+    return buildSqlUniqueContracts(state.name, state as any).some((unique) => {
+      if (unique.physicalColumns.length !== indexPrefix.length) return false;
+      return unique.physicalColumns.every(
+        (column, index) => column.toLowerCase() === indexPrefix[index],
+      );
+    });
   }
 
   private async collectSqlForeignKeyErrors(

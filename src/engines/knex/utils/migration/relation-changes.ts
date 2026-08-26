@@ -6,6 +6,7 @@ import {
   resolveSqlRelationOnDelete,
 } from '../sql-physical-schema-contract';
 import { getSqlJunctionPhysicalNames } from '../../../../modules/table-management/utils/sql-junction-naming.util';
+import { getRelationMappedByProperty } from '../../../../modules/table-management/utils/relation-target-id.util';
 
 const logger = new Logger('RelationChanges');
 
@@ -166,6 +167,7 @@ export async function analyzeRelationChanges(
     return {
       ...rel,
       sourceTableName: rel.sourceTableName || tableName,
+      mappedBy: getRelationMappedByProperty(rel),
       targetTableName:
         rel.targetTableName ||
         (targetTableId ? targetTablesMap.get(targetTableId) : rel.targetTable),
@@ -178,6 +180,7 @@ export async function analyzeRelationChanges(
     return {
       ...rel,
       sourceTableName: rel.sourceTableName || tableName,
+      mappedBy: getRelationMappedByProperty(rel),
       targetTableName:
         rel.targetTableName ||
         (targetTableId ? targetTablesMap.get(targetTableId) : rel.targetTable),
