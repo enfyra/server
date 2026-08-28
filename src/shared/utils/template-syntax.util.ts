@@ -19,6 +19,7 @@ const TEMPLATE_MAPPINGS: Record<string, string> = {
   '@PKGS': '$ctx.$pkgs',
   '@SOCKET': '$ctx.$socket',
   '@TRIGGER': '$ctx.$trigger',
+  '@TRANSACTION': '$ctx.$transaction',
   '@FLOW': '$ctx.$flow',
   '@FLOW_PAYLOAD': '$ctx.$flow.$payload',
   '@FLOW_LAST': '$ctx.$flow.$last',

@@ -27,6 +27,7 @@ export interface WebSocketEvent {
   scriptLanguage?: string | null;
   compiledCode?: string | null;
   handlerScript?: string | null;
+  timeout?: number | null;
   gatewayId: number;
   isEnabled: boolean;
 }
@@ -39,6 +40,8 @@ export interface WebSocketGateway {
   scriptLanguage?: string | null;
   compiledCode?: string | null;
   connectionHandlerScript?: string | null;
+  connectionHandlerTimeout?: number | null;
+  requireAuth?: boolean;
   events: WebSocketEvent[];
 }
 

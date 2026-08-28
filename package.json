@@ -1,6 +1,6 @@
 {
   "name": "enfyra-server",
-  "version": "2.2.18-patch-2",
+  "version": "2.2.19",
   "description": "Dynamic backend platform that auto-generates REST and GraphQL APIs from database schemas",
   "author": "dothinh115 <dothinh115@gmail.com>",
   "license": "Elastic-2.0",

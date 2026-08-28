@@ -165,6 +165,7 @@ export class DynamicWebSocketGateway {
       const gateways = this.runtimeRegistryService.requireActiveData<
         WebSocketGateway[]
       >(CACHE_IDENTIFIERS.WEBSOCKET);
+      const previousGatewaysByPath = new Map(this.gatewayConfigsByPath);
       const newPaths = new Set(gateways.map((g: any) => g.path));
       for (const path of this.registeredGateways) {
         if (path === ENFYRA_ADMIN_WEBSOCKET_NAMESPACE) continue;
@@ -178,6 +179,14 @@ export class DynamicWebSocketGateway {
       this.updateGatewayConfigs(gateways);
       for (const gateway of gateways) {
         if (this.registeredGateways.has(gateway.path)) {
+          if (
+            this.gatewayRuntimeContractChanged(
+              previousGatewaysByPath.get(gateway.path),
+              gateway,
+            )
+          ) {
+            this.server.of(gateway.path).disconnectSockets(true);
+          }
           continue;
         }
         this.setupNamespace(gateway.path);
@@ -187,6 +196,39 @@ export class DynamicWebSocketGateway {
     } catch (error) {
       this.logger.error('Failed to register websocket gateways:', error);
     }
+  }
+
+  private gatewayRuntimeContractChanged(
+    previousGateway: WebSocketGateway | undefined,
+    nextGateway: WebSocketGateway,
+  ) {
+    if (!previousGateway) return false;
+    return (
+      this.gatewayRuntimeContractSignature(previousGateway) !==
+      this.gatewayRuntimeContractSignature(nextGateway)
+    );
+  }
+
+  private gatewayRuntimeContractSignature(gateway: WebSocketGateway) {
+    const events = [...(gateway.events ?? [])]
+      .map((event) => ({
+        id: event.id,
+        eventName: event.eventName ?? null,
+        sourceCode: event.sourceCode ?? null,
+        compiledCode: event.compiledCode ?? null,
+        scriptLanguage: event.scriptLanguage ?? null,
+        timeout: event.timeout ?? null,
+        isEnabled: event.isEnabled,
+      }))
+      .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+    return JSON.stringify({
+      requireAuth: gateway.requireAuth ?? true,
+      sourceCode: gateway.sourceCode ?? null,
+      compiledCode: gateway.compiledCode ?? null,
+      scriptLanguage: gateway.scriptLanguage ?? null,
+      connectionHandlerTimeout: gateway.connectionHandlerTimeout ?? null,
+      events,
+    });
   }
 
   private setupNamespace(path: string) {
@@ -393,7 +435,9 @@ export class DynamicWebSocketGateway {
           builtInConnectionScript ?? gatewayData.connectionHandlerScript;
         if (connectionScript) {
           const connectionSourceCode =
-            builtInConnectionScript ?? gatewayData.sourceCode ?? connectionScript;
+            builtInConnectionScript ??
+            gatewayData.sourceCode ??
+            connectionScript;
           const connectionScriptRecord = builtInConnectionScript
             ? null
             : gatewayData;
