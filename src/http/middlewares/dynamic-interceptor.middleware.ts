@@ -80,6 +80,7 @@ export function dynamicInterceptorBegin(
                   code: hook.code,
                   sourceCode: hook.sourceCode ?? hook.code,
                   scriptLanguage: hook.scriptLanguage ?? 'typescript',
+                  scriptId: hook.id,
                   onCompiledCodeRepair: repairCompiledCode(
                     'enfyra_post_hook',
                     hook,
@@ -112,6 +113,7 @@ export function dynamicInterceptorBegin(
           code: hook.code,
           sourceCode: hook.sourceCode ?? hook.code,
           scriptLanguage: hook.scriptLanguage ?? 'typescript',
+          scriptId: hook.id,
           onCompiledCodeRepair: repairCompiledCode('enfyra_pre_hook', hook),
           type: 'preHook',
         } as any);

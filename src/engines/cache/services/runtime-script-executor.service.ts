@@ -7,6 +7,7 @@ type CodeBlock = {
   code: string;
   sourceCode?: string | null;
   scriptLanguage?: string | null;
+  scriptId?: string | number | null;
   onCompiledCodeRepair?: RepairCallback;
   type: 'preHook' | 'handler' | 'postHook';
 };

@@ -204,6 +204,7 @@ export class DynamicService {
         code: handler,
         sourceCode: routeData.handlerRecord?.sourceCode ?? handler,
         scriptLanguage: routeData.handlerRecord?.scriptLanguage ?? 'typescript',
+        scriptId: routeData.handlerRecord?.id,
         onCompiledCodeRepair: this.repairCompiledCode(
           'enfyra_route_handler',
           routeData.handlerRecord,
@@ -219,6 +220,7 @@ export class DynamicService {
             code: hook.code,
             sourceCode: hook.sourceCode ?? hook.code,
             scriptLanguage: hook.scriptLanguage ?? 'typescript',
+            scriptId: hook.id,
             onCompiledCodeRepair: this.repairCompiledCode(
               'enfyra_post_hook',
               hook,
