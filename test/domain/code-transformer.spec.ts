@@ -60,6 +60,12 @@ describe('transformCode', () => {
     ).toBe('return $ctx.$storage.$upload({ file: $ctx.$uploadedFile });');
   });
 
+  it('expands @TRANSACTION to the dynamic transaction facade', () => {
+    expect(transformCode('await @TRANSACTION.run(async () => {});')).toBe(
+      'await $ctx.$transaction.run(async () => {});',
+    );
+  });
+
   it('does not expand inside line comment', () => {
     expect(transformCode('// @BODY')).toBe('// @BODY');
   });
