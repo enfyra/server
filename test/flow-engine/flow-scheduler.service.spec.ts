@@ -6,6 +6,7 @@ function createQueueMock() {
   return {
     getJobSchedulers: vi.fn(async () => []),
     getJobScheduler: vi.fn(async () => undefined),
+    getDelayed: vi.fn(async () => []),
     removeJobScheduler: vi.fn(async () => true),
     upsertJobScheduler: vi.fn(async () => undefined),
   };
@@ -41,15 +42,11 @@ function createScheduler(options?: {
   const runtimeRegistryService = {
     requireActiveData: vi.fn(() => options?.flows || []),
   };
-  const runtimeNamespaceLifecycleService = {
-    renewSystemQueueKeys: vi.fn(async () => undefined),
-  };
   const cacheService = options?.cacheService || createSharedLock();
   const service = new FlowSchedulerService({
     eventEmitter,
     flowQueue: flowQueue as any,
     runtimeRegistryService: runtimeRegistryService as any,
-    runtimeNamespaceLifecycleService: runtimeNamespaceLifecycleService as any,
     cacheService: cacheService as any,
   });
 
@@ -57,7 +54,6 @@ function createScheduler(options?: {
     eventEmitter,
     flowQueue,
     runtimeRegistryService,
-    runtimeNamespaceLifecycleService,
     cacheService,
     service,
   };
@@ -65,23 +61,22 @@ function createScheduler(options?: {
 
 describe('FlowSchedulerService', () => {
   it('registers scheduled flows during init even if FLOW_LOADED already happened', async () => {
-    const { service, flowQueue, runtimeNamespaceLifecycleService } =
-      createScheduler({
-        flows: [
-          {
-            id: 6,
-            name: 'cloud-reconcile-hosts',
-            triggers: [
-              {
-                id: 101,
-                type: 'schedule',
-                isEnabled: true,
-                config: { cron: '*/15 * * * *', timezone: 'UTC' },
-              },
-            ],
-          },
-        ],
-      });
+    const { service, flowQueue } = createScheduler({
+      flows: [
+        {
+          id: 6,
+          name: 'cloud-reconcile-hosts',
+          triggers: [
+            {
+              id: 101,
+              type: 'schedule',
+              isEnabled: true,
+              config: { cron: '*/15 * * * *', timezone: 'UTC' },
+            },
+          ],
+        },
+      ],
+    });
 
     await service.init();
 
@@ -103,9 +98,6 @@ describe('FlowSchedulerService', () => {
         registeredCount: 1,
       }),
     );
-    expect(
-      runtimeNamespaceLifecycleService.renewSystemQueueKeys,
-    ).toHaveBeenCalledWith('sys_flow-execution');
   });
 
   it('removes only stale flow schedulers and preserves matching schedules', async () => {
@@ -206,12 +198,52 @@ describe('FlowSchedulerService', () => {
       ),
     );
     flowQueue.getJobScheduler.mockResolvedValueOnce({
-      id: 'flow-schedule-102',
+      key: 'flow-schedule-102',
       name: 'flow:daily-flow',
       pattern: '0 2 * * *',
     });
 
     await expect(service.init()).resolves.toBeUndefined();
+    expect(service.getLastReconcileState()).toEqual(
+      expect.objectContaining({ status: 'ok', registeredCount: 1 }),
+    );
+  });
+
+  it('recreates a missing scheduler after removing its orphaned delayed iteration', async () => {
+    const { service, flowQueue } = createScheduler({
+      flows: [
+        {
+          id: 7,
+          name: 'daily-flow',
+          triggers: [
+            {
+              id: 102,
+              type: 'schedule',
+              isEnabled: true,
+              config: { cron: '0 2 * * *' },
+            },
+          ],
+        },
+      ],
+    });
+    flowQueue.upsertJobScheduler.mockRejectedValueOnce(
+      new Error(
+        'Cannot create job scheduler iteration - job ID already exists',
+      ),
+    );
+    const remove = vi.fn(async () => undefined);
+    flowQueue.getDelayed.mockResolvedValueOnce([
+      {
+        name: 'flow:daily-flow',
+        repeatJobKey: 'flow-schedule-102',
+        remove,
+      },
+    ]);
+
+    await expect(service.init()).resolves.toBeUndefined();
+
+    expect(remove).toHaveBeenCalledOnce();
+    expect(flowQueue.upsertJobScheduler).toHaveBeenCalledTimes(2);
     expect(service.getLastReconcileState()).toEqual(
       expect.objectContaining({ status: 'ok', registeredCount: 1 }),
     );

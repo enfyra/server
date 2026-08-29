@@ -11,9 +11,7 @@ import {
 import { SocketEmitCapture } from '../../websocket';
 import { DynamicContextFactory } from '../../../shared/services';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
-import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
-import type { RuntimeNamespaceLifecycleService } from '../../../engines/cache/services/runtime-namespace-lifecycle.service';
 import type { RuntimeScriptRepairService } from '../../../engines/cache';
 import type {
   FlowDefinition,
@@ -43,7 +41,6 @@ export class FlowService {
   private readonly executorEngineService: ExecutorEngineService;
   private readonly repoRegistryService: RepoRegistryService;
   private readonly dynamicContextFactory: DynamicContextFactory;
-  private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
   private readonly runtimeScriptRepairService?: RuntimeScriptRepairService;
 
   constructor(deps: {
@@ -52,7 +49,6 @@ export class FlowService {
     executorEngineService: ExecutorEngineService;
     repoRegistryService: RepoRegistryService;
     dynamicContextFactory: DynamicContextFactory;
-    runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
     runtimeScriptRepairService?: RuntimeScriptRepairService;
   }) {
     this.flowQueue = deps.flowQueue;
@@ -60,8 +56,6 @@ export class FlowService {
     this.executorEngineService = deps.executorEngineService;
     this.repoRegistryService = deps.repoRegistryService;
     this.dynamicContextFactory = deps.dynamicContextFactory;
-    this.runtimeNamespaceLifecycleService =
-      deps.runtimeNamespaceLifecycleService;
     this.runtimeScriptRepairService = deps.runtimeScriptRepairService;
   }
 
@@ -105,10 +99,6 @@ export class FlowService {
       removeOnComplete: { count: 200, age: 3600 * 24 },
       removeOnFail: { count: 500, age: 3600 * 24 * 7 },
     });
-    await this.runtimeNamespaceLifecycleService?.renewSystemQueueKeys(
-      SYSTEM_QUEUES.FLOW_EXECUTION,
-    );
-
     this.logger.debug(`Flow "${flow.name}" triggered, job ${job.id}`);
     return { jobId: String(job.id), flowId: flow.id };
   }
