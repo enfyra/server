@@ -3,6 +3,7 @@ import { CommonService } from '../../../shared/common';
 import { SchemaMigrationValidatorService } from './schema-migration-validator.service';
 import { RuntimeRegistryService } from '../../../engines/cache';
 import { QueryBuilderService } from '@enfyra/kernel';
+import { normalizeMongoDocument } from '../../../engines/mongo/utils/normalize-mongo-document.util';
 import {
   assertGraphqlPermissionScope,
   assertNoPublicPermissionOverlap,
@@ -117,7 +118,10 @@ export class SystemSafetyAuditorService {
         );
       }
       if ('handlers' in data) {
-        const getItemId = (item: any) => item?._id || item?.id;
+        const getItemId = (item: any) => {
+          const itemId = this.getItemId(item);
+          return itemId == null ? null : String(itemId);
+        };
         const oldIds = (fullExisting.handlers || [])
           .map((h: any) => getItemId(h))
           .sort();
@@ -146,7 +150,10 @@ export class SystemSafetyAuditorService {
             `Cannot modify system hook (only allowed: ${allowed.join(', ')}): ${disallowed.join(', ')}`,
           );
         }
-        const getItemId = (item: any) => item?._id || item?.id;
+        const getItemId = (item: any) => {
+          const itemId = this.getItemId(item);
+          return itemId == null ? null : String(itemId);
+        };
         const dataRouteId = getItemId(data.route);
         const existingRouteId = getItemId(fullExisting.route);
         if (dataRouteId && existingRouteId && dataRouteId !== existingRouteId) {
@@ -286,29 +293,38 @@ export class SystemSafetyAuditorService {
             `Cannot modify system table (only allowed: ${allowed.join(', ')}): ${disallowed.join(', ')}`,
           );
         }
-        const getItemId = (item: any) => item?._id || item?.id;
+        const getItemId = (item: any) => {
+          const itemId = this.getItemId(item);
+          return itemId == null ? null : String(itemId);
+        };
         const oldCols = fullExisting.columns || [];
-        const newCols = Object.hasOwn(data || {}, 'columns')
+        const hasColumns = Object.hasOwn(data || {}, 'columns');
+        const newCols = hasColumns
           ? data.columns || []
           : oldCols;
         const oldRels = fullExisting.relations || [];
-        const newRels = Object.hasOwn(data || {}, 'relations')
+        const hasRelations = Object.hasOwn(data || {}, 'relations');
+        const newRels = hasRelations
           ? data.relations || []
           : oldRels;
-        const removedCols = oldCols.filter(
-          (col: any) =>
-            getItemId(col) != null &&
-            !newCols.some((c: any) => getItemId(c) === getItemId(col)),
-        );
+        const removedCols = hasColumns
+          ? oldCols.filter(
+              (col: any) =>
+                getItemId(col) != null &&
+                !newCols.some((c: any) => getItemId(c) === getItemId(col)),
+            )
+          : [];
         for (const col of removedCols) {
           if (col.isSystem)
             throw new Error(`Cannot delete system column: '${col.name}'`);
         }
 
-        const removedRels = oldRels.filter(
-          (rel: any) =>
-            !newRels.some((r: any) => getItemId(r) === getItemId(rel)),
-        );
+        const removedRels = hasRelations
+          ? oldRels.filter(
+              (rel: any) =>
+                !newRels.some((r: any) => getItemId(r) === getItemId(rel)),
+            )
+          : [];
         for (const rel of removedRels) {
           if (rel.isSystem)
             throw new Error(
@@ -316,14 +332,19 @@ export class SystemSafetyAuditorService {
             );
         }
 
-        for (const oldCol of oldCols.filter(
-          (c: any) => c.isSystem && getItemId(c) != null,
-        )) {
+        for (const oldCol of hasColumns
+          ? oldCols.filter(
+              (c: any) => c.isSystem && getItemId(c) != null,
+            )
+          : []) {
           const updated = newCols.find(
             (c: any) => getItemId(c) === getItemId(oldCol),
           );
           if (!updated || typeof updated !== 'object') continue;
           const changedFieldsForCol = Object.keys(updated).filter((key) => {
+            if (key === 'id' || key === '_id') {
+              return getItemId(updated) !== getItemId(oldCol);
+            }
             if (key === 'table') {
               const updatedTableId = getItemId(updated[key]);
               const oldTableId = getItemId(oldCol[key]);
@@ -346,12 +367,17 @@ export class SystemSafetyAuditorService {
           }
         }
 
-        for (const oldRel of oldRels.filter((r: any) => r.isSystem)) {
+        for (const oldRel of hasRelations
+          ? oldRels.filter((r: any) => r.isSystem)
+          : []) {
           const updated = newRels.find(
             (r: any) => getItemId(r) === getItemId(oldRel),
           );
           if (!updated || typeof updated !== 'object') continue;
           const changedFieldsForRel = Object.keys(updated).filter((key) => {
+            if (key === 'id' || key === '_id') {
+              return getItemId(updated) !== getItemId(oldRel);
+            }
             if (key === 'sourceTable' || key === 'targetTable') {
               const updatedTableId = getItemId(updated[key]);
               const oldTableId = getItemId(oldRel[key]);
@@ -623,7 +649,12 @@ export class SystemSafetyAuditorService {
 
   private getItemId(value: any): string | number | null {
     if (value === undefined || value === null) return null;
-    return value?._id ?? value?.id ?? value;
+    const candidate =
+      typeof value === 'object' ? (value?._id ?? value?.id ?? null) : value;
+    const normalized = normalizeMongoDocument(candidate);
+    return typeof normalized === 'string' || typeof normalized === 'number'
+      ? normalized
+      : null;
   }
 
   async assertRelationSystemRecordsNotRemoved(
@@ -640,14 +671,18 @@ export class SystemSafetyAuditorService {
       const oldItems = existing[field];
       const newItems = newData?.[field];
       if (!Array.isArray(oldItems) || !Array.isArray(newItems)) continue;
-      const getItemId = (item: any) => item?._id || item?.id;
       const oldSystemIds = oldItems
         .filter((i: any) => i?.isSystem)
-        .map((i) => getItemId(i));
+        .map((i) => this.getItemId(i))
+        .filter((id) => id != null)
+        .map(String);
       const newIds = newItems
-        .filter((i: any) => getItemId(i))
-        .map((i) => getItemId(i));
-      const newCreated = newItems.filter((i: any) => !getItemId(i));
+        .map((i: any) => this.getItemId(i))
+        .filter((id) => id != null)
+        .map(String);
+      const newCreated = newItems.filter(
+        (i: any) => this.getItemId(i) == null,
+      );
       for (const id of oldSystemIds) {
         if (!newIds.includes(id)) {
           throw new Error(
