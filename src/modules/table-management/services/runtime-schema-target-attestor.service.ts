@@ -529,8 +529,10 @@ export class RuntimeSchemaTargetAttestorService {
         });
         return {
           name: relation.junctionTableName || fallback.junctionTableName,
-          sourceColumn: fallback.junctionSourceColumn,
-          targetColumn: fallback.junctionTargetColumn,
+          sourceColumn:
+            relation.junctionSourceColumn || fallback.junctionSourceColumn,
+          targetColumn:
+            relation.junctionTargetColumn || fallback.junctionTargetColumn,
         };
       });
   }
