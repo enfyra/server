@@ -227,6 +227,80 @@ describe('SystemSafetyAuditorService isSystem field contract', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('ignores projected metadata access while preserving a system column', async () => {
+    const { service } = makeService(undefined, ['columns']);
+
+    await expect(
+      service.assertSystemSafe({
+        operation: 'update',
+        tableName: 'enfyra_table',
+        data: {
+          columns: [
+            {
+              id: 11,
+              name: 'id',
+              isSystem: true,
+              metadataAccess: {
+                read: true,
+                create: true,
+                update: true,
+                delete: true,
+              },
+            },
+          ],
+        },
+        existing: {
+          id: 10,
+          name: 'enfyra_user',
+          isSystem: true,
+          columns: [
+            { id: 11, name: 'id', isSystem: true, table: '10' },
+            { id: 12, name: 'fullName', isSystem: false },
+          ],
+        },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('ignores projected metadata access while preserving a system relation', async () => {
+    const { service } = makeService(undefined, ['relations']);
+
+    await expect(
+      service.assertSystemSafe({
+        operation: 'update',
+        tableName: 'enfyra_table',
+        data: {
+          relations: [
+            {
+              id: 21,
+              propertyName: 'roles',
+              isSystem: true,
+              metadataAccess: {
+                read: true,
+                create: true,
+                update: true,
+                delete: true,
+              },
+            },
+          ],
+        },
+        existing: {
+          id: 10,
+          name: 'enfyra_user',
+          isSystem: true,
+          relations: [
+            {
+              id: 21,
+              propertyName: 'roles',
+              isSystem: true,
+              sourceTable: '10',
+            },
+          ],
+        },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
   it('treats omitted system-table child containers as unchanged', async () => {
     const { service } = makeService(undefined, ['columns', 'relations']);
 

@@ -342,6 +342,7 @@ export class SystemSafetyAuditorService {
           );
           if (!updated || typeof updated !== 'object') continue;
           const changedFieldsForCol = Object.keys(updated).filter((key) => {
+            if (key === 'metadataAccess') return false;
             if (key === 'id' || key === '_id') {
               return getItemId(updated) !== getItemId(oldCol);
             }
@@ -375,6 +376,7 @@ export class SystemSafetyAuditorService {
           );
           if (!updated || typeof updated !== 'object') continue;
           const changedFieldsForRel = Object.keys(updated).filter((key) => {
+            if (key === 'metadataAccess') return false;
             if (key === 'id' || key === '_id') {
               return getItemId(updated) !== getItemId(oldRel);
             }
