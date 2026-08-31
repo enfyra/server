@@ -215,6 +215,7 @@ describe('SystemSafetyAuditorService isSystem field contract', () => {
           isSystem: true,
           columns: [
             { id: 11, name: 'id', isSystem: true },
+            { name: 'createdAt', isSystem: true },
             { id: 12, name: 'fullName', isSystem: false },
           ],
           relations: [{ id: 21, propertyName: 'roles', isSystem: true }],

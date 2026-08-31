@@ -297,6 +297,7 @@ export class SystemSafetyAuditorService {
           : oldRels;
         const removedCols = oldCols.filter(
           (col: any) =>
+            getItemId(col) != null &&
             !newCols.some((c: any) => getItemId(c) === getItemId(col)),
         );
         for (const col of removedCols) {
@@ -315,7 +316,9 @@ export class SystemSafetyAuditorService {
             );
         }
 
-        for (const oldCol of oldCols.filter((c: any) => c.isSystem)) {
+        for (const oldCol of oldCols.filter(
+          (c: any) => c.isSystem && getItemId(c) != null,
+        )) {
           const updated = newCols.find(
             (c: any) => getItemId(c) === getItemId(oldCol),
           );
