@@ -277,6 +277,8 @@ export class SystemSafetyAuditorService {
         const allowed = this.schemaMigrationValidatorService.getAllowedFields([
           'description',
           'validateBody',
+          'columns',
+          'relations',
         ]);
         const disallowed = changedFields.filter((k) => !allowed.includes(k));
         if (disallowed.length > 0) {
@@ -286,9 +288,13 @@ export class SystemSafetyAuditorService {
         }
         const getItemId = (item: any) => item?._id || item?.id;
         const oldCols = fullExisting.columns || [];
-        const newCols = data?.columns || [];
+        const newCols = Object.hasOwn(data || {}, 'columns')
+          ? data.columns || []
+          : oldCols;
         const oldRels = fullExisting.relations || [];
-        const newRels = data?.relations || [];
+        const newRels = Object.hasOwn(data || {}, 'relations')
+          ? data.relations || []
+          : oldRels;
         const removedCols = oldCols.filter(
           (col: any) =>
             !newCols.some((c: any) => getItemId(c) === getItemId(col)),

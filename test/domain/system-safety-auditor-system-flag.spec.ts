@@ -198,4 +198,51 @@ describe('SystemSafetyAuditorService isSystem field contract', () => {
       'Cannot modify system storage config (only allowed: description, isDefault): secretAccessKey',
     );
   });
+
+  it('allows deleting a non-system column from a system table', async () => {
+    const { service } = makeService();
+
+    await expect(
+      service.assertSystemSafe({
+        operation: 'update',
+        tableName: 'enfyra_table',
+        data: {
+          columns: [{ id: 11, name: 'id', isSystem: true }],
+        },
+        existing: {
+          id: 10,
+          name: 'enfyra_user',
+          isSystem: true,
+          columns: [
+            { id: 11, name: 'id', isSystem: true },
+            { id: 12, name: 'fullName', isSystem: false },
+          ],
+          relations: [{ id: 21, propertyName: 'roles', isSystem: true }],
+        },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('still rejects deleting a system column from a system table', async () => {
+    const { service } = makeService();
+
+    await expect(
+      service.assertSystemSafe({
+        operation: 'update',
+        tableName: 'enfyra_table',
+        data: {
+          columns: [{ id: 12, name: 'fullName', isSystem: false }],
+        },
+        existing: {
+          id: 10,
+          name: 'enfyra_user',
+          isSystem: true,
+          columns: [
+            { id: 11, name: 'id', isSystem: true },
+            { id: 12, name: 'fullName', isSystem: false },
+          ],
+        },
+      }),
+    ).rejects.toThrow("Cannot delete system column: 'id'");
+  });
 });
