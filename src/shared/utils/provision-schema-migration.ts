@@ -20,6 +20,7 @@ import {
 import { quoteIdentifier } from '../../engines/knex/utils/migration/sql-dialect';
 import { getCurrentDatabaseSchema } from '../../engines/knex/utils/provision/schema-comparison';
 import { buildSqlJunctionTableContract } from '../../engines/knex/utils/sql-physical-schema-contract';
+import { dropPostgresColumnCheckConstraints } from '../../engines/knex/utils/provision/postgres-column-check-constraints';
 
 /**
  * Apply SQL schema migrations (physical database)
@@ -238,7 +239,10 @@ async function applySqlTableMigration(
   }
 
   if (migration.relationsToRemove && migration.relationsToRemove.length > 0) {
-    if (tableName === 'enfyra_user' && migration.relationsToRemove.includes('role')) {
+    if (
+      tableName === 'enfyra_user' &&
+      migration.relationsToRemove.includes('role')
+    ) {
       await migrateUserRoleToRolesJunction(knex);
     }
     if (
@@ -272,7 +276,8 @@ function normalizeConstraintGroups(value: unknown): string[][] {
   if (!Array.isArray(value)) return [];
   return value.filter(
     (group): group is string[] =>
-      Array.isArray(group) && group.every((column) => typeof column === 'string'),
+      Array.isArray(group) &&
+      group.every((column) => typeof column === 'string'),
   );
 }
 
@@ -292,9 +297,7 @@ async function applySqlTableConstraintMigrations(
     normalizeConstraintGroups(modification.to?.uniques).map(constraintGroupKey),
   );
   const removedUniqueKeys = new Set(
-    fromUniques
-      .map(constraintGroupKey)
-      .filter((key) => !toUniqueKeys.has(key)),
+    fromUniques.map(constraintGroupKey).filter((key) => !toUniqueKeys.has(key)),
   );
   if (removedUniqueKeys.size === 0) return;
 
@@ -427,10 +430,7 @@ async function migrateUserRoleToRolesJunction(knex: Knex): Promise<void> {
         .withKeyName(contract.targetForeignKeyName);
       table.index([sourceColumn], contract.sourceIndexName);
       table.index([targetColumn], contract.targetIndexName);
-      table.index(
-        [targetColumn, sourceColumn],
-        contract.reverseIndexName,
-      );
+      table.index([targetColumn, sourceColumn], contract.reverseIndexName);
     });
   }
 
@@ -461,8 +461,8 @@ async function insertSqlJunctionRowsIgnoringDuplicates(
   if (rows.length === 0) return;
 
   const dbType = String(knex.client.config.client || '').toLowerCase();
-  const identifiers = [tableName, sourceColumn, targetColumn].map((identifier) =>
-    quoteIdentifier(identifier, dbType),
+  const identifiers = [tableName, sourceColumn, targetColumn].map(
+    (identifier) => quoteIdentifier(identifier, dbType),
   );
   const placeholders = rows.map(() => '(?, ?)').join(', ');
   const bindings: Knex.RawBinding[] = rows.flatMap((row) => [
@@ -778,30 +778,7 @@ async function applyPostgresEnumContract(
     return;
   }
 
-  const checkConstraints = await knex.raw(
-    `
-      SELECT constraint_def.conname AS constraint_name
-      FROM pg_constraint constraint_def
-      JOIN pg_class relation
-        ON relation.oid = constraint_def.conrelid
-      JOIN pg_namespace namespace
-        ON namespace.oid = relation.relnamespace
-      JOIN pg_attribute attribute
-        ON attribute.attrelid = relation.oid
-       AND attribute.attnum = ANY(constraint_def.conkey)
-      WHERE constraint_def.contype = 'c'
-        AND namespace.nspname = current_schema()
-        AND relation.relname = ?
-        AND attribute.attname = ?
-    `,
-    [tableName, columnName],
-  );
-  for (const constraint of checkConstraints.rows ?? []) {
-    await knex.raw('ALTER TABLE ?? DROP CONSTRAINT ??', [
-      tableName,
-      constraint.constraint_name,
-    ]);
-  }
+  await dropPostgresColumnCheckConstraints(knex, tableName, columnName);
   await knex.raw('ALTER TABLE ?? ALTER COLUMN ?? TYPE text USING ??::text', [
     tableName,
     columnName,
@@ -1024,7 +1001,7 @@ function assertSupportedSqlColumnContract(
 /**
  * Apply SQL column modifications
  */
-async function applySqlColumnModifications(
+export async function applySqlColumnModifications(
   knex: Knex,
   tableName: string,
   modifications: ColumnModifyDef[],
@@ -1927,9 +1904,7 @@ async function applyMongoTableConstraintMigrations(
     normalizeConstraintGroups(modification.to?.uniques).map(constraintGroupKey),
   );
   const removedUniqueKeys = new Set(
-    fromUniques
-      .map(constraintGroupKey)
-      .filter((key) => !toUniqueKeys.has(key)),
+    fromUniques.map(constraintGroupKey).filter((key) => !toUniqueKeys.has(key)),
   );
   if (removedUniqueKeys.size === 0) return;
 

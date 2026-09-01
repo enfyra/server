@@ -1,5 +1,9 @@
 import type { Knex } from 'knex';
-import { setSqlColumnNullable } from '../../../shared/utils/provision-schema-migration';
+import {
+  applySqlColumnModifications,
+  setSqlColumnNullable,
+} from '../../../shared/utils/provision-schema-migration';
+import type { ColumnModifyDef } from '../../../shared/types/schema-migration.types';
 import {
   buildSqlForeignKeyContracts,
   buildSqlIndexContracts,
@@ -83,6 +87,50 @@ async function repairTargetNullability(
   return repaired;
 }
 
+async function repairTargetEnumColumns(
+  knex: Knex,
+  tableName: string,
+  definition: Record<string, any>,
+): Promise<number> {
+  const current = await getCurrentDatabaseSchema(knex, tableName);
+  const currentColumns = new Map(
+    current.columns.map((column) => [column.name, column]),
+  );
+  const modifications: ColumnModifyDef[] = [];
+
+  for (const column of definition.columns ?? []) {
+    if (column.type !== 'enum' || !Array.isArray(column.options)) continue;
+    const existing = currentColumns.get(column.name);
+    if (!existing) continue;
+    if (
+      existing.type === 'enum' &&
+      JSON.stringify(existing.enumValues ?? []) ===
+        JSON.stringify(column.options)
+    ) {
+      continue;
+    }
+    modifications.push({
+      from: {
+        name: column.name,
+        type: existing.type,
+        options: existing.enumValues ?? null,
+        isNullable: existing.isNullable,
+        defaultValue: existing.defaultValue,
+      },
+      to: { ...column },
+    });
+  }
+
+  if (modifications.length === 0) return 0;
+  await applySqlColumnModifications(
+    knex,
+    tableName,
+    modifications,
+    String(knex.client.config.client),
+  );
+  return modifications.length;
+}
+
 async function repairTargetIndexesAndUniques(
   knex: Knex,
   tableName: string,
@@ -139,6 +187,11 @@ export async function repairSqlSystemPhysicalTarget(
     if (!schema.definition.isSystem) continue;
     if (!(await knex.schema.hasTable(schema.tableName))) continue;
     repaired += await ensureAutoTimestampColumns(knex, schema.tableName);
+    repaired += await repairTargetEnumColumns(
+      knex,
+      schema.tableName,
+      schema.definition,
+    );
     repaired += await repairTargetNullability(
       knex,
       schema.tableName,

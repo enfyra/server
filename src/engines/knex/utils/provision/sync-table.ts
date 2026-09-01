@@ -3,6 +3,7 @@ import { KnexTableSchema } from '../../../../shared/types/database-init.types';
 import { getKnexColumnType, getPrimaryKeyType } from './schema-parser';
 import { compareSchemas, getCurrentDatabaseSchema } from './schema-comparison';
 import { getErrorMessage } from '../../../../shared/utils/error.util';
+import { dropPostgresColumnCheckConstraints } from './postgres-column-check-constraints';
 import {
   buildSqlForeignKeyContracts,
   getSqlRelationForeignKeyColumn,
@@ -220,7 +221,10 @@ export async function applyColumnMigrations(
         }
       }
       for (const { column: col, changes } of diff.columnsToModify) {
-        if (changes.includes('enum-options')) {
+        if (
+          changes.includes('enum-options') ||
+          (changes.includes('type') && col.type === 'enum')
+        ) {
           continue;
         }
         const knexType = getKnexColumnType(col);
@@ -300,13 +304,7 @@ export async function applyColumnMigrations(
               );
             }
 
-            try {
-              await knex.raw(
-                `ALTER TABLE "${tableName}" DROP CONSTRAINT IF EXISTS "${tableName}_${col.name}_check"`,
-              );
-            } catch (error) {
-              rethrowPostgresTransactionError(knex, error);
-            }
+            await dropPostgresColumnCheckConstraints(knex, tableName, col.name);
 
             if (currentType !== 'text') {
               await knex.raw(
@@ -432,13 +430,7 @@ export async function applyColumnMigrations(
                 .where(col.name, oldVal)
                 .update({ [col.name]: newVal });
             }
-            try {
-              await knex.raw(
-                `ALTER TABLE "${tableName}" DROP CONSTRAINT IF EXISTS "${tableName}_${col.name}_check"`,
-              );
-            } catch (error) {
-              rethrowPostgresTransactionError(knex, error);
-            }
+            await dropPostgresColumnCheckConstraints(knex, tableName, col.name);
             const enumValues = newEnumValues
               .map((val: string) => `'${val.replace(/'/g, "''")}'`)
               .join(', ');
@@ -525,7 +517,7 @@ export async function applyColumnMigrations(
             rethrowPostgresTransactionError(knex, error);
           }
         }
-        if (changes.includes('type')) {
+        if (changes.includes('type') && col.type !== 'enum') {
           const knexType = getKnexColumnType(col);
           const currentTypeResult = await knex.raw(
             `

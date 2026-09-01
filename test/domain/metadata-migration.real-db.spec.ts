@@ -4,6 +4,9 @@ import { MetadataTableRenameService } from '../../src/engines/bootstrap/services
 import { MetadataPhysicalMigrationHelper } from '../../src/engines/bootstrap/utils/metadata-physical-migration.util';
 import { repairSqlSystemPhysicalTarget } from '../../src/engines/bootstrap/utils/sql-system-physical-healing.util';
 import { getCurrentDatabaseSchema } from '../../src/engines/knex/utils/provision/schema-comparison';
+import { applySqlSchemaMigrations } from '../../src/shared/utils/provision-schema-migration';
+import { parseSnapshotToSchema } from '../../src/engines/knex/utils/provision/schema-parser';
+import { syncTable } from '../../src/engines/knex/utils/provision/sync-table';
 
 const SQL_DBS = [
   {
@@ -156,6 +159,249 @@ async function createSqlRelationStore(db: Knex, name: string) {
 }
 
 describe('MetadataMigrationService real DB self-healing stress', () => {
+  test('replaces every legacy PostgreSQL enum CHECK before applying new options', async () => {
+    const config = SQL_DBS[0];
+    const available = await probeSql(config);
+    if (!available) {
+      console.warn('postgres not available, skipping enum CHECK regression');
+      return;
+    }
+
+    const { db, cleanup } = await makeIsolatedSqlDb(config);
+    const tableName = 'payment_order_enum_regression';
+    try {
+      await db.schema.createTable(tableName, (table) => {
+        table.increments('id').primary();
+        table.string('paymentProvider').notNullable();
+      });
+      await db.raw(
+        "ALTER TABLE ?? ADD CONSTRAINT ?? CHECK (?? IN ('sepay', 'paypal'))",
+        [tableName, 'payment_provider_old_check', 'paymentProvider'],
+      );
+      await db.raw(
+        "ALTER TABLE ?? ADD CONSTRAINT ?? CHECK (?? IN ('sepay', 'paypal', 'apipay'))",
+        [tableName, 'payment_provider_new_check', 'paymentProvider'],
+      );
+      await db(tableName).insert({ paymentProvider: 'sepay' });
+
+      await applySqlSchemaMigrations(db, {
+        tables: [
+          {
+            _unique: { name: { _eq: tableName } },
+            columnsToModify: [
+              {
+                from: {
+                  name: 'paymentProvider',
+                  type: 'enum',
+                  options: ['sepay', 'paypal'],
+                },
+                to: {
+                  name: 'paymentProvider',
+                  type: 'enum',
+                  options: ['sepay', 'paypal', 'apipay'],
+                },
+              },
+            ],
+          },
+        ],
+      });
+
+      const checks = await db.raw(
+        `
+          SELECT constraint_def.conname
+          FROM pg_constraint constraint_def
+          JOIN pg_class relation ON relation.oid = constraint_def.conrelid
+          JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+          WHERE constraint_def.contype = 'c'
+            AND namespace.nspname = current_schema()
+            AND relation.relname = ?
+        `,
+        [tableName],
+      );
+      expect(checks.rows).toEqual([]);
+      await expect(
+        db(tableName).insert({ paymentProvider: 'apipay' }),
+      ).resolves.toBeDefined();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test('syncTable upgrades a varchar-backed PostgreSQL enum with duplicate CHECKs', async () => {
+    const config = SQL_DBS[0];
+    const available = await probeSql(config);
+    if (!available) {
+      console.warn(
+        'postgres not available, skipping syncTable enum regression',
+      );
+      return;
+    }
+
+    const { db, cleanup } = await makeIsolatedSqlDb(config);
+    const tableName = 'sync_table_enum_regression';
+    try {
+      await db.schema.createTable('enfyra_table', (table) => {
+        table.increments('id').primary();
+        table.string('name').notNullable();
+      });
+      await db.schema.createTable('enfyra_relation', (table) => {
+        table.increments('id').primary();
+        table.integer('sourceTableId').notNullable();
+        table.string('propertyName').notNullable();
+        table.string('type').notNullable();
+        table.string('onDelete').notNullable().defaultTo('SET NULL');
+      });
+      await db.schema.createTable(tableName, (table) => {
+        table.increments('id').primary();
+        table.string('paymentProvider').notNullable();
+        table.timestamp('createdAt').notNullable().defaultTo(db.fn.now());
+        table.timestamp('updatedAt').notNullable().defaultTo(db.fn.now());
+      });
+      await db('enfyra_table').insert({ name: tableName });
+      await db.raw(
+        "ALTER TABLE ?? ADD CONSTRAINT ?? CHECK (?? IN ('sepay', 'paypal'))",
+        [tableName, 'sync_payment_provider_old_check', 'paymentProvider'],
+      );
+      await db.raw(
+        "ALTER TABLE ?? ADD CONSTRAINT ?? CHECK (?? IN ('sepay', 'paypal', 'apipay'))",
+        [tableName, 'sync_payment_provider_new_check', 'paymentProvider'],
+      );
+      await db(tableName).insert({ paymentProvider: 'sepay' });
+
+      const schemas = parseSnapshotToSchema({
+        [tableName]: {
+          name: tableName,
+          isSystem: true,
+          columns: [
+            {
+              name: 'id',
+              type: 'int',
+              isPrimary: true,
+              isGenerated: true,
+              isNullable: false,
+              isSystem: true,
+            },
+            {
+              name: 'paymentProvider',
+              type: 'enum',
+              options: ['sepay', 'paypal', 'apipay'],
+              isNullable: false,
+              isSystem: true,
+            },
+          ],
+          relations: [],
+          indexes: [],
+          uniques: [],
+        },
+      });
+      const schema = schemas[0];
+      if (!schema) throw new Error('enum regression schema was not generated');
+      await syncTable(db, schema, schemas);
+
+      const column = await db.raw(
+        `
+          SELECT data_type, udt_name
+          FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = ?
+            AND column_name = 'paymentProvider'
+        `,
+        [tableName],
+      );
+      expect(column.rows[0]?.data_type).toBe('USER-DEFINED');
+      expect(column.rows[0]?.udt_name).toBe(
+        `${tableName}_paymentProvider_enum`,
+      );
+      await expect(
+        db(tableName).insert({ paymentProvider: 'apipay' }),
+      ).resolves.toBeDefined();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test('syncTable upgrades a varchar-backed MySQL enum without reverting it to text', async () => {
+    const config = SQL_DBS[1];
+    const available = await probeSql(config);
+    if (!available) {
+      console.warn('mysql not available, skipping syncTable enum regression');
+      return;
+    }
+
+    const { db, cleanup } = await makeIsolatedSqlDb(config);
+    const tableName = 'sync_table_enum_regression';
+    try {
+      await db.schema.createTable('enfyra_table', (table) => {
+        table.increments('id').primary();
+        table.string('name').notNullable();
+      });
+      await db.schema.createTable('enfyra_relation', (table) => {
+        table.increments('id').primary();
+        table.integer('sourceTableId').notNullable();
+        table.string('propertyName').notNullable();
+        table.string('type').notNullable();
+        table.string('onDelete').notNullable().defaultTo('SET NULL');
+      });
+      await db.schema.createTable(tableName, (table) => {
+        table.increments('id').primary();
+        table.string('paymentProvider').notNullable();
+        table.timestamp('createdAt').notNullable().defaultTo(db.fn.now());
+        table.timestamp('updatedAt').notNullable().defaultTo(db.fn.now());
+      });
+      await db('enfyra_table').insert({ name: tableName });
+      await db(tableName).insert({ paymentProvider: 'sepay' });
+
+      const schemas = parseSnapshotToSchema({
+        [tableName]: {
+          name: tableName,
+          isSystem: true,
+          columns: [
+            {
+              name: 'id',
+              type: 'int',
+              isPrimary: true,
+              isGenerated: true,
+              isNullable: false,
+              isSystem: true,
+            },
+            {
+              name: 'paymentProvider',
+              type: 'enum',
+              options: ['sepay', 'paypal', 'apipay'],
+              isNullable: false,
+              isSystem: true,
+            },
+          ],
+          relations: [],
+          indexes: [],
+          uniques: [],
+        },
+      });
+      const schema = schemas[0];
+      if (!schema) throw new Error('enum regression schema was not generated');
+      await syncTable(db, schema, schemas);
+
+      const [columns] = await db.raw(
+        `
+          SELECT COLUMN_TYPE
+          FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = ?
+            AND COLUMN_NAME = 'paymentProvider'
+        `,
+        [tableName],
+      );
+      expect(String(columns[0]?.COLUMN_TYPE)).toBe(
+        "enum('sepay','paypal','apipay')",
+      );
+      await expect(
+        db(tableName).insert({ paymentProvider: 'apipay' }),
+      ).resolves.toBeDefined();
+    } finally {
+      await cleanup();
+    }
+  });
+
   for (const config of SQL_DBS) {
     test(`heals repeated core table overlap on ${config.name}`, async () => {
       const available = await probeSql(config);
@@ -304,6 +550,7 @@ describe('MetadataMigrationService real DB self-healing stress', () => {
         await db.schema.createTable('target_child', (table) => {
           table.increments('id').primary();
           table.boolean('requiredFlag').nullable().defaultTo(false);
+          table.string('status').notNullable().defaultTo('active');
           table.integer('parentId').unsigned().nullable();
           table
             .foreign('parentId')
@@ -344,6 +591,13 @@ describe('MetadataMigrationService real DB self-healing stress', () => {
                 isNullable: false,
                 defaultValue: false,
               },
+              {
+                name: 'status',
+                type: 'enum',
+                options: ['active', 'paused'],
+                isNullable: false,
+                defaultValue: 'active',
+              },
             ],
             relations: [
               {
@@ -372,6 +626,13 @@ describe('MetadataMigrationService real DB self-healing stress', () => {
                 name: 'requiredFlag',
                 type: 'boolean',
                 isNullable: false,
+              },
+              {
+                name: 'status',
+                type: 'enum',
+                options: ['active', 'paused'],
+                isNullable: false,
+                defaultValue: 'active',
               },
             ],
             relations: [
@@ -402,6 +663,13 @@ describe('MetadataMigrationService real DB self-healing stress', () => {
           current.columns.find((column) => column.name === 'parentId')
             ?.isNullable,
         ).toBe(false);
+        expect(
+          current.columns.find((column) => column.name === 'status')?.type,
+        ).toBe('enum');
+        await db('target_parent').insert({});
+        await expect(
+          db('target_child').insert({ status: 'paused', parentId: 1 }),
+        ).resolves.toBeDefined();
         expect(
           current.indexes.some(
             (index) => index.columns.join('|') === 'createdAt|id',
