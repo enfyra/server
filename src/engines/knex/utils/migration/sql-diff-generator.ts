@@ -160,6 +160,8 @@ export async function generateSQLFromDiff(
   const crossTableOps = ensureArray(diff.crossTableOperations);
   let activeTableName = tableName;
   const plannedColumns = new Set<string>();
+  const plannedUniqueGroups = new Set<string>();
+  const uniqueGroupKey = (columns: string[]) => JSON.stringify(columns);
   const canIndexColumns = async (cols: string[]): Promise<boolean> => {
     for (const col of cols) {
       if (plannedColumns.has(col)) continue;
@@ -348,13 +350,17 @@ export async function generateSQLFromDiff(
       );
     }
     if (col.isUnique) {
-      const uniqueConstraintName = `uq_${activeTableName}_${col.name}`;
-      sqlStatements.push(
-        `ALTER TABLE ${qt(activeTableName)} ADD CONSTRAINT ${qt(uniqueConstraintName)} UNIQUE (${qt(col.name)})`,
-      );
-      logger.log(
-        `  Added UNIQUE constraint on ${col.name} for one-to-one relation`,
-      );
+      const groupKey = uniqueGroupKey([col.name]);
+      if (!plannedUniqueGroups.has(groupKey)) {
+        plannedUniqueGroups.add(groupKey);
+        const uniqueConstraintName = `uq_${activeTableName}_${col.name}`;
+        sqlStatements.push(
+          `ALTER TABLE ${qt(activeTableName)} ADD CONSTRAINT ${qt(uniqueConstraintName)} UNIQUE (${qt(col.name)})`,
+        );
+        logger.log(
+          `  Added UNIQUE constraint on ${col.name} for one-to-one relation`,
+        );
+      }
     }
     if (
       col.type === 'datetime' ||
@@ -400,6 +406,9 @@ export async function generateSQLFromDiff(
     }
   }
   for (const uniqueGroup of ensureArray(constraintDiff.uniques?.create) || []) {
+    const groupKey = uniqueGroupKey(uniqueGroup);
+    if (plannedUniqueGroups.has(groupKey)) continue;
+    plannedUniqueGroups.add(groupKey);
     const columns = uniqueGroup.map((col: string) => qt(col)).join(', ');
     const constraintName = `uq_${activeTableName}_${uniqueGroup.join('_')}`;
     sqlStatements.push(
@@ -410,6 +419,9 @@ export async function generateSQLFromDiff(
     );
   }
   for (const uniqueGroup of ensureArray(constraintDiff.uniques?.update) || []) {
+    const groupKey = uniqueGroupKey(uniqueGroup);
+    if (plannedUniqueGroups.has(groupKey)) continue;
+    plannedUniqueGroups.add(groupKey);
     const columns = uniqueGroup.map((col: string) => qt(col)).join(', ');
     sqlStatements.push(
       `ALTER TABLE ${qt(activeTableName)} ADD UNIQUE (${columns})`,
