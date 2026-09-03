@@ -21,6 +21,7 @@ import { quoteIdentifier } from '../../engines/knex/utils/migration/sql-dialect'
 import { getCurrentDatabaseSchema } from '../../engines/knex/utils/provision/schema-comparison';
 import { buildSqlJunctionTableContract } from '../../engines/knex/utils/sql-physical-schema-contract';
 import { dropPostgresColumnCheckConstraints } from '../../engines/knex/utils/provision/postgres-column-check-constraints';
+import { getPostgresEnumTypeName } from '../../engines/knex/utils/sql-enum.util';
 
 /**
  * Apply SQL schema migrations (physical database)
@@ -756,7 +757,7 @@ async function applyPostgresEnumContract(
     );
   }
 
-  const enumType = `${tableName}_${columnName}_enum`;
+  const enumType = getPostgresEnumTypeName(tableName, columnName);
   let currentOptions: string[] = [];
   if (currentUdtName) {
     const result = await knex.raw(

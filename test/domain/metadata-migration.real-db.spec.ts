@@ -7,6 +7,14 @@ import { getCurrentDatabaseSchema } from '../../src/engines/knex/utils/provision
 import { applySqlSchemaMigrations } from '../../src/shared/utils/provision-schema-migration';
 import { parseSnapshotToSchema } from '../../src/engines/knex/utils/provision/schema-parser';
 import { syncTable } from '../../src/engines/knex/utils/provision/sync-table';
+import { createTable } from '../../src/engines/knex/utils/provision/table-builder';
+import { RuntimeSchemaTargetAttestorService } from '../../src/modules/table-management/services/runtime-schema-target-attestor.service';
+import {
+  executeBatchSQL,
+  generateBatchSQL,
+  generateSQLFromDiff,
+} from '../../src/engines/knex/utils/migration/sql-diff-generator';
+import { SqlSchemaHealingService } from '../../src/engines/bootstrap/services/schema-healing/sql-schema-healing.service';
 
 const SQL_DBS = [
   {
@@ -159,6 +167,601 @@ async function createSqlRelationStore(db: Knex, name: string) {
 }
 
 describe('MetadataMigrationService real DB self-healing stress', () => {
+  test.each(SQL_DBS)(
+    'creates a native $name enum for a fresh physical table',
+    async (config) => {
+      const available = await probeSql(config);
+      if (!available) {
+        console.warn(
+          `${config.name} not available, skipping native enum creation regression`,
+        );
+        return;
+      }
+
+      const { db, cleanup } = await makeIsolatedSqlDb(config);
+      const tableName = `native_enum_create_${config.name}`;
+      try {
+        const schemas = parseSnapshotToSchema({
+          [tableName]: {
+            name: tableName,
+            columns: [
+              {
+                name: 'id',
+                type: 'int',
+                isPrimary: true,
+                isGenerated: true,
+                isNullable: false,
+              },
+              {
+                name: 'paymentProvider',
+                type: 'enum',
+                options: ['sepay', 'paypal', 'apipay'],
+                isNullable: false,
+                defaultValue: 'sepay',
+              },
+            ],
+            relations: [],
+            indexes: [],
+            uniques: [],
+          },
+        });
+        const schema = schemas[0];
+        if (!schema)
+          throw new Error('native enum creation schema was not generated');
+
+        await createTable(db, schema, config.name, schemas);
+
+        const current = await getCurrentDatabaseSchema(db, tableName);
+        expect(
+          current.columns.find((column) => column.name === 'paymentProvider'),
+        ).toMatchObject({
+          type: 'enum',
+          enumValues: ['sepay', 'paypal', 'apipay'],
+        });
+      } finally {
+        await cleanup();
+      }
+    },
+  );
+
+  test.each(SQL_DBS)(
+    'allows a runtime $name enum update to remediate a safe varchar-backed source',
+    async (config) => {
+      const available = await probeSql(config);
+      if (!available) {
+        console.warn(
+          `${config.name} not available, skipping runtime enum source regression`,
+        );
+        return;
+      }
+
+      const { db, cleanup } = await makeIsolatedSqlDb(config);
+      const tableName = `runtime_enum_source_${config.name}`;
+      const postgresCheckName = `${tableName}_paymentProvider_check`;
+      try {
+        await db.schema.createTable(tableName, (table) => {
+          table.increments('id').primary();
+          table.string('paymentProvider').notNullable().defaultTo('sepay');
+          table.timestamp('createdAt').notNullable().defaultTo(db.fn.now());
+          table.timestamp('updatedAt').notNullable().defaultTo(db.fn.now());
+          table.index(['createdAt', 'id']);
+          table.index(['updatedAt', 'id']);
+        });
+        if (config.client === 'pg') {
+          await db.raw(
+            "ALTER TABLE ?? ADD CONSTRAINT ?? CHECK (?? IN ('sepay', 'paypal'))",
+            [tableName, postgresCheckName, 'paymentProvider'],
+          );
+        }
+        await db(tableName).insert({ paymentProvider: 'sepay' });
+
+        const service = new RuntimeSchemaTargetAttestorService({
+          queryBuilderService: { getKnex: () => db } as any,
+          databaseConfigService: { isMongoDb: () => false } as any,
+        });
+
+        const contract = {
+          context: {
+            operation: 'update',
+            tableName,
+            source: {
+              name: tableName,
+              columns: [
+                {
+                  name: 'paymentProvider',
+                  type: 'enum',
+                  options: ['sepay', 'paypal'],
+                  isNullable: false,
+                  defaultValue: 'sepay',
+                },
+              ],
+              relations: [],
+              indexes: [],
+              uniques: [],
+            },
+            target: {
+              name: tableName,
+              columns: [
+                {
+                  name: 'paymentProvider',
+                  type: 'enum',
+                  options: ['sepay', 'paypal', 'apipay'],
+                  isNullable: false,
+                  defaultValue: 'sepay',
+                },
+              ],
+              relations: [],
+              indexes: [],
+              uniques: [],
+            },
+          },
+        } as any;
+
+        await expect(service.assertSource(contract)).resolves.toBeUndefined();
+        await expect(
+          service.assertSource({
+            context: {
+              ...contract.context,
+              target: contract.context.source,
+            },
+          } as any),
+        ).rejects.toThrow(/paymentProvider differs on type/);
+
+        if (config.client === 'pg') {
+          await db.raw('ALTER TABLE ?? DROP CONSTRAINT ??', [
+            tableName,
+            postgresCheckName,
+          ]);
+        }
+        await db(tableName).insert({ paymentProvider: 'unsupported' });
+        await expect(service.assertSource(contract)).rejects.toThrow(
+          /paymentProvider differs on type/,
+        );
+        await db(tableName).where({ paymentProvider: 'unsupported' }).delete();
+        if (config.client === 'pg') {
+          await db.raw(
+            "ALTER TABLE ?? ADD CONSTRAINT ?? CHECK (?? IN ('sepay', 'paypal'))",
+            [tableName, postgresCheckName, 'paymentProvider'],
+          );
+        }
+
+        await applySqlSchemaMigrations(db, {
+          tables: [
+            {
+              _unique: { name: { _eq: tableName } },
+              columnsToModify: [
+                {
+                  from: contract.context.source.columns[0],
+                  to: contract.context.target.columns[0],
+                },
+              ],
+            },
+          ],
+        });
+
+        await expect(service.assertTarget(contract)).resolves.toBeUndefined();
+        await expect(
+          db(tableName).insert({ paymentProvider: 'apipay' }),
+        ).resolves.toBeDefined();
+      } finally {
+        await cleanup();
+      }
+    },
+  );
+
+  test.each(SQL_DBS)(
+    'plans a runtime $name enum option update to a native physical enum',
+    async (config) => {
+      const available = await probeSql(config);
+      if (!available) {
+        console.warn(
+          `${config.name} not available, skipping runtime enum planner regression`,
+        );
+        return;
+      }
+
+      const { db, cleanup } = await makeIsolatedSqlDb(config);
+      const tableName = `runtime_enum_plan_${config.name}`;
+      try {
+        await db.schema.createTable(tableName, (table) => {
+          table.increments('id').primary();
+          table.string('paymentProvider').notNullable().defaultTo('sepay');
+          table.timestamp('createdAt').notNullable().defaultTo(db.fn.now());
+          table.timestamp('updatedAt').notNullable().defaultTo(db.fn.now());
+          table.index(['createdAt', 'id']);
+          table.index(['updatedAt', 'id']);
+        });
+        if (config.client === 'pg') {
+          await db.raw(
+            "ALTER TABLE ?? ADD CONSTRAINT ?? CHECK (?? IN ('sepay', 'paypal'))",
+            [
+              tableName,
+              `${tableName}_paymentProvider_check`,
+              'paymentProvider',
+            ],
+          );
+        }
+        await db(tableName).insert({ paymentProvider: 'sepay' });
+
+        const oldColumn = {
+          id: 1,
+          name: 'paymentProvider',
+          type: 'enum',
+          options: ['sepay', 'paypal'],
+          isNullable: false,
+          defaultValue: 'sepay',
+        };
+        const newColumn = {
+          ...oldColumn,
+          options: ['sepay', 'paypal', 'apipay'],
+        };
+        const statements = await generateSQLFromDiff(
+          db,
+          tableName,
+          {
+            table: { create: null, update: null, delete: false },
+            columns: {
+              create: [],
+              update: [{ oldColumn, newColumn }],
+              delete: [],
+              rename: [],
+            },
+            relations: { create: [], update: [], delete: [], rename: [] },
+            constraints: {
+              uniques: { create: [], update: [], delete: [] },
+              indexes: { create: [], update: [], delete: [] },
+            },
+          },
+          config.name as 'mysql' | 'postgres',
+          {} as any,
+        );
+        const rollbackStatements = await generateSQLFromDiff(
+          db,
+          tableName,
+          {
+            table: { create: null, update: null, delete: false },
+            columns: {
+              create: [],
+              update: [{ oldColumn: newColumn, newColumn: oldColumn }],
+              delete: [],
+              rename: [],
+            },
+            relations: { create: [], update: [], delete: [], rename: [] },
+            constraints: {
+              uniques: { create: [], update: [], delete: [] },
+              indexes: { create: [], update: [], delete: [] },
+            },
+          },
+          config.name as 'mysql' | 'postgres',
+          {} as any,
+        );
+        await executeBatchSQL(
+          db,
+          generateBatchSQL(statements),
+          config.name as 'mysql' | 'postgres',
+        );
+
+        const current = await getCurrentDatabaseSchema(db, tableName);
+        expect(
+          current.columns.find((column) => column.name === 'paymentProvider'),
+        ).toMatchObject({
+          type: 'enum',
+          enumValues: ['sepay', 'paypal', 'apipay'],
+        });
+        await expect(
+          db(tableName).insert({ paymentProvider: 'apipay' }),
+        ).resolves.toBeDefined();
+        await db(tableName).where({ paymentProvider: 'apipay' }).delete();
+
+        await executeBatchSQL(
+          db,
+          generateBatchSQL(rollbackStatements),
+          config.name as 'mysql' | 'postgres',
+        );
+        const rolledBack = await getCurrentDatabaseSchema(db, tableName);
+        expect(
+          rolledBack.columns.find(
+            (column) => column.name === 'paymentProvider',
+          ),
+        ).toMatchObject({
+          type: 'enum',
+          enumValues: ['sepay', 'paypal'],
+        });
+        await expect(
+          db(tableName).insert({ paymentProvider: 'apipay' }),
+        ).rejects.toBeDefined();
+      } finally {
+        await cleanup();
+      }
+    },
+  );
+
+  test.each(SQL_DBS)(
+    'plans a runtime $name enum column create as a native physical enum',
+    async (config) => {
+      const available = await probeSql(config);
+      if (!available) {
+        console.warn(
+          `${config.name} not available, skipping runtime enum create planner regression`,
+        );
+        return;
+      }
+
+      const { db, cleanup } = await makeIsolatedSqlDb(config);
+      const tableName = `runtime_enum_add_${config.name}`;
+      try {
+        await db.schema.createTable(tableName, (table) => {
+          table.increments('id').primary();
+          table.timestamp('createdAt').notNullable().defaultTo(db.fn.now());
+          table.timestamp('updatedAt').notNullable().defaultTo(db.fn.now());
+          table.index(['createdAt', 'id']);
+          table.index(['updatedAt', 'id']);
+        });
+        const enumColumn = {
+          name: 'paymentProvider',
+          type: 'enum',
+          options: ['sepay', 'paypal', 'apipay'],
+          isNullable: false,
+          defaultValue: 'sepay',
+        };
+        const statements = await generateSQLFromDiff(
+          db,
+          tableName,
+          {
+            table: { create: null, update: null, delete: false },
+            columns: {
+              create: [enumColumn],
+              update: [],
+              delete: [],
+              rename: [],
+            },
+            relations: { create: [], update: [], delete: [], rename: [] },
+            constraints: {
+              uniques: { create: [], update: [], delete: [] },
+              indexes: { create: [], update: [], delete: [] },
+            },
+          },
+          config.name as 'mysql' | 'postgres',
+          {} as any,
+        );
+        await executeBatchSQL(
+          db,
+          generateBatchSQL(statements),
+          config.name as 'mysql' | 'postgres',
+        );
+
+        const current = await getCurrentDatabaseSchema(db, tableName);
+        expect(
+          current.columns.find((column) => column.name === 'paymentProvider'),
+        ).toMatchObject({
+          type: 'enum',
+          enumValues: ['sepay', 'paypal', 'apipay'],
+        });
+        await expect(db(tableName).insert({})).resolves.toBeDefined();
+      } finally {
+        await cleanup();
+      }
+    },
+  );
+
+  test.each(SQL_DBS)(
+    'heals persisted custom-table $name enum metadata into the physical schema',
+    async (config) => {
+      const available = await probeSql(config);
+      if (!available) {
+        console.warn(
+          `${config.name} not available, skipping metadata enum healing regression`,
+        );
+        return;
+      }
+
+      const { db, cleanup } = await makeIsolatedSqlDb(config);
+      const tableName = `metadata_enum_heal_${config.name}`;
+      const postgresCheckName = `${tableName}_paymentProvider_check`;
+      try {
+        await db.schema.createTable('enfyra_table', (table) => {
+          table.increments('id').primary();
+          table.string('name').notNullable();
+        });
+        await db.schema.createTable('enfyra_column', (table) => {
+          table.increments('id').primary();
+          table.integer('tableId').notNullable();
+          table.string('name').notNullable();
+          table.string('type').notNullable();
+          table.text('options');
+          table.boolean('isNullable').notNullable();
+          table.text('defaultValue');
+        });
+        await db.schema.createTable(tableName, (table) => {
+          table.increments('id').primary();
+          table.string('paymentProvider').notNullable().defaultTo('sepay');
+        });
+        if (config.client === 'pg') {
+          await db.raw(
+            "ALTER TABLE ?? ADD CONSTRAINT ?? CHECK (?? IN ('sepay', 'paypal'))",
+            [tableName, postgresCheckName, 'paymentProvider'],
+          );
+        }
+        const insertedTableIds =
+          config.client === 'pg'
+            ? await db('enfyra_table')
+                .insert({ name: tableName })
+                .returning('id')
+            : await db('enfyra_table').insert({ name: tableName });
+        const [tableId] = insertedTableIds;
+        const resolvedTableId = Number(
+          typeof tableId === 'object' ? (tableId as any).id : tableId,
+        );
+        await db('enfyra_column').insert({
+          tableId: resolvedTableId,
+          name: 'paymentProvider',
+          type: 'enum',
+          options: JSON.stringify(['sepay', 'paypal', 'apipay']),
+          isNullable: false,
+          defaultValue: JSON.stringify('sepay'),
+        });
+        await db(tableName).insert({ paymentProvider: 'sepay' });
+
+        const service = new SqlSchemaHealingService({
+          queryBuilderService: {
+            getKnex: () => db,
+            getDatabaseType: () => config.name,
+          } as any,
+          metadataCacheService: {} as any,
+          systemCoreTableResolver: {
+            getNames: async () => ({
+              table: 'enfyra_table',
+              column: 'enfyra_column',
+              relation: 'enfyra_relation',
+            }),
+          } as any,
+          log: () => undefined,
+          warn: () => undefined,
+        });
+
+        if (config.client === 'pg') {
+          await db.raw('ALTER TABLE ?? DROP CONSTRAINT ??', [
+            tableName,
+            postgresCheckName,
+          ]);
+        }
+        await db(tableName).insert({ paymentProvider: 'unsupported' });
+        await expect(service.repairSqlMetadataEnumColumns()).rejects.toThrow(
+          /unsupported persisted values/,
+        );
+        const rejected = await getCurrentDatabaseSchema(db, tableName);
+        expect(
+          rejected.columns.find((column) => column.name === 'paymentProvider')
+            ?.type,
+        ).not.toBe('enum');
+        await db(tableName).where({ paymentProvider: 'unsupported' }).delete();
+        if (config.client === 'pg') {
+          await db.raw(
+            "ALTER TABLE ?? ADD CONSTRAINT ?? CHECK (?? IN ('sepay', 'paypal'))",
+            [tableName, postgresCheckName, 'paymentProvider'],
+          );
+        }
+
+        await expect(service.repairSqlMetadataEnumColumns()).resolves.toBe(1);
+        const current = await getCurrentDatabaseSchema(db, tableName);
+        expect(
+          current.columns.find((column) => column.name === 'paymentProvider'),
+        ).toMatchObject({
+          type: 'enum',
+          enumValues: ['sepay', 'paypal', 'apipay'],
+        });
+        await expect(
+          db(tableName).insert({ paymentProvider: 'apipay' }),
+        ).resolves.toBeDefined();
+      } finally {
+        await cleanup();
+      }
+    },
+  );
+
+  test.each(SQL_DBS)(
+    'heals persisted custom-table $name enum metadata stored in the legacy values object',
+    async (config) => {
+      const available = await probeSql(config);
+      if (!available) {
+        console.warn(
+          `${config.name} not available, skipping legacy enum options regression`,
+        );
+        return;
+      }
+
+      const { db, cleanup } = await makeIsolatedSqlDb(config);
+      const tableName = `metadata_enum_legacy_options_${config.name}`;
+      try {
+        await db.schema.createTable('enfyra_table', (table) => {
+          table.increments('id').primary();
+          table.string('name').notNullable();
+        });
+        await db.schema.createTable('enfyra_column', (table) => {
+          table.increments('id').primary();
+          table.integer('tableId').notNullable();
+          table.string('name').notNullable();
+          table.string('type').notNullable();
+          table.text('options');
+          table.boolean('isNullable').notNullable();
+          table.text('defaultValue');
+        });
+        await db.schema.createTable(tableName, (table) => {
+          table.increments('id').primary();
+          table.string('authorKind').notNullable().defaultTo('customer');
+          table.string('unresolvedKind').notNullable().defaultTo('unknown');
+        });
+        const insertedTableIds =
+          config.client === 'pg'
+            ? await db('enfyra_table')
+                .insert({ name: tableName })
+                .returning('id')
+            : await db('enfyra_table').insert({ name: tableName });
+        const [tableId] = insertedTableIds;
+        const resolvedTableId = Number(
+          typeof tableId === 'object' ? (tableId as any).id : tableId,
+        );
+        await db('enfyra_column').insert({
+          tableId: resolvedTableId,
+          name: 'authorKind',
+          type: 'enum',
+          options: JSON.stringify({
+            values: ['customer', 'admin', 'system'],
+          }),
+          isNullable: false,
+          defaultValue: JSON.stringify('customer'),
+        });
+        await db('enfyra_column').insert({
+          tableId: resolvedTableId,
+          name: 'unresolvedKind',
+          type: 'enum',
+          options: null,
+          isNullable: false,
+          defaultValue: JSON.stringify('unknown'),
+        });
+
+        const warnings: string[] = [];
+
+        const service = new SqlSchemaHealingService({
+          queryBuilderService: {
+            getKnex: () => db,
+            getDatabaseType: () => config.name,
+          } as any,
+          metadataCacheService: {} as any,
+          systemCoreTableResolver: {
+            getNames: async () => ({
+              table: 'enfyra_table',
+              column: 'enfyra_column',
+              relation: 'enfyra_relation',
+            }),
+          } as any,
+          log: () => undefined,
+          warn: (message) => warnings.push(message),
+        });
+
+        await expect(service.repairSqlMetadataEnumColumns()).resolves.toBe(1);
+        const current = await getCurrentDatabaseSchema(db, tableName);
+        expect(
+          current.columns.find((column) => column.name === 'authorKind'),
+        ).toMatchObject({
+          type: 'enum',
+          enumValues: ['customer', 'admin', 'system'],
+        });
+        expect(
+          current.columns.find((column) => column.name === 'unresolvedKind')
+            ?.type,
+        ).not.toBe('enum');
+        expect(warnings).toContainEqual(
+          expect.stringContaining(
+            `${tableName}.unresolvedKind enum healing skipped`,
+          ),
+        );
+      } finally {
+        await cleanup();
+      }
+    },
+  );
+
   test('replaces every legacy PostgreSQL enum CHECK before applying new options', async () => {
     const config = SQL_DBS[0];
     const available = await probeSql(config);

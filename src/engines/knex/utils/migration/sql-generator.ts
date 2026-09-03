@@ -1,5 +1,3 @@
-import { quoteIdentifier } from './sql-dialect';
-
 const MYSQL_DEFAULT_UNSUPPORTED_TYPES = new Set([
   'array-select',
   'blob',
@@ -118,10 +116,13 @@ export function generateColumnDefinition(
       break;
     case 'enum':
       if (dbType === 'postgres' && Array.isArray(col.options)) {
-        const enumValues = col.options.map((opt: any) => `'${String(opt).replace(/'/g, "''")}'`).join(', ');
-        definition = `VARCHAR(255) CHECK (${quoteIdentifier(col.name, dbType)} IN (${enumValues}))`;
+        throw new Error(
+          `PostgreSQL enum column ${col.name} requires native enum planning`,
+        );
       } else if (Array.isArray(col.options)) {
-        const enumValues = col.options.map((opt: any) => `'${String(opt).replace(/'/g, "''")}'`).join(', ');
+        const enumValues = col.options
+          .map((opt: any) => `'${String(opt).replace(/'/g, "''")}'`)
+          .join(', ');
         definition = `ENUM(${enumValues})`;
       } else {
         definition = 'VARCHAR(255)';

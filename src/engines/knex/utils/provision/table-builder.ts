@@ -9,6 +9,7 @@ import {
   buildSqlUniqueContracts,
 } from '../sql-physical-schema-contract';
 import { supportsSqlColumnDefault } from '../migration/sql-generator';
+import { addSqlEnumColumn } from '../sql-enum.util';
 
 export function buildTableSchema(
   table: Knex.CreateTableBuilder,
@@ -39,7 +40,13 @@ export function buildTableSchema(
         column = table.increments(col.name).primary();
       }
     } else if (col.type === 'enum' && Array.isArray(col.options)) {
-      column = table.enum(col.name, col.options);
+      column = addSqlEnumColumn(
+        table,
+        tableName,
+        col.name,
+        col.options,
+        dbType,
+      );
     } else {
       switch (knexType) {
         case 'integer':

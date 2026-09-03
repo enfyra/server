@@ -13,6 +13,7 @@ import {
   buildSqlUniqueContracts,
   isSqlForeignKeyRelation,
 } from '../../../engines/knex/utils/sql-physical-schema-contract';
+import { hasSqlValuesOutsideEnumOptions } from '../../../engines/knex/utils/sql-enum.util';
 import {
   compareSchemas,
   getCurrentDatabaseSchema,
@@ -50,7 +51,7 @@ export class RuntimeSchemaTargetAttestorService {
       return;
     }
     if (contract.context.operation === 'delete') return;
-    await this.assertPresent(source, 'source');
+    await this.assertPresent(source, 'source', target);
   }
 
   async assertTarget(contract: RuntimeSchemaMutationContract): Promise<void> {
@@ -175,13 +176,18 @@ export class RuntimeSchemaTargetAttestorService {
   private async assertPresent(
     state: PhysicalState,
     phase: 'source' | 'target',
+    remediationTarget?: PhysicalState,
   ): Promise<void> {
     if (!state) {
       throw new Error(`Runtime schema ${phase} physical proof is missing`);
     }
     const errors = this.deps.databaseConfigService.isMongoDb()
       ? await this.collectMongoErrors(state)
-      : await this.collectSqlErrors(state, phase === 'source');
+      : await this.collectSqlErrors(
+          state,
+          phase === 'source',
+          remediationTarget,
+        );
     if (errors.length > 0) {
       throw new Error(
         `Runtime schema ${phase} physical attestation failed:\n- ${errors.join('\n- ')}`,
@@ -208,7 +214,8 @@ export class RuntimeSchemaTargetAttestorService {
 
   private async collectSqlErrors(
     state: RuntimeTableSchemaContract,
-    allowLegacyRedundantIndexes = false,
+    allowSourceRemediation = false,
+    remediationTarget?: PhysicalState,
   ): Promise<string[]> {
     const knex = this.deps.queryBuilderService.getKnex();
     if (!(await knex.schema.hasTable(state.name))) {
@@ -218,6 +225,15 @@ export class RuntimeSchemaTargetAttestorService {
     const schema = parseSnapshotToSchema({ [state.name]: definition })[0];
     const current = await getCurrentDatabaseSchema(knex, state.name);
     const diff = compareSchemas(schema, current, knex.client.config.client);
+    const remediableLegacyEnumColumns = allowSourceRemediation
+      ? await this.findRemediableLegacyEnumSourceColumns(
+          knex,
+          state,
+          current,
+          diff.columnsToModify,
+          remediationTarget,
+        )
+      : new Set<string>();
     const errors: string[] = [];
     for (const column of diff.columnsToAdd) {
       errors.push(`physical column ${state.name}.${column.name} is missing`);
@@ -226,8 +242,15 @@ export class RuntimeSchemaTargetAttestorService {
       errors.push(`unexpected physical column ${state.name}.${column}`);
     }
     for (const { column, changes } of diff.columnsToModify) {
+      const remainingChanges = changes.filter(
+        (change) =>
+          change !== 'type' || !remediableLegacyEnumColumns.has(column.name),
+      );
+      if (remainingChanges.length === 0) continue;
       errors.push(
-        `physical column ${state.name}.${column.name} differs on ${changes.join(', ')}`,
+        `physical column ${state.name}.${column.name} differs on ${remainingChanges.join(
+          ', ',
+        )}`,
       );
     }
     for (const columns of diff.uniquesToAdd) {
@@ -243,7 +266,7 @@ export class RuntimeSchemaTargetAttestorService {
     }
     for (const index of diff.indexesToRemove) {
       if (
-        allowLegacyRedundantIndexes
+        allowSourceRemediation
         && this.isLegacySqlAutoIndex(state, index.columns)
       ) {
         continue;
@@ -265,6 +288,69 @@ export class RuntimeSchemaTargetAttestorService {
     await this.collectSqlForeignKeyErrors(knex, state, errors);
     await this.collectSqlJunctionErrors(knex, state, errors);
     return errors;
+  }
+
+  private async findRemediableLegacyEnumSourceColumns(
+    knex: Knex,
+    state: RuntimeTableSchemaContract,
+    current: Awaited<ReturnType<typeof getCurrentDatabaseSchema>>,
+    modifications: Array<{ column: { name: string }; changes: string[] }>,
+    remediationTarget?: PhysicalState,
+  ): Promise<Set<string>> {
+    const client = String(knex.client.config.client).toLowerCase();
+    const legacyTextTypes = client.includes('pg') || client.includes('postgres')
+      ? new Set(['character varying', 'varchar', 'text'])
+      : client.includes('mysql')
+        ? new Set(['varchar', 'text', 'longtext'])
+        : null;
+    if (!legacyTextTypes) return new Set();
+
+    const remediable = new Set<string>();
+    for (const modification of modifications) {
+      if (!modification.changes.includes('type')) continue;
+      const expectedColumn = state.columns.find(
+        (column) => column.name === modification.column.name,
+      );
+      const currentColumn = current.columns.find(
+        (column) => column.name === modification.column.name,
+      );
+      const targetColumn = remediationTarget?.columns.find(
+        (column) => column.name === modification.column.name,
+      );
+      const rawOptions =
+        expectedColumn?.type === 'enum' &&
+        Array.isArray(expectedColumn.options)
+          ? expectedColumn.options
+          : null;
+      const options = rawOptions
+        ? rawOptions.filter(
+            (option): option is string => typeof option === 'string',
+          )
+        : [];
+      if (
+        !currentColumn ||
+        !targetColumn ||
+        !['type', 'options', 'isNullable', 'defaultValue'].some(
+          (field) =>
+            JSON.stringify((expectedColumn as any)?.[field]) !==
+            JSON.stringify((targetColumn as any)?.[field]),
+        ) ||
+        !legacyTextTypes.has(currentColumn.type.toLowerCase()) ||
+        options.length === 0 ||
+        options.length !== rawOptions?.length
+      ) {
+        continue;
+      }
+
+      const hasInvalidValue = await hasSqlValuesOutsideEnumOptions(
+        knex,
+        state.name,
+        currentColumn.name,
+        options,
+      );
+      if (!hasInvalidValue) remediable.add(currentColumn.name);
+    }
+    return remediable;
   }
 
   private isLegacySqlAutoIndex(

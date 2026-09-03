@@ -34,16 +34,19 @@ function makeEnvService(overrides: Record<string, unknown> = {}) {
   return {
     get: (key: string) =>
       (overrides as Record<string, unknown>)[key] ??
-      ({
-        NODE_NAME: NAMESPACE,
-        REDIS_RUNTIME_CACHE: true,
-      } as Record<string, unknown>)[key],
+      (
+        {
+          NODE_NAME: NAMESPACE,
+          REDIS_RUNTIME_CACHE: true,
+        } as Record<string, unknown>
+      )[key],
   };
 }
 
 function makeLifecycleFake() {
   return {
     getKeyTtlMs: () => 30 * 60 * 1000,
+    registerManagedKey: async () => undefined,
     touchKey: async () => undefined,
   };
 }

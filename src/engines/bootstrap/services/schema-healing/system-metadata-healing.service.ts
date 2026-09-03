@@ -50,6 +50,7 @@ export class SystemMetadataHealingService {
               table as any,
               column,
               this.queryBuilderService.getDatabaseType(),
+              tableDef.name,
             );
           },
         );
@@ -83,6 +84,7 @@ export class SystemMetadataHealingService {
             table as any,
             column,
             this.queryBuilderService.getDatabaseType(),
+            tableName,
           );
         });
         repaired++;

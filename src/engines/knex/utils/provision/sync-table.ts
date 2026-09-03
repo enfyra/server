@@ -10,6 +10,7 @@ import {
   getSqlRelationTargetTable,
   resolveSqlRelationOnDelete,
 } from '../sql-physical-schema-contract';
+import { addSqlEnumColumn, getPostgresEnumTypeName } from '../sql-enum.util';
 
 function rethrowPostgresTransactionError(knex: Knex, error: unknown): void {
   const client = String(knex.client.config.client ?? '').toLowerCase();
@@ -89,7 +90,13 @@ export async function applyColumnMigrations(
             break;
           case 'enum':
             if (Array.isArray(col.options)) {
-              column = table.enum(col.name, col.options);
+              column = addSqlEnumColumn(
+                table,
+                tableName,
+                col.name,
+                col.options,
+                dbType,
+              );
             } else {
               column = table.text(col.name);
             }
@@ -254,7 +261,7 @@ export async function applyColumnMigrations(
           Array.isArray(col.options) &&
           changes.includes('type')
         ) {
-          const newEnumType = `${tableName}_${col.name}_enum`;
+          const newEnumType = getPostgresEnumTypeName(tableName, col.name);
           const newEnumValues = col.options || [];
 
           // Check actual current type in database
@@ -380,7 +387,7 @@ export async function applyColumnMigrations(
           );
           if (enumTypeResult.rows.length > 0) {
             const oldEnumType = enumTypeResult.rows[0].udt_name;
-            const newEnumType = `${tableName}_${col.name}_enum`;
+            const newEnumType = getPostgresEnumTypeName(tableName, col.name);
             const currentEnumResult = await knex.raw(
               `
               SELECT e.enumlabel
@@ -797,8 +804,13 @@ async function syncRelationOnDeleteChanges(
   );
   if (!hasOnDeleteColumn) {
     await knex.schema.alterTable('enfyra_relation', (table) => {
-      table
-        .enum('onDelete', ['CASCADE', 'RESTRICT', 'SET NULL'])
+      addSqlEnumColumn(
+        table,
+        'enfyra_relation',
+        'onDelete',
+        ['CASCADE', 'RESTRICT', 'SET NULL'],
+        dbType,
+      )
         .notNullable()
         .defaultTo('SET NULL');
     });

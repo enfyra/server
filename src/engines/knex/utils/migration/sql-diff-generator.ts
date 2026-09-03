@@ -20,6 +20,12 @@ import {
   buildSqlJunctionTableContract,
   resolveSqlRelationOnDelete,
 } from '../sql-physical-schema-contract';
+import { getPostgresEnumTypeName } from '../sql-enum.util';
+import {
+  buildPostgresEnumColumnDefinition,
+  planPostgresEnumTypeCreation,
+  planPostgresEnumUpdate,
+} from './postgres-enum-migration';
 
 const logger = new Logger('SqlDiffGenerator');
 function isIdempotentDDLError(err: any, dbType: string): boolean {
@@ -287,11 +293,7 @@ export async function generateSQLFromDiff(
     );
     if (constraintName) {
       sqlStatements.push(
-        generateDropForeignKeySQL(
-          crossOp.targetTable,
-          constraintName,
-          dbType,
-        ),
+        generateDropForeignKeySQL(crossOp.targetTable, constraintName, dbType),
       );
     }
   }
@@ -336,10 +338,26 @@ export async function generateSQLFromDiff(
     sqlStatements.push(
       generateDropColumnSQL(activeTableName, col.name, dbType),
     );
+    if (dbType === 'postgres' && col.type === 'enum') {
+      sqlStatements.push(
+        `DROP TYPE IF EXISTS ${quoteIdentifier(getPostgresEnumTypeName(activeTableName, col.name), 'postgres')}`,
+      );
+    }
   }
   for (const col of ensureArray(columnDiff.create)) {
     plannedColumns.add(col.name);
-    const columnDef = generateColumnDefinition(col, dbType);
+    let columnDef: string;
+    if (dbType === 'postgres' && col.type === 'enum') {
+      const enumPlan = await planPostgresEnumTypeCreation(
+        knex,
+        activeTableName,
+        col,
+      );
+      sqlStatements.push(...enumPlan.statements);
+      columnDef = buildPostgresEnumColumnDefinition(activeTableName, col);
+    } else {
+      columnDef = generateColumnDefinition(col, dbType);
+    }
     sqlStatements.push(
       `ALTER TABLE ${qt(activeTableName)} ADD COLUMN ${qt(col.name)} ${columnDef}`,
     );
@@ -391,6 +409,17 @@ export async function generateSQLFromDiff(
       continue;
     }
     processedUpdates.add(colName);
+    if (dbType === 'postgres' && update.newColumn.type === 'enum') {
+      sqlStatements.push(
+        ...(await planPostgresEnumUpdate(
+          knex,
+          activeTableName,
+          update.oldColumn,
+          update.newColumn,
+        )),
+      );
+      continue;
+    }
     const columnDef = generateColumnDefinition(update.newColumn, dbType);
     const modifySQL = generateModifyColumnSQL(
       activeTableName,
@@ -441,7 +470,21 @@ export async function generateSQLFromDiff(
   }
   for (const crossOp of crossTableOps) {
     if (crossOp.operation === 'createColumn') {
-      const columnDef = generateColumnDefinition(crossOp.column, dbType);
+      let columnDef: string;
+      if (dbType === 'postgres' && crossOp.column.type === 'enum') {
+        const enumPlan = await planPostgresEnumTypeCreation(
+          knex,
+          crossOp.targetTable,
+          crossOp.column,
+        );
+        sqlStatements.push(...enumPlan.statements);
+        columnDef = buildPostgresEnumColumnDefinition(
+          crossOp.targetTable,
+          crossOp.column,
+        );
+      } else {
+        columnDef = generateColumnDefinition(crossOp.column, dbType);
+      }
       sqlStatements.push(
         `ALTER TABLE ${qt(crossOp.targetTable)} ADD COLUMN ${qt(crossOp.column.name)} ${columnDef}`,
       );

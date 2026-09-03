@@ -93,6 +93,9 @@ export class SchemaHealingService {
     const sqlSystemPhysicalColumnRepairCount = isMongoDB
       ? 0
       : await this.systemMetadataHealing.repairSqlSystemPhysicalColumns();
+    const sqlMetadataEnumRepairCount = isMongoDB
+      ? 0
+      : await this.sqlHealing.repairSqlMetadataEnumColumns();
 
     if (mongoSystemShapeRepairCount > 0) {
       this.logger.log(
@@ -102,6 +105,11 @@ export class SchemaHealingService {
     if (sqlSystemPhysicalColumnRepairCount > 0) {
       this.logger.log(
         `Repaired SQL system physical columns on ${sqlSystemPhysicalColumnRepairCount} column(s)`,
+      );
+    }
+    if (sqlMetadataEnumRepairCount > 0) {
+      this.logger.log(
+        `Repaired SQL metadata-backed enum columns on ${sqlMetadataEnumRepairCount} column(s)`,
       );
     }
 

@@ -40,6 +40,9 @@ function makeQb(findImpl: (args: any) => any, updateMock: any) {
     leftJoin: vi.fn().mockReturnThis(),
     select: vi.fn().mockResolvedValue([]),
   }));
+  knex.schema = {
+    hasTable: vi.fn().mockResolvedValue(false),
+  };
   return {
     find: vi.fn(findImpl as any),
     update: updateMock,

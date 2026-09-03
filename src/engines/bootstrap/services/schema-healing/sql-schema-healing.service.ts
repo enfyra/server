@@ -6,6 +6,11 @@ import {
 import type { Knex } from 'knex';
 import { MetadataCacheService } from '../../../cache';
 import { buildSqlJunctionTableContract } from '../../../knex/utils/sql-physical-schema-contract';
+import { hasSqlValuesOutsideEnumOptions } from '../../../knex/utils/sql-enum.util';
+import { getCurrentDatabaseSchema } from '../../../knex/utils/provision/schema-comparison';
+import { applySqlColumnModifications } from '../../../../shared/utils/provision-schema-migration';
+import type { ColumnModifyDef } from '../../../../shared/types/schema-migration.types';
+import { normalizeEnumOptionsValue } from '../../../../shared/utils/json-field-normalizer.util';
 import type { SchemaHealingSnapshot } from '../../types/schema-healing.types';
 import {
   diffJunctionMetadata,
@@ -32,6 +37,129 @@ export class SqlSchemaHealingService {
     this.systemCoreTableResolver = deps.systemCoreTableResolver;
     this.log = deps.log;
     this.warn = deps.warn;
+  }
+
+  async repairSqlMetadataEnumColumns(): Promise<number> {
+    const knex = this.queryBuilderService.getKnex();
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    if (!(await knex.schema.hasTable(coreNames.table))) return 0;
+    if (!(await knex.schema.hasTable(coreNames.column))) return 0;
+
+    const enumColumns = await knex(`${coreNames.column} as column_def`)
+      .join(
+        `${coreNames.table} as table_def`,
+        'table_def.id',
+        'column_def.tableId',
+      )
+      .where('column_def.type', 'enum')
+      .select({
+        tableName: 'table_def.name',
+        columnName: 'column_def.name',
+        options: 'column_def.options',
+        isNullable: 'column_def.isNullable',
+        defaultValue: 'column_def.defaultValue',
+      });
+    const repairs: Array<{
+      tableName: string;
+      modification: ColumnModifyDef;
+    }> = [];
+
+    for (const metadata of enumColumns) {
+      const tableName = String(metadata.tableName ?? '');
+      const columnName = String(metadata.columnName ?? '');
+      const options = normalizeEnumOptionsValue(metadata.options);
+      if (
+        tableName &&
+        columnName &&
+        (!Array.isArray(options) ||
+          options.length === 0 ||
+          options.some((option) => typeof option !== 'string') ||
+          new Set(options).size !== options.length)
+      ) {
+        this.warn(
+          `${tableName}.${columnName} enum healing skipped: metadata options are missing or invalid`,
+        );
+        continue;
+      }
+      if (
+        !tableName ||
+        !columnName ||
+        !Array.isArray(options) ||
+        !(await knex.schema.hasTable(tableName)) ||
+        !(await knex.schema.hasColumn(tableName, columnName))
+      ) {
+        continue;
+      }
+
+      const current = await getCurrentDatabaseSchema(knex, tableName);
+      const physical = current.columns.find(
+        (column) => column.name === columnName,
+      );
+      if (!physical) continue;
+      if (
+        physical.type === 'enum' &&
+        JSON.stringify(physical.enumValues ?? []) === JSON.stringify(options)
+      ) {
+        continue;
+      }
+
+      if (
+        await hasSqlValuesOutsideEnumOptions(
+          knex,
+          tableName,
+          columnName,
+          options,
+        )
+      ) {
+        throw new Error(
+          `Cannot heal ${tableName}.${columnName} enum: unsupported persisted values`,
+        );
+      }
+
+      repairs.push({
+        tableName,
+        modification: {
+          from: {
+            name: columnName,
+            type: physical.type,
+            options: physical.enumValues ?? null,
+            isNullable: physical.isNullable,
+            defaultValue: physical.defaultValue,
+          },
+          to: {
+            name: columnName,
+            type: 'enum',
+            options,
+            isNullable: this.toBoolean(metadata.isNullable),
+            defaultValue: this.parseStoredJson(metadata.defaultValue),
+          },
+        },
+      });
+    }
+
+    for (const repair of repairs) {
+      await applySqlColumnModifications(
+        knex,
+        repair.tableName,
+        [repair.modification],
+        String(knex.client.config.client),
+      );
+    }
+
+    return repairs.length;
+  }
+
+  private parseStoredJson(value: unknown): unknown {
+    if (typeof value !== 'string') return value;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
+
+  private toBoolean(value: unknown): boolean {
+    return value === true || value === 1 || value === '1';
   }
 
   async repairSqlRelationPhysicalMappings(): Promise<number> {

@@ -73,6 +73,19 @@ export function normalizeColumnOptionsValue(value: any): any {
   return parsePostgresArrayLiteral(normalized) ?? normalized;
 }
 
+export function normalizeEnumOptionsValue(value: any): any {
+  const normalized = normalizeColumnOptionsValue(value);
+  if (
+    normalized &&
+    !Array.isArray(normalized) &&
+    typeof normalized === 'object' &&
+    Array.isArray(normalized.values)
+  ) {
+    return normalized.values;
+  }
+  return normalized;
+}
+
 export function stringifyJsonFieldValue(value: any): string | null {
   if (value === undefined || value === null) return null;
   return JSON.stringify(normalizeJsonFieldValue(value));

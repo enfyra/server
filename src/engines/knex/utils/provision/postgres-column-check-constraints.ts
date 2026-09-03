@@ -1,10 +1,10 @@
 import type { Knex } from 'knex';
 
-export async function dropPostgresColumnCheckConstraints(
+export async function findPostgresColumnCheckConstraintNames(
   knex: Knex,
   tableName: string,
   columnName: string,
-): Promise<void> {
+): Promise<string[]> {
   const result = await knex.raw(
     `
       SELECT DISTINCT constraint_def.conname AS constraint_name
@@ -23,10 +23,27 @@ export async function dropPostgresColumnCheckConstraints(
     `,
     [tableName, columnName],
   );
-  for (const constraint of result.rows ?? []) {
+  return (result.rows ?? [])
+    .map((constraint: { constraint_name?: unknown }) =>
+      String(constraint.constraint_name ?? ''),
+    )
+    .filter(Boolean);
+}
+
+export async function dropPostgresColumnCheckConstraints(
+  knex: Knex,
+  tableName: string,
+  columnName: string,
+): Promise<void> {
+  const constraintNames = await findPostgresColumnCheckConstraintNames(
+    knex,
+    tableName,
+    columnName,
+  );
+  for (const constraintName of constraintNames) {
     await knex.raw('ALTER TABLE ?? DROP CONSTRAINT ??', [
       tableName,
-      constraint.constraint_name,
+      constraintName,
     ]);
   }
 }
