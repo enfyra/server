@@ -6,6 +6,7 @@ import {
 } from '@enfyra/kernel';
 import { DynamicService } from '../../src/modules/dynamic-api/services/dynamic.service';
 import { HttpException } from '../../src/domain/exceptions';
+import * as runtimeLogs from '../../src/shared/runtime-log-buffer';
 
 function createRequest(overrides: any = {}) {
   return {
@@ -40,7 +41,7 @@ describe('DynamicService error reporting', () => {
         error: vi.fn(),
       },
     } as any);
-    const warn = vi.spyOn((service as any).logger, 'warn');
+    const record = vi.spyOn(runtimeLogs, 'recordUserLog');
     const request = createRequest({
       routeData: {
         context: {
@@ -54,13 +55,8 @@ describe('DynamicService error reporting', () => {
       statusCode: 400,
     });
 
-    expect(warn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message: 'Dynamic script log',
-        statusCode: 400,
-        entry: 'upstream status=400',
-      }),
-    );
+    expect(record).toHaveBeenCalledWith(['upstream status=400'], expect.objectContaining({ statusCode: 400 }));
+    record.mockRestore();
   });
 
   it('keeps script client error message separate from object details', async () => {

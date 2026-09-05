@@ -1,3 +1,4 @@
+import { recordUserLog } from '../runtime-log-buffer';
 import * as jwt from 'jsonwebtoken';
 import { getIoAbortSignal } from '@enfyra/kernel';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -114,6 +115,7 @@ export class DynamicContextFactory {
       if (!ctx.$share) ctx.$share = { $logs: [] };
       if (!ctx.$share.$logs) ctx.$share.$logs = [];
       ctx.$share.$logs.push(...args);
+      recordUserLog(args, { component: 'Script', correlationId: ctx.$api?.request?.correlationId, sourceKind: 'host' });
     };
 
     return ctx;

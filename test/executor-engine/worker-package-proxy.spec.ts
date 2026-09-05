@@ -51,4 +51,27 @@ describe('$pkgs worker proxy fallback', () => {
 
     expect(result.value).toBe('https://enfyra.app/docs');
   });
+
+  it('keeps returned function handles and async callbacks callable', async () => {
+    const result = await executeSingle({
+      code: `
+        const util = require('node:util');
+        const callbackified = await util.callbackify(async (value) => value * 2);
+        return await new Promise((resolve, reject) => {
+          callbackified(21, (error, value) => error ? reject(error) : resolve(value));
+        });
+      `,
+      pkgSources: [
+        {
+          name: 'node:util',
+          safeName: 'node_util',
+          sourceCode: 'import "node:util"; export default {};',
+        },
+      ],
+      snapshot,
+      ctx: { $share: {} },
+    });
+
+    expect(result.value).toBe(42);
+  });
 });

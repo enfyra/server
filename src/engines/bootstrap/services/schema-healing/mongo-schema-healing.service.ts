@@ -254,6 +254,16 @@ export class MongoSchemaHealingService {
     }
 
     const collection = db.collection(input.junctionTableName);
+    await this.assertMongoJunctionFieldRenameSafe(
+      collection,
+      renamedFrom?.sourceColumn || input.oldJunctionSourceColumn,
+      input.junctionSourceColumn,
+    );
+    await this.assertMongoJunctionFieldRenameSafe(
+      collection,
+      renamedFrom?.targetColumn || input.oldJunctionTargetColumn,
+      input.junctionTargetColumn,
+    );
     await this.renameMongoJunctionFieldIfNeeded(
       collection,
       renamedFrom?.sourceColumn || input.oldJunctionSourceColumn,
@@ -298,24 +308,46 @@ export class MongoSchemaHealingService {
   ): Promise<{ merged: number; unmappable: number }> {
     const sourceCollection = db.collection(input.oldJunctionTableName);
     const targetCollection = db.collection(input.junctionTableName);
-    const cursor = sourceCollection.find({});
-    let merged = 0;
     let unmappable = 0;
 
-    while (await cursor.hasNext()) {
-      const doc = await cursor.next();
+    for await (const doc of sourceCollection.find({})) {
       if (!doc) continue;
-      const sourceValue =
-        doc[input.oldJunctionSourceColumn || ''] ??
-        doc[input.junctionSourceColumn];
-      const targetValue =
-        doc[input.oldJunctionTargetColumn || ''] ??
-        doc[input.junctionTargetColumn];
-      if (sourceValue == null || targetValue == null) {
+      const source = this.resolveMongoJunctionIdentity(
+        doc,
+        input.oldJunctionSourceColumn,
+        input.junctionSourceColumn,
+      );
+      const target = this.resolveMongoJunctionIdentity(
+        doc,
+        input.oldJunctionTargetColumn,
+        input.junctionTargetColumn,
+      );
+      if (
+        source.conflicting ||
+        target.conflicting ||
+        source.value == null ||
+        target.value == null
+      ) {
         unmappable++;
-        continue;
       }
+    }
+    if (unmappable > 0) {
+      return { merged: 0, unmappable };
+    }
 
+    let merged = 0;
+    for await (const doc of sourceCollection.find({})) {
+      if (!doc) continue;
+      const sourceValue = this.resolveMongoJunctionIdentity(
+        doc,
+        input.oldJunctionSourceColumn,
+        input.junctionSourceColumn,
+      ).value;
+      const targetValue = this.resolveMongoJunctionIdentity(
+        doc,
+        input.oldJunctionTargetColumn,
+        input.junctionTargetColumn,
+      ).value;
       await targetCollection.updateOne(
         {
           [input.junctionSourceColumn]: sourceValue,
@@ -332,6 +364,33 @@ export class MongoSchemaHealingService {
       merged++;
     }
     return { merged, unmappable };
+  }
+
+  private resolveMongoJunctionIdentity(
+    doc: any,
+    legacyField: string | null,
+    canonicalField: string,
+  ): { value: any; conflicting: boolean } {
+    const legacyValue = legacyField ? doc[legacyField] : undefined;
+    const canonicalValue = doc[canonicalField];
+    const conflicting =
+      legacyValue != null &&
+      canonicalValue != null &&
+      !this.mongoIdentityEquals(legacyValue, canonicalValue);
+    return {
+      value: canonicalValue ?? legacyValue,
+      conflicting,
+    };
+  }
+
+  private mongoIdentityEquals(left: any, right: any): boolean {
+    if (left === right) return true;
+    try {
+      if (typeof left?.equals === 'function' && left.equals(right)) return true;
+      if (typeof right?.equals === 'function' && right.equals(left))
+        return true;
+    } catch {}
+    return String(left) === String(right);
   }
 
   private getLegacyJunctionTableName(
@@ -439,6 +498,32 @@ export class MongoSchemaHealingService {
       { [oldField]: { $exists: true }, [newField]: { $exists: false } },
       { $rename: { [oldField]: newField } },
     );
+  }
+
+  private async assertMongoJunctionFieldRenameSafe(
+    collection: any,
+    oldField: string | null,
+    newField: string,
+  ): Promise<void> {
+    for await (const doc of collection.find({})) {
+      if (!doc) continue;
+      const oldValue = oldField ? doc[oldField] : undefined;
+      const newValue = doc[newField];
+      if (oldValue == null && newValue == null) {
+        throw new Error(
+          `Junction healing blocked: row is missing required field '${newField}'.`,
+        );
+      }
+      if (
+        oldValue != null &&
+        newValue != null &&
+        !this.mongoIdentityEquals(oldValue, newValue)
+      ) {
+        throw new Error(
+          `Junction healing blocked: conflicting values for '${oldField}' and '${newField}'.`,
+        );
+      }
+    }
   }
 
   async repairMongoRelationPhysicalMappings(): Promise<number> {

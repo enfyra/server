@@ -58,7 +58,12 @@ describe('SchemaHealingService Mongo integration', () => {
 
   beforeAll(async () => {
     available = await probeMongo();
-    if (!available) return;
+    if (!available) {
+      if (process.env.REQUIRE_MONGO_E2E === '1') {
+        throw new Error('Required MongoDB E2E target is unavailable');
+      }
+      return;
+    }
 
     DatabaseConfigService.overrideForTesting?.('mongodb');
     client = new MongoClient(MONGO_URI);
@@ -415,5 +420,105 @@ describe('SchemaHealingService Mongo integration', () => {
         }),
       ]),
     );
+  });
+
+  test('blocks conflicting legacy and canonical junction identities before merge or cleanup', async () => {
+    if (!available || !db) {
+      console.warn(
+        'MongoDB not available, skipping real DB schema healing test',
+      );
+      return;
+    }
+
+    await db.collection('enfyra_setting').deleteMany({});
+    await db.collection('enfyra_table').deleteMany({});
+    await db.collection('enfyra_relation').deleteMany({});
+
+    const oldCollectionName = 'enfyra_route_availableMethods_enfyra_method';
+    try {
+      await db.collection(oldCollectionName).drop();
+    } catch {}
+    const junction = getSqlJunctionPhysicalNames({
+      sourceTable: 'enfyra_route',
+      propertyName: 'availableMethods',
+      targetTable: 'enfyra_method',
+    });
+    try {
+      await db.collection(junction.junctionTableName).drop();
+    } catch {}
+
+    const routeTableId = new ObjectId();
+    const methodTableId = new ObjectId();
+    const owningRelationId = new ObjectId();
+    const oldRouteId = new ObjectId();
+    const conflictingRouteId = new ObjectId();
+    const methodId = new ObjectId();
+    await db.collection('enfyra_setting').insertOne({
+      _id: new ObjectId(),
+      uniquesIndexesRepaired: true,
+    });
+    await db.collection('enfyra_table').insertMany([
+      { _id: routeTableId, name: 'enfyra_route', isSystem: true },
+      { _id: methodTableId, name: 'enfyra_method', isSystem: true },
+    ]);
+    await db.collection('enfyra_relation').insertOne({
+      _id: owningRelationId,
+      sourceTable: routeTableId,
+      targetTable: methodTableId,
+      propertyName: 'availableMethods',
+      type: 'many-to-many',
+      junctionTableName: oldCollectionName,
+      junctionSourceColumn: 'enfyra_routeId',
+      junctionTargetColumn: 'enfyra_methodId',
+    });
+    const conflictingDocument = {
+      _id: new ObjectId(),
+      enfyra_routeId: oldRouteId,
+      [junction.junctionSourceColumn]: conflictingRouteId,
+      enfyra_methodId: methodId,
+      [junction.junctionTargetColumn]: methodId,
+    };
+    await db.collection(oldCollectionName).insertOne(conflictingDocument);
+    await db.createCollection(junction.junctionTableName);
+
+    const tables = new Map<string, any>([
+      ['enfyra_setting', makeTableMetadata('enfyra_setting')],
+      ['enfyra_table', makeTableMetadata('enfyra_table')],
+      ['enfyra_relation', makeTableMetadata('enfyra_relation')],
+    ]);
+    const queryBuilderService = new QueryBuilderService({
+      mongoService: {
+        getDb: () => db,
+        collection: (name: string) => db.collection(name),
+      },
+      databaseConfigService: {
+        getDbType: () => 'mongodb',
+        isMongoDb: () => true,
+      },
+      lazyRef: {
+        metadataCacheService: {
+          isLoaded: () => true,
+          getMetadata: async () => ({ tables }),
+        },
+      },
+    } as any);
+    const service = new SchemaHealingService({
+      queryBuilderService,
+      metadataCacheService: { getAllTablesMetadata: async () => [] } as any,
+      systemCoreTableResolver: makeCoreTableResolver() as any,
+    });
+
+    await expect(service.runIfNeeded()).rejects.toThrow(/unmappable|blocked/i);
+    await expect(
+      db
+        .collection(oldCollectionName)
+        .findOne({ _id: conflictingDocument._id }),
+    ).resolves.toMatchObject(conflictingDocument);
+    await expect(
+      db.collection(junction.junctionTableName).countDocuments({}),
+    ).resolves.toBe(0);
+    await expect(
+      db.listCollections({ name: oldCollectionName }).toArray(),
+    ).resolves.toHaveLength(1);
   });
 });

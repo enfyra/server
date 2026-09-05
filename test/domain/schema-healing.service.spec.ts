@@ -702,9 +702,10 @@ describe('SchemaHealingService.runIfNeeded', () => {
     const db = {
       collection: vi.fn((name: string) => {
         collections[name] ||= {
-          find: vi
-            .fn()
-            .mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) }),
+          find: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+            async *[Symbol.asyncIterator]() {},
+          }),
           updateMany,
           createIndex,
         };

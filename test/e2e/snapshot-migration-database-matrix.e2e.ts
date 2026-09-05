@@ -134,7 +134,6 @@ function serverEnvironment(
     NODE_NAME: options.nodeName || `snapshot-migration-e2e-${port}`,
     BOOTSTRAP_VERBOSE: process.env.MATRIX_BOOTSTRAP_VERBOSE || '0',
     MONGO_FORCE_APP_TRANSACTION: '0',
-    ISOLATED_EXECUTOR_FILE_LOG: '0',
   };
 }
 

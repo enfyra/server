@@ -1,15 +1,7 @@
-import * as path from 'path';
-import * as fs from 'fs';
-import { createRequire } from 'module';
 import pino, { Logger as PinoLogger } from 'pino';
 import { logStore } from './log-store';
 import { getBootstrapLogMode } from './bootstrap-log-context';
-import { resolveLogDirectory } from './log-directory';
-
-const LOG_DIR = resolveLogDirectory();
-if (!fs.existsSync(LOG_DIR)) {
-  fs.mkdirSync(LOG_DIR, { recursive: true });
-}
+import { recordSystemError } from './runtime-log-buffer';
 
 type LevelName = 'error' | 'warn' | 'log' | 'debug' | 'verbose';
 
@@ -168,47 +160,6 @@ const NOOP_STREAM: pino.DestinationStream = {
   write: () => {},
 };
 
-const requireModule = createRequire(__filename);
-const PINO_ROLL_TARGET = requireModule.resolve('pino-roll');
-
-function buildTransport(): pino.DestinationStream | undefined {
-  if (process.env.LOG_DISABLE_FILES === '1') return NOOP_STREAM;
-  try {
-    return pino.transport({
-      targets: [
-        {
-          level: 'info',
-          target: PINO_ROLL_TARGET,
-          options: {
-            file: path.join(LOG_DIR, 'app'),
-            frequency: 'daily',
-            size: '20m',
-            extension: '.log',
-            mkdir: true,
-          },
-        },
-        {
-          level: 'error',
-          target: PINO_ROLL_TARGET,
-          options: {
-            file: path.join(LOG_DIR, 'error'),
-            frequency: 'daily',
-            size: '20m',
-            extension: '.log',
-            mkdir: true,
-          },
-        },
-      ],
-    });
-  } catch (error) {
-    if (process.env.LOG_ALLOW_STDOUT_ONLY === '1') {
-      console.error('File log transport disabled after setup failure:', error);
-      return undefined;
-    }
-    throw error;
-  }
-}
-
 const pinoInstance: PinoLogger = pino(
   {
     level: 'info',
@@ -227,7 +178,7 @@ const pinoInstance: PinoLogger = pino(
       return mix;
     },
   },
-  buildTransport(),
+  NOOP_STREAM,
 );
 
 export function __pinoInstanceForTests(): PinoLogger {
@@ -264,10 +215,10 @@ function printPretty(
   const safeMsg = redactSensitiveText(msg);
   const msgColored = emphasize ? `${iconColor}${safeMsg}${RESET}` : safeMsg;
   const line = `${BRACKET}[${time}]${RESET} ${iconColor}${icon}${RESET} ${ctxStr}${corrStr}${ARROW} ${msgColored}`;
-  const target = level === 'error' ? console.error : console.log;
-  target(line);
+  if (level === 'error') process.stderr.write(line + '\n');
+  else console.log(line);
   if (trace) {
-    console.error(`${DIM}  ${redactSensitiveText(trace)}${RESET}`);
+    process.stderr.write(`${DIM}  ${redactSensitiveText(trace)}${RESET}\n`);
   }
 }
 
@@ -381,6 +332,9 @@ export class Logger {
     const pinoLevel = PINO_LEVEL[level];
     const safeMeta = sanitizeLogValue(meta);
     const safeMsg = redactSensitiveText(msg);
+    if (level === 'error' || safeMeta.systemError === true) {
+      recordSystemError(safeMsg, { ...safeMeta, correlationId: safeMeta.correlationId ?? logStore.getStore()?.correlationId });
+    }
     pinoInstance[pinoLevel](safeMeta, safeMsg);
 
     const correlationId = logStore.getStore()?.correlationId;

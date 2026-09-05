@@ -14,6 +14,28 @@ describe('validateBootstrapDataFiles', () => {
     expect(issues).toEqual([]);
   });
 
+  it.each([
+    { path: { _in: ['/logs', '/logs/stats'] } },
+    {},
+    { _or: [{ path: { _eq: '/logs' } }] },
+    { path: { _eq: { _ne: null } } },
+  ])('rejects unsupported deletion filters before migration: %j', (filter) => {
+    const issues = validateBootstrapDataFiles({
+      snapshot,
+      defaultData,
+      dataMigration: { _deletedRecords: [{ table: 'enfyra_route', filter }] },
+    });
+    expect(issues).toEqual([expect.objectContaining({
+      file: 'data-migration.ts', table: 'enfyra_route', field: '_deletedRecords[0].filter',
+    })]);
+  });
+
+  it('declares each retired log route with an exact deletion selector', () => {
+    for (const path of ['/logs', '/logs/stats', '/logs/:filename', '/logs/:filename/tail']) {
+      expect(dataMigration._deletedRecords).toContainEqual({ table: 'enfyra_route', filter: { path: { _eq: path } } });
+    }
+  });
+
   it('migrates static admin routes into route metadata', () => {
     const routes = dataMigration.enfyra_route ?? [];
     const paths = new Set(

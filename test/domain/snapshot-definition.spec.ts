@@ -11,10 +11,10 @@ describe('SnapshotDefinition', () => {
   it('defines the complete current system target', () => {
     const tables = Object.values(snapshot);
 
-    expect(tables).toHaveLength(43);
+    expect(tables).toHaveLength(45);
     expect(
       tables.reduce((total, table) => total + table.columns.length, 0),
-    ).toBe(349);
+    ).toBe(376);
     expect(
       tables.reduce(
         (total, table) => total + (table.relations?.length ?? 0),
@@ -107,5 +107,22 @@ describe('SnapshotDefinition', () => {
     expect(() => definition.table('posts')).toThrow(
       /Snapshot table posts is already defined/,
     );
+  });
+
+  it('keeps error and user-log schemas independent with private diagnostic payloads', () => {
+    const errors = snapshot.enfyra_system_error;
+    const logs = snapshot.enfyra_user_log;
+
+    expect(errors.columns).not.toBe(logs.columns);
+    expect(errors.indexes).not.toBe(logs.indexes);
+    expect(errors.columns.find((column) => column.name === 'details')).toMatchObject({ isPublished: false, isUpdatable: false });
+    expect(errors.columns.find((column) => column.name === 'stack')).toMatchObject({ isPublished: false, isUpdatable: false });
+    expect(logs.columns.find((column) => column.name === 'entries')).toMatchObject({ isPublished: false, isUpdatable: false });
+    expect(errors.columns.some((column) => column.name === 'entries')).toBe(false);
+    expect(logs.columns.some((column) => column.name === 'fingerprint')).toBe(false);
+    expect(errors.indexes).toContainEqual(['fingerprint', 'occurredAt']);
+    expect(logs.indexes).not.toContainEqual(['fingerprint', 'occurredAt']);
+    expect(errors.uniques).toEqual([['eventId']]);
+    expect(logs.uniques).toEqual([['eventId']]);
   });
 });

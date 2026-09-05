@@ -11,7 +11,7 @@ import {
 } from '../../modules/file-management';
 import { UploadFileHelper } from '../../shared/helpers';
 import {
-  LogReaderService,
+  RuntimeLogWriterService,
   RuntimeMonitorService,
   RuntimeDbMetricsService,
   RuntimeProcessMetricsService,
@@ -52,7 +52,7 @@ export const storageRegisters = {
 } as const;
 
 export const adminRegisters = {
-  logReaderService: asClass(LogReaderService).singleton(),
+  runtimeLogWriterService: asClass(RuntimeLogWriterService).singleton(),
   runtimeDbMetricsService: asClass(RuntimeDbMetricsService).singleton(),
   runtimeProcessMetricsService: asClass(RuntimeProcessMetricsService)
     .singleton()

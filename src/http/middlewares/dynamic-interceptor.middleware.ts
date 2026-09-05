@@ -3,12 +3,10 @@ import { ExecutorEngineService } from '@enfyra/kernel';
 import { RuntimeScriptRepairService } from '../../engines/cache';
 import { getErrorMessage } from '../../shared/utils/error.util';
 import { HttpException } from '../../domain/exceptions';
-import { Logger } from '../../shared/logger';
 import {
   persistDynamicScriptLogs,
 } from '../../modules/dynamic-api/services/dynamic.service';
 
-const interceptorLogger = new Logger('DynamicInterceptor');
 
 function isAdminTestRunRequest(req: any): boolean {
   const path = String(
@@ -65,7 +63,7 @@ export function dynamicInterceptorBegin(
         const hasDynamicHandler = Boolean(req.routeData?.handler?.trim?.());
 
         if (isErrorResponse(res, data)) {
-          persistDynamicScriptLogs(req, res.statusCode, interceptorLogger);
+          persistDynamicScriptLogs(req, res.statusCode);
           return originalJson(appendLogs(data));
         }
 
@@ -137,7 +135,7 @@ export function dynamicInterceptorBegin(
             : typeof (error as any)?.statusCode === 'number'
               ? (error as any).statusCode
               : 500;
-        persistDynamicScriptLogs(req, statusCode, interceptorLogger);
+        persistDynamicScriptLogs(req, statusCode);
         return next(error);
       }
     }
