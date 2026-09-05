@@ -1,5 +1,7 @@
 import { ExecutorEngineService as KernelExecutorEngineService } from '@enfyra/kernel';
 import { compileScriptSource } from '../../../shared/utils/script-code.util';
+import { randomUUID } from 'node:crypto';
+import { logStore } from '../../../shared/log-store';
 
 type RepairCallback = (compiledCode: string) => unknown | Promise<unknown>;
 
@@ -7,11 +9,14 @@ type CodeBlock = {
   code: string;
   sourceCode?: string | null;
   scriptLanguage?: string | null;
+  scriptId?: string | number | null;
   onCompiledCodeRepair?: RepairCallback;
   type: 'preHook' | 'handler' | 'postHook';
 };
 
 type RunOptions = {
+  sourceKind?: string;
+  scriptId?: string | number;
   sourceCode?: string | null;
   scriptLanguage?: string | null;
   onCompiledCodeRepair?: RepairCallback;
@@ -39,11 +44,16 @@ export class RuntimeScriptExecutorService {
     timeoutMs: number,
     options: RunOptions = {},
   ): Promise<any> {
+    ctx.$api ??= {};
+    ctx.$api.request ??= {};
+    ctx.$api.request.correlationId ??= logStore.getStore()?.correlationId ?? ctx.$flow?.$meta?.executionId ?? randomUUID();
     const sourceCode = options.sourceCode ?? code;
     try {
       return await this.kernelExecutorEngineService.run(code, ctx, timeoutMs, {
         sourceCode,
         scriptLanguage: options.scriptLanguage,
+        scriptId: options.scriptId,
+        sourceKind: options.sourceKind ?? (ctx.$flow ? 'flow' : 'run'),
       });
     } catch (error) {
       if (!this.isStaleCompiledCodeFailure(error)) {
@@ -67,6 +77,8 @@ export class RuntimeScriptExecutorService {
         {
           sourceCode,
           scriptLanguage: options.scriptLanguage,
+          scriptId: options.scriptId,
+          sourceKind: options.sourceKind ?? (ctx.$flow ? 'flow' : 'run'),
         },
       );
     }
@@ -76,6 +88,10 @@ export class RuntimeScriptExecutorService {
     req: any,
     timeoutMs?: number,
   ): Promise<{ value: any; shortCircuit: boolean }> {
+    const ctx = req.routeData.context;
+    ctx.$api ??= {};
+    ctx.$api.request ??= {};
+    ctx.$api.request.correlationId ??= req.correlationId ?? logStore.getStore()?.correlationId ?? randomUUID();
     try {
       return await this.kernelExecutorEngineService.runBatch(req, timeoutMs);
     } catch (error) {

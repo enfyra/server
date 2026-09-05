@@ -2,6 +2,7 @@ import type {
   BootstrapDataFiles,
   BootstrapValidationIssue,
 } from '../types/bootstrap-data-validator.types';
+import { toExactDataMigrationWhere } from './data-migration-filter.util';
 
 const ROUTE_METHOD_FIELDS = [
   'publicMethods',
@@ -306,6 +307,16 @@ export function validateBootstrapDataFiles(input: BootstrapDataFiles) {
   );
 
   issues.push(...validateSnapshotTables(input.snapshot));
+  const deletions = input.dataMigration._deletedRecords ?? [];
+  if (!Array.isArray(deletions)) {
+    issues.push({ file: 'data-migration.ts', table: '_deletedRecords', field: '_deletedRecords', message: 'Deleted records must be an array of exact deletion declarations.' });
+  } else {
+    deletions.forEach((record, index) => {
+      if (!toExactDataMigrationWhere(record?.filter)) {
+        issues.push({ file: 'data-migration.ts', table: record?.table ?? '_deletedRecords', field: `_deletedRecords[${index}].filter`, message: 'Deleted-record migrations require a non-empty exact scalar or _eq filter; declare each target separately.' });
+      }
+    });
+  }
   issues.push(...validateUniqueRoutePaths('default-data.ts', defaultRoutes));
   issues.push(
     ...validateUniqueRoutePaths('data-migration.ts', migrationRoutes),

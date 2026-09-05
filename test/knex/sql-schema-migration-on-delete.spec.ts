@@ -299,6 +299,49 @@ describe('resolveSqlRelationOnDelete', () => {
     );
   });
 
+  it.each([
+    ['postgres', '"'],
+    ['mysql', '`'],
+  ] as const)(
+    'emits one %s unique constraint when an owning one-to-one column and table unique overlap',
+    async (dbType, quote) => {
+      const knex = {
+        raw: vi.fn().mockResolvedValue({ rows: [] }),
+        schema: { hasColumn: vi.fn().mockResolvedValue(false) },
+        client: { config: { client: dbType === 'postgres' ? 'pg' : 'mysql2' } },
+      } as any;
+
+      const statements = await generateSQLFromDiff(
+        knex,
+        'ai_user_config',
+        {
+          columns: {
+            create: [
+              {
+                name: 'userId',
+                type: 'uuid',
+                isNullable: false,
+                isUnique: true,
+                isForeignKey: true,
+                foreignKeyTarget: 'enfyra_user',
+              },
+            ],
+          },
+          constraints: { uniques: { create: [['userId']] } },
+        },
+        dbType,
+      );
+
+      expect(
+        statements.filter((statement) =>
+          statement.includes(
+            `CONSTRAINT ${quote}uq_ai_user_config_userId${quote} UNIQUE`,
+          ),
+        ),
+      ).toHaveLength(1);
+    },
+  );
+
   it('fails planning before DDL when it cannot inspect an index slated for removal', async () => {
     const knex = {
       raw: vi.fn().mockRejectedValue(new Error('database connection lost')),

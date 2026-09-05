@@ -313,7 +313,7 @@ export class DynamicMutationLifecycleService {
 
     try {
       const originalBody = data;
-      const body = mutationPreparationService.prepareUpdateBody(
+      let body = mutationPreparationService.prepareUpdateBody(
         originalBody,
         tableMetadata,
       );
@@ -340,7 +340,7 @@ export class DynamicMutationLifecycleService {
         durationMs: Date.now() - startedAt,
       });
 
-      await mutationAuthorizationService.assertDirectFieldPermission(
+      body = await mutationAuthorizationService.stripUnauthorizedDirectFields(
         'update',
         body,
         exists,
@@ -489,17 +489,25 @@ export class DynamicMutationLifecycleService {
     try {
       this.assertBulkSupported(routeRouter, tableName);
       const ids = this.requireManyIds(requestedIds);
-      const body = mutationPreparationService.prepareUpdateBody(
+      let body = mutationPreparationService.prepareUpdateBody(
         data,
         tableMetadata,
       );
-      this.assertNoRelationPayload(body, tableMetadata);
       const existingRecords = await this.loadExistingRecords(
         queryBuilderService,
         tableName,
         runtime.getIdField(),
         ids,
       );
+
+      for (const id of ids) {
+        body = await mutationAuthorizationService.stripUnauthorizedDirectFields(
+          'update',
+          body,
+          existingRecords.get(String(id))!,
+        );
+      }
+      this.assertNoRelationPayload(body, tableMetadata);
 
       await tableValidationService.assertTableValid({
         operation: 'update',
@@ -508,11 +516,6 @@ export class DynamicMutationLifecycleService {
       });
       for (const id of ids) {
         const existing = existingRecords.get(String(id))!;
-        await mutationAuthorizationService.assertDirectFieldPermission(
-          'update',
-          body,
-          existing,
-        );
         await mutationAuthorizationService.assertMutationSafety(
           'update',
           body,

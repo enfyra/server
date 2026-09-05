@@ -1,10 +1,12 @@
 import { Knex } from 'knex';
 import { supportsSqlColumnDefault } from './sql-generator';
+import { addSqlEnumColumn } from '../sql-enum.util';
 
 export function addColumnToTable(
   table: Knex.CreateTableBuilder,
   col: any,
   dbType: 'mysql' | 'postgres' | string = 'mysql',
+  tableName?: string,
 ): void {
   let column: Knex.ColumnBuilder;
   switch (col.type) {
@@ -61,6 +63,24 @@ export function addColumnToTable(
       break;
     case 'simple-json':
       column = table.text(col.name, 'longtext');
+      break;
+    case 'enum':
+      if (
+        !tableName ||
+        !Array.isArray(col.options) ||
+        col.options.length === 0
+      ) {
+        throw new Error(
+          `Enum column ${col.name} requires table identity and options`,
+        );
+      }
+      column = addSqlEnumColumn(
+        table,
+        tableName,
+        col.name,
+        col.options,
+        dbType,
+      );
       break;
     default:
       column = table.string(col.name);

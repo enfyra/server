@@ -3,12 +3,14 @@ import { KnexTableSchema } from '../../../../shared/types/database-init.types';
 import { getKnexColumnType, getPrimaryKeyType } from './schema-parser';
 import { compareSchemas, getCurrentDatabaseSchema } from './schema-comparison';
 import { getErrorMessage } from '../../../../shared/utils/error.util';
+import { dropPostgresColumnCheckConstraints } from './postgres-column-check-constraints';
 import {
   buildSqlForeignKeyContracts,
   getSqlRelationForeignKeyColumn,
   getSqlRelationTargetTable,
   resolveSqlRelationOnDelete,
 } from '../sql-physical-schema-contract';
+import { addSqlEnumColumn, getPostgresEnumTypeName } from '../sql-enum.util';
 
 function rethrowPostgresTransactionError(knex: Knex, error: unknown): void {
   const client = String(knex.client.config.client ?? '').toLowerCase();
@@ -88,7 +90,13 @@ export async function applyColumnMigrations(
             break;
           case 'enum':
             if (Array.isArray(col.options)) {
-              column = table.enum(col.name, col.options);
+              column = addSqlEnumColumn(
+                table,
+                tableName,
+                col.name,
+                col.options,
+                dbType,
+              );
             } else {
               column = table.text(col.name);
             }
@@ -220,7 +228,10 @@ export async function applyColumnMigrations(
         }
       }
       for (const { column: col, changes } of diff.columnsToModify) {
-        if (changes.includes('enum-options')) {
+        if (
+          changes.includes('enum-options') ||
+          (changes.includes('type') && col.type === 'enum')
+        ) {
           continue;
         }
         const knexType = getKnexColumnType(col);
@@ -250,7 +261,7 @@ export async function applyColumnMigrations(
           Array.isArray(col.options) &&
           changes.includes('type')
         ) {
-          const newEnumType = `${tableName}_${col.name}_enum`;
+          const newEnumType = getPostgresEnumTypeName(tableName, col.name);
           const newEnumValues = col.options || [];
 
           // Check actual current type in database
@@ -300,13 +311,7 @@ export async function applyColumnMigrations(
               );
             }
 
-            try {
-              await knex.raw(
-                `ALTER TABLE "${tableName}" DROP CONSTRAINT IF EXISTS "${tableName}_${col.name}_check"`,
-              );
-            } catch (error) {
-              rethrowPostgresTransactionError(knex, error);
-            }
+            await dropPostgresColumnCheckConstraints(knex, tableName, col.name);
 
             if (currentType !== 'text') {
               await knex.raw(
@@ -382,7 +387,7 @@ export async function applyColumnMigrations(
           );
           if (enumTypeResult.rows.length > 0) {
             const oldEnumType = enumTypeResult.rows[0].udt_name;
-            const newEnumType = `${tableName}_${col.name}_enum`;
+            const newEnumType = getPostgresEnumTypeName(tableName, col.name);
             const currentEnumResult = await knex.raw(
               `
               SELECT e.enumlabel
@@ -432,13 +437,7 @@ export async function applyColumnMigrations(
                 .where(col.name, oldVal)
                 .update({ [col.name]: newVal });
             }
-            try {
-              await knex.raw(
-                `ALTER TABLE "${tableName}" DROP CONSTRAINT IF EXISTS "${tableName}_${col.name}_check"`,
-              );
-            } catch (error) {
-              rethrowPostgresTransactionError(knex, error);
-            }
+            await dropPostgresColumnCheckConstraints(knex, tableName, col.name);
             const enumValues = newEnumValues
               .map((val: string) => `'${val.replace(/'/g, "''")}'`)
               .join(', ');
@@ -525,7 +524,7 @@ export async function applyColumnMigrations(
             rethrowPostgresTransactionError(knex, error);
           }
         }
-        if (changes.includes('type')) {
+        if (changes.includes('type') && col.type !== 'enum') {
           const knexType = getKnexColumnType(col);
           const currentTypeResult = await knex.raw(
             `
@@ -805,8 +804,13 @@ async function syncRelationOnDeleteChanges(
   );
   if (!hasOnDeleteColumn) {
     await knex.schema.alterTable('enfyra_relation', (table) => {
-      table
-        .enum('onDelete', ['CASCADE', 'RESTRICT', 'SET NULL'])
+      addSqlEnumColumn(
+        table,
+        'enfyra_relation',
+        'onDelete',
+        ['CASCADE', 'RESTRICT', 'SET NULL'],
+        dbType,
+      )
         .notNullable()
         .defaultTo('SET NULL');
     });

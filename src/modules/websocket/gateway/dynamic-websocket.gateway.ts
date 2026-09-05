@@ -1,6 +1,5 @@
 import { Logger } from '../../../shared/logger';
 import { Server, Socket } from 'socket.io';
-import * as jwt from 'jsonwebtoken';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 import { createAdapter } from '@socket.io/redis-adapter';
@@ -239,7 +238,6 @@ export class DynamicWebSocketGateway {
         return next(new Error('Gateway not configured'));
       }
       if (gateway.requireAuth) {
-        const authHeader = socket.handshake.headers?.authorization;
         const cookieHeader = socket.handshake.headers?.cookie;
         const cookieToken =
           cookieHeader
@@ -247,26 +245,27 @@ export class DynamicWebSocketGateway {
             .map((c) => c.trim())
             .find((c) => c.startsWith('accessToken='))
             ?.slice('accessToken='.length) || null;
-        const token =
-          socket.handshake.auth?.token ||
-          (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null) ||
-          cookieToken;
-        if (!token) {
-          const err = new Error('Authentication token required');
-          (err as any).data = { code: 'AUTH_REQUIRED', path };
-          this.logger.warn(
-            `Connection rejected: no token provided for ${path}`,
-          );
-          if (socket.conn) socket.conn.close();
-          return next(err);
-        }
         try {
-          const user = jwt.verify(
-            token,
-            this.envService.get('SECRET_KEY'),
-          ) as jwt.JwtPayload;
-          socket.data.user = user as any;
-          socket.data.userId = user.id || user.userId;
+          let authenticated = await this.lazyRef.authenticationService.authenticate({
+            headers: socket.handshake.headers,
+          });
+          const bootstrapToken = socket.handshake.auth?.token || cookieToken;
+          if (!authenticated && bootstrapToken) {
+            authenticated = await this.lazyRef.authenticationService.authenticate({
+              headers: { authorization: `Bearer ${bootstrapToken}` },
+            });
+          }
+          if (!authenticated) {
+            const err = new Error('Authentication token required');
+            (err as any).data = { code: 'AUTH_REQUIRED', path };
+            this.logger.warn(
+              `Connection rejected: no token provided for ${path}`,
+            );
+            if (socket.conn) socket.conn.close();
+            return next(err);
+          }
+          socket.data.user = authenticated.user;
+          socket.data.userId = authenticated.user.id || authenticated.user._id || authenticated.payload.id;
           socket.data.gateway = gateway;
           next();
         } catch (error) {

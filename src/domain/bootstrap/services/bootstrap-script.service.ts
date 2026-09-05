@@ -187,6 +187,8 @@ export class BootstrapScriptService {
       timeoutMs,
       {
         sourceCode: script.sourceCode ?? script.logic,
+        sourceKind: 'bootstrap',
+        scriptId: DatabaseConfigService.getRecordId(script),
         scriptLanguage: script.scriptLanguage ?? 'typescript',
         onCompiledCodeRepair: async (compiledCode: string) => {
           const id = DatabaseConfigService.getRecordId(script);

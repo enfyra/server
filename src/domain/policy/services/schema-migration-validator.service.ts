@@ -243,12 +243,8 @@ export class SchemaMigrationValidatorService {
     const tableMeta = metadata.tables.get(existing.name);
     if (!tableMeta) return existing;
     const enriched = { ...existing };
-    if (!enriched.columns || enriched.columns.length === 0) {
-      enriched.columns = tableMeta.columns || [];
-    }
-    if (!enriched.relations || enriched.relations.length === 0) {
-      enriched.relations = tableMeta.relations || [];
-    }
+    enriched.columns = tableMeta.columns || enriched.columns || [];
+    enriched.relations = tableMeta.relations || enriched.relations || [];
     return enriched;
   }
 

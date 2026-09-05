@@ -11,6 +11,8 @@ function makeMetadata(tableMeta: any) {
 }
 
 function makeContainer(opts: {
+  existingRecord?: any;
+  fieldPermissionPolicies?: any[];
   tableMeta: any;
   rulesByColumn?: Map<string, any[]>;
   runtimeMetadata?: any;
@@ -31,12 +33,21 @@ function makeContainer(opts: {
       }
       throw new Error(`Unexpected runtime cache ${identifier}`);
     }),
+    getFieldPermissionPoliciesFor: vi.fn(
+      () => opts.fieldPermissionPolicies ?? [],
+    ),
+  };
+  const queryBuilderService = {
+    find: vi.fn(async () => ({
+      data: opts.existingRecord ? [opts.existingRecord] : [],
+    })),
   };
   const eventEmitter = { on: vi.fn() };
   return {
     cradle: {
       metadataCacheService: metadataCache,
       columnRuleCacheBuilder: ruleCache,
+      queryBuilderService,
       runtimeRegistryService,
       eventEmitter,
     },
@@ -50,6 +61,39 @@ function makeReqRes(req: any) {
   };
   const next = vi.fn();
   return { req, res, next };
+}
+
+function fieldPermissionPolicy({
+  action,
+  columnName,
+  condition = null,
+  effect,
+}: {
+  action: 'create' | 'update';
+  columnName: string;
+  condition?: any;
+  effect: 'allow' | 'deny';
+}) {
+  return {
+    unconditionalAllowedColumns: new Set(),
+    unconditionalAllowedRelations: new Set(),
+    unconditionalDeniedColumns: new Set(),
+    unconditionalDeniedRelations: new Set(),
+    rules: [
+      {
+        id: `${effect}-${action}-${columnName}`,
+        isEnabled: true,
+        action,
+        effect,
+        tableName: 'permission_post',
+        roleId: null,
+        allowedUserIds: ['editor'],
+        columnName,
+        relationPropertyName: null,
+        condition,
+      },
+    ],
+  };
 }
 
 beforeEach(() => {
@@ -171,6 +215,196 @@ describe('bodyValidationMiddleware — skip conditions', () => {
         `Expected "title must be a string", got: ${JSON.stringify(err?.messages || err?.message)}`,
       );
     }
+  });
+});
+
+describe('bodyValidationMiddleware — field-permission input stripping', () => {
+  const tableMeta = {
+    name: 'permission_post',
+    validateBody: true,
+    columns: [
+      { id: 'id', name: 'id', type: 'int', isPrimary: true, isNullable: false },
+      { id: 'title', name: 'title', type: 'varchar', isPublished: true, isNullable: false },
+      {
+        id: 'public-optional',
+        name: 'publicOptional',
+        type: 'varchar',
+        isPublished: true,
+        isNullable: true,
+      },
+      {
+        id: 'private',
+        name: 'privateValue',
+        type: 'varchar',
+        isPublished: false,
+        isNullable: true,
+      },
+    ],
+    relations: [],
+  };
+
+  it('strips an unauthorized private POST field before type validation', async () => {
+    const mw = bodyValidationMiddleware(makeContainer({ tableMeta }));
+    const { req, res, next } = makeReqRes({
+      method: 'POST',
+      routeData: {
+        context: { $user: { id: 'editor' } },
+        mainTable: tableMeta,
+        path: '/permission_post',
+      },
+      body: { title: 'public', privateValue: 123 },
+    });
+
+    await mw(req, res, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(req.body).toEqual({ title: 'public' });
+  });
+
+  it('strips an explicitly denied published POST field before type validation', async () => {
+    const mw = bodyValidationMiddleware(
+      makeContainer({
+        tableMeta,
+        fieldPermissionPolicies: [
+          fieldPermissionPolicy({
+            action: 'create',
+            columnName: 'publicOptional',
+            effect: 'deny',
+          }),
+        ],
+      }),
+    );
+    const { req, res, next } = makeReqRes({
+      method: 'POST',
+      routeData: {
+        context: { $user: { id: 'editor' } },
+        mainTable: tableMeta,
+        path: '/permission_post',
+      },
+      body: { title: 'public', publicOptional: 123 },
+    });
+
+    await mw(req, res, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(req.body).toEqual({ title: 'public' });
+  });
+
+  it('keeps an allowed private POST field and validates its value', async () => {
+    const mw = bodyValidationMiddleware(
+      makeContainer({
+        tableMeta,
+        fieldPermissionPolicies: [
+          fieldPermissionPolicy({
+            action: 'create',
+            columnName: 'privateValue',
+            effect: 'allow',
+          }),
+        ],
+      }),
+    );
+    const { req, res, next } = makeReqRes({
+      method: 'POST',
+      routeData: {
+        context: { $user: { id: 'editor' } },
+        mainTable: tableMeta,
+        path: '/permission_post',
+      },
+      body: { title: 'public', privateValue: 123 },
+    });
+
+    await mw(req, res, next);
+
+    expect(next.mock.calls[0]?.[0]?.messages).toContain(
+      'privateValue must be a string',
+    );
+    expect(req.body).toHaveProperty('privateValue', 123);
+  });
+
+  it('keeps a root-admin private POST field and validates its value', async () => {
+    const mw = bodyValidationMiddleware(makeContainer({ tableMeta }));
+    const { req, res, next } = makeReqRes({
+      method: 'POST',
+      routeData: {
+        context: { $user: { id: 'root', isRootAdmin: true } },
+        mainTable: tableMeta,
+        path: '/permission_post',
+      },
+      body: { title: 'public', privateValue: 123 },
+    });
+
+    await mw(req, res, next);
+
+    expect(next.mock.calls[0]?.[0]?.messages).toContain(
+      'privateValue must be a string',
+    );
+    expect(req.body).toHaveProperty('privateValue', 123);
+  });
+
+  it('strips a conditionally denied private PATCH field using the persisted record', async () => {
+    const mw = bodyValidationMiddleware(
+      makeContainer({
+        tableMeta,
+        existingRecord: { id: 7, ownerId: 'someone-else' },
+        fieldPermissionPolicies: [
+          fieldPermissionPolicy({
+            action: 'update',
+            columnName: 'privateValue',
+            effect: 'allow',
+            condition: { ownerId: { _eq: '@USER.id' } },
+          }),
+        ],
+      }),
+    );
+    const { req, res, next } = makeReqRes({
+      method: 'PATCH',
+      params: { id: '7' },
+      routeData: {
+        context: { $user: { id: 'editor' } },
+        mainTable: tableMeta,
+        path: '/permission_post/:id',
+      },
+      body: { privateValue: 123 },
+    });
+
+    await mw(req, res, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(req.body).toEqual({});
+  });
+
+  it('keeps a conditionally allowed private PATCH field for validation', async () => {
+    const mw = bodyValidationMiddleware(
+      makeContainer({
+        tableMeta,
+        existingRecord: { id: 7, ownerId: 'editor' },
+        fieldPermissionPolicies: [
+          fieldPermissionPolicy({
+            action: 'update',
+            columnName: 'privateValue',
+            effect: 'allow',
+            condition: { ownerId: { _eq: '@USER.id' } },
+          }),
+        ],
+      }),
+    );
+    const { req, res, next } = makeReqRes({
+      method: 'PATCH',
+      params: { id: '7' },
+      routeData: {
+        context: { $user: { id: 'editor' } },
+        mainTable: tableMeta,
+        path: '/permission_post/:id',
+      },
+      body: { privateValue: 123 },
+    });
+
+    await mw(req, res, next);
+
+    expect(next.mock.calls[0]?.[0]?.messages).toContain(
+      'privateValue must be a string',
+    );
+    expect(req.body).toHaveProperty('privateValue', 123);
   });
 });
 

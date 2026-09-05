@@ -40,6 +40,9 @@ function makeQb(findImpl: (args: any) => any, updateMock: any) {
     leftJoin: vi.fn().mockReturnThis(),
     select: vi.fn().mockResolvedValue([]),
   }));
+  knex.schema = {
+    hasTable: vi.fn().mockResolvedValue(false),
+  };
   return {
     find: vi.fn(findImpl as any),
     update: updateMock,
@@ -699,9 +702,10 @@ describe('SchemaHealingService.runIfNeeded', () => {
     const db = {
       collection: vi.fn((name: string) => {
         collections[name] ||= {
-          find: vi
-            .fn()
-            .mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) }),
+          find: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+            async *[Symbol.asyncIterator]() {},
+          }),
           updateMany,
           createIndex,
         };

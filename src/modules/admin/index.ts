@@ -1,4 +1,4 @@
-export * from './services/log-reader.service';
+export * from './services/runtime-log-writer.service';
 export * from './types';
 export * from './services/runtime-db-metrics.service';
 export * from './services/runtime-monitor.service';

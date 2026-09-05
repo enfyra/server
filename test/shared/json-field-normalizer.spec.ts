@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   normalizeColumnOptionsValue,
+  normalizeEnumOptionsValue,
   normalizeJsonFieldValue,
   stringifyJsonFieldValue,
 } from '../../src/shared/utils/json-field-normalizer.util';
@@ -40,5 +41,19 @@ describe('json field normalizer', () => {
       'widget',
     ]);
     expect(normalizeColumnOptionsValue('plain text')).toBe('plain text');
+  });
+
+  it('normalizes legacy enum values objects without changing other option objects', () => {
+    expect(
+      normalizeEnumOptionsValue(
+        JSON.stringify({ values: ['customer', 'admin', 'system'] }),
+      ),
+    ).toEqual(['customer', 'admin', 'system']);
+    expect(
+      normalizeEnumOptionsValue({ values: ['customer', 'admin', 'system'] }),
+    ).toEqual(['customer', 'admin', 'system']);
+    expect(normalizeColumnOptionsValue({ values: ['customer'] })).toEqual({
+      values: ['customer'],
+    });
   });
 });

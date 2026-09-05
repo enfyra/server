@@ -9,6 +9,7 @@ import { replaceSqlJunctionRows } from '../../../domain/bootstrap/utils/sql-junc
 import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';
 import { isCanonicalTableRoutePath } from '../../../domain/bootstrap/utils/canonical-table-route.util';
 import { BootstrapDefinitionService } from './bootstrap-definition.service';
+import { toExactDataMigrationWhere } from '../../../domain/bootstrap/utils/data-migration-filter.util';
 
 interface InitOld {
   [tableName: string]: any | any[];
@@ -160,10 +161,7 @@ export class DataMigrationService {
       try {
         const exactWhere = this.toExactDeleteWhere(filter);
         if (!exactWhere || Object.keys(exactWhere).length === 0) {
-          this.logger.warn(
-            `Skipping deleted-record migration for ${table}: only exact _eq filters are supported`,
-          );
-          continue;
+          throw new Error(`Unsupported delete filter for ${table}: only non-empty exact scalar or _eq filters are supported`);
         }
 
         let count = 0;
@@ -193,34 +191,7 @@ export class DataMigrationService {
   private toExactDeleteWhere(
     filter: Record<string, any>,
   ): Record<string, any> | null {
-    if (!filter || typeof filter !== 'object' || Array.isArray(filter)) {
-      return null;
-    }
-
-    const where: Record<string, any> = {};
-    for (const [field, value] of Object.entries(filter)) {
-      if (!field || field.startsWith('_')) return null;
-      if (
-        value &&
-        typeof value === 'object' &&
-        !Array.isArray(value) &&
-        Object.keys(value).length === 1 &&
-        Object.prototype.hasOwnProperty.call(value, '_eq')
-      ) {
-        where[field] = value._eq;
-        continue;
-      }
-      if (
-        value === null ||
-        ['string', 'number', 'boolean'].includes(typeof value)
-      ) {
-        where[field] = value;
-        continue;
-      }
-      return null;
-    }
-
-    return where;
+    return toExactDataMigrationWhere(filter);
   }
 
   private async migrateTable(

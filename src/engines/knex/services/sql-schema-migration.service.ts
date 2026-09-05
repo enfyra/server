@@ -238,6 +238,7 @@ export class SqlSchemaMigrationService {
             table,
             col,
             this.queryBuilderService.getDatabaseType(),
+            tableName,
           );
         }
         if (tableMetadata.relations) {

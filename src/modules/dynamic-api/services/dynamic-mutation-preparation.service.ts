@@ -7,9 +7,7 @@ import {
 
 type MutableColumnMetadata = {
   name: string;
-  isPublished?: boolean;
   isUpdatable?: boolean;
-  type?: string;
 };
 
 type MutableTableMetadata = {
@@ -60,12 +58,6 @@ export class DynamicMutationPreparationService {
     const prepared = { ...data };
     for (const column of columns) {
       if (column.isUpdatable === false) delete prepared[column.name];
-      if (
-        column.isPublished === false &&
-        this.isEmptyUnpublishedValue(prepared[column.name], column.type)
-      ) {
-        delete prepared[column.name];
-      }
     }
     return prepared;
   }
@@ -75,10 +67,10 @@ export class DynamicMutationPreparationService {
     tableName: string,
     tableMetadata: unknown,
     mutationAuthorizationService: {
-      assertDirectFieldPermission: (
+      stripUnauthorizedDirectFields: (
         operation: 'create' | 'update',
-        body: any,
-      ) => Promise<void>;
+        body: Record<string, unknown>,
+      ) => Promise<Record<string, unknown>>;
       assertMutationSafety: (
         operation: 'create' | 'update' | 'delete',
         body: any,
@@ -98,8 +90,8 @@ export class DynamicMutationPreparationService {
       throw new BadRequestException('data is required and must be an object');
     }
 
-    const body = { ...raw };
-    await mutationAuthorizationService.assertDirectFieldPermission(
+    let body = { ...raw };
+    body = await mutationAuthorizationService.stripUnauthorizedDirectFields(
       'create' as const,
       body,
     );
@@ -142,29 +134,6 @@ export class DynamicMutationPreparationService {
       mutationAuthorizationService.runWithMutationPolicy(() =>
         queryBuilderService.insert(tableName, body),
       ),
-    );
-  }
-
-  private isEmptyUnpublishedValue(
-    value: unknown,
-    type: string | undefined,
-  ): boolean {
-    const stringLike = [
-      'varchar',
-      'text',
-      'uuid',
-      'ObjectId',
-      'enum',
-      'simple-json',
-      'code',
-      'array-select',
-      'richtext',
-      'date',
-      'datetime',
-      'timestamp',
-    ].includes(type ?? '');
-    return (
-      value === null || value === undefined || (stringLike && value === '')
     );
   }
 

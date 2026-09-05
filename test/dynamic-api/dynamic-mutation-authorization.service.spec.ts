@@ -6,10 +6,17 @@ import type { RuntimeRegistryService } from '../../src/engines/cache/services/ru
 
 function createService({
   enforceFieldPermission = true,
+  policies = [],
   table = {
     columns: [{ name: 'id', isPrimary: true }, { name: 'internal', isPublished: false }],
     relations: [],
   },
+  user = { id: 'editor' },
+}: {
+  enforceFieldPermission?: boolean;
+  policies?: any[];
+  table?: any;
+  user?: any;
 } = {}) {
   const queryBuilderService = {
     runWithPolicy: vi.fn(async (_check: unknown, callback: () => unknown) =>
@@ -24,28 +31,95 @@ function createService({
   };
   const runtimeRegistryService = {
     lookupTableByName: vi.fn().mockResolvedValue(table),
-    getFieldPermissionPoliciesFor: vi.fn(() => []),
+    getFieldPermissionPoliciesFor: vi.fn(() => policies),
   };
   const service = new DynamicMutationAuthorizationService({
-    context: { $user: { id: 'editor' } } as any,
+    context: { $user: user } as any,
     enforceFieldPermission,
     policyService: policyService as PolicyService,
     queryBuilderService: queryBuilderService as QueryBuilderService,
     runtimeRegistryService: runtimeRegistryService as RuntimeRegistryService,
     tableName: 'articles',
   });
-  return { policyService, queryBuilderService, service };
+  return { policyService, queryBuilderService, runtimeRegistryService, service };
 }
 
 describe('DynamicMutationAuthorizationService', () => {
-  it('rejects direct writes to unpublished fields without an allowed policy', async () => {
+  it('silently strips direct writes without an allowed field permission', async () => {
     const { service } = createService();
 
     await expect(
-      service.assertDirectFieldPermission('update', { internal: 'private' }, {}),
-    ).rejects.toThrow(
-      "You do not have permission to update column 'internal' on table 'articles'.",
-    );
+      service.stripUnauthorizedDirectFields('create', {
+        internal: 'private',
+      }),
+    ).resolves.toEqual({});
+    await expect(
+      service.stripUnauthorizedDirectFields(
+        'update',
+        { internal: 'private' },
+        {},
+      ),
+    ).resolves.toEqual({});
+  });
+
+  it('allows a root administrator to create and update an unpublished field', async () => {
+    const { runtimeRegistryService, service } = createService({
+      user: { id: 'root', isRootAdmin: true },
+    });
+
+    await expect(
+      service.stripUnauthorizedDirectFields('create', { internal: '' }),
+    ).resolves.toEqual({ internal: '' });
+    await expect(
+      service.stripUnauthorizedDirectFields('update', { internal: null }, {}),
+    ).resolves.toEqual({ internal: null });
+    expect(runtimeRegistryService.lookupTableByName).not.toHaveBeenCalled();
+  });
+
+  it('allows unpublished field writes through explicit field permissions', async () => {
+    const { service } = createService({
+      policies: [
+        {
+          unconditionalAllowedColumns: new Set(['internal']),
+          unconditionalAllowedRelations: new Set(),
+          unconditionalDeniedColumns: new Set(),
+          unconditionalDeniedRelations: new Set(),
+          rules: [
+            {
+              id: 'allow-editor-internal-create',
+              isEnabled: true,
+              action: 'create',
+              effect: 'allow',
+              tableName: 'articles',
+              roleId: null,
+              allowedUserIds: ['editor'],
+              columnName: 'internal',
+              relationPropertyName: null,
+              condition: null,
+            },
+            {
+              id: 'allow-editor-internal-update',
+              isEnabled: true,
+              action: 'update',
+              effect: 'allow',
+              tableName: 'articles',
+              roleId: null,
+              allowedUserIds: ['editor'],
+              columnName: 'internal',
+              relationPropertyName: null,
+              condition: null,
+            },
+          ],
+        },
+      ],
+    });
+
+    await expect(
+      service.stripUnauthorizedDirectFields('create', { internal: '' }),
+    ).resolves.toEqual({ internal: '' });
+    await expect(
+      service.stripUnauthorizedDirectFields('update', { internal: null }, {}),
+    ).resolves.toEqual({ internal: null });
   });
 
   it('runs nested writes through mutation policy and field-permission boundaries', async () => {
@@ -61,5 +135,21 @@ describe('DynamicMutationAuthorizationService', () => {
 
     expect(queryBuilderService.runWithFieldPermissionCheck).not.toHaveBeenCalled();
     expect(queryBuilderService.runWithPolicy).toHaveBeenCalledTimes(1);
+  });
+
+  it('silently strips unauthorized fields from nested writes', async () => {
+    const { queryBuilderService, service } = createService();
+    const nestedBody = { internal: 'must-not-persist', unknown: 'keep' };
+    queryBuilderService.runWithFieldPermissionCheck.mockImplementationOnce(
+      async (check: any, callback: () => Promise<unknown>) => {
+        await check('articles', 'create', nestedBody);
+        return callback();
+      },
+    );
+
+    await expect(
+      service.runWithFieldPermissionCheck(async () => 'created'),
+    ).resolves.toBe('created');
+    expect(nestedBody).toEqual({ unknown: 'keep' });
   });
 });

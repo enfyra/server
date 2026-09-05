@@ -16,6 +16,7 @@ import { normalizeMongoPrimaryKeyColumn } from '../../../modules/table-managemen
 import { logMemory } from '../../../shared/utils/memory-log.util';
 import {
   normalizeColumnOptionsValue,
+  normalizeEnumOptionsValue,
   normalizeJsonFieldValue,
 } from '../../../shared/utils/json-field-normalizer.util';
 
@@ -403,7 +404,10 @@ export class MetadataCacheService implements IMetadataCache {
         column.metadata = normalizeJsonFieldValue(column.metadata);
         if (col.options && typeof col.options === 'string') {
           try {
-            column.options = normalizeColumnOptionsValue(col.options);
+            column.options =
+              column.type === 'enum'
+                ? normalizeEnumOptionsValue(col.options)
+                : normalizeColumnOptionsValue(col.options);
           } catch (e) {}
         }
         if (col.defaultValue && typeof col.defaultValue === 'string') {
@@ -881,7 +885,10 @@ export class MetadataCacheService implements IMetadataCache {
       table.metadata = normalizeJsonFieldValue(table.metadata);
       for (const column of table.columns ?? []) {
         column.metadata = normalizeJsonFieldValue(column.metadata);
-        column.options = normalizeColumnOptionsValue(column.options);
+        column.options =
+          column.type === 'enum'
+            ? normalizeEnumOptionsValue(column.options)
+            : normalizeColumnOptionsValue(column.options);
         column.defaultValue = normalizeJsonFieldValue(column.defaultValue);
       }
       for (const relation of table.relations ?? []) {

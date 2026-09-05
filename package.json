@@ -1,6 +1,6 @@
 {
   "name": "enfyra-server",
-  "version": "2.2.19",
+  "version": "2.2.19-patch-1",
   "description": "Dynamic backend platform that auto-generates REST and GraphQL APIs from database schemas",
   "author": "dothinh115 <dothinh115@gmail.com>",
   "license": "Elastic-2.0",
@@ -47,6 +47,7 @@
     "test:e2e:compiled-code-db": "tsx test/compiled-code-db.e2e.ts",
     "test:e2e:bootstrap-boot-race": "tsx test/e2e/bootstrap-boot-race.e2e.ts",
     "test:e2e:user-cache-lock-lifecycle": "tsx test/e2e/user-cache-lock-lifecycle.e2e.ts",
+    "test:e2e:bullmq-lifecycle-ownership": "tsx test/e2e/bullmq-lifecycle-ownership.e2e.ts",
     "test:e2e:snapshot-migration-matrix": "tsx test/e2e/snapshot-migration-database-matrix.e2e.ts",
     "test:e2e:bootstrap-randomized-matrix": "bash scripts/e2e-bootstrap-randomized-matrix.sh",
     "test:e2e:realtime-chat-load": "tsx test/realtime-chat-app.e2e.ts",
@@ -56,7 +57,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1024.0",
     "@aws-sdk/lib-storage": "3.1024.0",
-    "@enfyra/kernel": "1.1.57",
+    "@enfyra/kernel": "1.1.61",
     "@envelop/core": "^5.5.1",
     "@envelop/depth-limit": "^7.1.1",
     "@google-cloud/storage": "^7.19.0",
@@ -86,7 +87,6 @@
     "pg": "^8.20.0",
     "pino": "^10.3.1",
     "pino-pretty": "^13.1.3",
-    "pino-roll": "^4.0.0",
     "qs": "^6.15.2",
     "sharp": "^0.34.5",
     "socket.io": "^4.8.3",

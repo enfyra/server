@@ -1,12 +1,6 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-} from '../../../domain/exceptions';
+import { BadRequestException } from '../../../domain/exceptions';
 import { isPolicyDeny } from '../../../domain/policy';
-import {
-  decideFieldPermission,
-  formatFieldPermissionErrorMessage,
-} from '../../../shared/utils/field-permission.util';
+import { stripUnauthorizedMutationFields } from '../../../shared/utils/strip-unauthorized-mutation-fields.util';
 import type { DynamicMutationAuthorizationDependencies } from '../types/dynamic-mutation-authorization.types';
 
 export class DynamicMutationAuthorizationService {
@@ -31,68 +25,26 @@ export class DynamicMutationAuthorizationService {
     }
   }
 
-  async assertDirectFieldPermission(
+  async stripUnauthorizedDirectFields(
     action: 'create' | 'update',
-    body: any,
+    body: Record<string, unknown>,
     existing?: any,
-  ): Promise<void> {
+  ): Promise<Record<string, unknown>> {
     const { context, enforceFieldPermission, runtimeRegistryService, tableName } =
       this.dependencies;
-    if (!enforceFieldPermission || context?.$user?.isRootAdmin) return;
+    if (!enforceFieldPermission || context?.$user?.isRootAdmin) return body;
 
     const meta = await runtimeRegistryService.lookupTableByName(tableName);
-    if (!meta) return;
-
-    const record = action === 'update' ? existing : body;
-    const denied: Array<{ type: 'column' | 'relation'; name: string }> = [];
-    for (const key of Object.keys(body || {})) {
-      const column = meta.columns?.find((item: any) => item.name === key);
-      if (column) {
-        if (action === 'update' && column.isUpdatable === false) continue;
-        const decision = await decideFieldPermission(
-          runtimeRegistryService,
-          {
-            user: context.$user,
-            tableName,
-            action,
-            subjectType: 'column',
-            subjectName: key,
-            record,
-          },
-          { defaultAllowed: column.isPublished !== false },
-        );
-        if (!decision.allowed) denied.push({ type: 'column', name: key });
-      }
-
-      const relation = meta.relations?.find(
-        (item: any) => item.propertyName === key,
-      );
-      if (relation) {
-        const decision = await decideFieldPermission(
-          runtimeRegistryService,
-          {
-            user: context.$user,
-            tableName,
-            action,
-            subjectType: 'relation',
-            subjectName: key,
-            record,
-          },
-          { defaultAllowed: relation.isPublished !== false },
-        );
-        if (!decision.allowed) denied.push({ type: 'relation', name: key });
-      }
-    }
-
-    if (denied.length > 0) {
-      throw new ForbiddenException(
-        formatFieldPermissionErrorMessage({
-          action,
-          tableName,
-          fields: denied,
-        }),
-      );
-    }
+    if (!meta) return body;
+    return stripUnauthorizedMutationFields({
+      action,
+      body,
+      policyReader: runtimeRegistryService,
+      record: existing,
+      tableMeta: meta,
+      tableName,
+      user: context.$user,
+    });
   }
 
   runWithMutationPolicy<T>(callback: () => Promise<T>): Promise<T> {
@@ -111,7 +63,7 @@ export class DynamicMutationAuthorizationService {
     }
     return queryBuilderService.runWithFieldPermissionCheck(
       (tableName, action, data) =>
-        this.assertCascadeFieldPermission(tableName, action, data),
+        this.stripUnauthorizedCascadeFields(tableName, action, data),
       callback,
     );
   }
@@ -133,66 +85,28 @@ export class DynamicMutationAuthorizationService {
     }
   }
 
-  private async assertCascadeFieldPermission(
+  private async stripUnauthorizedCascadeFields(
     tableName: string,
     action: 'create' | 'update',
     data: any,
   ): Promise<void> {
     const { enforceFieldPermission, runtimeRegistryService } =
       this.dependencies;
-    if (!enforceFieldPermission) return;
+    if (!enforceFieldPermission || !data || typeof data !== 'object') return;
 
     const meta = await runtimeRegistryService.lookupTableByName(tableName);
     if (!meta) return;
-
-    const denied: Array<{ type: 'column' | 'relation'; name: string }> = [];
-    for (const key of Object.keys(data || {})) {
-      const column = meta.columns?.find((item: any) => item.name === key);
-      if (column) {
-        if (action === 'update' && column.isUpdatable === false) continue;
-        const decision = await decideFieldPermission(
-          runtimeRegistryService,
-          {
-            user: this.dependencies.context.$user,
-            tableName,
-            action,
-            subjectType: 'column',
-            subjectName: key,
-            record: data,
-          },
-          { defaultAllowed: column.isPublished !== false },
-        );
-        if (!decision.allowed) denied.push({ type: 'column', name: key });
-      }
-
-      const relation = meta.relations?.find(
-        (item: any) => item.propertyName === key,
-      );
-      if (relation) {
-        const decision = await decideFieldPermission(
-          runtimeRegistryService,
-          {
-            user: this.dependencies.context.$user,
-            tableName,
-            action,
-            subjectType: 'relation',
-            subjectName: key,
-            record: data,
-          },
-          { defaultAllowed: relation.isPublished !== false },
-        );
-        if (!decision.allowed) denied.push({ type: 'relation', name: key });
-      }
-    }
-
-    if (denied.length > 0) {
-      throw new ForbiddenException(
-        formatFieldPermissionErrorMessage({
-          action,
-          tableName,
-          fields: denied,
-        }),
-      );
-    }
+    const stripped = await stripUnauthorizedMutationFields({
+      action,
+      body: data,
+      policyReader: runtimeRegistryService,
+      record: data,
+      tableMeta: meta,
+      tableName,
+      user: this.dependencies.context.$user,
+    });
+    if (stripped === data) return;
+    for (const key of Object.keys(data)) delete data[key];
+    Object.assign(data, stripped);
   }
 }

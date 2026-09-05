@@ -20,6 +20,12 @@ import {
   buildSqlJunctionTableContract,
   resolveSqlRelationOnDelete,
 } from '../sql-physical-schema-contract';
+import { getPostgresEnumTypeName } from '../sql-enum.util';
+import {
+  buildPostgresEnumColumnDefinition,
+  planPostgresEnumTypeCreation,
+  planPostgresEnumUpdate,
+} from './postgres-enum-migration';
 
 const logger = new Logger('SqlDiffGenerator');
 function isIdempotentDDLError(err: any, dbType: string): boolean {
@@ -160,6 +166,8 @@ export async function generateSQLFromDiff(
   const crossTableOps = ensureArray(diff.crossTableOperations);
   let activeTableName = tableName;
   const plannedColumns = new Set<string>();
+  const plannedUniqueGroups = new Set<string>();
+  const uniqueGroupKey = (columns: string[]) => JSON.stringify(columns);
   const canIndexColumns = async (cols: string[]): Promise<boolean> => {
     for (const col of cols) {
       if (plannedColumns.has(col)) continue;
@@ -285,11 +293,7 @@ export async function generateSQLFromDiff(
     );
     if (constraintName) {
       sqlStatements.push(
-        generateDropForeignKeySQL(
-          crossOp.targetTable,
-          constraintName,
-          dbType,
-        ),
+        generateDropForeignKeySQL(crossOp.targetTable, constraintName, dbType),
       );
     }
   }
@@ -334,10 +338,26 @@ export async function generateSQLFromDiff(
     sqlStatements.push(
       generateDropColumnSQL(activeTableName, col.name, dbType),
     );
+    if (dbType === 'postgres' && col.type === 'enum') {
+      sqlStatements.push(
+        `DROP TYPE IF EXISTS ${quoteIdentifier(getPostgresEnumTypeName(activeTableName, col.name), 'postgres')}`,
+      );
+    }
   }
   for (const col of ensureArray(columnDiff.create)) {
     plannedColumns.add(col.name);
-    const columnDef = generateColumnDefinition(col, dbType);
+    let columnDef: string;
+    if (dbType === 'postgres' && col.type === 'enum') {
+      const enumPlan = await planPostgresEnumTypeCreation(
+        knex,
+        activeTableName,
+        col,
+      );
+      sqlStatements.push(...enumPlan.statements);
+      columnDef = buildPostgresEnumColumnDefinition(activeTableName, col);
+    } else {
+      columnDef = generateColumnDefinition(col, dbType);
+    }
     sqlStatements.push(
       `ALTER TABLE ${qt(activeTableName)} ADD COLUMN ${qt(col.name)} ${columnDef}`,
     );
@@ -348,13 +368,17 @@ export async function generateSQLFromDiff(
       );
     }
     if (col.isUnique) {
-      const uniqueConstraintName = `uq_${activeTableName}_${col.name}`;
-      sqlStatements.push(
-        `ALTER TABLE ${qt(activeTableName)} ADD CONSTRAINT ${qt(uniqueConstraintName)} UNIQUE (${qt(col.name)})`,
-      );
-      logger.log(
-        `  Added UNIQUE constraint on ${col.name} for one-to-one relation`,
-      );
+      const groupKey = uniqueGroupKey([col.name]);
+      if (!plannedUniqueGroups.has(groupKey)) {
+        plannedUniqueGroups.add(groupKey);
+        const uniqueConstraintName = `uq_${activeTableName}_${col.name}`;
+        sqlStatements.push(
+          `ALTER TABLE ${qt(activeTableName)} ADD CONSTRAINT ${qt(uniqueConstraintName)} UNIQUE (${qt(col.name)})`,
+        );
+        logger.log(
+          `  Added UNIQUE constraint on ${col.name} for one-to-one relation`,
+        );
+      }
     }
     if (
       col.type === 'datetime' ||
@@ -385,6 +409,17 @@ export async function generateSQLFromDiff(
       continue;
     }
     processedUpdates.add(colName);
+    if (dbType === 'postgres' && update.newColumn.type === 'enum') {
+      sqlStatements.push(
+        ...(await planPostgresEnumUpdate(
+          knex,
+          activeTableName,
+          update.oldColumn,
+          update.newColumn,
+        )),
+      );
+      continue;
+    }
     const columnDef = generateColumnDefinition(update.newColumn, dbType);
     const modifySQL = generateModifyColumnSQL(
       activeTableName,
@@ -400,6 +435,9 @@ export async function generateSQLFromDiff(
     }
   }
   for (const uniqueGroup of ensureArray(constraintDiff.uniques?.create) || []) {
+    const groupKey = uniqueGroupKey(uniqueGroup);
+    if (plannedUniqueGroups.has(groupKey)) continue;
+    plannedUniqueGroups.add(groupKey);
     const columns = uniqueGroup.map((col: string) => qt(col)).join(', ');
     const constraintName = `uq_${activeTableName}_${uniqueGroup.join('_')}`;
     sqlStatements.push(
@@ -410,6 +448,9 @@ export async function generateSQLFromDiff(
     );
   }
   for (const uniqueGroup of ensureArray(constraintDiff.uniques?.update) || []) {
+    const groupKey = uniqueGroupKey(uniqueGroup);
+    if (plannedUniqueGroups.has(groupKey)) continue;
+    plannedUniqueGroups.add(groupKey);
     const columns = uniqueGroup.map((col: string) => qt(col)).join(', ');
     sqlStatements.push(
       `ALTER TABLE ${qt(activeTableName)} ADD UNIQUE (${columns})`,
@@ -429,7 +470,21 @@ export async function generateSQLFromDiff(
   }
   for (const crossOp of crossTableOps) {
     if (crossOp.operation === 'createColumn') {
-      const columnDef = generateColumnDefinition(crossOp.column, dbType);
+      let columnDef: string;
+      if (dbType === 'postgres' && crossOp.column.type === 'enum') {
+        const enumPlan = await planPostgresEnumTypeCreation(
+          knex,
+          crossOp.targetTable,
+          crossOp.column,
+        );
+        sqlStatements.push(...enumPlan.statements);
+        columnDef = buildPostgresEnumColumnDefinition(
+          crossOp.targetTable,
+          crossOp.column,
+        );
+      } else {
+        columnDef = generateColumnDefinition(crossOp.column, dbType);
+      }
       sqlStatements.push(
         `ALTER TABLE ${qt(crossOp.targetTable)} ADD COLUMN ${qt(crossOp.column.name)} ${columnDef}`,
       );

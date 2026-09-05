@@ -28,6 +28,7 @@ describe('init runtime registry publish', () => {
 
     await init({
       cradle: {
+        runtimeLogWriterService: { start: vi.fn(), assertReady: vi.fn(async () => {}) },
         eventEmitter,
         databaseConfigService: { getDbType: () => 'mongodb' },
         mongoService: { init: vi.fn(async () => undefined) },
