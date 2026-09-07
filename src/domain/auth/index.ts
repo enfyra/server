@@ -10,5 +10,6 @@ export * from './services/session-cleanup.service';
 export * from './services/user-revocation.service';
 export * from './schemas/auth.schemas';
 export * from './types/oauth-exchange-code.types';
+export * from './types/oauth-lifecycle.types';
 export * from './types/auth.types';
 export * from './auth.constants';

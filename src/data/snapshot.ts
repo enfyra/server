@@ -483,7 +483,7 @@ snapshot
       .nullable()
       .default(null)
       .description(
-        'Optional script that returns an object merged into newly created OAuth users. Existing identity fields take precedence.',
+        'Optional OAuth lifecycle script executed inside the login transaction after the user is resolved. Receives @USER and normalized @DATA.oauth; return values are ignored.',
       ),
     scriptLanguage: col
       .enum(['typescript', 'javascript'])
@@ -498,7 +498,7 @@ snapshot
       .immutable()
       .nullable()
       .description(
-        'Server-compiled JavaScript code executed by the OAuth user provisioning runtime',
+        'Server-compiled JavaScript code executed by the OAuth lifecycle runtime',
       ),
     isEnabled: col
       .boolean()

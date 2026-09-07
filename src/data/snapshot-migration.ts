@@ -438,6 +438,39 @@ const snapshotMigration = {
         },
       ],
     },
+    {
+      _unique: {
+        name: {
+          _eq: 'enfyra_oauth_config',
+        },
+      },
+      columnsToModify: [
+        {
+          from: {
+            name: 'sourceCode',
+            description:
+              'Optional script that returns an object merged into newly created OAuth users. Existing identity fields take precedence.',
+          },
+          to: {
+            name: 'sourceCode',
+            description:
+              'Optional OAuth lifecycle script executed inside the login transaction after the user is resolved. Receives @USER and normalized @DATA.oauth; return values are ignored.',
+          },
+        },
+        {
+          from: {
+            name: 'compiledCode',
+            description:
+              'Server-compiled JavaScript code executed by the OAuth user provisioning runtime',
+          },
+          to: {
+            name: 'compiledCode',
+            description:
+              'Server-compiled JavaScript code executed by the OAuth lifecycle runtime',
+          },
+        },
+      ],
+    },
   ],
   tablesToDrop: ['schema_history'],
   coreTablesToRename: [

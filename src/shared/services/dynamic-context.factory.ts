@@ -10,6 +10,7 @@ import { createCryptoHelper, createFetchHelper } from '../helpers';
 import type { UploadFileHelper } from '../helpers/upload-file.helper';
 import { autoSlug } from '../utils/auto-slug.helper';
 import { ScriptErrorFactory } from '../utils/script-error-factory';
+import { runWithDeferredDynamicTransactionEffects } from '../utils/dynamic-transaction-effects.util';
 import type { EnvService } from './env.service';
 import type { DatabaseConfigService } from './database-config.service';
 import type { KnexService } from '../../engines/knex/knex.service';
@@ -115,7 +116,11 @@ export class DynamicContextFactory {
       if (!ctx.$share) ctx.$share = { $logs: [] };
       if (!ctx.$share.$logs) ctx.$share.$logs = [];
       ctx.$share.$logs.push(...args);
-      recordUserLog(args, { component: 'Script', correlationId: ctx.$api?.request?.correlationId, sourceKind: 'host' });
+      recordUserLog(args, {
+        component: 'Script',
+        correlationId: ctx.$api?.request?.correlationId,
+        sourceKind: 'host',
+      });
     };
 
     return ctx;
@@ -136,19 +141,24 @@ export class DynamicContextFactory {
 
         active = true;
         try {
-          if (this.databaseConfigService.isMongoDb()) {
-            const result = await this.mongoService.runInSaga((scope) =>
-              this.runWithTransactionRepos(ctx, callback, (work) =>
-                this.mongoService.runWithTransactionScope(scope, work),
-              ),
-            );
-            return result.data as T;
-          }
+          return await runWithDeferredDynamicTransactionEffects(
+            ctx,
+            async () => {
+              if (this.databaseConfigService.isMongoDb()) {
+                const result = await this.mongoService.runInSaga((scope) =>
+                  this.runWithTransactionRepos(ctx, callback, (work) =>
+                    this.mongoService.runWithTransactionScope(scope, work),
+                  ),
+                );
+                return result.data as T;
+              }
 
-          return await this.knexService.transaction((trx) =>
-            this.runWithTransactionRepos(ctx, callback, (work) =>
-              this.knexService.runWithTransaction(trx, work),
-            ),
+              return await this.knexService.transaction((trx) =>
+                this.runWithTransactionRepos(ctx, callback, (work) =>
+                  this.knexService.runWithTransaction(trx, work),
+                ),
+              );
+            },
           );
         } finally {
           active = false;
@@ -259,8 +269,10 @@ export class DynamicContextFactory {
       },
       $crypto: crypto,
       $pat: {
-        create: async (input) => await this.apiTokenService.createForUser(input),
-        verify: async (token) => await this.apiTokenService.verifyForScript(token),
+        create: async (input) =>
+          await this.apiTokenService.createForUser(input),
+        verify: async (token) =>
+          await this.apiTokenService.verifyForScript(token),
       },
       ...(helpers ?? {}),
     };
