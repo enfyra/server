@@ -1,5 +1,3 @@
-import type { SchemaMigrationDef } from '../../../shared/types/schema-migration.types';
-
 export const TABLE_FIELDS = [
   'isSystem',
   'isSingleRecord',
@@ -56,6 +54,20 @@ export const RELATION_DERIVED_FIELDS = new Set([
   'junctionSourceColumn',
   'junctionTargetColumn',
 ]);
+
+const AUTO_MANAGED_INDEX_FIELDS = new Set(['createdAt', 'updatedAt']);
+
+function withoutAutoManagedIndexes(value: any): any {
+  if (!Array.isArray(value)) return value;
+  return value.filter(
+    (group) =>
+      !(
+        Array.isArray(group) &&
+        group.length === 1 &&
+        AUTO_MANAGED_INDEX_FIELDS.has(String(group[0]))
+      ),
+  );
+}
 
 export const RELATION_UPDATE_FIELDS = [
   'propertyName',
@@ -154,13 +166,17 @@ export function comparableValue(
     )
   ) {
     try {
-      return JSON.parse(value);
+      const parsed = JSON.parse(value);
+      return field === 'indexes' ? withoutAutoManagedIndexes(parsed) : parsed;
     } catch {
       if (value.startsWith('{') && value.endsWith('}')) {
         const content = value.slice(1, -1);
         if (!content) return [];
         try {
-          return JSON.parse(`[${content}]`);
+          const parsed = JSON.parse(`[${content}]`);
+          return field === 'indexes'
+            ? withoutAutoManagedIndexes(parsed)
+            : parsed;
         } catch {
           return content.split(',').map((entry) => entry.trim());
         }
@@ -168,7 +184,10 @@ export function comparableValue(
       return value;
     }
   }
-  return value ?? null;
+  const comparable = value ?? null;
+  return field === 'indexes'
+    ? withoutAutoManagedIndexes(comparable)
+    : comparable;
 }
 
 export function changedFields(

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { dynamicInterceptorBegin } from '../../src/http/middlewares/dynamic-interceptor.middleware';
-import { Logger } from '../../src/shared/logger';
+import * as runtimeLogs from '../../src/shared/runtime-log-buffer';
 
 describe('dynamicInterceptorBegin admin test run isolation', () => {
   it('does not run global hooks or wrap responses for /admin/test/run', async () => {
@@ -167,7 +167,7 @@ describe('dynamicInterceptorBegin admin test run isolation', () => {
         throw error;
       }),
     };
-    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    const record = vi.spyOn(runtimeLogs, 'recordUserLog');
     const req = {
       method: 'POST',
       path: '/gateway/v1/chat/completions',
@@ -188,15 +188,7 @@ describe('dynamicInterceptorBegin admin test run isolation', () => {
     );
 
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 400 }));
-    expect(warn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message: 'Dynamic script log',
-        route: '/gateway/v1/*',
-        method: 'POST',
-        statusCode: 400,
-        entry: 'unsupported model',
-      }),
-    );
-    warn.mockRestore();
+    expect(record).toHaveBeenCalledWith(['unsupported model'], expect.objectContaining({ statusCode: 400 }));
+    record.mockRestore();
   });
 });

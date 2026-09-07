@@ -381,6 +381,12 @@ function normalizeRelations(
         junctionTableName: ownsJunction
           ? stringValue(relation?.junctionTableName) || generatedJunction
           : '',
+        junctionSourceColumn: ownsJunction
+          ? stringValue(relation?.junctionSourceColumn)
+          : '',
+        junctionTargetColumn: ownsJunction
+          ? stringValue(relation?.junctionTargetColumn)
+          : '',
         isNullable: relation?.isNullable ?? true,
         onDelete: stringValue(relation?.onDelete) || 'SET NULL',
         inversePropertyName:

@@ -184,7 +184,11 @@ export class FirstRunInitializer {
         await this.runOwnedStep(lease, () =>
           this.metadataMigrationService.executeCoreMigrationPlan(
             (operation) =>
-              this.completeProgressChange(changePlan.changes, operation.id, mode),
+              this.completeProgressChange(
+                changePlan.changes,
+                operation.id,
+                mode,
+              ),
             () => lease.assertOwned(),
           ),
         );
@@ -342,8 +346,7 @@ export class FirstRunInitializer {
         this.completeProgressStage(changePlan.changes, 'attestation', mode);
 
         this.logPlannedProgress(mode, 'finalizing');
-        await lease.assertOwned();
-        await this.markInitialized();
+        await this.runOwnedStep(lease, () => this.markInitialized());
         this.completeProgressStage(changePlan.changes, 'finalize', mode);
       });
 
@@ -633,10 +636,7 @@ export class FirstRunInitializer {
         if ((await this.findFirstSetting())?.isInit) return 'initialized';
       } catch {}
       try {
-        if (
-          (await this.cacheService.get(PROVISION_LOCK_KEY)) ===
-          null
-        ) {
+        if ((await this.cacheService.get(PROVISION_LOCK_KEY)) === null) {
           return 'unlocked';
         }
       } catch {}

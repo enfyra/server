@@ -13,12 +13,14 @@ import { SessionCleanupService } from '../../src/domain/auth/services/session-cl
 type SchedulerQueue = {
   upsertJobScheduler: ReturnType<typeof vi.fn>;
   getJobScheduler: ReturnType<typeof vi.fn>;
+  getDelayed: ReturnType<typeof vi.fn>;
 };
 
 function createQueue(): SchedulerQueue {
   return {
     upsertJobScheduler: vi.fn(async () => undefined),
     getJobScheduler: vi.fn(async () => undefined),
+    getDelayed: vi.fn(async () => []),
   };
 }
 
@@ -43,9 +45,6 @@ function createService(deps: {
   cleanupQueue: SchedulerQueue;
   cacheService: ReturnType<typeof createSharedLock>;
 }) {
-  const runtimeNamespaceLifecycleService = {
-    renewSystemQueueKeys: vi.fn(async () => undefined),
-  };
   const service = new SessionCleanupService({
     queryBuilderService: {} as any,
     cleanupQueue: deps.cleanupQueue as any,
@@ -55,10 +54,9 @@ function createService(deps: {
       ),
     } as any,
     cacheService: deps.cacheService as any,
-    runtimeNamespaceLifecycleService: runtimeNamespaceLifecycleService as any,
   } as any);
 
-  return { service, runtimeNamespaceLifecycleService };
+  return { service };
 }
 
 describe('SessionCleanupService', () => {
@@ -77,11 +75,6 @@ describe('SessionCleanupService', () => {
         0,
       ),
     ).toBe(1);
-    for (const { runtimeNamespaceLifecycleService } of instances) {
-      expect(
-        runtimeNamespaceLifecycleService.renewSystemQueueKeys,
-      ).toHaveBeenCalledOnce();
-    }
   });
 
   it('does not register again when another worker starts after the lock holder has finished', async () => {
@@ -90,10 +83,9 @@ describe('SessionCleanupService', () => {
     cleanupQueue.getJobScheduler
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce({
-        id: 'session-cleanup-daily',
+        key: 'session-cleanup-daily',
         name: 'cleanup-expired-sessions',
         pattern: '0 2 * * *',
-        key: 'scheduler-key',
       });
     const first = createService({ cleanupQueue, cacheService });
     const second = createService({ cleanupQueue, cacheService });
@@ -112,27 +104,38 @@ describe('SessionCleanupService', () => {
         'Cannot create job scheduler iteration - job ID already exists',
       ),
     );
-    cleanupQueue.getJobScheduler.mockResolvedValueOnce({
-      id: 'session-cleanup-daily',
-      name: 'cleanup-expired-sessions',
-      pattern: '0 2 * * *',
-      key: 'scheduler-key',
-    });
+    cleanupQueue.getJobScheduler
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({
+        key: 'session-cleanup-daily',
+        name: 'cleanup-expired-sessions',
+        pattern: '0 2 * * *',
+      });
     const { service } = createService({ cleanupQueue, cacheService });
 
     await expect(service.init()).resolves.toBeUndefined();
   });
 
-  it('fails boot when BullMQ reports a duplicate but the expected scheduler is absent', async () => {
+  it('recreates a scheduler when a prior scheduler record is missing but its delayed iteration remains', async () => {
     const cacheService = createSharedLock();
     const cleanupQueue = createQueue();
     const error = new Error(
       'Cannot create job scheduler iteration - job ID already exists',
     );
     cleanupQueue.upsertJobScheduler.mockRejectedValueOnce(error);
+    const remove = vi.fn(async () => undefined);
+    cleanupQueue.getDelayed.mockResolvedValueOnce([
+      {
+        name: 'cleanup-expired-sessions',
+        repeatJobKey: 'session-cleanup-daily',
+        remove,
+      },
+    ]);
     const { service } = createService({ cleanupQueue, cacheService });
 
-    await expect(service.init()).rejects.toThrow(error);
+    await expect(service.init()).resolves.toBeUndefined();
+    expect(remove).toHaveBeenCalledOnce();
+    expect(cleanupQueue.upsertJobScheduler).toHaveBeenCalledTimes(2);
   });
 
   it('fails boot for non-idempotent scheduler errors', async () => {

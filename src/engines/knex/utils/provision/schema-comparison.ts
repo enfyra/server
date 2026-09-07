@@ -497,6 +497,9 @@ export function isTypeCompatible(
   type2: string,
   dbClient?: string,
 ): boolean {
+  if (type1 === 'enum' || type2 === 'enum') {
+    return type1 === 'enum' && type2 === 'enum';
+  }
   const isMySql = String(dbClient).toLowerCase().includes('mysql');
   if (
     isMySql &&
@@ -522,7 +525,6 @@ export function isTypeCompatible(
     ],
     boolean: ['tinyint', 'boolean', 'bool'],
     real: ['real', 'float', 'double precision'],
-    enum: ['enum', 'varchar', 'text', 'character varying'],
   };
   for (const [baseType, variants] of Object.entries(compatibleTypes)) {
     if (

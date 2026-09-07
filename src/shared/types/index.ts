@@ -3,6 +3,7 @@
 export * from './database-init.types';
 export * from './dynamic-context.types';
 export * from './dynamic-pat.types';
+export * from './field-permission-mutation.types';
 export * from './file-management.types';
 export * from './query-builder.types';
 export * from './flow.types';

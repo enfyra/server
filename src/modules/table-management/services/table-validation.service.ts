@@ -3,10 +3,11 @@ import {
   type ColumnIdentifierDatabase,
   isSqlReservedColumnIdentifier,
 } from '../utils/sql-identifier-validation.util';
+import type { TableValidationColumnInput } from '../types/table-validation.types';
 
 export class TableManagementValidationService {
   validateColumns(
-    columns: readonly { name?: unknown }[] | undefined,
+    columns: readonly TableValidationColumnInput[] | undefined,
     database: ColumnIdentifierDatabase,
   ): void {
     for (const column of columns || []) {
@@ -27,6 +28,36 @@ export class TableManagementValidationService {
             reason: 'reserved_keyword',
           },
         );
+      }
+      if (column.type === 'enum') {
+        const options = column.options;
+        if (
+          !Array.isArray(options) ||
+          options.length === 0 ||
+          options.some((option) => typeof option !== 'string') ||
+          new Set(options).size !== options.length
+        ) {
+          throw new ValidationException(
+            `Enum options for column '${name}' must be non-empty unique strings`,
+            {
+              code: 'SCHEMA_ENUM_OPTIONS_INVALID',
+              columnName: name,
+            },
+          );
+        }
+        if (
+          column.defaultValue !== null &&
+          column.defaultValue !== undefined &&
+          !options.includes(column.defaultValue)
+        ) {
+          throw new ValidationException(
+            `Enum default for column '${name}' must belong to its options`,
+            {
+              code: 'SCHEMA_ENUM_DEFAULT_INVALID',
+              columnName: name,
+            },
+          );
+        }
       }
     }
   }

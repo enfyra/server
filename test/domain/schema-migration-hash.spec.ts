@@ -64,6 +64,34 @@ const columnWithId = (id: any, name: string) => ({
   defaultValue: null,
 });
 
+describe('SchemaMigrationValidatorService — system table hydration', () => {
+  it('replaces partial child stubs with full runtime metadata', async () => {
+    const columns = [{ id: 11, name: 'id', isSystem: true }];
+    const relations = [{ id: 21, propertyName: 'roles', isSystem: true }];
+    const validator = new SchemaMigrationValidatorService({
+      runtimeRegistryService: {
+        requireMetadata: () => ({
+          tables: new Map([
+            ['enfyra_user', { name: 'enfyra_user', columns, relations }],
+          ]),
+        }),
+      } as any,
+      runtimeSchemaContractCompilerService: {} as any,
+    });
+
+    const result = await validator.enrichTableDefinitionData({
+      id: 10,
+      name: 'enfyra_user',
+      isSystem: true,
+      columns: [{ id: 11 }],
+      relations: [{ id: 21 }],
+    });
+
+    expect(result.columns).toEqual(columns);
+    expect(result.relations).toEqual(relations);
+  });
+});
+
 describe('SchemaMigrationValidatorService — hash stability', () => {
   it('returns requiredConfirmHash on preview when adding new column', async () => {
     const v = makeValidator();

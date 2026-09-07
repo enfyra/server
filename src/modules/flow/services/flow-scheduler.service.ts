@@ -5,9 +5,7 @@ import { Queue } from 'bullmq';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import type { ICache } from '../../../domain/shared/interfaces/cache.interface';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
-import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
-import type { RuntimeNamespaceLifecycleService } from '../../../engines/cache/services/runtime-namespace-lifecycle.service';
 
 import type { FlowDefinition } from '../../../shared/types/flow.types';
 
@@ -57,20 +55,16 @@ export class FlowSchedulerService {
   private readonly flowQueue: Queue;
   private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly cacheService: ICache;
-  private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
 
   constructor(deps: {
     flowQueue: Queue;
     runtimeRegistryService: RuntimeRegistryService;
     cacheService: ICache;
-    runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
     eventEmitter?: any;
   }) {
     this.flowQueue = deps.flowQueue;
     this.runtimeRegistryService = deps.runtimeRegistryService;
     this.cacheService = deps.cacheService;
-    this.runtimeNamespaceLifecycleService =
-      deps.runtimeNamespaceLifecycleService;
   }
 
   async init(): Promise<void> {
@@ -158,32 +152,24 @@ export class FlowSchedulerService {
           }
 
           try {
-            await this.flowQueue.upsertJobScheduler(
-              schedule.schedulerId,
-              { pattern: schedule.cron, tz: schedule.timezone },
-              {
-                name: `flow:${schedule.flow.name}`,
-                data: {
-                  flowId: schedule.flow.id,
-                  flowName: schedule.flow.name,
-                  payload: { trigger: 'schedule', cron: schedule.cron },
-                },
-                opts: {
-                  attempts: 1,
-                  removeOnComplete: { count: 100, age: 3600 * 24 },
-                  removeOnFail: { count: 200, age: 3600 * 24 * 7 },
-                },
-              },
-            );
+            await this.upsertSchedule(schedule);
           } catch (error) {
             if (
-              !(await this.isVerifiedDuplicateSchedulerError(error, schedule))
+              await this.isVerifiedDuplicateSchedulerError(error, schedule)
             ) {
+              this.logger.warn(
+                `Scheduler ${schedule.schedulerId} was concurrently registered; continuing`,
+              );
+            } else if (
+              await this.removeOrphanedSchedulerIteration(error, schedule)
+            ) {
+              await this.upsertSchedule(schedule);
+              this.logger.warn(
+                `Removed orphaned iteration and recreated scheduler ${schedule.schedulerId}`,
+              );
+            } else {
               throw error;
             }
-            this.logger.warn(
-              `Scheduler ${schedule.schedulerId} was concurrently registered; continuing`,
-            );
           }
 
           registered++;
@@ -192,10 +178,6 @@ export class FlowSchedulerService {
         if (registered > 0) {
           this.logger.log(`Registered ${registered} scheduled flows`);
         }
-        await this.runtimeNamespaceLifecycleService?.renewSystemQueueKeys(
-          SYSTEM_QUEUES.FLOW_EXECUTION,
-        );
-
         this.lastReconcileState = {
           status: 'ok',
           startedAt,
@@ -309,6 +291,45 @@ export class FlowSchedulerService {
     return this.hasExpectedScheduler(
       scheduler as FlowJobScheduler | undefined,
       schedule,
+    );
+  }
+
+  private async removeOrphanedSchedulerIteration(
+    error: unknown,
+    schedule: DesiredFlowSchedule,
+  ): Promise<boolean> {
+    if (!getErrorMessage(error).includes(SCHEDULER_ITERATION_EXISTS_ERROR)) {
+      return false;
+    }
+
+    const orphanedJobs = (await this.flowQueue.getDelayed(0, -1)).filter(
+      (job) =>
+        job.name === `flow:${schedule.flow.name}` &&
+        job.repeatJobKey === schedule.schedulerId,
+    );
+    if (orphanedJobs.length === 0) return false;
+
+    await Promise.all(orphanedJobs.map((job) => job.remove()));
+    return true;
+  }
+
+  private async upsertSchedule(schedule: DesiredFlowSchedule): Promise<void> {
+    await this.flowQueue.upsertJobScheduler(
+      schedule.schedulerId,
+      { pattern: schedule.cron, tz: schedule.timezone },
+      {
+        name: `flow:${schedule.flow.name}`,
+        data: {
+          flowId: schedule.flow.id,
+          flowName: schedule.flow.name,
+          payload: { trigger: 'schedule', cron: schedule.cron },
+        },
+        opts: {
+          attempts: 1,
+          removeOnComplete: { count: 100, age: 3600 * 24 },
+          removeOnFail: { count: 200, age: 3600 * 24 * 7 },
+        },
+      },
     );
   }
 }

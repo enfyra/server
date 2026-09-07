@@ -7,7 +7,6 @@ import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import type { EnvService } from '../../../shared/services';
 import { Logger } from '../../../shared/logger';
 import { getErrorMessage } from '../../../shared/utils/error.util';
-import type { RuntimeNamespaceLifecycleService } from '../../../engines/cache/services/runtime-namespace-lifecycle.service';
 
 const BATCH_SIZE = 20;
 const SESSION_CLEANUP_SCHEDULER_ID = 'session-cleanup-daily';
@@ -25,7 +24,6 @@ export class SessionCleanupService {
   private readonly cleanupQueue: Queue;
   private readonly envService: EnvService;
   private readonly cacheService: ICache;
-  private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
   private worker?: Worker;
 
   constructor(deps: {
@@ -33,14 +31,11 @@ export class SessionCleanupService {
     cleanupQueue: Queue;
     envService: EnvService;
     cacheService: ICache;
-    runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.cleanupQueue = deps.cleanupQueue;
     this.envService = deps.envService;
     this.cacheService = deps.cacheService;
-    this.runtimeNamespaceLifecycleService =
-      deps.runtimeNamespaceLifecycleService;
   }
 
   async init() {
@@ -61,9 +56,6 @@ export class SessionCleanupService {
     );
 
     await this.registerScheduler();
-    await this.runtimeNamespaceLifecycleService?.renewSystemQueueKeys(
-      SYSTEM_QUEUES.SESSION_CLEANUP,
-    );
   }
 
   private async registerScheduler(): Promise<void> {
@@ -106,6 +98,25 @@ export class SessionCleanupService {
         );
         return;
       }
+
+      if (await this.removeOrphanedSchedulerIteration(error)) {
+        await this.cleanupQueue.upsertJobScheduler(
+          SESSION_CLEANUP_SCHEDULER_ID,
+          { pattern: SESSION_CLEANUP_SCHEDULE_PATTERN },
+          {
+            name: SESSION_CLEANUP_JOB_NAME,
+            opts: {
+              removeOnComplete: { count: 30, age: 3600 * 24 * 7 },
+              removeOnFail: { count: 30, age: 3600 * 24 * 30 },
+            },
+          },
+        );
+        this.logger.warn(
+          'Removed an orphaned scheduler iteration and recreated the scheduler',
+        );
+        return;
+      }
+
       throw error;
     } finally {
       await this.cacheService.release(
@@ -125,12 +136,32 @@ export class SessionCleanupService {
     return await this.hasExpectedScheduler();
   }
 
+  private async removeOrphanedSchedulerIteration(
+    error: unknown,
+  ): Promise<boolean> {
+    if (!getErrorMessage(error).includes(SCHEDULER_ITERATION_EXISTS_ERROR)) {
+      return false;
+    }
+
+    const orphanedJobs = (await this.cleanupQueue.getDelayed(0, -1)).filter(
+      (job) =>
+        job.name === SESSION_CLEANUP_JOB_NAME &&
+        job.repeatJobKey === SESSION_CLEANUP_SCHEDULER_ID,
+    );
+    if (orphanedJobs.length === 0) {
+      return false;
+    }
+
+    await Promise.all(orphanedJobs.map((job) => job.remove()));
+    return true;
+  }
+
   private async hasExpectedScheduler(): Promise<boolean> {
     const scheduler = await this.cleanupQueue.getJobScheduler(
       SESSION_CLEANUP_SCHEDULER_ID,
     );
     return (
-      scheduler?.id === SESSION_CLEANUP_SCHEDULER_ID &&
+      scheduler?.key === SESSION_CLEANUP_SCHEDULER_ID &&
       scheduler.name === SESSION_CLEANUP_JOB_NAME &&
       scheduler.pattern === SESSION_CLEANUP_SCHEDULE_PATTERN
     );

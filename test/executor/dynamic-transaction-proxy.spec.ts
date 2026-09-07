@@ -88,6 +88,32 @@ describe('isolated executor transaction proxy', () => {
     }
   });
 
+  it('preserves a structured user throw through the host transaction callback', async () => {
+    const service = createService();
+    const events: string[] = [];
+    try {
+      await expect(
+        service.run(
+          `await $ctx.$transaction.run(async () => {
+            await $ctx.$repos.records.create({ data: { id: 'one' } });
+            $ctx.$throw['422']('Trial credit is unavailable', { offer: 'trial' });
+          });`,
+          createContext(events),
+          5000,
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 422,
+        errorCode: 'HTTP_422',
+        details: { offer: 'trial' },
+        message: 'Trial credit is unavailable',
+      });
+
+      expect(events).toEqual(['begin', 'create:one:true', 'rollback']);
+    } finally {
+      service.onDestroy();
+    }
+  });
+
   it('rolls back the outer transaction when the isolate times out', async () => {
     const service = createService();
     const events: string[] = [];

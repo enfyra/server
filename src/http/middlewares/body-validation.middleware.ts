@@ -6,6 +6,7 @@ import { buildZodFromMetadata } from '../../shared/utils/zod-from-metadata';
 import { parseOrBadRequest } from '../../shared/utils/zod-parse.util';
 import { BadRequestException } from '../../domain/exceptions';
 import { CACHE_IDENTIFIERS } from '../../shared/utils/cache-events.constants';
+import { stripUnauthorizedMutationFields } from '../../shared/utils/strip-unauthorized-mutation-fields.util';
 
 type Mode = 'create' | 'update';
 
@@ -58,6 +59,7 @@ function assignValidationBody(req: Request, routeData: any, body: any): void {
 
 export function bodyValidationMiddleware(container: AwilixContainer<Cradle>) {
   const runtimeRegistryService = container.cradle.runtimeRegistryService;
+  const queryBuilderService = container.cradle.queryBuilderService;
 
   return async (req: Request, res: Response, next: NextFunction) => {
     const method = req.method?.toUpperCase();
@@ -105,10 +107,33 @@ export function bodyValidationMiddleware(container: AwilixContainer<Cradle>) {
     };
 
     try {
+      const user = routeData?.context?.$user ?? (req as any).user ?? null;
+      let permissionRecord = body;
+      if (mode === 'update' && req.params?.id != null) {
+        const idField =
+          tableMeta.columns?.find((column: any) => column?.isPrimary)?.name ??
+          'id';
+        const existing = await queryBuilderService.find({
+          table: mainTable.name,
+          fields: '*',
+          filter: { [idField]: { _eq: req.params.id } },
+          limit: 1,
+        });
+        permissionRecord = existing?.data?.[0] ?? body;
+      }
+      const permissionBody = await stripUnauthorizedMutationFields({
+        action: mode,
+        body,
+        policyReader: runtimeRegistryService,
+        record: permissionRecord,
+        tableMeta,
+        tableName: mainTable.name,
+        user,
+      });
       const validationBody =
         mode === 'update'
-          ? stripNonUpdatableColumnsForPatch(body, tableMeta)
-          : body;
+          ? stripNonUpdatableColumnsForPatch(permissionBody, tableMeta)
+          : permissionBody;
       validateBody(validationBody);
     } catch (err) {
       return next(err);

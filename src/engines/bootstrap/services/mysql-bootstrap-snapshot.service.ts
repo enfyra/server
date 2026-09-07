@@ -20,8 +20,11 @@ interface BootstrapSnapshotEntry {
   backupTableName: string;
   createSql: string;
   columnsJson: string;
+  rowCount: number | string | null;
   ordinal: number;
 }
+
+type SnapshotRunPhase = 'planning' | 'running' | 'committing' | 'committed';
 
 export class MySqlBootstrapSnapshotService {
   private readonly knexService: KnexService;
@@ -107,25 +110,52 @@ export class MySqlBootstrapSnapshotService {
       txId,
       mutationId: context.mutationId ?? null,
       status: 'planning',
+      snapshotTableCount: null,
       errorMessage: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
 
+    let phase: SnapshotRunPhase = 'planning';
     try {
       await this.capture(knex, txId);
       await knex(TRANSACTION_TABLE).where({ txId }).update({
         status: 'running',
         updatedAt: new Date(),
       });
+      phase = 'running';
       const result = await callback();
+      phase = 'committing';
       await knex(TRANSACTION_TABLE).where({ txId }).update({
         status: 'committed',
         updatedAt: new Date(),
       });
+      phase = 'committed';
       await this.cleanup(knex, txId);
       return result;
     } catch (error) {
+      if (phase === 'planning') {
+        await this.cleanup(knex, txId);
+        await knex(TRANSACTION_TABLE)
+          .where({ txId })
+          .update({
+            status: 'rolled_back',
+            errorMessage: getErrorMessage(error).slice(0, 4000),
+            updatedAt: new Date(),
+          });
+        throw error;
+      }
+      if (phase === 'committed') {
+        throw error;
+      }
+      if (phase === 'committing') {
+        const transaction = await knex(TRANSACTION_TABLE)
+          .where({ txId })
+          .first('status');
+        if (!transaction || transaction.status === 'committed') {
+          throw error;
+        }
+      }
       await knex(TRANSACTION_TABLE)
         .where({ txId })
         .update({
@@ -149,10 +179,7 @@ export class MySqlBootstrapSnapshotService {
     try {
       const [rows] = await connection
         .promise()
-        .query('SELECT GET_LOCK(?, ?) AS acquired', [
-          ADVISORY_LOCK_NAME,
-          120,
-        ]);
+        .query('SELECT GET_LOCK(?, ?) AS acquired', [ADVISORY_LOCK_NAME, 120]);
       if (Number(rows?.[0]?.acquired) !== 1) {
         throw new Error('Timed out acquiring MySQL bootstrap snapshot lock');
       }
@@ -175,6 +202,7 @@ export class MySqlBootstrapSnapshotService {
           table.string('txId', 64).primary();
           table.string('mutationId', 128).nullable().index();
           table.string('status', 32).notNullable();
+          table.integer('snapshotTableCount').nullable();
           table.text('errorMessage').nullable();
           table.timestamp('createdAt').notNullable();
           table.timestamp('updatedAt').notNullable();
@@ -201,6 +229,7 @@ export class MySqlBootstrapSnapshotService {
           table.string('backupTableName', 64).notNullable().unique();
           table.text('createSql', 'longtext').notNullable();
           table.text('columnsJson', 'longtext').notNullable();
+          table.bigInteger('rowCount').nullable();
           table.integer('ordinal').notNullable();
           table.unique(['txId', 'tableName']);
         });
@@ -208,14 +237,39 @@ export class MySqlBootstrapSnapshotService {
         if (error?.code !== 'ER_TABLE_EXISTS_ERROR') throw error;
       }
     }
+    if (
+      !(await knex.schema.hasColumn(TRANSACTION_TABLE, 'snapshotTableCount'))
+    ) {
+      try {
+        await knex.schema.alterTable(TRANSACTION_TABLE, (table) => {
+          table.integer('snapshotTableCount').nullable();
+        });
+      } catch (error: any) {
+        if (error?.code !== 'ER_DUP_FIELDNAME') throw error;
+      }
+    }
+    if (!(await knex.schema.hasColumn(SNAPSHOT_TABLE, 'rowCount'))) {
+      try {
+        await knex.schema.alterTable(SNAPSHOT_TABLE, (table) => {
+          table.bigInteger('rowCount').nullable();
+        });
+      } catch (error: any) {
+        if (error?.code !== 'ER_DUP_FIELDNAME') throw error;
+      }
+    }
   }
 
   private async capture(knex: Knex, txId: string): Promise<void> {
     const tableNames = await this.listApplicationTables(knex);
+    await knex(TRANSACTION_TABLE).where({ txId }).update({
+      snapshotTableCount: tableNames.length,
+      updatedAt: new Date(),
+    });
     for (let ordinal = 0; ordinal < tableNames.length; ordinal++) {
       const tableName = tableNames[ordinal];
       const createSql = await this.readCreateTableSql(knex, tableName);
       const columns = await this.readWritableColumns(knex, tableName);
+      const rowCount = await this.readTableRowCount(knex, tableName);
       const backupTableName = this.getBackupTableName(txId, tableName, ordinal);
       await knex(SNAPSHOT_TABLE).insert({
         txId,
@@ -223,6 +277,7 @@ export class MySqlBootstrapSnapshotService {
         backupTableName,
         createSql,
         columnsJson: JSON.stringify(columns),
+        rowCount,
         ordinal,
       });
       await knex.raw('CREATE TABLE ?? LIKE ??', [backupTableName, tableName]);
@@ -233,6 +288,15 @@ export class MySqlBootstrapSnapshotService {
           columns,
           tableName,
         ]);
+      }
+      const backupRowCount = await this.readTableRowCount(
+        knex,
+        backupTableName,
+      );
+      if (backupRowCount !== rowCount) {
+        throw new Error(
+          `MySQL bootstrap snapshot row count mismatch for '${tableName}': expected ${rowCount}, captured ${backupRowCount}`,
+        );
       }
     }
   }
@@ -246,17 +310,26 @@ export class MySqlBootstrapSnapshotService {
       .where({ txId })
       .orderBy('ordinal', 'asc')) as BootstrapSnapshotEntry[];
     const originalNames = new Set(entries.map((entry) => entry.tableName));
-    const activeConnection = connection ?? await knex.client.acquireConnection();
+    const activeConnection =
+      connection ?? (await knex.client.acquireConnection());
     const ownsConnection = connection == null;
     const query = async (sql: string, bindings: any[] = []) =>
       activeConnection.promise().query(sql, bindings);
     const escapeId = (value: string) => activeConnection.escapeId(value);
-    const currentTables = await this.listApplicationTablesOnConnection(
-      activeConnection,
-    );
-
-    await query('SET FOREIGN_KEY_CHECKS = 0');
+    let foreignKeyChecksDisabled = false;
     try {
+      await this.assertSnapshotRestorable(
+        activeConnection,
+        txId,
+        entries,
+        query,
+        escapeId,
+      );
+      const currentTables =
+        await this.listApplicationTablesOnConnection(activeConnection);
+
+      await query('SET FOREIGN_KEY_CHECKS = 0');
+      foreignKeyChecksDisabled = true;
       for (const tableName of currentTables.reverse()) {
         await query(`DROP TABLE IF EXISTS ${escapeId(tableName)}`);
       }
@@ -266,10 +339,14 @@ export class MySqlBootstrapSnapshotService {
       for (const entry of entries) {
         const [backupRows] = await query(
           `SELECT 1 FROM information_schema.TABLES
-           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1`,
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1`,
           [entry.backupTableName],
         );
-        if (!(backupRows as any[]).length) continue;
+        if (!(backupRows as any[]).length) {
+          throw new Error(
+            `MySQL bootstrap snapshot '${txId}' lost backup '${entry.backupTableName}' during restore`,
+          );
+        }
         const columns = JSON.parse(entry.columnsJson) as string[];
         if (columns.length > 0) {
           const escapedColumns = columns.map(escapeId).join(', ');
@@ -279,18 +356,22 @@ export class MySqlBootstrapSnapshotService {
           );
         }
       }
-      const remaining = await this.listApplicationTablesOnConnection(
-        activeConnection,
-      );
+      const remaining =
+        await this.listApplicationTablesOnConnection(activeConnection);
       for (const tableName of remaining) {
         if (!originalNames.has(tableName)) {
           await query(`DROP TABLE IF EXISTS ${escapeId(tableName)}`);
         }
       }
     } finally {
-      await query('SET FOREIGN_KEY_CHECKS = 1');
-      if (ownsConnection) {
-        await knex.client.releaseConnection(activeConnection);
+      try {
+        if (foreignKeyChecksDisabled) {
+          await query('SET FOREIGN_KEY_CHECKS = 1');
+        }
+      } finally {
+        if (ownsConnection) {
+          await knex.client.releaseConnection(activeConnection);
+        }
       }
     }
 
@@ -373,7 +454,8 @@ export class MySqlBootstrapSnapshotService {
     tableName: string,
   ): Promise<string[]> {
     const result = await knex.raw(
-      `SELECT COLUMN_NAME AS columnName, EXTRA AS extra
+      `SELECT COLUMN_NAME AS columnName, EXTRA AS extra,
+              GENERATION_EXPRESSION AS generationExpression
        FROM information_schema.COLUMNS
        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
        ORDER BY ORDINAL_POSITION`,
@@ -383,11 +465,122 @@ export class MySqlBootstrapSnapshotService {
     return (rows ?? [])
       .filter(
         (row: any) =>
-          !String(row.extra ?? row.EXTRA ?? '')
-            .toLowerCase()
-            .includes('generated'),
+          !String(
+            row.generationExpression ?? row.GENERATION_EXPRESSION ?? '',
+          ).trim() &&
+          !/(?:^|\s)(?:virtual|stored)\s+generated(?:\s|$)/i.test(
+            String(row.extra ?? row.EXTRA ?? ''),
+          ),
       )
       .map((row: any) => String(row.columnName ?? row.COLUMN_NAME));
+  }
+
+  private async readTableRowCount(
+    knex: Knex,
+    tableName: string,
+  ): Promise<number> {
+    const result = await knex.raw('SELECT COUNT(*) AS rowCount FROM ??', [
+      tableName,
+    ]);
+    const rows = Array.isArray(result) ? result[0] : result.rows;
+    const rowCount = Number(rows?.[0]?.rowCount ?? rows?.[0]?.ROW_COUNT);
+    if (!Number.isSafeInteger(rowCount) || rowCount < 0) {
+      throw new Error(`Cannot attest row count for MySQL table '${tableName}'`);
+    }
+    return rowCount;
+  }
+
+  private async assertSnapshotRestorable(
+    connection: any,
+    txId: string,
+    entries: BootstrapSnapshotEntry[],
+    query: (sql: string, bindings?: any[]) => Promise<any>,
+    escapeId: (value: string) => string,
+  ): Promise<void> {
+    const [transactionRows] = await query(
+      `SELECT snapshotTableCount FROM ${escapeId(TRANSACTION_TABLE)} WHERE txId = ? LIMIT 1`,
+      [txId],
+    );
+    const expectedTableCount = Number(
+      transactionRows?.[0]?.snapshotTableCount ??
+        transactionRows?.[0]?.SNAPSHOT_TABLE_COUNT,
+    );
+    if (!Number.isSafeInteger(expectedTableCount) || expectedTableCount < 0) {
+      throw new Error(
+        `MySQL bootstrap snapshot '${txId}' has no complete table-count attestation`,
+      );
+    }
+    if (entries.length !== expectedTableCount) {
+      throw new Error(
+        `MySQL bootstrap snapshot '${txId}' is incomplete: expected ${expectedTableCount} table(s), found ${entries.length}`,
+      );
+    }
+
+    for (const entry of entries) {
+      let columns: unknown;
+      try {
+        columns = JSON.parse(entry.columnsJson);
+      } catch {
+        throw new Error(
+          `MySQL bootstrap snapshot '${txId}' has invalid column metadata for '${entry.tableName}'`,
+        );
+      }
+      if (
+        !Array.isArray(columns) ||
+        columns.some((column) => typeof column !== 'string' || !column)
+      ) {
+        throw new Error(
+          `MySQL bootstrap snapshot '${txId}' has invalid column metadata for '${entry.tableName}'`,
+        );
+      }
+
+      const [backupRows] = await query(
+        `SELECT 1 FROM information_schema.TABLES
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1`,
+        [entry.backupTableName],
+      );
+      if (!backupRows?.length) {
+        throw new Error(
+          `MySQL bootstrap snapshot '${txId}' is missing backup '${entry.backupTableName}'`,
+        );
+      }
+
+      const [columnRows] = await query(
+        `SELECT COLUMN_NAME AS columnName FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
+        [entry.backupTableName],
+      );
+      const backupColumns = new Set(
+        (columnRows ?? []).map((row: any) =>
+          String(row.columnName ?? row.COLUMN_NAME),
+        ),
+      );
+      const missingColumns = columns.filter(
+        (column) => !backupColumns.has(column as string),
+      );
+      if (missingColumns.length > 0) {
+        throw new Error(
+          `MySQL bootstrap snapshot '${txId}' backup '${entry.backupTableName}' is missing column(s): ${missingColumns.join(', ')}`,
+        );
+      }
+
+      const [rowCountRows] = await query(
+        `SELECT COUNT(*) AS rowCount FROM ${escapeId(entry.backupTableName)}`,
+      );
+      const actualRowCount = Number(
+        rowCountRows?.[0]?.rowCount ?? rowCountRows?.[0]?.ROW_COUNT,
+      );
+      const expectedRowCount = Number(entry.rowCount);
+      if (
+        !Number.isSafeInteger(expectedRowCount) ||
+        expectedRowCount < 0 ||
+        actualRowCount !== expectedRowCount
+      ) {
+        throw new Error(
+          `MySQL bootstrap snapshot '${txId}' backup '${entry.backupTableName}' row-count attestation failed`,
+        );
+      }
+    }
   }
 
   private getBackupTableName(

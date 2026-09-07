@@ -11,7 +11,6 @@ import {
   syncTable,
   syncJunctionTables,
   createAllTables,
-  supportsSqlColumnDefault,
 } from '../../knex';
 import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
 import { SystemCoreTableResolver } from './system-core-table-resolver.service';
@@ -539,106 +538,6 @@ export class MetadataProvisionSqlService {
     }
   }
 
-  private addColumnToTable(tableBuilder: any, col: any): void {
-    let column: any;
-    const knexType = this.getKnexColumnType(col);
-    switch (knexType) {
-      case 'integer':
-        column = tableBuilder.integer(col.name);
-        break;
-      case 'bigint':
-        column = tableBuilder.bigInteger(col.name);
-        break;
-      case 'string':
-        column = tableBuilder.string(col.name, 255);
-        break;
-      case 'text':
-        column = tableBuilder.text(col.name);
-        break;
-      case 'boolean':
-        column = tableBuilder.boolean(col.name);
-        break;
-      case 'uuid':
-        column = tableBuilder.uuid(col.name);
-        if (col.isGenerated && col.isPrimary) {
-          column = column.defaultTo(
-            this.queryBuilderService.getConnection().raw('(UUID())'),
-          );
-        }
-        break;
-      case 'timestamp':
-      case 'datetime':
-        column = tableBuilder.timestamp(col.name);
-        break;
-      case 'simple-json':
-        column = tableBuilder.text(col.name, 'longtext');
-        break;
-      case 'enum':
-        column = tableBuilder.enum(col.name, col.options || []);
-        break;
-      case 'decimal':
-        column = tableBuilder.decimal(
-          col.name,
-          col.precision || 10,
-          col.scale || 2,
-        );
-        break;
-      case 'float':
-        column = tableBuilder.float(col.name);
-        break;
-      default:
-        column = tableBuilder.specificType(col.name, col.type);
-    }
-
-    if (col.isPrimary) {
-      column = column.primary();
-    }
-    if (col.isNullable === false && !col.isGenerated) {
-      column = column.notNullable();
-    }
-    if (
-      col.defaultValue !== null &&
-      col.defaultValue !== undefined &&
-      supportsSqlColumnDefault(col, this.dbType)
-    ) {
-      if (col.defaultValue === 'now') {
-        if (col.type === 'timestamp' || col.type === 'datetime') {
-          column = column.defaultTo(
-            this.queryBuilderService.getConnection().raw('CURRENT_TIMESTAMP'),
-          );
-        } else if (col.type === 'date') {
-          column = column.defaultTo('2099-12-31');
-        }
-      } else {
-        column = column.defaultTo(col.defaultValue);
-      }
-    }
-    if (col.isUnique) {
-      column.unique();
-    }
-  }
-
-  private getKnexColumnType(col: any): string {
-    const typeMap: Record<string, string> = {
-      varchar: 'string',
-      int: 'integer',
-      bigint: 'bigint',
-      text: 'text',
-      boolean: 'boolean',
-      uuid: 'uuid',
-      timestamp: 'timestamp',
-      datetime: 'datetime',
-      'simple-json': 'simple-json',
-      enum: 'enum',
-      'array-select': 'simple-json',
-      decimal: 'decimal',
-      float: 'float',
-      date: 'date',
-      code: 'text',
-      richtext: 'text',
-    };
-    return typeMap[col.type] || col.type;
-  }
   private verbose(message: string): void {
     bootstrapVerboseLog(this.logger, message);
   }

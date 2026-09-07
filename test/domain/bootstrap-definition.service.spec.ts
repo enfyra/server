@@ -7,6 +7,12 @@ import {
 import { compileMetadataMigrationExecutionPlan } from '../../src/engines/bootstrap/utils/metadata-migration-plan.util';
 
 describe('BootstrapDefinitionService', () => {
+  it('rejects unsupported deletion declarations while loading artifacts', () => {
+    expect(() => new BootstrapDefinitionService(undefined, {
+      snapshot: {}, migration: { tables: [] }, defaultData: {},
+      dataMigration: { _deletedRecords: [{ table: 'enfyra_route', filter: { path: { _in: ['/logs'] } } }] },
+    })).toThrow(/exact scalar or _eq filter/);
+  });
   it('loads and freezes the current bootstrap target once', () => {
     const service = new BootstrapDefinitionService();
     const definition = service.getDefinition();

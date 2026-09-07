@@ -14,6 +14,7 @@ import { ExecutorEngineService } from '@enfyra/kernel';
 import { RequestWithRouteData } from '../../../shared/types';
 import { Readable } from 'stream';
 import { RuntimeScriptRepairService } from '../../../engines/cache';
+import { recordUserLog } from '../../../shared/runtime-log-buffer';
 
 const streamLogger = new Logger('DynamicResponseStream');
 const DEFAULT_DYNAMIC_ROUTE_TIMEOUT_MS = 60_000;
@@ -21,7 +22,6 @@ const DEFAULT_DYNAMIC_ROUTE_TIMEOUT_MS = 60_000;
 export function persistDynamicScriptLogs(
   req: RequestWithRouteData,
   statusCode: number,
-  logger: Logger,
 ): void {
   const logs = req.routeData?.context?.$share?.$logs;
   if (!Array.isArray(logs) || logs.length === 0) return;
@@ -30,24 +30,7 @@ export function persistDynamicScriptLogs(
   if (routeData.__scriptLogsPersisted) return;
   routeData.__scriptLogsPersisted = true;
 
-  const metadata = {
-    route: req.routeData?.route?.path || req.url,
-    method: req.method,
-    statusCode,
-  };
-  for (const [index, entry] of logs.entries()) {
-    const payload = {
-      message: 'Dynamic script log',
-      ...metadata,
-      index,
-      entry,
-    };
-    if (statusCode >= 400) {
-      logger.warn(payload);
-    } else {
-      logger.debug(payload);
-    }
-  }
+  recordUserLog(logs, { component: 'Script', sourceKind: 'route', correlationId: req.routeData?.context?.$api?.request?.correlationId, statusCode });
 }
 
 export function attachStreamResponseHelper(res: any): void {
@@ -164,7 +147,7 @@ export class DynamicService {
     req: RequestWithRouteData,
     statusCode: number,
   ): void {
-    persistDynamicScriptLogs(req, statusCode, this.logger);
+    persistDynamicScriptLogs(req, statusCode);
   }
 
   async runHandler(req: RequestWithRouteData) {
@@ -204,6 +187,7 @@ export class DynamicService {
         code: handler,
         sourceCode: routeData.handlerRecord?.sourceCode ?? handler,
         scriptLanguage: routeData.handlerRecord?.scriptLanguage ?? 'typescript',
+        scriptId: routeData.handlerRecord?.id,
         onCompiledCodeRepair: this.repairCompiledCode(
           'enfyra_route_handler',
           routeData.handlerRecord,
@@ -219,6 +203,7 @@ export class DynamicService {
             code: hook.code,
             sourceCode: hook.sourceCode ?? hook.code,
             scriptLanguage: hook.scriptLanguage ?? 'typescript',
+            scriptId: hook.id,
             onCompiledCodeRepair: this.repairCompiledCode(
               'enfyra_post_hook',
               hook,

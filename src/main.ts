@@ -6,16 +6,18 @@ import { init, shutdown } from './init';
 import { buildExpressApp } from './express-app';
 import { env } from './env';
 import { Logger } from './shared/logger';
+import { flushRuntimeLogsBeforeExit, installConsoleErrorCapture } from './shared/runtime-log-buffer';
 
 function registerProcessErrorHandlers(logger: Logger): void {
+  installConsoleErrorCapture();
   process.on('unhandledRejection', (reason) => {
     logger.fatal('Unhandled promise rejection', reason);
-    setTimeout(() => process.exit(1), 250).unref();
+    void flushRuntimeLogsBeforeExit().finally(() => process.exit(1));
   });
 
   process.on('uncaughtException', (error) => {
     logger.fatal('Uncaught exception', error);
-    setTimeout(() => process.exit(1), 250).unref();
+    void flushRuntimeLogsBeforeExit().finally(() => process.exit(1));
   });
 }
 
@@ -158,5 +160,5 @@ async function main() {
 main().catch((err) => {
   const logger = new Logger('Server');
   logger.fatal('Fatal boot error', err);
-  setTimeout(() => process.exit(1), 250).unref();
+  void flushRuntimeLogsBeforeExit().finally(() => process.exit(1));
 });

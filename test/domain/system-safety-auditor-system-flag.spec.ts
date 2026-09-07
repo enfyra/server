@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SystemSafetyAuditorService } from '../../src/domain/policy/services/system-safety-auditor.service';
 
-function makeService(tableColumns: any[] = [{ name: 'isSystem' }]) {
+function makeService(
+  tableColumns: any[] = [{ name: 'isSystem' }],
+  relationFields: string[] = [],
+) {
   const runtimeRegistryService = {
     requireMetadata: vi.fn().mockReturnValue({
       tables: new Map([
@@ -30,7 +33,7 @@ function makeService(tableColumns: any[] = [{ name: 'isSystem' }]) {
     }),
   };
   const schemaMigrationValidatorService = {
-    getAllRelationFieldsWithInverse: vi.fn().mockResolvedValue([]),
+    getAllRelationFieldsWithInverse: vi.fn().mockResolvedValue(relationFields),
     getChangedFields: vi.fn((data) => Object.keys(data || {})),
     getJsonFields: vi.fn().mockResolvedValue([]),
     excludeJsonFields: vi.fn((data) => data),
@@ -197,5 +200,181 @@ describe('SystemSafetyAuditorService isSystem field contract', () => {
     ).rejects.toThrow(
       'Cannot modify system storage config (only allowed: description, isDefault): secretAccessKey',
     );
+  });
+
+  it('allows deleting a non-system column from a system table', async () => {
+    const { service } = makeService(undefined, ['columns', 'relations']);
+
+    await expect(
+      service.assertSystemSafe({
+        operation: 'update',
+        tableName: 'enfyra_table',
+        data: {
+          columns: [{ id: 11, name: 'id', isSystem: true }],
+        },
+        existing: {
+          id: 10,
+          name: 'enfyra_user',
+          isSystem: true,
+          columns: [
+            { id: 11, name: 'id', isSystem: true, table: '10' },
+            { name: 'createdAt', isSystem: true },
+            { id: 12, name: 'fullName', isSystem: false },
+          ],
+          relations: [{ id: 21, propertyName: 'roles', isSystem: true }],
+        },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('ignores projected metadata access while preserving a system column', async () => {
+    const { service } = makeService(undefined, ['columns']);
+
+    await expect(
+      service.assertSystemSafe({
+        operation: 'update',
+        tableName: 'enfyra_table',
+        data: {
+          columns: [
+            {
+              id: 11,
+              name: 'id',
+              isSystem: true,
+              metadataAccess: {
+                read: true,
+                create: true,
+                update: true,
+                delete: true,
+              },
+            },
+          ],
+        },
+        existing: {
+          id: 10,
+          name: 'enfyra_user',
+          isSystem: true,
+          columns: [
+            { id: 11, name: 'id', isSystem: true, table: '10' },
+            { id: 12, name: 'fullName', isSystem: false },
+          ],
+        },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('ignores projected metadata access while preserving a system relation', async () => {
+    const { service } = makeService(undefined, ['relations']);
+
+    await expect(
+      service.assertSystemSafe({
+        operation: 'update',
+        tableName: 'enfyra_table',
+        data: {
+          relations: [
+            {
+              id: 21,
+              propertyName: 'roles',
+              isSystem: true,
+              metadataAccess: {
+                read: true,
+                create: true,
+                update: true,
+                delete: true,
+              },
+            },
+          ],
+        },
+        existing: {
+          id: 10,
+          name: 'enfyra_user',
+          isSystem: true,
+          relations: [
+            {
+              id: 21,
+              propertyName: 'roles',
+              isSystem: true,
+              sourceTable: '10',
+            },
+          ],
+        },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('treats omitted system-table child containers as unchanged', async () => {
+    const { service } = makeService(undefined, ['columns', 'relations']);
+
+    await expect(
+      service.assertSystemSafe({
+        operation: 'update',
+        tableName: 'enfyra_table',
+        data: { validateBody: true },
+        existing: {
+          id: 10,
+          name: 'enfyra_user',
+          isSystem: true,
+          validateBody: true,
+          columns: [{ id: 11, name: 'id', isSystem: true, table: '10' }],
+          relations: [{ id: 21, propertyName: 'roles', isSystem: true }],
+        },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('matches serialized Mongo child identities to incoming string ids', async () => {
+    const { service } = makeService(undefined, ['columns']);
+    const serializedId = {
+      buffer: Object.fromEntries(
+        Array.from({ length: 12 }, (_, index) => [String(index), index + 1]),
+      ),
+    };
+
+    await expect(
+      service.assertSystemSafe({
+        operation: 'update',
+        tableName: 'enfyra_table',
+        data: {
+          columns: [
+            {
+              id: '0102030405060708090a0b0c',
+              name: '_id',
+              isSystem: true,
+            },
+          ],
+        },
+        existing: {
+          id: 'table-id',
+          name: 'enfyra_user',
+          isSystem: true,
+          columns: [
+            { _id: serializedId, name: '_id', isSystem: true },
+            { id: 'custom-id', name: 'fullName', isSystem: false },
+          ],
+        },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('still rejects deleting a system column from a system table', async () => {
+    const { service } = makeService(undefined, ['columns', 'relations']);
+
+    await expect(
+      service.assertSystemSafe({
+        operation: 'update',
+        tableName: 'enfyra_table',
+        data: {
+          columns: [{ id: 12, name: 'fullName', isSystem: false }],
+        },
+        existing: {
+          id: 10,
+          name: 'enfyra_user',
+          isSystem: true,
+          columns: [
+            { id: 11, name: 'id', isSystem: true },
+            { id: 12, name: 'fullName', isSystem: false },
+          ],
+        },
+      }),
+    ).rejects.toThrow(/Cannot delete system (record|column)/);
   });
 });

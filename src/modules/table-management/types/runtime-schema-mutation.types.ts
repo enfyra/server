@@ -32,6 +32,8 @@ export interface RuntimeSchemaRelationContract {
   mappedBy: string;
   foreignKeyColumn: string;
   junctionTableName: string;
+  junctionSourceColumn?: string;
+  junctionTargetColumn?: string;
   isNullable: boolean;
   onDelete: string;
   inversePropertyName: string;

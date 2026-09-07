@@ -483,7 +483,7 @@ snapshot
       .nullable()
       .default(null)
       .description(
-        'Optional script that returns an object merged into newly created OAuth users. Existing identity fields take precedence.',
+        'Optional OAuth lifecycle script executed inside the login transaction after the user is resolved. Receives @USER and normalized @DATA.oauth; return values are ignored.',
       ),
     scriptLanguage: col
       .enum(['typescript', 'javascript'])
@@ -498,7 +498,7 @@ snapshot
       .immutable()
       .nullable()
       .description(
-        'Server-compiled JavaScript code executed by the OAuth user provisioning runtime',
+        'Server-compiled JavaScript code executed by the OAuth lifecycle runtime',
       ),
     isEnabled: col
       .boolean()
@@ -2990,5 +2990,46 @@ snapshot
   })
   .uniques([['reloadId']])
   .indexes([['status'], ['tableName'], ['flow'], ['createdAt']]);
+
+snapshot
+  .table('enfyra_system_error', { description: 'System failure diagnostics', system: true })
+  .columns({
+    id: col.int().primary().generated().notNull().system(),
+    eventId: col.varchar().notNull().system().updatable(false),
+    occurredAt: col.datetime().notNull().system().updatable(false),
+    correlationId: col.varchar().nullable().system().updatable(false),
+    instanceId: col.varchar().nullable().system().updatable(false),
+    component: col.varchar().notNull().system().updatable(false),
+    sourceKind: col.varchar().nullable().system().updatable(false),
+    sourceId: col.varchar().nullable().system().updatable(false),
+    statusCode: col.int().nullable().system().updatable(false),
+    code: col.varchar().notNull().system().updatable(false),
+    severity: col.varchar().notNull().system().updatable(false),
+    message: col.text().notNull().system().updatable(false),
+    fingerprint: col.varchar().notNull().system().updatable(false),
+    stack: col.text().nullable().system().published(false).updatable(false),
+    details: col.simpleJson().nullable().system().published(false).updatable(false),
+  })
+  .uniques([['eventId']])
+  .indexes([['correlationId', 'occurredAt'], ['component', 'occurredAt'], ['sourceKind', 'sourceId', 'occurredAt'], ['code', 'occurredAt'], ['fingerprint', 'occurredAt']]);
+
+snapshot
+  .table('enfyra_user_log', { description: 'User script log entries', system: true })
+  .columns({
+    id: col.int().primary().generated().notNull().system(),
+    eventId: col.varchar().notNull().system().updatable(false),
+    occurredAt: col.datetime().notNull().system().updatable(false),
+    correlationId: col.varchar().nullable().system().updatable(false),
+    instanceId: col.varchar().nullable().system().updatable(false),
+    component: col.varchar().notNull().system().updatable(false),
+    sourceKind: col.varchar().nullable().system().updatable(false),
+    sourceId: col.varchar().nullable().system().updatable(false),
+    statusCode: col.int().nullable().system().updatable(false),
+    entries: col.simpleJson().notNull().system().published(false).updatable(false),
+    entryCount: col.int().notNull().system().updatable(false),
+    truncated: col.boolean().notNull().system().default(false).updatable(false),
+  })
+  .uniques([['eventId']])
+  .indexes([['correlationId', 'occurredAt'], ['component', 'occurredAt'], ['sourceKind', 'sourceId', 'occurredAt']]);
 
 export default snapshot.build();

@@ -18,6 +18,45 @@ function createGateway(
 }
 
 describe('DynamicWebSocketGateway gateway refresh', () => {
+  it('authenticates native PAT handshake headers through the shared authentication service', async () => {
+    let middleware: ((socket: any, next: (error?: Error) => void) => Promise<void>) | undefined;
+    const namespace = {
+      use: vi.fn((handler) => {
+        middleware = handler;
+      }),
+      on: vi.fn(),
+    };
+    const gateway = Object.create(
+      DynamicWebSocketGateway.prototype,
+    ) as DynamicWebSocketGateway & Record<string, any>;
+    const user = { id: 'user-1', isRootAdmin: true, roles: [] };
+    const authenticate = vi.fn().mockResolvedValue({ user });
+    gateway.server = { of: vi.fn(() => namespace) } as any;
+    gateway.gatewayConfigsByPath = new Map([['/enfyra-admin', { path: '/enfyra-admin', requireAuth: true }]]);
+    gateway.lazyRef = { authenticationService: { authenticate } };
+    gateway.logger = { warn: vi.fn() };
+
+    gateway.setupNamespace('/enfyra-admin');
+    const socket = {
+      handshake: {
+        headers: { 'x-enfyra-pat': 'efy_pat_test' },
+        auth: {},
+      },
+      data: {},
+      conn: { close: vi.fn() },
+    };
+    const next = vi.fn();
+
+    await middleware?.(socket, next);
+
+    expect(authenticate).toHaveBeenCalledWith({
+      headers: socket.handshake.headers,
+    });
+    expect(socket.data.user).toBe(user);
+    expect(socket.data.userId).toBe('user-1');
+    expect(next).toHaveBeenCalledWith();
+  });
+
   it('reconnects current sockets when a connection script changes so new room membership applies', async () => {
     const previousGateway = {
       path: '/usage',

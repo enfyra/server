@@ -64,4 +64,55 @@ describe('TableManagementValidationService column identifiers', () => {
       ),
     ).not.toThrow();
   });
+
+  it.each(['postgres', 'mysql', 'mongodb'] as const)(
+    'requires non-empty unique string options for %s enum columns',
+    (dbType) => {
+      for (const options of [
+        undefined,
+        [],
+        ['active', 1],
+        ['active', 'active'],
+      ]) {
+        expect(() =>
+          service.validateColumns(
+            [{ name: 'status', type: 'enum', options }],
+            dbType,
+          ),
+        ).toThrow(/enum options/i);
+      }
+
+      expect(() =>
+        service.validateColumns(
+          [
+            {
+              name: 'status',
+              type: 'enum',
+              options: ['active', 'inactive'],
+            },
+          ],
+          dbType,
+        ),
+      ).not.toThrow();
+    },
+  );
+
+  it.each(['postgres', 'mysql', 'mongodb'] as const)(
+    'requires the %s enum default to belong to its options',
+    (dbType) => {
+      expect(() =>
+        service.validateColumns(
+          [
+            {
+              name: 'status',
+              type: 'enum',
+              options: ['active', 'inactive'],
+              defaultValue: 'pending',
+            },
+          ],
+          dbType,
+        ),
+      ).toThrow(/enum default/i);
+    },
+  );
 });

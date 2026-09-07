@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DynamicContextFactory } from '../../src/shared/services/dynamic-context.factory';
+import { deferDynamicTransactionEffect } from '../../src/shared/utils/dynamic-transaction-effects.util';
+import { DynamicRepository } from '../../src/modules/dynamic-api';
 
 type TransactionHarness = {
   ctx: any;
@@ -122,5 +124,68 @@ describe('dynamic transaction context', () => {
     });
 
     expect(events).toEqual(['sql:begin', 'create:one:true', 'sql:commit']);
+  });
+
+  it('flushes deferred repository effects only after commit', async () => {
+    const { ctx, events } = createHarness('mysql');
+
+    await ctx.$transaction.run(async () => {
+      expect(
+        deferDynamicTransactionEffect(ctx, async () => {
+          events.push('effect');
+        }),
+      ).toBe(true);
+      events.push('work');
+    });
+
+    expect(events).toEqual(['sql:begin', 'work', 'sql:commit', 'effect']);
+  });
+
+  it('drops deferred repository effects when the transaction rolls back', async () => {
+    const { ctx, events } = createHarness('mysql');
+
+    await expect(
+      ctx.$transaction.run(async () => {
+        deferDynamicTransactionEffect(ctx, async () => {
+          events.push('effect');
+        });
+        throw new Error('stop');
+      }),
+    ).rejects.toThrow('stop');
+
+    expect(events).toEqual(['sql:begin', 'sql:rollback']);
+  });
+
+  it('defers DynamicRepository cache and mutation events until commit', async () => {
+    const { ctx, events } = createHarness('mysql');
+    const repository = Object.assign(
+      Object.create(DynamicRepository.prototype),
+      {
+        context: ctx,
+        tableName: 'records',
+        eventEmitter: {
+          emitAsync: async (event: string) => {
+            events.push(`async:${event}`);
+          },
+          emit: (event: string) => {
+            events.push(`sync:${event}`);
+          },
+        },
+      },
+    );
+
+    await ctx.$transaction.run(async () => {
+      await repository.reload({ ids: ['one'] });
+      repository.emitTableMutation('create', ['one'], { id: 'one' });
+      events.push('work');
+    });
+
+    expect(events).toEqual([
+      'sql:begin',
+      'work',
+      'sql:commit',
+      'async:cache:invalidate',
+      'sync:data:table:mutation',
+    ]);
   });
 });

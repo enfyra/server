@@ -760,6 +760,36 @@ describe('Runtime inverse metadata attestation', () => {
     expect(definition.relations).toEqual([]);
   });
 
+  it('preserves stored many-to-many junction columns during SQL attestation', () => {
+    const service = new RuntimeSchemaTargetAttestorService({
+      queryBuilderService: {} as any,
+      databaseConfigService: { isMongoDb: () => false } as any,
+    });
+
+    expect(
+      (service as any).getJunctions({
+        name: 'enfyra_user',
+        columns: [],
+        relations: [
+          {
+            propertyName: 'roles',
+            type: 'many-to-many',
+            targetTableName: 'enfyra_role',
+            junctionTableName: 'enfyra_user_roles',
+            junctionSourceColumn: 'enfyra_userId',
+            junctionTargetColumn: 'enfyra_roleId',
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        name: 'enfyra_user_roles',
+        sourceColumn: 'enfyra_userId',
+        targetColumn: 'enfyra_roleId',
+      },
+    ]);
+  });
+
   it('recognizes a pre-canonical redundant index as source-only drift', () => {
     const service = new RuntimeSchemaTargetAttestorService({
       queryBuilderService: {} as any,

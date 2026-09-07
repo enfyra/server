@@ -9,6 +9,7 @@ function bootstrapContainer(overrides: Record<string, unknown> = {}) {
     });
   const container = {
     cradle: {
+      runtimeLogWriterService: { start: vi.fn(), assertReady: vi.fn(async () => {}) },
       databaseConfigService: { getDbType: () => 'mongodb' },
       mongoService: { init: record('mongoService.init') },
       replicationManager: { init: record('replicationManager.init') },

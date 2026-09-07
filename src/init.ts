@@ -27,6 +27,7 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
   const c = container.cradle;
 
   await initBootstrap(container);
+  await c.runtimeLogWriterService.assertReady();
 
   await phaseReloadRepair(c);
   await phaseCoreCaches(c);
@@ -41,6 +42,7 @@ export async function init(container: AwilixContainer<Cradle>): Promise<void> {
 export async function initBootstrap(container: AwilixContainer<Cradle>): Promise<void> {
   const c = container.cradle;
 
+  c.runtimeLogWriterService.start();
   await phaseStorageEngines(c);
   await phaseRedisAndNamespace(c);
   await phaseSaga(c);
@@ -55,6 +57,7 @@ export async function shutdown(container: AwilixContainer<Cradle>): Promise<void
   const operations = [
     () => container.cradle.flowExecutionQueueService?.onDestroy?.(),
     () => container.cradle.queryBuilderService?.flushBatchInserts?.(),
+    () => container.cradle.runtimeLogWriterService.onDestroy(),
     () => container.dispose(),
   ];
 

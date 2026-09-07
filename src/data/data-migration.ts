@@ -2,6 +2,10 @@ import type { BootstrapDataMigration } from '../engines/bootstrap/types';
 
 const dataMigration = {
   "_deletedRecords": [
+    { "table": "enfyra_route", "filter": { "path": { "_eq": "/logs" } } },
+    { "table": "enfyra_route", "filter": { "path": { "_eq": "/logs/stats" } } },
+    { "table": "enfyra_route", "filter": { "path": { "_eq": "/logs/:filename" } } },
+    { "table": "enfyra_route", "filter": { "path": { "_eq": "/logs/:filename/tail" } } },
     {
       "table": "enfyra_pre_hook",
       "filter": {
@@ -254,6 +258,7 @@ const dataMigration = {
     }
   ],
   "enfyra_menu": [
+    { "_unique": { "path": { "_eq": "/settings/admin/logs" } }, "description": "Trace system errors and user script logs", "permission": { "or": [{ "route": "/enfyra_system_error", "methods": ["GET"] }, { "route": "/enfyra_user_log", "methods": ["GET"] }] } },
     {
       "_unique": {
         "path": {
@@ -384,7 +389,7 @@ const dataMigration = {
             ]
           },
           {
-            "route": "/logs",
+            "route": "/enfyra_system_error",
             "methods": [
               "GET"
             ]

@@ -37,7 +37,6 @@ import type {
   FlowProgressSnapshot,
 } from '../types/flow-execution-history.types';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
-import type { RuntimeNamespaceLifecycleService } from '../../../engines/cache/services/runtime-namespace-lifecycle.service';
 import type { RuntimeScriptRepairService } from '../../../engines/cache';
 
 const MAX_FLOW_DEPTH = 10;
@@ -65,7 +64,6 @@ export class FlowExecutionQueueService {
   private readonly envService: EnvService;
   private readonly isolatedExecutorService: IsolatedExecutorService;
   private readonly runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
-  private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
   private readonly runtimeScriptRepairService?: RuntimeScriptRepairService;
   private readonly flowQueue: Queue;
   private readonly flowExecutionHistoryService: FlowExecutionHistoryService;
@@ -89,7 +87,6 @@ export class FlowExecutionQueueService {
     envService: EnvService;
     isolatedExecutorService: IsolatedExecutorService;
     runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
-    runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
     runtimeScriptRepairService?: RuntimeScriptRepairService;
     flowQueue: Queue;
   }) {
@@ -102,8 +99,6 @@ export class FlowExecutionQueueService {
     this.envService = deps.envService;
     this.isolatedExecutorService = deps.isolatedExecutorService;
     this.runtimeMetricsCollectorService = deps.runtimeMetricsCollectorService;
-    this.runtimeNamespaceLifecycleService =
-      deps.runtimeNamespaceLifecycleService;
     this.runtimeScriptRepairService = deps.runtimeScriptRepairService;
     this.flowQueue = deps.flowQueue;
     this.flowExecutionHistoryService = new FlowExecutionHistoryService({
@@ -622,7 +617,6 @@ export class FlowExecutionQueueService {
           removeOnFail: { count: 500, age: 3600 * 24 * 7 },
         },
       );
-      await this.touchFlowQueueKeys();
       return {
         triggered: true,
         flowId: targetFlow.id,
@@ -883,7 +877,6 @@ export class FlowExecutionQueueService {
           removeOnFail: { count: 500, age: 3600 * 24 * 7 },
         },
       );
-      await this.touchFlowQueueKeys();
       return {
         triggered: true,
         flowId: targetFlow.id,
@@ -900,12 +893,6 @@ export class FlowExecutionQueueService {
       onCompiledCodeRepair: () =>
         this.runtimeScriptRepairService?.repairFlowStepScriptRecord(step),
     });
-  }
-
-  private async touchFlowQueueKeys(): Promise<void> {
-    await this.runtimeNamespaceLifecycleService?.renewSystemQueueKeys(
-      SYSTEM_QUEUES.FLOW_EXECUTION,
-    );
   }
 
   private getFlows(): FlowDefinition[] {

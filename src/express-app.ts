@@ -23,7 +23,6 @@ import {
 import { registerAuthRoutes } from './http/routes/auth.routes';
 import { registerOAuthRoutes } from './http/routes/oauth.routes';
 import { registerAdminRoutes } from './http/routes/admin.routes';
-import { registerLogRoutes } from './http/routes/log.routes';
 import { registerMetadataRoutes } from './http/routes/metadata.routes';
 import { registerExtensionRoutes } from './http/routes/extension.routes';
 import { registerAssetsRoutes } from './http/routes/assets.routes';
@@ -131,7 +130,6 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   registerAuthRoutes(app, container);
   registerOAuthRoutes(app, container);
   registerAdminRoutes(app, container);
-  registerLogRoutes(app, container);
   registerMetadataRoutes(app, container);
   registerExtensionRoutes(app, container);
   registerAssetsRoutes(app, container);

@@ -135,17 +135,21 @@ describe('RuntimeNamespaceLifecycleService', () => {
     const service = createService(redis);
     const managedKey = 'app-a:runtime_cache:route';
     const explicitTtlKey = 'app-a:runtime_cache:route:lock';
+    const bullMqKey = 'app-a:sys_flow-execution:repeat:flow-schedule-13';
 
     redis.values.set(managedKey, 'snapshot');
     redis.values.set(explicitTtlKey, 'lock-token');
+    redis.values.set(bullMqKey, 'scheduler');
     redis.expiries.set(managedKey, 100);
     redis.expiries.set(explicitTtlKey, 30000);
     await service.registerManagedKey(managedKey);
 
     await service.renewCurrentNamespaceKeys();
 
+    expect((service as any).renewSystemQueueKeys).toBeUndefined();
     expect(redis.expiries.get(managedKey)).toBe(10000);
     expect(redis.expiries.get(explicitTtlKey)).toBe(30000);
+    expect(redis.expiries.has(bullMqKey)).toBe(false);
   });
 
   it('removes expired and manually deleted entries from the managed registry', async () => {

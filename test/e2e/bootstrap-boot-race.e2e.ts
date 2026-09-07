@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { MongoClient } from 'mongodb';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { MongoClient, ObjectId } from 'mongodb';
 import { Redis } from 'ioredis';
 import { knex, type Knex } from 'knex';
 
@@ -106,8 +109,9 @@ function spawnServer(
   nodeName: string,
   secretKey: string,
   adminPassword: string,
+  options: { entrypoint?: string; env?: NodeJS.ProcessEnv } = {},
 ): ServerHandle {
-  const child = spawn('yarn', ['tsx', 'src/main.ts'], {
+  const child = spawn('yarn', ['tsx', options.entrypoint ?? 'src/main.ts'], {
     cwd: process.cwd(),
     detached: process.platform !== 'win32',
     env: {
@@ -122,7 +126,7 @@ function spawnServer(
       NODE_NAME: nodeName,
       BOOTSTRAP_VERBOSE: '1',
       MONGO_FORCE_APP_TRANSACTION: '0',
-      ISOLATED_EXECUTOR_FILE_LOG: '0',
+      ...options.env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -137,6 +141,27 @@ function spawnServer(
   child.stdout?.on('data', onData);
   child.stderr?.on('data', onData);
   return handle;
+}
+
+async function waitForExit(
+  handle: ServerHandle,
+  timeoutMs = 120_000,
+): Promise<void> {
+  if (handle.child.exitCode !== null || handle.child.signalCode !== null)
+    return;
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(
+        new Error(
+          `Server ${handle.port} did not exit: ${handle.output.slice(-4000)}`,
+        ),
+      );
+    }, timeoutMs);
+    handle.child.once('exit', () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
 }
 
 function killServer(handle: ServerHandle, signal: NodeJS.Signals): void {
@@ -261,6 +286,36 @@ async function assertInitialized(
       Number((await db('enfyra_table').count({ count: '*' }))[0].count) > 0,
       `${database} did not provision metadata`,
     );
+  } finally {
+    await db.destroy();
+  }
+}
+
+async function readInitialized(
+  database: Database,
+  name: string,
+): Promise<boolean> {
+  if (database === 'mongodb') {
+    const client = new MongoClient(mongoUri(name));
+    try {
+      await client.connect();
+      const setting = await client
+        .db(name)
+        .collection('enfyra_setting')
+        .findOne({});
+      return setting?.isInit === true;
+    } finally {
+      await client.close();
+    }
+  }
+  const db = sqlClient(database, name);
+  try {
+    const setting = await db('enfyra_setting').first();
+    return setting?.isInit === true || setting?.isInit === 1;
+  } catch (error: any) {
+    if (error?.code === '42P01' || error?.code === 'ER_NO_SUCH_TABLE')
+      return false;
+    throw error;
   } finally {
     await db.destroy();
   }
@@ -395,6 +450,217 @@ async function runCase(database: Database, port: number): Promise<void> {
   }
 }
 
+async function runLeaseLossCase(
+  database: Database,
+  port: number,
+): Promise<void> {
+  const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
+  const databaseName = `enfyra_lease_loss_${database}_${suffix}`;
+  const nodeName = `lease-loss-${database}-${suffix}`;
+  const secretKey = `lease-loss-secret-${suffix}`;
+  const adminPassword = `lease-loss-password-${suffix}`;
+  const latchDirectory = await mkdtemp(join(tmpdir(), 'enfyra-lease-loss-'));
+  const markerFile = join(latchDirectory, 'publication-blocked');
+  const releaseFile = join(latchDirectory, 'release');
+  let owner: ServerHandle | null = null;
+  let follower: ServerHandle | null = null;
+  try {
+    await createDatabase(database, databaseName);
+    await clearNamespace(nodeName);
+    const dbUri =
+      database === 'mongodb'
+        ? mongoUri(databaseName)
+        : databaseUri(database, databaseName);
+    owner = spawnServer(dbUri, port, nodeName, secretKey, adminPassword, {
+      entrypoint: 'test/e2e/fixtures/bootstrap-lease-loss-server.ts',
+      env: {
+        BOOTSTRAP_LEASE_TEST_MARKER: markerFile,
+        BOOTSTRAP_LEASE_TEST_RELEASE: releaseFile,
+      },
+    });
+    await waitForMarker(owner, '[lease-loss] publication-blocked');
+
+    const redis = new Redis(redisUri(), { maxRetriesPerRequest: 1 });
+    try {
+      const lockKey = `${nodeName}:${PROVISION_LOCK_KEY}`;
+      assert.ok(
+        await redis.get(lockKey),
+        `${database} owner never held the provision lease`,
+      );
+      await redis.set(lockKey, `replacement-${suffix}`, 'PX', 30_000);
+    } finally {
+      await redis.quit();
+    }
+    await writeFile(releaseFile, 'release');
+    await waitForExit(owner);
+    assert.notEqual(
+      owner.child.exitCode,
+      0,
+      `${database} stale owner exited successfully`,
+    );
+    assert.match(owner.output, /lost the provision lease/i);
+    assert.equal(
+      await readInitialized(database, databaseName),
+      false,
+      `${database} stale owner published isInit=true`,
+    );
+
+    await clearNamespace(nodeName);
+    follower = spawnServer(dbUri, port + 1, nodeName, secretKey, adminPassword);
+    await waitForMarker(follower, `HTTP listening on port ${port + 1}`);
+    await assertInitialized(database, databaseName);
+    console.log(
+      `[boot-race] PASS lease-loss database=${database} node=${nodeName}`,
+    );
+  } finally {
+    await Promise.all([stopServer(follower), stopServer(owner)]);
+    await clearNamespace(nodeName).catch(() => undefined);
+    await dropDatabase(database, databaseName).catch((error) => {
+      console.error(
+        `[boot-race] cleanup failed database=${databaseName}`,
+        error,
+      );
+    });
+    await rm(latchDirectory, { recursive: true, force: true });
+  }
+}
+
+async function runMongoJunctionConflictCase(
+  database: Database,
+  port: number,
+): Promise<void> {
+  assert.equal(
+    database,
+    'mongodb',
+    'mongo-junction-conflict mode only supports MongoDB',
+  );
+  const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
+  const databaseName = `enfyra_mongo_junction_conflict_${suffix}`;
+  const nodeName = `mongo-junction-conflict-${suffix}`;
+  const secretKey = `mongo-junction-conflict-secret-${suffix}`;
+  const adminPassword = `mongo-junction-conflict-password-${suffix}`;
+  const dbUri = mongoUri(databaseName);
+  let server: ServerHandle | null = null;
+  const client = new MongoClient(dbUri);
+  try {
+    await clearNamespace(nodeName);
+    server = spawnServer(dbUri, port, nodeName, secretKey, adminPassword);
+    await waitForMarker(server, `HTTP listening on port ${port}`);
+    await stopServer(server);
+    server = null;
+
+    await client.connect();
+    const db = client.db(databaseName);
+    const routeTable = await db
+      .collection('enfyra_table')
+      .findOne({ name: 'enfyra_route' });
+    const methodTable = await db
+      .collection('enfyra_table')
+      .findOne({ name: 'enfyra_method' });
+    assert.ok(routeTable?._id);
+    assert.ok(methodTable?._id);
+    const relation = await db.collection('enfyra_relation').findOne({
+      sourceTable: routeTable._id,
+      targetTable: methodTable._id,
+      propertyName: 'availableMethods',
+      type: 'many-to-many',
+    });
+    assert.ok(relation?._id);
+    const canonicalCollectionName = String(relation.junctionTableName);
+    const canonicalSourceColumn = String(relation.junctionSourceColumn);
+    const canonicalTargetColumn = String(relation.junctionTargetColumn);
+    const legacyCollectionName = 'enfyra_route_availableMethods_enfyra_method';
+    const legacySourceColumn = 'enfyra_routeId';
+    const legacyTargetColumn = 'enfyra_methodId';
+    assert.notEqual(canonicalCollectionName, legacyCollectionName);
+    assert.notEqual(canonicalSourceColumn, legacySourceColumn);
+
+    const canonicalRowsBefore = await db
+      .collection(canonicalCollectionName)
+      .find({})
+      .toArray();
+    assert.ok(canonicalRowsBefore.length > 0);
+    const oldRouteId = canonicalRowsBefore[0][canonicalSourceColumn];
+    const conflictingRouteId = new ObjectId();
+    const methodId = canonicalRowsBefore[0][canonicalTargetColumn];
+    const conflictingDocument = {
+      _id: new ObjectId(),
+      [legacySourceColumn]: oldRouteId,
+      [canonicalSourceColumn]: conflictingRouteId,
+      [legacyTargetColumn]: methodId,
+      [canonicalTargetColumn]: methodId,
+    };
+    await db.createCollection(legacyCollectionName);
+    await db.collection(legacyCollectionName).insertOne(conflictingDocument);
+    await db.collection('enfyra_relation').updateOne(
+      { _id: relation._id },
+      {
+        $set: {
+          junctionTableName: legacyCollectionName,
+          junctionSourceColumn: legacySourceColumn,
+          junctionTargetColumn: legacyTargetColumn,
+        },
+      },
+    );
+    await db
+      .collection('enfyra_setting')
+      .updateMany({}, { $set: { isInit: false } });
+    await clearNamespace(nodeName);
+
+    server = spawnServer(dbUri, port, nodeName, secretKey, adminPassword);
+    await waitForExit(server);
+    assert.notEqual(server.child.exitCode, 0);
+    assert.match(server.output, /unmappable|blocked/i);
+    server = null;
+    assert.equal(await readInitialized('mongodb', databaseName), false);
+    assert.deepEqual(
+      await db
+        .collection(legacyCollectionName)
+        .findOne({ _id: conflictingDocument._id }),
+      conflictingDocument,
+    );
+    assert.deepEqual(
+      await db.collection(canonicalCollectionName).find({}).toArray(),
+      canonicalRowsBefore,
+    );
+
+    await db
+      .collection(legacyCollectionName)
+      .updateOne(
+        { _id: conflictingDocument._id },
+        { $set: { [canonicalSourceColumn]: oldRouteId } },
+      );
+    await clearNamespace(nodeName);
+    server = spawnServer(dbUri, port, nodeName, secretKey, adminPassword);
+    await waitForMarker(server, `HTTP listening on port ${port}`);
+    await assertInitialized('mongodb', databaseName);
+    assert.equal(
+      (await db.listCollections({ name: legacyCollectionName }).toArray())
+        .length,
+      0,
+    );
+    assert.ok(
+      await db.collection(canonicalCollectionName).findOne({
+        [canonicalSourceColumn]: oldRouteId,
+        [canonicalTargetColumn]: methodId,
+      }),
+    );
+    console.log(
+      `[boot-race] PASS mongo junction conflict database=${databaseName} node=${nodeName}`,
+    );
+  } finally {
+    await stopServer(server);
+    await client.close();
+    await clearNamespace(nodeName).catch(() => undefined);
+    await dropDatabase('mongodb', databaseName).catch((error) => {
+      console.error(
+        `[boot-race] cleanup failed database=${databaseName}`,
+        error,
+      );
+    });
+  }
+}
+
 async function main(): Promise<void> {
   const databases = selectedDatabases();
   const basePort = Number(process.env.BOOT_RACE_BASE_PORT || 18300);
@@ -409,7 +675,11 @@ async function main(): Promise<void> {
     await redis.set(PROVISION_LOCK_KEY, rawLockSentinel, 'PX', 180_000);
     results = await Promise.allSettled(
       databases.map((database, index) =>
-        runCase(database, basePort + index * 10),
+        process.env.BOOT_RACE_MODE === 'lease-loss'
+          ? runLeaseLossCase(database, basePort + index * 10)
+          : process.env.BOOT_RACE_MODE === 'mongo-junction-conflict'
+            ? runMongoJunctionConflictCase(database, basePort + index * 10)
+            : runCase(database, basePort + index * 10),
       ),
     );
   } finally {

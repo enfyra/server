@@ -87,6 +87,8 @@ const defaultData = {
     }
   ],
   "enfyra_route": [
+    {"path":"/enfyra_system_error","mainTable":"enfyra_system_error","isEnabled":true,"isSystem":true,"icon":"lucide:bug","availableMethods":["GET"]},
+    {"path":"/enfyra_user_log","mainTable":"enfyra_user_log","isEnabled":true,"isSystem":true,"icon":"lucide:bug","availableMethods":["GET"]},
     {
       "path": "/enfyra_route",
       "mainTable": "enfyra_route",
@@ -578,46 +580,6 @@ const defaultData = {
         "POST",
         "PATCH",
         "DELETE"
-      ]
-    },
-    {
-      "path": "/logs",
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:file-text",
-      "description": "List all log files with stats",
-      "availableMethods": [
-        "GET"
-      ]
-    },
-    {
-      "path": "/logs/stats",
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:bar-chart",
-      "description": "Get log files statistics",
-      "availableMethods": [
-        "GET"
-      ]
-    },
-    {
-      "path": "/logs/:filename",
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:file-search",
-      "description": "Read log file content with pagination and filtering",
-      "availableMethods": [
-        "GET"
-      ]
-    },
-    {
-      "path": "/logs/:filename/tail",
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:arrow-down",
-      "description": "Get last N lines of a log file",
-      "availableMethods": [
-        "GET"
       ]
     },
     {
@@ -1174,7 +1136,7 @@ const defaultData = {
             ]
           },
           {
-            "route": "/logs",
+            "route": "/enfyra_system_error",
             "methods": [
               "GET"
             ]
@@ -1462,13 +1424,13 @@ const defaultData = {
       "isEnabled": true,
       "isPublic": false,
       "isSystem": true,
-      "description": "Xem file log của backend",
+      "description": "Trace system errors and user script logs",
       "order": 13,
       "parent": "Settings",
       "permission": {
         "or": [
           {
-            "route": "/logs",
+            "route": "/enfyra_system_error",
             "methods": [
               "GET"
             ]

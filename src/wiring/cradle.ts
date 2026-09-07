@@ -19,7 +19,7 @@ import type { RuntimeScriptExecutorService } from '../engines/cache';
 import type { DynamicRepositoryFactory, DynamicService, DynamicApiTableValidationService, GuardValidationService } from '../modules/dynamic-api';
 import type { TableHandlerService, SqlTableCreateService, SqlTableUpdateService, SqlTableDeleteService, SqlTableHandlerService, MongoTableCreateService, MongoTableUpdateService, MongoTableDeleteService, MongoTableHandlerService, TableManagementValidationService, MongoMetadataSnapshotService, SqlTableMetadataBuilderService, SqlTableMetadataWriterService, RuntimeSchemaContractCompilerService, RuntimeSchemaPhysicalPlannerService, RuntimeMetadataSchemaRouterService, RuntimeSchemaExecutorService, RuntimeSchemaTargetAttestorService, RuntimeSchemaUnitOfWorkService, RuntimeSchemaJournalService, RuntimeSchemaActivationGateService } from '../modules/table-management';
 import type { FileManagementService, FileAssetsService, GCSStorageService, LocalStorageService, R2StorageService, S3StorageService, StorageFactoryService } from '../modules/file-management';
-import type { LogReaderService, RuntimeMonitorService, RuntimeDbMetricsService, RuntimeProcessMetricsService, RuntimeQueueMetricsService, RedisAdminService } from '../modules/admin';
+import type { RuntimeLogWriterService, RuntimeMonitorService, RuntimeDbMetricsService, RuntimeProcessMetricsService, RuntimeQueueMetricsService, RedisAdminService } from '../modules/admin';
 import type { MeService } from '../modules/me';
 import type { GraphqlService, DynamicResolver } from '../modules/graphql';
 import type { FlowExecutionQueueService, FlowQueueMaintenanceService, FlowRuntimeService, FlowSchedulerService, FlowTriggerDispatcherService, FlowService } from '../modules/flow';
@@ -151,7 +151,7 @@ export interface Cradle {
   storageFactoryService: StorageFactoryService;
   uploadFileHelper: UploadFileHelper;
 
-  logReaderService: LogReaderService;
+  runtimeLogWriterService: RuntimeLogWriterService;
   runtimeMonitorService: RuntimeMonitorService;
   runtimeDbMetricsService: RuntimeDbMetricsService;
   runtimeProcessMetricsService: RuntimeProcessMetricsService;

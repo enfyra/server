@@ -24,7 +24,7 @@ describe('computeEngineTuning', () => {
     expect(tuning(4, 128 * 1024).isolateMemoryLimitMb).toBe(128);
   });
 
-  it('uses one exclusive isolate lane for each worker task slot', () => {
+  it('multiplexes six task contexts in each isolate lane', () => {
     for (const [cpus, ramMb] of [
       [1, 256],
       [1, 1024],
@@ -33,9 +33,10 @@ describe('computeEngineTuning', () => {
       [32, 65536],
     ]) {
       const result = tuning(cpus, ramMb);
-      expect(result.tasksPerWorkerCap).toBe(result.isolatePoolSize);
-      expect(result.tasksPerWorkerCap).toBeGreaterThanOrEqual(1);
-      expect(result.tasksPerWorkerCap).toBeLessThanOrEqual(16);
+      expect(result.tasksPerIsolate).toBe(6);
+      expect(result.tasksPerWorkerCap).toBe(result.isolatePoolSize * 6);
+      expect(result.tasksPerWorkerCap).toBeGreaterThanOrEqual(6);
+      expect(result.tasksPerWorkerCap).toBeLessThanOrEqual(128 * 6);
     }
   });
 
@@ -44,7 +45,7 @@ describe('computeEngineTuning', () => {
     expect(tuning(1, 1024).isolatePoolSize).toBe(1);
     expect(tuning(2, 2048).isolatePoolSize).toBe(4);
     expect(tuning(2, 8192).isolatePoolSize).toBe(8);
-    expect(tuning(32, 64 * 1024).isolatePoolSize).toBe(16);
+    expect(tuning(32, 64 * 1024).isolatePoolSize).toBe(64);
   });
 
   it('keeps total isolate lane capacity within 25% effective memory', () => {
@@ -59,7 +60,7 @@ describe('computeEngineTuning', () => {
         result.maxConcurrentWorkers *
         result.isolateMemoryLimitMb;
       const allowedBudgetMb = Math.max(
-        bytes / MB * 0.25,
+        (bytes / MB) * 0.25,
         result.isolateMemoryLimitMb * result.maxConcurrentWorkers,
       );
       expect(totalCapMb).toBeLessThanOrEqual(allowedBudgetMb);

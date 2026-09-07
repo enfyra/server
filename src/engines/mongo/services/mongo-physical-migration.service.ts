@@ -6,7 +6,6 @@ import { DatabaseConfigService, EnvService } from '../../../shared/services';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { MongoService } from './mongo.service';
-import type { RuntimeNamespaceLifecycleService } from '../../cache/services/runtime-namespace-lifecycle.service';
 
 type MongoPhysicalMigrationStatus =
   | 'pending'
@@ -48,7 +47,6 @@ export class MongoPhysicalMigrationService {
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly envService: EnvService;
   private readonly queue: Queue;
-  private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
   private worker?: Worker;
   private activeRenameCache = new Map<
     string,
@@ -60,14 +58,11 @@ export class MongoPhysicalMigrationService {
     databaseConfigService: DatabaseConfigService;
     envService: EnvService;
     mongoPhysicalMigrationQueue: Queue;
-    runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
   }) {
     this.mongoService = deps.mongoService;
     this.databaseConfigService = deps.databaseConfigService;
     this.envService = deps.envService;
     this.queue = deps.mongoPhysicalMigrationQueue;
-    this.runtimeNamespaceLifecycleService =
-      deps.runtimeNamespaceLifecycleService;
   }
 
   async init(): Promise<void> {
@@ -162,9 +157,6 @@ export class MongoPhysicalMigrationService {
           removeOnComplete: true,
           removeOnFail: 100,
         },
-      );
-      await this.runtimeNamespaceLifecycleService?.renewSystemQueueKeys(
-        SYSTEM_QUEUES.MONGO_PHYSICAL_MIGRATION,
       );
     }
     this.invalidateActiveRenameCache(tableName);

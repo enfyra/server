@@ -94,12 +94,6 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
           if (!exists) {
             throw new ResourceNotFoundException('enfyra_table', String(id));
           }
-          if (exists.isSystem) {
-            throw new ValidationException('Cannot modify system table', {
-              tableId: id,
-              tableName: exists.name,
-            });
-          }
           const tableRenamed = !!body.name && body.name !== exists.name;
           if (tableRenamed) {
             const incomingRelations = await this.mongoService

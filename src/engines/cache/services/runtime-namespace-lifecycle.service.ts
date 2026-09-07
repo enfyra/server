@@ -95,11 +95,6 @@ export class RuntimeNamespaceLifecycleService {
     await this.redis.hdel(this.managedKeyRegistry(), key);
   }
 
-  async renewSystemQueueKeys(queueName: string): Promise<void> {
-    if (!queueName) return;
-    await this.expireKeysByPattern(`${this.nodeName}:${queueName}:*`);
-  }
-
   async renewCurrentNamespaceKeys(): Promise<void> {
     if (this.renewing) return;
     this.renewing = true;
@@ -148,25 +143,6 @@ export class RuntimeNamespaceLifecycleService {
       }
       if (keys.length > 0) {
         await this.redis.pexpire(registryKey, this.keyTtlMs);
-      }
-      cursor = nextCursor;
-    } while (cursor !== '0');
-  }
-
-  private async expireKeysByPattern(pattern: string): Promise<void> {
-    let cursor = '0';
-    do {
-      const [nextCursor, keys] = await this.redis.scan(
-        cursor,
-        'MATCH',
-        pattern,
-        'COUNT',
-        SCAN_COUNT,
-      );
-      if (keys.length > 0) {
-        const pipeline = this.redis.pipeline();
-        for (const key of keys) pipeline.pexpire(key, this.keyTtlMs);
-        await pipeline.exec();
       }
       cursor = nextCursor;
     } while (cursor !== '0');

@@ -19,7 +19,7 @@ import type {
 } from '../types/dynamic-mutation-lifecycle.types';
 import type { DynamicReadOptions } from '../types/dynamic-read.types';
 import type { GuardValidationService } from '../services/guard-validation.service';
-import { TDynamicContext } from '../../../shared/types';
+import type { TDynamicContext } from '../../../shared/types';
 import {
   CACHE_EVENTS,
   DATA_EVENTS,
@@ -33,6 +33,7 @@ import type { FlowQueueMaintenanceService } from '../../flow';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 import type { RuntimeSchemaActivationGateService } from '../../table-management';
 import { TableRouteRouter } from './table-route.router';
+import { deferDynamicTransactionEffect } from '../../../shared/utils/dynamic-transaction-effects.util';
 
 export class DynamicRepository {
   public context: TDynamicContext;
@@ -338,11 +339,15 @@ export class DynamicRepository {
       critical: opts?.critical,
       tableRenames: opts?.tableRenames,
     };
-    if (typeof this.eventEmitter.emitAsync === 'function') {
-      await this.eventEmitter.emitAsync(CACHE_EVENTS.INVALIDATE, payload);
-      return;
-    }
-    this.eventEmitter.emit(CACHE_EVENTS.INVALIDATE, payload);
+    const emit = async () => {
+      if (typeof this.eventEmitter.emitAsync === 'function') {
+        await this.eventEmitter.emitAsync(CACHE_EVENTS.INVALIDATE, payload);
+        return;
+      }
+      this.eventEmitter.emit(CACHE_EVENTS.INVALIDATE, payload);
+    };
+    if (deferDynamicTransactionEffect(this.context, emit)) return;
+    await emit();
   }
 
   private emitTableMutation(
@@ -350,12 +355,17 @@ export class DynamicRepository {
     ids?: (string | number)[],
     data?: any,
   ) {
-    this.eventEmitter.emit(DATA_EVENTS.TABLE_MUTATION, {
+    const payload = {
       table: this.tableName,
       action,
       ids,
       data,
       userId: this.context?.$user?.id ?? null,
-    });
+    };
+    const emit = () => {
+      this.eventEmitter.emit(DATA_EVENTS.TABLE_MUTATION, payload);
+    };
+    if (deferDynamicTransactionEffect(this.context, emit)) return;
+    emit();
   }
 }

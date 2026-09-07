@@ -1,4 +1,3 @@
-process.env.LOG_DISABLE_FILES = '1';
 process.env.LOG_DISABLE_CONSOLE = '1';
 process.env.LOG_LEVEL = 'trace';
 
