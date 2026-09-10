@@ -65,3 +65,10 @@ export type PatVerificationResult = {
   payload: AuthTokenPayload;
   expiresAt: Date | null;
 };
+
+export type RefreshTokenResult = {
+  accessToken: string;
+  refreshToken: string;
+  expTime: number;
+  loginProvider: string | null;
+};

@@ -4,9 +4,9 @@ import { RuntimeScriptRepairService } from '../../engines/cache';
 import { getErrorMessage } from '../../shared/utils/error.util';
 import { HttpException } from '../../domain/exceptions';
 import {
+  attachStreamResponseHelper,
   persistDynamicScriptLogs,
 } from '../../modules/dynamic-api/services/dynamic.service';
-
 
 function isAdminTestRunRequest(req: any): boolean {
   const path = String(
@@ -105,6 +105,8 @@ export function dynamicInterceptorBegin(
 
     const preHooks = req.routeData?.preHooks;
     if (preHooks?.length) {
+      attachStreamResponseHelper(res);
+      req.routeData.context.$res = res;
       for (const hook of preHooks) {
         if (!hook.code) continue;
         executorEngineService.register(req, {
@@ -125,6 +127,9 @@ export function dynamicInterceptorBegin(
         if (req.routeData.context?.$query !== undefined) {
           req.query = req.routeData.context.$query;
         }
+        if ((res as any).__enfyraStreamStarted) {
+          return;
+        }
         if (result.shortCircuit) {
           return res.json(appendLogs(result.value));
         }
@@ -137,6 +142,8 @@ export function dynamicInterceptorBegin(
               : 500;
         persistDynamicScriptLogs(req, statusCode);
         return next(error);
+      } finally {
+        delete req.routeData.context.$res;
       }
     }
 

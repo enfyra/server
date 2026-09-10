@@ -1,8 +1,9 @@
 /**
- * Refresh token rotation: SHA-256 hash storage + old-token rejection.
+ * Refresh token rotation: SHA-256 hash storage + bounded replay.
  *
  * Validates that AuthService hashes refresh tokens before persisting,
- * verifies the hash on refresh, and rejects stale (rotated-out) tokens.
+ * verifies the hash on refresh, replays a recent rotation result, and rejects
+ * unrelated stale tokens.
  */
 
 import { createHash } from 'crypto';
@@ -51,6 +52,7 @@ describe('AuthService — refresh token rotation logic', () => {
   }
 
   let sessions: Map<string, Session>;
+  let refreshReplays: Map<string, string>;
 
   function createSession(
     id: string,
@@ -79,21 +81,24 @@ describe('AuthService — refresh token rotation logic', () => {
       return { error: 'Session has expired!' };
     }
 
-    if (
-      session.refreshTokenHash &&
-      session.refreshTokenHash !== hashToken(providedToken)
-    ) {
+    const providedHash = hashToken(providedToken);
+    const replay = refreshReplays.get(providedHash);
+    if (replay) return { newToken: replay };
+
+    if (session.refreshTokenHash && session.refreshTokenHash !== providedHash) {
       return { error: 'Refresh token has been revoked!' };
     }
 
     // Issue new token and rotate hash
     const newToken = `new-token-${Date.now()}-${Math.random()}`;
     session.refreshTokenHash = hashToken(newToken);
+    refreshReplays.set(providedHash, newToken);
     return { newToken };
   }
 
   beforeEach(() => {
     sessions = new Map();
+    refreshReplays = new Map();
   });
 
   it('accepts the current refresh token', () => {
@@ -103,7 +108,7 @@ describe('AuthService — refresh token rotation logic', () => {
     expect('newToken' in result).toBe(true);
   });
 
-  it('rejects the old token after rotation', () => {
+  it('replays the same result for the old token after rotation', () => {
     const originalToken = 'original-refresh-token-abc';
     createSession('s1', originalToken);
 
@@ -111,8 +116,16 @@ describe('AuthService — refresh token rotation logic', () => {
     const first = refreshWithToken('s1', originalToken);
     expect('newToken' in first).toBe(true);
 
-    // Replaying the original token now fails
+    // Replaying the original token returns the first rotation result
     const replay = refreshWithToken('s1', originalToken);
+    expect(replay).toEqual(first);
+  });
+
+  it('rejects an unrecognized token after rotation', () => {
+    createSession('s1', 'original-refresh-token-abc');
+    refreshWithToken('s1', 'original-refresh-token-abc');
+
+    const replay = refreshWithToken('s1', 'unrecognized-refresh-token');
     expect('error' in replay).toBe(true);
     expect((replay as any).error).toBe('Refresh token has been revoked!');
   });
