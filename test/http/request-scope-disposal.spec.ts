@@ -94,6 +94,9 @@ function makeAppContainer(dispose = vi.fn()) {
         callback();
       },
     },
+    runtimeSchemaActivationGateService: {
+      isBlocked: vi.fn(() => false),
+    },
     routeCacheService: {
       matchRoute: async (method: string, path: string) => {
         const isKnownGet =
@@ -237,6 +240,26 @@ function makeAppContainer(dispose = vi.fn()) {
 }
 
 describe('request scope disposal through the Express pipeline', () => {
+  it('serves readiness before request scope and follows startup state', async () => {
+    const { container, dispose } = makeAppContainer();
+    let startupComplete = false;
+    const server = createServer(buildExpressApp(container, () => startupComplete));
+    const baseUrl = await listen(server);
+
+    try {
+      const starting = await fetch(`${baseUrl}/health/ready`);
+      expect(starting.status).toBe(503);
+      expect(await starting.json()).toEqual({ ready: false, code: 'RUNTIME_NOT_READY' });
+      startupComplete = true;
+      const ready = await fetch(`${baseUrl}/health/ready`);
+      expect(ready.status).toBe(200);
+      expect(await ready.json()).toEqual({ ready: true, code: 'RUNTIME_READY' });
+      expect(dispose).not.toHaveBeenCalled();
+    } finally {
+      await close(server);
+    }
+  });
+
   it('disposes the request scope after a successful dynamic response', async () => {
     const { container, dispose } = makeAppContainer();
     const server = createServer(buildExpressApp(container));

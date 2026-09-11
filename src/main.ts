@@ -73,7 +73,8 @@ async function main() {
   await init(container);
   logger.log(`Init completed: ${Date.now() - initStart}ms`);
 
-  const app = buildExpressApp(container);
+  let startupComplete = false;
+  const app = buildExpressApp(container, () => startupComplete);
   const server = http.createServer(app);
 
   server.on('error', (err: NodeJS.ErrnoException) => {
@@ -108,6 +109,8 @@ async function main() {
     });
     logger.log(`HTTP listening on port ${env.PORT}`);
     await container.cradle.flowExecutionQueueService?.init?.();
+    startupComplete = true;
+    if (process.send) process.send('ready');
   } catch (err: any) {
     if (err?.code === 'EADDRINUSE') {
       logger.error(
@@ -127,6 +130,7 @@ async function main() {
       process.on(sig, async () => {
         if (shuttingDown) return;
         shuttingDown = true;
+        startupComplete = false;
         logger.log(`Received ${sig}, shutting down gracefully...`);
 
         let shutdownHandled = false;
