@@ -121,6 +121,55 @@ describe('PackageCdnLoaderService', () => {
       version: '19.5.0',
     });
   });
+
+  it('stubs optional peer dependencies instead of loading their native bundle', async () => {
+    const loader = new PackageCdnLoaderService();
+    loader.invalidateAll();
+
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const href = String(url);
+      if (href.endsWith('/database-client@1.0.0?bundle&target=node')) {
+        return response(`
+          import "/database-native@>=1.0.0?target=node";
+          export { default } from "/database-client@1.0.0/node/client.bundle.mjs";
+        `);
+      }
+      if (href.endsWith('/database-client@1.0.0/node/client.bundle.mjs')) {
+        return response('export default { mode: "javascript" };');
+      }
+      if (href.endsWith('/database-client@1.0.0/package.json')) {
+        return response(
+          JSON.stringify({
+            dependencies: {},
+            peerDependencies: { 'database-native': '>=1.0.0' },
+            peerDependenciesMeta: {
+              'database-native': { optional: true },
+            },
+          }),
+        );
+      }
+      if (href.includes('/database-native@')) {
+        return response(
+          'throw new Error("optional native peer must not be loaded");',
+        );
+      }
+      return response('not found', false, 404);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const descriptor = await loader.loadPackage('database-client', '1.0.0');
+    const loaded = await import(`${descriptor.fileUrl}?test=${Date.now()}`);
+
+    expect(loaded.default).toEqual({ mode: 'javascript' });
+    expect(
+      fetchMock.mock.calls.some(([url]) => {
+        const href = String(url);
+        return (
+          href.includes('/database-native@') && !href.endsWith('/package.json')
+        );
+      }),
+    ).toBe(false);
+  });
 });
 
 describe('PackageRuntimeService CDN preload', () => {

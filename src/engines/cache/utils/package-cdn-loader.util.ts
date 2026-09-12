@@ -3,6 +3,8 @@ import { createHash } from 'crypto';
 
 export const NATIVE_CDN_STUB_SOURCE =
   'export function getCPUInfo() { return {}; }\nexport default { getCPUInfo };\n';
+export const OPTIONAL_PEER_CDN_STUB_SOURCE =
+  'export const __esModule = true;\nexport default null;\n';
 
 export type CdnDependencyHints = Map<string, string>;
 
