@@ -53,13 +53,22 @@ interface SourceRange {
 }
 
 function findRegularExpressionRanges(code: string): SourceRange[] {
-  const sourceFile = ts.createSourceFile(
-    'enfyra-script.ts',
-    code,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
+  const maskedCode = code.replace(
+    /@[A-Z0-9_]+|[#%][A-Za-z_][A-Za-z0-9_]*/g,
+    (token) => '_'.repeat(token.length),
   );
+  let sourceFile: ts.SourceFile;
+  try {
+    sourceFile = ts.createSourceFile(
+      'enfyra-script.ts',
+      maskedCode,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+  } catch {
+    return [];
+  }
   const ranges: SourceRange[] = [];
 
   const visit = (node: ts.Node) => {
