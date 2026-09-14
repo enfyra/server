@@ -1,3 +1,5 @@
+import ts from 'typescript';
+
 const TEMPLATE_MAPPINGS: Record<string, string> = {
   '@CACHE': '$ctx.$cache',
   '@REPOS': '$ctx.$repos',
@@ -45,6 +47,40 @@ const TEMPLATE = 3;
 const COMMENT_LINE = 4;
 const COMMENT_BLOCK = 5;
 
+interface SourceRange {
+  start: number;
+  end: number;
+}
+
+function findRegularExpressionRanges(code: string): SourceRange[] {
+  const sourceFile = ts.createSourceFile(
+    'enfyra-script.ts',
+    code,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const ranges: SourceRange[] = [];
+
+  const visit = (node: ts.Node) => {
+    if (ts.isRegularExpressionLiteral(node)) {
+      ranges.push({ start: node.getStart(sourceFile), end: node.end });
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return ranges.sort((left, right) => left.start - right.start);
+}
+
+function isIdentifierStart(char: string | undefined): boolean {
+  return !!char && /[A-Za-z_]/.test(char);
+}
+
+function isIdentifierChar(char: string | undefined): boolean {
+  return !!char && /[A-Za-z0-9_]/.test(char);
+}
+
 export function transformTemplateSyntax(code: string): string {
   const len = code.length;
   let result = '';
@@ -52,8 +88,28 @@ export function transformTemplateSyntax(code: string): string {
   let state = CODE;
   let templateExprDepth = 0;
   let braceDepth = 0;
+  const regularExpressionRanges = findRegularExpressionRanges(code);
+  let regularExpressionIndex = 0;
 
   while (pos < len) {
+    while (
+      regularExpressionIndex < regularExpressionRanges.length &&
+      regularExpressionRanges[regularExpressionIndex].end <= pos
+    ) {
+      regularExpressionIndex++;
+    }
+    const regularExpression = regularExpressionRanges[regularExpressionIndex];
+    if (
+      state === CODE &&
+      regularExpression &&
+      regularExpression.start === pos
+    ) {
+      result += code.slice(regularExpression.start, regularExpression.end);
+      pos = regularExpression.end;
+      regularExpressionIndex++;
+      continue;
+    }
+
     const char = code[pos];
     const next = code[pos + 1];
 
@@ -79,9 +135,8 @@ export function transformTemplateSyntax(code: string): string {
           state = COMMENT_BLOCK;
           result += char + next;
           pos += 2;
-        } else if (char === '@' || char === '#' || char === '%') {
+        } else if (char === '@') {
           const start = pos;
-          const prefix = char;
           pos++;
 
           while (pos < len) {
@@ -94,14 +149,19 @@ export function transformTemplateSyntax(code: string): string {
           }
 
           const identifier = code.substring(start, pos);
+          const mapped = TEMPLATE_MAPPINGS[identifier];
+          result += mapped || identifier;
+        } else if (char === '#' || char === '%') {
+          const start = pos;
+          const registry = char === '#' ? '$ctx.$repos.' : '$ctx.$pkgs.';
+          pos++;
 
-          if (prefix === '@') {
-            const mapped = TEMPLATE_MAPPINGS[identifier];
-            result += mapped || identifier;
-          } else if (prefix === '#') {
-            result += '$ctx.$repos.' + identifier.substring(1);
+          if (!isIdentifierStart(code[pos])) {
+            result += char;
           } else {
-            result += '$ctx.$pkgs.' + identifier.substring(1);
+            pos++;
+            while (pos < len && isIdentifierChar(code[pos])) pos++;
+            result += registry + code.substring(start + 1, pos);
           }
         } else if (char === '{') {
           if (templateExprDepth > 0) braceDepth++;

@@ -74,6 +74,30 @@ describe('transformCode', () => {
     expect(transformCode('/* @BODY */')).toBe('/* @BODY */');
   });
 
+  it('does not expand macro-like text after a regular expression containing quotes', () => {
+    const input = [
+      `const escaped = value.replace(/\\\"/g, '&quot;');`,
+      `const html = '<table width="100%" style="color:#33434d">@BODY %pkg #repo</table>';`,
+      'return { body: @BODY, repo: #projects, pkg: %resend };',
+    ].join('\n');
+
+    expect(transformCode(input)).toBe(
+      [
+        `const escaped = value.replace(/\\\"/g, '&quot;');`,
+        `const html = '<table width="100%" style="color:#33434d">@BODY %pkg #repo</table>';`,
+        'return { body: $ctx.$body, repo: $ctx.$repos.projects, pkg: $ctx.$pkgs.resend };',
+      ].join('\n'),
+    );
+  });
+
+  it('keeps regular expression bodies and ordinary modulo operators literal', () => {
+    const input = `const pattern = /["'#%@]/g; const remainder = total % count; return @BODY;`;
+
+    expect(transformCode(input)).toBe(
+      `const pattern = /["'#%@]/g; const remainder = total % count; return $ctx.$body;`,
+    );
+  });
+
   it('expands @ERROR and @STATUS macros', () => {
     expect(transformCode('if (@ERROR) @STATUS')).toBe(
       'if ($ctx.$error) $ctx.$statusCode',

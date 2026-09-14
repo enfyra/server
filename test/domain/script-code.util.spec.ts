@@ -5,6 +5,7 @@ import {
   normalizeScriptRecord,
   resolveExecutableScript,
 } from '../../src/shared/utils/script-code.util';
+import { SCRIPT_TABLE_NAMES } from '../../src/shared/utils/script-table-contract.constants';
 
 describe('script-code util', () => {
   it('compiles TypeScript source into executable JavaScript', () => {
@@ -17,6 +18,29 @@ describe('script-code util', () => {
     expect(compiled).toContain('return value;');
     expect(compiled).not.toContain(': string');
   });
+
+  it.each(SCRIPT_TABLE_NAMES)(
+    'preserves regex and email markup when compiling %s',
+    (tableName) => {
+      const sourceCode = [
+        `const escaped = value.replace(/\\\"/g, '&quot;');`,
+        `const html = '<table width="100%" style="color:#33434d">@BODY</table>';`,
+        'return { html, body: @BODY };',
+      ].join('\n');
+
+      const record = normalizeScriptRecord(tableName, {
+        sourceCode,
+        scriptLanguage: 'javascript',
+      });
+
+      expect(record.compiledCode).toContain(
+        `'<table width="100%" style="color:#33434d">@BODY</table>'`,
+      );
+      expect(record.compiledCode).toContain('body: $ctx.$body');
+      expect(record.compiledCode).not.toContain('$ctx.$pkgs.');
+      expect(record.compiledCode).not.toContain('$ctx.$repos.33434d');
+    },
+  );
 
   it('defaults script records to TypeScript and removes legacy fields', () => {
     const record = normalizeScriptRecord('enfyra_route_handler', {
@@ -92,9 +116,7 @@ describe('script-code util', () => {
       'const value: string = @BODY.name; return value;',
     );
     expect(normalized.scriptLanguage).toBe('typescript');
-    expect(normalized.compiledCode).toContain(
-      'const value = $ctx.$body.name;',
-    );
+    expect(normalized.compiledCode).toContain('const value = $ctx.$body.name;');
   });
 
   it('recompiles from existing source when only scriptLanguage is patched', () => {
