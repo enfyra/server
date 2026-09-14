@@ -98,6 +98,19 @@ describe('transformCode', () => {
     );
   });
 
+  it('locates regular expressions safely in macro-heavy script syntax', () => {
+    const input = [
+      'const body = @BODY;',
+      'const repo = #secure.projects;',
+      'const pkg = %resend;',
+      `const pattern = /["'#%@]/g;`,
+      'return { body, repo, pkg, pattern };',
+    ].join('\n');
+
+    expect(() => transformCode(input)).not.toThrow();
+    expect(transformCode(input)).toContain(`const pattern = /["'#%@]/g;`);
+  });
+
   it('expands @ERROR and @STATUS macros', () => {
     expect(transformCode('if (@ERROR) @STATUS')).toBe(
       'if ($ctx.$error) $ctx.$statusCode',
