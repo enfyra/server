@@ -93,6 +93,7 @@ export class DynamicContextFactory {
       $helpers: this.createHelpers(options.helpers),
       $cache: cache,
       $transaction: undefined as never,
+      $streams: undefined as never,
       $params: options.params ?? {},
       $query: options.query ?? {},
       $env: this.createEnvSnapshot(),

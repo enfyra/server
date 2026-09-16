@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import type { UploadedFileInfo } from './file-management.types';
 import type { CryptoHelper } from '../helpers/crypto.helper';
 import type { FetchHelper } from '../helpers/fetch.helper';
@@ -42,6 +42,55 @@ export type EnvSnapshot = Record<string, string | undefined>;
 export type DynamicRequestContext = Request & {
   rawBody?: string;
 };
+
+export type StreamChunkKind = 'chunk' | 'end' | 'error';
+
+export interface DynamicResponseStreamOptions {
+  statusCode?: number;
+  mimetype?: string;
+  filename?: string;
+  headers?: Record<
+    string,
+    string | number | readonly string[] | undefined | null
+  >;
+  observer?: (
+    text: string,
+    kind: StreamChunkKind,
+  ) => void | Promise<void>;
+  transform?: (
+    text: string,
+    kind: StreamChunkKind,
+  ) => string | null | undefined | Promise<string | null | undefined>;
+}
+
+export interface DynamicStreamConsumeOptions {
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
+export type DynamicReadable = AsyncIterable<
+  string | Uint8Array | ArrayBuffer | ArrayBufferView
+>;
+
+export interface DynamicPreflightStreamResult {
+  stream: DynamicReadable;
+  firstChunk: Uint8Array;
+}
+
+export interface DynamicStreams {
+  preflight: (
+    stream: DynamicReadable,
+    options?: Pick<DynamicStreamConsumeOptions, 'timeoutMs'>,
+  ) => Promise<DynamicPreflightStreamResult>;
+  readBytes: (
+    stream: DynamicReadable,
+    options?: DynamicStreamConsumeOptions,
+  ) => Promise<Uint8Array>;
+  readText: (
+    stream: DynamicReadable,
+    options?: DynamicStreamConsumeOptions,
+  ) => Promise<string>;
+}
 
 export interface TDynamicContext {
   $body?: any;
@@ -121,6 +170,7 @@ export interface TDynamicContext {
     setNoExpire?: (key: string, value: any) => Promise<void>;
   };
   $transaction: DynamicTransaction;
+  $streams: DynamicStreams;
   $params?: any;
   $query?: any;
   $env?: EnvSnapshot;
@@ -129,16 +179,8 @@ export interface TDynamicContext {
   $req?: DynamicRequestContext;
   $res?: Response & {
     stream?: (
-      stream: NodeJS.ReadableStream | ReadableStream,
-      options?: {
-        statusCode?: number;
-        mimetype?: string;
-        filename?: string;
-        headers?: Record<
-          string,
-          string | number | readonly string[] | undefined | null
-        >;
-      },
+      stream: NodeJS.ReadableStream | ReadableStream | DynamicReadable,
+      options?: DynamicResponseStreamOptions,
     ) => Promise<void>;
   };
   $share: {

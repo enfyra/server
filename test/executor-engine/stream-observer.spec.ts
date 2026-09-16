@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
 import { EventEmitter } from 'events';
@@ -519,6 +519,378 @@ describe('stream observer callback', () => {
     }
   });
 
+  it('iterates a package-backed readable before starting a response', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-stream-iterator-'));
+    const modulePath = path.join(tempDir, 'iterator-package.mjs');
+    await writeFile(
+      modulePath,
+      `
+        import { Buffer } from 'node:buffer';
+        export default {
+          async *createStream() {
+            const bytes = Buffer.from('reasoning: chào 👋', 'utf8');
+            for (let index = 0; index < bytes.length; index++) {
+              yield bytes.subarray(index, index + 1);
+            }
+          },
+        };
+      `,
+      'utf8',
+    );
+
+    const service = makeService(modulePath, 'iterator-package');
+    try {
+      const result = await service.run(
+        `
+          const decoder = new TextDecoder();
+          let text = '';
+          for await (const chunk of $ctx.$pkgs['iterator-package'].createStream()) {
+            text += decoder.decode(chunk, { stream: true });
+          }
+          text += decoder.decode();
+          const repeated = $ctx.$pkgs['iterator-package'].createStream();
+          const firstIterator = repeated[Symbol.asyncIterator]();
+          await firstIterator.next();
+          let duplicateCode = null;
+          try {
+            await repeated[Symbol.asyncIterator]().next();
+          } catch (error) {
+            duplicateCode = error.code;
+          }
+          await firstIterator.return();
+          const concurrentIterator = $ctx.$pkgs['iterator-package'].createStream()[Symbol.asyncIterator]();
+          const pendingNext = concurrentIterator.next();
+          let concurrentCode = null;
+          try {
+            await concurrentIterator.next();
+          } catch (error) {
+            concurrentCode = error.code;
+          }
+          await pendingNext;
+          await concurrentIterator.return();
+          return { text, duplicateCode, concurrentCode };
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        5000,
+      );
+
+      expect(result).toEqual({
+        text: 'reasoning: chào 👋',
+        duplicateCode: 'ERR_PACKAGE_STREAM_ALREADY_CONSUMED',
+        concurrentCode: 'ERR_PACKAGE_STREAM_CONCURRENT_NEXT',
+      });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('preflights the first raw package chunk before response commit and replays it once', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-stream-preflight-'));
+    const modulePath = path.join(tempDir, 'preflight-package.mjs');
+    const chunks = [
+      'data: {"reasoning":"đang kiểm tra 👋"}\n\n',
+      'data: {"tool":"get_weather","arguments":"{\\"city\\":\\"Hanoi\\"}"}\n\n',
+      'data: [DONE]\n\n',
+    ];
+    await writeFile(
+      modulePath,
+      `
+        export default {
+          async *createStream() {
+            yield new Uint8Array();
+            const bytes = new TextEncoder().encode(${JSON.stringify(chunks.join(''))});
+            for (const byte of bytes) yield new Uint8Array([byte]);
+          },
+        };
+      `,
+      'utf8',
+    );
+
+    const service = makeService(modulePath, 'preflight-package');
+    const received: Buffer[] = [];
+    let preflightCompleted = false;
+    const ctx: any = {
+      $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+      $helpers: {
+        markPreflightCompleted: () => {
+          preflightCompleted = true;
+        },
+      },
+      $cache: {}, $repos: {}, $user: null,
+      $res: {
+        stream: (stream: any) => new Promise<void>((resolve, reject) => {
+          expect(preflightCompleted).toBe(true);
+          stream.on('data', (chunk: Buffer) => received.push(chunk));
+          stream.on('end', resolve);
+          stream.on('error', reject);
+        }),
+      },
+    };
+
+    try {
+      await service.run(
+        `
+          const upstream = $ctx.$pkgs['preflight-package'].createStream();
+          const guarded = await $ctx.$streams.preflight(upstream, { timeoutMs: 1000 });
+          await $ctx.$helpers.markPreflightCompleted();
+          await $ctx.$res.stream(guarded.stream);
+        `,
+        ctx,
+        5000,
+      );
+
+      const output = Buffer.concat(received).toString('utf8');
+      expect(output).toBe(chunks.join(''));
+      const packets = output.split('\n\n').filter(Boolean);
+      const toolPayload = JSON.parse(packets[1].slice('data: '.length));
+      expect(toolPayload.tool).toBe('get_weather');
+      expect(JSON.parse(toolPayload.arguments)).toEqual({ city: 'Hanoi' });
+      expect(packets.filter((packet) => packet === 'data: [DONE]')).toHaveLength(1);
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('times out only the silent package stream and retries in the same task', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-stream-retry-'));
+    const modulePath = path.join(tempDir, 'retry-package.mjs');
+    await writeFile(
+      modulePath,
+      `
+        let attempts = 0;
+        let cancelled = 0;
+        const silentBody = () => {
+          let release;
+          return {
+            [Symbol.asyncIterator]() { return this; },
+            next() { return new Promise((resolve) => { release = resolve; }); },
+            return() {
+              cancelled += 1;
+              release?.({ done: true, value: undefined });
+              return Promise.resolve({ done: true, value: undefined });
+            },
+          };
+        };
+        export default {
+          request() {
+            attempts += 1;
+            return {
+              body: attempts === 1 ? silentBody() : (async function* () { yield new TextEncoder().encode('retry-ok'); })(),
+            };
+          },
+          stats() { return { attempts, cancelled }; },
+          healthy() { return 'healthy'; },
+        };
+      `,
+      'utf8',
+    );
+
+    const service = makeService(modulePath, 'retry-package');
+    const received: Buffer[] = [];
+    const ctx: any = {
+      $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+      $helpers: {}, $cache: {}, $repos: {}, $user: null,
+      $res: { stream: (stream: any) => new Promise<void>((resolve, reject) => {
+        stream.on('data', (chunk: Buffer) => received.push(chunk));
+        stream.on('end', resolve);
+        stream.on('error', reject);
+      }) },
+    };
+
+    try {
+      const result = await service.run(
+        `
+          const pkg = $ctx.$pkgs['retry-package'];
+          let timeoutCode = null;
+          try {
+            const first = await pkg.request();
+            await $ctx.$streams.preflight(first.body, { timeoutMs: 40 });
+          } catch (error) {
+            timeoutCode = error.code;
+          }
+          const second = await pkg.request();
+          const guarded = await $ctx.$streams.preflight(second.body, { timeoutMs: 1000 });
+          await $ctx.$res.stream(guarded.stream);
+          return { timeoutCode, stats: await pkg.stats(), healthy: await pkg.healthy() };
+        `,
+        ctx,
+        5000,
+      );
+
+      expect(result).toEqual({
+        timeoutCode: 'ERR_PACKAGE_STREAM_TIMEOUT',
+        stats: { attempts: 2, cancelled: 1 },
+        healthy: 'healthy',
+      });
+      expect(Buffer.concat(received).toString('utf8')).toBe('retry-ok');
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('reports empty and failed streams before commit without aborting the task', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-stream-errors-'));
+    const modulePath = path.join(tempDir, 'stream-errors-package.mjs');
+    await writeFile(
+      modulePath,
+      `
+        export default {
+          async *empty() {},
+          async *failed() { throw new Error('upstream failed before bytes'); },
+          healthy() { return 'healthy'; },
+        };
+      `,
+      'utf8',
+    );
+
+    const service = makeService(modulePath, 'stream-errors-package');
+    try {
+      const result = await service.run(
+        `
+          const pkg = $ctx.$pkgs['stream-errors-package'];
+          const errors = [];
+          for (const stream of [pkg.empty(), pkg.failed()]) {
+            try {
+              await $ctx.$streams.preflight(stream, { timeoutMs: 1000 });
+            } catch (error) {
+              errors.push({ code: error.code || null, message: error.message });
+            }
+          }
+          return { errors, healthy: await pkg.healthy() };
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        5000,
+      );
+
+      expect(result).toEqual({
+        errors: [
+          { code: 'ERR_PACKAGE_STREAM_EMPTY', message: 'Package stream ended before yielding bytes' },
+          { code: null, message: expect.stringContaining('upstream failed before bytes') },
+        ],
+        healthy: 'healthy',
+      });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('relays the preflight chunk once and propagates a later source error', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-stream-late-error-'));
+    const modulePath = path.join(tempDir, 'late-error-package.mjs');
+    await writeFile(
+      modulePath,
+      `
+        export default {
+          async *stream() {
+            yield new TextEncoder().encode('first');
+            throw new Error('upstream failed after bytes');
+          },
+        };
+      `,
+      'utf8',
+    );
+
+    const service = makeService(modulePath, 'late-error-package');
+    const received: Buffer[] = [];
+    try {
+      await expect(
+        service.run(
+          `
+            const guarded = await $ctx.$streams.preflight(
+              $ctx.$pkgs['late-error-package'].stream(),
+              { timeoutMs: 1000 },
+            );
+            await $ctx.$res.stream(guarded.stream);
+          `,
+          {
+            $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+            $helpers: {}, $cache: {}, $repos: {}, $user: null,
+            $res: { stream: (stream: any) => new Promise<void>((resolve, reject) => {
+              stream.on('data', (chunk: Buffer) => received.push(chunk));
+              stream.on('end', resolve);
+              stream.on('error', reject);
+            }) },
+          } as any,
+          5000,
+        ),
+      ).rejects.toThrow(/upstream failed after bytes/);
+      expect(Buffer.concat(received).toString('utf8')).toBe('first');
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('collects package streams without starting a response and enforces raw byte limits', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-stream-collect-'));
+    const modulePath = path.join(tempDir, 'collect-package.mjs');
+    await writeFile(
+      modulePath,
+      `
+        import { Buffer } from 'node:buffer';
+        let cancelled = 0;
+        const bytes = Buffer.from('chào 👋', 'utf8');
+        const limitedBytes = Buffer.from('👋', 'utf8');
+        export default {
+          async *text() {
+            for (let index = 0; index < bytes.length; index++) yield bytes.subarray(index, index + 1);
+          },
+          limited() {
+            let index = 0;
+            return {
+              [Symbol.asyncIterator]() { return this; },
+              next() {
+                if (index >= limitedBytes.length) return Promise.resolve({ done: true });
+                return Promise.resolve({ done: false, value: limitedBytes.subarray(index, ++index) });
+              },
+              return() { cancelled += 1; return Promise.resolve({ done: true }); },
+            };
+          },
+          stats() { return { cancelled }; },
+        };
+      `,
+      'utf8',
+    );
+
+    const service = makeService(modulePath, 'collect-package');
+    let responseStarted = false;
+    try {
+      const result = await service.run(
+        `
+          const pkg = $ctx.$pkgs['collect-package'];
+          const text = await $ctx.$streams.readText(pkg.text(), { timeoutMs: 1000, maxBytes: 1024 });
+          let limitCode = null;
+          try {
+            await $ctx.$streams.readBytes(pkg.limited(), { timeoutMs: 1000, maxBytes: 3 });
+          } catch (error) {
+            limitCode = error.code;
+          }
+          return { text, limitCode, stats: await pkg.stats() };
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+          $res: { stream: () => { responseStarted = true; } },
+        } as any,
+        5000,
+      );
+
+      expect(responseStarted).toBe(false);
+      expect(result).toEqual({
+        text: 'chào 👋',
+        limitCode: 'ERR_PACKAGE_STREAM_MAX_BYTES',
+        stats: { cancelled: 1 },
+      });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
   it('cancels a package-backed stream when the response closes', async () => {
     tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-stream-cancel-'));
     const modulePath = path.join(tempDir, 'undici.mjs');
@@ -651,6 +1023,79 @@ describe('stream observer callback', () => {
       await expect(result).rejects.toMatchObject({
         code: 'ERR_EXECUTION_ABORTED',
       });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('cleans up a pending package stream iterator when the task is cancelled', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-stream-task-cancel-'));
+    const modulePath = path.join(tempDir, 'task-cancel-package.mjs');
+    const openedPath = path.join(tempDir, 'opened.txt');
+    const markerPath = path.join(tempDir, 'cancelled.txt');
+    await writeFile(
+      modulePath,
+      `
+        import { writeFileSync } from 'node:fs';
+        export default {
+          stream() {
+            let release;
+            return {
+              [Symbol.asyncIterator]() {
+                writeFileSync(${JSON.stringify(openedPath)}, 'opened', 'utf8');
+                return this;
+              },
+              next() { return new Promise((resolve) => { release = resolve; }); },
+              return() {
+                writeFileSync(${JSON.stringify(markerPath)}, 'cancelled', 'utf8');
+                release?.({ done: true, value: undefined });
+                return Promise.resolve({ done: true, value: undefined });
+              },
+            };
+          },
+        };
+      `,
+      'utf8',
+    );
+
+    const service = makeService(modulePath, 'task-cancel-package');
+    const controller = new AbortController();
+    try {
+      const result = service.runBatch(
+        [
+          {
+            type: 'handler',
+            code: `await $ctx.$streams.preflight($ctx.$pkgs['task-cancel-package'].stream(), { timeoutMs: 4000 });`,
+          },
+        ],
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        5000,
+        { signal: controller.signal },
+      );
+      let opened = false;
+      for (let attempt = 0; attempt < 100 && !opened; attempt++) {
+        try {
+          opened = (await readFile(openedPath, 'utf8')) === 'opened';
+        } catch {
+          await new Promise<void>((resolve) => setTimeout(resolve, 10));
+        }
+      }
+      expect(opened).toBe(true);
+      controller.abort();
+
+      await expect(result).rejects.toMatchObject({ code: 'ERR_EXECUTION_ABORTED' });
+      let marker = '';
+      for (let attempt = 0; attempt < 50 && !marker; attempt++) {
+        try {
+          marker = await readFile(markerPath, 'utf8');
+        } catch {
+          await new Promise<void>((resolve) => setTimeout(resolve, 10));
+        }
+      }
+      expect(marker).toBe('cancelled');
     } finally {
       service.onDestroy();
     }
