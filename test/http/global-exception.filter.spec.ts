@@ -5,9 +5,11 @@ import { globalExceptionMiddleware } from '../../src/domain/exceptions/filters/g
 type ErrorResponse = {
   success: boolean;
   statusCode: number;
+  message?: string | string[];
   retry_after_seconds?: number;
   error: {
     code: string;
+    message?: string | string[];
     details?: Record<string, unknown>;
   };
 };
@@ -104,5 +106,28 @@ describe('global exception middleware request-size errors', () => {
       receivedMb: 12,
     });
     expect(JSON.stringify(response)).not.toContain(fileContent);
+  });
+
+  it('maps a strict-mode JSON parse failure to a 400 invalid-body error', () => {
+    const error = Object.assign(
+      new SyntaxError("Unexpected token 'n', \"null\" is not valid JSON"),
+      {
+        type: 'entity.parse.failed',
+        status: 400,
+        statusCode: 400,
+        body: 'null',
+      },
+    );
+
+    const response = runFilter(error, {
+      method: 'POST',
+      url: '/enfyra_role',
+      originalUrl: '/enfyra_role',
+      headers: { 'content-type': 'application/json' },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.error.code).toBe('BAD_REQUEST');
+    expect(response.error.message).toEqual(['Invalid JSON body']);
   });
 });

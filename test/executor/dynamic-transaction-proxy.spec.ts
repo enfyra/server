@@ -160,7 +160,7 @@ describe('isolated executor transaction proxy', () => {
             },
           ],
           ctx,
-          50,
+          1000,
         ),
       ).rejects.toMatchObject({
         errorCode: 'SCRIPT_TIMEOUT',

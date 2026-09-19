@@ -10,7 +10,7 @@ function makeMeta(name: string, columns: any[], relations: any[] = []) {
 
 const ordersMeta = makeMeta(
   'orders',
-  [{ name: 'id' }, { name: 'total' }],
+  [{ name: 'id' }, { name: 'total' }, { name: 'customerId' }],
   [
     {
       propertyName: 'customer',
@@ -23,7 +23,7 @@ const ordersMeta = makeMeta(
 
 const usersMeta = makeMeta(
   'users',
-  [{ name: 'id' }, { name: 'name' }],
+  [{ name: 'id' }, { name: 'name' }, { name: 'roleId' }],
   [
     {
       propertyName: 'role',
@@ -36,7 +36,7 @@ const usersMeta = makeMeta(
 
 const rolesMeta = makeMeta(
   'roles',
-  [{ name: 'id' }, { name: 'title' }],
+  [{ name: 'id' }, { name: 'title' }, { name: 'orgId' }],
   [
     {
       propertyName: 'org',
@@ -73,7 +73,7 @@ describe('query depth limit – expandFieldsToJoinsAndSelect', () => {
       undefined,
       1,
     );
-    expect(select.some((s) => s.includes('orders.id'))).toBe(true);
+    expect(select.some((s) => /orders`?\.`?id/.test(s))).toBe(true);
     expect(select.some((s) => s.includes('customer'))).toBe(true);
   });
 
@@ -84,7 +84,7 @@ describe('query depth limit – expandFieldsToJoinsAndSelect', () => {
       metadataGetter as any,
       'mysql',
     );
-    expect(select.some((s) => s.includes('orders.id'))).toBe(true);
+    expect(select.some((s) => /orders`?\.`?id/.test(s))).toBe(true);
     expect(select.some((s) => s.includes('customer'))).toBe(true);
   });
 });

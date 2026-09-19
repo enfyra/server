@@ -1,4 +1,4 @@
-import type { Express, Response } from 'express';
+import type { Express, NextFunction, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 import { BadRequestException } from '../../domain/exceptions';
@@ -8,6 +8,7 @@ import {
 } from '../../shared/utils/cache-events.constants';
 import { compileScriptSource } from '../../shared/utils/script-code.util';
 import type { TCacheInvalidationPayload } from '../../shared/types/cache.types';
+import type { FlowStepReorderInput } from '../../modules/flow/types/flow-step-reorder.types';
 
 type MenuReorderUpdate = {
   id: string | number;
@@ -27,6 +28,31 @@ function resolveAdminTestTimeout(value: unknown) {
   return Number.isFinite(timeout) && timeout > 0
     ? timeout
     : DEFAULT_ADMIN_TEST_TIMEOUT_MS;
+}
+
+function normalizeFlowStepReorderInput(
+  body: any,
+  currentId: string | number,
+): FlowStepReorderInput {
+  const flowId = body?.flowId;
+  const swapWithId = body?.swapWithId;
+  const expectedCurrentOrder = Number(body?.expectedCurrentOrder);
+  const expectedSwapOrder = Number(body?.expectedSwapOrder);
+  if (
+    flowId == null ||
+    swapWithId == null ||
+    !Number.isFinite(expectedCurrentOrder) ||
+    !Number.isFinite(expectedSwapOrder)
+  ) {
+    throw new BadRequestException('Invalid flow step reorder payload');
+  }
+  return {
+    flowId,
+    currentId,
+    swapWithId,
+    expectedCurrentOrder,
+    expectedSwapOrder,
+  };
 }
 
 function resolveOrchestrator(req: any, container: AwilixContainer<Cradle>) {
@@ -235,6 +261,24 @@ export function registerAdminRoutes(
   app: Express,
   container: AwilixContainer<Cradle>,
 ) {
+  app.patch(
+    '/enfyra_flow_step/:id',
+    async (req: any, res: Response, next: NextFunction) => {
+      const body = req.routeData?.context?.$body ?? req.body ?? {};
+      if (!Object.prototype.hasOwnProperty.call(body, 'swapWithId')) {
+        next();
+        return;
+      }
+      const flowService =
+        req.scope?.cradle?.flowService ?? container.cradle.flowService;
+      const result = await flowService.swapStepOrder(
+        normalizeFlowStepReorderInput(body, req.params.id),
+        req.user,
+      );
+      res.json({ success: true, data: result });
+    },
+  );
+
   app.post('/admin/script/validate', async (req: any, res: Response) => {
     const body = req.routeData?.context?.$body ?? req.body ?? {};
     const sourceCode = String(body.sourceCode ?? body.code ?? '');

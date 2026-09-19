@@ -48,7 +48,7 @@ export function requestLoggingEnd(
       url: req.url,
       statusCode,
       responseTime: `${responseTime}ms`,
-      userId: (req as any).user?.id,
+      userId: (req as any).user?.id ?? (req as any).user?._id,
     };
     if (Object.keys(req.query).length > 0) data.query = req.query;
     if (statusCode >= 500) {

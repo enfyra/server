@@ -5,11 +5,16 @@ import {
   KnexTableSchema,
 } from '../../../../shared/types/database-init.types';
 import { getKnexColumnType } from './schema-parser';
+import { supportsSqlColumnDefault } from '../migration/sql-generator';
 import {
   buildSqlIndexContracts,
   buildSqlUniqueContracts,
   getSqlRelationForeignKeyColumn,
 } from '../sql-physical-schema-contract';
+
+function sqlDialect(dbClient?: string): 'mysql' | 'postgres' {
+  return /mysql|maria/i.test(String(dbClient ?? '')) ? 'mysql' : 'postgres';
+}
 function parsePgArray(val: any): string[] {
   if (Array.isArray(val)) return val;
   if (typeof val === 'string' && val.startsWith('{') && val.endsWith('}')) {
@@ -324,7 +329,11 @@ export function compareSchemas(
           ? null
           : snapshotCol.defaultValue;
       const currentDefault = normalizeDbDefaultValue(currentCol.defaultValue);
+      // MySQL cannot express a plain default for some column types (text, blob,
+      // json). The DDL generator omits the clause for those, so comparing them
+      // here would report a mismatch the engine can never satisfy.
       if (
+        supportsSqlColumnDefault(snapshotCol, sqlDialect(dbClient)) &&
         !isDefaultEquivalent(snapshotDefault, currentDefault, snapshotCol.type)
       ) {
         changes.push('default');

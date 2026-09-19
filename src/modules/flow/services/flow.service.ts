@@ -4,6 +4,8 @@ import { RepoRegistryService } from '../../../engines/cache';
 import { FlowJobData } from '../../../shared/types/flow.types';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { ExecutorEngineService } from '@enfyra/kernel';
+import type { QueryBuilderService } from '@enfyra/kernel';
+import { BadRequestException } from '../../../domain/exceptions';
 import {
   executeStepCore,
   getExecutableStepConfig,
@@ -17,6 +19,7 @@ import type {
   FlowDefinition,
   FlowStep,
 } from '../../../shared/types/flow.types';
+import type { FlowStepReorderInput } from '../types/flow-step-reorder.types';
 
 interface FlowStepTestInput {
   id?: number | string;
@@ -42,6 +45,7 @@ export class FlowService {
   private readonly repoRegistryService: RepoRegistryService;
   private readonly dynamicContextFactory: DynamicContextFactory;
   private readonly runtimeScriptRepairService?: RuntimeScriptRepairService;
+  private readonly queryBuilderService?: QueryBuilderService;
 
   constructor(deps: {
     flowQueue: Queue;
@@ -50,6 +54,7 @@ export class FlowService {
     repoRegistryService: RepoRegistryService;
     dynamicContextFactory: DynamicContextFactory;
     runtimeScriptRepairService?: RuntimeScriptRepairService;
+    queryBuilderService?: QueryBuilderService;
   }) {
     this.flowQueue = deps.flowQueue;
     this.runtimeRegistryService = deps.runtimeRegistryService;
@@ -57,6 +62,77 @@ export class FlowService {
     this.repoRegistryService = deps.repoRegistryService;
     this.dynamicContextFactory = deps.dynamicContextFactory;
     this.runtimeScriptRepairService = deps.runtimeScriptRepairService;
+    this.queryBuilderService = deps.queryBuilderService;
+  }
+
+  async swapStepOrder(input: FlowStepReorderInput, user: any) {
+    if (!this.queryBuilderService) {
+      throw new Error('Query builder service is unavailable');
+    }
+    const pkField = this.queryBuilderService.getPkField();
+    const context = this.dynamicContextFactory.createBase({ user });
+    context.$repos = this.repoRegistryService.createReposProxy(
+      context,
+      'enfyra_flow_step',
+    );
+
+    return context.$transaction.run(async () => {
+      const result = await context.$repos.main.find({
+        filter: {
+          [pkField]: { _in: [input.currentId, input.swapWithId] },
+        },
+        fields: [pkField, 'flow.*', 'parent.*', 'branch', 'stepOrder'],
+        limit: 0,
+      });
+      const records = Array.isArray(result?.data) ? result.data : [];
+      const getId = (record: any) => record?.[pkField] ?? record?.id ?? record?._id;
+      const getRelationId = (value: any) =>
+        value && typeof value === 'object' ? getId(value) : value;
+      const current = records.find(
+        (record: any) => String(getId(record)) === String(input.currentId),
+      );
+      const swap = records.find(
+        (record: any) => String(getId(record)) === String(input.swapWithId),
+      );
+      if (!current || !swap) {
+        throw new BadRequestException('Flow step not found');
+      }
+
+      const currentFlowId = getRelationId(current.flow);
+      const swapFlowId = getRelationId(swap.flow);
+      const currentParentId = getRelationId(current.parent) ?? null;
+      const swapParentId = getRelationId(swap.parent) ?? null;
+      if (
+        String(currentFlowId) !== String(input.flowId) ||
+        String(swapFlowId) !== String(input.flowId) ||
+        String(currentParentId) !== String(swapParentId) ||
+        (current.branch ?? null) !== (swap.branch ?? null)
+      ) {
+        throw new BadRequestException('Flow steps are not reorder siblings');
+      }
+      if (
+        Number(current.stepOrder) !== input.expectedCurrentOrder ||
+        Number(swap.stepOrder) !== input.expectedSwapOrder
+      ) {
+        throw new BadRequestException('Flow step order changed; reload and retry');
+      }
+
+      await context.$repos.main.update({
+        id: input.currentId,
+        data: { stepOrder: input.expectedSwapOrder },
+      });
+      await context.$repos.main.update({
+        id: input.swapWithId,
+        data: { stepOrder: input.expectedCurrentOrder },
+      });
+
+      return {
+        currentId: input.currentId,
+        swapWithId: input.swapWithId,
+        currentOrder: input.expectedSwapOrder,
+        swapOrder: input.expectedCurrentOrder,
+      };
+    });
   }
 
   private flowStepRepairCallback(step: any) {

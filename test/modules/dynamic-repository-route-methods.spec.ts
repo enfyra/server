@@ -102,9 +102,32 @@ describe('DynamicRepository route method relations', () => {
       }),
       update: vi.fn().mockResolvedValue({}),
       runWithPolicy: vi.fn().mockImplementation(async (_policy: any, fn: any) => fn()),
+      runWithFieldPermissionCheck: vi
+        .fn()
+        .mockImplementation(async (_checker: any, fn: any) => fn()),
     };
     const repo = makeRepo({
       queryBuilderService: queryBuilderService as any,
+      enforceFieldPermission: true,
+      runtimeRegistryService: {
+        requireMetadata: vi.fn(() => ({
+          version: 1,
+          tables: new Map(),
+          tablesList: [],
+          timestamp: new Date(),
+        })),
+        lookupTableByName: vi.fn(() => ({
+          name: 'enfyra_route',
+          columns: [
+            { name: '_id', isPrimary: true },
+            { name: 'name', isPublished: true },
+            { name: 'secret', isPublished: false },
+          ],
+          relations: [],
+        })),
+        getFieldPermissionPoliciesFor: vi.fn(() => []),
+        getMaxQueryDepth: vi.fn(() => 10),
+      } as any,
       tableValidationService: {
         assertTableValid: vi.fn().mockResolvedValue(undefined),
       } as any,

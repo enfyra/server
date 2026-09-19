@@ -7,13 +7,14 @@ import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants
 async function loadGuardCache(
   guards: any[],
   rules: any[],
+  isMongoDb = false,
 ): Promise<{ svc: GuardCacheBuilder; registry: RuntimeRegistryService }> {
   const find = jest.fn(async (params: any) => {
     if (params.table === 'enfyra_guard') return { data: guards };
     if (params.table === 'enfyra_guard_rule') return { data: rules };
     return { data: [] };
   });
-  const qb = { find, isMongoDb: () => false };
+  const qb = { find, isMongoDb: () => isMongoDb };
   const ee = new EventEmitter2();
   const registry = new RuntimeRegistryService();
   const svc = new GuardCacheBuilder({
@@ -376,6 +377,41 @@ describe('GuardCacheBuilder — tree building', () => {
     expect(svc.getRawCache().postAuthGlobal[0].rules[0].userIds).toEqual([
       'u1',
       'u2',
+    ]);
+  });
+
+  it('should resolve Mongo user scope from _id instead of stringifying the object', async () => {
+    const { svc } = await loadGuardCache(
+      [
+        {
+          _id: 'g1',
+          name: 'g',
+          position: 'post_auth',
+          combinator: 'and',
+          isEnabled: true,
+          isGlobal: true,
+          priority: 0,
+          parent: null,
+          route: null,
+          methods: [],
+        },
+      ],
+      [
+        {
+          _id: 'r1',
+          type: 'rate_limit_by_user',
+          config: { maxRequests: 1, perSeconds: 60 },
+          priority: 0,
+          isEnabled: true,
+          guard: { _id: 'g1' },
+          users: [{ _id: '6aade0000000000000000001' }],
+        },
+      ],
+      true,
+    );
+
+    expect(svc.getRawCache().postAuthGlobal[0].rules[0].userIds).toEqual([
+      '6aade0000000000000000001',
     ]);
   });
 });

@@ -1556,6 +1556,15 @@ function renameMongoIndexObjectKeys(
   );
 }
 
+function stableIndexKeySignature(key: any): string {
+  if (!key || typeof key !== 'object') return JSON.stringify(key);
+  return JSON.stringify(
+    Object.keys(key)
+      .sort()
+      .map((field) => [field, key[field]]),
+  );
+}
+
 async function renameMongoIndexesContainingField(
   db: Db,
   collectionName: string,
@@ -1568,6 +1577,11 @@ async function renameMongoIndexesContainingField(
   if (collections.length === 0) return;
 
   const indexes = await db.collection(collectionName).listIndexes().toArray();
+  const indexNamesByKey = new Map<string, string>();
+  for (const index of indexes) {
+    if (index.name === '_id_' || !index.key) continue;
+    indexNamesByKey.set(stableIndexKeySignature(index.key), index.name);
+  }
   for (const index of indexes) {
     if (index.name === '_id_' || !index.key || !(oldFieldName in index.key)) {
       continue;
@@ -1594,19 +1608,26 @@ async function renameMongoIndexesContainingField(
       oldFieldName,
       newFieldName,
     );
+    const renamedKey = renameMongoIndexObjectKeys(
+      index.key,
+      oldFieldName,
+      newFieldName,
+    );
+    const desiredName =
+      newIndexName === index.name
+        ? `${index.name}_${newFieldName}`
+        : newIndexName;
     await db.collection(collectionName).dropIndex(index.name);
+    // Legacy index names embed the old table name, so the canonical index for
+    // the renamed key can already exist under a different name. Dropping the
+    // legacy duplicate and keeping the canonical one keeps boots idempotent.
+    if (indexNamesByKey.has(stableIndexKeySignature(renamedKey))) {
+      continue;
+    }
     await db
       .collection(collectionName)
-      .createIndex(
-        renameMongoIndexObjectKeys(index.key, oldFieldName, newFieldName),
-        {
-          ...options,
-          name:
-            newIndexName === index.name
-              ? `${index.name}_${newFieldName}`
-              : newIndexName,
-        },
-      );
+      .createIndex(renamedKey, { ...options, name: desiredName });
+    indexNamesByKey.set(stableIndexKeySignature(renamedKey), desiredName);
   }
 }
 

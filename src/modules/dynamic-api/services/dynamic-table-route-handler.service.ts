@@ -161,7 +161,7 @@ export class DynamicTableRouteHandlerService implements TableRouteHandlers {
       table: 'enfyra_storage_config',
       filter: { isDefault: { _eq: true } },
       fields: [this.dependencies.queryBuilderService.getPkField()],
-      limit: -1,
+      limit: 0,
     });
 
     const idField = this.dependencies.queryBuilderService.getPkField();

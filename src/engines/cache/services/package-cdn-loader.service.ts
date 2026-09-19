@@ -2,7 +2,7 @@ import { Logger } from '../../../shared/logger';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { pathToFileURL } from 'url';
+import { pathToFileURL, fileURLToPath } from 'url';
 import {
   applyDependencyHintToCdnSpecifier,
   getCdnDependencyFilePath,
@@ -364,7 +364,13 @@ export class PackageCdnLoaderService {
 
   private async loadModuleSource(specifier: string): Promise<string> {
     if (specifier.startsWith('file://')) {
-      return fs.readFileSync(new URL(specifier), 'utf-8');
+      const filePath = path.resolve(fileURLToPath(new URL(specifier)));
+      if (!filePath.startsWith(CACHE_DIR + path.sep)) {
+        throw new Error(
+          `Refusing to load '${specifier}': package modules may only read from the package cache`,
+        );
+      }
+      return fs.readFileSync(filePath, 'utf-8');
     }
     return this.fetchCdnPath(specifier);
   }

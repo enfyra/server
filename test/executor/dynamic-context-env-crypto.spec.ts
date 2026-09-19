@@ -54,6 +54,7 @@ describe('dynamic context env and crypto helpers', () => {
     process.env.DB_URI = 'postgresql://secret';
     process.env.DB_REPLICA_URIS = 'postgresql://replica-secret';
     process.env.REDIS_URI = 'redis://secret';
+    process.env.REDIS_PASSWORD = 'redis-password';
     process.env.SECRET_KEY = 'secret-key';
     process.env.ADMIN_PASSWORD = 'admin-secret';
 
@@ -67,6 +68,7 @@ describe('dynamic context env and crypto helpers', () => {
           dbUri: $ctx.$env.DB_URI,
           replicaUris: $ctx.$env.DB_REPLICA_URIS,
           redisUri: $ctx.$env.REDIS_URI,
+          redisPassword: $ctx.$env.REDIS_PASSWORD,
           secretKey: $ctx.$env.SECRET_KEY,
           adminPassword: $ctx.$env.ADMIN_PASSWORD,
           processType: typeof process
@@ -81,6 +83,7 @@ describe('dynamic context env and crypto helpers', () => {
         dbUri: undefined,
         replicaUris: undefined,
         redisUri: undefined,
+        redisPassword: undefined,
         secretKey: undefined,
         adminPassword: undefined,
         processType: 'undefined',

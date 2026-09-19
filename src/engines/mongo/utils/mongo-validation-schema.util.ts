@@ -69,11 +69,19 @@ export function buildMongoValidationSchema(
       continue;
     }
     const bsonType = sqlTypeToBsonType(col.type || 'string');
+    // An omitted isNullable means nullable, matching runtime metadata
+    // normalization and the SQL column contract. Treating it as non-nullable
+    // here would build a validator the target contract can never match.
+    const isNullable = col.isNullable !== false;
     properties[col.name] = {
-      bsonType: col.isNullable ? [bsonType, 'null'] : bsonType,
+      bsonType: isNullable ? [bsonType, 'null'] : bsonType,
       description: col.description || col.name,
     };
-    if (!col.isNullable && !col.defaultValue && !col.isGenerated) {
+    // `false`, `0`, and `''` are declared defaults, so absence must be tested
+    // explicitly instead of relying on truthiness.
+    const hasDeclaredDefault =
+      col.defaultValue !== undefined && col.defaultValue !== null;
+    if (!isNullable && !hasDeclaredDefault && !col.isGenerated) {
       required.push(col.name);
     }
   }

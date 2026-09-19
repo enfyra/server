@@ -291,6 +291,19 @@ export class MongoRelationManagerService {
           const { _id: itemId, id: itemIdAlt, ...itemData } = item;
           const hasDataToUpdate = Object.keys(itemData).length > 0;
 
+          // A many-to-many slot is a connect list: an item carrying an id links
+          // to that record, and any other keys are ignored rather than applied
+          // as a nested update. SQL treats the same payload as a pure connect,
+          // and updating a referenced record from a connect list would run the
+          // target table's mutation guards for what is only a link change.
+          if (relation.type === 'many-to-many' && (itemId || itemIdAlt)) {
+            const connectId = itemId || itemIdAlt;
+            processedArray.push(
+              typeof connectId === 'string' ? new ObjectId(connectId) : connectId,
+            );
+            continue;
+          }
+
           if (!itemId && !itemIdAlt) {
             if (hasDataToUpdate) {
               await checkPolicy(targetCollection, 'create', itemData);

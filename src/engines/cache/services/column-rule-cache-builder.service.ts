@@ -57,7 +57,7 @@ export class ColumnRuleCacheBuilder extends BaseCacheService<
   protected async loadFromDb(): Promise<any> {
     const result = await this.queryBuilderService.find({
       table: 'enfyra_column_rule',
-      fields: ['*', 'column.id', 'column._id'],
+      fields: ['*', this.queryBuilderService.isMongoDb() ? 'column._id' : 'column.id'],
       filter: { isEnabled: { _eq: true } },
       limit: 100000,
     });
@@ -106,7 +106,7 @@ export class ColumnRuleCacheBuilder extends BaseCacheService<
 
     const result = await this.queryBuilderService.find({
       table: 'enfyra_column_rule',
-      fields: ['*', 'column.id', 'column._id'],
+      fields: ['*', this.queryBuilderService.isMongoDb() ? 'column._id' : 'column.id'],
       filter: { [idField]: { _in: ids } },
       limit: ids.length,
     });

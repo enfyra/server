@@ -60,7 +60,7 @@ export function routeDetectMiddleware(
           maxRequests: number;
           perSeconds: number;
         }) => {
-          const userId = req.user?.id || 'anonymous';
+          const userId = req.user?.id ?? req.user?._id ?? 'anonymous';
           const key = `user:${userId}:${routePath}`;
           return check(key, options);
         };
@@ -85,7 +85,7 @@ export function routeDetectMiddleware(
           maxRequests: number;
           perSeconds: number;
         }) => {
-          const userId = req.user?.id || 'anonymous';
+          const userId = req.user?.id ?? req.user?._id ?? 'anonymous';
           const key = `user:${userId}`;
           return check(key, options);
         };

@@ -13,6 +13,7 @@ import {
 } from '../utils/migration/sql-diff-generator';
 import { SqlSchemaDiffService } from './sql-schema-diff.service';
 import { MigrationJournalService } from './migration-journal.service';
+import { quoteIdentifier } from '../utils/migration/sql-dialect';
 import {
   buildSqlIndexContracts,
   buildSqlJunctionTableContractFromRelation,
@@ -843,10 +844,7 @@ export class SqlSchemaMigrationService {
     const dbType = this.queryBuilderService.getDatabaseType() as
       | 'mysql'
       | 'postgres';
-    const qt = (id: string) => {
-      if (dbType === 'mysql') return `\`${id}\``;
-      return `"${id}"`;
-    };
+    const qt = (id: string) => quoteIdentifier(id, dbType);
     let tableExists = false;
     try {
       if (dbType === 'postgres') {

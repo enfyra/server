@@ -65,7 +65,21 @@ export interface DynamicResponseStreamOptions {
 
 export interface DynamicStreamConsumeOptions {
   timeoutMs?: number;
+  idleTimeoutMs?: number;
   maxBytes?: number;
+}
+
+export interface DynamicStreamPreflightOptions {
+  timeoutMs?: number;
+  idleTimeoutMs?: number;
+  maxFirstChunkBytes?: number;
+}
+
+export interface DynamicStreamTapOptions extends DynamicStreamConsumeOptions {
+  onChunk?: (
+    bytes: Uint8Array,
+    totalBytes: number,
+  ) => void | Promise<void>;
 }
 
 export type DynamicReadable = AsyncIterable<
@@ -75,12 +89,13 @@ export type DynamicReadable = AsyncIterable<
 export interface DynamicPreflightStreamResult {
   stream: DynamicReadable;
   firstChunk: Uint8Array;
+  cancel: () => Promise<void>;
 }
 
 export interface DynamicStreams {
   preflight: (
     stream: DynamicReadable,
-    options?: Pick<DynamicStreamConsumeOptions, 'timeoutMs'>,
+    options?: DynamicStreamPreflightOptions,
   ) => Promise<DynamicPreflightStreamResult>;
   readBytes: (
     stream: DynamicReadable,
@@ -90,6 +105,30 @@ export interface DynamicStreams {
     stream: DynamicReadable,
     options?: DynamicStreamConsumeOptions,
   ) => Promise<string>;
+  guard: (
+    stream: DynamicReadable,
+    options?: DynamicStreamConsumeOptions,
+  ) => DynamicReadable;
+  tap: (
+    stream: DynamicReadable,
+    options?: DynamicStreamTapOptions,
+  ) => DynamicReadable;
+  cancel: (stream: DynamicReadable) => Promise<void>;
+}
+
+export interface DynamicResponse {
+  stream?: (
+    stream: NodeJS.ReadableStream | ReadableStream | DynamicReadable,
+    options?: DynamicResponseStreamOptions,
+  ) => Promise<void>;
+  json?: (
+    value: unknown,
+    options?: Omit<DynamicResponseStreamOptions, 'mimetype' | 'filename' | 'observer' | 'transform'>,
+  ) => Promise<void>;
+  bytes?: (
+    value: string | Uint8Array | ArrayBuffer | ArrayBufferView,
+    options?: Omit<DynamicResponseStreamOptions, 'observer' | 'transform'>,
+  ) => Promise<void>;
 }
 
 export interface TDynamicContext {
@@ -177,12 +216,7 @@ export interface TDynamicContext {
   $user?: any;
   $repos: Record<string, any>;
   $req?: DynamicRequestContext;
-  $res?: Response & {
-    stream?: (
-      stream: NodeJS.ReadableStream | ReadableStream | DynamicReadable,
-      options?: DynamicResponseStreamOptions,
-    ) => Promise<void>;
-  };
+  $res?: DynamicResponse;
   $share: {
     $logs: any[];
   };

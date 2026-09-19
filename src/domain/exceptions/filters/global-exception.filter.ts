@@ -139,17 +139,6 @@ function getErrorDetails(exception: unknown, request?: Request): {
       details: exception.extensions,
     };
   }
-  if (exception instanceof SyntaxError && 'body' in (exception as any)) {
-    return {
-      statusCode: 400,
-      errorCode: 'BAD_REQUEST',
-      message: ['Invalid JSON body'],
-      details:
-        process.env.NODE_ENV === 'development'
-          ? (exception as Error).message
-          : null,
-    };
-  }
   if (exception instanceof Error) {
     return {
       statusCode: 500,
@@ -192,6 +181,20 @@ function getBodyParserErrorDetails(exception: unknown, request?: Request) {
     contentType: request?.headers?.['content-type'] || null,
   };
   const contentLengthBytes = Number(request?.headers?.['content-length']);
+
+  // A malformed JSON body surfaces as a SyntaxError carrying a statusCode, so it
+  // must be mapped here before the generic statusCode branch claims it.
+  if (candidate?.type === 'entity.parse.failed') {
+    return {
+      statusCode: 400,
+      errorCode: 'BAD_REQUEST',
+      message: ['Invalid JSON body'],
+      details:
+        process.env.NODE_ENV === 'development'
+          ? (exception as Error).message
+          : null,
+    };
+  }
 
   if (candidate?.code === 'LIMIT_FILE_SIZE') {
     const limitBytes = Number(requestMetadata.uploadFileSizeLimitBytes);

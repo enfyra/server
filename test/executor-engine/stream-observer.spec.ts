@@ -121,6 +121,106 @@ describe('stream observer callback', () => {
     }
   });
 
+  it('treats byte views as one Readable.from chunk and rejects duplicate consumers', async () => {
+    const service = makeService();
+
+    try {
+      const result = await service.run(
+        `
+          const { Readable } = require('stream');
+          const readable = Readable.from(Uint8Array.from([1, 2, 3]));
+          const first = [];
+          for await (const chunk of readable) {
+            first.push(Array.from(chunk));
+          }
+          let duplicateCode = null;
+          try {
+            readable[Symbol.asyncIterator]();
+          } catch (error) {
+            duplicateCode = error.code;
+          }
+          return { first, duplicateCode };
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        5_000,
+      );
+
+      expect(result).toEqual({
+        first: [[1, 2, 3]],
+        duplicateCode: 'ERR_PACKAGE_STREAM_ALREADY_CONSUMED',
+      });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('cancels Readable.from before consumption without opening the source', async () => {
+    const service = makeService();
+
+    try {
+      const result = await service.run(
+        `
+          const { Readable } = require('stream');
+          let opened = 0;
+          let nextCalls = 0;
+          let returnCalls = 0;
+          const source = {
+            [Symbol.asyncIterator]() {
+              opened += 1;
+              return {
+                next() {
+                  nextCalls += 1;
+                  return Promise.resolve({ done: false, value: 'unexpected' });
+                },
+                return() {
+                  returnCalls += 1;
+                  return Promise.resolve({ done: true, value: undefined });
+                },
+              };
+            },
+          };
+          const readable = Readable.from(source);
+          await $ctx.$streams.cancel(readable);
+          const iterator = readable[Symbol.asyncIterator]();
+          const next = await iterator.next();
+
+          const bytes = Readable.from(Uint8Array.from([1, 2, 3]));
+          const byteIterator = bytes[Symbol.asyncIterator]();
+          const returned = await byteIterator.return();
+          const afterReturn = await byteIterator.next();
+
+          return {
+            opened,
+            nextCalls,
+            returnCalls,
+            next,
+            returned,
+            afterReturn,
+          };
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        5_000,
+      );
+
+      expect(result).toEqual({
+        opened: 0,
+        nextCalls: 0,
+        returnCalls: 0,
+        next: { done: true, value: undefined },
+        returned: { done: true, value: undefined },
+        afterReturn: { done: true, value: undefined },
+      });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
   it('observes local Readable.from chunks before relaying them', async () => {
     const service = new IsolatedExecutorService({
       packageCacheService: {
@@ -294,6 +394,43 @@ describe('stream observer callback', () => {
       const bytes = new TextEncoder().encode('chào 👋');
       await $ctx.$res.stream(Readable.from(Array.from(bytes, (byte) => new Uint8Array([byte]))), { ${transform} });
     `)).resolves.toBe('CHÀO 👋');
+  });
+
+  it('preserves split UTF-8 bytes when a transform passes chunks through', async () => {
+    const service = makeService();
+    const received: Buffer[] = [];
+    try {
+      await service.run(
+        `
+          const { Readable } = require('stream');
+          const bytes = new TextEncoder().encode('A👋B');
+          const source = Readable.from([
+            bytes.slice(0, 2),
+            bytes.slice(2, 4),
+            bytes.slice(4),
+          ]);
+          await $ctx.$res.stream(source, {
+            transform: (text) => text === 'A' ? 'a' : undefined,
+          });
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+          $res: {
+            stream: (stream: any) => new Promise<void>((resolve, reject) => {
+              stream.on('data', (chunk: Buffer) => received.push(chunk));
+              stream.on('end', resolve);
+              stream.on('error', reject);
+            }),
+          },
+        } as any,
+        5000,
+      );
+
+      expect(Buffer.concat(received)).toEqual(Buffer.from('a👋B', 'utf8'));
+    } finally {
+      service.onDestroy();
+    }
   });
 
   it('preserves every UTF-8 byte boundary through the proxy package stream bridge', async () => {
@@ -886,6 +1023,837 @@ describe('stream observer callback', () => {
         limitCode: 'ERR_PACKAGE_STREAM_MAX_BYTES',
         stats: { cancelled: 1 },
       });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('enforces timeout and cleanup after preflight composition', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-stream-preflight-timeout-'));
+    const modulePath = path.join(tempDir, 'preflight-timeout-package.mjs');
+    await writeFile(
+      modulePath,
+      `
+        let cancelled = 0;
+        export default {
+          stream() {
+            let step = 0;
+            let release;
+            return {
+              [Symbol.asyncIterator]() { return this; },
+              next() {
+                if (step++ === 0) return Promise.resolve({ done: false, value: new TextEncoder().encode('first') });
+                return new Promise((resolve) => { release = resolve; });
+              },
+              return() {
+                cancelled += 1;
+                release?.({ done: true, value: undefined });
+                return Promise.resolve({ done: true, value: undefined });
+              },
+            };
+          },
+          stats() { return { cancelled }; },
+        };
+      `,
+      'utf8',
+    );
+
+    const service = makeService(modulePath, 'preflight-timeout-package');
+    try {
+      const result = await service.run(
+        `
+          const pkg = $ctx.$pkgs['preflight-timeout-package'];
+          const guarded = await $ctx.$streams.preflight(pkg.stream(), { timeoutMs: 1000 });
+          let timeoutCode = null;
+          try {
+            await $ctx.$streams.readText(guarded.stream, { timeoutMs: 40, maxBytes: 1024 });
+          } catch (error) {
+            timeoutCode = error.code;
+          }
+          return { timeoutCode, stats: await pkg.stats() };
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        2000,
+      );
+
+      expect(result).toEqual({
+        timeoutCode: 'ERR_PACKAGE_STREAM_TIMEOUT',
+        stats: { cancelled: 1 },
+      });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('propagates maxBytes cancellation through a preflight replay stream', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-stream-preflight-limit-'));
+    const modulePath = path.join(tempDir, 'preflight-limit-package.mjs');
+    await writeFile(
+      modulePath,
+      `
+        let cancelled = 0;
+        export default {
+          stream() {
+            let index = 0;
+            const chunks = [new Uint8Array([1, 2]), new Uint8Array([3, 4])];
+            return {
+              [Symbol.asyncIterator]() { return this; },
+              next() {
+                if (index >= chunks.length) return Promise.resolve({ done: true, value: undefined });
+                return Promise.resolve({ done: false, value: chunks[index++] });
+              },
+              return() {
+                cancelled += 1;
+                return Promise.resolve({ done: true, value: undefined });
+              },
+            };
+          },
+          stats() { return { cancelled }; },
+        };
+      `,
+      'utf8',
+    );
+
+    const service = makeService(modulePath, 'preflight-limit-package');
+    try {
+      const result = await service.run(
+        `
+          const pkg = $ctx.$pkgs['preflight-limit-package'];
+          const guarded = await $ctx.$streams.preflight(pkg.stream(), { timeoutMs: 1000 });
+          let limitCode = null;
+          try {
+            await $ctx.$streams.readBytes(guarded.stream, { timeoutMs: 1000, maxBytes: 3 });
+          } catch (error) {
+            limitCode = error.code;
+          }
+          return { limitCode, stats: await pkg.stats() };
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        2000,
+      );
+
+      expect(result).toEqual({
+        limitCode: 'ERR_PACKAGE_STREAM_MAX_BYTES',
+        stats: { cancelled: 1 },
+      });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('times out a silent local readable without waiting for the task deadline', async () => {
+    const service = makeService();
+    try {
+      const startedAt = Date.now();
+      const result = await service.run(
+        `
+          const readable = {
+            [Symbol.asyncIterator]() { return this; },
+            next() { return new Promise(() => {}); },
+            return() { return new Promise(() => {}); },
+          };
+          let timeoutCode = null;
+          try {
+            await $ctx.$streams.readBytes(readable, { timeoutMs: 40, maxBytes: 1024 });
+          } catch (error) {
+            timeoutCode = error.code;
+          }
+          return { timeoutCode };
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        2000,
+      );
+
+      expect(result).toEqual({ timeoutCode: 'ERR_PACKAGE_STREAM_TIMEOUT' });
+      expect(Date.now() - startedAt).toBeLessThan(500);
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('uses a captured clock for local stream deadlines', async () => {
+    const service = makeService();
+    try {
+      const startedAt = Date.now();
+      const result = await service.run(
+        `
+          Date.now = () => 0;
+          const readable = {
+            [Symbol.asyncIterator]() { return this; },
+            next() { return new Promise(() => {}); },
+            return() { return new Promise(() => {}); },
+          };
+          let code = null;
+          try {
+            await $ctx.$streams.preflight(readable, {
+              timeoutMs: 40,
+              idleTimeoutMs: 40,
+            });
+          } catch (error) {
+            code = error.code;
+          }
+          return { code };
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        2000,
+      );
+
+      expect(result).toEqual({ code: 'ERR_PACKAGE_STREAM_TIMEOUT' });
+      expect(Date.now() - startedAt).toBeLessThan(500);
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('bounds a silent local response stream by its total timeout', async () => {
+    const service = makeService();
+    try {
+      const startedAt = Date.now();
+      await expect(
+        service.run(
+          `
+            const readable = {
+              __enfyraLocalReadable: true,
+              [Symbol.asyncIterator]() { return this; },
+              next() { return new Promise(() => {}); },
+              return() { return new Promise(() => {}); },
+            };
+            await $ctx.$res.stream(readable, { timeoutMs: 40 });
+          `,
+          {
+            $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+            $helpers: {}, $cache: {}, $repos: {}, $user: null,
+            $res: {
+              stream: () => Promise.resolve(),
+            },
+          } as any,
+          2000,
+        ),
+      ).rejects.toThrow('Package stream timed out');
+      expect(Date.now() - startedAt).toBeLessThan(500);
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('honors idle timeout while preflighting a local stream', async () => {
+    const service = makeService();
+    try {
+      const startedAt = Date.now();
+      const result = await service.run(
+        `
+          const readable = {
+            [Symbol.asyncIterator]() { return this; },
+            next() { return new Promise(() => {}); },
+            return() { return new Promise(() => {}); },
+          };
+          let code = null;
+          try {
+            await $ctx.$streams.preflight(readable, {
+              timeoutMs: 1000,
+              idleTimeoutMs: 40,
+            });
+          } catch (error) {
+            code = error.code;
+          }
+          return { code };
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        2000,
+      );
+
+      expect(result).toEqual({ code: 'ERR_PACKAGE_STREAM_TIMEOUT' });
+      expect(Date.now() - startedAt).toBeLessThan(500);
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('guards an incremental package stream with idle timeout and maxBytes', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-stream-guard-'));
+    const modulePath = path.join(tempDir, 'guard-package.mjs');
+    await writeFile(
+      modulePath,
+      `
+        let cancelled = 0;
+        export default {
+          oversized() {
+            let index = 0;
+            const chunks = [new Uint8Array([1, 2]), new Uint8Array([3, 4])];
+            return {
+              [Symbol.asyncIterator]() { return this; },
+              next() {
+                if (index >= chunks.length) return Promise.resolve({ done: true, value: undefined });
+                return Promise.resolve({ done: false, value: chunks[index++] });
+              },
+              return() { cancelled += 1; return Promise.resolve({ done: true, value: undefined }); },
+            };
+          },
+          silentAfterFirst() {
+            let step = 0;
+            let release;
+            return {
+              [Symbol.asyncIterator]() { return this; },
+              next() {
+                if (step++ === 0) return Promise.resolve({ done: false, value: new Uint8Array([1]) });
+                return new Promise((resolve) => { release = resolve; });
+              },
+              return() {
+                cancelled += 1;
+                release?.({ done: true, value: undefined });
+                return Promise.resolve({ done: true, value: undefined });
+              },
+            };
+          },
+          continuous() {
+            return {
+              [Symbol.asyncIterator]() { return this; },
+              next() { return Promise.resolve({ done: false, value: new Uint8Array([1]) }); },
+              return() { cancelled += 1; return Promise.resolve({ done: true, value: undefined }); },
+            };
+          },
+          stats() { return { cancelled }; },
+        };
+      `,
+      'utf8',
+    );
+
+    const service = makeService(modulePath, 'guard-package');
+    try {
+      const result = await service.run(
+        `
+          const pkg = $ctx.$pkgs['guard-package'];
+          let limitCode = null;
+          try {
+            for await (const _chunk of $ctx.$streams.guard(pkg.oversized(), {
+              timeoutMs: 1000,
+              idleTimeoutMs: 1000,
+              maxBytes: 3,
+            })) {}
+          } catch (error) {
+            limitCode = error.code;
+          }
+          let idleCode = null;
+          try {
+            for await (const _chunk of $ctx.$streams.guard(pkg.silentAfterFirst(), {
+              timeoutMs: 1000,
+              idleTimeoutMs: 40,
+              maxBytes: 1024,
+            })) {}
+          } catch (error) {
+            idleCode = error.code;
+          }
+          let totalCode = null;
+          try {
+            for await (const _chunk of $ctx.$streams.guard(pkg.continuous(), {
+              timeoutMs: 40,
+              idleTimeoutMs: 1000,
+              maxBytes: 1000000000,
+            })) {}
+          } catch (error) {
+            totalCode = error.code;
+          }
+          const statsBeforeUntouchedCancel = await pkg.stats();
+          const cancelledBeforeConsume = $ctx.$streams.guard(pkg.silentAfterFirst(), {
+            timeoutMs: 1000,
+            maxBytes: 1024,
+          });
+          await $ctx.$streams.cancel(cancelledBeforeConsume);
+          return {
+            limitCode,
+            idleCode,
+            totalCode,
+            statsBeforeUntouchedCancel,
+            stats: await pkg.stats(),
+          };
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        2000,
+      );
+
+      expect(result).toEqual({
+        limitCode: 'ERR_PACKAGE_STREAM_MAX_BYTES',
+        idleCode: 'ERR_PACKAGE_STREAM_TIMEOUT',
+        totalCode: 'ERR_PACKAGE_STREAM_TIMEOUT',
+        statsBeforeUntouchedCancel: { cancelled: 3 },
+        stats: { cancelled: 3 },
+      });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('keeps preflight replay reads under the original idle deadline', async () => {
+    const service = makeService();
+
+    try {
+      const result = await service.run(
+        `
+          let step = 0;
+          let cancelled = false;
+          const readable = {
+            [Symbol.asyncIterator]() { return this; },
+            next() {
+              if (step++ === 0) {
+                return Promise.resolve({ done: false, value: Uint8Array.from([1]) });
+              }
+              return new Promise(() => {});
+            },
+            return() {
+              cancelled = true;
+              return Promise.resolve({ done: true, value: undefined });
+            },
+          };
+          const preflight = await $ctx.$streams.preflight(readable, {
+            timeoutMs: 1000,
+            idleTimeoutMs: 40,
+          });
+          const iterator = preflight.stream[Symbol.asyncIterator]();
+          const first = await iterator.next();
+          let code = null;
+          try {
+            await iterator.next();
+          } catch (error) {
+            code = error.code;
+          }
+          return { first: Array.from(first.value), code, cancelled };
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        2_000,
+      );
+
+      expect(result).toEqual({
+        first: [1],
+        code: 'ERR_PACKAGE_STREAM_TIMEOUT',
+        cancelled: true,
+      });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('bounds tap callbacks by the stream total timeout', async () => {
+    const service = makeService();
+
+    try {
+      const result = await service.run(
+        `
+          let cancelled = false;
+          const readable = {
+            [Symbol.asyncIterator]() { return this; },
+            next() {
+              return Promise.resolve({ done: false, value: Uint8Array.from([1]) });
+            },
+            return() {
+              cancelled = true;
+              return Promise.resolve({ done: true, value: undefined });
+            },
+          };
+          const tapped = $ctx.$streams.tap(readable, {
+            timeoutMs: 40,
+            onChunk: () => new Promise(() => {}),
+          });
+          let code = null;
+          try {
+            await tapped[Symbol.asyncIterator]().next();
+          } catch (error) {
+            code = error.code;
+          }
+          return { code, cancelled };
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        2_000,
+      );
+
+      expect(result).toEqual({
+        code: 'ERR_PACKAGE_STREAM_TIMEOUT',
+        cancelled: true,
+      });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('snapshots mutable binary chunks while reading bytes', async () => {
+    const service = makeService();
+
+    try {
+      const result = await service.run(
+        `
+          const buffer = new Uint8Array([1]);
+          let step = 0;
+          const readable = {
+            [Symbol.asyncIterator]() { return this; },
+            next() {
+              if (step === 0) {
+                step++;
+                return Promise.resolve({ done: false, value: buffer });
+              }
+              if (step === 1) {
+                step++;
+                buffer[0] = 2;
+                return Promise.resolve({ done: false, value: buffer });
+              }
+              return Promise.resolve({ done: true, value: undefined });
+            },
+          };
+          return Array.from(await $ctx.$streams.readBytes(readable));
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        2_000,
+      );
+
+      expect(result).toEqual([1, 2]);
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('enforces a bounded first preflight chunk', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-stream-first-chunk-limit-'));
+    const modulePath = path.join(tempDir, 'first-chunk-limit-package.mjs');
+    await writeFile(
+      modulePath,
+      `
+        let cancelled = 0;
+        export default {
+          stream() {
+            return {
+              [Symbol.asyncIterator]() { return this; },
+              next() { return Promise.resolve({ done: false, value: new Uint8Array([1, 2, 3, 4]) }); },
+              return() { cancelled += 1; return Promise.resolve({ done: true, value: undefined }); },
+            };
+          },
+          stats() { return { cancelled }; },
+        };
+      `,
+      'utf8',
+    );
+
+    const service = makeService(modulePath, 'first-chunk-limit-package');
+    try {
+      const result = await service.run(
+        `
+          const pkg = $ctx.$pkgs['first-chunk-limit-package'];
+          let code = null;
+          try {
+            await $ctx.$streams.preflight(pkg.stream(), {
+              timeoutMs: 1000,
+              maxFirstChunkBytes: 3,
+            });
+          } catch (error) {
+            code = error.code;
+          }
+          return { code, stats: await pkg.stats() };
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        2000,
+      );
+
+      expect(result).toEqual({
+        code: 'ERR_PACKAGE_STREAM_MAX_BYTES',
+        stats: { cancelled: 1 },
+      });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('taps raw binary chunks without changing the relayed bytes', async () => {
+    const service = makeService();
+    try {
+      const result = await service.run(
+        `
+          const observed = [];
+          const source = {
+            async *[Symbol.asyncIterator]() {
+              yield new Uint8Array([0, 255]);
+              yield new Uint8Array([1, 2, 3]);
+            },
+          };
+          const tapped = $ctx.$streams.tap(source, {
+            timeoutMs: 1000,
+            maxBytes: 1024,
+            onChunk(bytes, totalBytes) {
+              observed.push({ bytes: Array.from(bytes), totalBytes });
+            },
+          });
+          const output = [];
+          for await (const chunk of tapped) output.push(...chunk);
+          return { observed, output };
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        2000,
+      );
+
+      expect(result).toEqual({
+        observed: [
+          { bytes: [0, 255], totalBytes: 2 },
+          { bytes: [1, 2, 3], totalBytes: 5 },
+        ],
+        output: [0, 255, 1, 2, 3],
+      });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('starts tap lazily and serializes concurrent reads through its observer', async () => {
+    const service = makeService();
+    try {
+      const result = await service.run(
+        `
+          let opened = 0;
+          let sourceReads = 0;
+          let activeObservers = 0;
+          let maxActiveObservers = 0;
+          const source = {
+            [Symbol.asyncIterator]() {
+              opened += 1;
+              let value = 0;
+              return {
+                async next() {
+                  sourceReads += 1;
+                  value += 1;
+                  if (value > 2) return { done: true, value: undefined };
+                  return { done: false, value: Uint8Array.from([value]) };
+                },
+              };
+            },
+          };
+          const tapped = $ctx.$streams.tap(source, {
+            timeoutMs: 1000,
+            onChunk: async () => {
+              activeObservers += 1;
+              maxActiveObservers = Math.max(maxActiveObservers, activeObservers);
+              await Promise.resolve();
+              activeObservers -= 1;
+            },
+          });
+          const openedBeforeConsume = opened;
+          const iterator = tapped[Symbol.asyncIterator]();
+          const [first, second] = await Promise.all([
+            iterator.next(),
+            iterator.next(),
+          ]);
+          await iterator.return();
+          return {
+            openedBeforeConsume,
+            opened,
+            sourceReads,
+            maxActiveObservers,
+            first: Array.from(first.value),
+            second: Array.from(second.value),
+          };
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        2000,
+      );
+
+      expect(result).toEqual({
+        openedBeforeConsume: 0,
+        opened: 1,
+        sourceReads: 2,
+        maxActiveObservers: 1,
+        first: [1],
+        second: [2],
+      });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('cleans up tap sources when the observer fails and rejects duplicate consumers', async () => {
+    const service = makeService();
+    try {
+      const result = await service.run(
+        `
+          let tapCancelled = 0;
+          const tapSource = {
+            [Symbol.asyncIterator]() { return this; },
+            next() { return Promise.resolve({ done: false, value: new Uint8Array([1]) }); },
+            return() {
+              tapCancelled += 1;
+              return Promise.resolve({ done: true, value: undefined });
+            },
+          };
+          let tapMessage = null;
+          try {
+            for await (const _chunk of $ctx.$streams.tap(tapSource, {
+              timeoutMs: 1000,
+              maxBytes: 1024,
+              onChunk() { throw new Error('tap observer failed'); },
+            })) {}
+          } catch (error) {
+            tapMessage = error.message;
+          }
+
+          const duplicateSource = {
+            [Symbol.asyncIterator]() { return this; },
+            next() { return Promise.resolve({ done: true, value: undefined }); },
+            return() { return Promise.resolve({ done: true, value: undefined }); },
+          };
+          const guarded = $ctx.$streams.guard(duplicateSource, { timeoutMs: 1000 });
+          guarded[Symbol.asyncIterator]();
+          let duplicateCode = null;
+          try {
+            guarded[Symbol.asyncIterator]();
+          } catch (error) {
+            duplicateCode = error.code;
+          }
+          await $ctx.$streams.cancel(guarded);
+          return { tapMessage, tapCancelled, duplicateCode };
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        2000,
+      );
+
+      expect(result).toEqual({
+        tapMessage: 'tap observer failed',
+        tapCancelled: 1,
+        duplicateCode: 'ERR_PACKAGE_STREAM_ALREADY_CONSUMED',
+      });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('cancels a preflight stream through the native stream API', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-stream-explicit-cancel-'));
+    const modulePath = path.join(tempDir, 'cancel-package.mjs');
+    await writeFile(
+      modulePath,
+      `
+        let cancelled = 0;
+        export default {
+          stream() {
+            let step = 0;
+            return {
+              [Symbol.asyncIterator]() { return this; },
+              next() {
+                if (step++ === 0) return Promise.resolve({ done: false, value: new Uint8Array([1]) });
+                return new Promise(() => {});
+              },
+              return() { cancelled += 1; return Promise.resolve({ done: true, value: undefined }); },
+            };
+          },
+          stats() { return { cancelled }; },
+        };
+      `,
+      'utf8',
+    );
+
+    const service = makeService(modulePath, 'cancel-package');
+    try {
+      const result = await service.run(
+        `
+          const pkg = $ctx.$pkgs['cancel-package'];
+          const guarded = await $ctx.$streams.preflight(pkg.stream(), { timeoutMs: 1000 });
+          await $ctx.$streams.cancel(guarded.stream);
+          return await pkg.stats();
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+        } as any,
+        2000,
+      );
+
+      expect(result).toEqual({ cancelled: 1 });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('sends JSON and binary payloads through native response boundaries', async () => {
+    const service = makeService();
+    const calls: Array<{ kind: string; value: unknown; options: unknown }> = [];
+    const response = {
+      __enfyraJson: async (jsonText: string, options: unknown) => {
+        calls.push({ kind: 'json', value: jsonText, options });
+      },
+      __enfyraBytes: async (bytes: Uint8Array, options: unknown) => {
+        calls.push({ kind: 'bytes', value: Array.from(bytes), options });
+      },
+    };
+
+    try {
+      const result = await service.run(
+        `
+          __taskId = 'forged-task-id';
+          let jsonError = null;
+          try {
+            await $ctx.$res.json(undefined);
+          } catch (error) {
+            jsonError = error.name;
+          }
+          await $ctx.$res.json({ ok: true }, { statusCode: 201 });
+          await $ctx.$res.bytes(new Uint8Array([1, 2, 3]), { mimetype: 'image/png' });
+          await $ctx.$res.bytes('A');
+          const viewBytes = new Uint8Array([4, 5, 6]);
+          await $ctx.$res.bytes(new DataView(viewBytes.buffer, 1, 2));
+          let bytesError = null;
+          try {
+            await $ctx.$res.bytes({ invalid: true });
+          } catch (error) {
+            bytesError = error.name;
+          }
+          return { jsonError, bytesError };
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+          $res: response,
+        } as any,
+        2000,
+      );
+
+      expect(result).toEqual({ jsonError: 'TypeError', bytesError: 'TypeError' });
+      expect(calls).toEqual([
+        { kind: 'json', value: '{"ok":true}', options: { statusCode: 201 } },
+        { kind: 'bytes', value: [1, 2, 3], options: { mimetype: 'image/png' } },
+        { kind: 'bytes', value: [65], options: {} },
+        { kind: 'bytes', value: [5, 6], options: {} },
+      ]);
     } finally {
       service.onDestroy();
     }

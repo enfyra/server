@@ -58,4 +58,18 @@ describe('AuthHeaderCacheBuilder', () => {
       }),
     );
   });
+
+  it('loads the whole auth header table instead of a fixed row cap', async () => {
+    const queryBuilderService = {
+      find: vi.fn().mockResolvedValue({ data: [] }),
+    };
+    const builder = new AuthHeaderCacheBuilder({
+      queryBuilderService: queryBuilderService as any,
+    });
+
+    await builder.reload(false);
+
+    const options = queryBuilderService.find.mock.calls[0][0];
+    expect(options.limit).toBeGreaterThan(100);
+  });
 });

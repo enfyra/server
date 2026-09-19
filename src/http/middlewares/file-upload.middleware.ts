@@ -168,7 +168,7 @@ function setupUploadProgress(
   dynamicWebSocketGateway?: DynamicWebSocketGateway,
 ) {
   const uploadId = normalizeUploadId(req.headers['x-enfyra-upload-id']);
-  if (!uploadId || !req.user?.id) return;
+  if (!uploadId || !(req.user?.id ?? req.user?._id)) return;
 
   req.uploadProgressId = uploadId;
   req.uploadProgressTotal = Number(req.headers['content-length']) || 0;
@@ -216,7 +216,7 @@ export function emitUploadProgress(
   event: Omit<FileUploadProgressEvent, 'uploadId'>,
 ) {
   const uploadId = req.uploadProgressId;
-  const userId = req.user?.id;
+  const userId = req.user?.id ?? req.user?._id;
   if (!uploadId || !userId || !dynamicWebSocketGateway) return;
 
   try {

@@ -267,7 +267,10 @@ describe('RuntimeMetadataSchemaRouterService', () => {
     const compileInput =
       harness.runtimeSchemaContractCompilerService.compile.mock.calls[0][0];
     expect(compileInput.afterMetadata.uniques).toEqual([['slug']]);
-    expect(compileInput.afterMetadata.indexes).toEqual([['createdAt']]);
+    expect(compileInput.afterMetadata.indexes).toEqual(
+      expect.arrayContaining([['createdAt'], ['updatedAt'], ['author']]),
+    );
+    expect(compileInput.afterMetadata.indexes).toHaveLength(3);
   });
 
   it('returns preview for destructive operations without confirm hash', async () => {
@@ -591,7 +594,10 @@ describe('RuntimeMetadataSchemaRouterService', () => {
     const compileInput =
       harness.runtimeSchemaContractCompilerService.compile.mock.calls[0][0];
     expect(compileInput.afterMetadata.uniques).toEqual([['heading']]);
-    expect(compileInput.afterMetadata.indexes).toEqual([['writer']]);
+    expect(compileInput.afterMetadata.indexes).toEqual(
+      expect.arrayContaining([['writer'], ['createdAt'], ['updatedAt']]),
+    );
+    expect(compileInput.afterMetadata.indexes).toHaveLength(3);
   });
 
   it.each([

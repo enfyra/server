@@ -168,6 +168,33 @@ describe('Batch execution: correctness', () => {
     expect(r.value.dataWas).toBeUndefined();
   });
 
+  it('keeps a successful handler status when post-hooks are present', async () => {
+    const r = await batch([
+      {
+        code: '$ctx.$statusCode = 201; return { created: true };',
+        type: 'handler',
+      },
+      { code: '$ctx.$share.$logs.push("post");', type: 'postHook' },
+    ]);
+    expect(r.ctxChanges.$statusCode).toBe(201);
+  });
+
+  it('treats a post-hook timeout as a fatal task failure', async () => {
+    await expect(
+      executeBatch({
+        codeBlocks: [
+          { code: 'return { ok: true };', type: 'handler' },
+          { code: 'await new Promise(() => {});', type: 'postHook' },
+        ],
+        snapshot: baseSnapshot(),
+        ctx: {},
+        timeoutMs: 120,
+      }),
+    ).rejects.toMatchObject({
+      code: 'ERR_SCRIPT_EXECUTION_TIMEOUT',
+    });
+  });
+
   it('post-hook return replaces $ctx.$data', async () => {
     const r = await batch([
       { code: 'return { original: true };', type: 'handler' },
@@ -316,6 +343,20 @@ describe('Batch execution: correctness', () => {
     expect(second.value.logs).toEqual([]);
   });
 
+  it.each([
+    ['null', 'null'],
+    ['false', 'false'],
+    ['zero', '0'],
+    ['empty string', "''"],
+    ['undefined', 'undefined'],
+  ])('treats a thrown %s as a batch failure', async (_label, value) => {
+    await expect(
+      batch([
+        { code: `throw ${value};`, type: 'handler' },
+      ]),
+    ).rejects.toThrow();
+  });
+
   it('error in pre-hook stops execution', async () => {
     await expect(
       batch([
@@ -357,6 +398,94 @@ describe('Batch execution: correctness', () => {
     ).rejects.toThrow('Forbidden');
   });
 
+  it('$throw preserves safe details for circular and BigInt values', async () => {
+    let thrown: any;
+    try {
+      await batch([
+        {
+          code: `
+            const details = { count: 7n };
+            details.self = details;
+            details.toJSON = () => { throw new Error('must not run'); };
+            $ctx.$throw.http(422, 'Invalid', details);
+          `,
+          type: 'handler',
+        },
+      ]);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      message: 'Invalid',
+      details: {
+        count: '7',
+        self: '[Circular]',
+        toJSON: '[Function]',
+      },
+      statusCode: 422,
+    });
+  });
+
+  it('drains newly queued runtime work before returning the first failure', async () => {
+    let thrown: any;
+    try {
+      await batch([
+        {
+          code: `
+            __pendingRuntimeTasks.push(Promise.resolve().then(() => {
+              __pendingRuntimeTasks.push(Promise.resolve().then(() => {
+                $ctx.$share.nestedTaskSettled = true;
+              }));
+              throw new Error('first pending task failed');
+            }));
+            return true;
+          `,
+          type: 'handler',
+        },
+      ]);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown.message).toContain('first pending task failed');
+    expect(thrown.ctxChanges).toMatchObject({
+      $share: {
+        nestedTaskSettled: true,
+      },
+    });
+  });
+
+  it('$logs safely serializes hostile diagnostic values', async () => {
+    const result = await batch([
+      {
+        code: `
+          const circular = { count: 7n };
+          circular.self = circular;
+          circular.toJSON = () => { throw new Error('must not run'); };
+          const hostile = {
+            toJSON() { throw new Error('must not run'); },
+            [Symbol.toPrimitive]() { throw new Error('must not coerce'); },
+          };
+          $ctx.$logs(circular, hostile);
+          return true;
+        `,
+        type: 'handler',
+      },
+    ]);
+
+    expect(result.ctxChanges.$share.$logs).toEqual([
+      {
+        count: '7',
+        self: '[Circular]',
+        toJSON: '[Function]',
+      },
+      {
+        toJSON: '[Function]',
+      },
+    ]);
+  });
+
   it('$logs accumulate across all phases', async () => {
     const r = await batch([
       { code: '$ctx.$logs("from preHook");', type: 'preHook' },
@@ -373,12 +502,34 @@ describe('Batch execution: correctness', () => {
     ]);
   });
 
+  it('keeps $transaction out of extracted context changes', async () => {
+    const r = await batch(
+      [{ code: 'return typeof $ctx.$transaction.run;', type: 'handler' }],
+      {
+        $transaction: {
+          run: async (callback: () => unknown) => callback(),
+        },
+      },
+    );
+    expect(r.value).toBe('function');
+    expect(r.ctxChanges).not.toHaveProperty('$transaction');
+  });
+
   it('handler only works correctly', async () => {
     const r = await batch(
       [{ code: 'return $ctx.$body.x * 2;', type: 'handler' }],
       { $body: { x: 42 } },
     );
     expect(r.value).toBe(84);
+  });
+
+  it('rejects batches with more than one handler block', async () => {
+    await expect(
+      batch([
+        { code: 'return "first";', type: 'handler' },
+        { code: 'return "second";', type: 'handler' },
+      ]),
+    ).rejects.toThrow('Executor batch may contain at most one handler block');
   });
 
   it('empty code blocks returns undefined', async () => {
@@ -502,6 +653,35 @@ describe('Batch execution: correctness', () => {
     } catch (err: any) {
       expect(err.ctxChanges.$error.message).toContain('bad');
       expect(err.ctxChanges.$share.$logs).toContain('status:500');
+    }
+  });
+
+  it('normalizes non-HTTP status metadata without evaluating it as source', async () => {
+    try {
+      await batch([
+        {
+          code: `
+            const error = new Error(JSON.stringify({
+              __userThrow: true,
+              message: 'unsafe status',
+              statusCode: '500; globalThis.__statusInjected = true'
+            }));
+            throw error;
+          `,
+          type: 'handler',
+        },
+        {
+          code: `
+            $ctx.$logs('status:' + $ctx.$statusCode);
+            $ctx.$logs('injected:' + String(globalThis.__statusInjected === true));
+          `,
+          type: 'postHook',
+        },
+      ]);
+      fail('should have thrown');
+    } catch (err: any) {
+      expect(err.ctxChanges.$share.$logs).toContain('status:500');
+      expect(err.ctxChanges.$share.$logs).toContain('injected:false');
     }
   });
 

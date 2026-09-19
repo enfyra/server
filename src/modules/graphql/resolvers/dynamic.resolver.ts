@@ -259,6 +259,7 @@ export class DynamicResolver {
     if (guards.length === 0) return;
 
     const clientIp = context.clientIp || 'unknown';
+    const requestUserId = user?.id ?? user?._id ?? null;
 
     const evalCtx: GuardEvalContext = {
       clientIp,
@@ -267,7 +268,9 @@ export class DynamicResolver {
       operation,
       targetType: 'graphql',
       userId:
-        position === 'post_auth' && user?.id != null ? String(user.id) : null,
+        position === 'post_auth' && requestUserId != null
+          ? String(requestUserId)
+          : null,
     };
 
     for (const guard of guards) {

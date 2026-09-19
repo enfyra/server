@@ -572,6 +572,34 @@ describe('dynamic read field selection', () => {
     expect(result.data[0].updatedBy).not.toHaveProperty('password');
   });
 
+  it('treats an empty field list as all fields instead of selecting none', async () => {
+    const { repo, queryBuilderService } = makeRepo({
+      tableName: 'secure_storage_config',
+      fields: '',
+    });
+
+    const result = await repo.find();
+
+    expect(queryBuilderService.find).toHaveBeenCalledWith(
+      expect.objectContaining({ fields: undefined }),
+    );
+    expect(result.data[0]).toMatchObject({ id: 2, name: 'Cloud R2' });
+  });
+
+  it('treats an empty field array as all fields instead of selecting none', async () => {
+    const { repo, queryBuilderService } = makeRepo({
+      tableName: 'secure_storage_config',
+      fields: [],
+    });
+
+    const result = await repo.find();
+
+    expect(queryBuilderService.find).toHaveBeenCalledWith(
+      expect.objectContaining({ fields: undefined }),
+    );
+    expect(result.data[0]).toMatchObject({ id: 2, name: 'Cloud R2' });
+  });
+
   it('reads repository metadata from the active runtime registry when available', async () => {
     const runtimeRegistryService = {
       requireMetadata: vi.fn(() => metadata),

@@ -44,6 +44,7 @@ const ENV_EXPOSE_DENY_KEYS = new Set([
   'DB_URI',
   'DB_REPLICA_URIS',
   'REDIS_URI',
+  'REDIS_PASSWORD',
   'SECRET_KEY',
   'ADMIN_PASSWORD',
 ]);

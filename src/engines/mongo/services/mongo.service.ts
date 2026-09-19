@@ -1229,6 +1229,20 @@ export class MongoService {
     );
   }
 
+  async parseResult(result: any, tableName: string): Promise<any> {
+    if (!result || !tableName) return result;
+    const context: MongoHookContext = {
+      collectionName: tableName,
+      operation: 'select',
+    };
+    return this.mongoHookManagerService.runHooks(
+      'afterSelect',
+      tableName,
+      result,
+      context,
+    );
+  }
+
   async processNestedRelations(tableName: string, data: any): Promise<any> {
     return this.mongoRelationManagerService.processNestedRelations(
       tableName,

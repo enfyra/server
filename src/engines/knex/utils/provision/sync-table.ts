@@ -17,6 +17,63 @@ function rethrowPostgresTransactionError(knex: Knex, error: unknown): void {
   if (client.includes('pg') || client.includes('postgres')) throw error;
 }
 
+const SQL_FUNCTION_DEFAULTS = [
+  'now',
+  'current_timestamp',
+  'current_date',
+  'current_time',
+];
+
+/**
+ * Change one column's default. Both engines accept `ALTER COLUMN ... SET/DROP
+ * DEFAULT`, but identifiers and function defaults are dialect-specific: MySQL
+ * only treats backticks as identifiers (double quotes are string literals
+ * unless ANSI_QUOTES is set), and `current_timestamp` is a keyword rather than
+ * a callable there.
+ */
+async function applyColumnDefaultChange(
+  knex: Knex,
+  tableName: string,
+  col: { name: string; type?: string; defaultValue?: any },
+): Promise<void> {
+  const isPostgres = /pg|postgres/.test(
+    String(knex.client.config.client ?? '').toLowerCase(),
+  );
+  const quote = (identifier: string) =>
+    isPostgres ? `"${identifier}"` : `\`${identifier.replace(/`/g, '``')}\``;
+  const alter = (clause: string) =>
+    `ALTER TABLE ${quote(tableName)} ALTER COLUMN ${quote(col.name)} ${clause}`;
+
+  if (col.defaultValue === undefined || col.defaultValue === null) {
+    await knex.raw(alter('DROP DEFAULT'));
+    return;
+  }
+  if (col.type === 'boolean') {
+    const def =
+      col.defaultValue === true ||
+      col.defaultValue === 1 ||
+      String(col.defaultValue).toLowerCase() === 'true' ||
+      String(col.defaultValue) === '1';
+    await knex.raw(alter(`SET DEFAULT ${def ? 'true' : 'false'}`));
+    return;
+  }
+  if (typeof col.defaultValue === 'string') {
+    if (SQL_FUNCTION_DEFAULTS.includes(col.defaultValue.toLowerCase())) {
+      await knex.raw(
+        alter(
+          `SET DEFAULT ${col.defaultValue}${isPostgres ? '()' : ''}`,
+        ),
+      );
+      return;
+    }
+    await knex.raw(
+      alter(`SET DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`),
+    );
+    return;
+  }
+  await knex.raw(alter(`SET DEFAULT ${col.defaultValue}`));
+}
+
 /**
  * Apply ALTER COLUMN type change for the supported subset of knex column types.
  * Throws explicitly on unsupported types so the schema migration fails loudly
@@ -486,40 +543,7 @@ export async function applyColumnMigrations(
         }
         if (changes.includes('default')) {
           try {
-            if (col.defaultValue === undefined || col.defaultValue === null) {
-              await knex.raw(
-                `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" DROP DEFAULT`,
-              );
-            } else if (col.type === 'boolean') {
-              const def =
-                col.defaultValue === true ||
-                col.defaultValue === 1 ||
-                String(col.defaultValue).toLowerCase() === 'true' ||
-                String(col.defaultValue) === '1';
-              await knex.raw(
-                `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT ${def ? 'true' : 'false'}`,
-              );
-            } else if (typeof col.defaultValue === 'string') {
-              const sqlFunctions = [
-                'now',
-                'current_timestamp',
-                'current_date',
-                'current_time',
-              ];
-              if (sqlFunctions.includes(col.defaultValue.toLowerCase())) {
-                await knex.raw(
-                  `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT ${col.defaultValue}()`,
-                );
-              } else {
-                await knex.raw(
-                  `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`,
-                );
-              }
-            } else {
-              await knex.raw(
-                `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT ${col.defaultValue}`,
-              );
-            }
+            await applyColumnDefaultChange(knex, tableName, col);
           } catch (error) {
             rethrowPostgresTransactionError(knex, error);
           }

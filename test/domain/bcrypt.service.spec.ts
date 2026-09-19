@@ -8,6 +8,20 @@ describe('BcryptService', () => {
     expect(await svc.compare(long, hash)).toBe(true);
   });
 
+  it('compare succeeds when a surrogate pair straddles the truncation boundary', async () => {
+    const svc = new BcryptService();
+    const password = `${'a'.repeat(71)}😀`;
+    const hash = await svc.hash(password, 4);
+    expect(await svc.compare(password, hash)).toBe(true);
+  });
+
+  it('compare succeeds for a multi-byte password beyond the boundary', async () => {
+    const svc = new BcryptService();
+    const password = 'mật-khẩu-🙂'.repeat(12);
+    const hash = await svc.hash(password, 4);
+    expect(await svc.compare(password, hash)).toBe(true);
+  });
+
   it('compare fails for wrong password', async () => {
     const svc = new BcryptService();
     const hash = await svc.hash('secret', 4);

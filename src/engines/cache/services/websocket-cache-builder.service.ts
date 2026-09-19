@@ -164,7 +164,7 @@ export class WebsocketCacheBuilder extends BaseCacheService<
     const idField = this.queryBuilderService.isMongoDb() ? '_id' : 'id';
     const result = await this.queryBuilderService.find({
       table: 'enfyra_websocket_event',
-      fields: ['gateway.id', 'gateway._id'],
+      fields: [`gateway.${idField}`],
       filter: { [idField]: { _in: eventIds } },
       limit: eventIds.length,
     });
@@ -208,7 +208,7 @@ export class WebsocketCacheBuilder extends BaseCacheService<
 
     const eventResult = await this.queryBuilderService.find({
       table: 'enfyra_websocket_event',
-      fields: ['*', 'gateway.id', 'gateway._id'],
+      fields: ['*', `gateway.${DatabaseConfigService.getPkField()}`],
       filter: {
         _and: [
           { isEnabled: { _eq: true } },

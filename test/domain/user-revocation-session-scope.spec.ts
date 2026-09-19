@@ -74,12 +74,16 @@ describe('UserRevocationService session deletion scope', () => {
       ['target-session', { _id: 'target-session', user: target }],
       ['admin-session', { _id: 'admin-session', user: admin }],
     ]);
-    const find = vi.fn((filter: { user?: ObjectId }) => ({
-      toArray: async () =>
-        [...sessions.values()].filter((row) =>
-          filter.user ? row.user.equals(filter.user) : true,
-        ),
-    }));
+    const find = vi.fn((filter: { user?: ObjectId | { $eq: ObjectId } }) => {
+      const expected =
+        filter.user && '$eq' in filter.user ? filter.user.$eq : filter.user;
+      return {
+        toArray: async () =>
+          [...sessions.values()].filter((row) =>
+            expected ? row.user.equals(expected) : true,
+          ),
+      };
+    });
     const deleteOne = vi.fn(async (_table: string, id: string) =>
       sessions.delete(id),
     );
@@ -101,7 +105,7 @@ describe('UserRevocationService session deletion scope', () => {
     await service.init();
     handler!('user:revoked', JSON.stringify({ userId: target.toHexString() }));
     await vi.waitFor(() => expect(deleteOne).toHaveBeenCalledTimes(1));
-    expect(find).toHaveBeenCalledWith({ user: target }, {});
+    expect(find).toHaveBeenCalledWith({ user: { $eq: target } }, {});
     expect([...sessions.keys()]).toEqual(['admin-session']);
   });
 

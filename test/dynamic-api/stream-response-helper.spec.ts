@@ -29,6 +29,62 @@ function makeResponse() {
 }
 
 describe('attachStreamResponseHelper', () => {
+  it('writes JSON through the native response boundary without calling res.json', async () => {
+    const response = makeResponse() as ReturnType<typeof makeResponse> & {
+      __enfyraJson: (jsonText: string, options?: unknown) => Promise<void>;
+    };
+    attachStreamResponseHelper(response);
+
+    await response.__enfyraJson('{"ok":true}', {
+      statusCode: 201,
+      headers: { 'x-test': 'json' },
+    });
+
+    expect(response.__enfyraStreamStarted).toBe(true);
+    expect(response.status).toHaveBeenCalledWith(201);
+    expect(response.setHeader).toHaveBeenCalledWith(
+      'Content-Type',
+      'application/json; charset=utf-8',
+    );
+    expect(response.setHeader).toHaveBeenCalledWith('x-test', 'json');
+    expect(response.json).not.toHaveBeenCalled();
+    expect(response.read().toString()).toBe('{"ok":true}');
+  });
+
+  it('writes binary bytes through the native response boundary unchanged', async () => {
+    const response = makeResponse() as ReturnType<typeof makeResponse> & {
+      __enfyraBytes: (bytes: Uint8Array, options?: unknown) => Promise<void>;
+    };
+    attachStreamResponseHelper(response);
+
+    await response.__enfyraBytes(new Uint8Array([0, 255, 1, 2]), {
+      mimetype: 'image/png',
+      filename: 'image.png',
+    });
+
+    expect(response.__enfyraStreamStarted).toBe(true);
+    expect(response.setHeader).toHaveBeenCalledWith('Content-Type', 'image/png');
+    expect(response.setHeader).toHaveBeenCalledWith(
+      'Content-Disposition',
+      'attachment; filename="image.png"',
+    );
+    expect(Buffer.from(response.read())).toEqual(Buffer.from([0, 255, 1, 2]));
+  });
+
+  it('rejects a second native response boundary', async () => {
+    const response = makeResponse() as ReturnType<typeof makeResponse> & {
+      __enfyraJson: (jsonText: string, options?: unknown) => Promise<void>;
+      __enfyraBytes: (bytes: Uint8Array, options?: unknown) => Promise<void>;
+    };
+    attachStreamResponseHelper(response);
+
+    await response.__enfyraJson('{"ok":true}');
+
+    await expect(
+      response.__enfyraBytes(new Uint8Array([1])),
+    ).rejects.toThrow('Dynamic response has already started');
+  });
+
   it('returns a Promise that resolves when the readable ends', async () => {
     const response = makeResponse();
     attachStreamResponseHelper(response);
@@ -71,12 +127,15 @@ describe('attachStreamResponseHelper', () => {
     });
 
     await expect(response.stream(source)).rejects.toThrow('source failed');
-    expect(response.json).toHaveBeenCalledWith(
-      expect.objectContaining({
-        statusCode: 500,
-        error: expect.objectContaining({ code: 'STREAM_FAILED' }),
-      }),
-    );
+    expect(response.json).toHaveBeenCalledWith({
+      success: false,
+      message: 'The response stream failed.',
+      statusCode: 500,
+      error: {
+        code: 'STREAM_FAILED',
+        message: 'The response stream failed.',
+      },
+    });
   });
 
   it('resolves when the response closes before the readable ends', async () => {

@@ -38,7 +38,7 @@ export function registerDynamicRoutes(
     container.cradle.eventEmitter.emit(DATA_EVENTS.ROUTE_EXECUTED, {
       routePath,
       method: req.method,
-      userId: req.user?.id ?? null,
+      userId: req.user?.id ?? req.user?._id ?? null,
       result,
     });
     if (res.headersSent || (res as any).__enfyraStreamStarted) {

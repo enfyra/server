@@ -170,7 +170,9 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                     isUpdatable: col.isUpdatable ?? true,
                     isPublished: col.isPublished ?? true,
                     isEncrypted: col.isEncrypted ?? false,
-                    defaultValue: col.defaultValue || null,
+                    // `false`, `0`, and `''` are valid declared defaults, so this
+                    // must test for absence rather than truthiness.
+                    defaultValue: col.defaultValue ?? null,
                     options: col.options || null,
                     description: col.description,
                     placeholder: col.placeholder,

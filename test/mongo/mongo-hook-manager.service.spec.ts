@@ -1,6 +1,7 @@
 import { ObjectId } from 'mongodb';
 import { describe, expect, it, vi } from 'vitest';
 import { MongoService } from '../../src/engines/mongo';
+import { encodeEncryptedFieldPlainValue } from '../../src/shared/utils/encrypted-field.util';
 
 function makeService() {
   const metadata = {
@@ -124,6 +125,50 @@ describe('MongoHookManagerService integration', () => {
         'afterSelect',
       ]),
     );
+  });
+});
+
+describe('MongoService parseResult', () => {
+  it('decrypts encrypted columns on rows returned by the query executor', async () => {
+    const secret = 'plain-secret';
+    const ciphertext = encodeEncryptedFieldPlainValue(secret);
+    const metadata = {
+      columns: [
+        { name: '_id' },
+        { name: 'secret_token', isEncrypted: true },
+      ],
+      relations: [],
+    };
+    const service = new MongoService({
+      envService: {} as any,
+      databaseConfigService: {} as any,
+      runtimeRegistryService: {
+        lookupTableByName: vi.fn(() => metadata),
+        getTableMetadata: vi.fn(() => metadata),
+      } as any,
+      mongoRelationManagerService: {} as any,
+      lazyRef: {} as any,
+    });
+
+    const decrypted = await service.parseResult(
+      [{ _id: 'row-1', secret_token: ciphertext }],
+      'secret_table',
+    );
+
+    expect(decrypted).toEqual([{ _id: 'row-1', secret_token: secret }]);
+  });
+
+  it('passes through results when no table name is supplied', async () => {
+    const service = new MongoService({
+      envService: {} as any,
+      databaseConfigService: {} as any,
+      runtimeRegistryService: {} as any,
+      mongoRelationManagerService: {} as any,
+      lazyRef: {} as any,
+    });
+
+    const rows = [{ _id: 'row-1' }];
+    await expect(service.parseResult(rows, '')).resolves.toBe(rows);
   });
 });
 

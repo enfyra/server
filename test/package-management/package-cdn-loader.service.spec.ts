@@ -89,6 +89,31 @@ describe('PackageCdnLoaderService', () => {
     );
   });
 
+  it('refuses file url imports that point outside the package cache', async () => {
+    const loader = new PackageCdnLoaderService();
+    loader.invalidateAll();
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL | Request) => {
+        const href = String(url);
+        if (href.endsWith('/escape-pkg@1.0.0?bundle&target=node')) {
+          return response(
+            'import "file:///etc/hosts";\nexport default { ok: true };',
+          );
+        }
+        if (href.endsWith('/escape-pkg@1.0.0/package.json')) {
+          return response('{ "dependencies": {} }');
+        }
+        return response('not found', false, 404);
+      }),
+    );
+
+    await expect(loader.loadPackage('escape-pkg', '1.0.0')).rejects.toThrow(
+      /may only read from the package cache/,
+    );
+  });
+
   it('loads packages as disk descriptors without importing modules into main memory', async () => {
     const loader = new PackageCdnLoaderService();
     loader.invalidateAll();

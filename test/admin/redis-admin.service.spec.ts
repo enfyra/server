@@ -639,4 +639,25 @@ describe('RedisAdminService', () => {
 
     expect(detail.value).toBe('[binary value, 5 bytes]');
   });
+
+  it('treats a non-string filter as unfiltered instead of matching nothing', async () => {
+    const { redis, service } = makeService();
+    redis.setSync('app-a:runtime_cache:metadata', 'snapshot');
+
+    const injected = await service.listKeys({
+      filter: {} as any,
+    });
+    const empty = await service.listKeys({ filter: '' as any });
+    const all = await service.listKeys({ filter: 'all' });
+
+    expect(injected.keys.map((item) => item.key)).toEqual([
+      'runtime_cache:metadata',
+    ]);
+    expect(empty.keys.map((item) => item.key)).toEqual([
+      'runtime_cache:metadata',
+    ]);
+    expect(all.keys.map((item) => item.key)).toEqual([
+      'runtime_cache:metadata',
+    ]);
+  });
 });

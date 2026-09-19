@@ -32,11 +32,19 @@ export function normalizeScriptLanguage(value: unknown): ScriptLanguage {
 
 class ScriptContractService {
   getLegacyField(tableName: string): string | undefined {
-    return SCRIPT_TABLE_LEGACY_FIELDS[tableName];
+    return Object.prototype.hasOwnProperty.call(
+      SCRIPT_TABLE_LEGACY_FIELDS,
+      tableName,
+    )
+      ? SCRIPT_TABLE_LEGACY_FIELDS[tableName]
+      : undefined;
   }
 
   isScriptTable(tableName: string): boolean {
-    return tableName in SCRIPT_TABLE_LEGACY_FIELDS;
+    return Object.prototype.hasOwnProperty.call(
+      SCRIPT_TABLE_LEGACY_FIELDS,
+      tableName,
+    );
   }
 
   normalizeLanguage(value: unknown): ScriptLanguage {
@@ -116,26 +124,44 @@ class ScriptContractService {
     }
 
     const legacyField = this.getLegacyField(tableName);
-    const touchesSource =
-      Object.prototype.hasOwnProperty.call(patch, 'sourceCode') ||
-      (legacyField
-        ? Object.prototype.hasOwnProperty.call(patch, legacyField)
-        : false);
+    const hasCanonicalSource = Object.prototype.hasOwnProperty.call(
+      patch,
+      'sourceCode',
+    );
+    const hasLegacySource = legacyField
+      ? Object.prototype.hasOwnProperty.call(patch, legacyField)
+      : false;
+    const touchesSource = hasCanonicalSource || hasLegacySource;
     const touchesLanguage = Object.prototype.hasOwnProperty.call(
       patch,
       'scriptLanguage',
     );
+    const normalized: ScriptFields = { ...patch };
 
-    if (!touchesSource && !touchesLanguage) return patch;
+    if (!touchesSource && !touchesLanguage) {
+      delete normalized.compiledCode;
+      return normalized;
+    }
+    if (!touchesSource && !existing) {
+      throw new Error(
+        'Existing script data is required when changing scriptLanguage.',
+      );
+    }
 
-    const sourceCode = touchesSource
-      ? (patch.sourceCode ?? (legacyField ? patch[legacyField] : undefined))
-      : (existing?.sourceCode ??
-        (legacyField && existing ? existing[legacyField] : undefined));
+    let sourceCode: string | null | undefined;
+    if (hasCanonicalSource) {
+      sourceCode = patch.sourceCode;
+    } else if (hasLegacySource && legacyField) {
+      sourceCode = patch[legacyField];
+    } else {
+      sourceCode = existing?.sourceCode;
+      if (sourceCode === undefined && legacyField && existing) {
+        sourceCode = existing[legacyField];
+      }
+    }
     const scriptLanguage = touchesLanguage
       ? patch.scriptLanguage
       : existing?.scriptLanguage;
-    const normalized: ScriptFields = { ...patch };
 
     if (touchesSource) {
       normalized.sourceCode = sourceCode ?? null;
@@ -178,22 +204,24 @@ class ScriptContractService {
       };
     }
 
-    const legacyField = Object.keys(SCRIPT_TABLE_LEGACY_FIELDS).find(
-      (tableName) => SCRIPT_TABLE_LEGACY_FIELDS[tableName] in record,
-    );
-    if (legacyField) {
-      const legacyCode = record[SCRIPT_TABLE_LEGACY_FIELDS[legacyField]];
-      if (typeof legacyCode === 'string' && legacyCode !== '') {
-        const compiledCode = this.compileSource(
-          legacyCode,
-          record.scriptLanguage,
-        );
-        return {
-          code: compiledCode,
-          compiledCode,
-          shouldPersistCompiledCode: compiledCode !== record.compiledCode,
-        };
-      }
+    const legacyCode = Object.values(SCRIPT_TABLE_LEGACY_FIELDS)
+      .filter((fieldName) => fieldName !== '')
+      .map((fieldName) =>
+        Object.prototype.hasOwnProperty.call(record, fieldName)
+          ? record[fieldName]
+          : undefined,
+      )
+      .find((value) => typeof value === 'string' && value !== '');
+    if (typeof legacyCode === 'string') {
+      const compiledCode = this.compileSource(
+        legacyCode,
+        record.scriptLanguage,
+      );
+      return {
+        code: compiledCode,
+        compiledCode,
+        shouldPersistCompiledCode: compiledCode !== record.compiledCode,
+      };
     }
 
     if (
@@ -293,7 +321,23 @@ class ScriptContractService {
 
   private assertExecutableJavaScript(code: string | null): void {
     if (!code) return;
-    new Function(`return (async () => {\n"use strict";\n${code}\n});`);
+    const result = ts.transpileModule(
+      `async function __validate__() {\n"use strict";\n${code}\n}`,
+      {
+        compilerOptions: {
+          allowJs: true,
+          target: ts.ScriptTarget.ES2022,
+        },
+        fileName: 'script.js',
+        reportDiagnostics: true,
+      },
+    );
+    const error = result.diagnostics?.find(
+      (diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error,
+    );
+    if (error) {
+      throw new Error(ts.flattenDiagnosticMessageText(error.messageText, '\n'));
+    }
   }
 }
 

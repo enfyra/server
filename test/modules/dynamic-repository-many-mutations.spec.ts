@@ -102,7 +102,7 @@ describe('DynamicRepository many mutations', () => {
       table: 'project_task',
       fields: '*',
       filter: { id: { _in: [11, 12] } },
-      limit: -1,
+      limit: 0,
     });
     expect(queryBuilderService.updateMany).toHaveBeenCalledWith(
       'project_task',

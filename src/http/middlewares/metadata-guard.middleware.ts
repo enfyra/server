@@ -58,12 +58,14 @@ async function runMetadataGuards(
   );
   if (guards.length === 0) return true;
 
+  const requestUserId = req.user?.id ?? req.user?._id ?? null;
+
   const evalCtx: GuardEvalContext = {
     clientIp: req.routeData.context?.$req?.ip || req.ip || 'unknown',
     routePath,
     userId:
-      position === 'post_auth' && req.user?.id != null
-        ? String(req.user.id)
+      position === 'post_auth' && requestUserId != null
+        ? String(requestUserId)
         : null,
   };
 

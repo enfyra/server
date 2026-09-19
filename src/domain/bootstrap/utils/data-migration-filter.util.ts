@@ -4,7 +4,7 @@ export function toExactDataMigrationWhere(filter: unknown): Record<string, any> 
   if (entries.length === 0) return null;
   const where: Record<string, any> = {};
   for (const [field, value] of entries) {
-    if (!field || field.startsWith('_')) return null;
+    if (!field || field.startsWith('_') || field.startsWith('$')) return null;
     let scalar = value;
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       if (Object.keys(value).length !== 1 || !Object.prototype.hasOwnProperty.call(value, '_eq')) return null;
