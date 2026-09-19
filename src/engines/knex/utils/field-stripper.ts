@@ -47,7 +47,9 @@ export class FieldStripper {
         continue;
       }
       if (temporalColumns.has(key)) {
-        stripped[key] = coerceTemporalWriteValue(stripped[key]);
+        stripped[key] = coerceTemporalWriteValue(stripped[key], {
+          dateOnlyAsString: true,
+        });
       }
     }
     delete stripped._m2mRelations;
@@ -72,13 +74,16 @@ export class FieldStripper {
       .filter((col: any) => col.isPrimary === true)
       .map((col: any) => col.name);
     for (const column of tableMeta.columns) {
-      if (column.isUpdatable === false && column.name in stripped) {
+      if (
+        column.isUpdatable === false &&
+        Object.prototype.hasOwnProperty.call(stripped, column.name)
+      ) {
         if (isGeneratedScriptPersistenceField(tableName, column.name)) continue;
         delete stripped[column.name];
       }
     }
     for (const pk of primaryKeys) {
-      if (pk in stripped) {
+      if (Object.prototype.hasOwnProperty.call(stripped, pk)) {
         delete stripped[pk];
       }
     }

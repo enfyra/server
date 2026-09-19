@@ -192,6 +192,9 @@ export class MongoTableCreateService extends MongoTableHandlerService {
             this.logger.error(
               `   Failed to insert columns, rolling back table creation`,
             );
+            for (const colId of insertedColumnIds) {
+              await this.queryBuilderService.delete('enfyra_column', colId);
+            }
             await this.queryBuilderService.delete('enfyra_table', tableId);
             throw new ValidationException(
               `Failed to create table: ${error.message}`,
@@ -205,7 +208,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                 this.assertNotAborted();
                 let targetTableObjectId;
                 const targetTableIdFromObj =
-                  typeof rel.targetTable === 'object'
+                  rel.targetTable && typeof rel.targetTable === 'object'
                     ? rel.targetTable._id || rel.targetTable.id
                     : null;
                 if (targetTableIdFromObj) {
@@ -404,6 +407,9 @@ export class MongoTableCreateService extends MongoTableHandlerService {
             this.logger.error(
               `   Failed to insert relations, rolling back table creation`,
             );
+            for (const relId of insertedRelationIds) {
+              await this.queryBuilderService.delete('enfyra_relation', relId);
+            }
             for (const colId of insertedColumnIds) {
               await this.queryBuilderService.delete('enfyra_column', colId);
             }

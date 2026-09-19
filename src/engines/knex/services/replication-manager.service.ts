@@ -1,6 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import { Knex, knex } from 'knex';
 import { parseDatabaseUri } from '../../knex/utils/uri-parser';
+import { registerPgDateTypeParser } from '../../../shared/utils/temporal-write.util';
 import { SQL_ACQUIRE_TIMEOUT_MS } from '../../../shared/utils/auto-scaling.constants';
 import { resolveSqlPoolConfig } from '../utils/sql-pool-config.util';
 import { splitSqlPoolAcrossReplication } from '../utils/sql-pool-coordination.util';
@@ -39,6 +40,9 @@ export class ReplicationManager implements LifecycleAware {
   async init(): Promise<void> {
     if (this.databaseConfigService.isMongoDb()) {
       return;
+    }
+    if (this.dbType === 'postgres') {
+      registerPgDateTypeParser();
     }
     const DB_URI = this.envService.get('DB_URI');
     if (!DB_URI) {

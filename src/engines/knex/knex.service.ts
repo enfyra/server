@@ -9,6 +9,7 @@ import {
 import { KnexEntityManager } from './entity-manager';
 import { FieldStripper } from './utils/field-stripper';
 import { parseDatabaseUri } from './utils/uri-parser';
+import { registerPgDateTypeParser } from '../../shared/utils/temporal-write.util';
 import { DatabaseConfigService, EnvService } from '../../shared/services';
 import { ReplicationManager } from './services/replication-manager.service';
 import { KnexHookManagerService } from './services/knex-hook-manager.service';
@@ -125,6 +126,12 @@ export class KnexService implements LifecycleAware {
       }
 
       const poolConfig = resolveSqlPoolConfig(DB_TYPE, this.envService);
+      // The pg driver returns a `date` column as local midnight, which serializes
+      // to the wrong calendar day on a host that is not on UTC. The mysql2 side
+      // already reads DATE as a string through `typeCast`; this is the pg side.
+      if (this.databaseConfigService.isPostgres()) {
+        registerPgDateTypeParser();
+      }
       this.knexInstance = knex({
         client: this.databaseConfigService.isPostgres() ? 'pg' : 'mysql2',
         connection: {

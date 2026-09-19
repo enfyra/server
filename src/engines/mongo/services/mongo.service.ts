@@ -1723,8 +1723,12 @@ export class SagaCollection<_T extends Document = Document> {
   }
 
   async findOneAndUpdate(filter: any, update: any, options?: any) {
+    const before = await this.findOne(filter);
     await this.updateOne(filter, update, options);
-    if (options?.returnDocument === 'before') return null;
+    if (options?.returnDocument === 'before') return before;
+    // Re-read by _id: the update may have changed a field the caller filtered on,
+    // in which case re-querying by that filter returns null for a successful update.
+    if (before?._id != null) return this.findOne({ _id: before._id });
     return this.findOne(filter);
   }
 

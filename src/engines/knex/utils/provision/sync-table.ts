@@ -59,10 +59,12 @@ async function applyColumnDefaultChange(
   }
   if (typeof col.defaultValue === 'string') {
     if (SQL_FUNCTION_DEFAULTS.includes(col.defaultValue.toLowerCase())) {
+      // Postgres takes a bare call (`now()`). MySQL 8.0.13+ only accepts a
+      // function default as a parenthesized expression, so a bare `now()`
+      // there is a syntax error that fails the whole DDL.
+      const expression = `${col.defaultValue}()`;
       await knex.raw(
-        alter(
-          `SET DEFAULT ${col.defaultValue}${isPostgres ? '()' : ''}`,
-        ),
+        alter(`SET DEFAULT ${isPostgres ? expression : `(${expression})`}`),
       );
       return;
     }
