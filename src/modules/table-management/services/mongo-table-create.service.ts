@@ -4,6 +4,7 @@ import {
   DuplicateResourceException,
   ValidationException,
 } from '../../../domain/exceptions';
+import { isCustomException } from '../../../domain/exceptions/custom-exceptions';
 import { isPolicyDeny } from '../../../domain/policy';
 import { TDynamicContext } from '../../../shared/types';
 import { TCreateTableBody } from '../types/table-handler.types';
@@ -458,6 +459,9 @@ export class MongoTableCreateService extends MongoTableHandlerService {
           fullMetadata.affectedTables = [...affectedTableNames];
           return fullMetadata;
         } catch (error: any) {
+          if (isCustomException(error)) {
+            throw error;
+          }
           this.loggingService.error('Collection creation failed', {
             context: 'createTable',
             error: error.message,

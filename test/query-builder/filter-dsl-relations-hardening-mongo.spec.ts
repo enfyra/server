@@ -228,11 +228,8 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
   }
 
   function runOrSkip(name: string, fn: () => Promise<void>) {
-    test(name, async () => {
-      if (!available) {
-        console.warn('MongoDB not available, skipping');
-        return;
-      }
+    test(name, async (ctx) => {
+      if (!available) return ctx.skip();
       await fn();
     });
   }

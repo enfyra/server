@@ -26,8 +26,9 @@ describe('retired log route deletion and target attestation on real databases', 
   for (const backend of ['postgres', 'mysql']) {
     it(`deletes only exact routes and supports retry on ${backend}`, async () => {
       vi.spyOn(DatabaseConfigService, 'instanceIsMongoDb').mockReturnValue(false);
-      const connection = backend === 'postgres' ? process.env.PG_TEST_URI : process.env.MYSQL_TEST_URI;
-      if (!connection) throw new Error('Local database test URI required');
+      const connection = backend === 'postgres'
+        ? process.env.PG_TEST_URI || 'postgresql://root:1234@localhost:5432/postgres'
+        : process.env.MYSQL_TEST_URI || 'mysql://root:1234@localhost:3306/enfyra';
       const client = backend === 'postgres' ? 'pg' : 'mysql2';
       const scope = 'migration_delete_test_' + randomUUID().replaceAll('-', '');
       const admin = knex({ client, connection });
@@ -50,8 +51,10 @@ describe('retired log route deletion and target attestation on real databases', 
 
   it('deletes only exact routes and supports retry on MongoDB', async () => {
     vi.spyOn(DatabaseConfigService, 'instanceIsMongoDb').mockReturnValue(true);
-    if (!process.env.MONGO_TEST_URI) throw new Error('Local MongoDB test URI required');
-    const client = await new MongoClient(process.env.MONGO_TEST_URI).connect();
+    const mongoUri =
+      process.env.MONGO_TEST_URI ||
+      'mongodb://enfyra_admin:enfyra_password_123@localhost:27017/?authSource=admin';
+    const client = await new MongoClient(mongoUri).connect();
     const db = client.db('migration_delete_test_' + randomUUID().replaceAll('-', ''));
     try {
       await db.collection('enfyra_route').insertMany([...paths, '/logs-custom'].map((path) => ({ path })));

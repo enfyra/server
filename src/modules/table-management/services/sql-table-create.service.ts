@@ -5,6 +5,7 @@ import {
   DuplicateResourceException,
   ValidationException,
 } from '../../../domain/exceptions';
+import { isCustomException } from '../../../domain/exceptions/custom-exceptions';
 import { isPolicyDeny } from '../../../domain/policy';
 import { TDynamicContext } from '../../../shared/types';
 import { stringifyJsonFieldValue } from '../../../shared/utils/json-field-normalizer.util';
@@ -423,6 +424,9 @@ export class SqlTableCreateService extends SqlTableHandlerService {
             `Failed to rollback transaction: ${rollbackError.message}`,
           );
         }
+      }
+      if (isCustomException(error)) {
+        throw error;
       }
       if (schemaCreated) {
         try {

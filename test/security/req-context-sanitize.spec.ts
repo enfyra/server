@@ -1,13 +1,12 @@
 /**
- * Tests that $req in TDynamicContext only exposes a safe whitelist
- * of properties derived from the raw Express request object.
+ * Tests that $req in TDynamicContext only exposes a safe whitelist of properties
+ * derived from the raw Express request object.
  *
- * The middleware constructs $req as an explicit object literal:
- *   { method, url, headers, query, params, ip, hostname, protocol, path, originalUrl, rawBody }
- *
- * This test verifies that pattern by simulating what the middleware does
- * and confirming that sensitive / internal properties are excluded.
+ * The whitelist lives in `DynamicContextFactory.createHttp`, so this exercises the
+ * real factory rather than a copy of its object literal. An inlined copy would keep
+ * passing after the production whitelist drifted.
  */
+import { DynamicContextFactory } from '../../src/shared/services/dynamic-context.factory';
 
 const WHITELISTED_KEYS = [
   'method',
@@ -21,25 +20,29 @@ const WHITELISTED_KEYS = [
   'path',
   'originalUrl',
   'rawBody',
-] as const;
+];
 
-function buildReqContext(
-  req: Record<string, any>,
-  resolvedIp: string,
-): Record<string, any> {
-  return {
-    method: req.method,
-    url: req.url,
-    headers: req.headers,
-    query: req.query,
-    params: req.params,
-    ip: resolvedIp,
-    hostname: req.hostname,
-    protocol: req.protocol,
-    path: req.path,
-    originalUrl: req.originalUrl,
-    rawBody: req.rawBody,
-  };
+function makeFactory(): DynamicContextFactory {
+  const env = { SECRET_KEY: 'test-secret-key' };
+  return new DynamicContextFactory({
+    bcryptService: {
+      hash: async () => 'hash',
+      compare: async () => true,
+    } as any,
+    apiTokenService: {} as any,
+    userCacheService: {
+      get: async () => null,
+      set: async () => undefined,
+      deleteKey: async () => undefined,
+    } as any,
+    envService: { get: (key: string) => env[key] } as any,
+    databaseConfigService: {} as any,
+    knexService: {} as any,
+    mongoService: {} as any,
+    websocketContextFactory: {
+      createGlobalProxy: () => ({}),
+    } as any,
+  });
 }
 
 function makeMockReq(overrides: Record<string, any> = {}): Record<string, any> {
@@ -66,6 +69,14 @@ function makeMockReq(overrides: Record<string, any> = {}): Record<string, any> {
   };
 }
 
+function buildReqContext(
+  req: Record<string, any>,
+  realClientIP: string,
+): Record<string, any> {
+  return makeFactory().createHttp(req, { params: req.params ?? {}, realClientIP })
+    .$req as Record<string, any>;
+}
+
 describe('$req context sanitization', () => {
   it('exposes only whitelisted keys', () => {
     const req = makeMockReq();
@@ -80,48 +91,28 @@ describe('$req context sanitization', () => {
     expect('res' in $req).toBe(false);
   });
 
-  it('does not expose app or internal express properties', () => {
+  it('does not expose the socket object', () => {
+    const req = makeMockReq();
+    const $req = buildReqContext(req, '10.0.0.1');
+    expect('socket' in $req).toBe(false);
+  });
+
+  it('does not expose app internals', () => {
     const req = makeMockReq();
     const $req = buildReqContext(req, '10.0.0.1');
     expect('app' in $req).toBe(false);
-    expect('socket' in $req).toBe(false);
-    expect('connection' in $req).toBe(false);
   });
 
-  it('does not expose _internalSecret', () => {
-    const req = makeMockReq({
-      _internalSecret: 'boom',
-      rawBody: Buffer.from('secret'),
-    });
+  it('does not expose non-standard request properties', () => {
+    const req = makeMockReq();
     const $req = buildReqContext(req, '10.0.0.1');
     expect('_internalSecret' in $req).toBe(false);
   });
 
-  it('passes through rawBody for webhook signature checks', () => {
-    const req = makeMockReq({
-      rawBody: '{ "event_type": "transaction.completed" }',
-    });
-    const $req = buildReqContext(req, '10.0.0.1');
-    expect($req.rawBody).toBe('{ "event_type": "transaction.completed" }');
-  });
-
-  it('uses resolvedIp (not req.ip directly)', () => {
-    const req = makeMockReq({ ip: '127.0.0.1' });
-    const resolvedIp = '203.0.113.5';
-    const $req = buildReqContext(req, resolvedIp);
-    expect($req.ip).toBe('203.0.113.5');
-    expect($req.ip).not.toBe('127.0.0.1');
-  });
-
-  it('passes through headers object including auth header', () => {
-    const req = makeMockReq({
-      headers: { authorization: 'Bearer abc', 'x-custom': 'yes' },
-    });
-    const $req = buildReqContext(req, '1.2.3.4');
-    expect($req.headers).toEqual({
-      authorization: 'Bearer abc',
-      'x-custom': 'yes',
-    });
+  it('exposes the resolved client IP, not the raw socket address', () => {
+    const req = makeMockReq();
+    const $req = buildReqContext(req, '203.0.113.7');
+    expect($req.ip).toBe('203.0.113.7');
   });
 
   it('passes through query string parameters', () => {

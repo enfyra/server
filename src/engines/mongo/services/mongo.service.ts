@@ -28,6 +28,10 @@ import { DatabaseException } from '../../../domain/exceptions';
 import type { MongoHookContext } from '../types/mongo-hook.types';
 import { isGeneratedScriptPersistenceField } from '../../../shared/utils/script-persistence-contract.util';
 import {
+  coerceTemporalWriteValue,
+  isTemporalColumnType,
+} from '../../../shared/utils/temporal-write.util';
+import {
   decryptResultFields,
   encryptRecordFields,
 } from '../../../shared/utils/encrypted-field.util';
@@ -1017,6 +1021,10 @@ export class MongoService {
           result[fieldName] = Long.fromNumber(fieldValue);
           continue;
         }
+        if (isTemporalColumnType(column.type)) {
+          result[fieldName] = coerceTemporalWriteValue(fieldValue);
+          continue;
+        }
         if (
           (column.type === 'simple-json' || column.type === 'json') &&
           typeof fieldValue === 'string'
@@ -1292,11 +1300,20 @@ export class MongoService {
     if (!tableMetadata) return data;
 
     const validFields = buildMongoWritableFieldSet(tableMetadata);
+    const temporalFields = new Set(
+      (tableMetadata.columns || [])
+        .filter((col: any) => isTemporalColumnType(col?.type))
+        .map((col: any) => col.name),
+    );
 
     const stripped = { ...data };
     for (const key of Object.keys(stripped)) {
       if (!validFields.has(key)) {
         delete stripped[key];
+        continue;
+      }
+      if (temporalFields.has(key)) {
+        stripped[key] = coerceTemporalWriteValue(stripped[key]);
       }
     }
     return stripped;
