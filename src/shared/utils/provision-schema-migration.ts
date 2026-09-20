@@ -743,6 +743,29 @@ async function getPostgresColumnContract(
   return result.rows?.[0];
 }
 
+/**
+ * Reads the labels of a PostgreSQL enum type in declaration order. The label set
+ * is what an enum contract actually promises, so a column whose type name already
+ * matches must still be rewritten when the stored labels differ.
+ */
+async function getPostgresEnumOptions(
+  knex: Knex,
+  udtName: unknown,
+): Promise<string[]> {
+  if (!udtName) return [];
+  const result = await knex.raw(
+    `
+      SELECT e.enumlabel
+      FROM pg_enum e
+      JOIN pg_type t ON e.enumtypid = t.oid
+      WHERE t.typname = ?
+      ORDER BY e.enumsortorder
+    `,
+    [String(udtName)],
+  );
+  return result.rows.map((row: any) => row.enumlabel);
+}
+
 const POSTGRES_TYPE_ALIASES: Record<string, string> = {
   'character varying': 'varchar',
   varchar: 'varchar',
@@ -877,8 +900,10 @@ async function applyPostgresColumnContract(
     !postgresTypeAlreadyMatches(current, targetDefinition);
   const enumChanged =
     declaresEnum &&
-    String(current.udt_name ?? '') !==
-      getPostgresEnumTypeName(tableName, columnName);
+    (String(current.udt_name ?? '') !==
+      getPostgresEnumTypeName(tableName, columnName) ||
+      JSON.stringify(await getPostgresEnumOptions(knex, current.udt_name)) !==
+        JSON.stringify(mod.to.options));
   const nullableChanged =
     hasOwn(mod.to, 'isNullable') &&
     JSON.stringify(mod.from.isNullable) !== JSON.stringify(mod.to.isNullable);
