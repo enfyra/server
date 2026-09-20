@@ -1,16 +1,17 @@
 import { FirstRunInitializer } from '../../src/engines/bootstrap/services/first-run-initializer.service';
+import { getEnfyraVersion } from '../../src/shared/utils/enfyra-version.util';
 
 type SafetyFixtureOptions = {
   cacheService?: Record<string, unknown>;
   commonService?: Record<string, unknown>;
   instanceId?: string;
   onPhase?: (phase: string, occurrence: number) => Promise<void> | void;
-  state?: { isInit: boolean };
+  state?: { isInit: boolean; enfyraVersion?: string | null };
   mongoSagaCoordinator?: Record<string, unknown>;
 };
 
 function createSafetyFixture(options: SafetyFixtureOptions = {}) {
-  const state = options.state ?? { isInit: false };
+  const state = options.state ?? { isInit: false, enfyraVersion: null };
   const calls: string[] = [];
   const phaseOccurrences = new Map<string, number>();
   const runPhase = async (phase: string): Promise<void> => {
@@ -76,8 +77,8 @@ function createSafetyFixture(options: SafetyFixtureOptions = {}) {
       repairDerivedContracts: jest.fn(async () =>
         runPhase('repairDerivedContracts'),
       ),
-      runExplicitRepairsIfNeeded: jest.fn(async () =>
-        runPhase('runExplicitRepairsIfNeeded'),
+      runExplicitRepairs: jest.fn(async () =>
+        runPhase('runExplicitRepairs'),
       ),
     },
     routeDefinitionProcessor: {
@@ -99,10 +100,12 @@ function createSafetyFixture(options: SafetyFixtureOptions = {}) {
   (initializer as any).findFirstSetting = jest.fn(async () => ({
     id: 1,
     isInit: state.isInit,
+    enfyraVersion: state.enfyraVersion ?? null,
   }));
   (initializer as any).markInitialized = jest.fn(async () => {
     calls.push('markInitialized');
     state.isInit = true;
+    state.enfyraVersion = getEnfyraVersion();
     await options.onPhase?.('markInitialized', 1);
   });
 
@@ -279,7 +282,7 @@ describe('FirstRunInitializer safety', () => {
       { phase: 'repairSystemMetadataFromSnapshot', occurrence: 1 },
       { phase: 'clearMetadataCache', occurrence: 3 },
       { phase: 'repairDerivedContracts', occurrence: 1 },
-      { phase: 'runExplicitRepairsIfNeeded', occurrence: 1 },
+      { phase: 'runExplicitRepairs', occurrence: 1 },
       { phase: 'reloadMetadataCache', occurrence: 1 },
       { phase: 'insertAllDefaultRecords', occurrence: 1 },
       { phase: 'ensureMissingHandlers', occurrence: 1 },
@@ -339,5 +342,41 @@ describe('FirstRunInitializer safety', () => {
     await (fixture.initializer as any).runWithProgress();
 
     expect(fixture.calls).toHaveLength(mutationsBeforeRestart);
+  });
+
+  it('keeps waiting while another instance has not advanced the recorded version', async () => {
+    const state = { isInit: true, enfyraVersion: '2.2.19-patch-1' };
+    const fixture = createSafetyFixture({
+      state,
+      cacheService: {
+        acquire: jest.fn(async () => false),
+        get: jest.fn(async () => 'other-instance'),
+      },
+      commonService: { delay: jest.fn(async () => undefined) },
+    });
+    let polls = 0;
+    (fixture.initializer as any).commonService = {
+      delay: jest.fn(async () => {
+        polls++;
+        if (polls === 3) state.enfyraVersion = getEnfyraVersion();
+      }),
+    };
+
+    await expect(
+      (fixture.initializer as any).waitUntilDone(20_000),
+    ).resolves.toBe('initialized');
+    expect(polls).toBe(3);
+  });
+
+  it('treats a recorded version behind the running version as unfinished', async () => {
+    const stale = createSafetyFixture({
+      state: { isInit: true, enfyraVersion: '2.2.19-patch-1' },
+    });
+    await expect((stale.initializer as any).isNeeded()).resolves.toBe(true);
+
+    const current = createSafetyFixture({
+      state: { isInit: true, enfyraVersion: getEnfyraVersion() },
+    });
+    await expect((current.initializer as any).isNeeded()).resolves.toBe(false);
   });
 });

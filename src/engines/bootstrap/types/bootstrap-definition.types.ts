@@ -4,6 +4,8 @@ import type {
   SchemaMigrationDef,
   TableModifyDef,
   TableRenameDef,
+  VersionedDataMigration,
+  VersionedSchemaMigration,
 } from '../../../shared/types/schema-migration.types';
 
 export type BootstrapSnapshot = Record<string, any>;
@@ -12,9 +14,10 @@ export type BootstrapDataMigration = Record<string, any>;
 
 export interface BootstrapSourceArtifacts {
   snapshot: BootstrapSnapshot;
-  migration: SchemaMigrationDef | null;
+  migrations: VersionedSchemaMigration[];
   defaultData: BootstrapDefaultData;
-  dataMigration: BootstrapDataMigration;
+  dataCorrections: Record<string, any>;
+  dataMigrations: VersionedDataMigration[];
 }
 
 export interface BootstrapDefinition {
@@ -44,6 +47,10 @@ interface BootstrapSchemaOperationBase {
 }
 
 export type BootstrapSchemaOperation =
+  | (BootstrapSchemaOperationBase & {
+      kind: 'modify-mongo-column-types';
+      mappings: Array<{ from: string; to: string }>;
+    })
   | (BootstrapSchemaOperationBase & {
       kind: 'rename-core-table';
       rename: TableRenameDef;
@@ -91,6 +98,7 @@ export type BootstrapSchemaOperation =
     });
 
 export type BootstrapSchemaCommandKind =
+  | 'modify-mongo-column-types'
   | 'rename-core-table'
   | 'rename-table'
   | 'rename-physical-table'

@@ -138,7 +138,11 @@ export class MetadataSqlOverlapReconciler {
     if (type.includes('decimal') || type.includes('numeric')) return 'decimal';
     if (type.includes('jsonb')) return 'jsonb';
     if (type.includes('json')) return 'json';
+    if (type.includes('timestamp with time zone') || type === 'timestamptz') {
+      return 'timestamptz';
+    }
     if (type.includes('timestamp')) return 'timestamp';
+    if (type.includes('datetime')) return 'datetime';
     if (type === 'date') return 'date';
     if (type.includes('time')) return 'time';
     if (type.includes('uuid')) return 'uuid';
@@ -176,6 +180,17 @@ export class MetadataSqlOverlapReconciler {
         .filter((id: any) => id !== undefined && id !== null)
         .map((id: any) => String(id)),
     );
+    const legacyKeys = new Set<string>();
+    for (const row of legacyRows) {
+      const key = this.overlapIdentity.getOverlapRowKey(rename, row, columns);
+      if (!key) continue;
+      if (legacyKeys.has(key)) {
+        throw new Error(
+          `SQL core overlap reconciliation blocked for ${rename.from} → ${rename.to}: duplicate logical key ${key}`,
+        );
+      }
+      legacyKeys.add(key);
+    }
     let conflictCount = 0;
     let skippedCount = 0;
     const rowsToInsert = legacyRows.filter((row: any) => {

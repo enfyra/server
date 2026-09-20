@@ -888,18 +888,12 @@ describe('D. RouteCache partial reload logic', () => {
         }
       }
 
-      if (
-        ['enfyra_pre_hook', 'enfyra_post_hook'].includes(
-          payload.tableName,
-        )
-      ) {
+      if (['enfyra_pre_hook', 'enfyra_post_hook'].includes(payload.tableName)) {
         await this._reloadGlobalHooksAndMerge();
         return;
       }
 
-      if (
-        ['enfyra_role', 'enfyra_method'].includes(payload.tableName)
-      ) {
+      if (['enfyra_role', 'enfyra_method'].includes(payload.tableName)) {
         await this._fullReload();
         return;
       }
@@ -1319,6 +1313,42 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
     const fields = (def!.type as any)._fields();
     expect(fields['required'].type).toBeInstanceOf(GraphQLNonNull);
     expect(fields['optional'].type).toBe(GraphQLString);
+  });
+
+  it('maps Mongo-native document, array, and long types without precision loss', () => {
+    const table = makeGqlTable('native_values', [
+      {
+        name: 'payload',
+        type: 'object',
+        isPrimary: false,
+        isNullable: true,
+        isPublished: true,
+      },
+      {
+        name: 'items',
+        type: 'array',
+        isPrimary: false,
+        isNullable: true,
+        isPublished: true,
+      },
+      {
+        name: 'count',
+        type: 'long',
+        isPrimary: false,
+        isNullable: true,
+        isPublished: true,
+      },
+    ]);
+    const def = buildTableGraphQLDef(
+      table,
+      new Set(['native_values']),
+      new Map(),
+    );
+    const fields = (def!.type as any)._fields();
+
+    expect(fields['payload'].type).toBe(GraphQLJSON);
+    expect(fields['items'].type).toBe(GraphQLJSON);
+    expect(fields['count'].type).toBe(GraphQLString);
   });
 
   it('JSON column type maps to GraphQLJSON scalar', () => {
@@ -1819,20 +1849,16 @@ describe('G. End-to-end flow simulation', () => {
     constructor() {
       this.ee.on('cache:invalidate', (payload: TCacheInvalidationPayload) => {
         if (
-          [
-            'enfyra_table',
-            'enfyra_column',
-            'enfyra_relation',
-          ].includes(payload.tableName)
+          ['enfyra_table', 'enfyra_column', 'enfyra_relation'].includes(
+            payload.tableName,
+          )
         ) {
           this._handleMetadataInvalidation(payload);
         }
         if (
-          [
-            'enfyra_route',
-            'enfyra_pre_hook',
-            'enfyra_post_hook',
-          ].includes(payload.tableName)
+          ['enfyra_route', 'enfyra_pre_hook', 'enfyra_post_hook'].includes(
+            payload.tableName,
+          )
         ) {
           this._handleRouteInvalidation(payload);
         }

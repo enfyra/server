@@ -761,9 +761,11 @@ describe.each<DatabaseKind>(['postgres', 'mysql', 'mongodb'])(
 
 describe('snapshot migration declaration validation', () => {
   it('never removes SQL auto-managed timestamp columns', () => {
-    for (const table of snapshotMigration.tables) {
-      expect(table.columnsToRemove ?? []).not.toContain('createdAt');
-      expect(table.columnsToRemove ?? []).not.toContain('updatedAt');
+    for (const step of snapshotMigration) {
+      for (const table of step.schema.tables) {
+        expect(table.columnsToRemove ?? []).not.toContain('createdAt');
+        expect(table.columnsToRemove ?? []).not.toContain('updatedAt');
+      }
     }
   });
 

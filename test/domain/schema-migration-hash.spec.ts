@@ -65,6 +65,35 @@ const columnWithId = (id: any, name: string) => ({
 });
 
 describe('SchemaMigrationValidatorService — system table hydration', () => {
+  it('excludes SQL and Mongo document fields from deep system-flag traversal', async () => {
+    const validator = new SchemaMigrationValidatorService({
+      runtimeRegistryService: {
+        requireMetadata: () => ({
+          tables: new Map([
+            [
+              'settings',
+              {
+                columns: [
+                  { name: 'legacy', type: 'simple-json' },
+                  { name: 'config', type: 'object' },
+                  { name: 'items', type: 'array' },
+                  { name: 'title', type: 'string' },
+                ],
+              },
+            ],
+          ]),
+        }),
+      } as any,
+      runtimeSchemaContractCompilerService: {} as any,
+    });
+
+    await expect(validator.getJsonFields('settings')).resolves.toEqual([
+      'legacy',
+      'config',
+      'items',
+    ]);
+  });
+
   it('replaces partial child stubs with full runtime metadata', async () => {
     const columns = [{ id: 11, name: 'id', isSystem: true }];
     const relations = [{ id: 21, propertyName: 'roles', isSystem: true }];
@@ -182,11 +211,9 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
     });
 
     expect(decision.allow).toBe(true);
-    expect(decision.details.schemaMutationContract.context.target.indexes).toEqual([
-      ['createdAt'],
-      ['is_active', 'sort_order'],
-      ['updatedAt'],
-    ]);
+    expect(
+      decision.details.schemaMutationContract.context.target.indexes,
+    ).toEqual([['createdAt'], ['is_active', 'sort_order'], ['updatedAt']]);
   });
 
   it('allows an index that overlaps a unique field without duplicating its lookup', async () => {
@@ -217,10 +244,7 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
     const before = {
       ...baseBefore,
       name: 'payment_order',
-      columns: [
-        ...baseBefore.columns,
-        columnWithId(3, 'providerOrderId'),
-      ],
+      columns: [...baseBefore.columns, columnWithId(3, 'providerOrderId')],
       uniques: [['providerOrderId']],
       indexes: [['providerOrderId']],
     };
@@ -322,9 +346,9 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
     });
 
     expect(decision.code).not.toBe('SCHEMA_INDEX_OVER_UNIQUE_FIELD');
-    expect(decision.details.schemaMutationContract.context.target.indexes).toContainEqual([
-      'host',
-    ]);
+    expect(
+      decision.details.schemaMutationContract.context.target.indexes,
+    ).toContainEqual(['host']);
   });
 
   it('hash differs when adding different column (not just id)', async () => {

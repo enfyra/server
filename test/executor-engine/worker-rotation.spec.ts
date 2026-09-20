@@ -76,6 +76,44 @@ describe('WorkerPool rotation (heap-driven)', () => {
     entry.worker.terminate();
   });
 
+  it.each(['explicit', 'rotation', 'shutdown'] as const)(
+    'aborts running host I/O before %s worker termination',
+    async (reason) => {
+      pool = new WorkerPool(1, GB, RSS_CEILING, 1, FAKE_WORKER, undefined, undefined, 30);
+      const entry = await pool.dispatch();
+      const controller = new AbortController();
+      let abortEvents = 0;
+      let abortedAtTermination: boolean | undefined;
+      controller.signal.addEventListener('abort', () => { abortEvents++; });
+      const terminate = entry.worker.terminate.bind(entry.worker);
+      vi.spyOn(entry.worker, 'terminate').mockImplementation(() => {
+        abortedAtTermination = controller.signal.aborted;
+        terminate();
+      });
+      const finished = new Promise<void>((resolve) => {
+        pool!.registerTask(entry, 'pending-io', {
+          abortController: controller,
+          onResult: () => {
+            pool!.unregisterTask(entry, 'pending-io');
+            resolve();
+          },
+          onIoCall: () => {},
+        });
+      });
+      if (reason === 'rotation') {
+        (pool as any).rotateEntry(entry, 'test');
+        expect(controller.signal.aborted).toBe(false);
+      } else if (reason === 'shutdown') {
+        pool.destroyAll();
+      } else {
+        pool.terminateEntry(entry, 'test');
+      }
+      await finished;
+      expect(abortedAtTermination).toBe(true);
+      expect(abortEvents).toBe(1);
+    },
+  );
+
   it('keeps reserved work alive during rotation', async () => {
     pool = new WorkerPool(1, GB, RSS_CEILING, 1, FAKE_WORKER);
     const entry = await pool.dispatch();

@@ -9,9 +9,24 @@ export type MongoBsonType =
   | 'object'
   | 'array';
 
+const PERMISSIVE_JSON_BSON_TYPES = [
+  'object',
+  'array',
+  'string',
+  'int',
+  'long',
+  'double',
+  'decimal',
+  'bool',
+  'date',
+  'objectId',
+  'binData',
+] as const;
+
 const BSON_TYPE_MAP: Record<string, MongoBsonType> = {
   string: 'string',
   text: 'string',
+  longtext: 'string',
   varchar: 'string',
   char: 'string',
   uuid: 'string',
@@ -25,6 +40,7 @@ const BSON_TYPE_MAP: Record<string, MongoBsonType> = {
   smallint: 'int',
   tinyint: 'int',
   bigint: 'long',
+  long: 'long',
   float: 'double',
   double: 'double',
   decimal: 'double',
@@ -35,13 +51,17 @@ const BSON_TYPE_MAP: Record<string, MongoBsonType> = {
   date: 'date',
   datetime: 'date',
   timestamp: 'date',
-  json: 'object',
+  object: 'object',
   'simple-json': 'object',
   array: 'array',
+  'array-select': 'array',
   enum: 'string',
 };
 
-export function sqlTypeToBsonType(type: string): MongoBsonType {
+export function sqlTypeToBsonType(
+  type: string,
+): MongoBsonType | readonly string[] {
+  if (type === 'json') return PERMISSIVE_JSON_BSON_TYPES;
   return BSON_TYPE_MAP[type] || 'string';
 }
 
@@ -73,8 +93,9 @@ export function buildMongoValidationSchema(
     // normalization and the SQL column contract. Treating it as non-nullable
     // here would build a validator the target contract can never match.
     const isNullable = col.isNullable !== false;
+    const declaredTypes = Array.isArray(bsonType) ? [...bsonType] : [bsonType];
     properties[col.name] = {
-      bsonType: isNullable ? [bsonType, 'null'] : bsonType,
+      bsonType: isNullable ? [...declaredTypes, 'null'] : bsonType,
       description: col.description || col.name,
     };
     // `false`, `0`, and `''` are declared defaults, so absence must be tested

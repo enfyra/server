@@ -50,6 +50,7 @@
     "test:e2e:bullmq-lifecycle-ownership": "tsx test/e2e/bullmq-lifecycle-ownership.e2e.ts",
     "test:e2e:mysql-bootstrap-snapshot-fault": "tsx test/e2e/mysql-bootstrap-snapshot-fault.e2e.ts",
     "test:e2e:snapshot-migration-matrix": "tsx test/e2e/snapshot-migration-database-matrix.e2e.ts",
+    "test:e2e:snapshot-migration-integrity": "tsx test/e2e/snapshot-migration-integrity-matrix.e2e.ts",
     "test:e2e:bootstrap-randomized-matrix": "bash scripts/e2e-bootstrap-randomized-matrix.sh",
     "test:e2e:realtime-chat-load": "tsx test/realtime-chat-app.e2e.ts",
     "test:e2e:mock": "yarn test:e2e:cache-load && yarn test:e2e:metadata-reload && yarn test:e2e:flow-engine",
@@ -58,7 +59,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1024.0",
     "@aws-sdk/lib-storage": "3.1024.0",
-    "@enfyra/kernel": "1.1.64",
+    "@enfyra/kernel": "2.0.0",
     "@envelop/core": "^5.5.1",
     "@envelop/depth-limit": "^7.1.1",
     "@google-cloud/storage": "^7.19.0",

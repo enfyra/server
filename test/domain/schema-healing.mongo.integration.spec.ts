@@ -30,7 +30,7 @@ function makeTableMetadata(name: string) {
     columns: [
       {
         name: '_id',
-        type: 'ObjectId',
+        type: 'objectId',
         isPrimary: true,
         isGenerated: true,
         isNullable: false,
@@ -86,13 +86,8 @@ describe('SchemaHealingService Mongo integration', () => {
       return;
     }
 
-    const settingId = new ObjectId();
     const columnId = new ObjectId();
 
-    await db.collection('enfyra_setting').insertOne({
-      _id: settingId,
-      uniquesIndexesRepaired: true,
-    });
     await db.collection('enfyra_column').insertOne({
       _id: columnId,
       tableId: new ObjectId(),
@@ -136,6 +131,7 @@ describe('SchemaHealingService Mongo integration', () => {
     } as any);
     const metadataCacheService = {
       getAllTablesMetadata: async () => [],
+      reload: async () => undefined,
     };
 
     const service = new SchemaHealingService({
@@ -153,7 +149,7 @@ describe('SchemaHealingService Mongo integration', () => {
     expect(repairedColumn).toMatchObject({
       _id: columnId,
       name: '_id',
-      type: 'ObjectId',
+      type: 'objectId',
       isPrimary: true,
     });
   });
@@ -193,10 +189,6 @@ describe('SchemaHealingService Mongo integration', () => {
     const methodIdA = new ObjectId();
     const methodIdB = new ObjectId();
 
-    await db.collection('enfyra_setting').insertOne({
-      _id: new ObjectId(),
-      uniquesIndexesRepaired: true,
-    });
     await db.collection('enfyra_table').insertMany([
       { _id: routeTableId, name: 'enfyra_route', isSystem: true },
       { _id: methodTableId, name: 'enfyra_method', isSystem: true },
@@ -256,7 +248,10 @@ describe('SchemaHealingService Mongo integration', () => {
     } as any);
     const service = new SchemaHealingService({
       queryBuilderService,
-      metadataCacheService: { getAllTablesMetadata: async () => [] } as any,
+      metadataCacheService: {
+        getAllTablesMetadata: async () => [],
+        reload: async () => undefined,
+      } as any,
       systemCoreTableResolver: makeCoreTableResolver() as any,
     });
 
@@ -334,10 +329,6 @@ describe('SchemaHealingService Mongo integration', () => {
     const routeId = new ObjectId();
     const methodId = new ObjectId();
 
-    await db.collection('enfyra_setting').insertOne({
-      _id: new ObjectId(),
-      uniquesIndexesRepaired: true,
-    });
     await db.collection('enfyra_table').insertMany([
       { _id: routeTableId, name: 'enfyra_route', isSystem: true },
       { _id: methodTableId, name: 'enfyra_method', isSystem: true },
@@ -397,7 +388,10 @@ describe('SchemaHealingService Mongo integration', () => {
     } as any);
     const service = new SchemaHealingService({
       queryBuilderService,
-      metadataCacheService: { getAllTablesMetadata: async () => [] } as any,
+      metadataCacheService: {
+        getAllTablesMetadata: async () => [],
+        reload: async () => undefined,
+      } as any,
       systemCoreTableResolver: makeCoreTableResolver() as any,
     });
 
@@ -453,10 +447,6 @@ describe('SchemaHealingService Mongo integration', () => {
     const oldRouteId = new ObjectId();
     const conflictingRouteId = new ObjectId();
     const methodId = new ObjectId();
-    await db.collection('enfyra_setting').insertOne({
-      _id: new ObjectId(),
-      uniquesIndexesRepaired: true,
-    });
     await db.collection('enfyra_table').insertMany([
       { _id: routeTableId, name: 'enfyra_route', isSystem: true },
       { _id: methodTableId, name: 'enfyra_method', isSystem: true },
@@ -504,7 +494,10 @@ describe('SchemaHealingService Mongo integration', () => {
     } as any);
     const service = new SchemaHealingService({
       queryBuilderService,
-      metadataCacheService: { getAllTablesMetadata: async () => [] } as any,
+      metadataCacheService: {
+        getAllTablesMetadata: async () => [],
+        reload: async () => undefined,
+      } as any,
       systemCoreTableResolver: makeCoreTableResolver() as any,
     });
 

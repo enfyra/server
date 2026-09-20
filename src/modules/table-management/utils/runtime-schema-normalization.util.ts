@@ -8,6 +8,7 @@ import type {
 import { getSqlCanonicalConstraintGroups } from '../../../engines/knex/utils/sql-physical-schema-contract';
 import { getMongoCanonicalConstraintGroups } from '../../../engines/mongo';
 import { getForeignKeyColumnName } from '@enfyra/kernel';
+import { MONGO_PRIMARY_KEY_TYPE } from './mongo-primary-key.util';
 import { getSqlJunctionPhysicalNames } from './sql-junction-naming.util';
 import { normalizeJsonFieldValue } from '../../../shared/utils/json-field-normalizer.util';
 import {
@@ -63,16 +64,23 @@ export function normalizeRuntimePolicyMetadata(
           allowedUsers,
         });
       })
-      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+      .sort((left, right) =>
+        JSON.stringify(left).localeCompare(JSON.stringify(right)),
+      );
   };
   const normalizeSubjects = (items: unknown, identity: 'column' | 'relation') =>
     (Array.isArray(items) ? items : [])
       .filter((item: any) => item && typeof item === 'object')
       .map((item: any) => {
-        const fieldPermissions = normalizeEntries(item?.fieldPermissions, 'permission');
+        const fieldPermissions = normalizeEntries(
+          item?.fieldPermissions,
+          'permission',
+        );
         const rules = normalizeEntries(item?.rules, 'rule');
         return normalizeJsonValue({
-          key: stringValue(item?.name ?? item?.propertyName ?? item?.id ?? item?._id),
+          key: stringValue(
+            item?.name ?? item?.propertyName ?? item?.id ?? item?._id,
+          ),
           fieldPermissions,
           rules,
           identity,
@@ -80,9 +88,13 @@ export function normalizeRuntimePolicyMetadata(
       })
       .filter(
         (item: any) =>
-          includeEmptySubjects || item.fieldPermissions.length > 0 || item.rules.length > 0,
+          includeEmptySubjects ||
+          item.fieldPermissions.length > 0 ||
+          item.rules.length > 0,
       )
-      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+      .sort((left, right) =>
+        JSON.stringify(left).localeCompare(JSON.stringify(right)),
+      );
   return {
     columns: normalizeSubjects(value.columns, 'column'),
     relations: normalizeSubjects(value.relations, 'relation'),
@@ -97,10 +109,14 @@ export function assertRuntimeNestedMetadataIdsOwned(
   const owned = new Map<string, string>();
   const collect = (metadata: any) => {
     for (const subjectType of ['columns', 'relations'] as const) {
-      for (const subject of Array.isArray(metadata?.[subjectType]) ? metadata[subjectType] : []) {
+      for (const subject of Array.isArray(metadata?.[subjectType])
+        ? metadata[subjectType]
+        : []) {
         const owner = `${subjectType === 'columns' ? 'column' : 'relation'}:${String(subject?.id ?? subject?._id ?? subject?.name ?? subject?.propertyName)}`;
         for (const kind of ['fieldPermissions', 'rules'] as const) {
-          for (const item of Array.isArray(subject?.[kind]) ? subject[kind] : []) {
+          for (const item of Array.isArray(subject?.[kind])
+            ? subject[kind]
+            : []) {
             const id = item?.id ?? item?._id;
             if (id != null) owned.set(`${kind}:${String(id)}`, owner);
           }
@@ -112,24 +128,37 @@ export function assertRuntimeNestedMetadataIdsOwned(
   if (operation === 'delete') return;
   const seen = new Set<string>();
   for (const subjectType of ['columns', 'relations'] as const) {
-    for (const subject of Array.isArray(afterMetadata?.[subjectType]) ? afterMetadata[subjectType] : []) {
+    for (const subject of Array.isArray(afterMetadata?.[subjectType])
+      ? afterMetadata[subjectType]
+      : []) {
       const owner = `${subjectType === 'columns' ? 'column' : 'relation'}:${String(subject?.id ?? subject?._id ?? subject?.name ?? subject?.propertyName)}`;
       for (const kind of ['fieldPermissions', 'rules'] as const) {
-        for (const item of Array.isArray(subject?.[kind]) ? subject[kind] : []) {
+        for (const item of Array.isArray(subject?.[kind])
+          ? subject[kind]
+          : []) {
           const id = item?.id ?? item?._id;
           if (id == null) continue;
           const key = `${kind}:${String(id)}`;
           if (seen.has(key)) {
-            throw new Error(`${kind} id ${String(id)} appears more than once in the table aggregate`);
+            throw new Error(
+              `${kind} id ${String(id)} appears more than once in the table aggregate`,
+            );
           }
           seen.add(key);
           const previousOwner = owned.get(key);
           if (!previousOwner) {
-            if (operation === 'update') throw new Error(`${kind} id ${String(id)} is not owned by this table aggregate`);
-            throw new Error(`${kind} id ${String(id)} cannot be supplied while creating a table`);
+            if (operation === 'update')
+              throw new Error(
+                `${kind} id ${String(id)} is not owned by this table aggregate`,
+              );
+            throw new Error(
+              `${kind} id ${String(id)} cannot be supplied while creating a table`,
+            );
           }
           if (previousOwner !== owner) {
-            throw new Error(`${kind} id ${String(id)} is owned by ${previousOwner}, not ${owner}`);
+            throw new Error(
+              `${kind} id ${String(id)} is owned by ${previousOwner}, not ${owner}`,
+            );
           }
         }
       }
@@ -159,7 +188,9 @@ export function normalizeRuntimeTableSchema(
       return {
         key: stringValue(column?.id ?? column?._id ?? column?.name),
         name: isMongoPrimary ? '_id' : stringValue(column?.name),
-        type: isMongoPrimary ? 'ObjectId' : stringValue(column?.type),
+        type: isMongoPrimary
+          ? MONGO_PRIMARY_KEY_TYPE
+          : stringValue(column?.type),
         isNullable: column?.isNullable ?? true,
         isPrimary: !!column?.isPrimary,
         isGenerated: !!column?.isGenerated,

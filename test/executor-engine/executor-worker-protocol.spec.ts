@@ -226,15 +226,20 @@ describe('executor worker protocol integrity', () => {
           executionMessage(
             parkedId,
             'return await $ctx.$repos.main.waitForever();',
+            300,
           ),
         );
       });
 
       expect(results.get(parkedId)).toHaveLength(1);
-      expect(results.get(parkedId)?.[0]).toMatchObject({
-        success: false,
-        error: { code: 'ERR_EXECUTOR_ISOLATE_LOST' },
-      });
+      // A plain V8-watchdog timeout leaves the lane usable, so the parked
+      // sibling is not collaterally killed: it stays alive through the other
+      // task's timeout and is failed only by its own budget's host-callback
+      // backstop. Isolate loss is reserved for a disposed isolate.
+      expect(results.get(parkedId)?.[0]).toMatchObject({ success: false });
+      expect(results.get(parkedId)?.[0]?.error?.code).not.toBe(
+        'ERR_EXECUTOR_ISOLATE_LOST',
+      );
       expect(results.get(failingId)).toHaveLength(1);
       expect(results.get(failingId)?.[0]).toMatchObject({
         success: false,

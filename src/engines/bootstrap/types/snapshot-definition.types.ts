@@ -1,20 +1,4 @@
-export type SnapshotColumnType =
-  | 'int'
-  | 'varchar'
-  | 'text'
-  | 'boolean'
-  | 'uuid'
-  | 'ObjectId'
-  | 'bigint'
-  | 'date'
-  | 'datetime'
-  | 'timestamp'
-  | 'enum'
-  | 'simple-json'
-  | 'code'
-  | 'array-select'
-  | 'richtext'
-  | 'float';
+import type { ColumnTypeDeclaration } from '../../../shared/types/column-type.types';
 
 export type SnapshotRelationType =
   | 'one-to-one'
@@ -24,9 +8,15 @@ export type SnapshotRelationType =
 
 export type SnapshotOnDelete = 'CASCADE' | 'RESTRICT' | 'SET NULL';
 
+/**
+ * A column declares both backends explicitly and in the same shape. The snapshot
+ * materializes exactly one `type` field per database, so nothing downstream
+ * branches on the backend.
+ */
 export interface SnapshotColumnDefinition {
   name: string;
-  type: SnapshotColumnType;
+  sqlType: ColumnTypeDeclaration;
+  mongoType: ColumnTypeDeclaration;
   isPrimary?: boolean;
   isGenerated?: boolean;
   isNullable?: boolean;

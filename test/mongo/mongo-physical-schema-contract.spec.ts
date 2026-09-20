@@ -103,9 +103,11 @@ describe('Mongo physical schema contract', () => {
       columns: [
         { name: '_id', isPrimary: true },
         { name: 'slug', type: 'varchar' },
+        { name: 'sequence', type: 'long' },
+        { name: 'payload', type: 'object' },
         { name: 'createdAt', type: 'datetime' },
       ],
-      uniques: [['slug']],
+      uniques: [['slug'], ['sequence'], ['payload']],
       indexes: [['title']],
       relations: [{ propertyName: 'author', type: 'many-to-one' }],
     });
@@ -121,6 +123,30 @@ describe('Mongo physical schema contract', () => {
       },
       name: 'post_slug_unique',
       logicalFields: ['slug'],
+    });
+    expect(specs).toContainEqual({
+      keys: { sequence: 1 },
+      options: {
+        unique: true,
+        name: 'post_sequence_unique',
+        partialFilterExpression: {
+          sequence: { $type: 'long' },
+        },
+      },
+      name: 'post_sequence_unique',
+      logicalFields: ['sequence'],
+    });
+    expect(specs).toContainEqual({
+      keys: { payload: 1 },
+      options: {
+        unique: true,
+        name: 'post_payload_unique',
+        partialFilterExpression: {
+          payload: { $type: 'object' },
+        },
+      },
+      name: 'post_payload_unique',
+      logicalFields: ['payload'],
     });
     expect(specs).toContainEqual({
       keys: { title: 1, _id: 1 },

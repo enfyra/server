@@ -33,8 +33,17 @@ describe('SnapshotDefinition', () => {
         singleRecord: false,
       })
       .columns({
-        id: col.int().primary().generated().notNull().system(),
-        title: col.varchar().notNull().default('draft').description('Title'),
+        id: col
+          .sqlType({ type: 'int' })
+          .primary()
+          .generated()
+          .notNull()
+          .system(),
+        title: col
+          .sqlType({ type: 'varchar' })
+          .notNull()
+          .default('draft')
+          .description('Title'),
       })
       .relations({
         owner: rel
@@ -56,7 +65,8 @@ describe('SnapshotDefinition', () => {
         columns: [
           {
             name: 'id',
-            type: 'int',
+            sqlType: { type: 'int' },
+            mongoType: { type: 'objectId' },
             isPrimary: true,
             isGenerated: true,
             isNullable: false,
@@ -64,7 +74,8 @@ describe('SnapshotDefinition', () => {
           },
           {
             name: 'title',
-            type: 'varchar',
+            sqlType: { type: 'varchar' },
+            mongoType: { type: 'string' },
             isNullable: false,
             defaultValue: 'draft',
             description: 'Title',
@@ -115,11 +126,21 @@ describe('SnapshotDefinition', () => {
 
     expect(errors.columns).not.toBe(logs.columns);
     expect(errors.indexes).not.toBe(logs.indexes);
-    expect(errors.columns.find((column) => column.name === 'details')).toMatchObject({ isPublished: false, isUpdatable: false });
-    expect(errors.columns.find((column) => column.name === 'stack')).toMatchObject({ isPublished: false, isUpdatable: false });
-    expect(logs.columns.find((column) => column.name === 'entries')).toMatchObject({ isPublished: false, isUpdatable: false });
-    expect(errors.columns.some((column) => column.name === 'entries')).toBe(false);
-    expect(logs.columns.some((column) => column.name === 'fingerprint')).toBe(false);
+    expect(
+      errors.columns.find((column) => column.name === 'details'),
+    ).toMatchObject({ isPublished: false, isUpdatable: false });
+    expect(
+      errors.columns.find((column) => column.name === 'stack'),
+    ).toMatchObject({ isPublished: false, isUpdatable: false });
+    expect(
+      logs.columns.find((column) => column.name === 'entries'),
+    ).toMatchObject({ isPublished: false, isUpdatable: false });
+    expect(errors.columns.some((column) => column.name === 'entries')).toBe(
+      false,
+    );
+    expect(logs.columns.some((column) => column.name === 'fingerprint')).toBe(
+      false,
+    );
     expect(errors.indexes).toContainEqual(['fingerprint', 'occurredAt']);
     expect(logs.indexes).not.toContainEqual(['fingerprint', 'occurredAt']);
     expect(errors.uniques).toEqual([['eventId']]);

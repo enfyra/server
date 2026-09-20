@@ -582,6 +582,38 @@ describe('MetadataMigrationService core table overlap', () => {
     ).toHaveLength(1);
   });
 
+  it('does not insert duplicate SQL core rows with the same logical key', async () => {
+    const sql = makeSqlKnex({
+      tables: {
+        table_definition: [
+          { id: 1, name: 'post' },
+          { id: 2, name: 'post' },
+        ],
+        enfyra_table: [],
+      },
+      schemas: {
+        table_definition: ['id', 'name'],
+        enfyra_table: ['id', 'name'],
+      },
+    });
+    const service = makeRenameService({
+      queryBuilderService: {
+        isMongoDb: vi.fn(() => false),
+        getKnex: vi.fn(() => sql.knex),
+      } as any,
+      systemCoreTableResolver: {
+        getTableName: vi.fn(async () => 'enfyra_table'),
+      } as any,
+    });
+
+    await expect(
+      service.runSqlCoreTableRenames([
+        { from: 'table_definition', to: 'enfyra_table' },
+      ]),
+    ).rejects.toThrow(/duplicate logical key/i);
+    expect(sql.tables.enfyra_table).toHaveLength(0);
+  });
+
   it('blocks conflicting SQL core overlap instead of discarding legacy evidence', async () => {
     const sql = makeSqlKnex({
       tables: {
@@ -807,6 +839,34 @@ describe('MetadataMigrationService core table overlap', () => {
       },
     ]);
     expect(sql.inserts).toEqual([]);
+  });
+
+  it('does not insert duplicate Mongo core rows with the same logical key', async () => {
+    const mongo = makeMongoDb({
+      collections: {
+        table_definition: [
+          { _id: 'legacy-1', name: 'post' },
+          { _id: 'legacy-2', name: 'post' },
+        ],
+        enfyra_table: [],
+      },
+    });
+    const service = makeRenameService({
+      queryBuilderService: {
+        isMongoDb: vi.fn(() => true),
+        getMongoDb: vi.fn(() => mongo.db),
+      } as any,
+      systemCoreTableResolver: {
+        getTableName: vi.fn(async () => 'enfyra_table'),
+      } as any,
+    });
+
+    await expect(
+      service.runMongoCoreTableRenames([
+        { from: 'table_definition', to: 'enfyra_table' },
+      ]),
+    ).rejects.toThrow(/duplicate logical key/i);
+    expect(mongo.collections.enfyra_table).toHaveLength(0);
   });
 
   it('normalizes legacy core table names when reconciling Mongo core overlap', async () => {

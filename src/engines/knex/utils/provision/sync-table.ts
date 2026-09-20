@@ -129,6 +129,9 @@ export async function applyColumnMigrations(
           case 'text':
             column = table.text(col.name);
             break;
+          case 'longtext':
+            column = table.text(col.name, 'longtext');
+            break;
           case 'boolean':
             column = table.boolean(col.name);
             break;
@@ -300,6 +303,7 @@ export async function applyColumnMigrations(
           bigInteger: 'BIGINT',
           string: 'VARCHAR(255)',
           text: 'TEXT',
+          longtext: 'LONGTEXT',
           boolean: 'TINYINT(1)',
           uuid: 'CHAR(36)',
           timestamp: 'TIMESTAMP',
@@ -568,7 +572,9 @@ export async function applyColumnMigrations(
             currentDataType === 'jsonb' || currentUdtName === 'jsonb';
           const isCurrentText =
             currentDataType === 'text' || currentUdtName === 'text';
-          if (knexType === 'text') {
+          // PostgreSQL has one unbounded text type, so `longtext` converges to it
+          // exactly as `text` does.
+          if (knexType === 'text' || knexType === 'longtext') {
             if (isCurrentJson) {
               await knex.raw(
                 `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`,

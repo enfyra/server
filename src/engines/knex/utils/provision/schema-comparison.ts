@@ -501,6 +501,17 @@ function isDefaultEquivalent(
   }
   return String(snapshotDefault) === String(currentDefault);
 }
+/**
+ * MySQL text capacity ladder. A physically wider column satisfies a narrower
+ * contract, so these ranks decide whether a snapshot type is already satisfied.
+ */
+const MYSQL_TEXT_WIDTHS: Record<string, number> = {
+  tinytext: 1,
+  text: 2,
+  mediumtext: 3,
+  longtext: 4,
+};
+
 export function isTypeCompatible(
   type1: string,
   type2: string,
@@ -509,7 +520,29 @@ export function isTypeCompatible(
   if (type1 === 'enum' || type2 === 'enum') {
     return type1 === 'enum' && type2 === 'enum';
   }
-  const isMySql = String(dbClient).toLowerCase().includes('mysql');
+  const normalizedClient = String(dbClient).toLowerCase();
+  const isMySql = normalizedClient.includes('mysql');
+  const isPostgres =
+    normalizedClient.includes('pg') || normalizedClient.includes('postgres');
+  if (isMySql && (type1 === 'longtext' || type2 === 'longtext')) {
+    // MySQL text widths are ordered, and a physically wider column satisfies a
+    // narrower contract. Reporting the narrower snapshot as a mismatch would
+    // issue an ALTER that shrinks the column and truncates stored data.
+    const textWidth = (type: string) =>
+      MYSQL_TEXT_WIDTHS[String(type).toLowerCase()] ?? 0;
+    const snapshotWidth = textWidth(type1);
+    const currentWidth = textWidth(type2);
+    if (snapshotWidth > 0 && currentWidth > 0) {
+      return currentWidth >= snapshotWidth;
+    }
+  }
+  if (isPostgres && (type1 === 'longtext' || type2 === 'longtext')) {
+    return (
+      (type1 === 'longtext' && type2 === 'text') ||
+      (type2 === 'longtext' && type1 === 'text') ||
+      (type1 === 'longtext' && type2 === 'longtext')
+    );
+  }
   if (
     isMySql &&
     ((type1 === 'uuid' && ['varchar', 'char'].includes(type2)) ||

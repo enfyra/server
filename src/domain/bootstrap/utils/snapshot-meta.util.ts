@@ -1,7 +1,10 @@
 import snapshot from '../../../data/snapshot';
+import { toSqlTargetSnapshot } from '../../../shared/utils/column-type.util';
 import type { FkRelationInfo } from '../types';
 
-let cachedSnapshot: Record<string, any> = snapshot;
+// Sources declare both backends; this cache is SQL-shaped until boot wires the
+// database-specific projection through setBootstrapSnapshot.
+let cachedSnapshot: Record<string, any> = toSqlTargetSnapshot(snapshot);
 
 export function setBootstrapSnapshot(snapshot: Record<string, any>): void {
   cachedSnapshot = snapshot;

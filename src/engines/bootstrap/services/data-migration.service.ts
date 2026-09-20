@@ -26,6 +26,7 @@ const RELATION_FIELD_PREFIXES = [
 export class DataMigrationService {
   private readonly logger = new Logger(DataMigrationService.name);
   private readonly queryBuilderService: QueryBuilderService;
+  private readonly bootstrapDefinitionService: BootstrapDefinitionService;
   private initOld: InitOld | null = null;
 
   constructor(deps: {
@@ -33,26 +34,32 @@ export class DataMigrationService {
     bootstrapDefinitionService?: BootstrapDefinitionService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
-    const bootstrapDefinitionService =
+    this.bootstrapDefinitionService =
       deps.bootstrapDefinitionService ?? new BootstrapDefinitionService();
-    const dataMigration = bootstrapDefinitionService.getDataMigration();
-    if (Object.keys(dataMigration).length > 0) {
-      this.initOld = dataMigration;
+  }
+
+  private loadDeclarations(): InitOld {
+    // Read through every time: the definition service swaps in the version-scoped
+    // declarations during boot, and caching the pre-resolution value here would
+    // silently drop them.
+    const dataMigration = this.bootstrapDefinitionService.getDataMigration();
+    if (Object.keys(dataMigration).length > 0 && !this.initOld) {
       this.verbose(
         `Loaded data-migration.ts with ${Object.keys(dataMigration).length} table(s) to migrate`,
       );
     }
+    this.initOld = dataMigration;
+    return dataMigration;
   }
 
   hasMigrations(): boolean {
-    if (!this.initOld) return false;
-    const dataKeys = Object.keys(this.initOld).filter(
-      (k) => !k.startsWith('_'),
-    );
+    const initOld = this.loadDeclarations();
+    if (!initOld) return false;
+    const dataKeys = Object.keys(initOld).filter((k) => !k.startsWith('_'));
     return (
       dataKeys.length > 0 ||
-      (this.initOld._deletedTables?.length ?? 0) > 0 ||
-      (this.initOld._deletedRecords?.length ?? 0) > 0
+      (initOld._deletedTables?.length ?? 0) > 0 ||
+      (initOld._deletedRecords?.length ?? 0) > 0
     );
   }
 
@@ -161,7 +168,9 @@ export class DataMigrationService {
       try {
         const exactWhere = this.toExactDeleteWhere(filter);
         if (!exactWhere || Object.keys(exactWhere).length === 0) {
-          throw new Error(`Unsupported delete filter for ${table}: only non-empty exact scalar or _eq filters are supported`);
+          throw new Error(
+            `Unsupported delete filter for ${table}: only non-empty exact scalar or _eq filters are supported`,
+          );
         }
 
         let count = 0;

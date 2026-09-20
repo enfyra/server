@@ -1,6 +1,7 @@
 import { isDeepStrictEqual as isEqual } from 'node:util';
 import { RuntimeRegistryService } from '../../../engines/cache';
 import { RuntimeSchemaContractCompilerService } from '../../../modules/table-management/services/runtime-schema-contract-compiler.service';
+import { isJsonLikeColumnType } from '../../../shared/types/column-type.types';
 
 export class SchemaMigrationValidatorService {
   private readonly runtimeRegistryService: RuntimeRegistryService;
@@ -38,8 +39,7 @@ export class SchemaMigrationValidatorService {
         removedIndexes: diff.removedIndexes,
         addedIndexes: diff.addedIndexes,
         requiredConfirmHash,
-        owningSideInverseCascadeWarnings:
-          diff.owningSideInverseCascadeWarnings,
+        owningSideInverseCascadeWarnings: diff.owningSideInverseCascadeWarnings,
         contractHash: contract.contractHash,
         schemaMutationContract: contract,
       };
@@ -254,7 +254,7 @@ export class SchemaMigrationValidatorService {
       const tableMeta = metadata.tables.get(tableName);
       if (!tableMeta) return [];
       return (tableMeta.columns || [])
-        .filter((column: any) => column.type === 'simple-json')
+        .filter((column: any) => isJsonLikeColumnType(column.type))
         .map((column: any) => column.name);
     } catch {
       return [];

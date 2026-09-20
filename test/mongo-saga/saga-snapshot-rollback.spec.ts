@@ -30,19 +30,46 @@ describe('MongoSagaSnapshotService snapshot rollback', () => {
     const snapshots = {
       updateMany: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
     };
+    const command = jest.fn().mockResolvedValue({ ok: 1 });
     const mongoService = {
       getDb: () => ({
         collection: (name: string) => (name === 'posts' ? posts : snapshots),
+        command,
       }),
       getRawDb: () => ({
         collection: (name: string) => (name === 'posts' ? posts : snapshots),
+        command,
       }),
     };
     const service = new MongoSagaSnapshotService({
       mongoService: mongoService as any,
     });
-    return { service, posts, snapshots };
+    return { service, posts, snapshots, command };
   }
+
+  it('restores collection validation options after a failed structural migration', async () => {
+    const { service, command } = createService();
+    const validator = { $jsonSchema: { bsonType: 'object' } };
+
+    await (service as any).rollbackSnapshot(
+      snapshot({
+        op: 'collection_modify',
+        documentId: 'posts',
+        before: {
+          validator,
+          validationLevel: 'strict',
+          validationAction: 'warn',
+        },
+      }),
+    );
+
+    expect(command).toHaveBeenCalledWith({
+      collMod: 'posts',
+      validator,
+      validationLevel: 'strict',
+      validationAction: 'warn',
+    });
+  });
 
   it('restores the first before snapshot when one document is updated multiple times', async () => {
     const { service, posts } = createService();

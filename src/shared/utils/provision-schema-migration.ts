@@ -22,6 +22,7 @@ import { getCurrentDatabaseSchema } from '../../engines/knex/utils/provision/sch
 import { buildSqlJunctionTableContract } from '../../engines/knex/utils/sql-physical-schema-contract';
 import { dropPostgresColumnCheckConstraints } from '../../engines/knex/utils/provision/postgres-column-check-constraints';
 import { getPostgresEnumTypeName } from '../../engines/knex/utils/sql-enum.util';
+import { getLegacyScriptTargetColumn } from '../../engines/bootstrap/utils/metadata-migration.util';
 
 /**
  * Apply SQL schema migrations (physical database)
@@ -226,6 +227,9 @@ async function applySqlTableMigration(
 
   // Handle column removals
   if (migration.columnsToRemove && migration.columnsToRemove.length > 0) {
+    for (const columnName of migration.columnsToRemove) {
+      await preserveSqlLegacyScriptColumn(knex, tableName, columnName);
+    }
     await applySqlColumnRemovals(knex, tableName, migration.columnsToRemove);
   }
 
@@ -739,6 +743,53 @@ async function getPostgresColumnContract(
   return result.rows?.[0];
 }
 
+const POSTGRES_TYPE_ALIASES: Record<string, string> = {
+  'character varying': 'varchar',
+  varchar: 'varchar',
+  'timestamp without time zone': 'timestamp',
+  'timestamp with time zone': 'timestamp',
+  timestamptz: 'timestamp',
+  timestamp: 'timestamp',
+  int4: 'integer',
+  int: 'integer',
+  integer: 'integer',
+  int8: 'bigint',
+  bigint: 'bigint',
+  bool: 'boolean',
+  boolean: 'boolean',
+  float8: 'double precision',
+  'double precision': 'double precision',
+  text: 'text',
+  date: 'date',
+};
+
+/**
+ * Canonical PostgreSQL type label, so a declared contract and the persisted
+ * `information_schema` value can be compared without dialect spelling noise.
+ */
+function canonicalPostgresType(type: unknown): string {
+  const normalized = String(type ?? '')
+    .trim()
+    .toLowerCase();
+  const withoutLength = normalized.replace(/\(.*\)$/, '').trim();
+  return POSTGRES_TYPE_ALIASES[withoutLength] ?? withoutLength;
+}
+
+/**
+ * Whether the column already satisfies the declared contract. Reapplying an
+ * unchanged contract must stay a no-op, because a `USING` clause rewrites the
+ * whole table even when the stored type already matches.
+ */
+function postgresTypeAlreadyMatches(
+  current: Record<string, any>,
+  targetDefinition: string,
+): boolean {
+  return (
+    canonicalPostgresType(current?.data_type) ===
+    canonicalPostgresType(targetDefinition)
+  );
+}
+
 async function applyPostgresEnumContract(
   knex: Knex,
   tableName: string,
@@ -810,11 +861,24 @@ async function applyPostgresColumnContract(
     throw new Error(`Column ${tableName}.${columnName} does not exist`);
   }
 
-  const typeChanged =
-    (hasOwn(mod.to, 'type') &&
-      JSON.stringify(mod.from.type) !== JSON.stringify(mod.to.type)) ||
+  const declaresType =
+    hasOwn(mod.to, 'type') ||
     (hasOwn(mod.to, 'options') &&
       JSON.stringify(mod.from.options) !== JSON.stringify(mod.to.options));
+  const declaresEnum = mod.to.type === 'enum' && Array.isArray(mod.to.options);
+  const targetDefinition =
+    declaresType && !declaresEnum
+      ? getSqlColumnTypeDefinition(mod.to, 'postgres')
+      : null;
+  // Reapplying an unchanged contract must stay a no-op: a USING clause rewrites
+  // the whole table even when the stored type already matches.
+  const typeChanged =
+    targetDefinition !== null &&
+    !postgresTypeAlreadyMatches(current, targetDefinition);
+  const enumChanged =
+    declaresEnum &&
+    String(current.udt_name ?? '') !==
+      getPostgresEnumTypeName(tableName, columnName);
   const nullableChanged =
     hasOwn(mod.to, 'isNullable') &&
     JSON.stringify(mod.from.isNullable) !== JSON.stringify(mod.to.isNullable);
@@ -832,35 +896,32 @@ async function applyPostgresColumnContract(
         )
       : false;
 
-  if (typeChanged && current.column_default !== null) {
+  if ((typeChanged || enumChanged) && current.column_default !== null) {
     await knex.raw('ALTER TABLE ?? ALTER COLUMN ?? DROP DEFAULT', [
       tableName,
       columnName,
     ]);
   }
 
-  if (typeChanged) {
-    if (mod.to.type === 'enum' && Array.isArray(mod.to.options)) {
-      await applyPostgresEnumContract(
-        knex,
-        tableName,
-        columnName,
-        mod.to.options,
-        current.udt_name,
+  if (enumChanged && mod.to.type === 'enum' && Array.isArray(mod.to.options)) {
+    await applyPostgresEnumContract(
+      knex,
+      tableName,
+      columnName,
+      mod.to.options,
+      current.udt_name,
+    );
+  } else if (typeChanged && targetDefinition !== null) {
+    if (mod.to.type === 'boolean') {
+      await knex.raw(
+        `ALTER TABLE ?? ALTER COLUMN ?? TYPE ${targetDefinition} USING (LOWER(??::text) IN ('true', '1', 't', 'yes'))`,
+        [tableName, columnName, columnName],
       );
     } else {
-      const targetType = getSqlColumnTypeDefinition(mod.to, 'postgres');
-      if (mod.to.type === 'boolean') {
-        await knex.raw(
-          `ALTER TABLE ?? ALTER COLUMN ?? TYPE ${targetType} USING (LOWER(??::text) IN ('true', '1', 't', 'yes'))`,
-          [tableName, columnName, columnName],
-        );
-      } else {
-        await knex.raw(
-          `ALTER TABLE ?? ALTER COLUMN ?? TYPE ${targetType} USING ??::text::${targetType}`,
-          [tableName, columnName, columnName],
-        );
-      }
+      await knex.raw(
+        `ALTER TABLE ?? ALTER COLUMN ?? TYPE ${targetDefinition} USING ??::text::${targetDefinition}`,
+        [tableName, columnName, columnName],
+      );
     }
   }
 
@@ -874,7 +935,10 @@ async function applyPostgresColumnContract(
     );
   }
 
-  if (defaultChanged || (typeChanged && current.column_default !== null)) {
+  if (
+    defaultChanged ||
+    ((typeChanged || enumChanged) && current.column_default !== null)
+  ) {
     if (hasOwn(mod.to, 'defaultValue')) {
       if (mod.to.defaultValue === null || mod.to.defaultValue === undefined) {
         await knex.raw('ALTER TABLE ?? ALTER COLUMN ?? DROP DEFAULT', [
@@ -1009,7 +1073,7 @@ export async function applySqlColumnModifications(
   dbType: string,
 ): Promise<void> {
   for (const mod of modifications) {
-    if (!hasColumnChanges(mod)) {
+    if (!hasColumnChanges(mod) && mod.to.type === undefined) {
       continue;
     }
 
@@ -1044,6 +1108,48 @@ export async function applySqlColumnModifications(
 }
 
 /**
+ * Carries a legacy script column onto its replacement before the legacy column is
+ * dropped. The replacement wins where both hold a value, so a conflicting legacy
+ * value is discarded; the count is logged so an operator can recover it.
+ */
+async function preserveSqlLegacyScriptColumn(
+  knex: Knex,
+  tableName: string,
+  columnName: string,
+): Promise<void> {
+  const targetColumn = getLegacyScriptTargetColumn(tableName, columnName);
+  if (!targetColumn) return;
+
+  const [hasSource, hasTarget] = await Promise.all([
+    knex.schema.hasColumn(tableName, columnName),
+    knex.schema.hasColumn(tableName, targetColumn),
+  ]);
+  if (!hasSource || !hasTarget) return;
+
+  const conflicting = await knex(tableName)
+    .whereNotNull(columnName)
+    .whereNot(columnName, '')
+    .whereNotNull(targetColumn)
+    .whereNot(targetColumn, '')
+    .whereNot(targetColumn, knex.ref(columnName))
+    .count<{ count: string | number }[]>({ count: '*' });
+  if (Number(conflicting[0]?.count ?? 0) > 0) {
+    console.warn(
+      `  ⚠️  ${tableName}.${columnName} conflicts with ${targetColumn} in ${Number(
+        conflicting[0]?.count ?? 0,
+      )} row(s); ${targetColumn} is kept`,
+    );
+  }
+
+  await knex(tableName)
+    .whereNotNull(columnName)
+    .where((builder) => {
+      builder.whereNull(targetColumn).orWhere(targetColumn, '');
+    })
+    .update({ [targetColumn]: knex.ref(columnName) });
+}
+
+/**
  * Apply SQL column removals
  */
 async function applySqlColumnRemovals(
@@ -1053,13 +1159,9 @@ async function applySqlColumnRemovals(
 ): Promise<void> {
   for (const colName of columns) {
     const hasColumn = await knex.schema.hasColumn(tableName, colName);
-    if (hasColumn) {
-      await knex.schema.alterTable(tableName, (table) => {
-        table.dropColumn(colName);
-      });
-      console.log(`  ❌ Removed column: ${colName}`);
-    }
-    // Silently skip if column doesn't exist
+    if (!hasColumn) continue;
+    await dropSqlPhysicalColumn(knex, tableName, colName);
+    console.log(`  ❌ Removed column: ${colName}`);
   }
 }
 
@@ -1780,6 +1882,27 @@ async function cleanupMongoRemovedRelation(
   );
 }
 
+async function preserveMongoLegacyScriptField(
+  db: Db,
+  collectionName: string,
+  fieldName: string,
+): Promise<void> {
+  const targetField = getLegacyScriptTargetColumn(collectionName, fieldName);
+  if (!targetField) return;
+
+  await db.collection(collectionName).updateMany(
+    {
+      [fieldName]: { $exists: true, $ne: null },
+      $or: [
+        { [targetField]: { $exists: false } },
+        { [targetField]: null },
+        { [targetField]: '' },
+      ],
+    },
+    [{ $set: { [targetField]: `$${fieldName}` } }] as any,
+  );
+}
+
 /**
  * Apply MongoDB collection migration
  */
@@ -1835,6 +1958,7 @@ async function applyMongoCollectionMigration(
   if (migration.columnsToRemove && migration.columnsToRemove.length > 0) {
     for (const fieldName of migration.columnsToRemove) {
       if (preservedFields.has(fieldName)) continue;
+      await preserveMongoLegacyScriptField(db, collectionName, fieldName);
       await unsetMongoPhysicalField(db, collectionName, fieldName);
       console.log(`  ❌ Removed field: ${fieldName}`);
     }

@@ -43,6 +43,44 @@ function isInverseRelation(rel: any): boolean {
   );
 }
 
+/**
+ * A 64-bit integer arrives either as a JSON number or as a decimal string, since
+ * JSON has no exact 64-bit form. A `min`/`max` rule has to hold on both branches,
+ * so the bound is rebuilt per branch instead of being skipped for the union. A
+ * plain string column keeps the old behavior: a numeric bound on it is a type
+ * mismatch, not a request to compare the string numerically.
+ */
+function applyNumericBound(
+  schema: z.ZodType,
+  ruleType: 'min' | 'max',
+  value: number,
+): z.ZodType {
+  if (schema instanceof z.ZodNumber) {
+    return ruleType === 'min' ? schema.min(value) : schema.max(value);
+  }
+  if (!(schema instanceof z.ZodUnion)) return schema;
+  const branches = schema.options;
+  if (!branches.some((branch: any) => branch instanceof z.ZodNumber)) {
+    return schema;
+  }
+  const bound = (branch: any): z.ZodType => {
+    if (branch instanceof z.ZodNumber) {
+      return ruleType === 'min' ? branch.min(value) : branch.max(value);
+    }
+    if (branch instanceof z.ZodString) {
+      return branch.refine(
+        (text) =>
+          ruleType === 'min' ? Number(text) >= value : Number(text) <= value,
+        {
+          message: `must be ${ruleType === 'min' ? 'at least' : 'at most'} ${value}`,
+        },
+      );
+    }
+    return branch;
+  };
+  return z.union(branches.map(bound) as [z.ZodType, ...z.ZodType[]]);
+}
+
 function buildColumnZod(
   col: any,
   mode: 'create' | 'update',
@@ -64,14 +102,20 @@ function buildColumnZod(
     case 'bigint':
       s = z.number().int();
       break;
+    case 'long':
+      s = z.union([z.number().int(), z.string().regex(/^-?\d+$/)]);
+      break;
     case 'float':
+    case 'double':
     case 'decimal':
       s = z.number();
       break;
     case 'boolean':
+    case 'bool':
       s = z.boolean();
       break;
-    case 'varchar': {
+    case 'varchar':
+    case 'string': {
       let base = z.string();
       const maxLen =
         typeof col.options === 'object' &&
@@ -84,6 +128,7 @@ function buildColumnZod(
       break;
     }
     case 'text':
+    case 'longtext':
     case 'richtext':
     case 'code':
       s = z.string();
@@ -108,7 +153,14 @@ function buildColumnZod(
     case 'array-select':
       s = z.array(z.string());
       break;
+    case 'object':
+      s = z.record(z.string(), z.any());
+      break;
+    case 'array':
+      s = z.array(z.any());
+      break;
     case 'simple-json':
+    case 'json':
       s = z.any();
       break;
     default:
@@ -121,8 +173,8 @@ function buildColumnZod(
       case 'min':
       case 'max': {
         const v = rule.value?.v;
-        if (typeof v === 'number' && s instanceof z.ZodNumber) {
-          s = rule.ruleType === 'min' ? s.min(v) : s.max(v);
+        if (typeof v === 'number') {
+          s = applyNumericBound(s, rule.ruleType, v);
         }
         break;
       }
@@ -189,10 +241,7 @@ function buildRelationZod(
   rel: any,
   mode: 'create' | 'update',
   ctx: Required<
-    Pick<
-      BuildZodOpts,
-      'rulesForColumn' | 'getTableMetadata' | 'visited'
-    >
+    Pick<BuildZodOpts, 'rulesForColumn' | 'getTableMetadata' | 'visited'>
   >,
 ): z.ZodType | null {
   // NOTE: `isUpdatable=false` on a relation semantically means the LINK can't

@@ -1,5 +1,10 @@
 import { QueryBuilderService } from '@enfyra/kernel';
 import {
+  buildMongoValidationSchema,
+  MONGO_VALIDATION_ACTION,
+  MONGO_VALIDATION_LEVEL,
+} from '../../../mongo/utils/mongo-validation-schema.util';
+import {
   MONGO_PRIMARY_KEY_NAME,
   MONGO_PRIMARY_KEY_TYPE,
 } from '../../../../modules/table-management/utils/mongo-primary-key.util';
@@ -8,9 +13,12 @@ import {
   diffJunctionMetadata,
   getTargetJunctionContract,
 } from '../../utils/schema-healing-junction.util';
+import { getErrorMessage } from '../../../../shared/utils/error.util';
+import { Logger } from '../../../../shared/logger';
 import { SystemCoreTableResolver } from '../system-core-table-resolver.service';
 
 export class MongoSchemaHealingService {
+  private readonly logger = new Logger(MongoSchemaHealingService.name);
   private readonly queryBuilderService: QueryBuilderService;
   private readonly systemCoreTableResolver: SystemCoreTableResolver;
   private readonly log: (message: string) => void;
@@ -23,6 +31,47 @@ export class MongoSchemaHealingService {
     this.queryBuilderService = deps.queryBuilderService;
     this.systemCoreTableResolver = deps.systemCoreTableResolver;
     this.log = deps.log;
+  }
+
+  async syncMongoCollectionValidators(
+    snapshot: SchemaHealingSnapshot,
+  ): Promise<number> {
+    const db = this.queryBuilderService.getMongoDb();
+    let synchronized = 0;
+    for (const [collectionName, definition] of Object.entries(snapshot)) {
+      try {
+        const current = await db
+          .listCollections({ name: collectionName })
+          .next();
+        if (!current) continue;
+        const validator = {
+          $jsonSchema: buildMongoValidationSchema(definition.columns ?? []),
+        };
+        const options = (current as any).options ?? {};
+        // MongoDB defaults an absent option to 'strict'/'error', so an unset value
+        // is drift from our contract and must be rewritten, not skipped.
+        if (
+          this.canonical(options.validator ?? {}) ===
+            this.canonical(validator) &&
+          options.validationLevel === MONGO_VALIDATION_LEVEL &&
+          options.validationAction === MONGO_VALIDATION_ACTION
+        ) {
+          continue;
+        }
+        await db.command({
+          collMod: collectionName,
+          validator,
+          validationLevel: MONGO_VALIDATION_LEVEL,
+          validationAction: MONGO_VALIDATION_ACTION,
+        });
+        synchronized++;
+      } catch (error) {
+        this.logger.warn(
+          `Mongo validator sync skipped for ${collectionName}: ${getErrorMessage(error)}`,
+        );
+      }
+    }
+    return synchronized;
   }
 
   async healMongoJunctionContracts(
@@ -656,6 +705,21 @@ export class MongoSchemaHealingService {
 
   private hasOwn(value: any, key: string): boolean {
     return Object.prototype.hasOwnProperty.call(value, key);
+  }
+
+  private canonical(value: unknown): string {
+    if (Array.isArray(value)) {
+      return `[${value.map((entry) => this.canonical(entry)).join(',')}]`;
+    }
+    if (value && typeof value === 'object') {
+      return `{${Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(
+          ([key, entry]) => `${JSON.stringify(key)}:${this.canonical(entry)}`,
+        )
+        .join(',')}}`;
+    }
+    return JSON.stringify(value);
   }
 
   async repairMongoPrimaryKeyColumns(): Promise<number> {

@@ -56,6 +56,29 @@ describe('SQL migration column generator', () => {
     ).toBe('BOOLEAN NOT NULL DEFAULT 0');
   });
 
+  it('maps longtext to the largest portable text storage', () => {
+    expect(
+      generateColumnDefinition(
+        {
+          name: 'sourceCode',
+          type: 'longtext',
+          isNullable: false,
+        },
+        'mysql',
+      ),
+    ).toBe('LONGTEXT NOT NULL');
+    expect(
+      generateColumnDefinition(
+        {
+          name: 'sourceCode',
+          type: 'longtext',
+          isNullable: false,
+        },
+        'postgres',
+      ),
+    ).toBe('TEXT NOT NULL');
+  });
+
   it('allows text defaults on PostgreSQL', () => {
     expect(supportsSqlColumnDefault({ type: 'text' }, 'postgres')).toBe(true);
     expect(

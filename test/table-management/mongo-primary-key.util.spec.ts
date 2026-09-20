@@ -24,8 +24,8 @@ describe('Mongo primary key metadata', () => {
   });
 
   it('requires the canonical ObjectId primary key type for Mongo metadata', () => {
-    expect(isMongoPrimaryKeyType('ObjectId')).toBe(true);
-    expect(isMongoPrimaryKeyType('objectId')).toBe(false);
+    expect(isMongoPrimaryKeyType('objectId')).toBe(true);
+    expect(isMongoPrimaryKeyType('ObjectId')).toBe(false);
     expect(isMongoPrimaryKeyType('uuid')).toBe(false);
     expect(isMongoPrimaryKeyType('int')).toBe(false);
   });

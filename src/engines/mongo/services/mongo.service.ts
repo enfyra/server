@@ -4,7 +4,6 @@ import {
   Collection,
   Document,
   ObjectId,
-  Long,
   ClientSession,
 } from 'mongodb';
 import { randomUUID } from 'crypto';
@@ -20,6 +19,11 @@ import { MongoHookManagerService } from './mongo-hook-manager.service';
 import type { MongoSagaSession } from './mongo-saga-session';
 import type { ISagaOptions } from './mongo-saga.types';
 import { mongoTopologySupportsNativeTransactions } from '../utils/mongo-native-transaction-topology.util';
+import {
+  coerceMongoLongWriteValue,
+  isMongoLongColumnType,
+} from '../utils/mongo-long-write.util';
+import { normalizeBsonLongs } from '../utils/normalize-mongo-document.util';
 import {
   buildMongoWritableFieldSet,
   getMongoStoredRelationField,
@@ -207,9 +211,12 @@ export class MongoService {
     this.mongoHookManagerService.addHook(
       'beforeUpdate',
       async (collectionName, data, context) => {
-        context.oldRecord = await this.collection(collectionName).findOne({
-          _id: context.recordId,
-        } as any, this.ioSignal());
+        context.oldRecord = await this.collection(collectionName).findOne(
+          {
+            _id: context.recordId,
+          } as any,
+          this.ioSignal(),
+        );
 
         const dataParsed = await this.parseJsonFields(collectionName, data);
         const dataWithRelations = await this.processNestedRelations(
@@ -281,7 +288,10 @@ export class MongoService {
     this.mongoHookManagerService.addHook(
       'beforeDelete',
       async (collectionName, filter, context) => {
-        const record = await this.collection(collectionName).findOne(filter, this.ioSignal());
+        const record = await this.collection(collectionName).findOne(
+          filter,
+          this.ioSignal(),
+        );
         context.deletedRecord = record;
         if (!record) {
           return filter;
@@ -443,6 +453,10 @@ export class MongoService {
           return (name: string, options?: any) =>
             mongoService.dropScopedCollection(name, options);
         }
+        if (prop === 'command') {
+          return (command: Record<string, unknown>, options?: any) =>
+            mongoService.runScopedCommand(command, options);
+        }
         const value = (target as any)[prop];
         return typeof value === 'function' ? value.bind(target) : value;
       },
@@ -602,6 +616,23 @@ export class MongoService {
     return this.getRawDb().dropCollection(name, options);
   }
 
+  private runScopedCommand(
+    command: Record<string, unknown>,
+    options?: any,
+  ): Promise<any> {
+    const collectionName = command.collMod;
+    const saga = this.appTxSessionAls.getStore();
+    if (saga && typeof collectionName === 'string') {
+      const { collMod: _collMod, ...modifyOptions } = command;
+      return saga.modifyCollection(collectionName, modifyOptions);
+    }
+    const native = this.nativeTxBundleAls.getStore();
+    return this.getRawDb().command(command, {
+      ...options,
+      ...(native ? { session: native.session } : {}),
+    });
+  }
+
   async runWithTransactionScope<T>(
     scope: MongoTransactionScope,
     callback: () => Promise<T>,
@@ -723,12 +754,16 @@ export class MongoService {
         continue;
       }
 
-      if (column.type === 'bigint' && typeof fieldValue === 'number') {
-        result[fieldName] = Long.fromNumber(fieldValue);
+      if (isMongoLongColumnType(column.type)) {
+        result[fieldName] = coerceMongoLongWriteValue(fieldValue);
         continue;
       }
 
-      if (column.type === 'simple-json' || column.type === 'json') {
+      if (
+        column.type === 'object' ||
+        column.type === 'simple-json' ||
+        column.type === 'json'
+      ) {
         if (typeof fieldValue === 'string') {
           try {
             result[fieldName] = JSON.parse(fieldValue);
@@ -1017,8 +1052,8 @@ export class MongoService {
         if (fieldValue === undefined || fieldValue === null) {
           continue;
         }
-        if (column.type === 'bigint' && typeof fieldValue === 'number') {
-          result[fieldName] = Long.fromNumber(fieldValue);
+        if (isMongoLongColumnType(column.type)) {
+          result[fieldName] = coerceMongoLongWriteValue(fieldValue);
           continue;
         }
         if (isTemporalColumnType(column.type)) {
@@ -1026,7 +1061,9 @@ export class MongoService {
           continue;
         }
         if (
-          (column.type === 'simple-json' || column.type === 'json') &&
+          (column.type === 'object' ||
+            column.type === 'simple-json' ||
+            column.type === 'json') &&
           typeof fieldValue === 'string'
         ) {
           try {
@@ -1243,12 +1280,13 @@ export class MongoService {
       collectionName: tableName,
       operation: 'select',
     };
-    return this.mongoHookManagerService.runHooks(
+    const hooked = await this.mongoHookManagerService.runHooks(
       'afterSelect',
       tableName,
       result,
       context,
     );
+    return normalizeBsonLongs(hooked);
   }
 
   async processNestedRelations(tableName: string, data: any): Promise<any> {
@@ -1410,7 +1448,10 @@ export class MongoService {
       filter,
       context,
     );
-    const count = await collection.countDocuments(processedFilter, this.ioSignal());
+    const count = await collection.countDocuments(
+      processedFilter,
+      this.ioSignal(),
+    );
     return this.mongoHookManagerService.runHooks(
       'afterSelect',
       collectionName,
@@ -1432,7 +1473,10 @@ export class NativeSessionCollection<T extends Document = Document> {
   ) {}
 
   find(filter: any, options?: any): any {
-    let cursor = this.base.find(filter as any, { ...options, session: this.session });
+    let cursor = this.base.find(filter as any, {
+      ...options,
+      session: this.session,
+    });
     let skipVal = 0;
     let limitVal: number | undefined;
     const self = {

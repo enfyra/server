@@ -28,10 +28,53 @@ describe('buildMongoValidationSchema', () => {
 
   it('does not require a non-nullable column that declares a default', () => {
     const schema = buildMongoValidationSchema([
-      { name: 'published', type: 'boolean', isNullable: false, defaultValue: false },
+      {
+        name: 'published',
+        type: 'boolean',
+        isNullable: false,
+        defaultValue: false,
+      },
     ]) as JsonSchema;
 
     expect(schema.required).toBeUndefined();
+  });
+
+  it('maps Mongo-native types to their BSON validator contracts', () => {
+    const schema = buildMongoValidationSchema([
+      { name: 'count', type: 'long', isNullable: false },
+      { name: 'payload', type: 'object', isNullable: false },
+      { name: 'items', type: 'array', isNullable: false },
+      { name: 'tags', type: 'array-select', isNullable: false },
+      { name: 'enabled', type: 'bool', isNullable: false },
+      { name: 'score', type: 'double', isNullable: false },
+    ]) as JsonSchema;
+
+    expect(schema.properties.count.bsonType).toBe('long');
+    expect(schema.properties.payload.bsonType).toBe('object');
+    expect(schema.properties.items.bsonType).toBe('array');
+    expect(schema.properties.tags.bsonType).toBe('array');
+    expect(schema.properties.enabled.bsonType).toBe('bool');
+    expect(schema.properties.score.bsonType).toBe('double');
+  });
+
+  it('accepts any BSON shape for the permissive json contract', () => {
+    const schema = buildMongoValidationSchema([
+      { name: 'uniques', type: 'json', isNullable: true },
+      { name: 'defaultValue', type: 'json', isNullable: false },
+    ]) as JsonSchema;
+
+    const uniques = schema.properties.uniques.bsonType as string[];
+    expect(uniques).toContain('object');
+    expect(uniques).toContain('array');
+    expect(uniques).toContain('string');
+    expect(uniques).toContain('bool');
+    expect(uniques).toContain('null');
+    expect(uniques).not.toContain('undefined');
+
+    const required = schema.properties.defaultValue.bsonType as string[];
+    expect(required).toContain('object');
+    expect(required).toContain('array');
+    expect(required).not.toContain('null');
   });
 
   it('skips identity and timestamp columns', () => {

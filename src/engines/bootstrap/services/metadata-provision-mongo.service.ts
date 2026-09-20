@@ -1,6 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '@enfyra/kernel';
-import { ObjectId, type Db } from 'mongodb';
+import { Long, ObjectId, type Db } from 'mongodb';
 import { BaseTableProcessor } from '../../../domain/bootstrap';
 import { buildMongoFullIndexSpecs } from '../../mongo';
 import { normalizeMongoPrimaryKeyColumn } from '../../../modules/table-management/utils/mongo-primary-key.util';
@@ -194,12 +194,30 @@ export class MetadataProvisionMongoService {
       } else if (col.defaultValue !== undefined && col.defaultValue !== null) {
         record[columnName] = col.defaultValue;
       } else if (col.isNullable === false) {
-        if (col.type === 'boolean') {
+        if (col.type === 'bool' || col.type === 'boolean') {
           record[columnName] = false;
-        } else if (col.type === 'int' || col.type === 'number') {
+        } else if (col.type === 'long' || col.type === 'bigint') {
+          record[columnName] = Long.ZERO;
+        } else if (
+          col.type === 'int' ||
+          col.type === 'double' ||
+          col.type === 'float' ||
+          col.type === 'number'
+        ) {
           record[columnName] = 0;
-        } else if (col.type === 'varchar' || col.type === 'text') {
+        } else if (
+          col.type === 'string' ||
+          col.type === 'varchar' ||
+          col.type === 'text' ||
+          col.type === 'longtext' ||
+          col.type === 'code' ||
+          col.type === 'richtext'
+        ) {
           record[columnName] = '';
+        } else if (col.type === 'object' || col.type === 'json') {
+          record[columnName] = {};
+        } else if (col.type === 'array' || col.type === 'array-select') {
+          record[columnName] = [];
         } else {
           record[columnName] = null;
         }

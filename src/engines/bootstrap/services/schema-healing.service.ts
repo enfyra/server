@@ -43,6 +43,7 @@ export class SchemaHealingService {
     this.explicitRepair = new ExplicitSchemaRepairService({
       ...healingDeps,
       log,
+      warn,
     });
     this.mongoHealing = new MongoSchemaHealingService({
       ...healingDeps,
@@ -58,11 +59,11 @@ export class SchemaHealingService {
 
   async runIfNeeded(): Promise<void> {
     await this.repairDerivedContracts();
-    await this.runExplicitRepairsIfNeeded();
+    await this.runExplicitRepairs();
   }
 
-  async runExplicitRepairsIfNeeded(): Promise<void> {
-    await this.explicitRepair.runExplicitRepairsIfNeeded();
+  async runExplicitRepairs(): Promise<void> {
+    await this.explicitRepair.runExplicitRepairs();
   }
 
   async repairDerivedContracts(): Promise<void> {
@@ -87,6 +88,9 @@ export class SchemaHealingService {
       );
     }
 
+    const mongoValidatorSyncCount = isMongoDB
+      ? await this.mongoHealing.syncMongoCollectionValidators(snapshot)
+      : 0;
     const mongoSystemShapeRepairCount = isMongoDB
       ? await this.mongoHealing.repairMongoSystemRecordShapes()
       : 0;
@@ -97,6 +101,11 @@ export class SchemaHealingService {
       ? 0
       : await this.sqlHealing.repairSqlMetadataEnumColumns();
 
+    if (mongoValidatorSyncCount > 0) {
+      this.logger.log(
+        `Synchronized Mongo validators on ${mongoValidatorSyncCount} collection(s)`,
+      );
+    }
     if (mongoSystemShapeRepairCount > 0) {
       this.logger.log(
         `Repaired Mongo system record shapes on ${mongoSystemShapeRepairCount} collection(s)`,

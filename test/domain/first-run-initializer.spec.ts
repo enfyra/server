@@ -1,8 +1,18 @@
 import { FirstRunInitializer } from '../../src/engines/bootstrap/services/first-run-initializer.service';
 import { DatabaseConfigService } from '../../src/shared/services';
+import { getEnfyraVersion } from '../../src/shared/utils/enfyra-version.util';
 
 describe('FirstRunInitializer', () => {
   const originalLogDisableConsole = process.env.LOG_DISABLE_CONSOLE;
+  const originalNoDeprecation = process.noDeprecation;
+  const originalStdoutColumnsDescriptor = Object.getOwnPropertyDescriptor(
+    process.stdout,
+    'columns',
+  );
+  const originalStdoutIsTTYDescriptor = Object.getOwnPropertyDescriptor(
+    process.stdout,
+    'isTTY',
+  );
   const bootstrapUnitOfWorkService = {
     run: jest.fn(async (callback: () => Promise<unknown>) => callback()),
   };
@@ -13,6 +23,26 @@ describe('FirstRunInitializer', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+    process.noDeprecation = originalNoDeprecation;
+    if (originalStdoutColumnsDescriptor) {
+      Object.defineProperty(
+        process.stdout,
+        'columns',
+        originalStdoutColumnsDescriptor,
+      );
+    } else {
+      delete (process.stdout as NodeJS.WriteStream & { columns?: number })
+        .columns;
+    }
+    if (originalStdoutIsTTYDescriptor) {
+      Object.defineProperty(
+        process.stdout,
+        'isTTY',
+        originalStdoutIsTTYDescriptor,
+      );
+    } else {
+      delete (process.stdout as NodeJS.WriteStream & { isTTY?: boolean }).isTTY;
+    }
     if (originalLogDisableConsole === undefined) {
       delete process.env.LOG_DISABLE_CONSOLE;
     } else {
@@ -22,6 +52,10 @@ describe('FirstRunInitializer', () => {
 
   it('renders bootstrap progress as a filled terminal bar', () => {
     delete process.env.LOG_DISABLE_CONSOLE;
+    Object.defineProperty(process.stdout, 'isTTY', {
+      configurable: true,
+      value: true,
+    });
     const write = jest
       .spyOn(process.stdout, 'write')
       .mockImplementation(() => true);
@@ -42,8 +76,58 @@ describe('FirstRunInitializer', () => {
     expect(bar?.match(/░/g)).toHaveLength(16);
   });
 
+  it('keeps progress output within the terminal width', () => {
+    delete process.env.LOG_DISABLE_CONSOLE;
+    Object.defineProperty(process.stdout, 'isTTY', {
+      configurable: true,
+      value: true,
+    });
+    Object.defineProperty(process.stdout, 'columns', {
+      configurable: true,
+      value: 80,
+    });
+    const write = jest
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
+    const initializer = new FirstRunInitializer({} as any);
+
+    (initializer as any).logProgress(
+      'Upgrading',
+      57.5,
+      'rename physical table schema_physical_migration_definition->enfyra_schema_physical_migration (91/100)',
+    );
+
+    const line = String(write.mock.calls[0][0]).slice(1);
+    expect(Array.from(line)).toHaveLength(79);
+    expect(line).toContain('…');
+    expect(line.endsWith('(91/100)')).toBe(true);
+  });
+
+  it('writes only terminal progress to non-TTY logs', () => {
+    delete process.env.LOG_DISABLE_CONSOLE;
+    Object.defineProperty(process.stdout, 'isTTY', {
+      configurable: true,
+      value: false,
+    });
+    const write = jest
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
+    const initializer = new FirstRunInitializer({} as any);
+
+    (initializer as any).logProgress('Upgrading', 57.5, 'healing metadata');
+    (initializer as any).logProgress('Upgrading', 100, 'completed');
+
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(String(write.mock.calls[0][0])).toContain('100% completed');
+    expect(String(write.mock.calls[0][0]).endsWith('\n')).toBe(true);
+  });
+
   it('derives percentage from completed weight while preserving change counts', () => {
     delete process.env.LOG_DISABLE_CONSOLE;
+    Object.defineProperty(process.stdout, 'isTTY', {
+      configurable: true,
+      value: true,
+    });
     const write = jest
       .spyOn(process.stdout, 'write')
       .mockImplementation(() => true);
@@ -111,7 +195,7 @@ describe('FirstRunInitializer', () => {
           calls.push('metadata-heal');
         }),
         repairDerivedContracts: jest.fn(async () => undefined),
-        runExplicitRepairsIfNeeded: jest.fn(async () => undefined),
+        runExplicitRepairs: jest.fn(async () => undefined),
       },
       routeDefinitionProcessor: {
         ensureMissingHandlers: jest.fn(async () => undefined),
@@ -171,12 +255,46 @@ describe('FirstRunInitializer', () => {
     (initializer as any).findFirstSetting = jest.fn(async () => ({
       id: 1,
       isInit: true,
+      enfyraVersion: getEnfyraVersion(),
     }));
 
     await (initializer as any).runWithProgress();
 
     expect(acquire).not.toHaveBeenCalled();
     expect(migrate).not.toHaveBeenCalled();
+  });
+
+  it('restores process.noDeprecation when a waiting peer observes completion', async () => {
+    process.noDeprecation = false;
+    const initializer = new FirstRunInitializer({
+      bootstrapUnitOfWorkService,
+      commonService: { delay: jest.fn() },
+      queryBuilderService: {},
+      cacheService: {
+        acquire: jest.fn(async () => false),
+        release: jest.fn(async () => undefined),
+      },
+      instanceService: { getInstanceId: jest.fn(() => 'test-instance') },
+      metadataCacheService: {},
+      metadataProvisionService: {},
+      metadataMigrationService: {},
+      dataProvisionService: {},
+      dataMigrationService: {},
+      schemaHealingService: {},
+      routeDefinitionProcessor: {},
+    } as any);
+    (initializer as any).findFirstSetting = jest
+      .fn()
+      .mockResolvedValueOnce({ id: 1, isInit: false })
+      .mockResolvedValue({
+        id: 1,
+        isInit: true,
+        enfyraVersion: getEnfyraVersion(),
+      });
+
+    await (initializer as any).runWithProgress();
+
+    expect(process.noDeprecation).toBe(false);
   });
 
   it('fails boot when another instance never finishes initialization', async () => {
@@ -243,7 +361,7 @@ describe('FirstRunInitializer', () => {
         ),
         repairSystemMetadataFromSnapshot: jest.fn(async () => undefined),
         repairDerivedContracts: jest.fn(async () => undefined),
-        runExplicitRepairsIfNeeded: jest.fn(async () => undefined),
+        runExplicitRepairs: jest.fn(async () => undefined),
       },
       routeDefinitionProcessor: {
         ensureMissingHandlers: jest.fn(async () => undefined),
@@ -305,7 +423,7 @@ describe('FirstRunInitializer', () => {
         ),
         repairSystemMetadataFromSnapshot: jest.fn(async () => undefined),
         repairDerivedContracts: jest.fn(async () => undefined),
-        runExplicitRepairsIfNeeded: jest.fn(async () => undefined),
+        runExplicitRepairs: jest.fn(async () => undefined),
       },
       routeDefinitionProcessor: {
         ensureMissingHandlers: jest.fn(async () => undefined),
@@ -355,7 +473,7 @@ describe('FirstRunInitializer', () => {
     await expect((initializer as any).markInitialized()).rejects.toThrow(
       /setting row was not updated/,
     );
-    expect(where).toHaveBeenCalledWith({ id: 1, isInit: false });
+    expect(where).toHaveBeenCalledWith({ id: 1, enfyraVersion: null });
   });
 
   it('fails finalization when the Mongo setting document disappears', async () => {
@@ -394,7 +512,7 @@ describe('FirstRunInitializer', () => {
       /setting document was not updated/,
     );
     expect(updateOne).toHaveBeenCalledWith(
-      { _id: 1, isInit: false },
+      { _id: 1, enfyraVersion: null },
       expect.any(Object),
     );
   });

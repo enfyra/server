@@ -1,1681 +1,1191 @@
-import type { BootstrapDataMigration } from '../engines/bootstrap/types';
+import type { VersionedDataMigration } from '../shared/types/schema-migration.types';
+import {
+  ENFYRA_COLUMN_TYPE_OPTIONS,
+  MONGO_COLUMN_TYPE_OPTIONS,
+} from '../shared/types/column-type.types';
 
-const dataMigration = {
-  "_deletedRecords": [
-    { "table": "enfyra_route", "filter": { "path": { "_eq": "/logs" } } },
-    { "table": "enfyra_route", "filter": { "path": { "_eq": "/logs/stats" } } },
-    { "table": "enfyra_route", "filter": { "path": { "_eq": "/logs/:filename" } } },
-    { "table": "enfyra_route", "filter": { "path": { "_eq": "/logs/:filename/tail" } } },
+/**
+ * Record targets that hold for every install regardless of the recorded version:
+ * per-table overrides and column defaults the snapshot cannot express because they
+ * belong to seeded rows rather than to a table contract. Re-applied on every
+ * upgrade, so they are idempotent by construction.
+ */
+export const standingDataCorrections = {
+  enfyra_method: [
     {
-      "table": "enfyra_pre_hook",
-      "filter": {
-        "name": {
-          "_eq": "User definition hash password"
-        }
-      }
-    },
-    {
-      "table": "enfyra_pre_hook",
-      "filter": {
-        "name": {
-          "_eq": "Me route hash password"
-        }
-      }
-    },
-    {
-      "table": "enfyra_pre_hook",
-      "filter": {
-        "name": {
-          "_eq": "Folder definition auto slug"
-        }
-      }
-    },
-    {
-      "table": "enfyra_pre_hook",
-      "filter": {
-        "name": {
-          "_eq": "Me route protected field guard"
-        }
-      }
-    },
-    {
-      "table": "enfyra_pre_hook",
-      "filter": {
-        "name": {
-          "_eq": "me_guard_protected_user_fields"
-        }
-      }
-    },
-    {
-      "table": "enfyra_route",
-      "filter": {
-        "path": {
-          "_eq": "/api-docs"
-        }
-      }
-    },
-    {
-      "table": "enfyra_route",
-      "filter": {
-        "path": {
-          "_eq": "/admin/metadata-sync/:id"
-        }
-      }
-    },
-    {
-      "table": "enfyra_route",
-      "filter": {
-        "path": {
-          "_eq": "/admin/flow/test-step"
-        }
-      }
-    },
-    {
-      "table": "enfyra_route",
-      "filter": {
-        "path": {
-          "_eq": "/ai_config_definition"
-        }
-      }
-    },
-    {
-      "table": "enfyra_route",
-      "filter": {
-        "path": {
-          "_eq": "/ai_conversation_definition"
-        }
-      }
-    },
-    {
-      "table": "enfyra_route",
-      "filter": {
-        "path": {
-          "_eq": "/ai_message_definition"
-        }
-      }
-    },
-    {
-      "table": "enfyra_route",
-      "filter": {
-        "path": {
-          "_eq": "/ai-agent/chat"
-        }
-      }
-    },
-    {
-      "table": "enfyra_route",
-      "filter": {
-        "path": {
-          "_eq": "/ai-agent/chat/stream"
-        }
-      }
-    },
-    {
-      "table": "enfyra_route",
-      "filter": {
-        "path": {
-          "_eq": "/ai-agent/cancel"
-        }
-      }
-    },
-    {
-      "table": "enfyra_menu",
-      "filter": {
-        "path": {
-          "_eq": "/ai"
-        }
-      }
-    },
-    {
-      "table": "enfyra_menu",
-      "filter": {
-        "path": {
-          "_eq": "/ai-agent/chat"
-        }
-      }
-    },
-    {
-      "table": "enfyra_menu",
-      "filter": {
-        "path": {
-          "_eq": "/ai-agent/config"
-        }
-      }
-    },
-    {
-      "table": "enfyra_menu",
-      "filter": {
-        "path": {
-          "_eq": "/settings/field-permissions"
-        }
-      }
-    },
-    {
-      "table": "enfyra_menu",
-      "filter": {
-        "path": {
-          "_eq": "/settings/admin/cache"
-        }
-      }
-    },
-    {
-      "table": "enfyra_menu",
-      "filter": {
-        "path": {
-          "_eq": "/settings/routings"
-        }
-      }
-    },
-    {
-      "table": "enfyra_websocket_event",
-      "filter": {
-        "eventName": {
-          "_eq": "ping"
-        }
-      }
-    },
-    {
-      "table": "enfyra_route",
-      "filter": {
-        "path": {
-          "_eq": "/admin/reload/swagger"
-        }
-      }
-    }
-  ],
-  "enfyra_method": [
-    {
-      "_unique": {
-        "name": {
-          "_eq": "GET"
-        }
-      },
-      "buttonColor": "#dbeafe",
-      "textColor": "#1d4ed8"
-    },
-    {
-      "_unique": {
-        "name": {
-          "_eq": "POST"
-        }
-      },
-      "buttonColor": "#dcfce7",
-      "textColor": "#15803d"
-    },
-    {
-      "_unique": {
-        "name": {
-          "_eq": "PATCH"
-        }
-      },
-      "buttonColor": "#fef3c7",
-      "textColor": "#b45309"
-    },
-    {
-      "_unique": {
-        "name": {
-          "_eq": "DELETE"
-        }
-      },
-      "buttonColor": "#fee2e2",
-      "textColor": "#b91c1c"
-    }
-  ],
-  "enfyra_field_permission": [
-    {
-      "_unique": {
-        "_and": [
-          {
-            "action": {
-              "_eq": "update"
-            }
-          },
-          {
-            "role": {
-              "_eq": null
-            }
-          },
-          {
-            "column": {
-              "name": {
-                "_eq": "password"
-              },
-              "table": {
-                "name": {
-                  "_eq": "enfyra_user"
-                }
-              }
-            }
-          },
-          {
-            "description": {
-              "_eq": "Allow authenticated user to update own password via /me"
-            }
-          }
-        ]
-      },
-      "isSystem": true
-    }
-  ],
-  "enfyra_menu": [
-    { "_unique": { "path": { "_eq": "/settings/admin/logs" } }, "description": "Trace system errors and user script logs", "permission": { "or": [{ "route": "/enfyra_system_error", "methods": ["GET"] }, { "route": "/enfyra_user_log", "methods": ["GET"] }] } },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/dashboard"
-        }
-      },
-      "isPublic": true,
-      "type": "Menu",
-      "isSystem": true
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/data"
-        }
-      },
-      "isPublic": false,
-      "permission": {
-        "route": "/enfyra_route",
-        "methods": [
-          "GET"
-        ]
-      }
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/storage"
-        }
-      },
-      "isPublic": false,
-      "permission": {
-        "or": [
-          {
-            "route": "/enfyra_file",
-            "methods": [
-              "GET"
-            ]
-          },
-          {
-            "route": "/enfyra_storage_config",
-            "methods": [
-              "GET"
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/storage/config"
-        }
-      },
-      "isPublic": false,
-      "permission": {
-        "or": [
-          {
-            "route": "/enfyra_storage_config",
-            "methods": [
-              "GET"
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/settings"
-        }
-      },
-      "isPublic": false,
-      "permission": {
-        "or": [
-          {
-            "route": "/enfyra_setting",
-            "methods": [
-              "GET"
-            ]
-          },
-          {
-            "route": "/enfyra_menu",
-            "methods": [
-              "GET"
-            ]
-          },
-          {
-            "route": "/enfyra_extension",
-            "methods": [
-              "GET"
-            ]
-          },
-          {
-            "route": "/enfyra_bootstrap_script",
-            "methods": [
-              "GET"
-            ]
-          },
-          {
-            "route": "/enfyra_user",
-            "methods": [
-              "GET"
-            ]
-          },
-          {
-            "route": "/enfyra_role",
-            "methods": [
-              "GET"
-            ]
-          },
-          {
-            "route": "/enfyra_websocket",
-            "methods": [
-              "GET"
-            ]
-          },
-          {
-            "route": "/enfyra_oauth_config",
-            "methods": [
-              "GET"
-            ]
-          },
-          {
-            "route": "/enfyra_oauth_account",
-            "methods": [
-              "GET"
-            ]
-          },
-          {
-            "route": "/enfyra_system_error",
-            "methods": [
-              "GET"
-            ]
-          },
-          {
-            "route": "/enfyra_route",
-            "methods": [
-              "GET"
-            ]
-          },
-          {
-            "route": "/enfyra_flow",
-            "methods": [
-              "GET"
-            ]
-          },
-          {
-            "route": "/enfyra_guard",
-            "methods": [
-              "GET"
-            ]
-          },
-          {
-            "route": "/enfyra_method",
-            "methods": [
-              "GET"
-            ]
-          },
-          {
-            "route": "/enfyra_auth_header",
-            "methods": [
-              "GET"
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/packages/install"
-        }
-      },
-      "isPublic": false,
-      "permission": {
-        "route": "/enfyra_package",
-        "methods": [
-          "GET"
-        ]
-      }
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/packages/app"
-        }
-      },
-      "isPublic": false,
-      "permission": {
-        "route": "/enfyra_package",
-        "methods": [
-          "GET"
-        ]
-      }
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/packages/backend"
-        }
-      },
-      "isPublic": false,
-      "permission": {
-        "route": "/enfyra_package",
-        "methods": [
-          "GET"
-        ]
-      }
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/settings/api-tester"
-        }
-      },
-      "isPublic": false,
-      "permission": {
-        "or": [
-          {
-            "route": "/enfyra_route",
-            "methods": [
-              "GET"
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/settings/admin/runtime"
-        }
-      },
-      "isPublic": false,
-      "path": "/settings/runtime"
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/settings/auth-headers"
-        }
-      },
-      "type": "Menu",
-      "label": "Authentication Headers",
-      "icon": "lucide:key-round",
-      "isEnabled": true,
-      "isPublic": false,
-      "isSystem": true,
-      "description": "Configure accepted authentication header keys and their priority",
-      "order": 12,
-      "permission": {
-        "or": [
-          {
-            "route": "/enfyra_auth_header",
-            "methods": [
-              "GET"
-            ]
-          }
-        ]
-      }
-    }
-  ],
-  "enfyra_post_hook": [
-    {
-      "_unique": {
-        "name": {
-          "_eq": "Default response"
-        }
-      },
-      "sourceCode": "@DATA = { statusCode: @STATUS, ...@DATA, message: 'Success'}",
-      "scriptLanguage": "typescript"
-    }
-  ],
-  "enfyra_route": [
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_relation"
-        }
-      },
-      "availableMethods": [
-        "GET"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_auth_header"
-        }
-      },
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:key-round",
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_menu_permission"
-        }
-      },
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:menu",
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/admin/reload"
-        }
-      },
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:refresh-cw",
-      "availableMethods": [
-        "POST"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/admin/reload/metadata"
-        }
-      },
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:refresh-cw",
-      "availableMethods": [
-        "POST"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/admin/reload/routes"
-        }
-      },
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:refresh-cw",
-      "availableMethods": [
-        "POST"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/admin/reload/graphql"
-        }
-      },
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:refresh-cw",
-      "availableMethods": [
-        "POST"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/admin/reload/guards"
-        }
-      },
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:refresh-cw",
-      "availableMethods": [
-        "POST"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/admin/script/validate"
-        }
-      },
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:code-2",
-      "availableMethods": [
-        "POST"
-      ]
-    },
-      {
-        "_unique": {
-          "path": {
-            "_eq": "/admin/menu/reorder"
-          }
-      },
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:list-ordered",
-        "availableMethods": [
-          "POST"
-        ]
-      },
-      {
-        "_unique": {
-          "path": {
-            "_eq": "/admin/auth-header/reorder"
-          }
+      _unique: {
+        name: {
+          _eq: 'GET',
         },
-        "isEnabled": true,
-        "isSystem": true,
-        "icon": "lucide:list-ordered",
-        "availableMethods": [
-          "POST"
-        ]
       },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/admin/test/run"
-        }
-      },
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:flask-conical",
-      "availableMethods": [
-        "POST"
-      ]
+      buttonColor: '#dbeafe',
+      textColor: '#1d4ed8',
     },
     {
-      "_unique": {
-        "path": {
-          "_eq": "/admin/flow/trigger/:id"
-        }
+      _unique: {
+        name: {
+          _eq: 'POST',
+        },
       },
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:play",
-      "availableMethods": [
-        "POST"
-      ]
+      buttonColor: '#dcfce7',
+      textColor: '#15803d',
     },
     {
-      "_unique": {
-        "path": {
-          "_eq": "/admin/redis/overview"
-        }
+      _unique: {
+        name: {
+          _eq: 'PATCH',
+        },
       },
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:database-zap",
-      "availableMethods": [
-        "GET"
-      ]
+      buttonColor: '#fef3c7',
+      textColor: '#b45309',
     },
     {
-      "_unique": {
-        "path": {
-          "_eq": "/admin/redis/keys"
-        }
+      _unique: {
+        name: {
+          _eq: 'DELETE',
+        },
       },
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:key-round",
-      "availableMethods": [
-        "GET"
-      ]
+      buttonColor: '#fee2e2',
+      textColor: '#b91c1c',
     },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/admin/redis/key"
-        }
-      },
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:key-round",
-      "availableMethods": [
-        "GET",
-        "POST",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/admin/redis/key/ttl"
-        }
-      },
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:timer",
-      "availableMethods": [
-        "PATCH"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_package"
-        }
-      },
-      "publicMethods": [],
-      "skipRoleGuardMethods": [
-        "GET"
-      ],
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_cors_origin"
-        }
-      },
-      "publicMethods": [
-        "GET"
-      ],
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/auth/login"
-        }
-      },
-      "publicMethods": [
-        "POST"
-      ],
-      "availableMethods": [
-        "POST"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/auth/logout"
-        }
-      },
-      "publicMethods": [
-        "POST"
-      ],
-      "availableMethods": [
-        "POST"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/auth/refresh-token"
-        }
-      },
-      "publicMethods": [
-        "POST"
-      ],
-      "availableMethods": [
-        "POST"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/auth/api-tokens"
-        }
-      },
-      "skipRoleGuardMethods": [
-        "GET",
-        "POST"
-      ],
-      "availableMethods": [
-        "GET",
-        "POST"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/auth/api-tokens/:id"
-        }
-      },
-      "skipRoleGuardMethods": [
-        "DELETE"
-      ],
-      "availableMethods": [
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/auth/token/exchange"
-        }
-      },
-      "publicMethods": [
-        "POST"
-      ],
-      "availableMethods": [
-        "POST"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/auth/oauth/exchange"
-        }
-      },
-      "publicMethods": [
-        "POST"
-      ],
-      "availableMethods": [
-        "POST"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/auth/set-cookies"
-        }
-      },
-      "publicMethods": [
-        "GET"
-      ],
-      "availableMethods": [
-        "GET"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/auth/providers"
-        }
-      },
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:route",
-      "publicMethods": [
-        "GET"
-      ],
-      "availableMethods": [
-        "GET"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/auth/:provider"
-        }
-      },
-      "publicMethods": [
-        "GET"
-      ],
-      "availableMethods": [
-        "GET"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/auth/:provider/callback"
-        }
-      },
-      "publicMethods": [
-        "GET"
-      ],
-      "availableMethods": [
-        "GET"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/me"
-        }
-      },
-      "publicMethods": [],
-      "skipRoleGuardMethods": [
-        "GET",
-        "PATCH"
-      ],
-      "availableMethods": [
-        "GET",
-        "PATCH"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/assets/:id"
-        }
-      },
-      "publicMethods": [
-        "GET"
-      ],
-      "availableMethods": [
-        "GET"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/metadata"
-        }
-      },
-      "description": "Get database and Enfyra runtime metadata context",
-      "publicMethods": [],
-      "skipRoleGuardMethods": [
-        "GET"
-      ],
-      "availableMethods": [
-        "GET"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/metadata/:name"
-        }
-      },
-      "publicMethods": [],
-      "skipRoleGuardMethods": [
-        "GET"
-      ],
-      "availableMethods": [
-        "GET"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_folder/tree"
-        }
-      },
-      "publicMethods": [],
-      "skipRoleGuardMethods": [
-        "GET"
-      ],
-      "availableMethods": [
-        "GET"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_route"
-        }
-      },
-      "publicMethods": [],
-      "skipRoleGuardMethods": [
-        "GET"
-      ],
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_table"
-        }
-      },
-      "publicMethods": []
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_setting"
-        }
-      },
-      "publicMethods": [],
-      "skipRoleGuardMethods": [
-        "GET"
-      ],
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/me/oauth-accounts"
-        }
-      },
-      "publicMethods": [],
-      "skipRoleGuardMethods": [
-        "GET"
-      ],
-      "availableMethods": [
-        "GET"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/graphql-schema"
-        }
-      },
-      "publicMethods": [],
-      "skipRoleGuardMethods": [
-        "GET"
-      ],
-      "availableMethods": [
-        "GET"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_method"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_pre_hook"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_post_hook"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_route_handler"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_route_permission"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_menu"
-        }
-      },
-      "publicMethods": [],
-      "skipRoleGuardMethods": [
-        "GET"
-      ],
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_extension"
-        }
-      },
-      "publicMethods": [],
-      "skipRoleGuardMethods": [
-        "GET"
-      ],
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_extension/preview"
-        }
-      },
-      "publicMethods": []
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_bootstrap_script"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_storage_config"
-        }
-      },
-      "publicMethods": [],
-      "skipRoleGuardMethods": [
-        "GET"
-      ],
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_oauth_config"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_oauth_account"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_websocket"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_websocket_event"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_flow"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_flow_step"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_flow_execution"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_flow_trigger"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_file_permission"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_guard_rule"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_user"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_role"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_folder"
-        }
-      },
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_graphql_operation"
-        }
-      },
-      "mainTable": "enfyra_graphql_operation",
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:braces",
-      "availableMethods": [
-        "GET"
-      ]
-    },
-    {
-      "_unique": {
-        "path": {
-          "_eq": "/enfyra_graphql_permission"
-        }
-      },
-      "mainTable": "enfyra_graphql_permission",
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:shield-check",
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    }
   ],
-  "enfyra_graphql_operation": [
+  enfyra_field_permission: [
     {
-      "_unique": {
-        "name": {
-          "_eq": "QUERY"
-        }
+      _unique: {
+        _and: [
+          {
+            action: {
+              _eq: 'update',
+            },
+          },
+          {
+            role: {
+              _eq: null,
+            },
+          },
+          {
+            column: {
+              name: {
+                _eq: 'password',
+              },
+              table: {
+                name: {
+                  _eq: 'enfyra_user',
+                },
+              },
+            },
+          },
+          {
+            description: {
+              _eq: 'Allow authenticated user to update own password via /me',
+            },
+          },
+        ],
       },
-      "name": "QUERY",
-      "label": "Query",
-      "description": "Read GraphQL records, relations, and aggregate metadata",
-      "order": 0,
-      "isSystem": true
+      isSystem: true,
     },
-    {
-      "_unique": {
-        "name": {
-          "_eq": "CREATE"
-        }
-      },
-      "name": "CREATE",
-      "label": "Create",
-      "description": "Create records through GraphQL mutations",
-      "order": 10,
-      "isSystem": true
-    },
-    {
-      "_unique": {
-        "name": {
-          "_eq": "UPDATE"
-        }
-      },
-      "name": "UPDATE",
-      "label": "Update",
-      "description": "Update records through GraphQL mutations",
-      "order": 20,
-      "isSystem": true
-    },
-    {
-      "_unique": {
-        "name": {
-          "_eq": "DELETE"
-        }
-      },
-      "name": "DELETE",
-      "label": "Delete",
-      "description": "Delete records through GraphQL mutations",
-      "order": 30,
-      "isSystem": true
-    }
   ],
-  "enfyra_graphql": [
+  enfyra_menu: [
     {
-      "_unique": {
-        "table": {
-          "name": {
-            "_eq": "enfyra_table"
-          }
-        }
+      _unique: { path: { _eq: '/settings/admin/logs' } },
+      description: 'Trace system errors and user script logs',
+      permission: {
+        or: [
+          { route: '/enfyra_system_error', methods: ['GET'] },
+          { route: '/enfyra_user_log', methods: ['GET'] },
+        ],
       },
-      "isEnabled": true,
-      "isSystem": true
     },
     {
-      "_unique": {
-        "table": {
-          "name": {
-            "_eq": "enfyra_user"
-          }
-        }
+      _unique: {
+        path: {
+          _eq: '/dashboard',
+        },
       },
-      "isEnabled": true,
-      "isSystem": true
+      isPublic: true,
+      type: 'Menu',
+      isSystem: true,
     },
     {
-      "_unique": {
-        "table": {
-          "name": {
-            "_eq": "enfyra_role"
-          }
-        }
+      _unique: {
+        path: {
+          _eq: '/data',
+        },
       },
-      "isEnabled": true,
-      "isSystem": true
+      isPublic: false,
+      permission: {
+        route: '/enfyra_route',
+        methods: ['GET'],
+      },
     },
     {
-      "_unique": {
-        "table": {
-          "name": {
-            "_eq": "enfyra_setting"
-          }
-        }
+      _unique: {
+        path: {
+          _eq: '/storage',
+        },
       },
-      "isEnabled": true,
-      "isSystem": true
+      isPublic: false,
+      permission: {
+        or: [
+          {
+            route: '/enfyra_file',
+            methods: ['GET'],
+          },
+          {
+            route: '/enfyra_storage_config',
+            methods: ['GET'],
+          },
+        ],
+      },
     },
     {
-      "_unique": {
-        "table": {
-          "name": {
-            "_eq": "enfyra_folder"
-          }
-        }
+      _unique: {
+        path: {
+          _eq: '/storage/config',
+        },
       },
-      "isEnabled": true,
-      "isSystem": true
-    }
+      isPublic: false,
+      permission: {
+        or: [
+          {
+            route: '/enfyra_storage_config',
+            methods: ['GET'],
+          },
+        ],
+      },
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/settings',
+        },
+      },
+      isPublic: false,
+      permission: {
+        or: [
+          {
+            route: '/enfyra_setting',
+            methods: ['GET'],
+          },
+          {
+            route: '/enfyra_menu',
+            methods: ['GET'],
+          },
+          {
+            route: '/enfyra_extension',
+            methods: ['GET'],
+          },
+          {
+            route: '/enfyra_bootstrap_script',
+            methods: ['GET'],
+          },
+          {
+            route: '/enfyra_user',
+            methods: ['GET'],
+          },
+          {
+            route: '/enfyra_role',
+            methods: ['GET'],
+          },
+          {
+            route: '/enfyra_websocket',
+            methods: ['GET'],
+          },
+          {
+            route: '/enfyra_oauth_config',
+            methods: ['GET'],
+          },
+          {
+            route: '/enfyra_oauth_account',
+            methods: ['GET'],
+          },
+          {
+            route: '/enfyra_system_error',
+            methods: ['GET'],
+          },
+          {
+            route: '/enfyra_route',
+            methods: ['GET'],
+          },
+          {
+            route: '/enfyra_flow',
+            methods: ['GET'],
+          },
+          {
+            route: '/enfyra_guard',
+            methods: ['GET'],
+          },
+          {
+            route: '/enfyra_method',
+            methods: ['GET'],
+          },
+          {
+            route: '/enfyra_auth_header',
+            methods: ['GET'],
+          },
+        ],
+      },
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/packages/install',
+        },
+      },
+      isPublic: false,
+      permission: {
+        route: '/enfyra_package',
+        methods: ['GET'],
+      },
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/packages/app',
+        },
+      },
+      isPublic: false,
+      permission: {
+        route: '/enfyra_package',
+        methods: ['GET'],
+      },
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/packages/backend',
+        },
+      },
+      isPublic: false,
+      permission: {
+        route: '/enfyra_package',
+        methods: ['GET'],
+      },
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/settings/api-tester',
+        },
+      },
+      isPublic: false,
+      permission: {
+        or: [
+          {
+            route: '/enfyra_route',
+            methods: ['GET'],
+          },
+        ],
+      },
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/settings/admin/runtime',
+        },
+      },
+      isPublic: false,
+      path: '/settings/runtime',
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/settings/auth-headers',
+        },
+      },
+      type: 'Menu',
+      label: 'Authentication Headers',
+      icon: 'lucide:key-round',
+      isEnabled: true,
+      isPublic: false,
+      isSystem: true,
+      description:
+        'Configure accepted authentication header keys and their priority',
+      order: 12,
+      permission: {
+        or: [
+          {
+            route: '/enfyra_auth_header',
+            methods: ['GET'],
+          },
+        ],
+      },
+    },
   ],
-  "enfyra_table": [
+  enfyra_post_hook: [
     {
-      "_unique": {
-        "name": {
-          "_eq": "enfyra_file"
-        }
+      _unique: {
+        name: {
+          _eq: 'Default response',
+        },
       },
-      "validateBody": false
-    }
+      sourceCode:
+        "@DATA = { statusCode: @STATUS, ...@DATA, message: 'Success'}",
+      scriptLanguage: 'typescript',
+    },
   ],
-  "enfyra_column": [
+  enfyra_route: [
     {
-      "_unique": {
-        "_and": [
-          {
-            "table": {
-              "name": {
-                "_eq": "enfyra_column"
-              }
-            }
-          },
-          {
-            "name": {
-              "_eq": "type"
-            }
-          }
-        ]
+      _unique: {
+        path: {
+          _eq: '/enfyra_relation',
+        },
       },
-      "options": [
-        "int",
-        "varchar",
-        "text",
-        "boolean",
-        "uuid",
-        "ObjectId",
-        "bigint",
-        "date",
-        "datetime",
-        "timestamp",
-        "enum",
-        "simple-json",
-        "code",
-        "array-select",
-        "richtext",
-        "float"
-      ]
+      availableMethods: ['GET'],
     },
     {
-      "_unique": {
-        "_and": [
-          {
-            "table": {
-              "name": {
-                "_eq": "enfyra_route"
-              }
-            }
-          },
-          {
-            "name": {
-              "_eq": "icon"
-            }
-          }
-        ]
+      _unique: {
+        path: {
+          _eq: '/enfyra_auth_header',
+        },
       },
-      "defaultValue": "lucide:route"
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:key-round',
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
     },
     {
-      "_unique": {
-        "_and": [
-          {
-            "table": {
-              "name": {
-                "_eq": "enfyra_menu"
-              }
-            }
-          },
-          {
-            "name": {
-              "_eq": "icon"
-            }
-          }
-        ]
+      _unique: {
+        path: {
+          _eq: '/enfyra_menu_permission',
+        },
       },
-      "defaultValue": "lucide:menu"
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:menu',
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
     },
     {
-      "_unique": {
-        "_and": [
-          {
-            "table": {
-              "name": {
-                "_eq": "enfyra_extension"
-              }
-            }
-          },
-          {
-            "name": {
-              "_eq": "type"
-            }
-          }
-        ]
+      _unique: {
+        path: {
+          _eq: '/admin/reload',
+        },
       },
-      "options": [
-        "page",
-        "widget",
-        "global"
-      ],
-      "description": "Type of extension (full page, embeddable widget, or global shell extension)"
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:refresh-cw',
+      availableMethods: ['POST'],
     },
     {
-      "_unique": {
-        "_and": [
-          {
-            "table": {
-              "name": {
-                "_eq": "enfyra_folder"
-              }
-            }
-          },
-          {
-            "name": {
-              "_eq": "icon"
-            }
-          }
-        ]
+      _unique: {
+        path: {
+          _eq: '/admin/reload/metadata',
+        },
       },
-      "defaultValue": "lucide:folder"
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:refresh-cw',
+      availableMethods: ['POST'],
     },
     {
-      "_unique": {
-        "_and": [
+      _unique: {
+        path: {
+          _eq: '/admin/reload/routes',
+        },
+      },
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:refresh-cw',
+      availableMethods: ['POST'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/admin/reload/graphql',
+        },
+      },
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:refresh-cw',
+      availableMethods: ['POST'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/admin/reload/guards',
+        },
+      },
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:refresh-cw',
+      availableMethods: ['POST'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/admin/script/validate',
+        },
+      },
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:code-2',
+      availableMethods: ['POST'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/admin/menu/reorder',
+        },
+      },
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:list-ordered',
+      availableMethods: ['POST'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/admin/auth-header/reorder',
+        },
+      },
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:list-ordered',
+      availableMethods: ['POST'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/admin/test/run',
+        },
+      },
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:flask-conical',
+      availableMethods: ['POST'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/admin/flow/trigger/:id',
+        },
+      },
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:play',
+      availableMethods: ['POST'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/admin/redis/overview',
+        },
+      },
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:database-zap',
+      availableMethods: ['GET'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/admin/redis/keys',
+        },
+      },
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:key-round',
+      availableMethods: ['GET'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/admin/redis/key',
+        },
+      },
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:key-round',
+      availableMethods: ['GET', 'POST', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/admin/redis/key/ttl',
+        },
+      },
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:timer',
+      availableMethods: ['PATCH'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_package',
+        },
+      },
+      publicMethods: [],
+      skipRoleGuardMethods: ['GET'],
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_cors_origin',
+        },
+      },
+      publicMethods: ['GET'],
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/auth/login',
+        },
+      },
+      publicMethods: ['POST'],
+      availableMethods: ['POST'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/auth/logout',
+        },
+      },
+      publicMethods: ['POST'],
+      availableMethods: ['POST'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/auth/refresh-token',
+        },
+      },
+      publicMethods: ['POST'],
+      availableMethods: ['POST'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/auth/api-tokens',
+        },
+      },
+      skipRoleGuardMethods: ['GET', 'POST'],
+      availableMethods: ['GET', 'POST'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/auth/api-tokens/:id',
+        },
+      },
+      skipRoleGuardMethods: ['DELETE'],
+      availableMethods: ['DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/auth/token/exchange',
+        },
+      },
+      publicMethods: ['POST'],
+      availableMethods: ['POST'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/auth/oauth/exchange',
+        },
+      },
+      publicMethods: ['POST'],
+      availableMethods: ['POST'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/auth/set-cookies',
+        },
+      },
+      publicMethods: ['GET'],
+      availableMethods: ['GET'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/auth/providers',
+        },
+      },
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:route',
+      publicMethods: ['GET'],
+      availableMethods: ['GET'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/auth/:provider',
+        },
+      },
+      publicMethods: ['GET'],
+      availableMethods: ['GET'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/auth/:provider/callback',
+        },
+      },
+      publicMethods: ['GET'],
+      availableMethods: ['GET'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/me',
+        },
+      },
+      publicMethods: [],
+      skipRoleGuardMethods: ['GET', 'PATCH'],
+      availableMethods: ['GET', 'PATCH'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/assets/:id',
+        },
+      },
+      publicMethods: ['GET'],
+      availableMethods: ['GET'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/metadata',
+        },
+      },
+      description: 'Get database and Enfyra runtime metadata context',
+      publicMethods: [],
+      skipRoleGuardMethods: ['GET'],
+      availableMethods: ['GET'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/metadata/:name',
+        },
+      },
+      publicMethods: [],
+      skipRoleGuardMethods: ['GET'],
+      availableMethods: ['GET'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_folder/tree',
+        },
+      },
+      publicMethods: [],
+      skipRoleGuardMethods: ['GET'],
+      availableMethods: ['GET'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_route',
+        },
+      },
+      publicMethods: [],
+      skipRoleGuardMethods: ['GET'],
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_table',
+        },
+      },
+      publicMethods: [],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_setting',
+        },
+      },
+      publicMethods: [],
+      skipRoleGuardMethods: ['GET'],
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/me/oauth-accounts',
+        },
+      },
+      publicMethods: [],
+      skipRoleGuardMethods: ['GET'],
+      availableMethods: ['GET'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/graphql-schema',
+        },
+      },
+      publicMethods: [],
+      skipRoleGuardMethods: ['GET'],
+      availableMethods: ['GET'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_method',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_pre_hook',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_post_hook',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_route_handler',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_route_permission',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_menu',
+        },
+      },
+      publicMethods: [],
+      skipRoleGuardMethods: ['GET'],
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_extension',
+        },
+      },
+      publicMethods: [],
+      skipRoleGuardMethods: ['GET'],
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_extension/preview',
+        },
+      },
+      publicMethods: [],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_bootstrap_script',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_storage_config',
+        },
+      },
+      publicMethods: [],
+      skipRoleGuardMethods: ['GET'],
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_oauth_config',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_oauth_account',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_websocket',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_websocket_event',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_flow',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_flow_step',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_flow_execution',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_flow_trigger',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_file_permission',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_guard_rule',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_user',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_role',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_folder',
+        },
+      },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_graphql_operation',
+        },
+      },
+      mainTable: 'enfyra_graphql_operation',
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:braces',
+      availableMethods: ['GET'],
+    },
+    {
+      _unique: {
+        path: {
+          _eq: '/enfyra_graphql_permission',
+        },
+      },
+      mainTable: 'enfyra_graphql_permission',
+      isEnabled: true,
+      isSystem: true,
+      icon: 'lucide:shield-check',
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+  ],
+  enfyra_graphql_operation: [
+    {
+      _unique: {
+        name: {
+          _eq: 'QUERY',
+        },
+      },
+      name: 'QUERY',
+      label: 'Query',
+      description: 'Read GraphQL records, relations, and aggregate metadata',
+      order: 0,
+      isSystem: true,
+    },
+    {
+      _unique: {
+        name: {
+          _eq: 'CREATE',
+        },
+      },
+      name: 'CREATE',
+      label: 'Create',
+      description: 'Create records through GraphQL mutations',
+      order: 10,
+      isSystem: true,
+    },
+    {
+      _unique: {
+        name: {
+          _eq: 'UPDATE',
+        },
+      },
+      name: 'UPDATE',
+      label: 'Update',
+      description: 'Update records through GraphQL mutations',
+      order: 20,
+      isSystem: true,
+    },
+    {
+      _unique: {
+        name: {
+          _eq: 'DELETE',
+        },
+      },
+      name: 'DELETE',
+      label: 'Delete',
+      description: 'Delete records through GraphQL mutations',
+      order: 30,
+      isSystem: true,
+    },
+  ],
+  enfyra_graphql: [
+    {
+      _unique: {
+        table: {
+          name: {
+            _eq: 'enfyra_table',
+          },
+        },
+      },
+      isEnabled: true,
+      isSystem: true,
+    },
+    {
+      _unique: {
+        table: {
+          name: {
+            _eq: 'enfyra_user',
+          },
+        },
+      },
+      isEnabled: true,
+      isSystem: true,
+    },
+    {
+      _unique: {
+        table: {
+          name: {
+            _eq: 'enfyra_role',
+          },
+        },
+      },
+      isEnabled: true,
+      isSystem: true,
+    },
+    {
+      _unique: {
+        table: {
+          name: {
+            _eq: 'enfyra_setting',
+          },
+        },
+      },
+      isEnabled: true,
+      isSystem: true,
+    },
+    {
+      _unique: {
+        table: {
+          name: {
+            _eq: 'enfyra_folder',
+          },
+        },
+      },
+      isEnabled: true,
+      isSystem: true,
+    },
+  ],
+  enfyra_table: [
+    {
+      _unique: {
+        name: {
+          _eq: 'enfyra_file',
+        },
+      },
+      validateBody: false,
+    },
+  ],
+  enfyra_column: [
+    {
+      _unique: {
+        _and: [
           {
-            "table": {
-              "name": {
-                "_eq": "enfyra_flow"
-              }
-            }
+            table: {
+              name: {
+                _eq: 'enfyra_route',
+              },
+            },
           },
           {
-            "name": {
-              "_eq": "icon"
-            }
-          }
-        ]
+            name: {
+              _eq: 'icon',
+            },
+          },
+        ],
       },
-      "defaultValue": "lucide:workflow"
-    }
-  ]
-} satisfies BootstrapDataMigration;
+      defaultValue: 'lucide:route',
+    },
+    {
+      _unique: {
+        _and: [
+          {
+            table: {
+              name: {
+                _eq: 'enfyra_menu',
+              },
+            },
+          },
+          {
+            name: {
+              _eq: 'icon',
+            },
+          },
+        ],
+      },
+      defaultValue: 'lucide:menu',
+    },
+    {
+      _unique: {
+        _and: [
+          {
+            table: {
+              name: {
+                _eq: 'enfyra_extension',
+              },
+            },
+          },
+          {
+            name: {
+              _eq: 'type',
+            },
+          },
+        ],
+      },
+      options: ['page', 'widget', 'global'],
+      description:
+        'Type of extension (full page, embeddable widget, or global shell extension)',
+    },
+    {
+      _unique: {
+        _and: [
+          {
+            table: {
+              name: {
+                _eq: 'enfyra_folder',
+              },
+            },
+          },
+          {
+            name: {
+              _eq: 'icon',
+            },
+          },
+        ],
+      },
+      defaultValue: 'lucide:folder',
+    },
+    {
+      _unique: {
+        _and: [
+          {
+            table: {
+              name: {
+                _eq: 'enfyra_flow',
+              },
+            },
+          },
+          {
+            name: {
+              _eq: 'icon',
+            },
+          },
+        ],
+      },
+      defaultValue: 'lucide:workflow',
+    },
+  ],
+};
 
-export default dataMigration;
+const dataMigrations: VersionedDataMigration[] = [
+  {
+    fromVersion: '2.2.19-patch-1',
+    toVersion: '2.2.20',
+    data: {
+      enfyra_column: [
+        {
+          _unique: {
+            _and: [
+              { table: { name: { _eq: 'enfyra_column' } } },
+              { name: { _eq: 'type' } },
+            ],
+          },
+          sqlType: {
+            type: 'enum',
+            options: [...ENFYRA_COLUMN_TYPE_OPTIONS],
+          },
+          mongoType: {
+            type: 'enum',
+            options: [...MONGO_COLUMN_TYPE_OPTIONS],
+          },
+        },
+      ],
+    },
+  },
+];
+
+export default dataMigrations;

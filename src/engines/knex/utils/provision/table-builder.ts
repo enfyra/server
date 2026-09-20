@@ -64,6 +64,9 @@ export function buildTableSchema(
         case 'text':
           column = table.text(col.name);
           break;
+        case 'longtext':
+          column = table.text(col.name, 'longtext');
+          break;
         case 'boolean':
           column = table.boolean(col.name);
           break;

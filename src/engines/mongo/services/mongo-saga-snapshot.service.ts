@@ -13,6 +13,7 @@ export type TSagaSnapshotOp =
   | 'nested_update'
   | 'collection_create'
   | 'collection_drop'
+  | 'collection_modify'
   | 'collection_rename'
   | 'index_create'
   | 'index_drop'
@@ -458,6 +459,7 @@ export class MongoSagaSnapshotService {
     return [
       'collection_create',
       'collection_drop',
+      'collection_modify',
       'collection_rename',
       'index_create',
       'index_drop',
@@ -530,6 +532,35 @@ export class MongoSagaSnapshotService {
           name: index.name,
         });
       }
+      return;
+    }
+
+    if (snapshot.op === 'collection_modify') {
+      const before = snapshot.before ?? {};
+      // Restore the validator fields plus every option the change actually set.
+      // `listCollections` reports options `collMod` does not accept (`capped`,
+      // `size`), so only keys present in the applied change are rolled back.
+      const applied = Object.keys(snapshot.afterPatch ?? {});
+      const restored: Record<string, unknown> = {};
+      for (const key of applied) {
+        if (
+          key === 'validator' ||
+          key === 'validationLevel' ||
+          key === 'validationAction'
+        ) {
+          continue;
+        }
+        if (Object.prototype.hasOwnProperty.call(before, key)) {
+          restored[key] = before[key];
+        }
+      }
+      await db.command({
+        collMod: snapshot.collection,
+        ...restored,
+        validator: before.validator ?? {},
+        validationLevel: before.validationLevel ?? 'strict',
+        validationAction: before.validationAction ?? 'error',
+      });
       return;
     }
 

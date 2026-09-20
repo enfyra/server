@@ -4,6 +4,21 @@ import {
   isSqlReservedColumnIdentifier,
 } from '../utils/sql-identifier-validation.util';
 import type { TableValidationColumnInput } from '../types/table-validation.types';
+import {
+  isSupportedMongoColumnType,
+  isSupportedMySqlColumnType,
+  isSupportedPostgresColumnType,
+} from '../../../shared/utils/column-type.util';
+
+const SUPPORTED_COLUMN_TYPE_CHECKERS: Record<
+  ColumnIdentifierDatabase,
+  (type: unknown) => boolean
+> = {
+  mongodb: isSupportedMongoColumnType,
+  postgres: isSupportedPostgresColumnType,
+  mysql: isSupportedMySqlColumnType,
+  sqlite: isSupportedMySqlColumnType,
+};
 
 export class TableManagementValidationService {
   validateColumns(
@@ -26,6 +41,21 @@ export class TableManagementValidationService {
             columnName: name,
             database,
             reason: 'reserved_keyword',
+          },
+        );
+      }
+      // A partial update may omit `type`; only a declared type is validated.
+      const typeSupported =
+        column.type === undefined ||
+        SUPPORTED_COLUMN_TYPE_CHECKERS[database](column.type);
+      if (!typeSupported) {
+        throw new ValidationException(
+          `Column type '${String(column.type)}' is not supported by ${database}`,
+          {
+            code: 'SCHEMA_COLUMN_TYPE_UNSUPPORTED',
+            columnName: name,
+            columnType: column.type,
+            database,
           },
         );
       }

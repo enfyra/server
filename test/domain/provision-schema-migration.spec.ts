@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyMongoSchemaMigrations,
+  applySqlColumnModifications,
   applySqlSchemaMigrations,
 } from '../../src/shared/utils/provision-schema-migration';
 
@@ -197,6 +198,43 @@ function makeSqlKnex(input: {
 }
 
 describe('provision schema migration physical cleanup', () => {
+  it('reapplies the MySQL physical code contract for a same-type declaration', async () => {
+    const raw = vi.fn(async () => [
+      [
+        {
+          COLUMN_TYPE: 'text',
+          IS_NULLABLE: 'YES',
+          COLUMN_DEFAULT: null,
+          EXTRA: '',
+        },
+      ],
+    ]);
+    const knex = {
+      client: { config: { client: 'mysql2' } },
+      raw,
+      schema: {
+        hasColumn: vi.fn(async () => true),
+      },
+    } as any;
+
+    await applySqlColumnModifications(
+      knex,
+      'enfyra_extension',
+      [
+        {
+          from: { name: 'sourceCode', type: 'code' },
+          to: { name: 'sourceCode', type: 'code' },
+        },
+      ],
+      'mysql2',
+    );
+
+    expect(raw).toHaveBeenCalledWith(
+      expect.stringContaining('ALTER TABLE ?? MODIFY COLUMN ?? LONGTEXT NULL'),
+      ['enfyra_extension', 'sourceCode'],
+    );
+  });
+
   it('migrates legacy user roles through a hook-decorated Knex builder', async () => {
     const raw = vi.fn(async () => ({ rows: [] }));
     const decoratedInsert = vi.fn(async () => []);
