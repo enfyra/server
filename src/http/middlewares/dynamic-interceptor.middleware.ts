@@ -118,8 +118,17 @@ export function dynamicInterceptorBegin(
           type: 'preHook',
         } as any);
       }
+      const abortController = new AbortController();
+      const abortOnDisconnect = () => {
+        if (!res.writableEnded) abortController.abort();
+      };
+      req.once?.('aborted', abortOnDisconnect);
+      res.once?.('close', abortOnDisconnect);
+      if (req.aborted || res.destroyed) abortOnDisconnect();
       try {
-        const result = await executorEngineService.runBatch(req);
+        const result = await executorEngineService.runBatch(req, undefined, {
+          signal: abortController.signal,
+        });
         req.routeData.__codeBlocks = [];
         if (req.routeData.context?.$body !== undefined) {
           req.body = req.routeData.context.$body;
@@ -134,6 +143,7 @@ export function dynamicInterceptorBegin(
           return res.json(appendLogs(result.value));
         }
       } catch (error) {
+        if ((error as { code?: string })?.code === 'ERR_EXECUTION_ABORTED') return;
         const statusCode =
           error instanceof HttpException
             ? error.getStatus()
@@ -143,6 +153,8 @@ export function dynamicInterceptorBegin(
         persistDynamicScriptLogs(req, statusCode);
         return next(error);
       } finally {
+        req.off?.('aborted', abortOnDisconnect);
+        res.off?.('close', abortOnDisconnect);
         delete req.routeData.context.$res;
       }
     }

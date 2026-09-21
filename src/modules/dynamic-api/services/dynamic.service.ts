@@ -248,6 +248,7 @@ export class DynamicService {
         res.once('close', abortOnDisconnect);
       }
       if (typeof req.once === 'function') req.once('aborted', abortOnDisconnect);
+      if (req.aborted || res?.destroyed) abortOnDisconnect();
 
       this.executorEngineService.register(req, {
         code: handler,

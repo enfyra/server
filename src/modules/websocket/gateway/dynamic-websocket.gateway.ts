@@ -246,14 +246,16 @@ export class DynamicWebSocketGateway {
             .find((c) => c.startsWith('accessToken='))
             ?.slice('accessToken='.length) || null;
         try {
-          let authenticated = await this.lazyRef.authenticationService.authenticate({
-            headers: socket.handshake.headers,
-          });
+          let authenticated =
+            await this.lazyRef.authenticationService.authenticate({
+              headers: socket.handshake.headers,
+            });
           const bootstrapToken = socket.handshake.auth?.token || cookieToken;
           if (!authenticated && bootstrapToken) {
-            authenticated = await this.lazyRef.authenticationService.authenticate({
-              headers: { authorization: `Bearer ${bootstrapToken}` },
-            });
+            authenticated =
+              await this.lazyRef.authenticationService.authenticate({
+                headers: { authorization: `Bearer ${bootstrapToken}` },
+              });
           }
           if (!authenticated) {
             const err = new Error('Authentication token required');
@@ -261,18 +263,19 @@ export class DynamicWebSocketGateway {
             this.logger.warn(
               `Connection rejected: no token provided for ${path}`,
             );
-            if (socket.conn) socket.conn.close();
             return next(err);
           }
           socket.data.user = authenticated.user;
-          socket.data.userId = authenticated.user.id || authenticated.user._id || authenticated.payload.id;
+          socket.data.userId =
+            authenticated.user.id ||
+            authenticated.user._id ||
+            authenticated.payload.id;
           socket.data.gateway = gateway;
           next();
         } catch (error) {
           const err = new Error('Invalid authentication token');
           (err as any).data = { code: 'AUTH_INVALID', path };
           this.logger.warn(`Connection rejected: invalid token for ${path}`);
-          if (socket.conn) socket.conn.close();
           return next(err);
         }
       } else {

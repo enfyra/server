@@ -19,7 +19,9 @@ function createGateway(
 
 describe('DynamicWebSocketGateway gateway refresh', () => {
   it('authenticates native PAT handshake headers through the shared authentication service', async () => {
-    let middleware: ((socket: any, next: (error?: Error) => void) => Promise<void>) | undefined;
+    let middleware:
+      | ((socket: any, next: (error?: Error) => void) => Promise<void>)
+      | undefined;
     const namespace = {
       use: vi.fn((handler) => {
         middleware = handler;
@@ -32,7 +34,9 @@ describe('DynamicWebSocketGateway gateway refresh', () => {
     const user = { id: 'user-1', isRootAdmin: true, roles: [] };
     const authenticate = vi.fn().mockResolvedValue({ user });
     gateway.server = { of: vi.fn(() => namespace) } as any;
-    gateway.gatewayConfigsByPath = new Map([['/enfyra-admin', { path: '/enfyra-admin', requireAuth: true }]]);
+    gateway.gatewayConfigsByPath = new Map([
+      ['/enfyra-admin', { path: '/enfyra-admin', requireAuth: true }],
+    ]);
     gateway.lazyRef = { authenticationService: { authenticate } };
     gateway.logger = { warn: vi.fn() };
 
@@ -56,6 +60,53 @@ describe('DynamicWebSocketGateway gateway refresh', () => {
     expect(socket.data.userId).toBe('user-1');
     expect(next).toHaveBeenCalledWith();
   });
+
+  it.each(['missing', 'invalid'])(
+    'returns %s auth errors before closing the Engine.IO transport',
+    async (mode) => {
+      let middleware: (
+        socket: any,
+        next: (error?: Error) => void,
+      ) => Promise<void>;
+      const namespace = {
+        use: vi.fn((handler) => {
+          middleware = handler;
+        }),
+        on: vi.fn(),
+      };
+      const gateway = Object.create(DynamicWebSocketGateway.prototype) as any;
+      gateway.server = { of: () => namespace };
+      gateway.gatewayConfigsByPath = new Map([
+        ['/private', { path: '/private', requireAuth: true }],
+      ]);
+      gateway.lazyRef = {
+        authenticationService: {
+          authenticate:
+            mode === 'missing'
+              ? vi.fn().mockResolvedValue(null)
+              : vi.fn().mockRejectedValue(new Error('Invalid PAT')),
+        },
+      };
+      gateway.logger = { warn: vi.fn() };
+      const socket = {
+        handshake: { headers: {}, auth: {} },
+        data: {},
+        conn: { close: vi.fn() },
+      };
+      const next = vi.fn();
+      gateway.setupNamespace('/private');
+      await middleware!(socket, next);
+      expect(next).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: {
+            code: mode === 'missing' ? 'AUTH_REQUIRED' : 'AUTH_INVALID',
+            path: '/private',
+          },
+        }),
+      );
+      expect(socket.conn.close).not.toHaveBeenCalled();
+    },
+  );
 
   it('reconnects current sockets when a connection script changes so new room membership applies', async () => {
     const previousGateway = {
