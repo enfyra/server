@@ -1,77 +1,101 @@
-const CF_IPV4_RANGES = [
-  [0xadf53000, 20], [0x6715f400, 22], [0x6716c800, 22], [0x671f0400, 22],
-  [0x8d654000, 18], [0x6ca2c000, 18], [0xbe5df000, 20], [0xbc726000, 20],
-  [0xc5eaf000, 22], [0xc6298000, 17], [0xa29e0000, 15], [0x68100000, 13],
-  [0x68180000, 14], [0xac400000, 13], [0x83004800, 22],
+import type { ClientIpRequest } from '../types/client-ip.types';
+import { readForwardedClientContext } from './client-context.util';
+import {
+  isIpInRange,
+  normalizeForwardedIp,
+  normalizeIpAddress,
+} from './ip-address.util';
+
+const CLOUDFLARE_RANGES = [
+  '173.245.48.0/20',
+  '103.21.244.0/22',
+  '103.22.200.0/22',
+  '103.31.4.0/22',
+  '141.101.64.0/18',
+  '108.162.192.0/18',
+  '190.93.240.0/20',
+  '188.114.96.0/20',
+  '197.234.240.0/22',
+  '198.41.128.0/17',
+  '162.158.0.0/15',
+  '104.16.0.0/13',
+  '104.24.0.0/14',
+  '172.64.0.0/13',
+  '131.0.72.0/22',
+  '2400:cb00::/32',
+  '2606:4700::/32',
+  '2803:f800::/32',
+  '2405:b500::/32',
+  '2405:8100::/32',
+  '2a06:98c0::/29',
+  '2c0f:f248::/32',
 ];
 
-const CF_IPV6_PREFIXES = [
-  '2400:cb00:', '2606:4700:', '2803:f800:', '2405:b500:',
-  '2405:8100:', '2a06:98c0:', '2c0f:f248:',
+const INTERNAL_PROXY_RANGES = [
+  '127.0.0.0/8',
+  '10.0.0.0/8',
+  '172.16.0.0/12',
+  '192.168.0.0/16',
+  '::1/128',
+  'fc00::/7',
+  'fe80::/10',
 ];
 
-function normalizeIp(ip: string): string {
-  let out = ip;
-  if (out === '::1') out = '127.0.0.1';
-  if (out.startsWith('::ffff:')) out = out.substring(7);
-  return out;
-}
-
-function isPrivateIp(ip: string): boolean {
-  if (ip === '127.0.0.1' || ip === '::1') return true;
-  if (ip.startsWith('10.')) return true;
-  if (ip.startsWith('192.168.')) return true;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return true;
-  if (ip.startsWith('fc') || ip.startsWith('fd') || ip.startsWith('fe80:')) return true;
-  return false;
-}
-
-function isCloudflareIp(ip: string): boolean {
-  if (ip.includes(':')) {
-    const lower = ip.toLowerCase();
-    return CF_IPV6_PREFIXES.some((p) => lower.startsWith(p));
+function forwardedEntries(headers: Record<string, unknown>): unknown[] {
+  if (headers['x-forwarded-for'] !== undefined) {
+    const value = headers['x-forwarded-for'];
+    return typeof value === 'string' ? value.split(',').slice(-64) : [null];
   }
-  const parts = ip.split('.');
-  if (parts.length !== 4) return false;
-  const num = (+parts[0] << 24) | (+parts[1] << 16) | (+parts[2] << 8) | +parts[3];
-  return CF_IPV4_RANGES.some(([base, bits]) => {
-    const mask = ~0 << (32 - bits);
-    return (num & mask) === (base | 0);
-  });
-}
-
-function parseXForwardedFor(header: unknown): string | null {
-  if (typeof header !== 'string' || !header) return null;
-  const entries = header.split(',').map((s) => s.trim()).filter(Boolean);
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const ip = normalizeIp(entries[i]);
-    if (!isPrivateIp(ip)) return ip;
+  if (headers.forwarded !== undefined) {
+    if (typeof headers.forwarded !== 'string') return [null];
+    return headers.forwarded
+      .split(',')
+      .slice(-64)
+      .map((entry) => {
+        const matches = entry
+          .split(';')
+          .map((part) => part.trim())
+          .filter((part) => /^for=/i.test(part));
+        if (matches.length !== 1) return null;
+        const value = matches[0].slice(4).trim();
+        return value.startsWith('"') && value.endsWith('"')
+          ? value.slice(1, -1)
+          : value;
+      });
   }
-  return entries.length > 0 ? normalizeIp(entries[0]) : null;
+  return headers['x-real-ip'] !== undefined ? [headers['x-real-ip']] : [];
 }
 
-export function resolveClientIpFromRequest(req: {
-  headers?: Record<string, unknown>;
-  ip?: string;
-  connection?: { remoteAddress?: string };
-  socket?: { remoteAddress?: string };
-}): string {
-  const headers = req.headers || {};
-  const peerIp = normalizeIp(
-    req.connection?.remoteAddress || req.socket?.remoteAddress || req.ip || 'unknown',
+export function resolveClientIpFromRequest(req: ClientIpRequest): string {
+  const forwardedContext = readForwardedClientContext(req);
+  const headers = forwardedContext?.headers ?? req.headers ?? {};
+  const peer = normalizeIpAddress(
+    forwardedContext?.peerIp ??
+      req.socket?.remoteAddress ??
+      req.connection?.remoteAddress,
   );
+  if (!peer) return 'unknown';
+  let current = peer;
+  const entries = forwardedEntries(headers);
 
-  if (isCloudflareIp(peerIp)) {
-    const cfIp = headers['cf-connecting-ip'];
-    if (cfIp) {
-      return normalizeIp(Array.isArray(cfIp) ? cfIp[0] : String(cfIp));
+  for (let index = entries.length - 1; ; index--) {
+    if (CLOUDFLARE_RANGES.some((range) => isIpInRange(current, range))) {
+      const connectingIp = normalizeIpAddress(headers['cf-connecting-ip']);
+      if (connectingIp) {
+        const ipv6 = normalizeIpAddress(headers['cf-connecting-ipv6']);
+        return isIpInRange(connectingIp, '240.0.0.0/4') && ipv6?.includes(':')
+          ? ipv6
+          : connectingIp;
+      }
+      if (headers['cf-connecting-ip'] !== undefined) return current;
+    } else if (
+      !INTERNAL_PROXY_RANGES.some((range) => isIpInRange(current, range))
+    ) {
+      return current;
     }
+    if (index < 0) return current;
+    const next = normalizeForwardedIp(entries[index]);
+    if (!next) return current;
+    current = next;
   }
-
-  if (isPrivateIp(peerIp)) {
-    const forwarded = parseXForwardedFor(headers['x-forwarded-for']);
-    if (forwarded) return forwarded;
-  }
-
-  return peerIp;
 }

@@ -97,6 +97,7 @@ describe('runtime registry required reads', () => {
       routePath: null,
       methodIds: [],
       methods: ['GET'],
+      excludeRoutePaths: [],
       children: [],
       rules: [],
     };

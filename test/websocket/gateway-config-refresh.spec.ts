@@ -18,6 +18,27 @@ function createGateway(
 }
 
 describe('DynamicWebSocketGateway gateway refresh', () => {
+  it('resolves connection-script IP from the trusted transport chain', async () => {
+    const gateway = Object.create(DynamicWebSocketGateway.prototype) as any;
+    const createWebsocketConnection = vi.fn(() => ({}));
+    gateway.lazyRef = {
+      dynamicContextFactory: { createWebsocketConnection },
+      repoRegistryService: { createReposProxy: vi.fn() },
+      executorEngineService: { run: vi.fn().mockResolvedValue(undefined) },
+    };
+    const socket = {
+      id: 'client', data: {},
+      handshake: { address: '127.0.0.1', headers: {}, auth: {} },
+      request: {
+        socket: { remoteAddress: '127.0.0.1' },
+        headers: { 'x-forwarded-for': '198.51.100.20, 173.245.48.1', 'cf-connecting-ip': '198.51.100.20' },
+      },
+    };
+    await gateway.runConnectionScript(socket, { path: '/chat' }, '', '', null);
+    expect(createWebsocketConnection).toHaveBeenCalledWith(expect.objectContaining({
+      clientInfo: expect.objectContaining({ ip: '198.51.100.20' }),
+    }));
+  });
   it('authenticates native PAT handshake headers through the shared authentication service', async () => {
     let middleware:
       | ((socket: any, next: (error?: Error) => void) => Promise<void>)

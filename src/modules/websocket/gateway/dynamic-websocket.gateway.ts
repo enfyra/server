@@ -5,6 +5,7 @@ import { appendFileSync } from 'node:fs';
 import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import { getErrorMessage } from '../../../shared/utils/error.util';
+import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
 import {
   RuntimeRegistryService,
   type WebSocketGateway,
@@ -482,7 +483,7 @@ export class DynamicWebSocketGateway {
       socketId: socket.id,
       clientInfo: {
         id: socket.id,
-        ip: socket.handshake.address,
+        ip: resolveClientIpFromRequest(socket.request),
         headers: socket.handshake.headers,
         auth: socket.handshake.auth,
       },

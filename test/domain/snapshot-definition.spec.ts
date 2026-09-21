@@ -20,7 +20,7 @@ describe('SnapshotDefinition', () => {
         (total, table) => total + (table.relations?.length ?? 0),
         0,
       ),
-    ).toBe(74);
+    ).toBe(75);
   });
 
   it('builds table, column, relation, unique, and index contracts', () => {

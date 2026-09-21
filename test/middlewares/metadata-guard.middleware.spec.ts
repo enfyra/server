@@ -65,6 +65,7 @@ function makeReq(routePath: string, ip = '1.2.3.4'): any {
     routeData: { path: routePath },
     method: 'POST',
     ip,
+    socket: { remoteAddress: ip },
     user: undefined,
   };
 }
