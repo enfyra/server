@@ -224,6 +224,9 @@ export class RuntimeRegistryService {
 
     const all = [...globalGuards, ...routeGuards];
     return all.filter((guard) => {
+      if (guard.isGlobal && guard.excludeRoutePaths.includes(routePath)) {
+        return false;
+      }
       if (guard.methods.length === 0) return true;
       return guard.methods.includes(method);
     });

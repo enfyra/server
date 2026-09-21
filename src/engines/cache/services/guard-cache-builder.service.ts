@@ -67,6 +67,8 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
           'table.id',
           'table.name',
           'methods.name',
+          'excludeRoutes.id',
+          'excludeRoutes.path',
         ],
         sort: ['priority'],
       }),
@@ -130,6 +132,15 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
       const methodIds = Array.isArray(guard.methods)
         ? (guard.methods.map((m: any) => getId(m)).filter(Boolean) as number[])
         : [];
+      const excludeRoutes = Array.isArray(guard.excludeRoutes)
+        ? guard.excludeRoutes
+        : [];
+      const excludeRouteIds = excludeRoutes
+        .map((r: any) => getId(r))
+        .filter((id: number | null): id is number => id != null);
+      const excludeRoutePaths = excludeRoutes
+        .map((r: any) => r?.path)
+        .filter((path: any): path is string => typeof path === 'string' && !!path);
 
       nodeMap.set(id, {
         id,
@@ -145,6 +156,8 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
         parentId: getId(guard.parent),
         routeId: guard.route ? getId(guard.route) : null,
         routePath: guard.route?.path || null,
+        excludeRouteIds,
+        excludeRoutePaths,
         methodIds,
         methods,
         children: [],

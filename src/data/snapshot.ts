@@ -3160,6 +3160,12 @@ snapshot
       .description(
         'HTTP methods this guard applies to. Only meaningful for root guards with type=route',
       ),
+    excludeRoutes: rel
+      .manyToMany('enfyra_route')
+      .system()
+      .description(
+        'Routes this global guard skips. Only meaningful for root guards with type=route and isGlobal=true',
+      ),
   });
 
 snapshot
