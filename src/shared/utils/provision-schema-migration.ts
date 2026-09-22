@@ -22,6 +22,10 @@ import { getCurrentDatabaseSchema } from '../../engines/knex/utils/provision/sch
 import { buildSqlJunctionTableContract } from '../../engines/knex/utils/sql-physical-schema-contract';
 import { dropPostgresColumnCheckConstraints } from '../../engines/knex/utils/provision/postgres-column-check-constraints';
 import { getPostgresEnumTypeName } from '../../engines/knex/utils/sql-enum.util';
+import {
+  postgresTemporalPhysicalType,
+  postgresTemporalUsingExpression,
+} from '../../engines/knex/utils/provision/postgres-temporal.util';
 import { getLegacyScriptTargetColumn } from '../../engines/bootstrap/utils/metadata-migration.util';
 
 /**
@@ -769,10 +773,14 @@ async function getPostgresEnumOptions(
 const POSTGRES_TYPE_ALIASES: Record<string, string> = {
   'character varying': 'varchar',
   varchar: 'varchar',
+  // A zone-less `timestamp` stores wall clock and a `timestamptz` stores an
+  // instant. They are different physical contracts, so they must not collapse to
+  // one label: doing so makes a naive column look like it already satisfies an
+  // aware target and skips the conversion.
   'timestamp without time zone': 'timestamp',
-  'timestamp with time zone': 'timestamp',
-  timestamptz: 'timestamp',
   timestamp: 'timestamp',
+  'timestamp with time zone': 'timestamptz',
+  timestamptz: 'timestamptz',
   int4: 'integer',
   int: 'integer',
   integer: 'integer',
@@ -937,9 +945,21 @@ async function applyPostgresColumnContract(
       current.udt_name,
     );
   } else if (typeChanged && targetDefinition !== null) {
+    const temporalTarget = postgresTemporalPhysicalType(mod.to.type);
     if (mod.to.type === 'boolean') {
       await knex.raw(
         `ALTER TABLE ?? ALTER COLUMN ?? TYPE ${targetDefinition} USING (LOWER(??::text) IN ('true', '1', 't', 'yes'))`,
+        [tableName, columnName, columnName],
+      );
+    } else if (temporalTarget !== null) {
+      // Names UTC instead of inheriting the session zone, so a zone-less column's
+      // stored wall clock lands on the instant it means.
+      const using = postgresTemporalUsingExpression(
+        '??',
+        current.data_type ?? current.udt_name,
+      );
+      await knex.raw(
+        `ALTER TABLE ?? ALTER COLUMN ?? TYPE ${targetDefinition} USING ${using}`,
         [tableName, columnName, columnName],
       );
     } else {

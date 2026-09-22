@@ -11,6 +11,10 @@ import { getCurrentDatabaseSchema } from '../../../knex/utils/provision/schema-c
 import { applySqlColumnModifications } from '../../../../shared/utils/provision-schema-migration';
 import type { ColumnModifyDef } from '../../../../shared/types/schema-migration.types';
 import { normalizeEnumOptionsValue } from '../../../../shared/utils/json-field-normalizer.util';
+import {
+  POSTGRES_TEMPORAL_PHYSICAL_TYPE,
+  postgresTemporalUsingExpression,
+} from '../../../knex/utils/provision/postgres-temporal.util';
 import type { SchemaHealingSnapshot } from '../../types/schema-healing.types';
 import {
   diffJunctionMetadata,
@@ -147,6 +151,161 @@ export class SqlSchemaHealingService {
     }
 
     return repairs.length;
+  }
+
+  /**
+   * Carries every temporal column onto its engine's zone-aware physical target.
+   *
+   * A logical temporal column is an instant, but a physical column can lose that:
+   * PostgreSQL `timestamp` drops the zone and a MySQL `DATE` drops the time. Either
+   * way the same moment then compares differently depending on how a client spells
+   * its offset, or collapses to midnight. Earlier DDL emitted those shapes, so an
+   * existing database has to be carried forward once; both conversions name UTC
+   * explicitly because that is the zone the write path anchored the stored value to.
+   *
+   * The scan reads the catalog so it reaches the implicit `createdAt`/`updatedAt`
+   * columns that no declaration carries, then narrows to the tables Enfyra manages:
+   * the bootstrap tables plus everything registered in table metadata. A table that
+   * Enfyra never created is left alone, because its column types are the owner's
+   * contract rather than ours.
+   */
+  async repairSqlTemporalColumns(
+    snapshot: SchemaHealingSnapshot,
+  ): Promise<number> {
+    const knex = this.queryBuilderService.getKnex();
+    if (!knex?.schema?.hasTable) return 0;
+    const dbType = this.queryBuilderService.getDatabaseType?.() || 'postgres';
+    if (dbType !== 'postgres' && dbType !== 'mysql') return 0;
+
+    const managedTables = await this.collectManagedTableNames(snapshot);
+    if (managedTables.size === 0) return 0;
+
+    return dbType === 'postgres'
+      ? this.repairPostgresTemporalColumns(managedTables)
+      : this.repairMySqlTemporalColumns(managedTables);
+  }
+
+  private async collectManagedTableNames(
+    snapshot: SchemaHealingSnapshot,
+  ): Promise<Set<string>> {
+    const names = new Set<string>();
+    for (const tableDef of Object.values(snapshot)) {
+      if (tableDef?.name) names.add(String(tableDef.name));
+    }
+
+    const knex = this.queryBuilderService.getKnex();
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    if (await knex.schema.hasTable(coreNames.table)) {
+      const rows = await knex(coreNames.table).select({ name: 'name' });
+      for (const row of rows) {
+        if (row?.name) names.add(String(row.name));
+      }
+    }
+
+    return names;
+  }
+
+  private async repairPostgresTemporalColumns(
+    managedTables: Set<string>,
+  ): Promise<number> {
+    const knex = this.queryBuilderService.getKnex();
+    const columns = await knex.raw(`
+      SELECT table_name AS "tableName",
+             column_name AS "columnName",
+             data_type AS "dataType",
+             udt_name AS "udtName"
+      FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND data_type IN ('timestamp without time zone', 'date')
+      ORDER BY table_name, ordinal_position
+    `);
+
+    let repaired = 0;
+    for (const row of columns.rows ?? []) {
+      const tableName = String(row.tableName ?? '');
+      const columnName = String(row.columnName ?? '');
+      if (!tableName || !columnName) continue;
+      if (!managedTables.has(tableName)) continue;
+
+      const reference = `"${columnName}"`;
+      const using = postgresTemporalUsingExpression(
+        reference,
+        row.udtName ?? row.dataType,
+      );
+      // A bare reference means the column already satisfies the contract, so a
+      // repeated pass stays a no-op instead of rewriting the table again.
+      if (using === reference) continue;
+
+      await knex.raw(
+        `ALTER TABLE "${tableName}" ALTER COLUMN "${columnName}" TYPE ${POSTGRES_TEMPORAL_PHYSICAL_TYPE} USING ${using}`,
+      );
+      this.log(
+        `Promoted ${tableName}.${columnName} to ${POSTGRES_TEMPORAL_PHYSICAL_TYPE} for zone-aware temporal storage`,
+      );
+      repaired++;
+    }
+
+    return repaired;
+  }
+
+  private async repairMySqlTemporalColumns(
+    managedTables: Set<string>,
+  ): Promise<number> {
+    const knex = this.queryBuilderService.getKnex();
+    // `date` lost the time component and `timestamp` is re-read through the session
+    // zone with a 2038 ceiling; DATETIME holds the UTC wall clock verbatim. A
+    // `datetime` column already satisfies the contract.
+    const columns = await knex.raw(`
+      SELECT TABLE_NAME AS tableName,
+             COLUMN_NAME AS columnName,
+             DATA_TYPE AS dataType,
+             IS_NULLABLE AS isNullable,
+             COLUMN_DEFAULT AS columnDefault,
+             EXTRA AS extra,
+             COLUMN_COMMENT AS columnComment
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND DATA_TYPE IN ('date', 'timestamp')
+      ORDER BY TABLE_NAME, ORDINAL_POSITION
+    `);
+
+    let repaired = 0;
+    for (const row of columns[0] ?? []) {
+      const tableName = String(row.tableName ?? '');
+      const columnName = String(row.columnName ?? '');
+      if (!tableName || !columnName) continue;
+      if (!managedTables.has(tableName)) continue;
+
+      const nullable =
+        String(row.isNullable).toUpperCase() === 'NO' ? 'NOT NULL' : 'NULL';
+      const defaultClause = this.buildMySqlTemporalDefaultClause(row);
+      const extra = String(row.extra ?? '').toUpperCase();
+      const extraClause = extra.includes('ON UPDATE') ? ` ${row.extra}` : '';
+      const comment = row.columnComment
+        ? ` COMMENT '${String(row.columnComment).replace(/'/g, "''")}'`
+        : '';
+      await knex.raw(
+        `ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${columnName}\` DATETIME ${nullable}${defaultClause}${extraClause}${comment}`,
+      );
+      this.log(
+        `Promoted ${tableName}.${columnName} to DATETIME for zone-aware temporal storage`,
+      );
+      repaired++;
+    }
+
+    return repaired;
+  }
+
+  private buildMySqlTemporalDefaultClause(row: any): string {
+    if (row.columnDefault === null || row.columnDefault === undefined) {
+      return '';
+    }
+    const raw = String(row.columnDefault);
+    // `CURRENT_TIMESTAMP` and its synonyms are expressions, not string literals.
+    if (/^(CURRENT_TIMESTAMP|NOW\(\)|LOCALTIME|LOCALTIMESTAMP)/i.test(raw)) {
+      return ` DEFAULT ${raw}`;
+    }
+    return ` DEFAULT '${raw.replace(/'/g, "''")}'`;
   }
 
   private parseStoredJson(value: unknown): unknown {

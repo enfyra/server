@@ -550,6 +550,36 @@ export function isTypeCompatible(
   ) {
     return true;
   }
+  if (isPostgres) {
+    // The snapshot side carries the logical name while the catalog side carries
+    // the physical one, so both spellings resolve to the same contract: a logical
+    // temporal column is an instant and its physical target keeps the zone. Only a
+    // column that has lost the zone (`timestamp without time zone`) or the time
+    // component (`date`) is genuine drift. Collapsing those into the aware label
+    // made the drift invisible, so a naive column was never repaired and the same
+    // moment compared differently depending on how the client spelled its offset.
+    const postgresTemporal = (type: string): string | null => {
+      const normalized = String(type).toLowerCase();
+      if (
+        normalized === 'timestamp with time zone' ||
+        normalized === 'timestamptz' ||
+        normalized === 'datetime' ||
+        normalized === 'timestamp'
+      ) {
+        return 'aware';
+      }
+      if (
+        normalized === 'timestamp without time zone' ||
+        normalized === 'date'
+      ) {
+        return 'naive';
+      }
+      return null;
+    };
+    const left = postgresTemporal(type1);
+    const right = postgresTemporal(type2);
+    if (left !== null && right !== null) return left === right;
+  }
   const compatibleTypes: Record<string, string[]> = {
     integer: ['int', 'integer', 'bigint', 'bigInteger', 'smallint', 'tinyint'],
     string: ['varchar', 'text', 'char', 'character varying'],
@@ -559,11 +589,6 @@ export function isTypeCompatible(
       'datetime',
       'timestamp without time zone',
       'timestamp with time zone',
-      // Enfyra `date` columns are created as physical DATE by the runtime
-      // DDL path (column-operations/sql-generator) while getKnexColumnType
-      // normalizes date/datetime/timestamp to 'timestamp'. Accept physical
-      // DATE so runtime-added date columns pass target attestation.
-      'date',
     ],
     boolean: ['tinyint', 'boolean', 'bool'],
     real: ['real', 'float', 'double precision'],

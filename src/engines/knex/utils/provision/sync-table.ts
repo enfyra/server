@@ -11,6 +11,11 @@ import {
   resolveSqlRelationOnDelete,
 } from '../sql-physical-schema-contract';
 import { addSqlEnumColumn, getPostgresEnumTypeName } from '../sql-enum.util';
+import {
+  POSTGRES_TEMPORAL_PHYSICAL_TYPE,
+  postgresTemporalPhysicalType,
+  postgresTemporalUsingExpression,
+} from './postgres-temporal.util';
 
 function rethrowPostgresTransactionError(knex: Knex, error: unknown): void {
   const client = String(knex.client.config.client ?? '').toLowerCase();
@@ -139,7 +144,13 @@ export async function applyColumnMigrations(
             column = table.uuid(col.name);
             break;
           case 'timestamp':
-            column = table.timestamp(col.name);
+            // MySQL stores the aware contract as a UTC wall clock in DATETIME; a
+            // `TIMESTAMP` column would be re-read through the session zone and cap
+            // out at 2038.
+            column =
+              dbType === 'mysql2'
+                ? table.datetime(col.name)
+                : table.timestamp(col.name);
             break;
           case 'datetime':
             column = table.datetime(col.name);
@@ -306,7 +317,12 @@ export async function applyColumnMigrations(
           longtext: 'LONGTEXT',
           boolean: 'TINYINT(1)',
           uuid: 'CHAR(36)',
-          timestamp: 'TIMESTAMP',
+          // MySQL has no zone-bearing column type, so the aware contract comes from
+          // the connection instead: the driver serializes every Date from its UTC
+          // components and the session reads in UTC. DATETIME is the physical target
+          // because it stores that wall clock verbatim, which keeps the value
+          // independent of the session zone and avoids the 2038 ceiling.
+          timestamp: 'DATETIME',
           datetime: 'DATETIME',
           json: 'LONGTEXT',
           float: 'FLOAT',
@@ -584,6 +600,12 @@ export async function applyColumnMigrations(
                 `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`,
               );
             }
+          } else if (postgresTemporalPhysicalType(col.type) !== null) {
+            // The conversion names UTC instead of inheriting the session zone, so a
+            // zone-less column's stored wall clock lands on the instant it means.
+            await knex.raw(
+              `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE ${POSTGRES_TEMPORAL_PHYSICAL_TYPE} USING ${postgresTemporalUsingExpression(`"${col.name}"`, currentUdtName ?? currentDataType)}`,
+            );
           } else {
             await knex.schema.alterTable(tableName, (table) => {
               const column = applyAlterColumnType(

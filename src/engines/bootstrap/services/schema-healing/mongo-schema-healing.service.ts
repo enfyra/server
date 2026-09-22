@@ -14,6 +14,10 @@ import {
   getTargetJunctionContract,
 } from '../../utils/schema-healing-junction.util';
 import { getErrorMessage } from '../../../../shared/utils/error.util';
+import {
+  coerceTemporalWriteValue,
+  isTemporalColumnType,
+} from '../../../../shared/utils/temporal-write.util';
 import { Logger } from '../../../../shared/logger';
 import { SystemCoreTableResolver } from '../system-core-table-resolver.service';
 
@@ -626,6 +630,85 @@ export class MongoSchemaHealingService {
     }
 
     return repaired;
+  }
+
+  /**
+   * Rewrites temporal fields that are not stored as a BSON date.
+   *
+   * Mongo has a single temporal type, so there is no naive/aware split to repair;
+   * the equivalent defect is a field holding a string or a number instead of a date.
+   * That value is then an instant only by convention, and the collection's
+   * `$jsonSchema` validator rejects it on the next write, which is what makes a
+   * temporal field impossible to round-trip. Records written before the write path
+   * coerced these values are carried onto the declared type here.
+   *
+   * The field list comes from column metadata, which is what both the built-in and
+   * the runtime-created collections register, so the repair covers every collection
+   * rather than only the ones a declaration file happens to list.
+   */
+  async repairMongoTemporalFields(): Promise<number> {
+    const db = this.queryBuilderService.getMongoDb();
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    const tables = await db.collection(coreNames.table).find({}).toArray();
+    let repaired = 0;
+
+    for (const table of tables) {
+      const collectionName = String(table?.name ?? '');
+      if (!collectionName) continue;
+      if (!(await this.mongoCollectionExists(db, collectionName))) continue;
+
+      const columns = await db
+        .collection(coreNames.column)
+        .find({ table: table._id })
+        .toArray();
+
+      for (const column of columns) {
+        const fieldName = String(column?.name ?? '');
+        if (!fieldName || !isTemporalColumnType(column?.type)) continue;
+
+        const coerced = await this.coerceMongoTemporalField(
+          db,
+          collectionName,
+          fieldName,
+        );
+        if (coerced === 0) continue;
+        this.log(
+          `Coerced ${coerced} ${collectionName}.${fieldName} value(s) to a BSON date`,
+        );
+        repaired += coerced;
+      }
+    }
+
+    return repaired;
+  }
+
+  private async coerceMongoTemporalField(
+    db: any,
+    collectionName: string,
+    fieldName: string,
+  ): Promise<number> {
+    const collection = db.collection(collectionName);
+    // A string or numeric value is what an earlier write left behind; a date is
+    // already the contract and a null/absent field carries no value to convert.
+    const cursor = collection.find({
+      [fieldName]: { $exists: true, $not: { $type: 'date' }, $ne: null },
+    });
+    const updates: Array<{ _id: any; value: Date }> = [];
+    for await (const document of cursor) {
+      const value = coerceTemporalWriteValue(document[fieldName]);
+      if (!(value instanceof Date) || Number.isNaN(value.getTime())) continue;
+      updates.push({ _id: document._id, value });
+    }
+    if (updates.length === 0) return 0;
+
+    const operations = updates.map((update) => ({
+      updateOne: {
+        filter: { _id: update._id },
+        update: { $set: { [fieldName]: update.value } },
+      },
+    }));
+    const result = await collection.bulkWrite(operations, { ordered: false });
+    return result.modifiedCount ?? 0;
   }
 
   async repairMongoSystemRecordShapes(): Promise<number> {

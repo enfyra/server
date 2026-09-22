@@ -88,6 +88,11 @@ export class SchemaHealingService {
       );
     }
 
+    // Repair the stored values before re-asserting the collection contract, so the
+    // validator is synchronized onto data that already conforms to it.
+    const mongoTemporalFieldRepairCount = isMongoDB
+      ? await this.mongoHealing.repairMongoTemporalFields()
+      : 0;
     const mongoValidatorSyncCount = isMongoDB
       ? await this.mongoHealing.syncMongoCollectionValidators(snapshot)
       : 0;
@@ -100,10 +105,18 @@ export class SchemaHealingService {
     const sqlMetadataEnumRepairCount = isMongoDB
       ? 0
       : await this.sqlHealing.repairSqlMetadataEnumColumns();
+    const sqlTemporalRepairCount = isMongoDB
+      ? 0
+      : await this.sqlHealing.repairSqlTemporalColumns(snapshot);
 
     if (mongoValidatorSyncCount > 0) {
       this.logger.log(
         `Synchronized Mongo validators on ${mongoValidatorSyncCount} collection(s)`,
+      );
+    }
+    if (mongoTemporalFieldRepairCount > 0) {
+      this.logger.log(
+        `Coerced ${mongoTemporalFieldRepairCount} Mongo temporal field value(s) to BSON dates`,
       );
     }
     if (mongoSystemShapeRepairCount > 0) {
@@ -119,6 +132,11 @@ export class SchemaHealingService {
     if (sqlMetadataEnumRepairCount > 0) {
       this.logger.log(
         `Repaired SQL metadata-backed enum columns on ${sqlMetadataEnumRepairCount} column(s)`,
+      );
+    }
+    if (sqlTemporalRepairCount > 0) {
+      this.logger.log(
+        `Promoted SQL temporal columns to zone-aware storage on ${sqlTemporalRepairCount} column(s)`,
       );
     }
 

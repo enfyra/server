@@ -28,6 +28,39 @@ import {
 } from './postgres-enum-migration';
 
 const logger = new Logger('SqlDiffGenerator');
+
+/**
+ * The physical type PostgreSQL currently stores for a column. A zone-less
+ * `timestamp` and a `timestamptz` hold the same text but mean different things, so
+ * a type change between them needs a `USING` clause that names the zone; the
+ * metadata type alone cannot distinguish them.
+ */
+async function getPhysicalColumnType(
+  knex: Knex,
+  tableName: string,
+  columnName: string,
+): Promise<string | undefined> {
+  try {
+    const result = await knex.raw(
+      `
+      SELECT udt_name, data_type
+      FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND table_name = ?
+        AND column_name = ?
+    `,
+      [tableName, columnName],
+    );
+    const row = result.rows?.[0];
+    return row?.udt_name || row?.data_type || undefined;
+  } catch (error) {
+    logger.warn(
+      `Cannot read physical type for ${tableName}.${columnName}: ${getErrorMessage(error)}`,
+    );
+    return undefined;
+  }
+}
+
 function isIdempotentDDLError(err: any, dbType: string): boolean {
   const code = err?.code || err?.errno;
   const msg = String(err?.message || '').toLowerCase();
@@ -427,6 +460,13 @@ export async function generateSQLFromDiff(
       columnDef,
       dbType,
       update.oldColumn,
+      dbType === 'postgres'
+        ? await getPhysicalColumnType(
+            knex,
+            activeTableName,
+            update.newColumn.name,
+          )
+        : undefined,
     );
     if (Array.isArray(modifySQL)) {
       sqlStatements.push(...modifySQL);

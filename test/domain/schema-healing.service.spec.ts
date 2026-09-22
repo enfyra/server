@@ -35,6 +35,9 @@ function makeQb(findImpl: (args: any) => any, updateMock: any) {
   knex.schema = {
     hasTable: vi.fn().mockResolvedValue(false),
   };
+  // The temporal repair reads the column catalog, so a knex without `raw` cannot
+  // answer it. An empty catalog means "no temporal drift to report".
+  knex.raw = vi.fn().mockResolvedValue({ rows: [], 0: [] });
   return {
     find: vi.fn(findImpl as any),
     update: updateMock,
@@ -586,6 +589,9 @@ describe('SchemaHealingService.runIfNeeded', () => {
         ),
       createTable: vi.fn().mockResolvedValue(undefined),
     };
+    // The temporal repair reads the column catalog; an empty catalog reports no
+    // drift, which keeps this junction-focused case unchanged.
+    knex.raw = vi.fn().mockResolvedValue({ rows: [], 0: [] });
     const qb = {
       find: vi.fn(() => ({ data: [] })),
       update,

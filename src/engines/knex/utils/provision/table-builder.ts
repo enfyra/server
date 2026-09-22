@@ -74,10 +74,19 @@ export function buildTableSchema(
           column = table.uuid(col.name);
           break;
         case 'timestamp':
-          column = table.timestamp(col.name);
+          // MySQL keeps the aware contract as a UTC wall clock in DATETIME; a
+          // `TIMESTAMP` column would be re-read through the session zone and cap
+          // out at 2038.
+          column =
+            dbType === 'mysql2'
+              ? table.datetime(col.name)
+              : table.timestamp(col.name);
           break;
         case 'datetime':
           column = table.datetime(col.name);
+          break;
+        case 'date':
+          column = table.date(col.name);
           break;
         case 'float':
           column = table.float(col.name);
@@ -160,8 +169,8 @@ export function buildTableSchema(
     table.timestamp('createdAt', { useTz: true }).defaultTo(knex.fn.now());
     table.timestamp('updatedAt', { useTz: true }).defaultTo(knex.fn.now());
   } else {
-    table.timestamp('createdAt').defaultTo(knex.fn.now());
-    table.timestamp('updatedAt').defaultTo(knex.fn.now());
+    table.datetime('createdAt').defaultTo(knex.fn.now());
+    table.datetime('updatedAt').defaultTo(knex.fn.now());
   }
 
   for (const unique of buildSqlUniqueContracts(tableName, definition)) {
