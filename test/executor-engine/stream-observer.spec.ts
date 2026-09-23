@@ -1401,7 +1401,53 @@ describe('stream observer callback', () => {
     }
   });
 
-  it('keeps preflight replay reads under the original idle deadline', async () => {
+  it('relays a late second package chunk after the preflight deadline', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-stream-preflight-replay-'));
+    const modulePath = path.join(tempDir, 'preflight-replay-package.mjs');
+    await writeFile(
+      modulePath,
+      `
+        export default {
+          async *stream() {
+            yield new TextEncoder().encode('first');
+            await new Promise(resolve => setTimeout(resolve, 700));
+            yield new TextEncoder().encode('second');
+          },
+        };
+      `,
+      'utf8',
+    );
+
+    const service = makeService(modulePath, 'preflight-replay-package');
+    const received: Buffer[] = [];
+    try {
+      await service.run(
+        `
+          const preflight = await $ctx.$streams.preflight(
+            $ctx.$pkgs['preflight-replay-package'].stream(),
+            { timeoutMs: 350 },
+          );
+          await $ctx.$res.stream($ctx.$streams.guard(preflight.stream, { timeoutMs: 1000 }));
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: { $logs: [] },
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+          $res: { stream: (stream: any) => new Promise<void>((resolve, reject) => {
+            stream.on('data', (chunk: Buffer) => received.push(chunk));
+            stream.on('end', resolve);
+            stream.on('error', reject);
+          }) },
+        } as any,
+        2000,
+      );
+
+      expect(Buffer.concat(received).toString('utf8')).toBe('firstsecond');
+    } finally {
+      service.onDestroy();
+    }
+  });
+
+  it('lets preflight replay outlive the first-byte deadline while an explicit guard still bounds it', async () => {
     const service = makeService();
 
     try {
@@ -1423,10 +1469,13 @@ describe('stream observer callback', () => {
             },
           };
           const preflight = await $ctx.$streams.preflight(readable, {
+            timeoutMs: 40,
+          });
+          const guarded = $ctx.$streams.guard(preflight.stream, {
             timeoutMs: 1000,
             idleTimeoutMs: 40,
           });
-          const iterator = preflight.stream[Symbol.asyncIterator]();
+          const iterator = guarded[Symbol.asyncIterator]();
           const first = await iterator.next();
           let code = null;
           try {
