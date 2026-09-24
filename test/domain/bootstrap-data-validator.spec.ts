@@ -1,7 +1,13 @@
 import { bootstrapSourceArtifacts } from '../../src/data';
 import { validateBootstrapDataFiles } from '../../src/domain/bootstrap/utils/bootstrap-data-validator.util';
+import { resolveDataMigration } from '../../src/shared/utils/versioned-migration.util';
 
-const { dataMigration, defaultData, snapshot } = bootstrapSourceArtifacts;
+const { dataCorrections, dataMigrations, defaultData, snapshot } =
+  bootstrapSourceArtifacts;
+const dataMigration = {
+  ...dataCorrections,
+  ...(resolveDataMigration(dataMigrations, '2.2.19-patch-1').data ?? {}),
+};
 
 describe('validateBootstrapDataFiles', () => {
   it('accepts current bootstrap route metadata', () => {
@@ -25,15 +31,13 @@ describe('validateBootstrapDataFiles', () => {
       defaultData,
       dataMigration: { _deletedRecords: [{ table: 'enfyra_route', filter }] },
     });
-    expect(issues).toEqual([expect.objectContaining({
-      file: 'data-migration.ts', table: 'enfyra_route', field: '_deletedRecords[0].filter',
-    })]);
-  });
-
-  it('declares each retired log route with an exact deletion selector', () => {
-    for (const path of ['/logs', '/logs/stats', '/logs/:filename', '/logs/:filename/tail']) {
-      expect(dataMigration._deletedRecords).toContainEqual({ table: 'enfyra_route', filter: { path: { _eq: path } } });
-    }
+    expect(issues).toEqual([
+      expect.objectContaining({
+        file: 'data-migration.ts',
+        table: 'enfyra_route',
+        field: '_deletedRecords[0].filter',
+      }),
+    ]);
   });
 
   it('migrates static admin routes into route metadata', () => {

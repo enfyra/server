@@ -2,6 +2,7 @@ import type {
   SchemaMigrationDef,
   TableRenameDef,
 } from '../../../shared/types/schema-migration.types';
+import { isSupportedMongoColumnType } from '../../../shared/utils/column-type.util';
 import {
   COLUMN_DEFAULTS,
   COLUMN_FIELDS,
@@ -109,6 +110,25 @@ export function validateMigrationDefinition(
     false,
     errors,
   );
+  const mongoTypeMappings = migration.mongoColumnTypesToModify ?? [];
+  for (const source of duplicateValues(
+    mongoTypeMappings.map((mapping) => mapping.from),
+  )) {
+    errors.push(`duplicate Mongo column type migration source ${source}`);
+  }
+  for (const mapping of mongoTypeMappings) {
+    if (!mapping.from || !mapping.to) {
+      errors.push(
+        'Mongo column type migrations require non-empty from and to values',
+      );
+    } else if (mapping.from === mapping.to) {
+      errors.push(`Mongo column type ${mapping.from} cannot migrate to itself`);
+    } else if (!isSupportedMongoColumnType(mapping.to)) {
+      errors.push(
+        `Mongo column type migration target ${mapping.to} is unsupported`,
+      );
+    }
+  }
   const expectedRelations = buildExpectedRelations(snapshot);
   const tableNames = (migration.tables ?? []).map(
     (entry) => entry._unique.name._eq,

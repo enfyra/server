@@ -5,6 +5,7 @@ import {
   DuplicateResourceException,
   ValidationException,
 } from '../../../domain/exceptions';
+import { isCustomException } from '../../../domain/exceptions/custom-exceptions';
 import { isPolicyDeny } from '../../../domain/policy';
 import { TDynamicContext } from '../../../shared/types';
 import { stringifyJsonFieldValue } from '../../../shared/utils/json-field-normalizer.util';
@@ -91,11 +92,13 @@ export class SqlTableCreateService extends SqlTableHandlerService {
     let schemaCreated = false;
     let metadataCommitted = false;
     let createdMetadataSnapshot: any = null;
+    let abortSignal: AbortSignal | undefined;
+    let onAbort: (() => void) | undefined;
     try {
       trx = await knex.transaction();
-      const abortSignal = getIoAbortSignal();
+      abortSignal = getIoAbortSignal();
       if (abortSignal) {
-        const onAbort = () => {
+        onAbort = () => {
           if (trx && !trx.isCompleted()) {
             trx.rollback().catch(() => {});
           }
@@ -272,8 +275,9 @@ export class SqlTableCreateService extends SqlTableHandlerService {
               relationTargetTableMapKey(targetTableId),
             );
             if (!targetTableName) {
-              throw new Error(
+              throw new ValidationException(
                 `Target table with ID ${targetTableId} not found`,
+                { tableName: body.name, targetTableId },
               );
             }
             const junction = getSqlJunctionPhysicalNames({
@@ -382,8 +386,9 @@ export class SqlTableCreateService extends SqlTableHandlerService {
         for (const rel of fullMetadata.relations) {
           if (['many-to-one', 'one-to-one'].includes(rel.type)) {
             if (!rel.targetTableName) {
-              throw new Error(
+              throw new ValidationException(
                 `Relation '${rel.propertyName}' (${rel.type}) from table '${body.name}' has invalid targetTableId: ${rel.targetTableId}. Target table not found. Please verify the target table ID is correct.`,
+                { tableName: body.name, propertyName: rel.propertyName },
               );
             }
           }
@@ -424,6 +429,9 @@ export class SqlTableCreateService extends SqlTableHandlerService {
           );
         }
       }
+      if (isCustomException(error)) {
+        throw error;
+      }
       if (schemaCreated) {
         try {
           await this.schemaMigrationService.dropTable(
@@ -439,7 +447,10 @@ export class SqlTableCreateService extends SqlTableHandlerService {
           );
         }
       }
-      if (metadataCommitted && !schemaCreated) {
+      // A failure after the commit leaves a committed metadata row with no
+      // transaction left to roll back, so it is deleted explicitly. Before the
+      // commit the transaction rollback above already removes it.
+      if (metadataCommitted) {
         try {
           await this.queryBuilderService
             .getKnex()('enfyra_table')
@@ -464,6 +475,10 @@ export class SqlTableCreateService extends SqlTableHandlerService {
           operation: 'create',
         },
       );
+    } finally {
+      if (abortSignal && onAbort) {
+        abortSignal.removeEventListener('abort', onAbort);
+      }
     }
   }
 }

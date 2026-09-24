@@ -90,6 +90,14 @@ export class GuardValidationService {
         typeof merged.table === 'object' &&
         Object.keys(merged.table).length === 0
       );
+    const hasExcludeRoutes =
+      Object.prototype.hasOwnProperty.call(body, 'excludeRoutes') &&
+      merged.excludeRoutes != null &&
+      merged.excludeRoutes !== '' &&
+      !(
+        typeof merged.excludeRoutes === 'object' &&
+        Object.keys(merged.excludeRoutes).length === 0
+      );
 
     if (
       !hasParent &&
@@ -100,6 +108,30 @@ export class GuardValidationService {
       throw new BadRequestException(
         'Enabled root guard requires position pre_auth or post_auth.',
       );
+    }
+
+    // Targeting belongs to the root only: GuardCacheBuilder classifies a root by
+    // its own type/route/isGlobal and never reads those on a child, so persisting
+    // them there would be misleading dead data. Only fields explicitly present in
+    // the request are rejected, so an unrelated PATCH never trips on legacy rows.
+    if (hasParent) {
+      const childForbidden = [
+        'route',
+        'isGlobal',
+        'position',
+        'methods',
+        'type',
+        'gqlOperation',
+        'table',
+        'excludeRoutes',
+      ].filter((field) =>
+        Object.prototype.hasOwnProperty.call(body, field),
+      );
+      if (childForbidden.length > 0) {
+        throw new BadRequestException(
+          `Child guards cannot set ${childForbidden.join(', ')}. A child guard inherits targeting (route, position, methods, type) from its root and only owns its own name, description, combinator, priority, and enabled state.`,
+        );
+      }
     }
 
     if (type === 'route') {
@@ -116,6 +148,11 @@ export class GuardValidationService {
       if (hasTable) {
         throw new BadRequestException(
           'Guard type=route cannot set table. table targeting is only valid for type=graphql.',
+        );
+      }
+      if (hasExcludeRoutes && !hasGlobal) {
+        throw new BadRequestException(
+          'Guard excludeRoutes is only valid when isGlobal=true. A route-scoped guard already targets exactly one route.',
         );
       }
     } else {
@@ -287,6 +324,7 @@ export class GuardValidationService {
         'route',
         'table',
         'methods',
+        'excludeRoutes',
         'isGlobal',
         'isEnabled',
         'position',
@@ -392,6 +430,7 @@ export class GuardValidationService {
         'route',
         'table',
         'methods',
+        'excludeRoutes',
         'isGlobal',
         'isEnabled',
         'position',

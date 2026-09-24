@@ -1,7 +1,7 @@
 import { ObjectId } from 'mongodb';
-import { IRedisPubSub } from '../../shared/interfaces/redis-pubsub.interface';
-import { ICache } from '../../shared/interfaces/cache.interface';
-import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
+import type { IRedisPubSub } from '../../shared/interfaces/redis-pubsub.interface';
+import type { ICache } from '../../shared/interfaces/cache.interface';
+import type { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { Logger } from '../../../shared/logger';
 import {
   bumpUserAuthorizationRevision,
@@ -62,11 +62,11 @@ export class UserRevocationService {
           ? new ObjectId(userId)
           : userId;
       await this.queryBuilderService.delete('enfyra_session', {
-        where: { user: idValue },
+        where: [{ field: 'user', operator: '=', value: idValue }],
       });
     } else {
       await this.queryBuilderService.delete('enfyra_session', {
-        where: { userId: String(userId) },
+        where: [{ field: 'userId', operator: '=', value: String(userId) }],
       });
     }
   }

@@ -10,7 +10,12 @@ const tableMeta = {
   relations: [{ propertyName: 'privateOwner', isPublished: false }],
 };
 
-function policy(action: 'create' | 'update', field: string, effect: 'allow' | 'deny', condition: any = null) {
+function policy(
+  action: 'create' | 'update',
+  field: string,
+  effect: 'allow' | 'deny',
+  condition: any = null,
+) {
   return {
     unconditionalAllowedColumns: new Set(),
     unconditionalAllowedRelations: new Set(),
@@ -30,6 +35,23 @@ function policy(action: 'create' | 'update', field: string, effect: 'allow' | 'd
         condition,
       },
     ],
+  };
+}
+
+function rolePolicy(
+  action: 'create' | 'update',
+  field: string,
+  effect: 'allow' | 'deny',
+  roleId: number,
+) {
+  const compiled = policy(action, field, effect);
+  return {
+    ...compiled,
+    rules: compiled.rules.map((rule) => ({
+      ...rule,
+      allowedUserIds: [],
+      roleId: String(roleId),
+    })),
   };
 }
 
@@ -101,6 +123,44 @@ describe('stripUnauthorizedMutationFields', () => {
         user: { id: 'editor' },
       }),
     ).resolves.toEqual(body);
+  });
+
+  it('keeps an unpublished null update when one of multiple roles allows it', async () => {
+    const allowed = rolePolicy('update', 'privateValue', 'allow', 20);
+    const body = { privateValue: null };
+
+    await expect(
+      stripUnauthorizedMutationFields({
+        action: 'update',
+        body,
+        policyReader: {
+          getFieldPermissionPoliciesFor: () => [allowed],
+        },
+        record: { id: 1 },
+        tableMeta,
+        tableName: 'articles',
+        user: { id: 'editor', roles: [{ id: 10 }, { id: 20 }] },
+      }),
+    ).resolves.toEqual(body);
+  });
+
+  it('strips an unpublished null update when another matching role denies it', async () => {
+    const allowed = rolePolicy('update', 'privateValue', 'allow', 10);
+    const denied = rolePolicy('update', 'privateValue', 'deny', 20);
+
+    await expect(
+      stripUnauthorizedMutationFields({
+        action: 'update',
+        body: { privateValue: null },
+        policyReader: {
+          getFieldPermissionPoliciesFor: () => [allowed, denied],
+        },
+        record: { id: 1 },
+        tableMeta,
+        tableName: 'articles',
+        user: { id: 'editor', roles: [{ id: 10 }, { id: 20 }] },
+      }),
+    ).resolves.toEqual({});
   });
 
   it('strips a published field when an explicit permission denies it', async () => {

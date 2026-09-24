@@ -71,7 +71,7 @@ export function registerFileRoutes(
           storageConfig: body.storageConfig,
           title: file.originalname,
           description: null,
-          userId: req.user?.id,
+          userId: req.user?.id ?? req.user?._id,
         },
         fileRepo,
       );

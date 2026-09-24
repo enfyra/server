@@ -1,4 +1,5 @@
 import { Logger } from '../../../shared/logger';
+import { isIpInRange, normalizeIpAddress } from '../../../shared/utils/ip-address.util';
 import { RateLimitService, RateLimitResult } from './rate-limit.service';
 import type {
   GuardNode,
@@ -170,7 +171,7 @@ export class GuardEvaluatorService {
     switch (rule.type) {
       case 'rate_limit_by_ip':
         return this.evalRateLimit(
-          `guard_rule:${rule.id}:ip:${evalCtx.clientIp}`,
+          `guard_rule:${rule.id}:ip:${normalizeIpAddress(evalCtx.clientIp) ?? 'unknown'}`,
           rule,
           guardName,
           rateLimitSnapshots,
@@ -300,49 +301,7 @@ export class GuardEvaluatorService {
     };
   }
 
-  private normalizeIp(ip: string): string {
-    if (ip.startsWith('::ffff:')) {
-      const v4 = ip.slice(7);
-      if (this.ipToNum(v4) !== null) return v4;
-    }
-    return ip;
-  }
-
   private matchIp(clientIp: string, patterns: string[]): boolean {
-    const normalized = this.normalizeIp(clientIp);
-    for (const pattern of patterns) {
-      const normalizedPattern = this.normalizeIp(pattern);
-      if (normalizedPattern.includes('/')) {
-        if (this.matchCidr(normalized, normalizedPattern)) return true;
-      } else {
-        if (normalized === normalizedPattern) return true;
-      }
-    }
-    return false;
-  }
-
-  private matchCidr(ip: string, cidr: string): boolean {
-    const [range, bitsStr] = cidr.split('/');
-    const bits = parseInt(bitsStr, 10);
-    if (isNaN(bits) || bits < 0 || bits > 32) return false;
-
-    const ipNum = this.ipToNum(ip);
-    const rangeNum = this.ipToNum(range);
-    if (ipNum === null || rangeNum === null) return false;
-
-    const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
-    return (ipNum & mask) === (rangeNum & mask);
-  }
-
-  private ipToNum(ip: string): number | null {
-    const parts = ip.split('.');
-    if (parts.length !== 4) return null;
-    let num = 0;
-    for (const part of parts) {
-      const n = parseInt(part, 10);
-      if (isNaN(n) || n < 0 || n > 255) return null;
-      num = (num << 8) | n;
-    }
-    return num >>> 0;
+    return patterns.some(pattern => isIpInRange(clientIp, pattern));
   }
 }

@@ -16,7 +16,7 @@ function createHarness(input?: {
         id: 1,
         _id: 'column-id',
         name: input?.mongo ? '_id' : 'id',
-        type: input?.mongo ? 'object-id' : 'int',
+        type: input?.mongo ? 'objectId' : 'int',
         isPrimary: true,
         isGenerated: true,
         table: input?.mongo ? 'owner-mongo' : 10,
@@ -25,7 +25,7 @@ function createHarness(input?: {
         id: 2,
         _id: 'column-title',
         name: 'title',
-        type: 'varchar',
+        type: input?.mongo ? 'string' : 'varchar',
         table: input?.mongo ? 'owner-mongo' : 10,
       },
     ],
@@ -205,7 +205,7 @@ describe('RuntimeMetadataSchemaRouterService', () => {
       tableName: 'enfyra_column',
       data: {
         name: 'as',
-        type: 'varchar',
+        type: 'string',
         isNullable: true,
         table: { _id: 'owner-mongo' },
       },
@@ -267,7 +267,10 @@ describe('RuntimeMetadataSchemaRouterService', () => {
     const compileInput =
       harness.runtimeSchemaContractCompilerService.compile.mock.calls[0][0];
     expect(compileInput.afterMetadata.uniques).toEqual([['slug']]);
-    expect(compileInput.afterMetadata.indexes).toEqual([['createdAt']]);
+    expect(compileInput.afterMetadata.indexes).toEqual(
+      expect.arrayContaining([['createdAt'], ['updatedAt'], ['author']]),
+    );
+    expect(compileInput.afterMetadata.indexes).toHaveLength(3);
   });
 
   it('returns preview for destructive operations without confirm hash', async () => {
@@ -307,12 +310,14 @@ describe('RuntimeMetadataSchemaRouterService', () => {
       body: { description: 'Updated description' },
     });
 
-    expect(result.preview).toEqual(expect.objectContaining({
-      _preview: true,
-      changedColumns: ['title'],
-      addedRelationsCount: 0,
-      removedRelationsCount: 0,
-    }));
+    expect(result.preview).toEqual(
+      expect.objectContaining({
+        _preview: true,
+        changedColumns: ['title'],
+        addedRelationsCount: 0,
+        removedRelationsCount: 0,
+      }),
+    );
   });
 
   it('routes relation deletion through a complete replacement aggregate', async () => {
@@ -591,7 +596,10 @@ describe('RuntimeMetadataSchemaRouterService', () => {
     const compileInput =
       harness.runtimeSchemaContractCompilerService.compile.mock.calls[0][0];
     expect(compileInput.afterMetadata.uniques).toEqual([['heading']]);
-    expect(compileInput.afterMetadata.indexes).toEqual([['writer']]);
+    expect(compileInput.afterMetadata.indexes).toEqual(
+      expect.arrayContaining([['writer'], ['createdAt'], ['updatedAt']]),
+    );
+    expect(compileInput.afterMetadata.indexes).toHaveLength(3);
   });
 
   it.each([

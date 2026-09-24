@@ -1,8 +1,9 @@
 import type {
   BootstrapChangePlan,
-  BootstrapDefinition,
+  BootstrapDataMigration,
   BootstrapPlannedChange,
   BootstrapSchemaExecutionPlan,
+  BootstrapSnapshot,
 } from '../types';
 
 export const BOOTSTRAP_PROGRESS_CHANGE_IDS = Object.freeze({
@@ -33,7 +34,10 @@ const PROGRESS_GROUP_WEIGHTS = Object.freeze({
 
 export function buildBootstrapChangePlan(
   schemaPlan: BootstrapSchemaExecutionPlan,
-  definition: BootstrapDefinition,
+  definition: {
+    snapshot: BootstrapSnapshot;
+    dataMigration: BootstrapDataMigration;
+  },
 ): BootstrapChangePlan {
   const changes: UnweightedBootstrapChange[] = [];
   const add = (
@@ -77,11 +81,7 @@ export function buildBootstrapChangePlan(
     BOOTSTRAP_PROGRESS_CHANGE_IDS.healingExplicitRepairs,
     'apply explicit schema repairs',
   );
-  add(
-    'cache',
-    BOOTSTRAP_PROGRESS_CHANGE_IDS.cacheWarm,
-    'warm metadata cache',
-  );
+  add('cache', BOOTSTRAP_PROGRESS_CHANGE_IDS.cacheWarm, 'warm metadata cache');
   add(
     'defaults',
     BOOTSTRAP_PROGRESS_CHANGE_IDS.defaultsSeed,

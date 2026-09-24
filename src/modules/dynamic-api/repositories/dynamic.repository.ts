@@ -360,7 +360,7 @@ export class DynamicRepository {
       action,
       ids,
       data,
-      userId: this.context?.$user?.id ?? null,
+      userId: this.context?.$user?.id ?? this.context?.$user?._id ?? null,
     };
     const emit = () => {
       this.eventEmitter.emit(DATA_EVENTS.TABLE_MUTATION, payload);

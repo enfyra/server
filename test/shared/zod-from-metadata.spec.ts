@@ -91,6 +91,45 @@ describe('buildZodFromMetadata — column types', () => {
     expect(s.safeParse({ tags: [1] }).success).toBe(false);
   });
 
+  it('validates Mongo-native scalar and document types', () => {
+    const s = build(
+      makeMeta({
+        columns: [
+          col('title', 'string', { isNullable: false }),
+          col('count', 'long', { isNullable: false }),
+          col('score', 'double', { isNullable: false }),
+          col('active', 'bool', { isNullable: false }),
+          col('ownerId', 'objectId', { isNullable: false }),
+          col('payload', 'object', { isNullable: false }),
+          col('items', 'array', { isNullable: false }),
+        ],
+      }),
+    );
+
+    expect(
+      s.safeParse({
+        title: 'native',
+        count: '9223372036854775807',
+        score: 1.5,
+        active: true,
+        ownerId: '507f1f77bcf86cd799439011',
+        payload: { enabled: true },
+        items: ['a', 2],
+      }).success,
+    ).toBe(true);
+    expect(
+      s.safeParse({
+        title: 'native',
+        count: 'not-an-integer',
+        score: 1.5,
+        active: true,
+        ownerId: '507f1f77bcf86cd799439011',
+        payload: [],
+        items: {},
+      }).success,
+    ).toBe(false);
+  });
+
   it('simple-json accepts anything', () => {
     const s = build(
       makeMeta({
@@ -333,6 +372,35 @@ describe('buildZodFromMetadata — column rules', () => {
     expect(s.safeParse({ age: ['a', 'b'] }).success).toBe(true);
     expect(s.safeParse({ age: ['a'] }).success).toBe(false);
     expect(s.safeParse({ age: ['a', 'b', 'c', 'd'] }).success).toBe(false);
+  });
+
+  it.each(['number', 'string'] as const)(
+    'applies a min rule to a 64-bit integer sent as a %s',
+    (form) => {
+      const s = build(
+        makeMeta({ columns: [col('count', 'long', { isNullable: false })] }),
+        'create',
+        () => null,
+        () => [rule('min', { v: 18 })],
+      );
+      expect(
+        s.safeParse({ count: form === 'number' ? 20 : '20' }).success,
+      ).toBe(true);
+      expect(
+        s.safeParse({ count: form === 'number' ? 10 : '10' }).success,
+      ).toBe(false);
+    },
+  );
+
+  it('applies a max rule to a 64-bit integer sent as a string', () => {
+    const s = build(
+      makeMeta({ columns: [col('count', 'long', { isNullable: false })] }),
+      'create',
+      () => null,
+      () => [rule('max', { v: 100 })],
+    );
+    expect(s.safeParse({ count: '100' }).success).toBe(true);
+    expect(s.safeParse({ count: '101' }).success).toBe(false);
   });
 });
 
@@ -937,9 +1005,9 @@ describe('buildZodFromMetadata — array relation edge cases', () => {
       () => target,
     );
     expect(s.safeParse({ tags: [{ name: 'new tag' }] }).success).toBe(true);
-    expect(s.safeParse({ tags: [{ id: 1 }, { name: 'new tag' }] }).success).toBe(
-      true,
-    );
+    expect(
+      s.safeParse({ tags: [{ id: 1 }, { name: 'new tag' }] }).success,
+    ).toBe(true);
   });
 
   it('m2m with cascade validates nested required fields', () => {

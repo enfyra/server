@@ -77,6 +77,10 @@ function decodeLegacyJsonValue(value: any): any {
   return value;
 }
 
+function escapeRedisGlob(value: string): string {
+  return value.replace(/[*?[\]\\]/g, (char) => `\\${char}`);
+}
+
 export class RedisRuntimeCacheStore {
   private readonly redis: Redis;
   private readonly nodeName: string;
@@ -207,7 +211,7 @@ export class RedisRuntimeCacheStore {
     keyPrefix: string,
   ): Promise<void> {
     if (!this.enabled) return;
-    const pattern = this.auxKey(cacheIdentifier, `${keyPrefix}*`);
+    const pattern = this.auxKey(cacheIdentifier, `${escapeRedisGlob(keyPrefix)}*`);
     let cursor = '0';
     do {
       const [nextCursor, keys] = await this.redis.scan(

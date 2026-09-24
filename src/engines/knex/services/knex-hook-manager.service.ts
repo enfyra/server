@@ -432,26 +432,6 @@ export class KnexHookManagerService {
     });
 
     this.addHook('beforeUpdate', async (tableName, data) => {
-      const tableMetadata =
-        this.runtimeRegistryService.getTableMetadata(tableName);
-      if (!tableMetadata || !tableMetadata.columns) return data;
-
-      const filteredData = { ...data };
-
-      for (const column of tableMetadata.columns) {
-        if (
-          column.isPublished === false &&
-          column.name in filteredData &&
-          filteredData[column.name] === null
-        ) {
-          delete filteredData[column.name];
-        }
-      }
-
-      return filteredData;
-    });
-
-    this.addHook('beforeUpdate', async (tableName, data) => {
       if (await this.isJunctionTable(tableName)) return data;
       const tableMetadata =
         this.runtimeRegistryService.getTableMetadata(tableName);
@@ -515,8 +495,10 @@ export class KnexHookManagerService {
     knexContext: AsyncLocalStorage<Knex | Knex.Transaction>,
     cascadeContext: AsyncLocalStorage<Map<string, any>>,
     options: KnexQueryOptions = {},
-    runWithWriteLease: <T>(context: string, run: () => Promise<T>) => Promise<T> =
-      async (_context, run) => run(),
+    runWithWriteLease: <T>(
+      context: string,
+      run: () => Promise<T>,
+    ) => Promise<T> = async (_context, run) => run(),
   ): any {
     const runHooks = (event: HookEvent, ...args: any[]) =>
       this.runHooks(event, ...args);
@@ -629,7 +611,11 @@ export class KnexHookManagerService {
           return result;
         }
 
-        const processedResult = await runHooks('afterSelect', tableName, result);
+        const processedResult = await runHooks(
+          'afterSelect',
+          tableName,
+          result,
+        );
         if (signal?.aborted) {
           return processedResult;
         }

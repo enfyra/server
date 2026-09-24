@@ -48,6 +48,7 @@ export class GraphqlService {
 
   private pendingPayload: TCacheInvalidationPayload | null = null;
   private lastReload: GraphqlRuntimeStatus['lastReload'];
+  private reloadChain: Promise<void> = Promise.resolve();
 
   private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly dynamicResolver: DynamicResolver;
@@ -66,7 +67,20 @@ export class GraphqlService {
     this.envService = deps.envService;
   }
 
-  async reloadSchema(payload?: TCacheInvalidationPayload): Promise<void> {
+  // Schema assembly reads `tableDefCache`/`typeRegistry` across several async
+  // steps, so two overlapping reloads can leave one build holding a type object
+  // the other has already replaced, producing a duplicate-named type at
+  // construction time. Serializing reloads keeps each build self-consistent.
+  reloadSchema(payload?: TCacheInvalidationPayload): Promise<void> {
+    const next = this.reloadChain.then(
+      () => this.runReload(payload),
+      () => this.runReload(payload),
+    );
+    this.reloadChain = next.catch(() => {});
+    return next;
+  }
+
+  private async runReload(payload?: TCacheInvalidationPayload): Promise<void> {
     const startedAt = new Date().toISOString();
     this.lastReload = { status: 'running', startedAt };
     try {
@@ -115,6 +129,12 @@ export class GraphqlService {
           this.eventEmitter.emit(CACHE_EVENTS.GRAPHQL_LOADED);
           return;
         }
+        // A GraphQLObjectType caches the fields it resolved, including the type
+        // objects its relation fields point at. Rebuilding only the affected
+        // tables would leave every referencing table holding the previous type
+        // instance, so the rebuilt type and the stale reference both land in the
+        // schema under one name. Rebuild the referencing tables as well.
+        this.expandWithRelationDependents(affectedTables, metadata);
         this.incrementalUpdate(metadata, newQueryableNames, affectedTables);
       } else {
         this.fullBuild(metadata, newQueryableNames);
@@ -192,6 +212,29 @@ export class GraphqlService {
     }
 
     return affected;
+  }
+
+  private expandWithRelationDependents(
+    affected: Set<string>,
+    metadata: any,
+  ): void {
+    let added = true;
+    while (added) {
+      added = false;
+      for (const [name, table] of metadata.tables) {
+        if (affected.has(name)) continue;
+        const relations = Array.isArray(table.relations) ? table.relations : [];
+        if (
+          relations.some(
+            (rel: any) =>
+              rel?.targetTableName && affected.has(rel.targetTableName),
+          )
+        ) {
+          affected.add(name);
+          added = true;
+        }
+      }
+    }
   }
 
   private fullBuild(metadata: any, queryableTableNames: Set<string>): void {

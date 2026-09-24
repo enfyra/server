@@ -2,13 +2,21 @@ import { DatabaseConfigService, EnvService } from '../../../shared/services';
 import { randomUUID, createHash } from 'crypto';
 import { ObjectId } from 'mongodb';
 import ms, { type StringValue } from 'ms';
+import { Logger } from '../../../shared/logger';
 import { BadRequestException } from '../../exceptions';
 import * as jwt from 'jsonwebtoken';
-import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
-import { ICache } from '../../shared/interfaces/cache.interface';
+import type { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
+import type { ICache } from '../../shared/interfaces/cache.interface';
 import { BcryptService } from './bcrypt.service';
 import { primeCachedUserWithRoles } from '../../../shared/utils/load-user-with-role.util';
 import { parseOrBadRequest } from '../../../shared/utils/zod-parse.util';
+import {
+  REFRESH_TOKEN_REPLAY_CACHE_PREFIX,
+  REFRESH_TOKEN_REPLAY_POLL_MS,
+  REFRESH_TOKEN_REPLAY_TTL_MS,
+  REFRESH_TOKEN_REPLAY_WAIT_MS,
+} from '../auth.constants';
+import type { RefreshTokenResult } from '../types/auth.types';
 import {
   loginSchema,
   refreshTokenSchema,
@@ -18,6 +26,7 @@ import {
 type JwtExpiresIn = jwt.SignOptions['expiresIn'];
 
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private bcryptService: BcryptService;
   private queryBuilder: IQueryBuilder;
   private envService: EnvService;
@@ -45,6 +54,84 @@ export class AuthService {
 
   private hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
+  }
+
+  private refreshReplayKey(tokenHash: string): string {
+    return `${REFRESH_TOKEN_REPLAY_CACHE_PREFIX}:${tokenHash}`;
+  }
+
+  private async getRefreshReplay(
+    tokenHash: string,
+  ): Promise<RefreshTokenResult | null> {
+    return this.cacheService.get<RefreshTokenResult>(
+      this.refreshReplayKey(tokenHash),
+    );
+  }
+
+  private async waitForRefreshReplay(
+    tokenHash: string,
+  ): Promise<RefreshTokenResult | null> {
+    const deadline = Date.now() + REFRESH_TOKEN_REPLAY_WAIT_MS;
+    do {
+      const replay = await this.getRefreshReplay(tokenHash);
+      if (replay) return replay;
+      await new Promise((resolve) =>
+        setTimeout(resolve, REFRESH_TOKEN_REPLAY_POLL_MS),
+      );
+    } while (Date.now() < deadline);
+    return this.getRefreshReplay(tokenHash);
+  }
+
+  private isRefreshReplayCurrent(
+    sessionRefreshTokenHash: unknown,
+    replay: RefreshTokenResult,
+  ): boolean {
+    return (
+      typeof sessionRefreshTokenHash === 'string' &&
+      sessionRefreshTokenHash === this.hashToken(replay.refreshToken)
+    );
+  }
+
+  private async waitForCurrentRefreshReplay(
+    tokenHash: string,
+    sessionIdField: string,
+    sessionId: unknown,
+  ): Promise<RefreshTokenResult | null> {
+    const replay = await this.waitForRefreshReplay(tokenHash);
+    if (!replay) return null;
+
+    const latestSession = await this.queryBuilder.findOne({
+      table: 'enfyra_session',
+      where: { [sessionIdField]: sessionId },
+    });
+    if (
+      !latestSession ||
+      (latestSession.expiredAt &&
+        new Date(latestSession.expiredAt).getTime() < Date.now())
+    ) {
+      return null;
+    }
+
+    return this.isRefreshReplayCurrent(latestSession.refreshTokenHash, replay)
+      ? replay
+      : null;
+  }
+
+  private async storeRefreshReplay(
+    tokenHash: string,
+    result: RefreshTokenResult,
+  ): Promise<void> {
+    try {
+      await this.cacheService.set(
+        this.refreshReplayKey(tokenHash),
+        result,
+        REFRESH_TOKEN_REPLAY_TTL_MS,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Failed to cache refresh replay: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   private calculateExpiredAt(remember: boolean): Date {
@@ -146,7 +233,7 @@ export class AuthService {
     };
   }
 
-  async logout(rawBody: unknown, req: any) {
+  async logout(rawBody: unknown, _req: any) {
     const body = parseOrBadRequest(logoutSchema, rawBody);
     let decoded: any;
     try {
@@ -177,10 +264,7 @@ export class AuthService {
       throw new BadRequestException('Refresh token has been revoked!');
     }
 
-    await this.queryBuilder.delete(
-      'enfyra_session',
-      session._id || session.id,
-    );
+    await this.queryBuilder.delete('enfyra_session', session._id || session.id);
     return 'Logout successfully!';
   }
 
@@ -196,6 +280,7 @@ export class AuthService {
       throw new BadRequestException('Invalid or expired refresh token!');
     }
 
+    const incomingHash = this.hashToken(body.refreshToken);
     const sessionIdField = this.queryBuilder.getPkField();
     const session = await this.queryBuilder.findOne({
       table: 'enfyra_session',
@@ -213,8 +298,21 @@ export class AuthService {
       throw new BadRequestException('Session has expired!');
     }
 
-    const incomingHash = this.hashToken(body.refreshToken);
+    const cachedReplay = await this.getRefreshReplay(incomingHash);
+    if (
+      cachedReplay &&
+      this.isRefreshReplayCurrent(session.refreshTokenHash, cachedReplay)
+    ) {
+      return cachedReplay;
+    }
+
     if (session.refreshTokenHash && session.refreshTokenHash !== incomingHash) {
+      const replay = await this.waitForCurrentRefreshReplay(
+        incomingHash,
+        sessionIdField,
+        decoded.sessionId,
+      );
+      if (replay) return replay;
       throw new BadRequestException('Refresh token has been revoked!');
     }
 
@@ -276,6 +374,12 @@ export class AuthService {
           },
         });
       if (!result) {
+        const replay = await this.waitForCurrentRefreshReplay(
+          incomingHash,
+          sessionIdField,
+          decoded.sessionId,
+        );
+        if (replay) return replay;
         throw new BadRequestException(
           'Refresh token has been revoked or already used!',
         );
@@ -291,20 +395,27 @@ export class AuthService {
         })
         .update({ expiredAt: newExpiredAt, refreshTokenHash: newHash });
       if (affected === 0) {
+        const replay = await this.waitForCurrentRefreshReplay(
+          incomingHash,
+          sessionIdField,
+          decoded.sessionId,
+        );
+        if (replay) return replay;
         throw new BadRequestException(
           'Refresh token has been revoked or already used!',
         );
       }
     }
 
-    await this.seedUserCache(userId);
-
     const accessTokenDecoded = jwt.decode(accessToken) as jwt.JwtPayload;
-    return {
+    const result: RefreshTokenResult = {
       accessToken,
       refreshToken,
       expTime: accessTokenDecoded.exp! * 1000,
       loginProvider: loginProvider ?? null,
     };
+    await this.storeRefreshReplay(incomingHash, result);
+    await this.seedUserCache(userId);
+    return result;
   }
 }

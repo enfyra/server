@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { IsolatedExecutorService } from '@enfyra/kernel';
+import { getIoAbortSignal, IsolatedExecutorService } from '@enfyra/kernel';
 import { DynamicContextFactory } from '../../src/shared/services/dynamic-context.factory';
 
 function createService() {
@@ -114,6 +114,76 @@ describe('isolated executor transaction proxy', () => {
     }
   });
 
+  it.each(['single', 'batch'] as const)(
+    'aborts already-started transaction work on a %s timeout',
+    async (mode) => {
+      const service = createService();
+      const events: string[] = [];
+      let signal: AbortSignal | undefined;
+      let finishWork: (() => void) | undefined;
+      const factory = new DynamicContextFactory({
+        bcryptService: {} as any,
+        userCacheService: {} as any,
+        envService: { get: () => 'test-secret' } as any,
+        databaseConfigService: { isMongoDb: () => false } as any,
+        knexService: {
+          transaction: async (callback: () => Promise<unknown>) => {
+            events.push('begin');
+            try {
+              const result = await callback();
+              events.push('commit');
+              return result;
+            } catch (error) {
+              events.push('rollback');
+              throw error;
+            }
+          },
+          runWithTransaction: async (
+            _trx: object,
+            callback: () => Promise<unknown>,
+          ) => await callback(),
+        } as any,
+        mongoService: {} as any,
+        websocketContextFactory: {} as any,
+      });
+      const transactionContext = factory.createBase({});
+      const context = {
+        $helpers: {
+          ready: () => true,
+          pendingMutation: () => {
+            signal = getIoAbortSignal();
+            return transactionContext.$transaction.run(
+              () => new Promise<void>((resolve) => { finishWork = resolve; }),
+            );
+          },
+        },
+      };
+      const prepare = `
+        const mutation = $ctx.$helpers.pendingMutation();
+        mutation.then(() => {}, () => {});
+        await $ctx.$helpers.ready();
+      `;
+      try {
+        const task = mode === 'batch'
+          ? service.runBatch([
+            { type: 'preHook', code: prepare },
+            { type: 'handler', code: 'while (true) {}' },
+          ], context, 500)
+          : service.run(prepare + 'while (true) {}', context, 500);
+        await expect(task).rejects.toMatchObject({
+          errorCode: 'SCRIPT_TIMEOUT',
+          statusCode: 408,
+        });
+        expect(signal?.aborted).toBe(true);
+        await vi.waitFor(() => expect(events).toEqual(['begin', 'rollback']));
+        expect(service.getMetrics().crashesTotal).toBe(0);
+      } finally {
+        finishWork?.();
+        service.onDestroy();
+      }
+    },
+  );
+
   it('rolls back the outer transaction when the isolate times out', async () => {
     const service = createService();
     const events: string[] = [];
@@ -160,7 +230,7 @@ describe('isolated executor transaction proxy', () => {
             },
           ],
           ctx,
-          50,
+          1000,
         ),
       ).rejects.toMatchObject({
         errorCode: 'SCRIPT_TIMEOUT',

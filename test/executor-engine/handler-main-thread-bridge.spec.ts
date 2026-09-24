@@ -13,6 +13,12 @@ function unwrapMain(v: unknown): unknown {
     (v as { __e?: string }).__e === 'v'
   )
     return unwrapMain((v as { d: unknown }).d);
+  if (
+    v !== null &&
+    typeof v === 'object' &&
+    typeof (v as { __bigint?: unknown }).__bigint === 'string'
+  )
+    return BigInt((v as { __bigint: string }).__bigint);
   return v;
 }
 
@@ -29,12 +35,12 @@ describe('encodeMainThreadToIsolate (repo/helper/cache bridge)', () => {
     expect(decodeLikeIsolateWorker(encodeMainThreadToIsolate(null))).toBeNull();
   });
 
-  it('bigint becomes string in JSON', () => {
+  it('bigint round-trips losslessly through the envelope', () => {
     expect(
       decodeLikeIsolateWorker(
         encodeMainThreadToIsolate(BigInt('9007199254740993')),
       ),
-    ).toBe('9007199254740993');
+    ).toBe(BigInt('9007199254740993'));
   });
 
   it('plain object round-trips', () => {

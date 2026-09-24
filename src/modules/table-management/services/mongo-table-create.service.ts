@@ -4,6 +4,7 @@ import {
   DuplicateResourceException,
   ValidationException,
 } from '../../../domain/exceptions';
+import { isCustomException } from '../../../domain/exceptions/custom-exceptions';
 import { isPolicyDeny } from '../../../domain/policy';
 import { TDynamicContext } from '../../../shared/types';
 import { TCreateTableBody } from '../types/table-handler.types';
@@ -170,7 +171,9 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                     isUpdatable: col.isUpdatable ?? true,
                     isPublished: col.isPublished ?? true,
                     isEncrypted: col.isEncrypted ?? false,
-                    defaultValue: col.defaultValue || null,
+                    // `false`, `0`, and `''` are valid declared defaults, so this
+                    // must test for absence rather than truthiness.
+                    defaultValue: col.defaultValue ?? null,
                     options: col.options || null,
                     description: col.description,
                     placeholder: col.placeholder,
@@ -189,6 +192,9 @@ export class MongoTableCreateService extends MongoTableHandlerService {
             this.logger.error(
               `   Failed to insert columns, rolling back table creation`,
             );
+            for (const colId of insertedColumnIds) {
+              await this.queryBuilderService.delete('enfyra_column', colId);
+            }
             await this.queryBuilderService.delete('enfyra_table', tableId);
             throw new ValidationException(
               `Failed to create table: ${error.message}`,
@@ -202,7 +208,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                 this.assertNotAborted();
                 let targetTableObjectId;
                 const targetTableIdFromObj =
-                  typeof rel.targetTable === 'object'
+                  rel.targetTable && typeof rel.targetTable === 'object'
                     ? rel.targetTable._id || rel.targetTable.id
                     : null;
                 if (targetTableIdFromObj) {
@@ -401,6 +407,9 @@ export class MongoTableCreateService extends MongoTableHandlerService {
             this.logger.error(
               `   Failed to insert relations, rolling back table creation`,
             );
+            for (const relId of insertedRelationIds) {
+              await this.queryBuilderService.delete('enfyra_relation', relId);
+            }
             for (const colId of insertedColumnIds) {
               await this.queryBuilderService.delete('enfyra_column', colId);
             }
@@ -456,6 +465,9 @@ export class MongoTableCreateService extends MongoTableHandlerService {
           fullMetadata.affectedTables = [...affectedTableNames];
           return fullMetadata;
         } catch (error: any) {
+          if (isCustomException(error)) {
+            throw error;
+          }
           this.loggingService.error('Collection creation failed', {
             context: 'createTable',
             error: error.message,

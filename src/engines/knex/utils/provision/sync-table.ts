@@ -11,10 +11,74 @@ import {
   resolveSqlRelationOnDelete,
 } from '../sql-physical-schema-contract';
 import { addSqlEnumColumn, getPostgresEnumTypeName } from '../sql-enum.util';
+import {
+  POSTGRES_TEMPORAL_PHYSICAL_TYPE,
+  postgresTemporalPhysicalType,
+  postgresTemporalUsingExpression,
+} from './postgres-temporal.util';
 
 function rethrowPostgresTransactionError(knex: Knex, error: unknown): void {
   const client = String(knex.client.config.client ?? '').toLowerCase();
   if (client.includes('pg') || client.includes('postgres')) throw error;
+}
+
+const SQL_FUNCTION_DEFAULTS = [
+  'now',
+  'current_timestamp',
+  'current_date',
+  'current_time',
+];
+
+/**
+ * Change one column's default. Both engines accept `ALTER COLUMN ... SET/DROP
+ * DEFAULT`, but identifiers and function defaults are dialect-specific: MySQL
+ * only treats backticks as identifiers (double quotes are string literals
+ * unless ANSI_QUOTES is set), and `current_timestamp` is a keyword rather than
+ * a callable there.
+ */
+async function applyColumnDefaultChange(
+  knex: Knex,
+  tableName: string,
+  col: { name: string; type?: string; defaultValue?: any },
+): Promise<void> {
+  const isPostgres = /pg|postgres/.test(
+    String(knex.client.config.client ?? '').toLowerCase(),
+  );
+  const quote = (identifier: string) =>
+    isPostgres ? `"${identifier}"` : `\`${identifier.replace(/`/g, '``')}\``;
+  const alter = (clause: string) =>
+    `ALTER TABLE ${quote(tableName)} ALTER COLUMN ${quote(col.name)} ${clause}`;
+
+  if (col.defaultValue === undefined || col.defaultValue === null) {
+    await knex.raw(alter('DROP DEFAULT'));
+    return;
+  }
+  if (col.type === 'boolean') {
+    const def =
+      col.defaultValue === true ||
+      col.defaultValue === 1 ||
+      String(col.defaultValue).toLowerCase() === 'true' ||
+      String(col.defaultValue) === '1';
+    await knex.raw(alter(`SET DEFAULT ${def ? 'true' : 'false'}`));
+    return;
+  }
+  if (typeof col.defaultValue === 'string') {
+    if (SQL_FUNCTION_DEFAULTS.includes(col.defaultValue.toLowerCase())) {
+      // Postgres takes a bare call (`now()`). MySQL 8.0.13+ only accepts a
+      // function default as a parenthesized expression, so a bare `now()`
+      // there is a syntax error that fails the whole DDL.
+      const expression = `${col.defaultValue}()`;
+      await knex.raw(
+        alter(`SET DEFAULT ${isPostgres ? expression : `(${expression})`}`),
+      );
+      return;
+    }
+    await knex.raw(
+      alter(`SET DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`),
+    );
+    return;
+  }
+  await knex.raw(alter(`SET DEFAULT ${col.defaultValue}`));
 }
 
 /**
@@ -70,6 +134,9 @@ export async function applyColumnMigrations(
           case 'text':
             column = table.text(col.name);
             break;
+          case 'longtext':
+            column = table.text(col.name, 'longtext');
+            break;
           case 'boolean':
             column = table.boolean(col.name);
             break;
@@ -77,7 +144,13 @@ export async function applyColumnMigrations(
             column = table.uuid(col.name);
             break;
           case 'timestamp':
-            column = table.timestamp(col.name);
+            // MySQL stores the aware contract as a UTC wall clock in DATETIME; a
+            // `TIMESTAMP` column would be re-read through the session zone and cap
+            // out at 2038.
+            column =
+              dbType === 'mysql2'
+                ? table.datetime(col.name)
+                : table.timestamp(col.name);
             break;
           case 'datetime':
             column = table.datetime(col.name);
@@ -241,9 +314,15 @@ export async function applyColumnMigrations(
           bigInteger: 'BIGINT',
           string: 'VARCHAR(255)',
           text: 'TEXT',
+          longtext: 'LONGTEXT',
           boolean: 'TINYINT(1)',
           uuid: 'CHAR(36)',
-          timestamp: 'TIMESTAMP',
+          // MySQL has no zone-bearing column type, so the aware contract comes from
+          // the connection instead: the driver serializes every Date from its UTC
+          // components and the session reads in UTC. DATETIME is the physical target
+          // because it stores that wall clock verbatim, which keeps the value
+          // independent of the session zone and avoids the 2038 ceiling.
+          timestamp: 'DATETIME',
           datetime: 'DATETIME',
           json: 'LONGTEXT',
           float: 'FLOAT',
@@ -486,40 +565,7 @@ export async function applyColumnMigrations(
         }
         if (changes.includes('default')) {
           try {
-            if (col.defaultValue === undefined || col.defaultValue === null) {
-              await knex.raw(
-                `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" DROP DEFAULT`,
-              );
-            } else if (col.type === 'boolean') {
-              const def =
-                col.defaultValue === true ||
-                col.defaultValue === 1 ||
-                String(col.defaultValue).toLowerCase() === 'true' ||
-                String(col.defaultValue) === '1';
-              await knex.raw(
-                `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT ${def ? 'true' : 'false'}`,
-              );
-            } else if (typeof col.defaultValue === 'string') {
-              const sqlFunctions = [
-                'now',
-                'current_timestamp',
-                'current_date',
-                'current_time',
-              ];
-              if (sqlFunctions.includes(col.defaultValue.toLowerCase())) {
-                await knex.raw(
-                  `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT ${col.defaultValue}()`,
-                );
-              } else {
-                await knex.raw(
-                  `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`,
-                );
-              }
-            } else {
-              await knex.raw(
-                `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT ${col.defaultValue}`,
-              );
-            }
+            await applyColumnDefaultChange(knex, tableName, col);
           } catch (error) {
             rethrowPostgresTransactionError(knex, error);
           }
@@ -542,7 +588,9 @@ export async function applyColumnMigrations(
             currentDataType === 'jsonb' || currentUdtName === 'jsonb';
           const isCurrentText =
             currentDataType === 'text' || currentUdtName === 'text';
-          if (knexType === 'text') {
+          // PostgreSQL has one unbounded text type, so `longtext` converges to it
+          // exactly as `text` does.
+          if (knexType === 'text' || knexType === 'longtext') {
             if (isCurrentJson) {
               await knex.raw(
                 `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`,
@@ -552,6 +600,12 @@ export async function applyColumnMigrations(
                 `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`,
               );
             }
+          } else if (postgresTemporalPhysicalType(col.type) !== null) {
+            // The conversion names UTC instead of inheriting the session zone, so a
+            // zone-less column's stored wall clock lands on the instant it means.
+            await knex.raw(
+              `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE ${POSTGRES_TEMPORAL_PHYSICAL_TYPE} USING ${postgresTemporalUsingExpression(`"${col.name}"`, currentUdtName ?? currentDataType)}`,
+            );
           } else {
             await knex.schema.alterTable(tableName, (table) => {
               const column = applyAlterColumnType(

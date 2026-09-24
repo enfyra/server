@@ -40,23 +40,15 @@ function createRuntime(options?: {
 }
 
 describe('PackageRuntimeService', () => {
-  it('waits for system ready before preloading packages after cache publish', async () => {
+  it('preloads installed packages before system ready and defers recovery packages', async () => {
     const { eventEmitter, packageCdnLoaderService, service } = createRuntime({
       packages: [
         { id: 1, name: 'lodash', version: '4.17.21', status: 'installed' },
+        { id: 2, name: 'node-ssh', version: '13.2.1', status: 'failed' },
       ],
     });
 
     service.init();
-    eventEmitter.emit(CACHE_EVENTS.RUNTIME_CACHE_ACTIVATED, {
-      identifier: CACHE_IDENTIFIERS.PACKAGE,
-    });
-    expect(packageCdnLoaderService.loadPackage).not.toHaveBeenCalled();
-
-    eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
-    eventEmitter.emit(CACHE_EVENTS.RUNTIME_CACHE_ACTIVATED, {
-      identifier: CACHE_IDENTIFIERS.PACKAGE,
-    });
 
     await vi.waitFor(() => {
       expect(packageCdnLoaderService.loadPackage).toHaveBeenCalledWith(
@@ -64,8 +56,21 @@ describe('PackageRuntimeService', () => {
         '4.17.21',
       );
     });
+    expect(packageCdnLoaderService.loadPackage).not.toHaveBeenCalledWith(
+      'node-ssh',
+      '13.2.1',
+    );
+
+    eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
+
+    await vi.waitFor(() => {
+      expect(packageCdnLoaderService.loadPackage).toHaveBeenCalledWith(
+        'node-ssh',
+        '13.2.1',
+      );
+    });
     expect(service.getStatus().lastPreload).toEqual(
-      expect.objectContaining({ status: 'ok', loaded: 1, failed: 0 }),
+      expect.objectContaining({ status: 'ok' }),
     );
   });
 

@@ -5,11 +5,16 @@ import {
   KnexTableSchema,
 } from '../../../../shared/types/database-init.types';
 import { getKnexColumnType } from './schema-parser';
+import { supportsSqlColumnDefault } from '../migration/sql-generator';
 import {
   buildSqlIndexContracts,
   buildSqlUniqueContracts,
   getSqlRelationForeignKeyColumn,
 } from '../sql-physical-schema-contract';
+
+function sqlDialect(dbClient?: string): 'mysql' | 'postgres' {
+  return /mysql|maria/i.test(String(dbClient ?? '')) ? 'mysql' : 'postgres';
+}
 function parsePgArray(val: any): string[] {
   if (Array.isArray(val)) return val;
   if (typeof val === 'string' && val.startsWith('{') && val.endsWith('}')) {
@@ -324,7 +329,11 @@ export function compareSchemas(
           ? null
           : snapshotCol.defaultValue;
       const currentDefault = normalizeDbDefaultValue(currentCol.defaultValue);
+      // MySQL cannot express a plain default for some column types (text, blob,
+      // json). The DDL generator omits the clause for those, so comparing them
+      // here would report a mismatch the engine can never satisfy.
       if (
+        supportsSqlColumnDefault(snapshotCol, sqlDialect(dbClient)) &&
         !isDefaultEquivalent(snapshotDefault, currentDefault, snapshotCol.type)
       ) {
         changes.push('default');
@@ -492,6 +501,17 @@ function isDefaultEquivalent(
   }
   return String(snapshotDefault) === String(currentDefault);
 }
+/**
+ * MySQL text capacity ladder. A physically wider column satisfies a narrower
+ * contract, so these ranks decide whether a snapshot type is already satisfied.
+ */
+const MYSQL_TEXT_WIDTHS: Record<string, number> = {
+  tinytext: 1,
+  text: 2,
+  mediumtext: 3,
+  longtext: 4,
+};
+
 export function isTypeCompatible(
   type1: string,
   type2: string,
@@ -500,13 +520,65 @@ export function isTypeCompatible(
   if (type1 === 'enum' || type2 === 'enum') {
     return type1 === 'enum' && type2 === 'enum';
   }
-  const isMySql = String(dbClient).toLowerCase().includes('mysql');
+  const normalizedClient = String(dbClient).toLowerCase();
+  const isMySql = normalizedClient.includes('mysql');
+  const isPostgres =
+    normalizedClient.includes('pg') || normalizedClient.includes('postgres');
+  if (isMySql && (type1 === 'longtext' || type2 === 'longtext')) {
+    // MySQL text widths are ordered, and a physically wider column satisfies a
+    // narrower contract. Reporting the narrower snapshot as a mismatch would
+    // issue an ALTER that shrinks the column and truncates stored data.
+    const textWidth = (type: string) =>
+      MYSQL_TEXT_WIDTHS[String(type).toLowerCase()] ?? 0;
+    const snapshotWidth = textWidth(type1);
+    const currentWidth = textWidth(type2);
+    if (snapshotWidth > 0 && currentWidth > 0) {
+      return currentWidth >= snapshotWidth;
+    }
+  }
+  if (isPostgres && (type1 === 'longtext' || type2 === 'longtext')) {
+    return (
+      (type1 === 'longtext' && type2 === 'text') ||
+      (type2 === 'longtext' && type1 === 'text') ||
+      (type1 === 'longtext' && type2 === 'longtext')
+    );
+  }
   if (
     isMySql &&
     ((type1 === 'uuid' && ['varchar', 'char'].includes(type2)) ||
       (type2 === 'uuid' && ['varchar', 'char'].includes(type1)))
   ) {
     return true;
+  }
+  if (isPostgres) {
+    // The snapshot side carries the logical name while the catalog side carries
+    // the physical one, so both spellings resolve to the same contract: a logical
+    // temporal column is an instant and its physical target keeps the zone. Only a
+    // column that has lost the zone (`timestamp without time zone`) or the time
+    // component (`date`) is genuine drift. Collapsing those into the aware label
+    // made the drift invisible, so a naive column was never repaired and the same
+    // moment compared differently depending on how the client spelled its offset.
+    const postgresTemporal = (type: string): string | null => {
+      const normalized = String(type).toLowerCase();
+      if (
+        normalized === 'timestamp with time zone' ||
+        normalized === 'timestamptz' ||
+        normalized === 'datetime' ||
+        normalized === 'timestamp'
+      ) {
+        return 'aware';
+      }
+      if (
+        normalized === 'timestamp without time zone' ||
+        normalized === 'date'
+      ) {
+        return 'naive';
+      }
+      return null;
+    };
+    const left = postgresTemporal(type1);
+    const right = postgresTemporal(type2);
+    if (left !== null && right !== null) return left === right;
   }
   const compatibleTypes: Record<string, string[]> = {
     integer: ['int', 'integer', 'bigint', 'bigInteger', 'smallint', 'tinyint'],
@@ -517,11 +589,6 @@ export function isTypeCompatible(
       'datetime',
       'timestamp without time zone',
       'timestamp with time zone',
-      // Enfyra `date` columns are created as physical DATE by the runtime
-      // DDL path (column-operations/sql-generator) while getKnexColumnType
-      // normalizes date/datetime/timestamp to 'timestamp'. Accept physical
-      // DATE so runtime-added date columns pass target attestation.
-      'date',
     ],
     boolean: ['tinyint', 'boolean', 'bool'],
     real: ['real', 'float', 'double precision'],

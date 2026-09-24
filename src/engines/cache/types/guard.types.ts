@@ -35,6 +35,8 @@ export interface GuardNode {
   parentId: number | null;
   routeId: number | null;
   routePath: string | null;
+  excludeRouteIds: number[];
+  excludeRoutePaths: string[];
   methodIds: number[];
   methods: string[];
   children: GuardNode[];

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ObjectId } from 'mongodb';
 import { MetadataCacheService } from '../../src/engines/cache';
 import { DatabaseConfigService } from '../../src/shared/services';
 
@@ -19,10 +20,13 @@ function makeKnex(rowsByTable: Record<string, any[]>) {
   };
 }
 
-function makeService(rowsByTable: Record<string, any[]>) {
+function makeService(
+  rowsByTable: Record<string, any[]>,
+  dbType = 'postgres',
+) {
   const getKnexOptions: any[] = [];
   const service = new MetadataCacheService({
-    databaseConfigService: { getDbType: () => 'postgres' } as any,
+    databaseConfigService: { getDbType: () => dbType } as any,
     lazyRef: {
       knexService: {
         getKnex: (options?: any) => {
@@ -320,5 +324,48 @@ describe('MetadataCacheService', () => {
       foreignKeyColumn: 'teacherId',
       referencedColumn: 'id',
     });
+  });
+
+  it('normalizes Mongo column identities so runtime lookups can key on strings', async () => {
+    DatabaseConfigService.overrideForTesting('mongodb');
+    const tableId = new ObjectId('000000000000000000000001');
+    const columnId = new ObjectId('000000000000000000000002');
+    const collections: Record<string, any[]> = {
+      enfyra_table: [
+        { _id: tableId, name: 'items', indexes: [], uniques: [] },
+      ],
+      enfyra_column: [
+        {
+          _id: columnId,
+          table: tableId,
+          name: 'title',
+          type: 'varchar',
+          isPrimary: false,
+          isNullable: true,
+          isUpdatable: true,
+        },
+      ],
+      enfyra_relation: [],
+    };
+    const service = new MetadataCacheService({
+      databaseConfigService: { getDbType: () => 'mongodb' } as any,
+      lazyRef: {
+        mongoService: {
+          getDb: () => ({
+            collection: (name: string) => ({
+              find: () => ({
+                toArray: async () => collections[name] ?? [],
+              }),
+            }),
+          }),
+        },
+      } as any,
+    });
+
+    const metadata = await service.getMetadata();
+    const column = metadata.tables.get('items')?.columns?.[0];
+
+    expect(column?._id).toBe('000000000000000000000002');
+    expect(typeof column?._id).toBe('string');
   });
 });

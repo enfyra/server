@@ -85,6 +85,17 @@ export class MetadataMongoOverlapReconciler {
         ...canonicalRows.flatMap((row) => Object.keys(row)),
       ]),
     ];
+    const legacyKeys = new Set<string>();
+    for (const row of legacyRows) {
+      const key = this.overlapIdentity.getCoreMetadataRowKey(rename, row);
+      if (!key) continue;
+      if (legacyKeys.has(key)) {
+        throw new Error(
+          `Mongo core overlap reconciliation blocked for ${rename.from} → ${rename.to}: duplicate logical key ${key}`,
+        );
+      }
+      legacyKeys.add(key);
+    }
     const rowsToInsert = legacyRows.filter((row) => {
       const key = this.overlapIdentity.getCoreMetadataRowKey(rename, row);
       if (key === null || key === undefined) {

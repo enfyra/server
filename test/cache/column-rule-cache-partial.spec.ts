@@ -26,6 +26,15 @@ function makeService(rows: any[]) {
 }
 
 describe('ColumnRuleCacheBuilder — partial reload', () => {
+  it.each([false, true])('requests only the active backend column identity (mongo=%s)', async (mongo) => {
+    const { svc, qb } = makeService([]);
+    qb.isMongoDb.mockReturnValue(mongo);
+    await svc.reload(false);
+    await svc.partialReload({ table: 'enfyra_column_rule', action: 'reload', timestamp: 0, scope: 'partial', ids: [1] }, false);
+    for (const [options] of qb.find.mock.calls) {
+      expect(options.fields).toEqual(['*', mongo ? 'column._id' : 'column.id']);
+    }
+  });
   it('supportsPartialReload returns true', () => {
     const { svc } = makeService([]);
     expect(svc.supportsPartialReload()).toBe(true);

@@ -37,7 +37,7 @@ export class AuthHeaderCacheBuilder extends BaseCacheService<AuthHeaderConfig[]>
     try {
       const result = await this.queryBuilderService.find({
         table: SYSTEM_TABLES.authHeader,
-        limit: 100,
+        limit: 100000,
       });
       return Array.isArray(result.data) ? result.data : [];
     } catch (error) {

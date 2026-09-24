@@ -1,5 +1,12 @@
 import { bootstrapSourceArtifacts } from '../../src/data';
-const { dataMigration, defaultData } = bootstrapSourceArtifacts;
+const { dataCorrections, dataMigrations, defaultData } =
+  bootstrapSourceArtifacts;
+
+function mergeRouteDeclarations(): any[] {
+  return [dataCorrections, ...dataMigrations.map((step) => step.data)].flatMap(
+    (source: any) => source?.enfyra_route ?? [],
+  );
+}
 
 const PUBLIC_METHODS: Record<string, string[]> = {
   '/enfyra_cors_origin': ['GET'],
@@ -41,8 +48,8 @@ function sortedMethods(value: unknown) {
 }
 
 describe.each([
-  ['default-data.ts', defaultData, (record: any) => record.path],
-  ['data-migration.ts', dataMigration, routePath],
+  ['default-data.ts', defaultData as any, (record: any) => record.path],
+  ['data-migration.ts', { enfyra_route: mergeRouteDeclarations() }, routePath],
 ])('%s route access bootstrap contract', (_file, data, getPath) => {
   const routes: any[] = data.enfyra_route ?? [];
 

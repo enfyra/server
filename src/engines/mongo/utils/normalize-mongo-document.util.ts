@@ -1,4 +1,34 @@
-import { ObjectId } from 'mongodb';
+import { Long, ObjectId } from 'mongodb';
+
+const LONG_BSON_TYPE = 'Long';
+
+function isBsonLong(value: any): boolean {
+  return (
+    Long.isLong(value) ||
+    (value !== null &&
+      typeof value === 'object' &&
+      value._bsontype === LONG_BSON_TYPE &&
+      typeof value.toString === 'function')
+  );
+}
+
+/**
+ * BSON has no `toJSON` on `Long`, so a 64-bit column reaches the client as
+ * `{ high, low, unsigned }` and GraphQL's `String` scalar refuses it outright.
+ * A decimal string carries the full 64-bit value exactly, which is what the SQL
+ * side already returns for `bigint`, so both backends read back the same shape.
+ */
+export function normalizeBsonLongs(doc: any): any {
+  if (!doc || typeof doc !== 'object') return doc;
+  if (isBsonLong(doc)) return doc.toString();
+  if (Array.isArray(doc)) return doc.map((item) => normalizeBsonLongs(item));
+  const normalized: any = {};
+  for (const [key, value] of Object.entries(doc)) {
+    normalized[key] =
+      value && typeof value === 'object' ? normalizeBsonLongs(value) : value;
+  }
+  return normalized;
+}
 
 export function normalizeMongoDocument(doc: any): any {
   if (!doc || typeof doc !== 'object') {
@@ -6,6 +36,10 @@ export function normalizeMongoDocument(doc: any): any {
   }
 
   if (doc instanceof ObjectId) {
+    return doc.toString();
+  }
+
+  if (isBsonLong(doc)) {
     return doc.toString();
   }
 

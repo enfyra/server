@@ -163,6 +163,8 @@ function makeService(limitMb: number, maxValueBytes = 0) {
       } as any,
       runtimeNamespaceLifecycleService: {
         getKeyTtlMs: () => 5000,
+        registerManagedKey: async () => {},
+        unregisterManagedKey: async () => {},
       } as any,
       policy: {
         keyPrefix: 'user_cache:',

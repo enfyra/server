@@ -51,7 +51,9 @@ describe('whereToMongoFilter — every operator covered', () => {
     const f = whereToMongoFilter(emptyMetadata, [
       { field: 'name', operator: '!=', value: 'alice' },
     ]);
-    expect(f).toEqual({ name: { $ne: 'alice' } });
+    expect(f).toEqual({
+      $and: [{ name: { $ne: null } }, { name: { $ne: 'alice' } }],
+    });
   });
 
   it('> → $gt', () => {
@@ -82,11 +84,13 @@ describe('whereToMongoFilter — every operator covered', () => {
     expect(f).toEqual({ age: { $lte: 18 } });
   });
 
-  it('like → regex with .* and case-insensitive', () => {
+  it('like → anchored regex with escaped metacharacters and case-insensitive', () => {
     const f = whereToMongoFilter(emptyMetadata, [
       { field: 'name', operator: 'like', value: 'al%' },
     ]);
-    expect(f).toEqual({ name: { $regex: 'al.*', $options: 'i' } });
+    expect(f).toEqual({
+      name: { $regex: '^al[\\s\\S]*(?![\\s\\S])', $options: 'i' },
+    });
   });
 
   it('in → $in (array passes through)', () => {
@@ -114,7 +118,9 @@ describe('whereToMongoFilter — every operator covered', () => {
     const f = whereToMongoFilter(emptyMetadata, [
       { field: 'role', operator: 'not in', value: ['a'] },
     ]);
-    expect(f).toEqual({ role: { $nin: ['a'] } });
+    expect(f).toEqual({
+      $and: [{ role: { $ne: null } }, { role: { $nin: ['a'] } }],
+    });
   });
 
   it('is null → null literal', () => {
@@ -198,11 +204,11 @@ describe('whereToMongoFilter — every operator covered', () => {
     expect(f).toEqual({ name: 'alice', age: { $gt: 18 } });
   });
 
-  it('field with table prefix uses last segment', () => {
+  it('preserves dotted Mongo field paths without an explicit table qualifier', () => {
     const f = whereToMongoFilter(emptyMetadata, [
       { field: 'user.name', operator: '=', value: 'alice' },
     ]);
-    expect(f).toEqual({ name: 'alice' });
+    expect(f).toEqual({ 'user.name': 'alice' });
   });
 
   it('empty conditions → empty filter', () => {
@@ -308,30 +314,30 @@ describe('applyWhereToKnex — every operator covered', () => {
     });
   });
 
-  it('_contains → like %v%', () => {
+  it('_contains → escaped LIKE %v%', () => {
     expect(
       run([{ field: 'n', operator: '_contains', value: 'foo' }])[0],
     ).toEqual({
-      method: 'where',
-      args: ['n', 'like', '%foo%'],
+      method: 'whereRaw',
+      args: ["?? LIKE ? ESCAPE '='", ['n', '%foo%']],
     });
   });
 
-  it('_starts_with → like v%', () => {
+  it('_starts_with → escaped LIKE v%', () => {
     expect(
       run([{ field: 'n', operator: '_starts_with', value: 'foo' }])[0],
     ).toEqual({
-      method: 'where',
-      args: ['n', 'like', 'foo%'],
+      method: 'whereRaw',
+      args: ["?? LIKE ? ESCAPE '='", ['n', 'foo%']],
     });
   });
 
-  it('_ends_with → like %v', () => {
+  it('_ends_with → escaped LIKE %v', () => {
     expect(
       run([{ field: 'n', operator: '_ends_with', value: 'foo' }])[0],
     ).toEqual({
-      method: 'where',
-      args: ['n', 'like', '%foo'],
+      method: 'whereRaw',
+      args: ["?? LIKE ? ESCAPE '='", ['n', '%foo']],
     });
   });
 

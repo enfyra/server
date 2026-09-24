@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyMongoSchemaMigrations,
+  applySqlColumnModifications,
   applySqlSchemaMigrations,
 } from '../../src/shared/utils/provision-schema-migration';
 
@@ -197,6 +198,155 @@ function makeSqlKnex(input: {
 }
 
 describe('provision schema migration physical cleanup', () => {
+  it('reapplies the MySQL physical code contract for a same-type declaration', async () => {
+    const raw = vi.fn(async () => [
+      [
+        {
+          COLUMN_TYPE: 'text',
+          IS_NULLABLE: 'YES',
+          COLUMN_DEFAULT: null,
+          EXTRA: '',
+        },
+      ],
+    ]);
+    const knex = {
+      client: { config: { client: 'mysql2' } },
+      raw,
+      schema: {
+        hasColumn: vi.fn(async () => true),
+      },
+    } as any;
+
+    await applySqlColumnModifications(
+      knex,
+      'enfyra_extension',
+      [
+        {
+          from: { name: 'sourceCode', type: 'code' },
+          to: { name: 'sourceCode', type: 'code' },
+        },
+      ],
+      'mysql2',
+    );
+
+    expect(raw).toHaveBeenCalledWith(
+      expect.stringContaining('ALTER TABLE ?? MODIFY COLUMN ?? LONGTEXT NULL'),
+      ['enfyra_extension', 'sourceCode'],
+    );
+  });
+
+  it('rebuilds a PostgreSQL enum when the stored labels lag the declared options', async () => {
+    const statements: string[] = [];
+    const raw = vi.fn(async (sql: string) => {
+      statements.push(String(sql));
+      if (String(sql).includes('information_schema.columns')) {
+        return {
+          rows: [
+            {
+              data_type: 'USER-DEFINED',
+              udt_name: 'enfyra_column_type_enum',
+              is_nullable: 'NO',
+              column_default: null,
+            },
+          ],
+        };
+      }
+      if (String(sql).includes('pg_enum')) {
+        return {
+          rows: [{ enumlabel: 'int' }, { enumlabel: 'varchar' }],
+        };
+      }
+      return { rows: [] };
+    });
+    const rows = [{ type: 'int' }];
+    const query: any = Promise.resolve(rows);
+    query.distinct = vi.fn(() => query);
+    query.whereNotNull = vi.fn(() => query);
+    query.then = Promise.prototype.then.bind(query);
+    query.catch = Promise.prototype.catch.bind(query);
+    const knex = Object.assign(vi.fn(() => query), {
+      client: { config: { client: 'pg' } },
+      raw,
+      schema: { hasColumn: vi.fn(async () => true) },
+    }) as any;
+
+    await applySqlColumnModifications(
+      knex,
+      'enfyra_column',
+      [
+        {
+          from: {
+            name: 'type',
+            type: 'enum',
+            options: ['int', 'varchar'],
+          },
+          to: {
+            name: 'type',
+            type: 'enum',
+            options: ['int', 'varchar', 'longtext'],
+          },
+        },
+      ],
+      'pg',
+    );
+
+    expect(statements.some((sql) => sql.includes('CREATE TYPE'))).toBe(true);
+    expect(statements.some((sql) => sql.includes('DROP TYPE IF EXISTS'))).toBe(
+      true,
+    );
+  });
+
+  it('leaves a PostgreSQL enum untouched when the stored labels already match', async () => {
+    const options = ['int', 'varchar'];
+    const statements: string[] = [];
+    const raw = vi.fn(async (sql: string) => {
+      statements.push(String(sql));
+      if (String(sql).includes('information_schema.columns')) {
+        return {
+          rows: [
+            {
+              data_type: 'USER-DEFINED',
+              udt_name: 'enfyra_column_type_enum',
+              is_nullable: 'NO',
+              column_default: null,
+            },
+          ],
+        };
+      }
+      if (String(sql).includes('pg_enum')) {
+        return { rows: options.map((enumlabel) => ({ enumlabel })) };
+      }
+      return { rows: [] };
+    });
+    const query: any = Promise.resolve([]);
+    query.distinct = vi.fn(() => query);
+    query.whereNotNull = vi.fn(() => query);
+    query.then = Promise.prototype.then.bind(query);
+    query.catch = Promise.prototype.catch.bind(query);
+    const knex = Object.assign(vi.fn(() => query), {
+      client: { config: { client: 'pg' } },
+      raw,
+      schema: { hasColumn: vi.fn(async () => true) },
+    }) as any;
+
+    await applySqlColumnModifications(
+      knex,
+      'enfyra_column',
+      [
+        {
+          from: { name: 'type', type: 'enum', options },
+          to: { name: 'type', type: 'enum', options },
+        },
+      ],
+      'pg',
+    );
+
+    expect(statements.some((sql) => sql.includes('CREATE TYPE'))).toBe(false);
+    expect(statements.some((sql) => sql.includes('DROP TYPE IF EXISTS'))).toBe(
+      false,
+    );
+  });
+
   it('migrates legacy user roles through a hook-decorated Knex builder', async () => {
     const raw = vi.fn(async () => ({ rows: [] }));
     const decoratedInsert = vi.fn(async () => []);

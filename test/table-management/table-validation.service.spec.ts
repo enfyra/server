@@ -26,7 +26,7 @@ describe('TableManagementValidationService column identifiers', () => {
     },
   );
 
-  it.each(['postgres', 'mysql', 'mongodb'] as const)(
+  it.each(['postgres', 'mysql'] as const)(
     'accepts ordinary identifiers for %s',
     (dbType) => {
       expect(() =>
@@ -42,12 +42,41 @@ describe('TableManagementValidationService column identifiers', () => {
     },
   );
 
+  it('accepts Mongo-native primitives and rejects SQL primitive aliases', () => {
+    expect(() =>
+      service.validateColumns(
+        [
+          { name: 'modelName', type: 'string' },
+          { name: 'config', type: 'object' },
+          { name: 'enabled', type: 'bool' },
+          { name: 'sourceCode', type: 'code' },
+        ],
+        'mongodb',
+      ),
+    ).not.toThrow();
+    expect(() =>
+      service.validateColumns(
+        [{ name: 'modelName', type: 'varchar' }],
+        'mongodb',
+      ),
+    ).toThrow(/not supported by mongodb/);
+    expect(() =>
+      service.validateColumns(
+        [{ name: 'config', type: 'simple-json' }],
+        'mongodb',
+      ),
+    ).toThrow(/not supported by mongodb/);
+  });
+
   it.each(['postgres', 'mysql', 'mongodb'] as const)(
     'rejects structurally invalid identifiers for %s',
     (dbType) => {
       for (const name of ['1model', 'model-name', 'model name', '']) {
         expect(() =>
-          service.validateColumns([{ name, type: 'varchar' }], dbType),
+          service.validateColumns(
+            [{ name, type: dbType === 'mongodb' ? 'string' : 'varchar' }],
+            dbType,
+          ),
         ).toThrow(ValidationException);
       }
     },
@@ -57,8 +86,8 @@ describe('TableManagementValidationService column identifiers', () => {
     expect(() =>
       service.validateColumns(
         [
-          { name: 'as', type: 'varchar' },
-          { name: 'select', type: 'varchar' },
+          { name: 'as', type: 'string' },
+          { name: 'select', type: 'string' },
         ],
         'mongodb',
       ),

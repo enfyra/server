@@ -149,6 +149,10 @@ export function validateSnapshotMigrationCoverage(
         continue;
       }
 
+      const declaredMongoType = migration?.mongoColumnTypesToModify?.find(
+        (entry) => entry.from === currentColumn.type,
+      )?.to;
+      const bulkTypeDeclared = declaredMongoType === targetColumn.type;
       const changed = excludeHealable(
         changedFields(
           currentColumn,
@@ -157,7 +161,7 @@ export function validateSnapshotMigrationCoverage(
           COLUMN_DEFAULTS,
         ),
         COLUMN_HEALABLE_FIELDS,
-      );
+      ).filter((field) => field !== 'type' || !bulkTypeDeclared);
       const dataTargetColumn =
         dataTargetColumns.get(targetColumn.name) ?? targetColumn;
       const dataTargetChanged = excludeHealable(
@@ -168,7 +172,7 @@ export function validateSnapshotMigrationCoverage(
           COLUMN_DEFAULTS,
         ),
         COLUMN_HEALABLE_FIELDS,
-      );
+      ).filter((field) => field !== 'type' || !bulkTypeDeclared);
       if (changed.length > 0 && dataTargetChanged.length > 0) {
         validateModificationSource(
           `column ${tableName}.${currentColumn.name}`,

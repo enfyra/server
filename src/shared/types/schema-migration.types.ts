@@ -8,19 +8,30 @@
  * Adding is handled automatically by the snapshot target
  */
 
+import type {
+  ColumnTypeDeclaration,
+  MongoColumnTypeMigration,
+} from './column-type.types';
+
+/**
+ * One side of a column modification. Types are declared per backend the same way
+ * the snapshot declares them, and the bootstrap projects the single `type` field
+ * the active backend reads.
+ */
+export interface ColumnModificationDef {
+  name: string;
+  sqlType?: ColumnTypeDeclaration;
+  mongoType?: ColumnTypeDeclaration;
+  [key: string]: any;
+}
+
 /**
  * Column modification - from state to target state
  * Only fields present in "from" and "to" are compared/changed
  */
 export interface ColumnModifyDef {
-  from: {
-    name: string;
-    [key: string]: any;
-  };
-  to: {
-    name: string;
-    [key: string]: any;
-  };
+  from: ColumnModificationDef;
+  to: ColumnModificationDef;
 }
 
 /**
@@ -68,7 +79,7 @@ export interface TableMigrationDef {
   tableToModify?: TableModifyDef;
 
   /**
-   * Modify columns (rename, change properties)
+   * Modify columns (rename, change metadata properties, or reapply a physical type contract).
    */
   columnsToModify?: ColumnModifyDef[];
 
@@ -106,6 +117,11 @@ export interface SnapshotMigrationMetadataState {
  */
 export interface SchemaMigrationDef {
   /**
+   * Mongo-only metadata type migrations applied to every persisted column.
+   */
+  mongoColumnTypesToModify?: MongoColumnTypeMigration[];
+
+  /**
    * Core metadata tables must be renamed before any normal metadata query.
    */
   coreTablesToRename?: TableRenameDef[];
@@ -134,6 +150,27 @@ export interface SchemaMigrationDef {
    * Tables to drop completely (WARNING: data loss)
    */
   tablesToDrop?: string[];
+}
+
+/**
+ * One upgrade step: the declarations that carry a database from `fromVersion` to
+ * `toVersion`. Steps are ordered and contiguous, and only the steps newer than the
+ * version recorded in `enfyra_setting.enfyraVersion` are applied.
+ */
+export interface VersionedSchemaMigration {
+  fromVersion: string;
+  toVersion: string;
+  schema: SchemaMigrationDef;
+}
+
+/**
+ * Record-level counterpart of `VersionedSchemaMigration`: the records a step
+ * rewrites, deletes, or backfills.
+ */
+export interface VersionedDataMigration {
+  fromVersion: string;
+  toVersion: string;
+  data: Record<string, any>;
 }
 
 export interface MongoPhysicalMigrationOptions {

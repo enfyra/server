@@ -44,6 +44,7 @@ const ENV_EXPOSE_DENY_KEYS = new Set([
   'DB_URI',
   'DB_REPLICA_URIS',
   'REDIS_URI',
+  'REDIS_PASSWORD',
   'SECRET_KEY',
   'ADMIN_PASSWORD',
 ]);
@@ -93,6 +94,7 @@ export class DynamicContextFactory {
       $helpers: this.createHelpers(options.helpers),
       $cache: cache,
       $transaction: undefined as never,
+      $streams: undefined as never,
       $params: options.params ?? {},
       $query: options.query ?? {},
       $env: this.createEnvSnapshot(),

@@ -65,6 +65,7 @@ function makeReq(routePath: string, ip = '1.2.3.4'): any {
     routeData: { path: routePath },
     method: 'POST',
     ip,
+    socket: { remoteAddress: ip },
     user: undefined,
   };
 }
@@ -347,6 +348,56 @@ describe('metadata-guard.middleware contract', () => {
       retryAfterSeconds: 5,
     });
     expect(res.setHeader).toHaveBeenCalledWith('X-Enfyra-Guard-Scope', 'user');
+  });
+
+  it('post_auth middleware resolves userId from _id on Mongo user documents', async () => {
+    const rateLimitResults = new Map([
+      [
+        'guard_rule:1:user:6aadeb02dd40d761d15b18ad',
+        {
+          allowed: false,
+          remaining: 0,
+          resetAt: Date.now() + 60000,
+          retryAfter: 5,
+          limit: 5,
+          window: 60,
+        },
+      ],
+    ]);
+    const guards = [
+      makeGuard({
+        rules: [
+          makeRule({
+            type: 'rate_limit_by_user',
+            config: { maxRequests: 5, perSeconds: 60 },
+            userIds: ['6aadeb02dd40d761d15b18ad'],
+          }),
+        ],
+      }),
+    ];
+    const { evaluator, guardCacheBuilder, runtimeRegistry, guardAlertService } = makeFakeDeps({
+      rateLimitResults,
+      guards,
+    });
+    const mw = postAuthMetadataGuard(
+      guardCacheBuilder,
+      runtimeRegistry,
+      evaluator,
+      guardAlertService,
+    );
+    const req = makeReq('/api/orders');
+    req.user = { _id: '6aadeb02dd40d761d15b18ad' };
+    const res = makeRes();
+    const next = vi.fn();
+
+    await mw(req, res, next);
+
+    const thrown = next.mock.calls[0][0];
+    expect(thrown.statusCode).toBe(429);
+    expect(thrown.details).toMatchObject({
+      reason: 'rate_limit',
+      scope: 'user',
+    });
   });
 
   it('passes (no throw, no header) when guard passes', async () => {

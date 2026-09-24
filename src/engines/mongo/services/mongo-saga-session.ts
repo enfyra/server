@@ -13,7 +13,10 @@ import {
 } from './mongo-saga-snapshot.service';
 import { MongoService } from './mongo.service';
 import { DatabaseException } from '../../../domain/exceptions';
-import { type ISagaContext, type ResolvedSagaOptions } from './mongo-saga.types';
+import {
+  type ISagaContext,
+  type ResolvedSagaOptions,
+} from './mongo-saga.types';
 import { SagaPlan } from './mongo-saga-plan';
 
 export class MongoSagaSession {
@@ -91,6 +94,53 @@ export class MongoSagaSession {
     }
   }
 
+  async modifyCollection(
+    collectionName: string,
+    options: Record<string, unknown>,
+  ): Promise<any> {
+    this.checkDuration();
+    const db = this.mongoService.getRawDb();
+    const definition = await db
+      .listCollections({ name: collectionName })
+      .next();
+    if (!definition) {
+      throw new Error(`Collection ${collectionName} does not exist`);
+    }
+
+    await this.lockCollectionResources([collectionName]);
+    const currentOptions = (definition as any).options ?? {};
+    const snapshot = await this.snapshotService.createSnapshot(
+      this.txId,
+      'collection_modify',
+      collectionName,
+      collectionName,
+      // The full option set, not just the validator fields: a rollback can only
+      // restore what the snapshot recorded, and `collMod` accepts options beyond
+      // validation. The three validator keys carry their effective MongoDB
+      // default so an unset value still restores exactly.
+      {
+        ...currentOptions,
+        validator: currentOptions.validator ?? {},
+        validationLevel: currentOptions.validationLevel ?? 'strict',
+        validationAction: currentOptions.validationAction ?? 'error',
+      },
+      options,
+    );
+    this.trackSnapshot(snapshot);
+    try {
+      await this.lockService.assertTransactionOwnership(this.txId);
+      const result = await db.command({ collMod: collectionName, ...options });
+      await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
+      return result;
+    } catch (error) {
+      await this.snapshotService.markSnapshotFailed(
+        snapshot.snapshotId,
+        getErrorMessage(error),
+      );
+      throw error;
+    }
+  }
+
   async dropCollection(collectionName: string): Promise<boolean> {
     this.checkDuration();
     const db = this.mongoService.getRawDb();
@@ -100,7 +150,10 @@ export class MongoSagaSession {
     if (!definition) return false;
 
     await this.lockCollectionResources([collectionName]);
-    const documents = await db.collection(collectionName).find({}, this.ioSignal()).toArray();
+    const documents = await db
+      .collection(collectionName)
+      .find({}, this.ioSignal())
+      .toArray();
     const documentSnapshots = await this.snapshotService.createSnapshotsBatch(
       this.txId,
       documents.map((document) => ({
@@ -343,10 +396,13 @@ export class MongoSagaSession {
       const collection = this.mongoService
         .getRawDb()
         .collection(collectionName);
-      await collection.insertOne({
-        ...data,
-        _id: predictedId,
-      }, this.ioSignal());
+      await collection.insertOne(
+        {
+          ...data,
+          _id: predictedId,
+        },
+        this.ioSignal(),
+      );
 
       if (snapshot) {
         await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
@@ -424,7 +480,11 @@ export class MongoSagaSession {
 
     try {
       await this.lockService.assertTransactionOwnership(this.txId);
-      await collection.updateOne({ _id: objectId }, { $set: data }, this.ioSignal());
+      await collection.updateOne(
+        { _id: objectId },
+        { $set: data },
+        this.ioSignal(),
+      );
 
       if (snapshot) {
         await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
@@ -503,7 +563,11 @@ export class MongoSagaSession {
           payload = { $set: update };
         }
       }
-      const result = await collection.updateOne(filter, payload, this.ioSignal());
+      const result = await collection.updateOne(
+        filter,
+        payload,
+        this.ioSignal(),
+      );
 
       if (snapshot) {
         await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
@@ -599,7 +663,10 @@ export class MongoSagaSession {
 
     try {
       await this.lockService.assertTransactionOwnership(this.txId);
-      const result = await collection.deleteOne({ _id: objectId }, this.ioSignal());
+      const result = await collection.deleteOne(
+        { _id: objectId },
+        this.ioSignal(),
+      );
 
       if (snapshot) {
         await this.snapshotService.markSnapshotCompleted(snapshot.snapshotId);
@@ -952,7 +1019,10 @@ export class MongoSagaSession {
         },
       }));
 
-      await collection.bulkWrite(bulkOps, { ordered: true, ...this.ioSignal() });
+      await collection.bulkWrite(bulkOps, {
+        ordered: true,
+        ...this.ioSignal(),
+      });
 
       if (snapshots.length > 0) {
         await Promise.all(
@@ -1046,7 +1116,10 @@ export class MongoSagaSession {
 
     try {
       await this.lockService.assertTransactionOwnership(this.txId);
-      const result = await collection.deleteMany({ _id: { $in: idsToDelete } }, this.ioSignal());
+      const result = await collection.deleteMany(
+        { _id: { $in: idsToDelete } },
+        this.ioSignal(),
+      );
 
       if (snapshots.length > 0) {
         await Promise.all(

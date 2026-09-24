@@ -58,6 +58,30 @@ function allowAll() {
 }
 
 describe('rewriteFilterDenyingFields', () => {
+  test('rejects misplaced field operators at table scope', () => {
+    expect(() =>
+      rewriteFilterDenyingFields(
+        { _eq: 1 },
+        'posts',
+        metadata,
+        allowAll(),
+      ),
+    ).toThrow(/operator|unknown filter field/i);
+  });
+
+  test('rejects circular allowed-column operands', () => {
+    const circular: any = [];
+    circular.push(circular);
+    expect(() =>
+      rewriteFilterDenyingFields(
+        { title: { _in: circular } },
+        'posts',
+        metadata,
+        allowAll(),
+      ),
+    ).toThrow(/circular/i);
+  });
+
   test('passes through filter when all allowed', () => {
     const filter = { title: { _eq: 'hello' } };
     const result = rewriteFilterDenyingFields(
@@ -69,117 +93,137 @@ describe('rewriteFilterDenyingFields', () => {
     expect(result).toEqual(filter);
   });
 
-  test('strips denied scalar field', () => {
+  test('rejects denied scalar fields instead of broadening the filter', () => {
     const filter = { secret: { _eq: 'x' }, title: { _eq: 'y' } };
-    const result = rewriteFilterDenyingFields(
-      filter,
-      'posts',
-      metadata,
-      denyField('posts', 'secret'),
-    );
-    expect(result.secret).toBeUndefined();
-    expect(result.title).toEqual({ _eq: 'y' });
+    expect(() =>
+      rewriteFilterDenyingFields(
+        filter,
+        'posts',
+        metadata,
+        denyField('posts', 'secret'),
+      ),
+    ).toThrow(/not allowed/i);
   });
 
-  test('strips denied relation subtree', () => {
+  test('rejects denied relation subtrees instead of broadening the filter', () => {
     const filter = {
       title: { _eq: 'a' },
       privateTag: { label: { _eq: 'private' } },
     };
-    const result = rewriteFilterDenyingFields(
-      filter,
-      'posts',
-      metadata,
-      denyField('posts', 'privateTag'),
-    );
-    expect(result.privateTag).toBeUndefined();
-    expect(result.title).toEqual({ _eq: 'a' });
+    expect(() =>
+      rewriteFilterDenyingFields(
+        filter,
+        'posts',
+        metadata,
+        denyField('posts', 'privateTag'),
+      ),
+    ).toThrow(/not allowed/i);
   });
 
-  test('strips denied field inside nested relation', () => {
+  test('rejects denied fields inside nested relations', () => {
     const filter = {
       author: {
         name: { _contains: 'Alice' },
         internalNote: { _eq: 'secret' },
       },
     };
-    const result = rewriteFilterDenyingFields(
-      filter,
-      'posts',
-      metadata,
-      denyField('users', 'internalNote'),
-    );
-    expect(result.author).toBeDefined();
-    expect(result.author.internalNote).toBeUndefined();
-    expect(result.author.name).toEqual({ _contains: 'Alice' });
+    expect(() =>
+      rewriteFilterDenyingFields(
+        filter,
+        'posts',
+        metadata,
+        denyField('users', 'internalNote'),
+      ),
+    ).toThrow(/not allowed/i);
   });
 
-  test('removes empty nested relation when all its fields denied', () => {
+  test('rejects fully denied nested relation filters', () => {
     const filter = {
       author: {
         internalNote: { _eq: 'secret' },
       },
     };
-    const result = rewriteFilterDenyingFields(
-      filter,
-      'posts',
-      metadata,
-      denyField('users', 'internalNote'),
-    );
-    expect(result.author).toBeUndefined();
+    expect(() =>
+      rewriteFilterDenyingFields(
+        filter,
+        'posts',
+        metadata,
+        denyField('users', 'internalNote'),
+      ),
+    ).toThrow(/not allowed/i);
   });
 
-  test('strips from _and array', () => {
+  test('rejects denied fields in _and arrays', () => {
     const filter = {
       _and: [{ secret: { _eq: 'x' } }, { title: { _eq: 'y' } }],
     };
-    const result = rewriteFilterDenyingFields(
-      filter,
-      'posts',
-      metadata,
-      denyField('posts', 'secret'),
-    );
-    expect(result._and).toBeDefined();
-    expect(result._and.length).toBe(1);
-    expect(result._and[0].title).toEqual({ _eq: 'y' });
+    expect(() =>
+      rewriteFilterDenyingFields(
+        filter,
+        'posts',
+        metadata,
+        denyField('posts', 'secret'),
+      ),
+    ).toThrow(/not allowed/i);
   });
 
-  test('removes _and when all children stripped', () => {
+  test('rejects fully denied _and arrays', () => {
     const filter = {
       _and: [{ secret: { _eq: 'x' } }],
     };
-    const result = rewriteFilterDenyingFields(
-      filter,
-      'posts',
-      metadata,
-      denyField('posts', 'secret'),
-    );
-    expect(result._and).toBeUndefined();
+    expect(() =>
+      rewriteFilterDenyingFields(
+        filter,
+        'posts',
+        metadata,
+        denyField('posts', 'secret'),
+      ),
+    ).toThrow(/not allowed/i);
   });
 
-  test('strips from _or array', () => {
+  test('rejects denied fields in _or arrays', () => {
     const filter = {
       _or: [{ secret: { _eq: 'x' } }, { title: { _eq: 'y' } }],
     };
-    const result = rewriteFilterDenyingFields(
-      filter,
-      'posts',
-      metadata,
-      denyField('posts', 'secret'),
-    );
-    expect(result._or).toBeDefined();
-    expect(result._or.length).toBe(1);
+    expect(() =>
+      rewriteFilterDenyingFields(
+        filter,
+        'posts',
+        metadata,
+        denyField('posts', 'secret'),
+      ),
+    ).toThrow(/not allowed/i);
   });
 
-  test('returns empty object when root is all denied', () => {
+  test('rejects fields absent from metadata', () => {
+    expect(() =>
+      rewriteFilterDenyingFields(
+        { missing: { _eq: 'x' }, title: { _eq: 'y' } },
+        'posts',
+        metadata,
+        allowAll(),
+      ),
+    ).toThrow(/unknown filter field/i);
+  });
+
+  test('rejects prototype-mutating filter keys', () => {
+    const filter = JSON.parse('{"__proto__":{"polluted":true},"title":{"_eq":"y"}}');
+    expect(() =>
+      rewriteFilterDenyingFields(filter, 'posts', metadata, allowAll()),
+    ).toThrow(/unknown filter field/i);
+    expect(({} as any).polluted).toBeUndefined();
+  });
+
+  test('rejects a root filter when every predicate is denied', () => {
     const filter = { secret: { _eq: 'x' } };
-    const result = rewriteFilterDenyingFields(
-      filter,
-      'posts',
-      metadata,
-      denyField('posts', 'secret'),
-    );
-    expect(Object.keys(result).length).toBe(0);
+    expect(() =>
+      rewriteFilterDenyingFields(
+        filter,
+        'posts',
+        metadata,
+        denyField('posts', 'secret'),
+      ),
+    ).toThrow(/not allowed/i);
   });
 });
 
@@ -242,6 +286,51 @@ describe('rewriteSortDroppingDenied', () => {
       allowAll(),
     );
     expect(result).toBe('-author.name');
+  });
+
+  test('rejects unknown sort leaves', () => {
+    expect(() =>
+      rewriteSortDroppingDenied(
+        'missing',
+        'posts',
+        metadata,
+        allowAll(),
+      ),
+    ).toThrow(/unknown sort field/i);
+  });
+
+  test('rejects terminal relation sort tokens', () => {
+    expect(() =>
+      rewriteSortDroppingDenied('author', 'posts', metadata, allowAll()),
+    ).toThrow(/unknown sort field/i);
+  });
+
+  test('rejects sort paths whose target metadata is unavailable', () => {
+    const missingTargetMetadata = {
+      tables: new Map([
+        [
+          'posts',
+          {
+            ...META.posts,
+            relations: [
+              {
+                propertyName: 'author',
+                type: 'many-to-one',
+                targetTableName: 'missing_users',
+              },
+            ],
+          },
+        ],
+      ]),
+    };
+    expect(() =>
+      rewriteSortDroppingDenied(
+        'author.name',
+        'posts',
+        missingTargetMetadata,
+        allowAll(),
+      ),
+    ).toThrow(/metadata|unknown table/i);
   });
 
   test('array input returns array', () => {

@@ -196,14 +196,7 @@ export class DynamicMutationLifecycleService {
         },
       });
     } catch (error: any) {
-      if (
-        error.constructor?.name &&
-        [
-          'BadRequestException',
-          'NotFoundException',
-          'ForbiddenException',
-        ].includes(error.constructor.name)
-      ) {
+      if (isCustomException(error)) {
         throw error;
       }
       if (error.errInfo) {
@@ -275,7 +268,7 @@ export class DynamicMutationLifecycleService {
           const result = await runtime.find({
             filter: { [runtime.getIdField()]: { _in: ids } },
             fields,
-            limit: -1,
+            limit: 0,
           });
           return {
             data: result.data ?? [],
@@ -545,7 +538,7 @@ export class DynamicMutationLifecycleService {
           const result = await runtime.find({
             filter: { [runtime.getIdField()]: { _in: ids } },
             fields,
-            limit: -1,
+            limit: 0,
           });
           return {
             data: result.data ?? [],
@@ -780,7 +773,7 @@ export class DynamicMutationLifecycleService {
       table: tableName,
       fields: '*',
       filter: { [idField]: { _in: ids } },
-      limit: -1,
+      limit: 0,
     });
     const records = new Map<string, Record<string, any>>();
     for (const record of result?.data ?? []) {
@@ -825,14 +818,7 @@ export class DynamicMutationLifecycleService {
   }
 
   private throwCreateError(error: any): never {
-    if (
-      error.constructor?.name &&
-      [
-        'BadRequestException',
-        'NotFoundException',
-        'ForbiddenException',
-      ].includes(error.constructor.name)
-    ) {
+    if (isCustomException(error)) {
       throw error;
     }
     if (error.errInfo) {

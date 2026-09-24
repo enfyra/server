@@ -373,7 +373,7 @@ describe('Runtime schema normalization', () => {
     ]);
     expect(contract.context.target?.columns[0]).toMatchObject({
       name: '_id',
-      type: 'ObjectId',
+      type: 'objectId',
       isPrimary: true,
     });
   });
@@ -510,7 +510,11 @@ describe('SQL schema diff identity normalization', () => {
     );
 
     expect(diff.constraints.indexes.delete).toEqual([['paymentOrderId', 'id']]);
-    expect(diff.constraints.uniques).toEqual({ create: [], update: [], delete: [] });
+    expect(diff.constraints.uniques).toEqual({
+      create: [],
+      update: [],
+      delete: [],
+    });
   });
 
   it('drops a legacy Id-suffix index when it is not declared by the new schema', () => {
@@ -538,11 +542,7 @@ describe('SQL schema diff identity normalization', () => {
       indexes: [],
     };
 
-    (service as any).analyzeConstraintChanges(
-      oldMetadata,
-      oldMetadata,
-      diff,
-    );
+    (service as any).analyzeConstraintChanges(oldMetadata, oldMetadata, diff);
 
     expect(diff.constraints.indexes.delete).toEqual([['paymentOrderId', 'id']]);
   });
@@ -563,7 +563,11 @@ describe('Runtime inverse metadata attestation', () => {
         context: {
           operation: 'delete',
           tableName: 'legacy_landing_content',
-          source: { name: 'legacy_landing_content', columns: [], relations: [] },
+          source: {
+            name: 'legacy_landing_content',
+            columns: [],
+            relations: [],
+          },
           target: null,
         },
       } as any),
@@ -675,7 +679,7 @@ describe('Runtime inverse metadata attestation', () => {
             columns: [
               {
                 name: '_id',
-                type: 'ObjectId',
+                type: 'objectId',
                 isPrimary: true,
                 isGenerated: true,
                 isNullable: false,

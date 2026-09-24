@@ -94,6 +94,7 @@ function getMongoIndexFilterType(columnType?: string): string | null {
   const typeMap: Record<string, string> = {
     string: 'string',
     text: 'string',
+    longtext: 'string',
     varchar: 'string',
     char: 'string',
     uuid: 'string',
@@ -108,6 +109,7 @@ function getMongoIndexFilterType(columnType?: string): string | null {
     smallint: 'int',
     tinyint: 'int',
     bigint: 'long',
+    long: 'long',
     float: 'double',
     double: 'double',
     decimal: 'double',
@@ -118,9 +120,10 @@ function getMongoIndexFilterType(columnType?: string): string | null {
     date: 'date',
     datetime: 'date',
     timestamp: 'date',
-    json: 'object',
+    object: 'object',
     'simple-json': 'object',
     array: 'array',
+    'array-select': 'array',
   };
   return columnType ? typeMap[columnType] || null : null;
 }

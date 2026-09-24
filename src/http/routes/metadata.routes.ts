@@ -7,7 +7,6 @@ import {
 } from '../../domain/exceptions';
 import { projectMetadataForUser } from '../../shared/utils/metadata-access.util';
 import type { RuntimeRegistryService } from '../../engines/cache/services/runtime-registry.service';
-import { getEnfyraVersion } from '../../shared/utils/enfyra-version.util';
 
 export function registerMetadataRoutes(
   app: Express,
@@ -19,7 +18,6 @@ export function registerMetadataRoutes(
       container.cradle.databaseConfigService;
     res.json({
       dbType: databaseConfigService.getDbType(),
-      enfyraVersion: getEnfyraVersion(),
     });
   });
 

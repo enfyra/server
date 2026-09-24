@@ -5,6 +5,7 @@ import {
   getJunctionTableName,
   getForeignKeyColumnName,
   getJunctionColumnNames,
+  normalizeMongoDocument,
 } from '@enfyra/kernel';
 import { IMetadataCache } from '../../../domain/shared/interfaces/metadata-cache.interface';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
@@ -398,9 +399,15 @@ export class MetadataCacheService implements IMetadataCache {
       const explicitColumns = columnsByTable.get(tableIdValue) || [];
 
       const parsedExplicitColumns = explicitColumns.map((col: any) => {
-        const column = isMongoDB
-          ? normalizeMongoPrimaryKeyColumn({ ...col })
+        // Mongo ObjectIds arrive as BSON values; runtime consumers compare them
+        // as strings (column-rule cache keys, field permissions), so normalize
+        // the identity fields here rather than at every lookup site.
+        const normalizedCol = isMongoDB
+          ? (normalizeMongoDocument({ ...col }) as any)
           : { ...col };
+        const column = isMongoDB
+          ? normalizeMongoPrimaryKeyColumn(normalizedCol)
+          : normalizedCol;
         column.metadata = normalizeJsonFieldValue(column.metadata);
         if (col.options && typeof col.options === 'string') {
           try {

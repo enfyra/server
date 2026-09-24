@@ -2,7 +2,12 @@ import type { QueryBuilderService } from '@enfyra/kernel';
 import type { Knex } from 'knex';
 import type { Db } from 'mongodb';
 import type { BootstrapSchemaOperation } from '../types';
-import { buildMongoFullIndexSpecs } from '../../mongo';
+import {
+  buildMongoFullIndexSpecs,
+  buildMongoValidationSchema,
+  MONGO_VALIDATION_ACTION,
+  MONGO_VALIDATION_LEVEL,
+} from '../../mongo';
 import {
   buildSqlForeignKeyContracts,
   buildSqlJunctionTableContractFromRelation,
@@ -373,6 +378,31 @@ export class SnapshotTargetVerifierService {
       if (!(await this.mongoCollectionExists(db, collectionName))) {
         errors.push(`physical collection ${collectionName} is missing`);
         continue;
+      }
+      const definition = await db
+        .listCollections({ name: collectionName })
+        .next();
+      const options = (definition as any)?.options ?? {};
+      const expectedValidator = {
+        $jsonSchema: buildMongoValidationSchema((table as any).columns ?? []),
+      };
+      if (
+        this.canonical(options.validator ?? {}) !==
+        this.canonical(expectedValidator)
+      ) {
+        errors.push(`physical collection ${collectionName} validator differs`);
+      }
+      // MongoDB's own default when an option is absent is 'strict'/'error', so an
+      // unset value is a real difference from our contract rather than a match.
+      if (options.validationLevel !== MONGO_VALIDATION_LEVEL) {
+        errors.push(
+          `physical collection ${collectionName} validationLevel differs`,
+        );
+      }
+      if (options.validationAction !== MONGO_VALIDATION_ACTION) {
+        errors.push(
+          `physical collection ${collectionName} validationAction differs`,
+        );
       }
       const expected = buildMongoFullIndexSpecs({
         collectionName,

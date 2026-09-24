@@ -14,6 +14,8 @@ import {
 } from './package-cdn-loader.service';
 
 const SYSTEM_EVENT_PREFIX = '$system:package';
+const RECOVERY_PACKAGE_STATUSES = ['failed', 'installing', 'updating'];
+const PRELOAD_PACKAGE_STATUSES = ['installed', ...RECOVERY_PACKAGE_STATUSES];
 
 export interface PackageRuntimeStatus {
   initialized: boolean;
@@ -68,15 +70,13 @@ export class PackageRuntimeService {
     );
     this.eventEmitter.once(CACHE_EVENTS.SYSTEM_READY, () => {
       this.systemReady = true;
-      if (this.preloadRequested) {
-        this.schedulePackagePreload();
-      }
+      this.schedulePackagePreload();
     });
+    this.schedulePackagePreload();
   }
 
   schedulePackagePreload(): void {
     this.preloadRequested = true;
-    if (!this.systemReady) return;
     if (this.preloadScheduled || this.preloadRunning) return;
 
     this.preloadScheduled = true;
@@ -152,10 +152,18 @@ export class PackageRuntimeService {
     this.lastPreload = { status: 'running', startedAt };
 
     const packagesWithMeta = await this.loadPackagesForSync();
+    // Installed packages are already known-good, so they are warmed as soon as
+    // the service initializes to cut cold-start latency. Recovery statuses are
+    // CDN retries and wait until the system is ready.
+    const allowedStatuses = this.systemReady
+      ? PRELOAD_PACKAGE_STATUSES
+      : PRELOAD_PACKAGE_STATUSES.filter(
+          (status) => !RECOVERY_PACKAGE_STATUSES.includes(status),
+        );
     const toPreload = packagesWithMeta.filter(
       (pkg) =>
         !this.packageCdnLoaderService.isLoaded(pkg.name, pkg.version) &&
-        ['installed', 'failed', 'installing', 'updating'].includes(pkg.status),
+        allowedStatuses.includes(pkg.status),
     );
 
     if (toPreload.length === 0) {
@@ -170,7 +178,7 @@ export class PackageRuntimeService {
     }
 
     const retryCount = toPreload.filter((p) =>
-      ['failed', 'installing', 'updating'].includes(p.status),
+      RECOVERY_PACKAGE_STATUSES.includes(p.status),
     ).length;
     this.logger.log(
       `Preloading ${toPreload.length} packages from CDN${retryCount ? ` (${retryCount} retrying)` : ''}...`,

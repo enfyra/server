@@ -28,7 +28,7 @@ export function compileMetadataMigrationExecutionPlan(
 ): BootstrapSchemaExecutionPlan {
   const operations =
     context.mode === 'upgrade'
-      ? compileOperations(migration)
+      ? compileOperations(migration, context.database)
       : Object.freeze([] as BootstrapSchemaOperation[]);
   const phases = compileExecutionPhases(operations, context.database);
   return Object.freeze({
@@ -41,11 +41,26 @@ export function compileMetadataMigrationExecutionPlan(
 
 function compileOperations(
   migration: SchemaMigrationDef | null,
+  database: BootstrapSchemaExecutionPlan['database'],
 ): readonly BootstrapSchemaOperation[] {
   const operations: BootstrapSchemaOperation[] = [];
   const add = (operation: BootstrapSchemaOperation) => {
     operations.push(Object.freeze(operation));
   };
+
+  if (
+    database === 'mongodb' &&
+    (migration?.mongoColumnTypesToModify?.length ?? 0) > 0
+  ) {
+    add({
+      id: 'schema:modify-mongo-column-types',
+      label: 'modify Mongo column type metadata',
+      kind: 'modify-mongo-column-types',
+      mappings: migration!.mongoColumnTypesToModify!.map((mapping) => ({
+        ...mapping,
+      })),
+    });
+  }
 
   getValidTableRenames(migration?.coreTablesToRename ?? []).forEach(
     (rename, index) =>
@@ -107,7 +122,11 @@ function compileOperations(
       });
     }
     (tableMigration.columnsToModify ?? []).forEach((modification, index) => {
-      if (!hasColumnMetadataChanges(modification)) return;
+      if (!hasColumnMetadataChanges(modification)) {
+        if (modification.to.type === undefined || database === 'mongodb') {
+          return;
+        }
+      }
       add({
         id: `schema:modify-column:${tableIndex}:${index}:${tableName}.${modification.from.name}`,
         label: `modify column ${tableName}.${modification.from.name}`,
@@ -181,6 +200,18 @@ function compileExecutionPhases(
     ];
   }
   for (const operation of operations) {
+    if (operation.kind !== 'modify-mongo-column-types') continue;
+    renameBarrier = [
+      addNode(
+        operation,
+        'modify-mongo-column-types',
+        renameBarrier,
+        'core',
+        true,
+      ),
+    ];
+  }
+  for (const operation of operations) {
     if (operation.kind !== 'rename-table') continue;
     renameBarrier = [
       addNode(operation, 'rename-table', renameBarrier, 'remaining', false),
@@ -239,6 +270,10 @@ function compileExecutionPhases(
       continue;
     }
     const previous = previousPhysicalByTable.get(operation.tableName);
+    const physicalOnly =
+      operation.kind === 'modify-column' &&
+      !hasColumnMetadataChanges(operation.modification) &&
+      operation.modification.to.type !== undefined;
     const nodeId = addNode(
       operation,
       'apply-physical-change',
@@ -249,7 +284,7 @@ function compileExecutionPhases(
         ...(previous ? [previous] : []),
       ],
       'remaining',
-      false,
+      physicalOnly,
     );
     previousPhysicalByTable.set(operation.tableName, nodeId);
     physicalChangeNodeIds.push(nodeId);
@@ -283,6 +318,12 @@ function compileExecutionPhases(
       operation.kind !== 'remove-column' &&
       operation.kind !== 'modify-relation' &&
       operation.kind !== 'remove-relation'
+    ) {
+      continue;
+    }
+    if (
+      operation.kind === 'modify-column' &&
+      !hasColumnMetadataChanges(operation.modification)
     ) {
       continue;
     }

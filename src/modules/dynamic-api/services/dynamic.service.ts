@@ -33,8 +33,86 @@ export function persistDynamicScriptLogs(
   recordUserLog(logs, { component: 'Script', sourceKind: 'route', correlationId: req.routeData?.context?.$api?.request?.correlationId, statusCode });
 }
 
+function applyResponseOptions(
+  res: any,
+  options?: {
+    statusCode?: number;
+    mimetype?: string;
+    filename?: string;
+    headers?: Record<
+      string,
+      string | number | readonly string[] | undefined | null
+    >;
+  },
+): void {
+  for (const [key, value] of Object.entries(options?.headers ?? {})) {
+    if (value !== undefined && value !== null) {
+      res.setHeader(key, value);
+    }
+  }
+  if (options?.mimetype) res.setHeader('Content-Type', options.mimetype);
+  if (options?.filename) {
+    const safeFilename = String(options.filename).replace(/["\r\n]/g, '_');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${safeFilename}"`,
+    );
+  }
+  res.status(options?.statusCode || 200);
+}
+
+function beginNativeResponse(
+  res: any,
+  options: { allowHeadersSent?: boolean } = {},
+): void {
+  if (
+    res.__enfyraStreamStarted ||
+    (!options.allowHeadersSent && res.headersSent)
+  ) {
+    throw new Error('Dynamic response has already started');
+  }
+  res.__enfyraStreamStarted = true;
+}
+
 export function attachStreamResponseHelper(res: any): void {
-  if (!res || res.stream) return;
+  if (!res) return;
+  if (!res.__enfyraJson) res.__enfyraJson = async (
+    jsonText: string,
+    options?: {
+      statusCode?: number;
+      headers?: Record<
+        string,
+        string | number | readonly string[] | undefined | null
+      >;
+    },
+  ): Promise<void> => {
+    beginNativeResponse(res);
+    applyResponseOptions(res, {
+      ...options,
+      mimetype: 'application/json; charset=utf-8',
+    });
+    res.end(jsonText);
+  };
+  if (!res.__enfyraBytes) res.__enfyraBytes = async (
+    bytes: Uint8Array,
+    options?: {
+      statusCode?: number;
+      mimetype?: string;
+      filename?: string;
+      headers?: Record<
+        string,
+        string | number | readonly string[] | undefined | null
+      >;
+    },
+  ): Promise<void> => {
+    beginNativeResponse(res);
+    applyResponseOptions(res, {
+      ...options,
+      mimetype: options?.mimetype || 'application/octet-stream',
+    });
+    res.end(Buffer.from(bytes));
+  };
+  if (res.stream) return;
   res.stream = (
     stream: NodeJS.ReadableStream,
     options?: {
@@ -56,21 +134,8 @@ export function attachStreamResponseHelper(res: any): void {
     if (!readable || typeof readable.pipe !== 'function') {
       throw new Error('@RES.stream requires a readable stream');
     }
-    for (const [key, value] of Object.entries(options?.headers ?? {})) {
-      if (value !== undefined && value !== null) {
-        res.setHeader(key, value);
-      }
-    }
-    if (options?.mimetype) res.setHeader('Content-Type', options.mimetype);
-    if (options?.filename) {
-      const safeFilename = String(options.filename).replace(/["\r\n]/g, '_');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="${safeFilename}"`,
-      );
-    }
-    res.status(options?.statusCode || 200);
-    res.__enfyraStreamStarted = true;
+    beginNativeResponse(res, { allowHeadersSent: true });
+    applyResponseOptions(res, options);
 
     return new Promise<void>((resolve, reject) => {
       let settled = false;
@@ -92,12 +157,11 @@ export function attachStreamResponseHelper(res: any): void {
         if (!res.headersSent) {
           res.status(500).json({
             success: false,
-            message: 'Stream failed',
+            message: 'The response stream failed.',
             statusCode: 500,
             error: {
               code: 'STREAM_FAILED',
-              message: error.message,
-              timestamp: new Date().toISOString(),
+              message: 'The response stream failed.',
             },
           });
         } else {
@@ -178,10 +242,13 @@ export class DynamicService {
       };
       if (res) {
         attachStreamResponseHelper(res);
-        routeData.context.$res = res;
+        routeData.context.$res = res as unknown as NonNullable<
+          RequestWithRouteData['routeData']
+        >['context']['$res'];
         res.once('close', abortOnDisconnect);
       }
       if (typeof req.once === 'function') req.once('aborted', abortOnDisconnect);
+      if (req.aborted || res?.destroyed) abortOnDisconnect();
 
       this.executorEngineService.register(req, {
         code: handler,
@@ -282,7 +349,7 @@ export class DynamicService {
           url: req.url,
           handler: routeData.handler,
           isTableOperation: isTableDefinitionOperation,
-          userId: req.user?.id,
+          userId: req.user?.id ?? req.user?._id,
         });
       }
       if (isCustomException(error) || error instanceof HttpException) {
@@ -303,7 +370,7 @@ export class DynamicService {
         {
           method: req.method,
           url: req.url,
-          userId: req.user?.id,
+          userId: req.user?.id ?? req.user?._id,
           isTableOperation: isTableDefinitionOperation,
         },
       );

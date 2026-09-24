@@ -32,6 +32,7 @@ import { registerGraphqlSchemaRoutes } from './http/routes/graphql-schema.routes
 import { registerPackageRoutes } from './http/routes/package.routes';
 import { registerMeRoutes } from './http/routes/me.routes';
 import { registerDynamicRoutes } from './http/routes/dynamic.routes';
+import { registerReadinessRoute } from './http/routes/readiness.routes';
 import { DebugTrace } from './shared/utils/debug-trace.util';
 import { resolveClientIpFromRequest } from './shared/utils/client-ip.util';
 import type { RequestWithRouteData } from './shared/types/dynamic-context.types';
@@ -59,9 +60,10 @@ export function disposeRequestScopeOnResponse(
   res.once('close', dispose);
 }
 
-export function buildExpressApp(container: AwilixContainer<Cradle>) {
+export function buildExpressApp(container: AwilixContainer<Cradle>, isStartupComplete: () => boolean = () => true) {
   const app = express();
   const c = container.cradle;
+  registerReadinessRoute(app, () => isStartupComplete() && !c.runtimeSchemaActivationGateService.isBlocked());
   app.set('query parser', (str: string) => {
     return qs.parse(str, {
       allowPrototypes: false,
@@ -92,12 +94,15 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
 
   // ── Activation gate (503 while schema reload pending) ─────────────
   app.use((_req, res, next) => {
-    if (!c.runtimeSchemaActivationGateService?.isBlocked?.()) {
+    if (isStartupComplete() && !c.runtimeSchemaActivationGateService.isBlocked()) {
       next();
       return;
     }
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Retry-After', '1');
     res.status(503).json({
-      message: 'Runtime schema activation is pending; this instance is not ready',
+      code: 'RUNTIME_NOT_READY',
+      message: 'Runtime is not ready; retry after startup or schema activation completes',
     });
   });
 

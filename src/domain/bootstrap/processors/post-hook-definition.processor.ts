@@ -4,6 +4,10 @@ import { ObjectId } from 'mongodb';
 import { DatabaseConfigService } from '../../../shared/services';
 import { normalizeScriptRecord } from '../../../shared/utils/script-code.util';
 import { getSqlJunctionMetadata } from '../utils/sql-junction-metadata.util';
+import {
+  replaceMongoJunctionRows,
+  resolveMongoJunctionMetadata,
+} from '../utils/mongo-junction-writer.util';
 import { mapSequentially } from '../utils/map-sequentially.util';
 
 export class PostHookDefinitionProcessor extends BaseTableProcessor {
@@ -121,7 +125,11 @@ export class PostHookDefinitionProcessor extends BaseTableProcessor {
     _context?: any,
   ): Promise<void> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
-    if (!isMongoDB && record._methods && Array.isArray(record._methods)) {
+    if (isMongoDB) {
+      await this.syncMongoHookMethodRelation(record, 'enfyra_post_hook');
+      return;
+    }
+    if (record._methods && Array.isArray(record._methods)) {
       const methodNames = record._methods;
       let hookId = record.id;
       if (!hookId && record.name) {
@@ -165,12 +173,43 @@ export class PostHookDefinitionProcessor extends BaseTableProcessor {
       }
     }
   }
+  // The method list is stored as junction rows, not as an inline document
+  // field, so it must be dropped before the document is written.
+  protected cleanRecordForMongo(record: any): any {
+    const cleaned = super.cleanRecordForMongo(record);
+    delete cleaned.methods;
+    delete cleaned._methods;
+    return cleaned;
+  }
+  private async syncMongoHookMethodRelation(
+    record: any,
+    tableName: 'enfyra_post_hook',
+  ): Promise<void> {
+    const methodIds = Array.isArray(record.methods) ? record.methods : [];
+    const hookId = record._id ?? record.id;
+    if (!hookId) return;
+    const { junctionTable, sourceColumn, targetColumn } =
+      await resolveMongoJunctionMetadata(this.queryBuilderService, {
+        sourceTable: tableName,
+        propertyName: 'methods',
+        targetTable: 'enfyra_method',
+      });
+    await replaceMongoJunctionRows(this.queryBuilderService, {
+      junctionTable,
+      sourceColumn,
+      targetColumn,
+      sourceId: hookId,
+      targetIds: methodIds,
+    });
+  }
   getUniqueIdentifier(record: any): object {
     return { name: record.name };
   }
   protected prepareRecordForWrite(record: any, _tableName: string): any {
     if (DatabaseConfigService.instanceIsMongoDb()) {
-      return record;
+      const prepared = { ...record };
+      delete prepared.methods;
+      return prepared;
     }
     const prepared = { ...record };
     delete prepared._methods;

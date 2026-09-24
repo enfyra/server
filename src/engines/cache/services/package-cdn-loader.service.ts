@@ -2,13 +2,14 @@ import { Logger } from '../../../shared/logger';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { pathToFileURL } from 'url';
+import { pathToFileURL, fileURLToPath } from 'url';
 import {
   applyDependencyHintToCdnSpecifier,
   getCdnDependencyFilePath,
   injectNodeEsmGlobals,
   isNativeCdnImport,
   NATIVE_CDN_STUB_SOURCE,
+  OPTIONAL_PEER_CDN_STUB_SOURCE,
   parseCdnPackageSpecifier,
   resolveCdnImportSpecifier,
   suppressMissingModuleConsoleErrors,
@@ -25,6 +26,10 @@ const MANIFEST_FILE = 'manifest.json';
 const CDN_FETCH_TIMEOUT_MS = 20_000;
 type CdnBundleTarget = 'node' | 'es2022';
 type CdnPreparedModules = Map<string, Promise<string>>;
+type CdnPackageDependencyManifest = {
+  dependencies: Record<string, string>;
+  optionalPeerDependencies: string[];
+};
 
 export function extractErrorMessage(error: any): string {
   const parts: string[] = [];
@@ -40,7 +45,7 @@ export class PackageCdnLoaderService {
   private readonly logger = new Logger(PackageCdnLoaderService.name);
   private readonly dependencyManifestCache = new Map<
     string,
-    Record<string, string>
+    CdnPackageDependencyManifest
   >();
 
   constructor() {
@@ -263,6 +268,7 @@ export class PackageCdnLoaderService {
     fs.mkdirSync(path.join(tempDir, DEPS_DIR), { recursive: true });
 
     const dependencyHints: CdnDependencyHints = new Map();
+    const optionalPeerDependencies = new Set<string>();
     const code = await this.fetchAndPrepareCdnModule(
       entryPath,
       name,
@@ -272,6 +278,7 @@ export class PackageCdnLoaderService {
       new Set<string>(),
       new Map<string, Promise<string>>(),
       dependencyHints,
+      optionalPeerDependencies,
     );
 
     fs.writeFileSync(path.join(tempDir, MAIN_FILE), code, 'utf-8');
@@ -306,6 +313,7 @@ export class PackageCdnLoaderService {
     activeStack = new Set<string>(),
     preparedModules: CdnPreparedModules = new Map(),
     dependencyHints: CdnDependencyHints = new Map(),
+    optionalPeerDependencies = new Set<string>(),
   ): Promise<string> {
     specifier = applyDependencyHintToCdnSpecifier(specifier, dependencyHints);
     if (activeStack.has(specifier)) {
@@ -329,6 +337,7 @@ export class PackageCdnLoaderService {
         await this.collectDependencyHintsForSpecifier(
           specifier,
           dependencyHints,
+          optionalPeerDependencies,
         );
         code = suppressMissingModuleConsoleErrors(code);
         code = injectNodeEsmGlobals(code);
@@ -342,6 +351,7 @@ export class PackageCdnLoaderService {
           activeStack,
           preparedModules,
           dependencyHints,
+          optionalPeerDependencies,
         );
         return code;
       } finally {
@@ -354,7 +364,13 @@ export class PackageCdnLoaderService {
 
   private async loadModuleSource(specifier: string): Promise<string> {
     if (specifier.startsWith('file://')) {
-      return fs.readFileSync(new URL(specifier), 'utf-8');
+      const filePath = path.resolve(fileURLToPath(new URL(specifier)));
+      if (!filePath.startsWith(CACHE_DIR + path.sep)) {
+        throw new Error(
+          `Refusing to load '${specifier}': package modules may only read from the package cache`,
+        );
+      }
+      return fs.readFileSync(filePath, 'utf-8');
     }
     return this.fetchCdnPath(specifier);
   }
@@ -397,6 +413,7 @@ export class PackageCdnLoaderService {
     activeStack: Set<string>,
     preparedModules: CdnPreparedModules,
     dependencyHints: CdnDependencyHints,
+    optionalPeerDependencies: Set<string>,
   ): Promise<string> {
     const importPattern =
       /\b(from\s*["']|import\s*["'])(\/[^"']+|file:\/\/[^"']+|\.{1,2}\/[^"']+)(["'])/g;
@@ -414,6 +431,7 @@ export class PackageCdnLoaderService {
         return this.collectDependencyHintsForSpecifier(
           resolvedSpecifier,
           dependencyHints,
+          optionalPeerDependencies,
         );
       }),
     );
@@ -430,7 +448,17 @@ export class PackageCdnLoaderService {
           packageDir,
           DEPS_DIR,
         );
-        if (isNativeCdnImport(resolvedSpecifier)) {
+        const parsedDependency = parseCdnPackageSpecifier(resolvedSpecifier);
+        if (
+          parsedDependency &&
+          optionalPeerDependencies.has(parsedDependency.name)
+        ) {
+          fs.writeFileSync(
+            depPath,
+            OPTIONAL_PEER_CDN_STUB_SOURCE,
+            'utf-8',
+          );
+        } else if (isNativeCdnImport(resolvedSpecifier)) {
           fs.writeFileSync(depPath, NATIVE_CDN_STUB_SOURCE, 'utf-8');
         } else if (!fs.existsSync(depPath)) {
           const depCode = await this.fetchAndPrepareCdnModule(
@@ -442,6 +470,7 @@ export class PackageCdnLoaderService {
             new Set(activeStack),
             preparedModules,
             dependencyHints,
+            optionalPeerDependencies,
           );
           fs.writeFileSync(depPath, depCode, 'utf-8');
         }
@@ -458,29 +487,51 @@ export class PackageCdnLoaderService {
   private async collectDependencyHintsForSpecifier(
     specifier: string,
     dependencyHints: CdnDependencyHints,
+    optionalPeerDependencies: Set<string>,
   ): Promise<void> {
     const parsed = parseCdnPackageSpecifier(specifier);
     if (!parsed?.version) return;
     const cacheKey = `${parsed.name}@${parsed.version}`;
-    let dependencies = this.dependencyManifestCache.get(cacheKey);
-    if (!dependencies) {
+    let dependencyManifest = this.dependencyManifestCache.get(cacheKey);
+    if (!dependencyManifest) {
       try {
         const manifest = JSON.parse(
           await this.fetchCdnPath(`/${cacheKey}/package.json`),
-        ) as { dependencies?: Record<string, string> };
-        dependencies = manifest.dependencies ?? {};
+        ) as {
+          dependencies?: Record<string, string>;
+          peerDependencies?: Record<string, string>;
+          peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+        };
+        dependencyManifest = {
+          dependencies: manifest.dependencies ?? {},
+          optionalPeerDependencies: Object.entries(
+            manifest.peerDependenciesMeta ?? {},
+          )
+            .filter(
+              ([peerName, metadata]) =>
+                metadata.optional === true &&
+                Boolean(manifest.peerDependencies?.[peerName]),
+            )
+            .map(([peerName]) => peerName),
+        };
       } catch {
-        dependencies = {};
+        dependencyManifest = {
+          dependencies: {},
+          optionalPeerDependencies: [],
+        };
       }
-      this.dependencyManifestCache.set(cacheKey, dependencies);
+      this.dependencyManifestCache.set(cacheKey, dependencyManifest);
     }
 
     for (const [dependencyName, dependencyVersion] of Object.entries(
-      dependencies,
+      dependencyManifest.dependencies,
     )) {
       if (!dependencyHints.has(dependencyName)) {
         dependencyHints.set(dependencyName, dependencyVersion);
       }
+    }
+    for (const peerName of dependencyManifest.optionalPeerDependencies) {
+      optionalPeerDependencies.add(peerName);
     }
   }
 

@@ -264,8 +264,8 @@ for (const cfg of DBS) {
       );
     }
 
-    test('basic o2m filter + limit returns correct per-parent top-k', async () => {
-      if (!available) return;
+    test('basic o2m filter + limit returns correct per-parent top-k', async (ctx) => {
+      if (!available) return ctx.skip();
       const rows = await fetchPosts([1, 2]);
       const desc: BatchFetchDescriptor = {
         relationName: 'comments',
@@ -286,8 +286,8 @@ for (const cfg of DBS) {
       expect(p2.map((c: any) => c.seq)).toEqual([2, 1]);
     });
 
-    test('filter + sort + limit + page composition (page 2)', async () => {
-      if (!available) return;
+    test('filter + sort + limit + page composition (page 2)', async (ctx) => {
+      if (!available) return ctx.skip();
       const rows = await fetchPosts([1]);
       const desc: BatchFetchDescriptor = {
         relationName: 'comments',
@@ -306,8 +306,8 @@ for (const cfg of DBS) {
       expect(rows[0].comments.map((c: any) => c.seq)).toEqual([1]);
     });
 
-    test('dotted sort on o2m via m2o join (posts → author.name)', async () => {
-      if (!available) return;
+    test('dotted sort on o2m via m2o join (posts → author.name)', async (ctx) => {
+      if (!available) return ctx.skip();
       const users = await db(T.users).whereIn('id', [1, 2]);
       const parentRows = users.map((u) => ({ ...u }));
       const desc: BatchFetchDescriptor = {
@@ -337,8 +337,8 @@ for (const cfg of DBS) {
       expect(bobPosts.map((p: any) => p.title)).toEqual(['Post B']);
     });
 
-    test('m2m with filter + limit per parent', async () => {
-      if (!available) return;
+    test('m2m with filter + limit per parent', async (ctx) => {
+      if (!available) return ctx.skip();
       const rows = await fetchPosts([1]);
       const desc: BatchFetchDescriptor = {
         relationName: 'tags',
@@ -358,8 +358,8 @@ for (const cfg of DBS) {
       expect(rows[0].tags[0].label).toBe('alpha');
     });
 
-    test('null FK on m2o leaves parent.author = null', async () => {
-      if (!available) return;
+    test('null FK on m2o leaves parent.author = null', async (ctx) => {
+      if (!available) return ctx.skip();
       const raw = await fetchPosts([3]);
       const rows = raw.map((r) => ({ ...r, author: r.authorId }));
       expect(raw[0].authorId).toBeNull();
@@ -375,8 +375,8 @@ for (const cfg of DBS) {
       expect(rows[0].author).toBeNull();
     });
 
-    test('limit > fanout returns all available children', async () => {
-      if (!available) return;
+    test('limit > fanout returns all available children', async (ctx) => {
+      if (!available) return ctx.skip();
       const rows = await fetchPosts([2]);
       const desc: BatchFetchDescriptor = {
         relationName: 'comments',
@@ -392,8 +392,8 @@ for (const cfg of DBS) {
       expect(rows[0].comments.length).toBe(2);
     });
 
-    test('duplicate parent FKs are de-duplicated at fetch layer', async () => {
-      if (!available) return;
+    test('duplicate parent FKs are de-duplicated at fetch layer', async (ctx) => {
+      if (!available) return ctx.skip();
       const raw = await fetchPosts([1, 4]);
       const rows = raw.map((r) => ({ ...r, author: r.authorId }));
       const trace = new TestTrace();
@@ -412,8 +412,8 @@ for (const cfg of DBS) {
       expect(entry!.meta?.rowsTransferred).toBe(1);
     });
 
-    test('limited o2m uses one partitioned query for multiple parents', async () => {
-      if (!available) return;
+    test('limited o2m uses one partitioned query for multiple parents', async (ctx) => {
+      if (!available) return ctx.skip();
       const rows = await fetchPosts([1, 2]);
       const trace = new TestTrace();
       let queryCount = 0;
@@ -444,8 +444,8 @@ for (const cfg of DBS) {
       expect(queryCount).toBe(1);
     });
 
-    test('default to-many limit uses one partitioned query', async () => {
-      if (!available) return;
+    test('default to-many limit uses one partitioned query', async (ctx) => {
+      if (!available) return ctx.skip();
       const rows = await fetchPosts([1, 2]);
       const trace = new TestTrace();
       const desc: BatchFetchDescriptor = {
@@ -464,8 +464,8 @@ for (const cfg of DBS) {
       expect(entry!.meta?.userLimit).toBe(10);
     });
 
-    test('limited m2m selects partitioned edges then batch-loads unique targets', async () => {
-      if (!available) return;
+    test('limited m2m selects partitioned edges then batch-loads unique targets', async (ctx) => {
+      if (!available) return ctx.skip();
       const rows = await fetchPosts([1, 2]);
       const trace = new TestTrace();
       let queryCount = 0;
@@ -505,8 +505,8 @@ for (const cfg of DBS) {
       expect(queryCount).toBe(2);
     });
 
-    test('unbounded m2m batch-loads unique targets after junction edges', async () => {
-      if (!available) return;
+    test('unbounded m2m batch-loads unique targets after junction edges', async (ctx) => {
+      if (!available) return ctx.skip();
       const rows = await fetchPosts([1, 2]);
       const trace = new TestTrace();
       let queryCount = 0;
@@ -547,8 +547,8 @@ for (const cfg of DBS) {
       expect(queryCount).toBe(2);
     });
 
-    test('m2m target-id sort selects edges without joining target rows', async () => {
-      if (!available) return;
+    test('m2m target-id sort selects edges without joining target rows', async (ctx) => {
+      if (!available) return ctx.skip();
       const rows = await fetchPosts([1, 2]);
       const statements: string[] = [];
       const collectQuery = (query: { sql: string }) => {

@@ -17,6 +17,7 @@ export function hasSchemaMigrations(
 ): migrations is SchemaMigrationDef {
   if (!migrations) return false;
   return (
+    (migrations.mongoColumnTypesToModify?.length ?? 0) > 0 ||
     (migrations.coreTablesToRename?.length ?? 0) > 0 ||
     (migrations.tablesToRename?.length ?? 0) > 0 ||
     (migrations.physicalTablesToRename?.length ?? 0) > 0 ||

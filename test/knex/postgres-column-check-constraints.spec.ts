@@ -10,6 +10,13 @@ describe('dropPostgresColumnCheckConstraints', () => {
     expect(isTypeCompatible('enum', 'enum', 'pg')).toBe(true);
   });
 
+  it('requires full LONGTEXT capacity only on MySQL', () => {
+    expect(isTypeCompatible('longtext', 'text', 'mysql2')).toBe(false);
+    expect(isTypeCompatible('longtext', 'mediumtext', 'mysql2')).toBe(false);
+    expect(isTypeCompatible('longtext', 'longtext', 'mysql2')).toBe(true);
+    expect(isTypeCompatible('longtext', 'text', 'pg')).toBe(true);
+  });
+
   it('drops every CHECK attached to the enum column, including suffixed duplicates', async () => {
     const raw = vi
       .fn()

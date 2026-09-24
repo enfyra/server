@@ -4,7 +4,6 @@ import {
   Collection,
   Document,
   ObjectId,
-  Long,
   ClientSession,
 } from 'mongodb';
 import { randomUUID } from 'crypto';
@@ -21,12 +20,21 @@ import type { MongoSagaSession } from './mongo-saga-session';
 import type { ISagaOptions } from './mongo-saga.types';
 import { mongoTopologySupportsNativeTransactions } from '../utils/mongo-native-transaction-topology.util';
 import {
+  coerceMongoLongWriteValue,
+  isMongoLongColumnType,
+} from '../utils/mongo-long-write.util';
+import { normalizeBsonLongs } from '../utils/normalize-mongo-document.util';
+import {
   buildMongoWritableFieldSet,
   getMongoStoredRelationField,
 } from '../utils/mongo-physical-schema-contract';
 import { DatabaseException } from '../../../domain/exceptions';
 import type { MongoHookContext } from '../types/mongo-hook.types';
 import { isGeneratedScriptPersistenceField } from '../../../shared/utils/script-persistence-contract.util';
+import {
+  coerceTemporalWriteValue,
+  isTemporalColumnType,
+} from '../../../shared/utils/temporal-write.util';
 import {
   decryptResultFields,
   encryptRecordFields,
@@ -203,9 +211,12 @@ export class MongoService {
     this.mongoHookManagerService.addHook(
       'beforeUpdate',
       async (collectionName, data, context) => {
-        context.oldRecord = await this.collection(collectionName).findOne({
-          _id: context.recordId,
-        } as any, this.ioSignal());
+        context.oldRecord = await this.collection(collectionName).findOne(
+          {
+            _id: context.recordId,
+          } as any,
+          this.ioSignal(),
+        );
 
         const dataParsed = await this.parseJsonFields(collectionName, data);
         const dataWithRelations = await this.processNestedRelations(
@@ -277,7 +288,10 @@ export class MongoService {
     this.mongoHookManagerService.addHook(
       'beforeDelete',
       async (collectionName, filter, context) => {
-        const record = await this.collection(collectionName).findOne(filter, this.ioSignal());
+        const record = await this.collection(collectionName).findOne(
+          filter,
+          this.ioSignal(),
+        );
         context.deletedRecord = record;
         if (!record) {
           return filter;
@@ -439,6 +453,10 @@ export class MongoService {
           return (name: string, options?: any) =>
             mongoService.dropScopedCollection(name, options);
         }
+        if (prop === 'command') {
+          return (command: Record<string, unknown>, options?: any) =>
+            mongoService.runScopedCommand(command, options);
+        }
         const value = (target as any)[prop];
         return typeof value === 'function' ? value.bind(target) : value;
       },
@@ -598,6 +616,23 @@ export class MongoService {
     return this.getRawDb().dropCollection(name, options);
   }
 
+  private runScopedCommand(
+    command: Record<string, unknown>,
+    options?: any,
+  ): Promise<any> {
+    const collectionName = command.collMod;
+    const saga = this.appTxSessionAls.getStore();
+    if (saga && typeof collectionName === 'string') {
+      const { collMod: _collMod, ...modifyOptions } = command;
+      return saga.modifyCollection(collectionName, modifyOptions);
+    }
+    const native = this.nativeTxBundleAls.getStore();
+    return this.getRawDb().command(command, {
+      ...options,
+      ...(native ? { session: native.session } : {}),
+    });
+  }
+
   async runWithTransactionScope<T>(
     scope: MongoTransactionScope,
     callback: () => Promise<T>,
@@ -719,12 +754,16 @@ export class MongoService {
         continue;
       }
 
-      if (column.type === 'bigint' && typeof fieldValue === 'number') {
-        result[fieldName] = Long.fromNumber(fieldValue);
+      if (isMongoLongColumnType(column.type)) {
+        result[fieldName] = coerceMongoLongWriteValue(fieldValue);
         continue;
       }
 
-      if (column.type === 'simple-json' || column.type === 'json') {
+      if (
+        column.type === 'object' ||
+        column.type === 'simple-json' ||
+        column.type === 'json'
+      ) {
         if (typeof fieldValue === 'string') {
           try {
             result[fieldName] = JSON.parse(fieldValue);
@@ -1013,12 +1052,18 @@ export class MongoService {
         if (fieldValue === undefined || fieldValue === null) {
           continue;
         }
-        if (column.type === 'bigint' && typeof fieldValue === 'number') {
-          result[fieldName] = Long.fromNumber(fieldValue);
+        if (isMongoLongColumnType(column.type)) {
+          result[fieldName] = coerceMongoLongWriteValue(fieldValue);
+          continue;
+        }
+        if (isTemporalColumnType(column.type)) {
+          result[fieldName] = coerceTemporalWriteValue(fieldValue);
           continue;
         }
         if (
-          (column.type === 'simple-json' || column.type === 'json') &&
+          (column.type === 'object' ||
+            column.type === 'simple-json' ||
+            column.type === 'json') &&
           typeof fieldValue === 'string'
         ) {
           try {
@@ -1229,6 +1274,21 @@ export class MongoService {
     );
   }
 
+  async parseResult(result: any, tableName: string): Promise<any> {
+    if (!result || !tableName) return result;
+    const context: MongoHookContext = {
+      collectionName: tableName,
+      operation: 'select',
+    };
+    const hooked = await this.mongoHookManagerService.runHooks(
+      'afterSelect',
+      tableName,
+      result,
+      context,
+    );
+    return normalizeBsonLongs(hooked);
+  }
+
   async processNestedRelations(tableName: string, data: any): Promise<any> {
     return this.mongoRelationManagerService.processNestedRelations(
       tableName,
@@ -1278,11 +1338,20 @@ export class MongoService {
     if (!tableMetadata) return data;
 
     const validFields = buildMongoWritableFieldSet(tableMetadata);
+    const temporalFields = new Set(
+      (tableMetadata.columns || [])
+        .filter((col: any) => isTemporalColumnType(col?.type))
+        .map((col: any) => col.name),
+    );
 
     const stripped = { ...data };
     for (const key of Object.keys(stripped)) {
       if (!validFields.has(key)) {
         delete stripped[key];
+        continue;
+      }
+      if (temporalFields.has(key)) {
+        stripped[key] = coerceTemporalWriteValue(stripped[key]);
       }
     }
     return stripped;
@@ -1379,7 +1448,10 @@ export class MongoService {
       filter,
       context,
     );
-    const count = await collection.countDocuments(processedFilter, this.ioSignal());
+    const count = await collection.countDocuments(
+      processedFilter,
+      this.ioSignal(),
+    );
     return this.mongoHookManagerService.runHooks(
       'afterSelect',
       collectionName,
@@ -1401,7 +1473,10 @@ export class NativeSessionCollection<T extends Document = Document> {
   ) {}
 
   find(filter: any, options?: any): any {
-    let cursor = this.base.find(filter as any, { ...options, session: this.session });
+    let cursor = this.base.find(filter as any, {
+      ...options,
+      session: this.session,
+    });
     let skipVal = 0;
     let limitVal: number | undefined;
     const self = {
@@ -1692,8 +1767,12 @@ export class SagaCollection<_T extends Document = Document> {
   }
 
   async findOneAndUpdate(filter: any, update: any, options?: any) {
+    const before = await this.findOne(filter);
     await this.updateOne(filter, update, options);
-    if (options?.returnDocument === 'before') return null;
+    if (options?.returnDocument === 'before') return before;
+    // Re-read by _id: the update may have changed a field the caller filtered on,
+    // in which case re-querying by that filter returns null for a successful update.
+    if (before?._id != null) return this.findOne({ _id: before._id });
     return this.findOne(filter);
   }
 

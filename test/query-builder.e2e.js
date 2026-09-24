@@ -41,15 +41,7 @@ const db = knex({
   pool: { min: 1, max: 10 },
 });
 
-const distPath = path.join(__dirname, '..', 'dist');
-const SqlQueryExecutor = require(path.join(
-  distPath,
-  'kernel',
-  'query',
-  'query-builder',
-  'executors',
-  'sql-query-executor',
-)).SqlQueryExecutor;
+const { SqlQueryExecutor } = require('@enfyra/kernel');
 
 let testsPassed = 0;
 let testsFailed = 0;
@@ -76,6 +68,8 @@ async function loadMetadata() {
     .leftJoin(db('enfyra_table').as('sourceTable'), 'enfyra_relation.sourceTableId', 'sourceTable.id');
 
   const tablesMap = new Map();
+  const relationById = new Map(relations.map(r => [String(r.id), r]));
+  const tableNameById = new Map(tables.map(t => [String(t.id), t.name]));
 
   for (const table of tables) {
     tablesMap.set(table.name, {
@@ -85,19 +79,33 @@ async function loadMetadata() {
         name: c.name,
         type: c.type,
         propertyName: c.propertyName,
+        isPrimary: c.isPrimary === true || c.isPrimary === 1,
       })),
-      relations: relations.filter(r => r.sourceTableId === table.id).map(r => ({
-        propertyName: r.propertyName,
-        type: r.type,
-        targetTableName: r.targetTableName,
-        targetTable: r.targetTableName,
-        foreignKeyColumn: r.foreignKeyColumn,
-        junctionTableName: r.junctionTableName,
-        junctionSourceColumn: r.junctionSourceColumn,
-        junctionTargetColumn: r.junctionTargetColumn,
-        mappedBy: r.mappedBy,
-        isInverse: r.isInverse,
-      })),
+      relations: relations.filter(r => r.sourceTableId === table.id).map(r => {
+        const owning = r.mappedById ? relationById.get(String(r.mappedById)) : null;
+        const mappedBy = owning ? owning.propertyName : null;
+        const isInverse =
+          r.type === 'one-to-many' ||
+          ((r.type === 'many-to-many' || r.type === 'one-to-one') && !!mappedBy);
+        return {
+          propertyName: r.propertyName,
+          type: r.type,
+          targetTableName: r.targetTableName,
+          targetTable: r.targetTableName,
+          sourceTableName: tableNameById.get(String(r.sourceTableId)),
+          foreignKeyColumn:
+            r.foreignKeyColumn ||
+            (isInverse ? owning?.foreignKeyColumn : null) ||
+            null,
+          referencedColumn: r.referencedColumn || owning?.referencedColumn || 'id',
+          mappedBy,
+          isInverse,
+          junctionTableName: r.junctionTableName,
+          junctionSourceColumn: r.junctionSourceColumn,
+          junctionTargetColumn: r.junctionTargetColumn,
+          isUpdatable: r.isUpdatable,
+        };
+      }),
     });
   }
 
@@ -257,7 +265,8 @@ async function testSortFunctionality() {
     metadata,
   });
 
-  const sql = debugLog.find(d => d.type === 'SQL Query' || d.type === 'SQL Query (CTE)')?.sql;
+  const debugEntry = debugLog.find(d => d.type === 'SQL Query' || d.type === 'SQL Query (CTE)');
+  const sql = typeof debugEntry?.sql === 'string' ? debugEntry.sql : debugEntry?.sql?.sql;
   log('Default sort by id applied', sql?.includes('ORDER BY') && sql?.includes('"id"'));
 
   const resultNestedSort = await executor.execute({

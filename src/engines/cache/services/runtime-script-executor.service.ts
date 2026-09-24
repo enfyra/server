@@ -41,20 +41,28 @@ export class RuntimeScriptExecutorService {
   async run(
     code: string,
     ctx: any,
-    timeoutMs: number,
+    timeoutMs?: number | null,
     options: RunOptions = {},
   ): Promise<any> {
     ctx.$api ??= {};
     ctx.$api.request ??= {};
-    ctx.$api.request.correlationId ??= logStore.getStore()?.correlationId ?? ctx.$flow?.$meta?.executionId ?? randomUUID();
+    ctx.$api.request.correlationId ??=
+      logStore.getStore()?.correlationId ??
+      ctx.$flow?.$meta?.executionId ??
+      randomUUID();
     const sourceCode = options.sourceCode ?? code;
     try {
-      return await this.kernelExecutorEngineService.run(code, ctx, timeoutMs, {
-        sourceCode,
-        scriptLanguage: options.scriptLanguage,
-        scriptId: options.scriptId,
-        sourceKind: options.sourceKind ?? (ctx.$flow ? 'flow' : 'run'),
-      });
+      return await this.kernelExecutorEngineService.run(
+        code,
+        ctx,
+        timeoutMs ?? undefined,
+        {
+          sourceCode,
+          scriptLanguage: options.scriptLanguage,
+          scriptId: options.scriptId,
+          sourceKind: options.sourceKind ?? (ctx.$flow ? 'flow' : 'run'),
+        },
+      );
     } catch (error) {
       if (!this.isStaleCompiledCodeFailure(error)) {
         throw error;
@@ -73,7 +81,7 @@ export class RuntimeScriptExecutorService {
       return await this.kernelExecutorEngineService.run(
         fallbackCode,
         ctx,
-        timeoutMs,
+        timeoutMs ?? undefined,
         {
           sourceCode,
           scriptLanguage: options.scriptLanguage,
@@ -86,14 +94,20 @@ export class RuntimeScriptExecutorService {
 
   async runBatch(
     req: any,
-    timeoutMs?: number,
+    timeoutMs?: number | null,
+    options: Parameters<KernelExecutorEngineService['runBatch']>[2] = {},
   ): Promise<{ value: any; shortCircuit: boolean }> {
     const ctx = req.routeData.context;
     ctx.$api ??= {};
     ctx.$api.request ??= {};
-    ctx.$api.request.correlationId ??= req.correlationId ?? logStore.getStore()?.correlationId ?? randomUUID();
+    ctx.$api.request.correlationId ??=
+      req.correlationId ?? logStore.getStore()?.correlationId ?? randomUUID();
     try {
-      return await this.kernelExecutorEngineService.runBatch(req, timeoutMs);
+      return await this.kernelExecutorEngineService.runBatch(
+        req,
+        timeoutMs ?? undefined,
+        options,
+      );
     } catch (error) {
       if (!this.isStaleCompiledCodeFailure(error)) {
         throw error;
@@ -136,7 +150,8 @@ export class RuntimeScriptExecutorService {
             __codeBlocks: fallbackBlocks,
           },
         },
-        timeoutMs,
+        timeoutMs ?? undefined,
+        options,
       );
     }
   }

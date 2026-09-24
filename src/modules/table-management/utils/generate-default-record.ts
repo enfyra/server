@@ -50,18 +50,30 @@ export function generateDefaultValue(column: {
   // Generate default based on type for required fields
   switch (type) {
     case 'varchar':
+    case 'string':
     case 'text':
+    case 'longtext':
+    case 'richtext':
+    case 'code':
       return '';
 
     case 'int':
+    case 'bigint':
+    case 'long':
     case 'float':
+    case 'double':
       return 0;
 
     case 'boolean':
+    case 'bool':
       return false;
 
     case 'date':
       return new Date().toISOString().split('T')[0];
+
+    case 'datetime':
+    case 'timestamp':
+      return new Date().toISOString();
 
     case 'uuid':
       return uuidv4();
@@ -78,7 +90,13 @@ export function generateDefaultValue(column: {
       return null;
 
     case 'simple-json':
+    case 'object':
+    case 'json':
       return {};
+
+    case 'array':
+    case 'array-select':
+      return [];
 
     default:
       return null;

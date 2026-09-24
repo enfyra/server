@@ -132,6 +132,54 @@ describe('filter-parser', () => {
   });
 
   describe('logical operators', () => {
+    it('does not retain joins from logical branches collapsed by constants', () => {
+      const result = parse({
+        _or: [{ author: { name: { _eq: 'Alice' } } }, {}],
+      });
+      expect(result.node).toEqual({ kind: 'true' });
+      expect(result.joinCount).toBe(0);
+    });
+
+    it('preserves constants for empty logical operands', () => {
+      expect(parse({ _or: [{}] }).node).toEqual({ kind: 'true' });
+      expect(parse({ _or: [] }).node).toEqual({ kind: 'false' });
+      expect(parse({ _and: [] }).node).toEqual({ kind: 'true' });
+      expect(parse({ _not: {} }).node).toEqual({ kind: 'false' });
+    });
+
+    it('rejects excessive logical nesting', () => {
+      let filter: any = { status: { _eq: 'draft' } };
+      for (let index = 0; index < 70; index += 1) filter = { _not: filter };
+      expect(() => parse(filter)).toThrow(/nesting depth/i);
+    });
+
+    it('rejects primitive and array logical operands', () => {
+      expect(() => parse({ _or: [0, { id: { _eq: 1 } }] })).toThrow(
+        /filter object/i,
+      );
+      expect(() => parse({ _and: [null] })).toThrow(/filter object/i);
+      expect(() => parse({ _not: [] })).toThrow(/filter object/i);
+    });
+
+    it('folds an absorbing false child and removes later relation joins', () => {
+      const result = parse({
+        _or: [],
+        author: { name: { _eq: 'Alice' } },
+      });
+      expect(result.node).toEqual({ kind: 'false' });
+      expect(result.hasRelationFilters).toBe(false);
+      expect(result.joinCount).toBe(0);
+    });
+
+    it('does not retain relation flags or joins from neutral branches', () => {
+      const result = parse({
+        _and: [{ author: { _and: [] } }, { status: { _eq: 'draft' } }],
+      });
+      expect(result.node).toMatchObject({ kind: 'compare', value: 'draft' });
+      expect(result.hasRelationFilters).toBe(false);
+      expect(result.joinCount).toBe(0);
+    });
+
     it('parses _and as logical AND', () => {
       const { node } = parse({
         _and: [{ status: { _eq: 'a' } }, { id: { _gt: 1 } }],
@@ -169,6 +217,40 @@ describe('filter-parser', () => {
   });
 
   describe('relation filters', () => {
+    it('does not register a join for an empty relation filter', () => {
+      const result = parse({ author: {} });
+      expect(result.node).toBeNull();
+      expect(result.hasRelationFilters).toBe(false);
+      expect(result.joinCount).toBe(0);
+    });
+
+    it('normalizes a scalar relation filter to a primary key equality', () => {
+      const result = parse({ author: 'author-1' });
+      expect(result.hasRelationFilters).toBe(true);
+      expect(result.joinCount).toBe(1);
+      expect(result.node).toMatchObject({ kind: 'compare', op: 'eq' });
+    });
+
+    it('does not retain a join for a relation filter that simplifies to a constant', () => {
+      const result = parse({ author: { _and: [] } });
+      expect(result.node).toEqual({ kind: 'true' });
+      expect(result.hasRelationFilters).toBe(false);
+      expect(result.joinCount).toBe(0);
+    });
+
+    it('restores the caller registry when relation parsing throws', () => {
+      const registry = new JoinRegistry();
+      expect(() =>
+        parseFilter(
+          { author: { missing: { _eq: 'x' } } },
+          'posts',
+          META,
+          registry,
+        ),
+      ).toThrow(/unknown field/i);
+      expect(registry.getAll()).toEqual([]);
+    });
+
     it('registers join for relation filter', () => {
       const { hasRelationFilters, joinCount } = parse({
         author: { name: { _eq: 'Alice' } },
@@ -202,6 +284,15 @@ describe('filter-parser', () => {
       const { node } = parse({ author: { _eq: null } });
       expect(node).toMatchObject({ kind: 'relation_exists', negate: true });
     });
+
+    it('rejects non-boolean relation null checks', () => {
+      expect(() => parse({ author: { _is_null: 'yes' } })).toThrow(
+        /boolean/i,
+      );
+      expect(() => parse({ author: { _is_not_null: 1 } })).toThrow(
+        /boolean/i,
+      );
+    });
   });
 
   describe('UUID detection', () => {
@@ -224,15 +315,53 @@ describe('filter-parser', () => {
       expect(node).toBeNull();
     });
 
-    it('returns null for null filter', () => {
-      const { node } = parse(null);
+    it('returns null for an omitted filter', () => {
+      const { node } = parse(undefined);
       expect(node).toBeNull();
+    });
+
+    it.each([null, false, 0, 'invalid', []])(
+      'rejects a supplied non-object filter: %p',
+      (filter) => {
+        expect(() => parse(filter)).toThrow(/filter.*object/i);
+      },
+    );
+
+    it('rejects filters when table metadata is unavailable', () => {
+      expect(() =>
+        parseFilter({ id: { _eq: 1 } }, 'missing', META, new JoinRegistry()),
+      ).toThrow(/metadata/i);
+    });
+
+    it('rejects malformed and circular operator operands', () => {
+      expect(() => parse({ id: { _in: 1 } })).toThrow(/array/i);
+      expect(() => parse({ id: { _between: [1] } })).toThrow(/between/i);
+      const circular: any = [];
+      circular.push(circular);
+      expect(() => parse({ id: { _in: circular } })).toThrow(/circular/i);
     });
 
     it('throws BadRequestException for unknown operators', () => {
       expect(() => parse({ status: { _unknown_op: 'x' } })).toThrow(
         BadRequestException,
       );
+    });
+
+    it('rejects circular and excessively nested literal field values', () => {
+      const circular: any = {};
+      circular.self = circular;
+      expect(() => parse({ status: circular })).toThrow(/circular/i);
+
+      let value: any = 'leaf';
+      for (let index = 0; index < 70; index += 1) value = { nested: value };
+      expect(() => parse({ status: value })).toThrow(/nesting depth/i);
+    });
+
+    it('throws for unknown fields and mixed operator objects', () => {
+      expect(() => parse({ missing: { _eq: 'x' } })).toThrow(/Unknown field/i);
+      expect(() =>
+        parse({ status: { _eq: 'draft', nested: 'ignored' } }),
+      ).toThrow(/mixed/i);
     });
 
     it('handles deeply nested logical structure', () => {

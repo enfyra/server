@@ -206,6 +206,12 @@ describe('validateDeepOptions', () => {
     ).toThrow(/Unknown relation 'nonexistent'/);
   });
 
+  test.each([null, 42, [], 'invalid'])('rejects malformed deep relation option: %p', (entry) => {
+    expect(() =>
+      validateDeepOptions('posts', { comments: entry as any }, metadata),
+    ).toThrow(/deep option.*object/i);
+  });
+
   test('rejects unknown sub-key in deep entry', () => {
     expect(() =>
       validateDeepOptions('posts', { comments: { invalidKey: 123 } }, metadata),
@@ -223,6 +229,145 @@ describe('validateDeepOptions', () => {
       validateDeepOptions(
         'posts',
         { comments: { limit: 5, page: 2 } },
+        metadata,
+      ),
+    ).not.toThrow();
+  });
+
+  test.each([
+    { limit: -1 },
+    { limit: 1.5 },
+    { limit: '5' },
+    { page: 0, limit: 5 },
+    { page: 1.5, limit: 5 },
+    { page: '2', limit: 5 },
+  ])('rejects malformed deep pagination %#', (entry) => {
+    expect(() =>
+      validateDeepOptions('posts', { comments: entry }, metadata),
+    ).toThrow(/limit|page/i);
+  });
+
+  test.each([null, false, ['id', 7], {}, 7])(
+    'rejects malformed deep fields: %p',
+    (fields) => {
+      expect(() =>
+        validateDeepOptions(
+          'posts',
+          { comments: { fields } },
+          metadata,
+        ),
+      ).toThrow(/fields/i);
+    },
+  );
+
+  test('strips unknown deep fields without rejecting the deep options', () => {
+    expect(() =>
+      validateDeepOptions(
+        'posts',
+        { comments: { fields: ['id', 'missing'] } },
+        metadata,
+      ),
+    ).not.toThrow();
+  });
+
+  test('strips unresolved segments of dotted deep fields', () => {
+    expect(() =>
+      validateDeepOptions(
+        'posts',
+        { comments: { fields: ['post.author.missing', 'body.missing'] } },
+        metadata,
+      ),
+    ).not.toThrow();
+  });
+
+  test('validates the terminal segment of dotted filter keys', () => {
+    expect(() =>
+      validateDeepOptions(
+        'posts',
+        {
+          comments: {
+            filter: { 'post.author.missing': { _eq: 'x' } },
+          },
+        },
+        metadata,
+      ),
+    ).toThrow(/missing|unknown/i);
+  });
+
+  test.each([
+    { filter: false },
+    { sort: 0 },
+    { deep: null },
+    { deep: [] },
+  ])('rejects malformed falsey deep option %#', (entry) => {
+    expect(() =>
+      validateDeepOptions('posts', { comments: entry }, metadata),
+    ).toThrow(/filter|sort|deep/i);
+  });
+
+  test('rejects relations without resolvable target metadata', () => {
+    const incompleteMetadata = {
+      tables: new Map([
+        [
+          'posts',
+          {
+            ...META.posts,
+            relations: [
+              {
+                propertyName: 'comments',
+                type: 'one-to-many',
+                targetTableName: 'missing_comments',
+              },
+            ],
+          },
+        ],
+      ]),
+    };
+    expect(() =>
+      validateDeepOptions(
+        'posts',
+        { comments: { filter: { id: { _eq: 1 } } } },
+        incompleteMetadata,
+      ),
+    ).toThrow(/target table|metadata/i);
+  });
+
+  test('rejects encrypted guard paths with incomplete metadata', () => {
+    const incompleteMetadata = {
+      tables: new Map([
+        [
+          'posts',
+          {
+            ...META.posts,
+            relations: [
+              {
+                propertyName: 'comments',
+                type: 'one-to-many',
+                targetTableName: 'missing_comments',
+              },
+            ],
+          },
+        ],
+      ]),
+    };
+    expect(() =>
+      validateDeepOptions(
+        'posts',
+        { comments: { sort: 'id' } },
+        incompleteMetadata,
+      ),
+    ).toThrow(/target table|metadata/i);
+  });
+
+  test('handles shared operand graphs without exponential traversal', () => {
+    let shared: any = 'leaf';
+    for (let index = 0; index < 45; index += 1) {
+      shared = { left: shared, right: shared };
+    }
+    expect(() =>
+      validateDeepOptions(
+        'posts',
+        { comments: { filter: { body: { _eq: shared } } } },
         metadata,
       ),
     ).not.toThrow();
@@ -284,7 +429,7 @@ describe('validateDeepOptions', () => {
         0,
         0,
       ),
-    ).toThrow(/exceeds maximum query depth/i);
+    ).toThrow(/recursion bounds|exceeds maximum query depth/i);
   });
 
   test('rejects invalid filter shape in deep', () => {
@@ -349,6 +494,138 @@ describe('validateDeepOptions', () => {
         metadata,
       ),
     ).not.toThrow();
+  });
+
+  test('rejects dotted filter keys that exceed the relation hop limit', () => {
+    expect(() =>
+      validateDeepOptions(
+        'posts',
+        {
+          comments: {
+            filter: {
+              'post.author.company.region.name': { _eq: 'APAC' },
+            },
+          },
+        },
+        metadata,
+      ),
+    ).toThrow(/dotted hops/i);
+  });
+
+  test('rejects relation hops hidden behind logical groups', () => {
+    expect(() =>
+      validateDeepOptions(
+        'posts',
+        {
+          comments: {
+            filter: {
+              post: {
+                _and: [
+                  {
+                    author: {
+                      company: {
+                        region: { name: { _eq: 'APAC' } },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+        metadata,
+      ),
+    ).toThrow(/Filter path exceeds max dotted hops of 3/i);
+  });
+
+  test('rejects non-string sort array entries', () => {
+    expect(() =>
+      validateDeepOptions(
+        'posts',
+        { comments: { sort: ['createdAt', 7] } },
+        metadata,
+      ),
+    ).toThrow(/sort.*string/i);
+  });
+
+  test('rejects excessive logical nesting without overflowing the stack', () => {
+    let filter: any = { isPublished: { _eq: true } };
+    for (let index = 0; index < 300; index += 1) {
+      filter = { _not: filter };
+    }
+    expect(() =>
+      validateDeepOptions(
+        'posts',
+        { comments: { filter } },
+        metadata,
+      ),
+    ).toThrow(/nesting depth/i);
+  });
+
+  test('accepts underscore-prefixed fields declared on a nested relation target', () => {
+    const mongoMetadata = {
+      tables: new Map([
+        ['posts', META.posts],
+        [
+          'comments',
+          {
+            ...META.comments,
+            relations: [
+              {
+                propertyName: 'author',
+                type: 'many-to-one',
+                targetTableName: 'mongoUsers',
+                targetTable: 'mongoUsers',
+                isInverse: false,
+              },
+            ],
+          },
+        ],
+        [
+          'mongoUsers',
+          {
+            name: 'mongoUsers',
+            columns: [{ name: '_id', type: 'objectid', isPrimary: true }],
+            relations: [],
+          },
+        ],
+      ]),
+    };
+    expect(() =>
+      validateDeepOptions(
+        'posts',
+        {
+          comments: {
+            filter: { author: { _id: { _eq: '507f1f77bcf86cd799439011' } } },
+          },
+        },
+        mongoMetadata,
+      ),
+    ).not.toThrow();
+  });
+
+  test('rejects circular nesting inside field operands', () => {
+    const circular: any = [];
+    circular.push(circular);
+    expect(() =>
+      validateDeepOptions(
+        'posts',
+        { comments: { filter: { body: { _in: circular } } } },
+        metadata,
+      ),
+    ).toThrow(/circular/i);
+  });
+
+  test('rejects excessive nesting inside field operands', () => {
+    let operand: any = 'value';
+    for (let index = 0; index < 80; index += 1) operand = [operand];
+    expect(() =>
+      validateDeepOptions(
+        'posts',
+        { comments: { filter: { body: { _eq: operand } } } },
+        metadata,
+      ),
+    ).toThrow(/nesting depth/i);
   });
 
   test('rejects nested filter exceeding 3 hops', () => {

@@ -5,8 +5,14 @@ import {
   normalizeScriptRecord,
   resolveExecutableScript,
 } from '../../src/shared/utils/script-code.util';
+import { SCRIPT_TABLE_NAMES } from '../../src/shared/utils/script-table-contract.constants';
 
 describe('script-code util', () => {
+  it('validates JavaScript without executing the source', () => {
+    expect(compileScriptSource('return 42;', 'javascript')).toBe('return 42;');
+    expect(() => compileScriptSource('const value = ;', 'javascript')).toThrow();
+  });
+
   it('compiles TypeScript source into executable JavaScript', () => {
     const compiled = compileScriptSource(
       'const value: string = @BODY.name; return value;',
@@ -16,6 +22,38 @@ describe('script-code util', () => {
     expect(compiled).toContain('const value = $ctx.$body.name;');
     expect(compiled).toContain('return value;');
     expect(compiled).not.toContain(': string');
+  });
+
+  it.each(SCRIPT_TABLE_NAMES)(
+    'preserves regex and email markup when compiling %s',
+    (tableName) => {
+      const sourceCode = [
+        `const escaped = value.replace(/\\\"/g, '&quot;');`,
+        `const html = '<table width="100%" style="color:#33434d">@BODY</table>';`,
+        'return { html, body: @BODY };',
+      ].join('\n');
+
+      const record = normalizeScriptRecord(tableName, {
+        sourceCode,
+        scriptLanguage: 'javascript',
+      });
+
+      expect(record.compiledCode).toContain(
+        `'<table width="100%" style="color:#33434d">@BODY</table>'`,
+      );
+      expect(record.compiledCode).toContain('body: $ctx.$body');
+      expect(record.compiledCode).not.toContain('$ctx.$pkgs.');
+      expect(record.compiledCode).not.toContain('$ctx.$repos.33434d');
+    },
+  );
+
+  it('ignores inherited script table names', () => {
+    const record = {
+      logic: 'return 1;',
+      sourceCode: 'unchanged',
+    };
+
+    expect(normalizeScriptRecord('toString', record)).toBe(record);
   });
 
   it('defaults script records to TypeScript and removes legacy fields', () => {
@@ -78,6 +116,16 @@ describe('script-code util', () => {
     expect(resolved.shouldPersistCompiledCode).toBe(true);
   });
 
+  it('uses an own non-empty legacy source field', () => {
+    const inherited = Object.create({ logic: 'return "inherited";' });
+    inherited.code = '';
+    inherited.handlerScript = 'return "own";';
+
+    const resolved = resolveExecutableScript(inherited);
+
+    expect(resolved.code).toBe('return "own";');
+  });
+
   it('normalizes legacy code patches without mutating the patch object', () => {
     const patch = {
       code: 'const value: string = @BODY.name; return value;',
@@ -92,9 +140,7 @@ describe('script-code util', () => {
       'const value: string = @BODY.name; return value;',
     );
     expect(normalized.scriptLanguage).toBe('typescript');
-    expect(normalized.compiledCode).toContain(
-      'const value = $ctx.$body.name;',
-    );
+    expect(normalized.compiledCode).toContain('const value = $ctx.$body.name;');
   });
 
   it('recompiles from existing source when only scriptLanguage is patched', () => {
@@ -126,6 +172,45 @@ describe('script-code util', () => {
 
     expect(normalized.sourceCode).toBeNull();
     expect(normalized.compiledCode).toBeNull();
+  });
+
+  it('preserves explicit source clearing when a legacy field is also present', () => {
+    const normalized = normalizeScriptPatch(
+      'enfyra_pre_hook',
+      {
+        sourceCode: null,
+        code: 'return @BODY.name;',
+      },
+      {
+        sourceCode: 'return @BODY.oldName;',
+        scriptLanguage: 'typescript',
+      },
+    );
+
+    expect(normalized.sourceCode).toBeNull();
+    expect(normalized.compiledCode).toBeNull();
+    expect(normalized.code).toBeUndefined();
+  });
+
+  it('requires existing source when only scriptLanguage changes', () => {
+    expect(() => normalizeScriptPatch(
+      'enfyra_route_handler',
+      { scriptLanguage: 'javascript' },
+    )).toThrow('Existing script data is required');
+  });
+
+  it('drops direct compiledCode patches for script tables', () => {
+    const normalized = normalizeScriptPatch(
+      'enfyra_route_handler',
+      { compiledCode: 'return "forged";' },
+      {
+        sourceCode: 'return @BODY.name;',
+        compiledCode: 'return $ctx.$body.name;',
+        scriptLanguage: 'typescript',
+      },
+    );
+
+    expect(normalized.compiledCode).toBeUndefined();
   });
 
   it('does not rewrite invalid JSON flow configs', () => {

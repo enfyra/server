@@ -22,6 +22,102 @@ function encodeMainThreadToIsolate(value: unknown): string {
   }
 }
 
+function isWorkerEnvelope(
+  value: Record<string, unknown>,
+  requiredKey: string,
+  allowedKeys: string[],
+): boolean {
+  if (!Object.prototype.hasOwnProperty.call(value, requiredKey)) return false;
+  const allowed = new Set(allowedKeys);
+  return Object.keys(value).every((key) => allowed.has(key));
+}
+
+function defineWorkerValue(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
+}
+
+function decodeWorkerValue(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return value;
+  const record = value as Record<string, any>;
+  if (isWorkerEnvelope(record, '__plainObject', ['__plainObject'])) {
+    const output: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(record.__plainObject || {})) {
+      defineWorkerValue(output, key, decodeWorkerValue(item));
+    }
+    return output;
+  }
+  if (isWorkerEnvelope(record, '__nullPrototype', ['__nullPrototype'])) {
+    const output = Object.create(null) as Record<string, unknown>;
+    for (const [key, item] of Object.entries(record.__nullPrototype || {})) {
+      defineWorkerValue(output, key, decodeWorkerValue(item));
+    }
+    return output;
+  }
+  if (isWorkerEnvelope(record, '__e', ['__e']) && record.__e === 'u') {
+    return undefined;
+  }
+  if (isWorkerEnvelope(record, '__number', ['__number'])) {
+    if (record.__number === 'nan') return Number.NaN;
+    if (record.__number === 'infinity') return Number.POSITIVE_INFINITY;
+    if (record.__number === '-infinity') return Number.NEGATIVE_INFINITY;
+    if (record.__number === '-0') return -0;
+    throw new TypeError(`Unsupported worker number: ${record.__number}`);
+  }
+  if (isWorkerEnvelope(record, '__bigint', ['__bigint'])) {
+    return BigInt(record.__bigint);
+  }
+  if (isWorkerEnvelope(record, '__map', ['__map'])) {
+    return new Map(
+      (record.__map || []).map(([key, item]: [unknown, unknown]) => [
+        decodeWorkerValue(key),
+        decodeWorkerValue(item),
+      ]),
+    );
+  }
+  if (isWorkerEnvelope(record, '__arrayBuffer', ['__arrayBuffer'])) {
+    return Uint8Array.from(record.__arrayBuffer || []).buffer;
+  }
+  if (isWorkerEnvelope(record, '__typedArray', ['__typedArray', 'bytes', 'data'])) {
+    const bytes = Uint8Array.from(record.bytes || record.data || []);
+    if (record.__typedArray === 'DataView') return new DataView(bytes.buffer);
+    const constructors: Record<string, any> = {
+      Int8Array,
+      Uint8Array,
+      Uint8ClampedArray,
+      Int16Array,
+      Uint16Array,
+      Int32Array,
+      Uint32Array,
+      Float32Array,
+      Float64Array,
+      ...(typeof BigInt64Array === 'undefined' ? {} : { BigInt64Array }),
+      ...(typeof BigUint64Array === 'undefined' ? {} : { BigUint64Array }),
+    };
+    const Constructor = constructors[String(record.__typedArray)];
+    if (typeof Constructor !== 'function') {
+      throw new TypeError(`Unsupported worker typed array: ${record.__typedArray}`);
+    }
+    return new Constructor(bytes.buffer);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => decodeWorkerValue(item));
+  }
+  const output: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(record)) {
+    defineWorkerValue(output, key, decodeWorkerValue(item));
+  }
+  return output;
+}
+
 export function executeBatch(opts: {
   codeBlocks: CodeBlock[];
   pkgSources?: any[];
@@ -138,9 +234,9 @@ export function executeBatchSequence(
       if (timer) clearTimeout(timer);
       if (msg.success) {
         const res: any = {
-          value: msg.value,
+          value: decodeWorkerValue(msg.value),
           valueAbsent: msg.valueAbsent === true,
-          ctxChanges: msg.ctxChanges,
+          ctxChanges: decodeWorkerValue(msg.ctxChanges),
         };
         if (msg.shortCircuit) res.shortCircuit = true;
         results.push(res);
@@ -177,11 +273,12 @@ function spawnWorker(
     const worker = new Worker(WORKER_SCRIPT);
     const id = `test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     let settled = false;
+    let terminalResult: any;
 
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
       if (settled) return;
       settled = true;
-      worker.terminate();
+      await cleanup();
       const err: any = new Error(
         `Script execution timed out after ${timeoutMs}ms`,
       );
@@ -190,33 +287,63 @@ function spawnWorker(
       reject(err);
     }, timeoutMs + 5000);
 
-    const cleanup = () => {
+    const cleanup = async (graceful = false) => {
       clearTimeout(timer);
-      worker.terminate();
+      if (graceful) {
+        const exited = await new Promise<boolean>((resolve) => {
+          let shutdownTimer: ReturnType<typeof setTimeout>;
+          const onExit = () => {
+            clearTimeout(shutdownTimer);
+            resolve(true);
+          };
+          shutdownTimer = setTimeout(() => {
+            worker.off('exit', onExit);
+            resolve(false);
+          }, 1_000);
+          worker.once('exit', onExit);
+          try {
+            worker.postMessage({ type: 'shutdown' });
+          } catch {
+            clearTimeout(shutdownTimer);
+            worker.off('exit', onExit);
+            resolve(false);
+          }
+        });
+        if (exited) return;
+      }
+      try {
+        await worker.terminate();
+      } catch {}
     };
 
     worker.on('message', async (msg) => {
       if (msg.type === 'result') {
-        if (settled) return;
+        if (settled || terminalResult) return;
+        terminalResult = msg;
+      } else if (msg.type === 'taskReleased' && msg.id === id) {
+        if (settled || !terminalResult) return;
         settled = true;
-        cleanup();
-        if (msg.success) {
+        const result = terminalResult;
+        await cleanup(true);
+        if (result.success) {
           const res: any = {
-            value: msg.value,
-            valueAbsent: msg.valueAbsent === true,
-            ctxChanges: msg.ctxChanges,
+            value: decodeWorkerValue(result.value),
+            valueAbsent: result.valueAbsent === true,
+            ctxChanges: decodeWorkerValue(result.ctxChanges),
           };
-          if (msg.shortCircuit) res.shortCircuit = true;
+          if (result.shortCircuit) res.shortCircuit = true;
           resolve(res);
         } else {
           const err: any = new Error(
-            msg.error?.message || 'Handler execution failed',
+            result.error?.message || 'Handler execution failed',
           );
-          err.statusCode = msg.error?.statusCode;
-          err.code = msg.error?.code;
-          err.details = msg.error?.details;
-          if (msg.error?.stack) err.stack = msg.error.stack;
-          if (msg.ctxChanges) err.ctxChanges = msg.ctxChanges;
+          err.statusCode = result.error?.statusCode;
+          err.code = result.error?.code;
+          err.details = result.error?.details;
+          if (result.error?.stack) err.stack = result.error.stack;
+          if (result.ctxChanges) {
+            err.ctxChanges = decodeWorkerValue(result.ctxChanges);
+          }
           reject(err);
         }
       } else if (msg.type === 'repoCall') {
@@ -306,10 +433,10 @@ function spawnWorker(
       }
     });
 
-    worker.on('error', (err) => {
+    worker.on('error', async (err) => {
       if (settled) return;
       settled = true;
-      cleanup();
+      await cleanup();
       reject(err);
     });
 

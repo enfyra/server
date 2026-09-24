@@ -1,5 +1,6 @@
 import { bootstrapSourceArtifacts } from '../../src/data';
-const { dataMigration, defaultData } = bootstrapSourceArtifacts;
+const { dataCorrections, defaultData } = bootstrapSourceArtifacts;
+const dataMigration = dataCorrections;
 
 const AUTH_PATHS = new Set([
   '/auth/login',
@@ -87,33 +88,11 @@ describe('settings menu seed cleanup', () => {
     ).toBeUndefined();
   });
 
-  it('deletes the existing field permissions menu through data migration', () => {
-    const deletedRecords: any[] = dataMigration._deletedRecords ?? [];
-    expect(
-      deletedRecords.some(
-        (record) =>
-          record.table === 'enfyra_menu' &&
-          record.filter?.path?._eq === '/settings/field-permissions',
-      ),
-    ).toBe(true);
-  });
-
   it('does not seed a dedicated cache reload menu', () => {
     const menus: any[] = defaultData.enfyra_menu ?? [];
     expect(
       menus.find((menu) => menu.path === '/settings/admin/cache'),
     ).toBeUndefined();
-  });
-
-  it('deletes the existing cache reload menu through data migration', () => {
-    const deletedRecords: any[] = dataMigration._deletedRecords ?? [];
-    expect(
-      deletedRecords.some(
-        (record) =>
-          record.table === 'enfyra_menu' &&
-          record.filter?.path?._eq === '/settings/admin/cache',
-      ),
-    ).toBe(true);
   });
 
   it('seeds runtime monitor at settings/runtime', () => {
@@ -128,32 +107,10 @@ describe('settings menu seed cleanup', () => {
     );
   });
 
-  it('updates the existing runtime monitor menu path through data migration', () => {
-    const menus: any[] = dataMigration.enfyra_menu ?? [];
+  it('does not seed the legacy routings menu', () => {
+    const menus: any[] = defaultData.enfyra_menu ?? [];
     expect(
-      menus.find(
-        (menu) => menu._unique?.path?._eq === '/settings/admin/runtime',
-      ),
-    ).toEqual(
-      expect.objectContaining({
-        path: '/settings/runtime',
-      }),
-    );
-  });
-
-  it('deletes the legacy routings menu instead of migrating it into the routes menu', () => {
-    const menus: any[] = dataMigration.enfyra_menu ?? [];
-    const deletedRecords: any[] = dataMigration._deletedRecords ?? [];
-
-    expect(
-      menus.find((menu) => menu._unique?.path?._eq === '/settings/routings'),
+      menus.find((menu) => menu.path === '/settings/routings'),
     ).toBeUndefined();
-    expect(
-      deletedRecords.some(
-        (record) =>
-          record.table === 'enfyra_menu' &&
-          record.filter?.path?._eq === '/settings/routings',
-      ),
-    ).toBe(true);
   });
 });

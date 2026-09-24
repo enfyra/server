@@ -8,31 +8,30 @@ export class ExplicitSchemaRepairService {
   private readonly metadataCacheService: MetadataCacheService;
   private readonly systemCoreTableResolver: SystemCoreTableResolver;
   private readonly log: (message: string) => void;
+  private readonly warn: (message: string) => void;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     metadataCacheService: MetadataCacheService;
     systemCoreTableResolver: SystemCoreTableResolver;
     log: (message: string) => void;
+    warn: (message: string) => void;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.metadataCacheService = deps.metadataCacheService;
     this.systemCoreTableResolver = deps.systemCoreTableResolver;
     this.log = deps.log;
+    this.warn = deps.warn;
   }
 
-  async runExplicitRepairsIfNeeded(): Promise<void> {
-    const setting = await this.loadSetting();
-    if (setting && setting.uniquesIndexesRepaired !== true) {
-      await this.metadataCacheService.reload(false);
-      const repairedCount = await this.repairUserTables();
-      await this.markRepaired(setting);
+  async runExplicitRepairs(): Promise<void> {
+    await this.metadataCacheService.reload(false);
+    const repairedCount = await this.repairUserTables();
 
-      if (repairedCount > 0) {
-        this.log(
-          `Repaired uniques/indexes metadata on ${repairedCount} user table(s)`,
-        );
-      }
+    if (repairedCount > 0) {
+      this.log(
+        `Repaired uniques/indexes metadata on ${repairedCount} user table(s)`,
+      );
     }
   }
 
@@ -43,32 +42,46 @@ export class ExplicitSchemaRepairService {
     for (const table of tables) {
       if (table.isSystem === true) continue;
 
-      const fkToProperty = this.buildFkToPropertyMap(table);
-      if (fkToProperty.size === 0) continue;
+      try {
+        const fkToProperty = this.buildFkToPropertyMap(table);
+        if (fkToProperty.size === 0) continue;
 
-      const originalUniques = this.parseArray(table.uniques);
-      const originalIndexes = this.parseArray(table.indexes);
+        const originalUniques = this.parseGroups(
+          table.uniques,
+          table.name,
+          'uniques',
+        );
+        const originalIndexes = this.parseGroups(
+          table.indexes,
+          table.name,
+          'indexes',
+        );
 
-      const newUniques = this.normalizeGroups(originalUniques, fkToProperty);
-      const newIndexes = this.normalizeGroups(originalIndexes, fkToProperty);
+        const newUniques = this.normalizeGroups(originalUniques, fkToProperty);
+        const newIndexes = this.normalizeGroups(originalIndexes, fkToProperty);
 
-      const uniquesChanged =
-        JSON.stringify(originalUniques) !== JSON.stringify(newUniques);
-      const indexesChanged =
-        JSON.stringify(originalIndexes) !== JSON.stringify(newIndexes);
+        const uniquesChanged =
+          JSON.stringify(originalUniques) !== JSON.stringify(newUniques);
+        const indexesChanged =
+          JSON.stringify(originalIndexes) !== JSON.stringify(newIndexes);
 
-      if (!uniquesChanged && !indexesChanged) continue;
+        if (!uniquesChanged && !indexesChanged) continue;
 
-      const idField = DatabaseConfigService.getPkField();
-      await this.queryBuilderService.update(
-        await this.systemCoreTableResolver.getTableName('table'),
-        { where: [{ field: idField, operator: '=', value: table.id }] },
-        { uniques: newUniques, indexes: newIndexes },
-      );
-      repaired++;
-      this.log(
-        `Repaired '${table.name}': uniques ${JSON.stringify(originalUniques)} → ${JSON.stringify(newUniques)}, indexes ${JSON.stringify(originalIndexes)} → ${JSON.stringify(newIndexes)}`,
-      );
+        const idField = DatabaseConfigService.getPkField();
+        await this.queryBuilderService.update(
+          await this.systemCoreTableResolver.getTableName('table'),
+          { where: [{ field: idField, operator: '=', value: table.id }] },
+          { uniques: newUniques, indexes: newIndexes },
+        );
+        repaired++;
+        this.log(
+          `Repaired '${table.name}': uniques ${JSON.stringify(originalUniques)} → ${JSON.stringify(newUniques)}, indexes ${JSON.stringify(originalIndexes)} → ${JSON.stringify(newIndexes)}`,
+        );
+      } catch (error: any) {
+        this.warn(
+          `Skipped explicit uniques/indexes repair for '${table.name}': ${error?.message ?? error}`,
+        );
+      }
     }
 
     return repaired;
@@ -93,72 +106,37 @@ export class ExplicitSchemaRepairService {
     );
   }
 
-  private parseArray(value: any): string[][] {
-    if (Array.isArray(value)) return value;
+  private parseGroups(
+    value: unknown,
+    tableName: string,
+    field: 'uniques' | 'indexes',
+  ): string[][] {
+    let parsed: unknown = value;
     if (typeof value === 'string') {
       try {
-        const parsed = JSON.parse(value);
-        return Array.isArray(parsed) ? parsed : [];
+        parsed = JSON.parse(value);
       } catch {
-        return [];
+        throw new Error(
+          `Cannot repair ${tableName}.${field}: expected a valid array`,
+        );
       }
     }
-    return [];
-  }
-
-  private async loadSetting(): Promise<any | null> {
-    try {
-      if (DatabaseConfigService.instanceIsMongoDb()) {
-        return await this.queryBuilderService
-          .getMongoDb()
-          .collection('enfyra_setting')
-          .findOne({});
-      }
-
-      return await this.queryBuilderService
-        .getKnex()('enfyra_setting')
-        .orderBy('id', 'asc')
-        .first();
-    } catch {
-      try {
-        const result = await this.queryBuilderService.find({
-          table: 'enfyra_setting',
-          sort: [DatabaseConfigService.getPkField()],
-          limit: 1,
-        });
-        return result?.data?.[0] ?? null;
-      } catch {
-        return null;
-      }
+    if (!Array.isArray(parsed)) {
+      throw new Error(
+        `Cannot repair ${tableName}.${field}: expected a valid array`,
+      );
     }
-  }
-
-  private async markRepaired(setting: any): Promise<void> {
-    try {
-      if (DatabaseConfigService.instanceIsMongoDb()) {
-        await this.queryBuilderService
-          .getMongoDb()
-          .collection('enfyra_setting')
-          .updateOne(
-            { _id: setting._id },
-            { $set: { uniquesIndexesRepaired: true } },
-          );
-        return;
-      }
-
-      await this.queryBuilderService
-        .getKnex()('enfyra_setting')
-        .where({ id: setting.id })
-        .update({ uniquesIndexesRepaired: true });
-      return;
-    } catch {}
-
-    const idField = DatabaseConfigService.getPkField();
-    const settingId = setting._id || setting.id;
-    await this.queryBuilderService.update(
-      'enfyra_setting',
-      { where: [{ field: idField, operator: '=', value: settingId }] },
-      { uniquesIndexesRepaired: true },
-    );
+    if (
+      !parsed.every(
+        (group) =>
+          Array.isArray(group) &&
+          group.every((entry) => typeof entry === 'string'),
+      )
+    ) {
+      throw new Error(
+        `Cannot repair ${tableName}.${field}: expected an array of string arrays`,
+      );
+    }
+    return parsed as string[][];
   }
 }

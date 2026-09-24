@@ -17,6 +17,10 @@ import { BootstrapDefinitionService } from './bootstrap-definition.service';
 import { RouteDefinitionProcessor } from '../../../domain/bootstrap';
 import { REDIS_TTL, PROVISION_LOCK_KEY } from '../../../shared/utils/constant';
 import { isBootstrapVerbose } from '../utils/bootstrap-logging.util';
+import {
+  getEnfyraVersion,
+  isEnfyraVersionNewer,
+} from '../../../shared/utils/enfyra-version.util';
 import { runWithBootstrapLogMode } from '../../../shared/bootstrap-log-context';
 import {
   BOOTSTRAP_PROGRESS_CHANGE_IDS,
@@ -45,6 +49,12 @@ export class FirstRunInitializer {
   private readonly bootstrapDefinitionService: BootstrapDefinitionService;
   private readonly mongoSagaCoordinator?: MongoSagaCoordinator;
   private lastProgressLineLength = 0;
+  /**
+   * The version the declarations were scoped against, also used as the
+   * compare-and-set guard when publishing the new version so only the instance that
+   * observed this state can commit it.
+   */
+  private observedSourceVersion: string | null = null;
   private progressTotal = 0;
   private progressCompleted = 0;
   private progressWeightTotal = 0;
@@ -89,7 +99,8 @@ export class FirstRunInitializer {
   async isNeeded(): Promise<boolean> {
     try {
       const setting = await this.findFirstSetting();
-      return !setting || !setting.isInit;
+      if (!setting || !setting.isInit) return true;
+      return isEnfyraVersionNewer(getEnfyraVersion(), setting.enfyraVersion);
     } catch (error: any) {
       if (
         error.code === 'ER_NO_SUCH_TABLE' ||
@@ -113,8 +124,6 @@ export class FirstRunInitializer {
   private async runWithProgress(): Promise<void> {
     if (!(await this.isNeeded())) return;
 
-    const originalNoDeprecation = process.noDeprecation;
-    process.noDeprecation = true;
     const start = Date.now();
     const waitDeadline = start + REDIS_TTL.PROVISION_LOCK_TTL;
     const lockValue = this.instanceService.getInstanceId();
@@ -144,6 +153,8 @@ export class FirstRunInitializer {
     }
 
     const lease = this.startProvisionLease(lockValue);
+    const originalNoDeprecation = process.noDeprecation;
+    process.noDeprecation = true;
     try {
       await this.mongoSagaCoordinator?.recoverOrWaitForPurpose(
         'bootstrap',
@@ -151,6 +162,7 @@ export class FirstRunInitializer {
       );
       this.logPlanning(mode, 'planning bootstrap changes');
       await lease.assertOwned();
+      await this.resolveVersionScopedDeclarations();
       const preparedSchemaPlan =
         await this.metadataMigrationService.prepareMigrationExecutionPlan();
       const schemaPlan = preparedSchemaPlan ?? {
@@ -180,7 +192,7 @@ export class FirstRunInitializer {
 
       await this.bootstrapUnitOfWorkService.run(async () => {
         const coreT0 = Date.now();
-        this.logPlannedProgress(mode, 'migrating core metadata tables');
+        this.logStage(mode, 'migrating core metadata tables');
         await this.runOwnedStep(lease, () =>
           this.metadataMigrationService.executeCoreMigrationPlan(
             (operation) =>
@@ -205,10 +217,10 @@ export class FirstRunInitializer {
           return;
         }
 
-        this.logPlannedProgress(mode, 'acquired init lock');
+        this.logStage(mode, 'acquired init lock');
 
         const t0 = Date.now();
-        this.logPlannedProgress(mode, 'executing migration plan');
+        this.logStage(mode, 'executing migration plan');
         await this.runOwnedStep(lease, () =>
           this.metadataMigrationService.executeRemainingMigrationPlan(
             (operation) =>
@@ -234,7 +246,7 @@ export class FirstRunInitializer {
         this.logVerbose(`System schema preflight: ${Date.now() - t0}ms`);
 
         const t1 = Date.now();
-        this.logPlannedProgress(mode, 'provisioning metadata');
+        this.logStage(mode, 'provisioning metadata');
         await this.runOwnedStep(lease, () =>
           this.metadataProvisionService.createInitMetadata(),
         );
@@ -252,7 +264,7 @@ export class FirstRunInitializer {
         this.logVerbose(`createInitMetadata: ${Date.now() - t1}ms`);
 
         const t2b = Date.now();
-        this.logPlannedProgress(mode, 'healing system metadata');
+        this.logStage(mode, 'healing system metadata');
         await this.runOwnedStep(lease, () =>
           this.schemaHealingService.repairSystemMetadataFromSnapshot(),
         );
@@ -267,7 +279,7 @@ export class FirstRunInitializer {
         this.logVerbose(`System metadata healing: ${Date.now() - t2b}ms`);
 
         const t3 = Date.now();
-        this.logPlannedProgress(mode, 'repairing derived schema contracts');
+        this.logStage(mode, 'repairing derived schema contracts');
         await this.runOwnedStep(lease, () =>
           this.schemaHealingService.repairDerivedContracts(),
         );
@@ -276,9 +288,9 @@ export class FirstRunInitializer {
           BOOTSTRAP_PROGRESS_CHANGE_IDS.healingDerivedContracts,
           mode,
         );
-        this.logPlannedProgress(mode, 'applying explicit schema repairs');
+        this.logStage(mode, 'applying explicit schema repairs');
         await this.runOwnedStep(lease, () =>
-          this.schemaHealingService.runExplicitRepairsIfNeeded(),
+          this.schemaHealingService.runExplicitRepairs(),
         );
         this.completeProgressChange(
           changePlan.changes,
@@ -288,7 +300,7 @@ export class FirstRunInitializer {
         this.logVerbose(`Schema repair: ${Date.now() - t3}ms`);
 
         const t4 = Date.now();
-        this.logPlannedProgress(mode, 'warming metadata cache');
+        this.logStage(mode, 'warming metadata cache');
         await this.runOwnedStep(lease, () =>
           this.metadataCacheService.reload(false),
         );
@@ -306,7 +318,7 @@ export class FirstRunInitializer {
         this.logVerbose(`Metadata cache warmed: ${Date.now() - t4}ms`);
 
         const t5 = Date.now();
-        this.logPlannedProgress(mode, 'seeding default data');
+        this.logStage(mode, 'seeding default data');
         await this.runOwnedStep(lease, () =>
           this.dataProvisionService.insertAllDefaultRecords(),
         );
@@ -314,7 +326,7 @@ export class FirstRunInitializer {
         this.logVerbose(`Default records: ${Date.now() - t5}ms`);
 
         try {
-          this.logPlannedProgress(mode, 'ensuring route handlers');
+          this.logStage(mode, 'ensuring route handlers');
           await this.runOwnedStep(lease, () =>
             this.routeDefinitionProcessor.ensureMissingHandlers(),
           );
@@ -328,7 +340,7 @@ export class FirstRunInitializer {
 
         if (this.dataMigrationService.hasMigrations()) {
           const t6 = Date.now();
-          this.logPlannedProgress(mode, 'applying data migrations');
+          this.logStage(mode, 'applying data migrations');
           await this.runOwnedStep(lease, () =>
             this.dataMigrationService.runMigrations(),
           );
@@ -336,7 +348,7 @@ export class FirstRunInitializer {
           this.logVerbose(`Data migrations: ${Date.now() - t6}ms`);
         }
 
-        this.logPlannedProgress(mode, 'attesting data target state');
+        this.logStage(mode, 'attesting data target state');
         await this.runOwnedStep(lease, () =>
           this.snapshotTargetVerifierService.assertSchemaTargetState(),
         );
@@ -345,7 +357,7 @@ export class FirstRunInitializer {
         );
         this.completeProgressStage(changePlan.changes, 'attestation', mode);
 
-        this.logPlannedProgress(mode, 'finalizing');
+        this.logStage(mode, 'finalizing');
         await this.runOwnedStep(lease, () => this.markInitialized());
         this.completeProgressStage(changePlan.changes, 'finalize', mode);
       });
@@ -440,6 +452,41 @@ export class FirstRunInitializer {
     }
   }
 
+  /**
+   * Reads the version that last completed bootstrap and scopes the migration
+   * declarations to it, so an upgrade applies only the steps newer than the stored
+   * version instead of every declaration ever written. A database that predates
+   * version tracking reports none, and resolves against the oldest supported source.
+   */
+  private async resolveVersionScopedDeclarations(): Promise<void> {
+    const recorded = (await this.findFirstSetting())?.enfyraVersion;
+    this.observedSourceVersion = recorded ?? null;
+    const definition = this.bootstrapDefinitionService.resolveForVersion(
+      recorded ?? '',
+    );
+    this.logVerbose(
+      `Version-scoped bootstrap declarations resolved from ${String(recorded ?? 'unrecorded')}: ${definition.migration ? `${definition.migration.tables.length} table migration(s)` : 'no upgrade steps'}`,
+    );
+  }
+
+  private fitProgressLine(line: string): string {
+    const columns = Number(process.stdout.columns);
+    if (!Number.isFinite(columns) || columns <= 1) return line;
+
+    const maxWidth = Math.max(1, Math.floor(columns) - 1);
+    const characters = Array.from(line);
+    if (characters.length <= maxWidth) return line;
+
+    const countSuffix = line.match(/ \(\d+\/\d+\)$/)?.[0] ?? '';
+    const suffixLength = Array.from(countSuffix).length;
+    if (countSuffix && maxWidth > suffixLength + 1) {
+      return `${characters
+        .slice(0, maxWidth - suffixLength - 1)
+        .join('')}…${countSuffix}`;
+    }
+    return `${characters.slice(0, Math.max(0, maxWidth - 1)).join('')}…`;
+  }
+
   private logProgress(
     mode: 'Installing' | 'Upgrading',
     percent: number,
@@ -452,6 +499,8 @@ export class FirstRunInitializer {
       100,
       Math.max(0, Math.round(percent * 10) / 10),
     );
+    if (!process.stdout.isTTY && normalizedPercent < 100 && !terminal) return;
+
     const filledWidth = Math.round(
       (normalizedPercent / 100) * BOOTSTRAP_PROGRESS_BAR_WIDTH,
     );
@@ -466,13 +515,21 @@ export class FirstRunInitializer {
     const percentText = Number.isInteger(normalizedPercent)
       ? normalizedPercent.toFixed(0)
       : normalizedPercent.toFixed(1);
-    const line = `[${time}] ${mode} [${progressBar}] ${percentText.padStart(
-      5,
-      ' ',
-    )}% ${message}`;
+    const line = this.fitProgressLine(
+      `[${time}] ${mode} [${progressBar}] ${percentText.padStart(
+        5,
+        ' ',
+      )}% ${message}`,
+    );
     const padding = ' '.repeat(
       Math.max(0, this.lastProgressLineLength - line.length),
     );
+    if (!process.stdout.isTTY) {
+      process.stdout.write(`${line}\n`);
+      this.lastProgressLineLength = 0;
+      return;
+    }
+
     process.stdout.write(`\r${line}${padding}`);
     this.lastProgressLineLength = line.length;
     if (normalizedPercent >= 100 || terminal) {
@@ -482,18 +539,35 @@ export class FirstRunInitializer {
   }
 
   private logPlanning(mode: 'Installing' | 'Upgrading', message: string): void {
-    if (process.env.LOG_DISABLE_CONSOLE === '1') return;
+    if (process.env.LOG_DISABLE_CONSOLE === '1' || !process.stdout.isTTY)
+      return;
     const now = new Date();
     const pad = (value: number) => value.toString().padStart(2, '0');
     const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(
       now.getSeconds(),
     )}`;
-    const line = `[${time}] ${mode} [Planning] ${message}`;
+    const line = this.fitProgressLine(
+      `[${time}] ${mode} [Planning] ${message}`,
+    );
     const padding = ' '.repeat(
       Math.max(0, this.lastProgressLineLength - line.length),
     );
     process.stdout.write(`\r${line}${padding}`);
     this.lastProgressLineLength = line.length;
+  }
+
+  /**
+   * Announces a bootstrap stage. The progress bar is a TTY affordance, so a pipe
+   * only receives the terminal result; verbose mode additionally emits one plain
+   * line per stage, which is what non-TTY observers can act on.
+   */
+  private logStage(
+    mode: 'Installing' | 'Upgrading',
+    message: string,
+    terminal = false,
+  ): void {
+    this.logVerbose(`bootstrap stage: ${message}`);
+    this.logPlannedProgress(mode, message, terminal);
   }
 
   private logPlannedProgress(
@@ -590,6 +664,8 @@ export class FirstRunInitializer {
     }
 
     const settingId = setting._id || setting.id;
+    const enfyraVersion = getEnfyraVersion();
+    const guard = { enfyraVersion: this.observedSourceVersion };
     if (DatabaseConfigService.instanceIsMongoDb()) {
       const collectionName = await this.findMongoSettingCollectionName();
       if (!collectionName) {
@@ -599,8 +675,8 @@ export class FirstRunInitializer {
         .getMongoDb()
         .collection(collectionName)
         .updateOne(
-          { _id: settingId, isInit: false },
-          { $set: { isInit: true } },
+          { _id: settingId, ...guard },
+          { $set: { isInit: true, enfyraVersion } },
         );
       if (result.matchedCount !== 1) {
         throw new Error(
@@ -616,8 +692,8 @@ export class FirstRunInitializer {
     }
     const updatedCount = await this.queryBuilderService
       .getKnex()(tableName)
-      .where({ id: settingId, isInit: false })
-      .update({ isInit: true });
+      .where({ id: settingId, ...guard })
+      .update({ isInit: true, enfyraVersion });
     if (Number(updatedCount) !== 1) {
       throw new Error(
         'Snapshot initialization failed because the setting row was not updated.',
@@ -633,7 +709,7 @@ export class FirstRunInitializer {
     for (let i = 0; i < maxAttempts; i++) {
       await this.commonService.delay(interval);
       try {
-        if ((await this.findFirstSetting())?.isInit) return 'initialized';
+        if (!(await this.isNeeded())) return 'initialized';
       } catch {}
       try {
         if ((await this.cacheService.get(PROVISION_LOCK_KEY)) === null) {

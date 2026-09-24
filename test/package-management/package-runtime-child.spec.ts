@@ -114,6 +114,202 @@ describe('package runtime child', () => {
     }
   });
 
+  it('normalizes overflowing timeouts and non-Error package throws', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-package-runtime-'));
+    const modulePath = path.join(tempDir, 'error-package.mjs');
+    await writeFile(
+      modulePath,
+      `
+        export default {
+          async delayed() {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            return 'done';
+          },
+          throwNull() {
+            throw null;
+          }
+        };
+      `,
+      'utf8',
+    );
+
+    const child = fork(workerPath, [], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+
+    try {
+      const delayed = await callRuntime(child, {
+        id: 'infinite-timeout',
+        op: 'call',
+        taskId: 'task-timeout',
+        packageName: 'error-package',
+        package: { name: 'error-package', fileUrl: modulePath },
+        path: ['delayed'],
+        argsJson: '[]',
+        timeoutMs: Infinity,
+      });
+      expect(delayed).toMatchObject({ ok: true, value: 'done' });
+
+      const thrown = await callRuntime(child, {
+        id: 'throw-null',
+        op: 'call',
+        taskId: 'task-error',
+        packageName: 'error-package',
+        package: { name: 'error-package', fileUrl: modulePath },
+        path: ['throwNull'],
+        argsJson: '[]',
+      });
+      expect(thrown.ok).toBe(false);
+      expect(thrown.error.message).toContain('Package threw null');
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('rejects deeply nested package arguments without terminating the child', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-package-runtime-'));
+    const modulePath = path.join(tempDir, 'depth-package.mjs');
+    await writeFile(
+      modulePath,
+      'export default { value(input) { return input; } };',
+      'utf8',
+    );
+    const child = fork(workerPath, [], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+    let nested: any = 'leaf';
+    for (let depth = 0; depth < 140; depth++) nested = { nested };
+
+    try {
+      const rejected = await callRuntime(child, {
+        id: 'deep-argument',
+        op: 'call',
+        taskId: 'task-depth',
+        packageName: 'depth-package',
+        package: { name: 'depth-package', fileUrl: modulePath },
+        path: ['value'],
+        argsJson: JSON.stringify([nested]),
+      });
+      expect(rejected.ok).toBe(false);
+      expect(rejected.error.message).toContain(
+        'Package argument exceeded maximum deserialization depth',
+      );
+
+      const control = await callRuntime(child, {
+        id: 'depth-control',
+        op: 'call',
+        taskId: 'task-depth-control',
+        packageName: 'depth-package',
+        package: { name: 'depth-package', fileUrl: modulePath },
+        path: ['value'],
+        argsJson: '["ok"]',
+      });
+      expect(control).toMatchObject({ ok: true, value: 'ok' });
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('keeps error replies IPC-safe for circular and BigInt details', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-package-runtime-'));
+    const modulePath = path.join(tempDir, 'unsafe-error-package.mjs');
+    await writeFile(
+      modulePath,
+      `
+        export default {
+          fail() {
+            const error = new Error('unsafe details');
+            error.code = 'ERR_UNSAFE_DETAILS';
+            error.details = { amount: 1n };
+            error.details.self = error.details;
+            throw error;
+          }
+        };
+      `,
+      'utf8',
+    );
+    const child = fork(workerPath, [], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+
+    try {
+      const result = await callRuntime(child, {
+        id: 'unsafe-error',
+        op: 'call',
+        taskId: 'task-unsafe-error',
+        packageName: 'unsafe-error-package',
+        package: { name: 'unsafe-error-package', fileUrl: modulePath },
+        path: ['fail'],
+        argsJson: '[]',
+      });
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          code: 'ERR_UNSAFE_DETAILS',
+          details: { amount: '1', self: '[Circular]' },
+        },
+      });
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('keeps cancellation pending when a released task receives a late call', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-package-runtime-'));
+    const modulePath = path.join(tempDir, 'release-package.mjs');
+    await writeFile(
+      modulePath,
+      `
+        export default {
+          async delay(ms) {
+            await new Promise((resolve) => setTimeout(resolve, ms));
+            return 'done';
+          }
+        };
+      `,
+      'utf8',
+    );
+    const child = fork(workerPath, [], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+
+    try {
+      const active = callRuntime(child, {
+        id: 'release-active',
+        op: 'call',
+        taskId: 'task-release',
+        packageName: 'release-package',
+        package: { name: 'release-package', fileUrl: modulePath },
+        path: ['delay'],
+        argsJson: '[150]',
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await callRuntime(child, {
+        id: 'release-task',
+        op: 'releaseTask',
+        taskId: 'task-release',
+      });
+      const startedAt = Date.now();
+      const cancelled = callRuntime(child, {
+        id: 'release-cancel',
+        op: 'cancelTask',
+        taskId: 'task-release',
+      });
+      const late = callRuntime(child, {
+        id: 'release-late',
+        op: 'call',
+        taskId: 'task-release',
+        packageName: 'release-package',
+        package: { name: 'release-package', fileUrl: modulePath },
+        path: ['delay'],
+        argsJson: '[1]',
+      });
+
+      const lateResult = await late;
+      expect(lateResult.ok).toBe(false);
+      expect(lateResult.error.message).toContain(
+        'Package task has already been released',
+      );
+      await active;
+      await cancelled;
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(100);
+    } finally {
+      child.kill();
+    }
+  });
+
   it('keeps package class instances as handles so prototype methods can be called', async () => {
     tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-package-runtime-'));
     const modulePath = path.join(tempDir, 'instance-package.mjs');
@@ -157,6 +353,17 @@ describe('package runtime child', () => {
       expect(createResult.ok).toBe(true);
       expect(createResult.value).toMatchObject({ __pkgHandle: expect.any(String) });
 
+      const crossTaskResult = await callRuntime(child, {
+        id: 'cross-task',
+        op: 'handleCall',
+        taskId: 'task-2',
+        handleId: createResult.value.__pkgHandle,
+        path: ['getPrefix'],
+        argsJson: '[]',
+      });
+      expect(crossTaskResult.ok).toBe(false);
+      expect(crossTaskResult.error.message).toContain('Package handle not found');
+
       const sendResult = await callRuntime(child, {
         id: 'send',
         op: 'handleCall',
@@ -171,6 +378,64 @@ describe('package runtime child', () => {
         accepted: ['user@test.com'],
         subject: 'Welcome: User: Hello',
       });
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('awaits async iterator cleanup before acknowledging return', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'enfyra-package-runtime-'));
+    const modulePath = path.join(tempDir, 'cleanup-stream-package.mjs');
+    await writeFile(
+      modulePath,
+      `
+        export default {
+          async *stream() {
+            try {
+              yield new Uint8Array([1]);
+            } finally {
+              await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+          }
+        };
+      `,
+      'utf8',
+    );
+    const child = fork(workerPath, [], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+
+    try {
+      const handle = await callRuntime(child, {
+        id: 'cleanup-stream-handle',
+        op: 'call',
+        taskId: 'task-cleanup-stream',
+        packageName: 'cleanup-stream-package',
+        package: { name: 'cleanup-stream-package', fileUrl: modulePath },
+        path: ['stream'],
+        argsJson: '[]',
+      });
+      const opened = await callRuntime(child, {
+        id: 'cleanup-stream-open',
+        op: 'streamIteratorOpen',
+        taskId: 'task-cleanup-stream',
+        handleId: handle.value.__pkgHandle,
+        path: [],
+      });
+      await callRuntime(child, {
+        id: 'cleanup-stream-next',
+        op: 'streamIteratorNext',
+        taskId: 'task-cleanup-stream',
+        streamId: opened.value.streamId,
+      });
+      const startedAt = Date.now();
+      const returned = await callRuntime(child, {
+        id: 'cleanup-stream-return',
+        op: 'streamIteratorReturn',
+        taskId: 'task-cleanup-stream',
+        streamId: opened.value.streamId,
+      });
+
+      expect(returned).toMatchObject({ ok: true, value: { done: true } });
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(90);
     } finally {
       child.kill();
     }

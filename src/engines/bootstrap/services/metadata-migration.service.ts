@@ -18,7 +18,6 @@ import {
   applyMongoSchemaMigrations,
   applySqlSchemaMigrations,
 } from '../../../shared/utils/provision-schema-migration';
-import { normalizeMongoPrimaryKeyColumn } from '../../../modules/table-management/utils/mongo-primary-key.util';
 import { BootstrapDefinitionService } from './bootstrap-definition.service';
 import { MetadataTableMigrationService } from './metadata-migration/metadata-table-migration.service';
 import { MetadataTableRenameService } from './metadata-migration/metadata-table-rename.service';
@@ -61,12 +60,6 @@ export class MetadataMigrationService {
     };
     this.tableMigration = new MetadataTableMigrationService(migrationDeps);
     this.tableRename = new MetadataTableRenameService(migrationDeps);
-    this.migrations = this.bootstrapDefinitionService.getMigration();
-    if (this.migrations) {
-      this.verbose(
-        `Loaded snapshot-migration.ts with ${this.migrations.tables?.length || 0} table migration(s)`,
-      );
-    }
   }
 
   private getMongoDb(): Db | null {
@@ -84,6 +77,12 @@ export class MetadataMigrationService {
 
   async prepareMigrationExecutionPlan(): Promise<BootstrapSchemaExecutionPlan> {
     const hasMetadataStore = await this.hasMetadataStore();
+    this.migrations = this.bootstrapDefinitionService.getMigration();
+    if (hasMetadataStore && this.migrations) {
+      this.verbose(
+        `Loaded snapshot-migration.ts with ${this.migrations.tables?.length || 0} table migration(s)`,
+      );
+    }
     let observedMetadata = { tables: 0, columns: 0, relations: 0 };
     if (hasMetadataStore) {
       const { snapshot, dataTargetSnapshot, state } =
@@ -149,7 +148,11 @@ export class MetadataMigrationService {
     onOperationCompleted?: BootstrapSchemaOperationCompleted,
     beforeNode?: () => Promise<void>,
   ): Promise<void> {
-    await this.executePlanCheckpoint('remaining', onOperationCompleted, beforeNode);
+    await this.executePlanCheckpoint(
+      'remaining',
+      onOperationCompleted,
+      beforeNode,
+    );
   }
 
   private async executePlanCheckpoint(
@@ -198,6 +201,12 @@ export class MetadataMigrationService {
     const isMongoDB = this.queryBuilderService.isMongoDb();
     const operation = command.operation;
     switch (command.kind) {
+      case 'modify-mongo-column-types':
+        if (operation.kind !== 'modify-mongo-column-types' || !isMongoDB) {
+          throw new Error(`Invalid command payload for ${command.kind}.`);
+        }
+        await this.modifyMongoColumnTypes(operation.mappings);
+        return;
       case 'rename-core-table':
         if (operation.kind !== 'rename-core-table') {
           throw new Error(`Invalid command payload for ${command.kind}.`);
@@ -263,6 +272,21 @@ export class MetadataMigrationService {
           [operation.rename],
           isMongoDB,
         );
+    }
+  }
+
+  private async modifyMongoColumnTypes(
+    mappings: Array<{ from: string; to: string }>,
+  ): Promise<void> {
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    const collection = this.queryBuilderService
+      .getMongoDb()
+      .collection(coreNames.column);
+    for (const mapping of mappings) {
+      await collection.updateMany(
+        { type: mapping.from },
+        { $set: { type: mapping.to, updatedAt: new Date() } },
+      );
     }
   }
 
@@ -350,7 +374,7 @@ export class MetadataMigrationService {
     let relations: any[];
 
     if (this.queryBuilderService.isMongoDb()) {
-      const normalizeSnapshot = (input: Record<string, any>) =>
+      const normalizeSnapshotTables = (input: Record<string, any>) =>
         Object.fromEntries(
           Object.entries(input).map(
             ([tableName, definition]: [string, any]) => [
@@ -359,15 +383,12 @@ export class MetadataMigrationService {
                 ...definition,
                 uniques: definition.uniques ?? null,
                 indexes: definition.indexes ?? null,
-                columns: (definition.columns ?? []).map(
-                  normalizeMongoPrimaryKeyColumn,
-                ),
               },
             ],
           ),
         );
-      snapshot = normalizeSnapshot(snapshot);
-      dataTargetSnapshot = normalizeSnapshot(dataTargetSnapshot);
+      snapshot = normalizeSnapshotTables(snapshot);
+      dataTargetSnapshot = normalizeSnapshotTables(dataTargetSnapshot);
       const db = this.getMongoDb()!;
       [tables, columns, relations] = await Promise.all([
         db.collection(coreNames.table).find({}).toArray(),
@@ -396,11 +417,8 @@ export class MetadataMigrationService {
     const state: SnapshotMigrationMetadataState = {
       tables,
       columns: columns.map((column) => {
-        const normalizedColumn = isMongoDB
-          ? normalizeMongoPrimaryKeyColumn(column)
-          : column;
         return {
-          ...normalizedColumn,
+          ...column,
           tableName: tableById.get(
             String(isMongoDB ? column.table : column.tableId),
           )?.name,

@@ -28,7 +28,7 @@ function publicationFixture(lossAt?: 'attestation' | 'publication') {
       repairSystemPhysicalColumnsBeforeMetadataProvision: noop,
       repairSystemMetadataFromSnapshot: noop,
       repairDerivedContracts: noop,
-      runExplicitRepairsIfNeeded: noop,
+      runExplicitRepairs: noop,
     },
     routeDefinitionProcessor: { ensureMissingHandlers: noop },
     snapshotTargetVerifierService: {

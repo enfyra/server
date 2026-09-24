@@ -124,7 +124,11 @@ export class MetadataColumnMigrationService {
         this.verbose(`  Modified column metadata: ${oldName} → ${mod.to.name}`);
       }
 
-      if (targetColumnId && columnId && targetColumnId !== columnId) {
+      if (
+        targetColumnId &&
+        columnId &&
+        String(targetColumnId) !== String(columnId)
+      ) {
         if (isMongoDB) {
           const db = this.getMongoDb()!;
           await db.collection(coreNames.column).deleteOne({ _id: columnId });

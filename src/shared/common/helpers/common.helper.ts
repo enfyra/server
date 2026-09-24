@@ -74,7 +74,9 @@ export function assertNoSystemFlagDeep(arr: any[], path = 'root') {
   for (let i = 0; i < arr.length; i++) {
     const item = arr[i];
     const currentPath = `${path}[${i}]`;
-    if (!item?.id && item?.isSystem === true) {
+    const hasExistingId =
+      item?.id != null || item?._id != null;
+    if (!hasExistingId && item?.isSystem === true) {
       throw new Error(`Cannot create new ${currentPath} with isSystem = true`);
     }
     assertNoSystemFlagDeepRecursive(item, currentPath);

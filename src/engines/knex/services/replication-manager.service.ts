@@ -1,9 +1,15 @@
 import { Logger } from '../../../shared/logger';
 import { Knex, knex } from 'knex';
 import { parseDatabaseUri } from '../../knex/utils/uri-parser';
+import { registerPgDateTypeParser } from '../../../shared/utils/temporal-write.util';
 import { SQL_ACQUIRE_TIMEOUT_MS } from '../../../shared/utils/auto-scaling.constants';
 import { resolveSqlPoolConfig } from '../utils/sql-pool-config.util';
 import { splitSqlPoolAcrossReplication } from '../utils/sql-pool-coordination.util';
+import {
+  MYSQL_DRIVER_TIMEZONE,
+  applyMySqlSessionTimeZone,
+  parseMySqlUtcTemporal,
+} from '../utils/sql-temporal-contract.util';
 import { DatabaseConfigService, EnvService } from '../../../shared/services';
 import { LifecycleAware } from '../../../shared/interfaces/lifecycle-aware.interface';
 
@@ -39,6 +45,9 @@ export class ReplicationManager implements LifecycleAware {
   async init(): Promise<void> {
     if (this.databaseConfigService.isMongoDb()) {
       return;
+    }
+    if (this.dbType === 'postgres') {
+      registerPgDateTypeParser();
     }
     const DB_URI = this.envService.get('DB_URI');
     if (!DB_URI) {
@@ -136,20 +145,28 @@ export class ReplicationManager implements LifecycleAware {
     poolMinSize: number,
     poolMaxSize: number,
   ): Knex {
+    const isPostgres = this.dbType === 'postgres';
     return knex({
-      client: this.dbType === 'postgres' ? 'pg' : 'mysql2',
+      client: isPostgres ? 'pg' : 'mysql2',
       connection: {
         host: config.host,
         port: config.port,
         user: config.user,
         password: config.password,
         database: config.database,
+        ...(isPostgres ? {} : { timezone: MYSQL_DRIVER_TIMEZONE }),
         typeCast: (field: any, next: any) => {
-          if (
-            field.type === 'DATE' ||
-            field.type === 'DATETIME' ||
-            field.type === 'TIMESTAMP'
-          ) {
+          // With the session and driver pinned to UTC, MySQL hands back a UTC wall
+          // clock with no offset in the text. Reading it as a Date here keeps the
+          // value on the instant it stores, matching what PostgreSQL returns for
+          // `TIMESTAMPTZ`; a plain string would be re-parsed in the host zone by
+          // every caller that builds a Date from it.
+          if (field.type === 'DATETIME' || field.type === 'TIMESTAMP') {
+            return parseMySqlUtcTemporal(field.string());
+          }
+          // A residual `DATE` column carries a calendar day rather than an instant,
+          // so it stays the plain date string.
+          if (field.type === 'DATE') {
             return field.string();
           }
           if (field.type === 'TINY' && field.length === 1) {
@@ -163,6 +180,12 @@ export class ReplicationManager implements LifecycleAware {
       pool: {
         min: poolMinSize,
         max: poolMaxSize,
+        afterCreate: isPostgres
+          ? undefined
+          : (
+              connection: any,
+              done: (error: unknown, connection?: any) => void,
+            ) => applyMySqlSessionTimeZone(connection, done),
       },
       acquireConnectionTimeout: SQL_ACQUIRE_TIMEOUT_MS,
       debug: false,

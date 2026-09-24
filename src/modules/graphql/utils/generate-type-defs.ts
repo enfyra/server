@@ -55,6 +55,8 @@ function mapColumnTypeToGraphQLType(type: string): GraphQLScalarType {
   const map: Record<string, GraphQLScalarType> = {
     int: GraphQLInt,
     integer: GraphQLInt,
+    long: GraphQLString,
+    bigint: GraphQLString,
     float: GraphQLFloat,
     double: GraphQLFloat,
     decimal: GraphQLFloat,
@@ -63,7 +65,9 @@ function mapColumnTypeToGraphQLType(type: string): GraphQLScalarType {
     boolean: GraphQLBoolean,
     bool: GraphQLBoolean,
     varchar: GraphQLString,
+    string: GraphQLString,
     text: GraphQLString,
+    longtext: GraphQLString,
     uuid: GraphQLID,
     objectId: GraphQLID,
     ObjectId: GraphQLID,
@@ -72,6 +76,8 @@ function mapColumnTypeToGraphQLType(type: string): GraphQLScalarType {
     datetime: GraphQLString,
     timestamp: GraphQLString,
     json: GraphQLJSON,
+    object: GraphQLJSON,
+    array: GraphQLJSON,
     'simple-json': GraphQLJSON,
   };
   return map[type] || GraphQLString;

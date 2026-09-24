@@ -59,6 +59,88 @@ describe('WorkerPool rotation (heap-driven)', () => {
     }
   });
 
+  it('never dispatches queued work onto an exiting worker from a result callback', async () => {
+    pool = new WorkerPool(1, GB, RSS_CEILING, 1, FAKE_WORKER);
+    const entry = await pool.dispatch();
+    pool.registerTask(entry, 'running', {
+      abortController: new AbortController(),
+      onResult: () => pool!.unregisterTask(entry, 'running'),
+      onIoCall: () => {},
+    });
+    const waiting = pool.dispatch();
+    void waiting.catch(() => {});
+    process.kill(entry.worker.pid!, 'SIGKILL');
+    const replacement = await waiting;
+    expect(replacement).not.toBe(entry);
+    pool.releaseReservation(replacement);
+    entry.worker.terminate();
+  });
+
+  it.each(['explicit', 'rotation', 'shutdown'] as const)(
+    'aborts running host I/O before %s worker termination',
+    async (reason) => {
+      pool = new WorkerPool(1, GB, RSS_CEILING, 1, FAKE_WORKER, undefined, undefined, 30);
+      const entry = await pool.dispatch();
+      const controller = new AbortController();
+      let abortEvents = 0;
+      let abortedAtTermination: boolean | undefined;
+      controller.signal.addEventListener('abort', () => { abortEvents++; });
+      const terminate = entry.worker.terminate.bind(entry.worker);
+      vi.spyOn(entry.worker, 'terminate').mockImplementation(() => {
+        abortedAtTermination = controller.signal.aborted;
+        terminate();
+      });
+      const finished = new Promise<void>((resolve) => {
+        pool!.registerTask(entry, 'pending-io', {
+          abortController: controller,
+          onResult: () => {
+            pool!.unregisterTask(entry, 'pending-io');
+            resolve();
+          },
+          onIoCall: () => {},
+        });
+      });
+      if (reason === 'rotation') {
+        (pool as any).rotateEntry(entry, 'test');
+        expect(controller.signal.aborted).toBe(false);
+      } else if (reason === 'shutdown') {
+        pool.destroyAll();
+      } else {
+        pool.terminateEntry(entry, 'test');
+      }
+      await finished;
+      expect(abortedAtTermination).toBe(true);
+      expect(abortEvents).toBe(1);
+    },
+  );
+
+  it('keeps reserved work alive during rotation', async () => {
+    pool = new WorkerPool(1, GB, RSS_CEILING, 1, FAKE_WORKER);
+    const entry = await pool.dispatch();
+    const terminate = vi.spyOn(entry.worker, 'terminate');
+    (pool as any).rotateEntry(entry, 'test');
+    expect(terminate).not.toHaveBeenCalled();
+    pool.releaseReservation(entry);
+    expect(terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it('wakes queued dispatches as soon as a rotation replacement exists', async () => {
+    pool = new WorkerPool(1, GB, RSS_CEILING, 1, FAKE_WORKER);
+    const entry = await pool.dispatch();
+    pool.registerTask(entry, 'running', {
+      abortController: new AbortController(), onResult: () => {}, onIoCall: () => {},
+    });
+    let assigned: PoolEntry | undefined;
+    const waiting = pool.dispatch().then((next) => { assigned = next; });
+    void waiting.catch(() => {});
+    (pool as any).rotateEntry(entry, 'test');
+    await Promise.resolve();
+    expect(assigned).toBeDefined();
+    expect(assigned).not.toBe(entry);
+    await waiting;
+    pool.releaseReservation(assigned!);
+  });
+
   it('does NOT rotate when heapRatio below threshold', async () => {
     pool = new WorkerPool(1, GB, RSS_CEILING, TASKS_CAP, FAKE_WORKER);
     await sleep(50);
@@ -238,6 +320,53 @@ describe('WorkerPool rotation (heap-driven)', () => {
     await sleep(100);
 
     expect(crashCount).toBe(0);
+  });
+
+  it('removes and rejects a queued dispatch when its signal aborts', async () => {
+    pool = new WorkerPool(1, GB, RSS_CEILING, 1, FAKE_WORKER);
+    await sleep(50);
+    const entry = await pool.dispatch();
+    const active = runTask(pool, entry, 'active-waiter-control', {
+      triggerHeapRatio: 0.1,
+      delayMs: 200,
+    });
+    const controller = new AbortController();
+    const waiting = pool.dispatch(controller.signal);
+    expect(pool.getWaitingCount()).toBe(1);
+
+    controller.abort();
+
+    await expect(waiting).rejects.toThrow('Execution aborted before dispatch');
+    expect(pool.getWaitingCount()).toBe(0);
+    await active;
+  });
+
+  it('rejects queued dispatches when the pool is destroyed', async () => {
+    pool = new WorkerPool(1, GB, RSS_CEILING, 1, FAKE_WORKER);
+    await sleep(50);
+    const entry = await pool.dispatch();
+    void runTask(pool, entry, 'destroy-active', {
+      triggerHeapRatio: 0.1,
+      delayMs: 10_000,
+    });
+    const waiting = pool.dispatch();
+    expect(pool.getWaitingCount()).toBe(1);
+
+    pool.destroyAll();
+
+    await expect(waiting).rejects.toThrow('Executor worker pool was destroyed');
+    pool = null;
+  });
+
+  it('drains excess workers when the pool scales down', async () => {
+    pool = new WorkerPool(3, GB, RSS_CEILING, TASKS_CAP, FAKE_WORKER);
+    await sleep(50);
+    expect(pool.getEntries()).toHaveLength(3);
+
+    pool.resize(1);
+
+    await waitFor(() => pool!.getEntries().length === 1);
+    expect(pool.getEntries()[0].draining).toBe(false);
   });
 
   it('destroyAll terminates workers without crash replacement', async () => {

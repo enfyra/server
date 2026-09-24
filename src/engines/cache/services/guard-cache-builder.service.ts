@@ -67,13 +67,15 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
           'table.id',
           'table.name',
           'methods.name',
+          'excludeRoutes.id',
+          'excludeRoutes.path',
         ],
         sort: ['priority'],
       }),
       this.queryBuilderService.find({
         table: 'enfyra_guard_rule',
         filter: { isEnabled: { _eq: true } },
-        fields: ['*', 'guard', 'users.id'],
+        fields: ['*', 'guard', 'users.id', 'users._id'],
         sort: ['priority'],
       }),
     ]);
@@ -100,7 +102,12 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
       if (guardId == null) continue;
       const list = rulesByGuardId.get(guardId) || [];
       const userIds: string[] = Array.isArray(rule.users)
-        ? rule.users.map((u: any) => String(u?.id ?? u)).filter(Boolean)
+        ? rule.users
+            .map((u: any) => {
+              const id = getId(u);
+              return id == null ? null : String(id);
+            })
+            .filter((id: string | null): id is string => !!id)
         : [];
       list.push({
         id: getId(rule) as number,
@@ -125,6 +132,15 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
       const methodIds = Array.isArray(guard.methods)
         ? (guard.methods.map((m: any) => getId(m)).filter(Boolean) as number[])
         : [];
+      const excludeRoutes = Array.isArray(guard.excludeRoutes)
+        ? guard.excludeRoutes
+        : [];
+      const excludeRouteIds = excludeRoutes
+        .map((r: any) => getId(r))
+        .filter((id: number | null): id is number => id != null);
+      const excludeRoutePaths = excludeRoutes
+        .map((r: any) => r?.path)
+        .filter((path: any): path is string => typeof path === 'string' && !!path);
 
       nodeMap.set(id, {
         id,
@@ -140,6 +156,8 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
         parentId: getId(guard.parent),
         routeId: guard.route ? getId(guard.route) : null,
         routePath: guard.route?.path || null,
+        excludeRouteIds,
+        excludeRoutePaths,
         methodIds,
         methods,
         children: [],

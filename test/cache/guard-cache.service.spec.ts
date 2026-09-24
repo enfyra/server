@@ -7,13 +7,14 @@ import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants
 async function loadGuardCache(
   guards: any[],
   rules: any[],
+  isMongoDb = false,
 ): Promise<{ svc: GuardCacheBuilder; registry: RuntimeRegistryService }> {
   const find = jest.fn(async (params: any) => {
     if (params.table === 'enfyra_guard') return { data: guards };
     if (params.table === 'enfyra_guard_rule') return { data: rules };
     return { data: [] };
   });
-  const qb = { find, isMongoDb: () => false };
+  const qb = { find, isMongoDb: () => isMongoDb };
   const ee = new EventEmitter2();
   const registry = new RuntimeRegistryService();
   const svc = new GuardCacheBuilder({
@@ -250,6 +251,91 @@ describe('GuardCacheBuilder — tree building', () => {
     expect(guards).toHaveLength(2);
   });
 
+  it('should skip an excluded route on a global guard', async () => {
+    const { svc, registry } = await loadGuardCache(
+      [
+        {
+          id: 1,
+          name: 'global-with-exclusion',
+          position: 'pre_auth',
+          combinator: 'and',
+          isEnabled: true,
+          isGlobal: true,
+          priority: 0,
+          parent: null,
+          route: null,
+          methods: [],
+          excludeRoutes: [
+            { id: 10, path: '/health' },
+            { id: 11, path: '/assets/:id' },
+          ],
+        },
+      ],
+      [],
+    );
+
+    const node = svc.getRawCache().preAuthGlobal[0];
+    expect(node.excludeRouteIds).toEqual([10, 11]);
+    expect(node.excludeRoutePaths).toEqual(['/health', '/assets/:id']);
+
+    expect(
+      registry.getGuardsForRoute('pre_auth', '/health', 'GET'),
+    ).toHaveLength(0);
+    expect(
+      registry.getGuardsForRoute('pre_auth', '/assets/42', 'GET'),
+    ).toHaveLength(1);
+    expect(registry.getGuardsForRoute('pre_auth', '/posts', 'GET')).toHaveLength(
+      1,
+    );
+  });
+
+  it('should keep route-scoped guards unaffected by excludeRoutes', async () => {
+    const { registry } = await loadGuardCache(
+      [
+        {
+          id: 1,
+          name: 'route-scoped',
+          position: 'pre_auth',
+          combinator: 'and',
+          isEnabled: true,
+          isGlobal: false,
+          priority: 0,
+          parent: null,
+          route: { id: 10, path: '/posts' },
+          methods: [],
+          excludeRoutes: [{ id: 10, path: '/posts' }],
+        },
+      ],
+      [],
+    );
+    expect(
+      registry.getGuardsForRoute('pre_auth', '/posts', 'GET'),
+    ).toHaveLength(1);
+  });
+
+  it('should default excludeRoutes to empty when the relation is absent', async () => {
+    const { svc } = await loadGuardCache(
+      [
+        {
+          id: 1,
+          name: 'legacy-global',
+          position: 'pre_auth',
+          combinator: 'and',
+          isEnabled: true,
+          isGlobal: true,
+          priority: 0,
+          parent: null,
+          route: null,
+          methods: [],
+        },
+      ],
+      [],
+    );
+    const node = svc.getRawCache().preAuthGlobal[0];
+    expect(node.excludeRouteIds).toEqual([]);
+    expect(node.excludeRoutePaths).toEqual([]);
+  });
+
   it('should filter by method', async () => {
     const { registry } = await loadGuardCache(
       [
@@ -376,6 +462,41 @@ describe('GuardCacheBuilder — tree building', () => {
     expect(svc.getRawCache().postAuthGlobal[0].rules[0].userIds).toEqual([
       'u1',
       'u2',
+    ]);
+  });
+
+  it('should resolve Mongo user scope from _id instead of stringifying the object', async () => {
+    const { svc } = await loadGuardCache(
+      [
+        {
+          _id: 'g1',
+          name: 'g',
+          position: 'post_auth',
+          combinator: 'and',
+          isEnabled: true,
+          isGlobal: true,
+          priority: 0,
+          parent: null,
+          route: null,
+          methods: [],
+        },
+      ],
+      [
+        {
+          _id: 'r1',
+          type: 'rate_limit_by_user',
+          config: { maxRequests: 1, perSeconds: 60 },
+          priority: 0,
+          isEnabled: true,
+          guard: { _id: 'g1' },
+          users: [{ _id: '6aade0000000000000000001' }],
+        },
+      ],
+      true,
+    );
+
+    expect(svc.getRawCache().postAuthGlobal[0].rules[0].userIds).toEqual([
+      '6aade0000000000000000001',
     ]);
   });
 });

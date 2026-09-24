@@ -9,6 +9,7 @@ import {
   GuardAlertService,
 } from '../../engines/cache';
 import { RuntimeRegistryService } from '../../engines/cache/services/runtime-registry.service';
+import { resolveClientIpFromRequest } from '../../shared/utils/client-ip.util';
 
 function setRateLimitSnapshotHeaders(
   res: Response,
@@ -58,12 +59,14 @@ async function runMetadataGuards(
   );
   if (guards.length === 0) return true;
 
+  const requestUserId = req.user?.id ?? req.user?._id ?? null;
+
   const evalCtx: GuardEvalContext = {
-    clientIp: req.routeData.context?.$req?.ip || req.ip || 'unknown',
+    clientIp: req.routeData.context?.$req?.ip || resolveClientIpFromRequest(req),
     routePath,
     userId:
-      position === 'post_auth' && req.user?.id != null
-        ? String(req.user.id)
+      position === 'post_auth' && requestUserId != null
+        ? String(requestUserId)
         : null,
   };
 

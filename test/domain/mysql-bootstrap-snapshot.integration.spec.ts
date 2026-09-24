@@ -426,4 +426,60 @@ describe('MySQL bootstrap snapshot compensation', () => {
 
     await cleanupPendingSnapshot(transaction.txId, entries);
   }, 120000);
+
+  it('restores remaining pending transactions when an earlier one is unrestorable', async () => {
+    const pendingTxIds = async () =>
+      new Set(
+        (
+          await db('system_bootstrap_transactions')
+            .where({ status: 'rolling_back' })
+            .select('txId')
+        ).map((row: any) => String(row.txId)),
+      );
+
+    const beforeFirst = await pendingTxIds();
+    await leavePendingSnapshot();
+    const firstTxId = [...(await pendingTxIds())].find(
+      (txId) => !beforeFirst.has(txId),
+    );
+    expect(firstTxId).toBeTruthy();
+
+    const beforeSecond = await pendingTxIds();
+    await leavePendingSnapshot();
+    const secondTxId = [...(await pendingTxIds())].find(
+      (txId) => !beforeSecond.has(txId),
+    );
+    expect(secondTxId).toBeTruthy();
+
+    await db('system_bootstrap_transactions')
+      .where({ txId: firstTxId })
+      .update({ createdAt: new Date(Date.now() - 60000) });
+    await db('system_bootstrap_transactions')
+      .where({ txId: secondTxId })
+      .update({ createdAt: new Date() });
+
+    const firstEntries = await db('system_bootstrap_snapshots')
+      .where({ txId: firstTxId })
+      .orderBy('ordinal', 'asc');
+    await db.schema.dropTable(firstEntries[0].backupTableName);
+
+    const recoveryService = new MySqlBootstrapSnapshotService({
+      knexService: { getKnex: () => db },
+    } as any);
+    await expect(recoveryService.recoverPending()).rejects.toThrow(
+      /recovery failed for 1 pending transaction/,
+    );
+
+    await expect(
+      db('system_bootstrap_transactions')
+        .where({ txId: secondTxId })
+        .first(),
+    ).resolves.toMatchObject({ status: 'rolled_back' });
+
+    const secondEntries = await db('system_bootstrap_snapshots')
+      .where({ txId: secondTxId })
+      .orderBy('ordinal', 'asc');
+    await cleanupPendingSnapshot(firstTxId!, firstEntries);
+    await cleanupPendingSnapshot(secondTxId!, secondEntries);
+  }, 120000);
 });

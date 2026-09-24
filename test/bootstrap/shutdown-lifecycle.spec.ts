@@ -28,6 +28,11 @@ function createContainer(options?: {
           events.push('batch.flush');
         }),
       },
+      runtimeLogWriterService: {
+        onDestroy: vi.fn(async () => {
+          events.push('runtime.log.stop');
+        }),
+      },
     },
     dispose: vi.fn(async () => {
       events.push('container.dispose');
@@ -48,6 +53,7 @@ describe('shutdown lifecycle', () => {
     expect(events).toEqual([
       'flow.stop',
       'batch.flush',
+      'runtime.log.stop',
       'container.dispose',
       'redis-dependent.cleanup',
       'redis.quit',
@@ -64,6 +70,7 @@ describe('shutdown lifecycle', () => {
     expect(events).toEqual([
       'flow.stop',
       'batch.flush',
+      'runtime.log.stop',
       'container.dispose',
       'redis-dependent.cleanup',
       'redis.disconnect',

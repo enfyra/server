@@ -252,12 +252,16 @@ export class SystemSafetyAuditorService {
     }
 
     if (tableName === 'enfyra_auth_header') {
-      const headerKey =
-        operation === 'update'
-          ? data?.headerKey ?? fullExisting?.headerKey
-          : data?.headerKey;
-      if (typeof headerKey !== 'string' || headerKey.trim() !== headerKey.toLowerCase()) {
-        throw new Error('enfyra_auth_header.headerKey must be normalized lowercase');
+      // A delete carries no payload, so the lowercase contract can only be
+      // checked against a supplied or existing value on create/update.
+      if (operation !== 'delete') {
+        const headerKey =
+          operation === 'update'
+            ? data?.headerKey ?? fullExisting?.headerKey
+            : data?.headerKey;
+        if (typeof headerKey !== 'string' || headerKey.trim() !== headerKey.toLowerCase()) {
+          throw new Error('enfyra_auth_header.headerKey must be normalized lowercase');
+        }
       }
 
       if (operation === 'update' && fullExisting?.isSystem) {

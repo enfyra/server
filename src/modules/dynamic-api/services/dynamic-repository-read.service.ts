@@ -13,6 +13,24 @@ import { normalizeDynamicReadProjection } from '../utils/field-selection.util';
 import type { DynamicReadOptions } from '../types/dynamic-read.types';
 import { DynamicReadAuthorizationService } from './dynamic-read-authorization.service';
 
+// An absent, empty-string, or empty-array field list means "all fields", which
+// the query layer expresses as `undefined`. Forwarding an empty list instead
+// selects no columns at all, so rows come back as `{}`.
+function normalizeRequestedFields(
+  fields: string | string[] | undefined,
+): string | string[] | undefined {
+  if (fields === undefined || fields === null) return undefined;
+  if (typeof fields === 'string') {
+    const trimmed = fields.trim();
+    return trimmed === '' ? undefined : fields;
+  }
+  if (Array.isArray(fields)) {
+    const values = fields.filter((field) => typeof field === 'string' && field.trim() !== '');
+    return values.length === 0 ? undefined : values;
+  }
+  return fields;
+}
+
 export class DynamicRepositoryReadService {
   constructor(
     private readonly deps: {
@@ -75,7 +93,7 @@ export class DynamicRepositoryReadService {
     );
     const result = await this.deps.queryBuilderService.find({
       table: tableName,
-      fields: prepared.fields || '',
+      fields: normalizeRequestedFields(prepared.fields),
       filter,
       page: context.$query?.page || 1,
       limit: 'limit' in options ? options.limit : (context.$query?.limit ?? 10),

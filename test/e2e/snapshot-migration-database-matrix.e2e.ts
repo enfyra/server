@@ -17,8 +17,15 @@ import type { SchemaMigrationDef } from '../../src/shared/types/schema-migration
 import { MetadataTableMigrationService } from '../../src/engines/bootstrap/services/metadata-migration/metadata-table-migration.service';
 import { MetadataPhysicalMigrationHelper } from '../../src/engines/bootstrap/utils/metadata-physical-migration.util';
 import { PROVISION_LOCK_KEY } from '../../src/shared/utils/constant';
+import { getEnfyraVersion } from '../../src/shared/utils/enfyra-version.util';
 
 type SqlDatabase = 'postgres' | 'mysql';
+
+/**
+ * The oldest version the current declarations can upgrade from. A database that
+ * records it must converge onto the current target.
+ */
+const LEGACY_SOURCE_VERSION = '2.2.19-patch-1';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -115,6 +122,7 @@ type ServerBootOptions = {
   adminPassword?: string;
   nodeName?: string;
   secretKey?: string;
+  bootstrapVerbose?: boolean;
 };
 
 function serverEnvironment(
@@ -132,7 +140,9 @@ function serverEnvironment(
     ADMIN_PASSWORD: options.adminPassword || `e2e-${randomUUID()}`,
     NODE_ENV: 'test',
     NODE_NAME: options.nodeName || `snapshot-migration-e2e-${port}`,
-    BOOTSTRAP_VERBOSE: process.env.MATRIX_BOOTSTRAP_VERBOSE || '0',
+    BOOTSTRAP_VERBOSE: options.bootstrapVerbose
+      ? '1'
+      : process.env.MATRIX_BOOTSTRAP_VERBOSE || '0',
     MONGO_FORCE_APP_TRANSACTION: '0',
   };
 }
@@ -224,7 +234,12 @@ async function crashServerAtProgress(
   progressMessage: string,
   options: ServerBootOptions,
 ): Promise<void> {
-  const child = spawnServer(dbUri, port, options);
+  // The progress bar is a TTY affordance, so a piped child only sees stage
+  // announcements through verbose mode.
+  const child = spawnServer(dbUri, port, {
+    ...options,
+    bootstrapVerbose: true,
+  });
   let output = '';
   let matched = false;
 
@@ -239,6 +254,9 @@ async function crashServerAtProgress(
     }, 90_000);
     const onData = (chunk: Buffer) => {
       output += chunk.toString();
+      if (process.env.MATRIX_LIVE_BOOT_LOG === '1') {
+        process.stdout.write(`[snapshot-crash:${port}] ${chunk.toString()}`);
+      }
       if (matched || !output.includes(progressMessage)) return;
       matched = true;
       killServerProcess(child, 'SIGKILL');
@@ -606,7 +624,11 @@ async function runSqlUserRolesMigration(database: SqlDatabase): Promise<void> {
     });
     await target.schema.createTable('enfyra_user', (table) => {
       table.integer('id').unsigned().primary();
-      table.integer('roleId').unsigned().references('id').inTable('enfyra_role');
+      table
+        .integer('roleId')
+        .unsigned()
+        .references('id')
+        .inTable('enfyra_role');
     });
     await target('enfyra_role').insert([{ id: 10 }, { id: 20 }]);
     await target('enfyra_user').insert([
@@ -619,14 +641,19 @@ async function runSqlUserRolesMigration(database: SqlDatabase): Promise<void> {
 
     assert.equal(await target.schema.hasColumn('enfyra_user', 'roleId'), false);
     assert.equal(await target.schema.hasTable('enfyra_user_roles'), true);
-    assert.deepEqual(await target('enfyra_user_roles').orderBy(['userId', 'roleId']), [
-      { userId: 1, roleId: 10 },
-      { userId: 2, roleId: 20 },
-    ]);
+    assert.deepEqual(
+      await target('enfyra_user_roles').orderBy(['userId', 'roleId']),
+      [
+        { userId: 1, roleId: 10 },
+        { userId: 2, roleId: 20 },
+      ],
+    );
   } finally {
     await target?.destroy();
     if (database === 'postgres') {
-      await admin.raw('DROP DATABASE IF EXISTS ?? WITH (FORCE)', [databaseName]);
+      await admin.raw('DROP DATABASE IF EXISTS ?? WITH (FORCE)', [
+        databaseName,
+      ]);
     } else {
       await admin.raw('DROP DATABASE IF EXISTS ??', [databaseName]);
     }
@@ -1171,32 +1198,17 @@ async function runSqlBoot(database: SqlDatabase, port: number): Promise<void> {
     const settingTable = await target('enfyra_table')
       .where({ name: 'enfyra_setting' })
       .first();
-    const columnTable = await target('enfyra_table')
-      .where({ name: 'enfyra_column' })
-      .first();
     await target.schema.alterTable('enfyra_setting', (table) => {
       table.text('userExtensionField').nullable();
     });
-    await target.schema.alterTable('enfyra_column', (table) => {
-      table.boolean('isHidden').nullable();
+    await target('enfyra_column').insert({
+      tableId: settingTable.id,
+      name: 'userExtensionField',
+      type: 'text',
+      isSystem: false,
     });
-    await target('enfyra_column').insert([
-      {
-        tableId: settingTable.id,
-        name: 'userExtensionField',
-        type: 'text',
-        isSystem: false,
-      },
-      {
-        tableId: columnTable.id,
-        name: 'isHidden',
-        type: 'boolean',
-        isSystem: true,
-      },
-    ]);
-    await target('enfyra_column').update({ isHidden: true });
     await target('enfyra_setting').update({
-      isInit: false,
+      enfyraVersion: LEGACY_SOURCE_VERSION,
       userExtensionField: 'preserved',
     });
 
@@ -1226,18 +1238,9 @@ async function runSqlBoot(database: SqlDatabase, port: number): Promise<void> {
       1,
     );
     assert.equal(
-      await target.schema.hasColumn('enfyra_column', 'isHidden'),
-      false,
-    );
-    assert.equal(
-      Number(
-        (
-          await target('enfyra_column')
-            .where({ tableId: columnTable.id, name: 'isHidden' })
-            .count({ count: '*' })
-        )[0].count,
-      ),
-      0,
+      retriedSetting.enfyraVersion,
+      getEnfyraVersion(),
+      `${database} upgrade did not advance the recorded Enfyra version`,
     );
     await stopServer(server);
     server = null;
@@ -1248,7 +1251,10 @@ async function runSqlBoot(database: SqlDatabase, port: number): Promise<void> {
       secretKey: `snapshot-migration-crash-${randomUUID()}`,
     };
     for (const checkpoint of BOOTSTRAP_CRASH_CHECKPOINTS) {
-      await target('enfyra_setting').update({ isInit: false });
+      await target('enfyra_setting').update({
+        isInit: false,
+        enfyraVersion: LEGACY_SOURCE_VERSION,
+      });
       await crashServerAtProgress(databaseUri, port, checkpoint, crashOptions);
       await clearProvisionLock(nodeName);
       server = await bootServer(databaseUri, port, crashOptions);
@@ -1269,7 +1275,9 @@ async function runSqlBoot(database: SqlDatabase, port: number): Promise<void> {
     await target.schema.alterTable('enfyra_file', (table) => {
       table.text('description').notNullable().alter();
     });
-    await target('enfyra_setting').update({ isInit: false });
+    await target('enfyra_setting').update({
+      enfyraVersion: LEGACY_SOURCE_VERSION,
+    });
     server = await bootServer(databaseUri, port, primaryOptions);
     const healedSetting = await target('enfyra_setting').first();
     assert.equal(
@@ -1616,11 +1624,13 @@ async function runMongoUserRolesMigration(): Promise<void> {
   try {
     await client.connect();
     const db = client.db(databaseName);
-    await db.collection('enfyra_user').insertMany([
-      { _id: 'user-1', role: 'role-1' },
-      { _id: 'user-2', role: 'role-2' },
-      { _id: 'user-3' },
-    ]);
+    await db
+      .collection('enfyra_user')
+      .insertMany([
+        { _id: 'user-1', role: 'role-1' },
+        { _id: 'user-2', role: 'role-2' },
+        { _id: 'user-3' },
+      ]);
     await applyMongoSchemaMigrations(db, migration);
     await applyMongoSchemaMigrations(db, migration);
 
@@ -1716,11 +1726,7 @@ async function runMongoBoot(port: number): Promise<void> {
     const settingTable = await db
       .collection('enfyra_table')
       .findOne({ name: 'enfyra_setting' });
-    const columnTable = await db
-      .collection('enfyra_table')
-      .findOne({ name: 'enfyra_column' });
     assert.ok(settingTable?._id);
-    assert.ok(columnTable?._id);
     const now = new Date();
     const baseColumn = {
       isPrimary: false,
@@ -1736,30 +1742,18 @@ async function runMongoBoot(port: number): Promise<void> {
       createdAt: now,
       updatedAt: now,
     };
-    await db.collection('enfyra_column').insertMany([
-      {
-        ...baseColumn,
-        table: settingTable._id,
-        name: 'userExtensionField',
-        type: 'text',
-        isSystem: false,
-      },
-      {
-        ...baseColumn,
-        table: columnTable._id,
-        name: 'isHidden',
-        type: 'boolean',
-        isSystem: true,
-      },
-    ]);
-    await db
-      .collection('enfyra_column')
-      .updateMany({}, { $set: { isHidden: true } });
+    await db.collection('enfyra_column').insertOne({
+      ...baseColumn,
+      table: settingTable._id,
+      name: 'userExtensionField',
+      type: 'text',
+      isSystem: false,
+    });
     await db.collection('enfyra_setting').updateOne(
       {},
       {
         $set: {
-          isInit: false,
+          enfyraVersion: LEGACY_SOURCE_VERSION,
           userExtensionField: 'preserved',
         },
       },
@@ -1778,17 +1772,9 @@ async function runMongoBoot(port: number): Promise<void> {
       1,
     );
     assert.equal(
-      await db.collection('enfyra_column').countDocuments({
-        table: columnTable._id,
-        name: 'isHidden',
-      }),
-      0,
-    );
-    assert.equal(
-      await db
-        .collection('enfyra_column')
-        .countDocuments({ isHidden: { $exists: true } }),
-      0,
+      retriedSetting?.enfyraVersion,
+      getEnfyraVersion(),
+      'mongodb upgrade did not advance the recorded Enfyra version',
     );
     await stopServer(server);
     server = null;
@@ -1801,7 +1787,10 @@ async function runMongoBoot(port: number): Promise<void> {
     for (const checkpoint of BOOTSTRAP_CRASH_CHECKPOINTS) {
       await db
         .collection('enfyra_setting')
-        .updateOne({}, { $set: { isInit: false } });
+        .updateOne(
+          {},
+          { $set: { isInit: false, enfyraVersion: LEGACY_SOURCE_VERSION } },
+        );
       await crashServerAtProgress(databaseUri, port, checkpoint, crashOptions);
       await clearProvisionLock(nodeName);
       server = await bootServer(databaseUri, port, crashOptions);
@@ -1828,7 +1817,7 @@ async function runMongoBoot(port: number): Promise<void> {
       .createIndex({ corruptedIndexField: 1 }, { name: targetIndex.name });
     await db
       .collection('enfyra_setting')
-      .updateOne({}, { $set: { isInit: false } });
+      .updateOne({}, { $set: { enfyraVersion: LEGACY_SOURCE_VERSION } });
     server = await bootServer(databaseUri, port, primaryOptions);
     const healedIndexSetting = await db
       .collection('enfyra_setting')

@@ -1,6 +1,5 @@
 import type {
   SnapshotColumnDefinition,
-  SnapshotColumnType,
   SnapshotJunctionOptions,
   SnapshotOnDelete,
   SnapshotRelationDefinition,
@@ -8,17 +7,33 @@ import type {
   SnapshotTableDefinition,
   SnapshotTableOptions,
 } from '../types';
+import type { ColumnTypeDeclaration } from '../../../shared/types/column-type.types';
+import {
+  MONGO_PRIMARY_KEY_TYPE,
+  toMongoTypeForSqlType,
+} from '../../../shared/types/column-type.types';
 
 export class SnapshotColumnBuilder {
   private readonly definition: Omit<SnapshotColumnDefinition, 'name'>;
+  private mongoTypeDeclared = false;
 
-  constructor(type: SnapshotColumnType, options?: unknown) {
-    this.definition = { type };
-    if (options !== undefined) this.definition.options = options;
+  constructor(sqlType: ColumnTypeDeclaration) {
+    this.definition = {
+      sqlType,
+      mongoType: {
+        type: toMongoTypeForSqlType(sqlType.type),
+        ...(sqlType.options !== undefined ? { options: sqlType.options } : {}),
+      },
+    };
   }
 
   primary(value = true): this {
     this.definition.isPrimary = value;
+    // MongoDB has no integer primary key: identity is always an ObjectId. An
+    // explicit `.mongoType()` still wins, since the author stated it outright.
+    if (value && !this.mongoTypeDeclared) {
+      this.definition.mongoType = { type: MONGO_PRIMARY_KEY_TYPE };
+    }
     return this;
   }
 
@@ -77,6 +92,12 @@ export class SnapshotColumnBuilder {
 
   placeholder(value: string): this {
     this.definition.placeholder = value;
+    return this;
+  }
+
+  mongoType(declaration: ColumnTypeDeclaration): this {
+    this.definition.mongoType = declaration;
+    this.mongoTypeDeclared = true;
     return this;
   }
 
@@ -238,8 +259,8 @@ export class SnapshotDefinition {
   }
 }
 
-function column(type: SnapshotColumnType, options?: unknown) {
-  return new SnapshotColumnBuilder(type, options);
+function column(sqlType: ColumnTypeDeclaration) {
+  return new SnapshotColumnBuilder(sqlType);
 }
 
 function relation(type: SnapshotRelationType, targetTable: string) {
@@ -247,22 +268,7 @@ function relation(type: SnapshotRelationType, targetTable: string) {
 }
 
 export const col = {
-  int: () => column('int'),
-  varchar: () => column('varchar'),
-  text: () => column('text'),
-  boolean: () => column('boolean'),
-  uuid: () => column('uuid'),
-  objectId: () => column('ObjectId'),
-  bigint: () => column('bigint'),
-  date: () => column('date'),
-  datetime: () => column('datetime'),
-  timestamp: () => column('timestamp'),
-  enum: (options: unknown) => column('enum', options),
-  simpleJson: () => column('simple-json'),
-  code: () => column('code'),
-  arraySelect: (options?: unknown) => column('array-select', options),
-  richtext: () => column('richtext'),
-  float: () => column('float'),
+  sqlType: (declaration: ColumnTypeDeclaration) => column(declaration),
 };
 
 export const rel = {

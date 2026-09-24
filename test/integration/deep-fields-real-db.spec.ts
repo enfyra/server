@@ -194,8 +194,8 @@ describe('deep field semantics real DB', () => {
     }
   }, 30000);
 
-  test('omitted root fields behaves like wildcard and loads one relation level', async () => {
-    if (!available) return;
+  test('omitted root fields behaves like wildcard and loads one relation level', async (ctx) => {
+    if (!available) return ctx.skip();
 
     const result = await executor.execute({
       tableName: T.workOrders,
@@ -211,8 +211,8 @@ describe('deep field semantics real DB', () => {
     });
   });
 
-  test('deep relation without fields behaves like wildcard in that relation scope', async () => {
-    if (!available) return;
+  test('deep relation without fields behaves like wildcard in that relation scope', async (ctx) => {
+    if (!available) return ctx.skip();
 
     const result = await executor.execute({
       tableName: T.workOrders,
@@ -245,8 +245,8 @@ describe('deep field semantics real DB', () => {
     expect(result.data[0].inspections[0]).not.toHaveProperty('inspectorId');
   });
 
-  test('nested deep can request a relation not present in parent fields', async () => {
-    if (!available) return;
+  test('nested deep can request a relation not present in parent fields', async (ctx) => {
+    if (!available) return ctx.skip();
 
     const result = await executor.execute({
       tableName: T.workOrders,
@@ -277,8 +277,8 @@ describe('deep field semantics real DB', () => {
     });
   });
 
-  test('custom picked deep fields do not auto-load unrelated child relations', async () => {
-    if (!available) return;
+  test('custom picked deep fields do not auto-load unrelated child relations', async (ctx) => {
+    if (!available) return ctx.skip();
 
     const result = await executor.execute({
       tableName: T.workOrders,
@@ -304,8 +304,8 @@ describe('deep field semantics real DB', () => {
     });
   });
 
-  test('children wildcard auto-loads one relation level in the child scope', async () => {
-    if (!available) return;
+  test('children wildcard auto-loads one relation level in the child scope', async (ctx) => {
+    if (!available) return ctx.skip();
 
     const result = await executor.execute({
       tableName: T.workOrders,
@@ -326,8 +326,8 @@ describe('deep field semantics real DB', () => {
     expect(result.data[0].inspections[0]).not.toHaveProperty('inspectorId');
   });
 
-  test('many-to-one root wildcard auto-loads owner relations as lightweight refs', async () => {
-    if (!available) return;
+  test('many-to-one root wildcard auto-loads owner relations as lightweight refs', async (ctx) => {
+    if (!available) return ctx.skip();
 
     const result = await executor.execute({
       tableName: T.inspections,
@@ -347,8 +347,8 @@ describe('deep field semantics real DB', () => {
     expect(result.data[0]).not.toHaveProperty('inspectorId');
   });
 
-  test('many-to-one null FK stays null through wildcard relation loading', async () => {
-    if (!available) return;
+  test('many-to-one null FK stays null through wildcard relation loading', async (ctx) => {
+    if (!available) return ctx.skip();
 
     const result = await executor.execute({
       tableName: T.inspections,
@@ -364,8 +364,8 @@ describe('deep field semantics real DB', () => {
     });
   });
 
-  test('many-to-many deep without fields defaults to wildcard with sort, filter, limit, and page', async () => {
-    if (!available) return;
+  test('many-to-many deep without fields defaults to wildcard with sort, filter, limit, and page', async (ctx) => {
+    if (!available) return ctx.skip();
 
     const result = await executor.execute({
       tableName: T.workOrders,
@@ -388,8 +388,8 @@ describe('deep field semantics real DB', () => {
     });
   });
 
-  test('multiple deep relations load together without clobbering each other', async () => {
-    if (!available) return;
+  test('multiple deep relations load together without clobbering each other', async (ctx) => {
+    if (!available) return ctx.skip();
 
     const result = await executor.execute({
       tableName: T.workOrders,
@@ -424,8 +424,8 @@ describe('deep field semantics real DB', () => {
     });
   });
 
-  test('meta counts and relation loading compose on the same read', async () => {
-    if (!available) return;
+  test('meta counts and relation loading compose on the same read', async (ctx) => {
+    if (!available) return ctx.skip();
 
     const result = await executor.execute({
       tableName: T.workOrders,

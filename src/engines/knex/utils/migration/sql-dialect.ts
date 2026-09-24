@@ -1,4 +1,8 @@
 import { DatabaseType } from '../../../../shared/types/query-builder.types';
+import {
+  postgresTemporalPhysicalType,
+  postgresTemporalUsingExpression,
+} from '../provision/postgres-temporal.util';
 
 export function quoteIdentifier(
   identifier: string,
@@ -59,6 +63,7 @@ export function generateModifyColumnSQL(
   columnDef: string,
   dbType: 'mysql' | 'postgres',
   oldColumn?: any,
+  currentPhysicalType?: string,
 ): string | string[] {
   const table = quoteIdentifier(tableName, dbType);
   const column = quoteIdentifier(columnName, dbType);
@@ -151,6 +156,22 @@ export function generateModifyColumnSQL(
           alterTypeSql = `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${typeOnly} USING ${column}::TIMESTAMP`;
         } else if (isOldString && isNewBoolean) {
           alterTypeSql = `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${typeOnly} USING (${column}::TEXT = 'true' OR ${column}::TEXT = '1' OR ${column}::TEXT = 't')`;
+        }
+      }
+
+      // Carrying a zone-less column onto a zone-aware target without a USING clause
+      // makes PostgreSQL read the stored wall clock in the session zone, which
+      // silently shifts every instant by the server's offset.
+      if (!/\s+USING\s+/i.test(alterTypeSql)) {
+        const physicalTarget = postgresTemporalPhysicalType(typeOnly);
+        if (physicalTarget !== null && currentPhysicalType !== undefined) {
+          const using = postgresTemporalUsingExpression(
+            column,
+            currentPhysicalType,
+          );
+          if (using !== column) {
+            alterTypeSql = `${alterTypeSql} USING ${using}`;
+          }
         }
       }
 

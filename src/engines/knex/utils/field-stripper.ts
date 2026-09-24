@@ -1,5 +1,9 @@
 import type { RuntimeRegistryService } from '../../cache';
 import { isGeneratedScriptPersistenceField } from '../../../shared/utils/script-persistence-contract.util';
+import {
+  coerceTemporalWriteValue,
+  isTemporalColumnType,
+} from '../../../shared/utils/temporal-write.util';
 
 export class FieldStripper {
   constructor(private runtimeRegistryService: RuntimeRegistryService | null) {}
@@ -31,10 +35,21 @@ export class FieldStripper {
         }
       }
     }
+    const temporalColumns = new Set(
+      (tableMeta.columns || [])
+        .filter((col: any) => isTemporalColumnType(col?.type))
+        .map((col: any) => col.name),
+    );
     const stripped = { ...data };
     for (const key of Object.keys(stripped)) {
       if (!validColumns.has(key)) {
         delete stripped[key];
+        continue;
+      }
+      if (temporalColumns.has(key)) {
+        stripped[key] = coerceTemporalWriteValue(stripped[key], {
+          dateOnlyAsString: true,
+        });
       }
     }
     delete stripped._m2mRelations;
@@ -59,13 +74,16 @@ export class FieldStripper {
       .filter((col: any) => col.isPrimary === true)
       .map((col: any) => col.name);
     for (const column of tableMeta.columns) {
-      if (column.isUpdatable === false && column.name in stripped) {
+      if (
+        column.isUpdatable === false &&
+        Object.prototype.hasOwnProperty.call(stripped, column.name)
+      ) {
         if (isGeneratedScriptPersistenceField(tableName, column.name)) continue;
         delete stripped[column.name];
       }
     }
     for (const pk of primaryKeys) {
-      if (pk in stripped) {
+      if (Object.prototype.hasOwnProperty.call(stripped, pk)) {
         delete stripped[pk];
       }
     }

@@ -10,6 +10,7 @@ import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants
 class MemoryRedis {
   data = new Map<string, string | Buffer>();
   expiries = new Map<string, number>();
+  scanPatterns: string[] = [];
 
   async get(key: string) {
     const value = this.data.get(key);
@@ -42,6 +43,7 @@ class MemoryRedis {
   }
 
   async scan(_cursor: string, _match: string, pattern: string) {
+    this.scanPatterns.push(pattern);
     const prefix = pattern.endsWith('*') ? pattern.slice(0, -1) : pattern;
     return ['0', [...this.data.keys()].filter((key) => key.startsWith(prefix))];
   }
@@ -332,5 +334,40 @@ describe('Redis runtime cache mode', () => {
         'shared-node:runtime_cache:field_permission:aux:match_index',
       ),
     ).toBe(true);
+  });
+
+  it('escapes glob metacharacters when deleting aux keys by prefix', async () => {
+    const redis = new MemoryRedis();
+    const store = createStore(redis);
+
+    await store.setAux(CACHE_IDENTIFIERS.FIELD_PERMISSION, 'route:1', {
+      ok: true,
+    });
+    await store.setAux(CACHE_IDENTIFIERS.FIELD_PERMISSION, 'unrelated', {
+      ok: true,
+    });
+
+    await store.deleteAuxByPrefix(CACHE_IDENTIFIERS.FIELD_PERMISSION, 'route:');
+
+    expect(redis.scanPatterns).toEqual([
+      'shared-node:runtime_cache:field_permission:aux:route:*',
+    ]);
+    expect(
+      redis.data.has('shared-node:runtime_cache:field_permission:aux:route:1'),
+    ).toBe(false);
+    expect(
+      redis.data.has('shared-node:runtime_cache:field_permission:aux:unrelated'),
+    ).toBe(true);
+  });
+
+  it('treats wildcard characters in an aux prefix as literals', async () => {
+    const redis = new MemoryRedis();
+    const store = createStore(redis);
+
+    await store.deleteAuxByPrefix(CACHE_IDENTIFIERS.FIELD_PERMISSION, '*');
+
+    expect(redis.scanPatterns).toEqual([
+      'shared-node:runtime_cache:field_permission:aux:\\**',
+    ]);
   });
 });

@@ -1,3 +1,4 @@
+import { PassThrough, Readable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import { dynamicInterceptorBegin } from '../../src/http/middlewares/dynamic-interceptor.middleware';
 import * as runtimeLogs from '../../src/shared/runtime-log-buffer';
@@ -175,7 +176,7 @@ describe('dynamicInterceptorBegin admin test run isolation', () => {
       routeData: {
         route: { path: '/gateway/v1/*' },
         context: { $share: { $logs: [] } },
-        preHooks: [{ code: '@THROW400(\'Unsupported model\')' }],
+        preHooks: [{ code: "@THROW400('Unsupported model')" }],
         postHooks: [],
       },
     };
@@ -187,8 +188,75 @@ describe('dynamicInterceptorBegin admin test run isolation', () => {
       next,
     );
 
-    expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 400 }));
-    expect(record).toHaveBeenCalledWith(['unsupported model'], expect.objectContaining({ statusCode: 400 }));
+    expect(next).toHaveBeenCalledWith(
+      expect.objectContaining({ statusCode: 400 }),
+    );
+    expect(record).toHaveBeenCalledWith(
+      ['unsupported model'],
+      expect.objectContaining({ statusCode: 400 }),
+    );
     record.mockRestore();
+  });
+
+  it('lets a pre-hook stream an early response and stops the request pipeline', async () => {
+    const req = {
+      method: 'POST',
+      path: '/gateway/v1/chat/completions',
+      originalUrl: '/gateway/v1/chat/completions',
+      routeData: {
+        context: { $share: { $logs: [] } },
+        preHooks: [{ code: 'await @RES.stream(errorStream)' }],
+        postHooks: [],
+      },
+    };
+    const executorEngineService = {
+      register: vi.fn(),
+      runBatch: vi.fn(async () => {
+        await req.routeData.context.$res.stream(
+          Readable.from([
+            JSON.stringify({ error: { code: 'insufficient_quota' } }),
+          ]),
+          { statusCode: 429, mimetype: 'application/json' },
+        );
+        return { shortCircuit: false, value: undefined };
+      }),
+    };
+    const response = new PassThrough() as PassThrough & {
+      headersSent: boolean;
+      statusCode: number;
+      status: ReturnType<typeof vi.fn>;
+      setHeader: ReturnType<typeof vi.fn>;
+      json: ReturnType<typeof vi.fn>;
+    };
+    response.headersSent = false;
+    response.statusCode = 200;
+    response.status = vi.fn((statusCode: number) => {
+      response.statusCode = statusCode;
+      return response;
+    });
+    response.setHeader = vi.fn();
+    const json = vi.fn();
+    response.json = json;
+    const chunks: Buffer[] = [];
+    response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+    const next = vi.fn();
+
+    await dynamicInterceptorBegin(executorEngineService as any)(
+      req,
+      response as any,
+      next,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(429);
+    expect(response.setHeader).toHaveBeenCalledWith(
+      'Content-Type',
+      'application/json',
+    );
+    expect(next).not.toHaveBeenCalled();
+    expect(json).not.toHaveBeenCalled();
+    expect(JSON.parse(Buffer.concat(chunks).toString('utf8'))).toEqual({
+      error: { code: 'insufficient_quota' },
+    });
+    expect(req.routeData.context).not.toHaveProperty('$res');
   });
 });

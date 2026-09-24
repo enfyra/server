@@ -190,4 +190,28 @@ describe('MongoRelationManagerService relation reference validation', () => {
       { ordered: false },
     );
   });
+
+  it('treats an id-bearing many-to-many item as a connect, not a nested update', async () => {
+    const { service } = makeService();
+    const existingTagId = new ObjectId();
+    const tagCollection = makeCollection([{ _id: existingTagId }]);
+    const insertOne = vi.fn();
+    const updateOne = vi.fn();
+
+    const processed = await service.processNestedRelations(
+      'post',
+      {
+        title: 'post',
+        tags: [{ id: existingTagId.toHexString(), name: 'renamed tag' }],
+      },
+      () => tagCollection as any,
+      vi.fn(),
+      insertOne,
+      updateOne,
+    );
+
+    expect(updateOne).not.toHaveBeenCalled();
+    expect(insertOne).not.toHaveBeenCalled();
+    expect(processed.tags).toBeUndefined();
+  });
 });

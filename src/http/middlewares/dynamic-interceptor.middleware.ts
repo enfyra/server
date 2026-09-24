@@ -4,9 +4,9 @@ import { RuntimeScriptRepairService } from '../../engines/cache';
 import { getErrorMessage } from '../../shared/utils/error.util';
 import { HttpException } from '../../domain/exceptions';
 import {
+  attachStreamResponseHelper,
   persistDynamicScriptLogs,
 } from '../../modules/dynamic-api/services/dynamic.service';
-
 
 function isAdminTestRunRequest(req: any): boolean {
   const path = String(
@@ -105,6 +105,8 @@ export function dynamicInterceptorBegin(
 
     const preHooks = req.routeData?.preHooks;
     if (preHooks?.length) {
+      attachStreamResponseHelper(res);
+      req.routeData.context.$res = res;
       for (const hook of preHooks) {
         if (!hook.code) continue;
         executorEngineService.register(req, {
@@ -116,8 +118,17 @@ export function dynamicInterceptorBegin(
           type: 'preHook',
         } as any);
       }
+      const abortController = new AbortController();
+      const abortOnDisconnect = () => {
+        if (!res.writableEnded) abortController.abort();
+      };
+      req.once?.('aborted', abortOnDisconnect);
+      res.once?.('close', abortOnDisconnect);
+      if (req.aborted || res.destroyed) abortOnDisconnect();
       try {
-        const result = await executorEngineService.runBatch(req);
+        const result = await executorEngineService.runBatch(req, undefined, {
+          signal: abortController.signal,
+        });
         req.routeData.__codeBlocks = [];
         if (req.routeData.context?.$body !== undefined) {
           req.body = req.routeData.context.$body;
@@ -125,10 +136,14 @@ export function dynamicInterceptorBegin(
         if (req.routeData.context?.$query !== undefined) {
           req.query = req.routeData.context.$query;
         }
+        if ((res as any).__enfyraStreamStarted) {
+          return;
+        }
         if (result.shortCircuit) {
           return res.json(appendLogs(result.value));
         }
       } catch (error) {
+        if ((error as { code?: string })?.code === 'ERR_EXECUTION_ABORTED') return;
         const statusCode =
           error instanceof HttpException
             ? error.getStatus()
@@ -137,6 +152,10 @@ export function dynamicInterceptorBegin(
               : 500;
         persistDynamicScriptLogs(req, statusCode);
         return next(error);
+      } finally {
+        req.off?.('aborted', abortOnDisconnect);
+        res.off?.('close', abortOnDisconnect);
+        delete req.routeData.context.$res;
       }
     }
 

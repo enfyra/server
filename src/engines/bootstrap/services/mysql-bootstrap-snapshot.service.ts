@@ -63,11 +63,16 @@ export class MySqlBootstrapSnapshotService {
     const pending = await knex(TRANSACTION_TABLE)
       .whereIn('status', ['running', 'rolling_back'])
       .orderBy('createdAt', 'asc');
+    const recoveryErrors: string[] = [];
     for (const transaction of pending) {
       if (transaction.mutationId) {
         rolledBackMutationIds.add(String(transaction.mutationId));
       }
-      await this.restore(knex, transaction.txId, connection);
+      try {
+        await this.restore(knex, transaction.txId, connection);
+      } catch (error) {
+        recoveryErrors.push(`${transaction.txId}: ${getErrorMessage(error)}`);
+      }
     }
 
     const terminal = await knex(TRANSACTION_TABLE)
@@ -82,6 +87,11 @@ export class MySqlBootstrapSnapshotService {
       .select('mutationId');
     for (const transaction of rolledBackTerminal) {
       rolledBackMutationIds.add(String(transaction.mutationId));
+    }
+    if (recoveryErrors.length > 0) {
+      throw new Error(
+        `MySQL bootstrap snapshot recovery failed for ${recoveryErrors.length} pending transaction(s): ${recoveryErrors.join('; ')}`,
+      );
     }
     return { rolledBackMutationIds: [...rolledBackMutationIds].sort() };
   }

@@ -1,5 +1,28 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SnapshotTargetVerifierService } from '../../src/engines/bootstrap/services/snapshot-target-verifier.service';
+import { buildMongoValidationSchema } from '../../src/engines/mongo/utils/mongo-validation-schema.util';
+
+const AUTHORS_COLUMNS = [
+  {
+    name: 'id',
+    type: 'int',
+    isPrimary: true,
+    isGenerated: true,
+    isNullable: false,
+  },
+  { name: 'displayName', type: 'varchar', isNullable: false },
+];
+
+function mongoCollectionDefinition(name: string) {
+  return {
+    name,
+    options: {
+      validator: { $jsonSchema: buildMongoValidationSchema(AUTHORS_COLUMNS) },
+      validationLevel: 'moderate',
+      validationAction: 'error',
+    },
+  };
+}
 
 function makeService(queryBuilderService: any) {
   const metadataMigrationService = {
@@ -18,16 +41,7 @@ function makeService(queryBuilderService: any) {
     authors: {
       name: 'authors',
       isSystem: true,
-      columns: [
-        {
-          name: 'id',
-          type: 'int',
-          isPrimary: true,
-          isGenerated: true,
-          isNullable: false,
-        },
-        { name: 'displayName', type: 'varchar', isNullable: false },
-      ],
+      columns: AUTHORS_COLUMNS,
       relations: [],
     },
   });
@@ -65,6 +79,9 @@ describe('SnapshotTargetVerifierService', () => {
     const db = {
       listCollections: vi.fn(({ name }: { name: string }) => ({
         toArray: vi.fn(async () => (name === 'authors' ? [{ name }] : [])),
+        next: vi.fn(async () =>
+          name === 'authors' ? mongoCollectionDefinition(name) : null,
+        ),
       })),
       collection: vi.fn(() => ({
         listIndexes: () => ({ toArray: listIndexes }),
@@ -101,6 +118,7 @@ describe('SnapshotTargetVerifierService', () => {
     const db = {
       listCollections: vi.fn(() => ({
         toArray: vi.fn(async () => [{ name: 'relations' }]),
+        next: vi.fn(async () => mongoCollectionDefinition('relations')),
       })),
       collection: vi.fn(() => ({
         countDocuments: vi.fn(async () => 2),
@@ -146,6 +164,7 @@ describe('SnapshotTargetVerifierService', () => {
     const db = {
       listCollections: vi.fn(({ name }: { name: string }) => ({
         toArray: vi.fn(async () => [{ name }] as any),
+        next: vi.fn(async () => mongoCollectionDefinition(name)),
       })),
       collection: vi.fn(() => ({
         listIndexes: () => ({

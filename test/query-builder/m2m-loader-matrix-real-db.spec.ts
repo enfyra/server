@@ -599,7 +599,7 @@ for (const config of SQL_CONFIGS) {
       };
     }, 30_000);
 
-    afterAll(async () => {
+    afterAll(async (ctx) => {
       if (!db) return;
       if (available) {
         await db.schema.dropTableIfExists(tables.junction);
@@ -609,8 +609,8 @@ for (const config of SQL_CONFIGS) {
       await db.destroy();
     }, 30_000);
 
-    test.each(MATRIX_CASES)('$name', async (matrixCase) => {
-      if (!available) return;
+    test.each(MATRIX_CASES)('$name', async (matrixCase, ctx) => {
+      if (!available) return ctx.skip();
       await executeMatrixCase(
         harness,
         matrixCase,
@@ -801,13 +801,13 @@ describe.sequential('m2m loader matrix (mongodb)', () => {
     };
   }, 30_000);
 
-  afterAll(async () => {
+  afterAll(async (ctx) => {
     if (available && db) await db.dropDatabase();
     if (client) await client.close();
   }, 30_000);
 
-  test.each(MATRIX_CASES)('$name', async (matrixCase) => {
-    if (!available) return;
+  test.each(MATRIX_CASES)('$name', async (matrixCase, ctx) => {
+    if (!available) return ctx.skip();
     await executeMatrixCase(
       harness,
       matrixCase,

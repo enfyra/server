@@ -227,7 +227,7 @@ export class UploadFileHelper {
             storageConfig: options.storageConfig,
             title: options.title,
             description: options.description,
-            userId: context.$user?.id,
+            userId: context.$user?.id ?? context.$user?._id,
           },
           fileRepo,
         );
@@ -338,7 +338,7 @@ export class UploadFileHelper {
             storageConfig: options.storageConfig,
             title: options.title,
             description: options.description,
-            userId: context.$user?.id,
+            userId: context.$user?.id ?? context.$user?._id,
             verifyExists: options.verifyExists,
           },
           fileRepo,

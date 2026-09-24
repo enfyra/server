@@ -1,6 +1,7 @@
-import { ObjectId } from 'mongodb';
+import { Long, ObjectId } from 'mongodb';
 import { describe, expect, it, vi } from 'vitest';
 import { MongoService } from '../../src/engines/mongo';
+import { encodeEncryptedFieldPlainValue } from '../../src/shared/utils/encrypted-field.util';
 
 function makeService() {
   const metadata = {
@@ -109,7 +110,10 @@ describe('MongoHookManagerService integration', () => {
       expect.anything(),
     );
     expect(collection.deleteOne).toHaveBeenCalled();
-    expect(collection.find).toHaveBeenCalledWith({ status: 'published' }, expect.anything());
+    expect(collection.find).toHaveBeenCalledWith(
+      { status: 'published' },
+      expect.anything(),
+    );
     expect(relationManager.updateInverseRelationsOnUpdate).toHaveBeenCalled();
     expect(relationManager.cleanupInverseRelationsOnDelete).toHaveBeenCalled();
     expect(events).toEqual(
@@ -127,6 +131,72 @@ describe('MongoHookManagerService integration', () => {
   });
 });
 
+describe('MongoService native type coercion', () => {
+  it('preserves full signed int64 precision from a decimal string', async () => {
+    const metadata = {
+      columns: [{ name: 'count', type: 'long' }],
+      relations: [],
+    };
+    const service = new MongoService({
+      envService: {} as any,
+      databaseConfigService: {} as any,
+      runtimeRegistryService: {
+        lookupTableByName: vi.fn(() => metadata),
+      } as any,
+      mongoRelationManagerService: {} as any,
+      lazyRef: {} as any,
+    });
+
+    const result = await service.parseJsonFields('native_values', {
+      count: '9223372036854775807',
+    });
+
+    expect(Long.isLong(result.count)).toBe(true);
+    expect(result.count.toString()).toBe('9223372036854775807');
+  });
+});
+
+describe('MongoService parseResult', () => {
+  it('decrypts encrypted columns on rows returned by the query executor', async () => {
+    const secret = 'plain-secret';
+    const ciphertext = encodeEncryptedFieldPlainValue(secret);
+    const metadata = {
+      columns: [{ name: '_id' }, { name: 'secret_token', isEncrypted: true }],
+      relations: [],
+    };
+    const service = new MongoService({
+      envService: {} as any,
+      databaseConfigService: {} as any,
+      runtimeRegistryService: {
+        lookupTableByName: vi.fn(() => metadata),
+        getTableMetadata: vi.fn(() => metadata),
+      } as any,
+      mongoRelationManagerService: {} as any,
+      lazyRef: {} as any,
+    });
+
+    const decrypted = await service.parseResult(
+      [{ _id: 'row-1', secret_token: ciphertext }],
+      'secret_table',
+    );
+
+    expect(decrypted).toEqual([{ _id: 'row-1', secret_token: secret }]);
+  });
+
+  it('passes through results when no table name is supplied', async () => {
+    const service = new MongoService({
+      envService: {} as any,
+      databaseConfigService: {} as any,
+      runtimeRegistryService: {} as any,
+      mongoRelationManagerService: {} as any,
+      lazyRef: {} as any,
+    });
+
+    const rows = [{ _id: 'row-1' }];
+    await expect(service.parseResult(rows, '')).resolves.toBe(rows);
+  });
+});
+
 describe('MongoService insertManyWithCascade', () => {
   it('uses one insertMany and one batched cascade hook for multiple documents', async () => {
     const { service, collection, relationManager } = makeService();
@@ -136,10 +206,12 @@ describe('MongoService insertManyWithCascade', () => {
       events.push(`before:${data.name}`);
       return data;
     });
-    service.getHookManager().addHook('afterInsertMany', async (_table, rows) => {
-      events.push(`afterMany:${rows.length}`);
-      return rows;
-    });
+    service
+      .getHookManager()
+      .addHook('afterInsertMany', async (_table, rows) => {
+        events.push(`afterMany:${rows.length}`);
+        return rows;
+      });
 
     const rows = await service.insertManyWithCascade('post', [
       { name: 'a' },
@@ -149,9 +221,15 @@ describe('MongoService insertManyWithCascade', () => {
     expect(rows).toHaveLength(2);
     expect(collection.insertMany).toHaveBeenCalledTimes(1);
     expect(collection.insertOne).not.toHaveBeenCalled();
-    expect(relationManager.updateInverseRelationsOnInsertMany).toHaveBeenCalledTimes(1);
-    expect(relationManager.writeM2mJunctionsForInsertMany).toHaveBeenCalledTimes(1);
-    expect(relationManager.updateInverseRelationsOnUpdate).not.toHaveBeenCalled();
+    expect(
+      relationManager.updateInverseRelationsOnInsertMany,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      relationManager.writeM2mJunctionsForInsertMany,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      relationManager.updateInverseRelationsOnUpdate,
+    ).not.toHaveBeenCalled();
     expect(events).toEqual(['before:a', 'before:b', 'afterMany:2']);
   });
 });

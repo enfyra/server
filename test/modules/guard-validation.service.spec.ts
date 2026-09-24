@@ -63,6 +63,50 @@ describe('GuardValidationService.assertGuardBody', () => {
     expect(() => svc.assertGuardBody({ parent: 5 })).not.toThrow();
   });
 
+  it('child guards reject targeting fields the root owns', () => {
+    const svc = makeService();
+    const childFields = [
+      { route: { id: 1 } },
+      { isGlobal: true },
+      { position: 'pre_auth' },
+      { methods: ['GET'] },
+      { type: 'graphql' },
+      { gqlOperation: 'QUERY' },
+      { table: { id: 2 } },
+      { excludeRoutes: [{ id: 3 }] },
+    ];
+
+    for (const field of childFields) {
+      expect(() =>
+        svc.assertGuardBody({ parent: { id: 5 }, ...field }),
+      ).toThrow(/Child guards cannot set/);
+    }
+
+    // The child's own fields stay allowed.
+    expect(() =>
+      svc.assertGuardBody({
+        parent: { id: 5 },
+        name: 'internal-or-quota',
+        description: 'nested OR group',
+        combinator: 'or',
+        priority: 1,
+        isEnabled: true,
+      }),
+    ).not.toThrow();
+  });
+
+  it('only rejects targeting fields explicitly present in the request body', () => {
+    const svc = makeService();
+    // A legacy child row may still carry position; an unrelated PATCH that does
+    // not send the field must not be blocked by it.
+    expect(() =>
+      svc.assertGuardBody({ name: 'renamed' }, { id: 7, parent: { id: 5 }, position: 'pre_auth' }),
+    ).not.toThrow();
+    expect(() =>
+      svc.assertGuardBody({ position: 'post_auth' }, { id: 7, parent: { id: 5 } }),
+    ).toThrow(/Child guards cannot set position/);
+  });
+
   it('type=route rejects gqlOperation and table targeting', () => {
     const svc = makeService();
     expect(() =>
@@ -73,8 +117,33 @@ describe('GuardValidationService.assertGuardBody', () => {
     ).toThrow(/type=route cannot set table/);
   });
 
-  it('type=graphql rejects route, isGlobal, and methods', () => {
+  it('excludeRoutes is only valid on a root global guard', () => {
     const svc = makeService();
+    expect(() =>
+      svc.assertGuardBody({
+        isGlobal: true,
+        excludeRoutes: [{ id: 1 }],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      svc.assertGuardBody({
+        route: { id: 1 },
+        excludeRoutes: [{ id: 2 }],
+      }),
+    ).toThrow(/only valid when isGlobal=true/);
+    expect(() =>
+      svc.assertGuardBody({
+        parent: { id: 5 },
+        excludeRoutes: [{ id: 2 }],
+      }),
+    ).toThrow(/Child guards cannot set/);
+    expect(() => svc.assertGuardBody({ isGlobal: true })).not.toThrow();
+    expect(() =>
+      svc.assertGuardBody({ isGlobal: true, excludeRoutes: [] }),
+    ).not.toThrow();
+  });
+
+  it('type=graphql rejects route, isGlobal, and methods', () => {    const svc = makeService();
     expect(() =>
       svc.assertGuardBody({ type: 'graphql', route: { id: 1 } }),
     ).toThrow(/cannot have a route/);

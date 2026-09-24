@@ -140,6 +140,7 @@ export class RedisAdminService {
       MAX_SCAN_COUNT,
     );
     const pattern = this.effectiveListPattern(options.pattern);
+    const filter = this.normalizeListFilter(options.filter);
     let cursor = options.cursor || '0';
     const readable: RedisAdminKeySummary[] = [];
     do {
@@ -158,7 +159,7 @@ export class RedisAdminService {
         ...summaries.filter(
           (key) =>
             key.namespaceScope === 'current' &&
-            this.matchesListFilter(key, options.filter),
+            this.matchesListFilter(key, filter),
         ),
       );
     } while (cursor !== '0' && readable.length < count);
@@ -714,6 +715,14 @@ export class RedisAdminService {
       namespace: summary.namespace,
       scope: summary.namespaceScope,
     };
+  }
+
+  private normalizeListFilter(
+    value: unknown,
+  ): RedisAdminSystemKind | 'custom' | 'all' | undefined {
+    return typeof value === 'string' && value.length > 0
+      ? (value as RedisAdminSystemKind | 'custom' | 'all')
+      : undefined;
   }
 
   private matchesListFilter(

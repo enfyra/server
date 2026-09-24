@@ -9,12 +9,18 @@ import {
 import { KnexEntityManager } from './entity-manager';
 import { FieldStripper } from './utils/field-stripper';
 import { parseDatabaseUri } from './utils/uri-parser';
+import { registerPgDateTypeParser } from '../../shared/utils/temporal-write.util';
 import { DatabaseConfigService, EnvService } from '../../shared/services';
 import { ReplicationManager } from './services/replication-manager.service';
 import { KnexHookManagerService } from './services/knex-hook-manager.service';
 import { LifecycleAware } from '../../shared/interfaces/lifecycle-aware.interface';
 import { SQL_ACQUIRE_TIMEOUT_MS } from '../../shared/utils/auto-scaling.constants';
 import { resolveSqlPoolConfig } from './utils/sql-pool-config.util';
+import {
+  MYSQL_DRIVER_TIMEZONE,
+  applyMySqlSessionTimeZone,
+  parseMySqlUtcTemporal,
+} from './utils/sql-temporal-contract.util';
 
 export class KnexService implements LifecycleAware {
   private knexInstance!: Knex;
@@ -125,20 +131,34 @@ export class KnexService implements LifecycleAware {
       }
 
       const poolConfig = resolveSqlPoolConfig(DB_TYPE, this.envService);
+      // The pg driver returns a `date` column as local midnight, which serializes
+      // to the wrong calendar day on a host that is not on UTC. The mysql2 side
+      // already reads DATE as a string through `typeCast`; this is the pg side.
+      if (this.databaseConfigService.isPostgres()) {
+        registerPgDateTypeParser();
+      }
+      const isPostgres = this.databaseConfigService.isPostgres();
       this.knexInstance = knex({
-        client: this.databaseConfigService.isPostgres() ? 'pg' : 'mysql2',
+        client: isPostgres ? 'pg' : 'mysql2',
         connection: {
           host: connectionConfig.host,
           port: connectionConfig.port,
           user: connectionConfig.user,
           password: connectionConfig.password,
           database: connectionConfig.database,
+          ...(isPostgres ? {} : { timezone: MYSQL_DRIVER_TIMEZONE }),
           typeCast: (field: any, next: any) => {
-            if (
-              field.type === 'DATE' ||
-              field.type === 'DATETIME' ||
-              field.type === 'TIMESTAMP'
-            ) {
+            // With the session and driver pinned to UTC, MySQL hands back a UTC wall
+            // clock with no offset in the text. Reading it as a Date here keeps the
+            // value on the instant it stores, matching what PostgreSQL returns for
+            // `TIMESTAMPTZ`; a plain string would be re-parsed in the host zone by
+            // every caller that builds a Date from it.
+            if (field.type === 'DATETIME' || field.type === 'TIMESTAMP') {
+              return parseMySqlUtcTemporal(field.string());
+            }
+            // A residual `DATE` column carries a calendar day rather than an instant,
+            // so it stays the plain date string.
+            if (field.type === 'DATE') {
               return field.string();
             }
             if (field.type === 'TINY' && field.length === 1) {
@@ -152,6 +172,12 @@ export class KnexService implements LifecycleAware {
         pool: {
           min: poolConfig.min,
           max: poolConfig.max,
+          afterCreate: isPostgres
+            ? undefined
+            : (
+                connection: any,
+                done: (error: unknown, connection?: any) => void,
+              ) => applyMySqlSessionTimeZone(connection, done),
         },
         acquireConnectionTimeout: SQL_ACQUIRE_TIMEOUT_MS,
         debug: false,
