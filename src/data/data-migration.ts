@@ -1164,7 +1164,7 @@ export const standingDataCorrections = {
 const dataMigrations: VersionedDataMigration[] = [
   {
     fromVersion: '2.2.19-patch-1',
-    toVersion: '2.2.20',
+    toVersion: '2.3.0',
     data: {
       enfyra_column: [
         {

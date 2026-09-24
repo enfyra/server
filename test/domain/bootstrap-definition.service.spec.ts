@@ -18,7 +18,7 @@ describe('BootstrapDefinitionService', () => {
           dataMigrations: [
             {
               fromVersion: '2.2.19-patch-1',
-              toVersion: '2.2.20',
+              toVersion: '2.3.0',
               data: {
                 _deletedRecords: [
                   {
@@ -86,7 +86,7 @@ describe('BootstrapDefinitionService', () => {
           migrations: [
             {
               fromVersion: '2.2.19-patch-1',
-              toVersion: '2.2.20',
+              toVersion: '2.3.0',
               schema: {
                 tables: [],
                 tablesToRename: [{ from: 'legacy', to: 'missing' }],

@@ -32,7 +32,7 @@ function codeColumnModifications(
 const snapshotMigrations: VersionedSchemaMigration[] = [
   {
     fromVersion: '2.2.19-patch-1',
-    toVersion: '2.2.20',
+    toVersion: '2.3.0',
     schema: {
       mongoColumnTypesToModify: [...MONGO_COLUMN_TYPE_MIGRATIONS],
       tables: [
