@@ -76,10 +76,10 @@ describe('WorkerPool rotation (heap-driven)', () => {
     entry.worker.terminate();
   });
 
-  it.each(['explicit', 'rotation', 'shutdown'] as const)(
+  it.each(['explicit', 'shutdown'] as const)(
     'aborts running host I/O before %s worker termination',
     async (reason) => {
-      pool = new WorkerPool(1, GB, RSS_CEILING, 1, FAKE_WORKER, undefined, undefined, 30);
+      pool = new WorkerPool(1, GB, RSS_CEILING, 1, FAKE_WORKER);
       const entry = await pool.dispatch();
       const controller = new AbortController();
       let abortEvents = 0;
@@ -100,10 +100,7 @@ describe('WorkerPool rotation (heap-driven)', () => {
           onIoCall: () => {},
         });
       });
-      if (reason === 'rotation') {
-        (pool as any).rotateEntry(entry, 'test');
-        expect(controller.signal.aborted).toBe(false);
-      } else if (reason === 'shutdown') {
+      if (reason === 'shutdown') {
         pool.destroyAll();
       } else {
         pool.terminateEntry(entry, 'test');
@@ -113,6 +110,39 @@ describe('WorkerPool rotation (heap-driven)', () => {
       expect(abortEvents).toBe(1);
     },
   );
+
+  it('rotation does NOT abort in-flight host I/O and leaves the worker running', async () => {
+    pool = new WorkerPool(1, GB, RSS_CEILING, 1, FAKE_WORKER);
+    const entry = await pool.dispatch();
+    const controller = new AbortController();
+    let abortEvents = 0;
+    controller.signal.addEventListener('abort', () => { abortEvents++; });
+    const terminate = entry.worker.terminate.bind(entry.worker);
+    const terminateSpy = vi
+      .spyOn(entry.worker, 'terminate')
+      .mockImplementation(terminate);
+
+    pool.registerTask(entry, 'pending-io', {
+      abortController: controller,
+      onResult: () => pool!.unregisterTask(entry, 'pending-io'),
+      onIoCall: () => {},
+    });
+
+    (pool as any).rotateEntry(entry, 'test');
+
+    expect(controller.signal.aborted).toBe(false);
+    expect(terminateSpy).not.toHaveBeenCalled();
+    expect(entry.draining).toBe(true);
+    expect(entry.tasks.size).toBe(1);
+
+    // The worker must keep running until the task itself releases.
+    await sleep(150);
+    expect(abortEvents).toBe(0);
+    expect(terminateSpy).not.toHaveBeenCalled();
+
+    pool.unregisterTask(entry, 'pending-io');
+    await waitFor(() => terminateSpy.mock.calls.length === 1, 2000);
+  });
 
   it('keeps reserved work alive during rotation', async () => {
     pool = new WorkerPool(1, GB, RSS_CEILING, 1, FAKE_WORKER);
@@ -266,24 +296,15 @@ describe('WorkerPool rotation (heap-driven)', () => {
     expect(pool.getEntries().length).toBe(1);
   });
 
-  it('force-terminates draining worker after drain timeout', async () => {
-    pool = new WorkerPool(
-      1,
-      GB,
-      RSS_CEILING,
-      TASKS_CAP,
-      FAKE_WORKER,
-      undefined,
-      undefined,
-      100,
-    );
+  it('lets a draining worker finish its in-flight task instead of killing it', async () => {
+    pool = new WorkerPool(1, GB, RSS_CEILING, TASKS_CAP, FAKE_WORKER);
     await sleep(50);
 
     const originalEntry = pool.getEntries()[0];
 
-    const stuckTaskPromise = runTask(pool, originalEntry, 'stuck', {
+    const longTaskPromise = runTask(pool, originalEntry, 'long', {
       triggerHeapRatio: 0.1,
-      delayMs: 10_000,
+      delayMs: 3_000,
     });
 
     const trigger = await runTask(pool, originalEntry, 'trigger', {
@@ -294,12 +315,45 @@ describe('WorkerPool rotation (heap-driven)', () => {
     await waitFor(() => originalEntry.draining === true);
     expect(originalEntry.tasks.size).toBe(1);
 
-    const stuckResult = await stuckTaskPromise;
-    expect(stuckResult.success).toBe(false);
-    expect(stuckResult.error?.message).toMatch(/crashed/i);
+    // No drain timer exists any more: the in-flight task must complete normally
+    // rather than being aborted, however long it runs.
+    const longResult = await longTaskPromise;
+    expect(longResult.success).toBe(true);
+    expect(longResult.value).toBe('ok');
 
-    await waitFor(() => !pool!.getEntries().includes(originalEntry), 1000);
+    await waitFor(() => !pool!.getEntries().includes(originalEntry), 2000);
+    expect(pool.getEntries().length).toBe(1);
   });
+
+  // The removed drain grace was 60s, so only a task that outlives it proves the
+  // guarantee. Guarded because it costs ~70s and needs its own timeout.
+  const longCase = process.env.ROTATION_DRAIN_LONG === '1' ? it : it.skip;
+  longCase(
+    'keeps a draining worker alive past the old 60s drain grace',
+    async () => {
+      pool = new WorkerPool(1, GB, RSS_CEILING, TASKS_CAP, FAKE_WORKER);
+      await sleep(50);
+
+      const originalEntry = pool.getEntries()[0];
+      const longTaskPromise = runTask(pool, originalEntry, 'very-long', {
+        triggerHeapRatio: 0.1,
+        delayMs: 65_000,
+      });
+
+      const trigger = await runTask(pool, originalEntry, 'trigger', {
+        triggerHeapRatio: 0.9,
+      });
+      expect(trigger.success).toBe(true);
+      await waitFor(() => originalEntry.draining === true);
+
+      const longResult = await longTaskPromise;
+      expect(longResult.success).toBe(true);
+      expect(longResult.value).toBe('ok');
+
+      await waitFor(() => !pool!.getEntries().includes(originalEntry), 2000);
+    },
+    90_000,
+  );
 
   it('crash handler does NOT re-fire for graceful drain exit', async () => {
     let crashCount = 0;
