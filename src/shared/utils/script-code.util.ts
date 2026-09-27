@@ -361,6 +361,65 @@ class ScriptContractService {
               : '$throw.json accepts only body and optional options',
           );
         }
+        if (methodAccess.name.text === 'json') {
+          const body = call.arguments[0];
+          if (
+            ts.isArrayLiteralExpression(body)
+            || ts.isStringLiteral(body)
+            || ts.isNumericLiteral(body)
+            || body.kind === ts.SyntaxKind.TrueKeyword
+            || body.kind === ts.SyntaxKind.FalseKeyword
+            || body.kind === ts.SyntaxKind.NullKeyword
+          ) {
+            throw new Error('$throw.json body must be a JSON object');
+          }
+          if (ts.isObjectLiteralExpression(body)) {
+            const propertyName = (property: ts.ObjectLiteralElementLike) => {
+              if (
+                (ts.isPropertyAssignment(property)
+                  || ts.isShorthandPropertyAssignment(property))
+                && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))
+              ) {
+                return property.name.text;
+              }
+              return undefined;
+            };
+            const reservedRootProperty = body.properties.find((property) =>
+              ['success', 'statusCode'].includes(propertyName(property) ?? ''),
+            );
+            if (reservedRootProperty) {
+              throw new Error(
+                '$throw.json body.success and body.statusCode are server-owned',
+              );
+            }
+            const errorProperty = body.properties.find(
+              (property) => propertyName(property) === 'error',
+            );
+            if (errorProperty && ts.isPropertyAssignment(errorProperty)) {
+              const errorValue = errorProperty.initializer;
+              if (
+                ts.isArrayLiteralExpression(errorValue)
+                || ts.isStringLiteral(errorValue)
+                || ts.isNumericLiteral(errorValue)
+                || errorValue.kind === ts.SyntaxKind.TrueKeyword
+                || errorValue.kind === ts.SyntaxKind.FalseKeyword
+                || errorValue.kind === ts.SyntaxKind.NullKeyword
+              ) {
+                throw new Error('$throw.json body.error must be a JSON object');
+              }
+              if (
+                ts.isObjectLiteralExpression(errorValue)
+                && errorValue.properties.some(
+                  (property) => propertyName(property) === 'statusCode',
+                )
+              ) {
+                throw new Error(
+                  '$throw.json body.error.statusCode is not allowed; use options.statusCode',
+                );
+              }
+            }
+          }
+        }
       }
 
       ts.forEachChild(node, visit);

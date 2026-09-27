@@ -15,6 +15,7 @@ import { RequestWithRouteData } from '../../../shared/types';
 import { Readable } from 'stream';
 import { RuntimeScriptRepairService } from '../../../engines/cache';
 import { recordUserLog } from '../../../shared/runtime-log-buffer';
+import { buildErrorResponseTrace } from '../../../shared/utils/error-response-trace.util';
 
 const streamLogger = new Logger('DynamicResponseStream');
 const DEFAULT_DYNAMIC_ROUTE_TIMEOUT_MS = 60_000;
@@ -74,6 +75,39 @@ function beginNativeResponse(
   res.__enfyraStreamStarted = true;
 }
 
+function mergeErrorTrace(
+  jsonText: string,
+  res: any,
+  statusCode: number,
+): { responseText: string; correlationId: string } {
+  const body = JSON.parse(jsonText);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new TypeError('@THROW.json body must be a JSON object');
+  }
+  if (
+    body.error !== undefined
+    && (!body.error || typeof body.error !== 'object' || Array.isArray(body.error))
+  ) {
+    throw new TypeError('@THROW.json body.error must be a JSON object');
+  }
+
+  const trace = buildErrorResponseTrace(res.req, res);
+  const customError = { ...(body.error ?? {}) };
+  delete customError.statusCode;
+  return {
+    correlationId: trace.correlationId,
+    responseText: JSON.stringify({
+      ...body,
+      success: false,
+      statusCode,
+      error: {
+        ...customError,
+        ...trace,
+      },
+    }),
+  };
+}
+
 export function attachStreamResponseHelper(res: any): void {
   if (!res) return;
   const writeJson = async (
@@ -101,13 +135,23 @@ export function attachStreamResponseHelper(res: any): void {
           : '@RES.json statusCode must be from 200 to 399',
       );
     }
+    const errorResponse = kind === 'error'
+      ? mergeErrorTrace(jsonText, res, statusCode)
+      : null;
+    const responseText = errorResponse?.responseText ?? jsonText;
     beginNativeResponse(res);
     applyResponseOptions(res, {
       ...options,
       statusCode,
+      headers: {
+        ...options.headers,
+        ...(errorResponse
+          ? { 'X-Correlation-ID': errorResponse.correlationId }
+          : {}),
+      },
       mimetype: 'application/json; charset=utf-8',
     });
-    res.end(jsonText);
+    res.end(responseText);
   };
   if (!res.__enfyraJson) {
     res.__enfyraJson = (jsonText: string, options?: any) =>

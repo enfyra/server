@@ -139,6 +139,24 @@ describe('transformCode', () => {
   it('accepts only the canonical source-level throw contract', () => {
     expect(() => assertScriptSourceContract('@THROW.http(502, "Upstream request failed");')).not.toThrow();
     expect(() => assertScriptSourceContract('@THROW.json({ error: { code: "upstream_error" } }, { statusCode: 502, headers: { "x-should-retry": "true" } });')).not.toThrow();
+    expect(() => assertScriptSourceContract('@THROW.json({ reason: "conflict" }, { statusCode: 409 });')).not.toThrow();
+    expect(() => assertScriptSourceContract('@THROW.json(errorBody, { statusCode: 500 });')).not.toThrow();
+    expect(() => assertScriptSourceContract('@THROW.json({ error: errorDetails }, { statusCode: 500 });')).not.toThrow();
+    expect(() => assertScriptSourceContract('@THROW.json([], { statusCode: 500 });')).toThrow(
+      '$throw.json body must be a JSON object',
+    );
+    expect(() => assertScriptSourceContract('@THROW.json({ error: "failed" }, { statusCode: 500 });')).toThrow(
+      '$throw.json body.error must be a JSON object',
+    );
+    expect(() => assertScriptSourceContract('@THROW.json({ success: true, error: {} }, { statusCode: 500 });')).toThrow(
+      '$throw.json body.success and body.statusCode are server-owned',
+    );
+    expect(() => assertScriptSourceContract('@THROW.json({ statusCode: 200, error: {} }, { statusCode: 500 });')).toThrow(
+      '$throw.json body.success and body.statusCode are server-owned',
+    );
+    expect(() => assertScriptSourceContract('@THROW.json({ error: { statusCode: 200 } }, { statusCode: 500 });')).toThrow(
+      '$throw.json body.error.statusCode is not allowed; use options.statusCode',
+    );
     expect(() => assertScriptSourceContract('@THROW404("Project not found");')).not.toThrow();
     expect(() => assertScriptSourceContract('@THROW400();')).toThrow(
       '@THROW status aliases require exactly one message',

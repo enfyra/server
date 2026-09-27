@@ -119,7 +119,13 @@ export interface DynamicStreams {
 export interface DynamicThrow {
   http: (statusCode: number, message?: string) => never;
   json: (
-    body: unknown,
+    body: Record<string, unknown> & {
+      success?: never;
+      statusCode?: never;
+      error?: Record<string, unknown> & {
+        statusCode?: never;
+      };
+    },
     options?: Omit<DynamicResponseStreamOptions, 'mimetype' | 'filename' | 'observer' | 'transform'>,
   ) => never;
 }

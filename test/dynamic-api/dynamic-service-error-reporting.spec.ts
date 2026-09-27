@@ -183,7 +183,13 @@ describe('DynamicService error reporting', () => {
       },
       loggingService: { error: vi.fn() },
     } as any);
-    const request = createRequest();
+    const request = createRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      originalUrl: '/api/v1/chat/completions',
+      correlationId: 'req_custom_error',
+    });
+    response.req = request;
     request.routeData.res = response;
 
     await expect(service.runHandler(request)).resolves.toBeUndefined();
@@ -192,8 +198,20 @@ describe('DynamicService error reporting', () => {
       'x-should-retry',
       'true',
     );
-    expect(response.end).toHaveBeenCalledWith(
-      '{"error":{"code":"upstream_error","should_retry":true}}',
+    const responseBody = JSON.parse(response.end.mock.calls[0][0]);
+    expect(responseBody).toMatchObject({
+      error: {
+        code: 'upstream_error',
+        should_retry: true,
+        path: '/api/v1/chat/completions',
+        method: 'POST',
+        correlationId: 'req_custom_error',
+      },
+    });
+    expect(Date.parse(responseBody.error.timestamp)).not.toBeNaN();
+    expect(response.setHeader).toHaveBeenCalledWith(
+      'X-Correlation-ID',
+      'req_custom_error',
     );
   });
 

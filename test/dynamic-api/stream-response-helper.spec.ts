@@ -11,6 +11,13 @@ function makeResponse() {
     setHeader: ReturnType<typeof vi.fn>;
     json: ReturnType<typeof vi.fn>;
     destroy: ReturnType<typeof vi.fn>;
+    req?: {
+      method: string;
+      url: string;
+      originalUrl?: string;
+      correlationId?: string;
+      headers: Record<string, string>;
+    };
   };
   response.headersSent = false;
   response.status = vi.fn(() => response);
@@ -55,22 +62,40 @@ describe('attachStreamResponseHelper', () => {
     expect(JSON.parse(response.read().toString())).toEqual(body);
   });
 
-  it('writes an exact custom error through the error JSON boundary', async () => {
+  it('merges custom error fields with server-owned trace fields', async () => {
     const response = makeResponse() as ReturnType<typeof makeResponse> & {
       __enfyraErrorJson: (jsonText: string, options?: unknown) => Promise<void>;
     };
+    response.req = {
+      method: 'POST',
+      url: '/v1/chat/completions?debug=true',
+      originalUrl: '/api/v1/chat/completions?debug=true',
+      correlationId: 'req_custom_error',
+      headers: { 'x-correlation-id': 'spoofed-header-id' },
+    };
     const body = {
+      success: true,
+      statusCode: 200,
+      request_id: 'public-request-id',
       error: {
         code: 'upstream_error',
         message: 'Please retry shortly.',
         should_retry: true,
+        statusCode: 200,
+        timestamp: 'spoofed-timestamp',
+        path: '/spoofed',
+        method: 'GET',
+        correlationId: 'spoofed-body-id',
       },
     };
     attachStreamResponseHelper(response);
 
     await response.__enfyraErrorJson(JSON.stringify(body), {
       statusCode: 502,
-      headers: { 'x-should-retry': 'true' },
+      headers: {
+        'x-should-retry': 'true',
+        'X-Correlation-ID': 'spoofed-options-id',
+      },
     });
 
     expect(response.__enfyraStreamStarted).toBe(true);
@@ -83,8 +108,78 @@ describe('attachStreamResponseHelper', () => {
       'x-should-retry',
       'true',
     );
+    expect(response.setHeader).toHaveBeenCalledWith(
+      'X-Correlation-ID',
+      'req_custom_error',
+    );
     expect(response.json).not.toHaveBeenCalled();
-    expect(JSON.parse(response.read().toString())).toEqual(body);
+    const result = JSON.parse(response.read().toString());
+    expect(result).toMatchObject({
+      success: false,
+      statusCode: 502,
+      request_id: 'public-request-id',
+      error: {
+        code: 'upstream_error',
+        message: 'Please retry shortly.',
+        should_retry: true,
+        path: '/api/v1/chat/completions',
+        method: 'POST',
+        correlationId: 'req_custom_error',
+      },
+    });
+    expect(result.error).not.toHaveProperty('statusCode');
+    expect(result.error.timestamp).not.toBe('spoofed-timestamp');
+    expect(Date.parse(result.error.timestamp)).not.toBeNaN();
+  });
+
+  it('creates the error object when a custom body omits it', async () => {
+    const response = makeResponse() as ReturnType<typeof makeResponse> & {
+      __enfyraErrorJson: (jsonText: string, options?: unknown) => Promise<void>;
+    };
+    response.req = {
+      method: 'DELETE',
+      url: '/projects/1',
+      correlationId: 'req_missing_error',
+      headers: {},
+    };
+    attachStreamResponseHelper(response);
+
+    await response.__enfyraErrorJson('{"reason":"conflict"}', {
+      statusCode: 409,
+    });
+
+    expect(JSON.parse(response.read().toString())).toMatchObject({
+      success: false,
+      statusCode: 409,
+      reason: 'conflict',
+      error: {
+        path: '/projects/1',
+        method: 'DELETE',
+        correlationId: 'req_missing_error',
+      },
+    });
+  });
+
+  it('rejects custom error bodies that cannot carry an error object', async () => {
+    const primitiveResponse = makeResponse() as ReturnType<typeof makeResponse> & {
+      __enfyraErrorJson: (jsonText: string, options?: unknown) => Promise<void>;
+    };
+    const scalarErrorResponse = makeResponse() as ReturnType<typeof makeResponse> & {
+      __enfyraErrorJson: (jsonText: string, options?: unknown) => Promise<void>;
+    };
+    attachStreamResponseHelper(primitiveResponse);
+    attachStreamResponseHelper(scalarErrorResponse);
+
+    await expect(
+      primitiveResponse.__enfyraErrorJson('[]', { statusCode: 500 }),
+    ).rejects.toThrow('@THROW.json body must be a JSON object');
+    await expect(
+      scalarErrorResponse.__enfyraErrorJson('{"error":"failed"}', {
+        statusCode: 500,
+      }),
+    ).rejects.toThrow('@THROW.json body.error must be a JSON object');
+    expect(primitiveResponse.__enfyraStreamStarted).not.toBe(true);
+    expect(scalarErrorResponse.__enfyraStreamStarted).not.toBe(true);
   });
 
   it('keeps success and error JSON status ranges separate', async () => {
