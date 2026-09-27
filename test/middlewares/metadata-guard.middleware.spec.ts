@@ -209,6 +209,7 @@ describe('metadata-guard.middleware contract', () => {
     await mw(req, res, next);
 
     expect(res.setHeader).toHaveBeenCalledWith('Retry-After', '27');
+    expect(res.setHeader).toHaveBeenCalledWith('x-should-retry', 'true');
     expect(res.setHeader).toHaveBeenCalledWith('X-RateLimit-Limit', '100');
     expect(res.setHeader).toHaveBeenCalledWith('X-RateLimit-Remaining', '0');
     expect(res.setHeader).toHaveBeenCalledWith('X-RateLimit-Reset', '1785690473123');

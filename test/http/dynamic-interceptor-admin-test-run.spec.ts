@@ -198,6 +198,107 @@ describe('dynamicInterceptorBegin admin test run isolation', () => {
     record.mockRestore();
   });
 
+  it('writes a pre-hook custom JSON error through the traced response boundary', async () => {
+    const req = {
+      method: 'POST',
+      path: '/v2/chat/completions',
+      originalUrl: '/v2/chat/completions?token=private',
+      routeData: {
+        route: { path: '/v2/*' },
+        context: { $share: { $logs: [] } },
+        preHooks: [{ code: "@THROW.json({ error: { code: 'upstream_error' } })" }],
+        postHooks: [],
+      },
+    };
+    const carrier = Object.assign(new Error('Custom JSON error response'), {
+      code: 'HTTP_502',
+      errorCode: 'HTTP_502',
+      errorPath: '$throw.json',
+      isRawScriptErrorCarrier: true,
+      statusCode: 502,
+      details: {
+        errorJsonText: JSON.stringify({
+          error: {
+            message: 'Please retry shortly.',
+            type: 'api_error',
+            code: 'upstream_error',
+            param: null,
+            should_retry: true,
+            retry_after_seconds: 5,
+          },
+        }),
+        errorJsonOptions: {
+          statusCode: 502,
+          headers: {
+            'x-should-retry': 'true',
+            'Retry-After': '5',
+          },
+        },
+      },
+    });
+    const executorEngineService = {
+      register: vi.fn(),
+      runBatch: vi.fn(async () => {
+        throw carrier;
+      }),
+    };
+    const response = new PassThrough() as PassThrough & {
+      headersSent: boolean;
+      statusCode: number;
+      status: ReturnType<typeof vi.fn>;
+      setHeader: ReturnType<typeof vi.fn>;
+      json: ReturnType<typeof vi.fn>;
+      getHeader: ReturnType<typeof vi.fn>;
+    };
+    const headers = new Map<string, unknown>();
+    response.headersSent = false;
+    response.statusCode = 200;
+    response.status = vi.fn((statusCode: number) => {
+      response.statusCode = statusCode;
+      return response;
+    });
+    response.setHeader = vi.fn((name: string, value: unknown) => {
+      headers.set(name.toLowerCase(), value);
+      return response;
+    });
+    response.getHeader = vi.fn((name: string) => headers.get(name.toLowerCase()));
+    (response as any).req = req;
+    response.json = vi.fn();
+    const chunks: Buffer[] = [];
+    response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+    const next = vi.fn();
+
+    await dynamicInterceptorBegin(executorEngineService as any)(
+      req,
+      response as any,
+      next,
+    );
+
+    const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    expect(next).not.toHaveBeenCalled();
+    expect(response.statusCode).toBe(502);
+    expect(headers.get('x-should-retry')).toBe('true');
+    expect(headers.get('retry-after')).toBe('5');
+    expect(headers.get('x-correlation-id')).toBe(payload.error.correlationId);
+    expect(payload).toMatchObject({
+      success: false,
+      statusCode: 502,
+      error: {
+        message: 'Please retry shortly.',
+        type: 'api_error',
+        code: 'upstream_error',
+        param: null,
+        should_retry: true,
+        retry_after_seconds: 5,
+        path: '/v2/chat/completions',
+        method: 'POST',
+      },
+    });
+    expect(payload.error).not.toHaveProperty('details');
+    expect(payload.error).not.toHaveProperty('statusCode');
+    expect(req.routeData.context).not.toHaveProperty('$res');
+  });
+
   it('lets a pre-hook stream an early response and stops the request pipeline', async () => {
     const req = {
       method: 'POST',

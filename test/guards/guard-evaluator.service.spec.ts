@@ -1001,6 +1001,7 @@ describe('GuardEvaluatorService', () => {
       expect(reject.headers).toEqual(
         expect.objectContaining({
           'Retry-After': '30',
+          'x-should-retry': 'true',
           'X-RateLimit-Limit': '100',
           'X-RateLimit-Remaining': '0',
           'X-Enfyra-Guard-Reason': 'rate_limit',

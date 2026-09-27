@@ -108,6 +108,42 @@ function mergeErrorTrace(
   };
 }
 
+export async function writeRawScriptErrorJson(
+  error: unknown,
+  res: any,
+  script?: string,
+): Promise<boolean> {
+  const carrier = error as {
+    details?: {
+      errorJsonText?: unknown;
+      errorJsonOptions?: unknown;
+    };
+    errorPath?: string;
+    isRawScriptErrorCarrier?: boolean;
+  };
+  if (
+    carrier.isRawScriptErrorCarrier !== true
+    || carrier.errorPath !== '$throw.json'
+  ) {
+    return false;
+  }
+
+  const errorJsonText = carrier.details?.errorJsonText;
+  const errorJsonOptions = carrier.details?.errorJsonOptions;
+  const writeErrorJson = res?.__enfyraErrorJson;
+  if (
+    typeof errorJsonText !== 'string'
+    || typeof writeErrorJson !== 'function'
+  ) {
+    throw new ScriptExecutionException(
+      'Custom JSON error response could not be written',
+      script,
+    );
+  }
+  await writeErrorJson.call(res, errorJsonText, errorJsonOptions);
+  return true;
+}
+
 export function attachStreamResponseHelper(res: any): void {
   if (!res) return;
   const writeJson = async (
@@ -425,24 +461,9 @@ export class DynamicService {
       }
       const carrierCode = err.errorCode ?? err.code;
       const isRawScriptErrorCarrier = err.isRawScriptErrorCarrier === true;
-      if (isRawScriptErrorCarrier && err.errorPath === '$throw.json') {
-        const errorJsonText = err.details?.errorJsonText;
-        const errorJsonOptions = err.details?.errorJsonOptions;
-        const writeErrorJson = (routeData.res as any)?.__enfyraErrorJson;
-        if (
-          typeof errorJsonText !== 'string'
-          || typeof writeErrorJson !== 'function'
-        ) {
-          throw new ScriptExecutionException(
-            'Custom JSON error response could not be written',
-            routeData.handler,
-          );
-        }
-        await writeErrorJson.call(
-          routeData.res,
-          errorJsonText,
-          errorJsonOptions,
-        );
+      if (
+        await writeRawScriptErrorJson(error, routeData.res, routeData.handler)
+      ) {
         return undefined;
       }
       if (

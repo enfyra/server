@@ -6,6 +6,7 @@ import { HttpException } from '../../domain/exceptions';
 import {
   attachStreamResponseHelper,
   persistDynamicScriptLogs,
+  writeRawScriptErrorJson,
 } from '../../modules/dynamic-api/services/dynamic.service';
 
 function isAdminTestRunRequest(req: any): boolean {
@@ -151,6 +152,7 @@ export function dynamicInterceptorBegin(
               ? (error as any).statusCode
               : 500;
         persistDynamicScriptLogs(req, statusCode);
+        if (await writeRawScriptErrorJson(error, res)) return;
         return next(error);
       } finally {
         req.off?.('aborted', abortOnDisconnect);
