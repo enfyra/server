@@ -110,6 +110,7 @@ async function bootServer(
       ADMIN_PASSWORD: `e2e-${randomUUID()}`,
       NODE_ENV: 'test',
       NODE_NAME: `temporal-healing-e2e-${port}`,
+      STARTUP_VERBOSE: '1',
       BOOTSTRAP_VERBOSE: '1',
       MONGO_FORCE_APP_TRANSACTION: '0',
     },

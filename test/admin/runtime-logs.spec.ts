@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { acknowledgeRuntimeLog, getRuntimeLogBufferStats, peekRuntimeLogs, recordSystemError, recordUserLog, sanitizeRuntimeLog } from '../../src/shared/runtime-log-buffer';
 import { RuntimeLogWriterService } from '../../src/modules/admin';
+import { runWithBootstrapLogMode } from '../../src/shared/bootstrap-log-context';
 import { logStore } from '../../src/shared/log-store';
 
 function clear() { for (const item of peekRuntimeLogs(3000)) acknowledgeRuntimeLog(item.record.eventId); }
@@ -52,4 +53,18 @@ describe('database runtime logs', () => {
     await writer.flush(); expect(peekRuntimeLogs()).toHaveLength(0);
     expect(updateOne).toHaveBeenCalledWith(expect.objectContaining({ eventId: expect.any(String) }), expect.objectContaining({ $setOnInsert: expect.objectContaining({ entries: ['one'] }) }), { upsert: true, maxTimeMS: 2000 });
   });
+});
+
+it('keeps unavailable DB logging silent during quiet boot and reports after boot', async () => {
+  const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  const writer = new RuntimeLogWriterService({
+    databaseConfigService: { isMongoDb: () => false },
+    knexService: { getUnscopedWriteKnex: () => { throw new Error('unavailable'); } },
+  } as any);
+  try {
+    await runWithBootstrapLogMode('quiet', () => writer.flush());
+    expect(stderr).not.toHaveBeenCalled();
+    await writer.flush();
+    expect(stderr).toHaveBeenCalledTimes(1);
+  } finally { stderr.mockRestore(); }
 });

@@ -115,7 +115,8 @@ describe('FirstRunInitializer', () => {
     const initializer = new FirstRunInitializer({} as any);
 
     (initializer as any).logProgress('Upgrading', 57.5, 'healing metadata');
-    (initializer as any).logProgress('Upgrading', 100, 'completed');
+    (initializer as any).logProgress('Upgrading', 100, 'publish initialized version');
+    (initializer as any).logProgress('Upgrading', 100, 'completed', true);
 
     expect(write).toHaveBeenCalledTimes(1);
     expect(String(write.mock.calls[0][0])).toContain('100% completed');

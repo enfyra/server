@@ -5,7 +5,6 @@ import { recordSystemError } from './runtime-log-buffer';
 import {
   clearStartupProgressLine,
   isStartupProgressLineActive,
-  isStartupVerbose,
 } from './startup-log';
 
 type LevelName = 'error' | 'warn' | 'log' | 'debug' | 'verbose';
@@ -116,37 +115,6 @@ function sanitizeLogValue(value: any, seen = new WeakSet<object>()): any {
   );
 }
 
-const BOOTSTRAP_QUIET_CONTEXTS = new Set([
-  'TableDefinitionProcessor',
-  'ColumnDefinitionProcessor',
-  'RelationDefinitionProcessor',
-  'UserDefinitionProcessor',
-  'MenuDefinitionProcessor',
-  'RouteDefinitionProcessor',
-  'RouteHandlerDefinitionProcessor',
-  'MethodDefinitionProcessor',
-  'PreHookDefinitionProcessor',
-  'PostHookDefinitionProcessor',
-  'FieldPermissionDefinitionProcessor',
-  'SettingDefinitionProcessor',
-  'ExtensionDefinitionProcessor',
-  'FolderDefinitionProcessor',
-  'BootstrapScriptDefinitionProcessor',
-  'RoutePermissionDefinitionProcessor',
-  'WebsocketDefinitionProcessor',
-  'WebsocketEventDefinitionProcessor',
-  'FlowDefinitionProcessor',
-  'FlowStepDefinitionProcessor',
-  'FlowExecutionDefinitionProcessor',
-  'GraphQLDefinitionProcessor',
-  'GenericTableProcessor',
-  'DataMigrationService',
-  'DataProvisionService',
-  'MetadataMigrationService',
-  'SchemaHealingService',
-  'MetadataProvisionMongoService',
-  'MetadataProvisionSqlService',
-]);
 
 let logCounter = 0;
 function generateLogId(): string {
@@ -228,10 +196,10 @@ function printPretty(
   }
 }
 
-function shouldEmit(level: LevelName, context: string | undefined): boolean {
+function shouldEmit(level: LevelName): boolean {
   if (level === 'error' || level === 'warn') return true;
 
-  if (getBootstrapLogMode() === 'quiet' && !isStartupVerbose()) {
+  if (getBootstrapLogMode() === 'quiet') {
     return false;
   }
 
@@ -239,13 +207,6 @@ function shouldEmit(level: LevelName, context: string | undefined): boolean {
   const maxPriority = LOG_LEVEL_PRIORITY[configured] ?? LOG_LEVEL_PRIORITY.info;
   if (LEVEL_PRIORITY[level] > maxPriority) return false;
 
-  if (
-    getBootstrapLogMode() === 'quiet' &&
-    context &&
-    BOOTSTRAP_QUIET_CONTEXTS.has(context)
-  ) {
-    return false;
-  }
 
   return true;
 }
@@ -335,7 +296,7 @@ export class Logger {
 
     if (ctx) meta.context = ctx;
 
-    if (!shouldEmit(level, ctx)) {
+    if (!shouldEmit(level)) {
       return;
     }
 

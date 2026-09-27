@@ -1,7 +1,7 @@
 import { DatabaseConfigService } from '../../../shared/services';
-import { EventEmitter2 } from 'eventemitter2';
-import { BaseCacheService, CacheConfig } from './base-cache.service';
-import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
+import type { EventEmitter2 } from 'eventemitter2';
+import { BaseCacheService, type CacheConfig } from './base-cache.service';
+import type { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
 import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
@@ -11,8 +11,12 @@ import {
   normalizeScriptLanguage,
   resolveExecutableScript,
 } from '../../../shared/utils/script-code.util';
-import { QueryBuilderService } from '@enfyra/kernel';
-import { FlowDefinition, FlowStep, FlowTrigger } from '../../../shared/types/flow.types';
+import type { QueryBuilderService } from '@enfyra/kernel';
+import type {
+  FlowDefinition,
+  FlowStep,
+  FlowTrigger,
+} from '../../../shared/types/flow.types';
 
 export type {
   FlowDefinition,
@@ -42,20 +46,19 @@ export class FlowCacheBuilder extends BaseCacheService<FlowDefinition[]> {
   protected async loadFromDb(): Promise<any> {
     const idField = DatabaseConfigService.getPkField();
 
-    const flowsResult = await this.queryBuilderService.find({
+    const flowsData = await this.loadAllPages({
       table: 'enfyra_flow',
       filter: { isEnabled: { _eq: true } },
       fields: ['*'],
     });
 
-    const flowsData = flowsResult.data || [];
     if (flowsData.length === 0) {
       return [];
     }
 
     const flowIds = flowsData.map((f: any) => f[idField]).filter(Boolean);
-    const [triggersResult, stepsResult] = await Promise.all([
-      this.queryBuilderService.find({
+    const [triggersData, stepsData] = await Promise.all([
+      this.loadAllPages({
         table: 'enfyra_flow_trigger',
         filter: {
           _and: [
@@ -63,10 +66,9 @@ export class FlowCacheBuilder extends BaseCacheService<FlowDefinition[]> {
             { flow: { [idField]: { _in: flowIds } } },
           ],
         },
-        fields: ['*', 'route.*', 'table.*', 'flow.*'],
-        limit: 5000,
+        fields: ['*', 'route.*', 'table.*', `flow.${idField}`],
       }),
-      this.queryBuilderService.find({
+      this.loadAllPages({
         table: 'enfyra_flow_step',
         filter: {
           _and: [
@@ -74,17 +76,16 @@ export class FlowCacheBuilder extends BaseCacheService<FlowDefinition[]> {
             { flow: { [idField]: { _in: flowIds } } },
           ],
         },
-        fields: ['*', 'parent.*', 'flow.*'],
-        limit: 10000,
+        fields: ['*', `parent.${idField}`, `flow.${idField}`],
       }),
     ]);
 
     const triggersByFlowId = new Map<string, FlowTrigger[]>();
-    for (const t of triggersResult.data || []) {
+    for (const t of triggersData) {
       if (!t.isEnabled) continue;
       const flowId = t.flow
         ? DatabaseConfigService.getRecordId(t.flow)
-        : t.flowId ?? null;
+        : (t.flowId ?? null);
       if (flowId == null) continue;
       const fidStr = String(flowId);
       let list = triggersByFlowId.get(fidStr);
@@ -106,11 +107,11 @@ export class FlowCacheBuilder extends BaseCacheService<FlowDefinition[]> {
     }
 
     const stepsByFlowId = new Map<string, any[]>();
-    for (const s of stepsResult.data || []) {
+    for (const s of stepsData) {
       if (!s.isEnabled) continue;
       const flowId = s.flow
         ? DatabaseConfigService.getRecordId(s.flow)
-        : s.flowId ?? null;
+        : (s.flowId ?? null);
       if (flowId == null) continue;
       const fidStr = String(flowId);
       let list = stepsByFlowId.get(fidStr);
@@ -135,8 +136,18 @@ export class FlowCacheBuilder extends BaseCacheService<FlowDefinition[]> {
               const normalizedStep = normalizeFlowStepScriptConfig(step);
               Object.assign(step, normalizedStep);
               if (step.sourceCode || step.compiledCode) {
-                step.scriptLanguage = normalizeScriptLanguage(step.scriptLanguage);
-                const result = resolveExecutableScript(step);
+                step.scriptLanguage = normalizeScriptLanguage(
+                  step.scriptLanguage,
+                );
+                const result =
+                  normalizedStep !== step &&
+                  typeof step.compiledCode === 'string' &&
+                  step.compiledCode.length > 0
+                    ? {
+                        compiledCode: step.compiledCode,
+                        code: step.compiledCode,
+                      }
+                    : resolveExecutableScript(step);
                 step.compiledCode = result.compiledCode;
                 if (result.code) {
                   step.config = {
@@ -183,6 +194,30 @@ export class FlowCacheBuilder extends BaseCacheService<FlowDefinition[]> {
     );
 
     return flows;
+  }
+
+  private async loadAllPages(options: {
+    table: string;
+    filter?: Record<string, unknown>;
+    fields: string[];
+  }): Promise<any[]> {
+    const pageSize = 1000;
+    const rows: any[] = [];
+    let page = 1;
+    while (true) {
+      const result = await this.queryBuilderService.find({
+        table: options.table,
+        filter: options.filter,
+        fields: options.fields,
+        sort: [DatabaseConfigService.getPkField()],
+        limit: pageSize,
+        page,
+      });
+      const batch = result.data || [];
+      rows.push(...batch);
+      if (batch.length < pageSize) return rows;
+      page += 1;
+    }
   }
 
   protected transformData(data: FlowDefinition[]): FlowDefinition[] {

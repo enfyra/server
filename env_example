@@ -76,6 +76,8 @@ ADMIN_PASSWORD=1234
 # development | production | test
 NODE_ENV=development
 
-# Bootstrap install/upgrade logs
-# 0 = only high-level Installing/Upgrading progress, 1 = include table/record-level provision logs.
+# Startup output: 0 = one updating progress line, then Cold Start completed with elapsed time.
+# 1 = diagnostic logs throughout startup, including install/upgrade, with no progress bar.
+STARTUP_VERBOSE=0
+# Enable only install/upgrade diagnostics while keeping the rest of startup quiet.
 BOOTSTRAP_VERBOSE=0

@@ -372,8 +372,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       this.loadGlobalHooks('enfyra_post_hook'),
     ]);
 
-    this.globalPreHooks = newGlobalPreHooks;
-    this.globalPostHooks = newGlobalPostHooks;
+    [this.globalPreHooks, this.globalPostHooks] = await Promise.all([
+      this.hydrateAndTransformHooks('enfyra_pre_hook', newGlobalPreHooks),
+      this.hydrateAndTransformHooks('enfyra_post_hook', newGlobalPostHooks),
+    ]);
 
     for (const route of this.cache.routes) {
       this.mergeHooks(
@@ -392,22 +394,30 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   protected async loadFromDb(): Promise<any> {
     const isMongoDB = this.queryBuilderService.isMongoDb();
 
-    const [methodsResult, routesResult, globalPreHooks, globalPostHooks] =
-      await Promise.all([
-        this.queryBuilderService.find({
-          table: 'enfyra_method',
-          fields: ['id', 'name'],
-        }),
-        this.queryBuilderService.find({
-          table: 'enfyra_route',
-          filter: { isEnabled: { _eq: true } },
-          fields: ROUTE_CACHE_ROUTE_FIELDS,
-        }),
-        this.loadGlobalHooks('enfyra_pre_hook'),
-        this.loadGlobalHooks('enfyra_post_hook'),
-      ]);
+    const [
+      methodsResult,
+      routesResult,
+      globalPreHookRecords,
+      globalPostHookRecords,
+    ] = await Promise.all([
+      this.queryBuilderService.find({
+        table: 'enfyra_method',
+        fields: ['id', 'name'],
+      }),
+      this.queryBuilderService.find({
+        table: 'enfyra_route',
+        filter: { isEnabled: { _eq: true } },
+        fields: ROUTE_CACHE_ROUTE_FIELDS,
+      }),
+      this.loadGlobalHooks('enfyra_pre_hook'),
+      this.loadGlobalHooks('enfyra_post_hook'),
+    ]);
 
     this.setMethodCache(methodsResult.data);
+    const [globalPreHooks, globalPostHooks] = await Promise.all([
+      this.hydrateAndTransformHooks('enfyra_pre_hook', globalPreHookRecords),
+      this.hydrateAndTransformHooks('enfyra_post_hook', globalPostHookRecords),
+    ]);
     this.globalPreHooks = globalPreHooks;
     this.globalPostHooks = globalPostHooks;
 
@@ -437,8 +447,15 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       sort: ['priority'],
     });
 
+    return result.data || [];
+  }
+
+  private async hydrateAndTransformHooks(
+    tableName: string,
+    hooks: any[],
+  ): Promise<any[]> {
     return Promise.all(
-      result.data.map(async (hook: any) => {
+      hooks.map(async (hook: any) => {
         this.hydrateMethodList(hook.methods);
         const code = this.resolveScriptCode(tableName, hook);
         if (code) {
@@ -554,10 +571,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
         if (!handler.sourceCode && !handler.compiledCode && !handler.logic) {
           continue;
         }
-        const code = this.resolveScriptCode(
-          'enfyra_route_handler',
-          handler,
-        );
+        const code = this.resolveScriptCode('enfyra_route_handler', handler);
         if (code) {
           handler.logic = code;
         }
@@ -566,7 +580,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     if (route.preHooks && Array.isArray(route.preHooks)) {
       for (const hook of route.preHooks) {
-        if (!hook.sourceCode && !hook.compiledCode && !hook.code) {
+        if (
+          hook.isGlobal === true ||
+          (!hook.sourceCode && !hook.compiledCode && !hook.code)
+        ) {
           continue;
         }
         const code = this.resolveScriptCode('enfyra_pre_hook', hook);
@@ -578,7 +595,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     if (route.postHooks && Array.isArray(route.postHooks)) {
       for (const hook of route.postHooks) {
-        if (!hook.sourceCode && !hook.compiledCode && !hook.code) {
+        if (
+          hook.isGlobal === true ||
+          (!hook.sourceCode && !hook.compiledCode && !hook.code)
+        ) {
           continue;
         }
         const code = this.resolveScriptCode('enfyra_post_hook', hook);

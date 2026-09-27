@@ -72,6 +72,7 @@ function createServerHandle(
         ADMIN_PASSWORD: `password-${nodeName}`,
         NODE_ENV: 'test',
         NODE_NAME: nodeName,
+        STARTUP_VERBOSE: '1',
         BOOTSTRAP_VERBOSE: '0',
         ...extraEnvironment,
       },

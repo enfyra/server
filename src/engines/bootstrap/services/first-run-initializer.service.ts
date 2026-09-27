@@ -27,7 +27,8 @@ import {
   endStartupProgressLine,
   formatStartupProgressLine,
   startupProgressWrite,
-  stopStartupClock,
+  suppressRawConsole,
+  restoreRawConsole,
 } from '../../../shared/startup-log';
 import {
   BOOTSTRAP_PROGRESS_CHANGE_IDS,
@@ -128,10 +129,6 @@ export class FirstRunInitializer {
   private async runWithProgress(): Promise<void> {
     if (!(await this.isNeeded())) return;
 
-    // Install/upgrade path owns the detailed bar. On a normal `isInit=true`
-    // boot this whole method returns early, so the wall-clock bar in main.ts
-    // stays the single progress line for the entire startup.
-    stopStartupClock();
     beginStartupProgressLine();
     try {
       await this.runBootPipeline();
@@ -164,7 +161,7 @@ export class FirstRunInitializer {
       }
       const waitResult = await this.waitUntilDone(remainingWaitMs);
       if (waitResult === 'initialized') {
-        this.logProgress(mode, 100, `ready in ${Date.now() - start}ms`);
+        this.logProgress(mode, 100, `ready in ${Date.now() - start}ms`, true);
         return;
       }
     }
@@ -379,7 +376,7 @@ export class FirstRunInitializer {
         this.completeProgressStage(changePlan.changes, 'finalize', mode);
       });
 
-      this.logProgress(mode, 100, `completed in ${Date.now() - start}ms`);
+      this.logProgress(mode, 100, `completed in ${Date.now() - start}ms`, true);
     } catch (error) {
       await this.metadataCacheService.clearMetadataCache();
       this.logPlannedProgress(
@@ -486,64 +483,26 @@ export class FirstRunInitializer {
     );
   }
 
-  private fitProgressLine(line: string): string {
-    const columns = Number(process.stdout.columns);
-    if (!Number.isFinite(columns) || columns <= 1) return line;
-
-    const maxWidth = Math.max(1, Math.floor(columns) - 1);
-    const characters = Array.from(line);
-    if (characters.length <= maxWidth) return line;
-
-    const countSuffix = line.match(/ \(\d+\/\d+\)$/)?.[0] ?? '';
-    const suffixLength = Array.from(countSuffix).length;
-    if (countSuffix && maxWidth > suffixLength + 1) {
-      return `${characters
-        .slice(0, maxWidth - suffixLength - 1)
-        .join('')}…${countSuffix}`;
-    }
-    return `${characters.slice(0, Math.max(0, maxWidth - 1)).join('')}…`;
-  }
-
   private logProgress(
     mode: 'Installing' | 'Upgrading',
     percent: number,
     message: string,
     terminal = false,
   ): void {
-    const normalizedPercent = Math.min(
-      100,
-      Math.max(0, Math.round(percent * 10) / 10),
-    );
-    if (
-      !process.stdout.isTTY &&
-      !isBootstrapVerbose() &&
-      normalizedPercent < 100 &&
-      !terminal
-    ) {
-      return;
-    }
-
-    const line = this.fitProgressLine(
+    if (process.env.LOG_DISABLE_CONSOLE === '1' || isBootstrapVerbose()) return;
+    const normalizedPercent = Math.min(100, Math.max(0, Math.round(percent * 10) / 10));
+    startupProgressWrite(
       formatStartupProgressLine(mode, normalizedPercent, message),
+      terminal,
     );
-    startupProgressWrite(line, terminal || normalizedPercent >= 100);
   }
 
   private logPlanning(mode: 'Installing' | 'Upgrading', message: string): void {
-    if (!process.stdout.isTTY) return;
     if (isBootstrapVerbose()) {
-      this.logger.log(`[Planning] ${message}`);
+      this.logger.log(`${mode}: ${message}`);
       return;
     }
-    const now = new Date();
-    const pad = (value: number) => value.toString().padStart(2, '0');
-    const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(
-      now.getSeconds(),
-    )}`;
-    const line = this.fitProgressLine(
-      `[${time}] ${mode} [Planning] ${message}`,
-    );
-    startupProgressWrite(line);
+    startupProgressWrite(`${mode} [Planning] ${message}`);
   }
 
   /**
@@ -631,16 +590,11 @@ export class FirstRunInitializer {
       return callback();
     }
 
-    const originalLog = console.log;
-    const originalWarn = console.warn;
-    console.log = () => {};
-    console.warn = () => {};
-
+    suppressRawConsole();
     try {
       return await callback();
     } finally {
-      console.log = originalLog;
-      console.warn = originalWarn;
+      restoreRawConsole();
     }
   }
 

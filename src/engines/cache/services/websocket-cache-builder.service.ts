@@ -75,7 +75,12 @@ export class WebsocketCacheBuilder extends BaseCacheService<
     return gateways;
   }
 
-  private resolveScriptCode(record: any): string | null {
+  private resolveScriptCode(
+    tableName: 'enfyra_websocket' | 'enfyra_websocket_event',
+    record: any,
+  ): string | null {
+    const normalized = normalizeScriptRecord(tableName, record);
+    Object.assign(record, normalized);
     if (
       typeof record?.compiledCode === 'string' &&
       record.compiledCode.length > 0
@@ -240,24 +245,20 @@ export class WebsocketCacheBuilder extends BaseCacheService<
   private async prepareGateways(gateways: any[]): Promise<void> {
     await Promise.all(
       gateways.map(async (gateway: any) => {
-        const normalizedGateway = normalizeScriptRecord(
+        const connectionCode = this.resolveScriptCode(
           'enfyra_websocket',
           gateway,
         );
-        Object.assign(gateway, normalizedGateway);
-        const connectionCode = this.resolveScriptCode(gateway);
         if (connectionCode) {
           gateway.connectionHandlerScript = connectionCode;
         }
         if (gateway.events && Array.isArray(gateway.events)) {
           await Promise.all(
             gateway.events.map(async (event: any) => {
-              const normalizedEvent = normalizeScriptRecord(
+              const code = this.resolveScriptCode(
                 'enfyra_websocket_event',
                 event,
               );
-              Object.assign(event, normalizedEvent);
-              const code = this.resolveScriptCode(event);
               if (code) {
                 event.handlerScript = code;
               }

@@ -140,6 +140,7 @@ function serverEnvironment(
     ADMIN_PASSWORD: options.adminPassword || `e2e-${randomUUID()}`,
     NODE_ENV: 'test',
     NODE_NAME: options.nodeName || `snapshot-migration-e2e-${port}`,
+    STARTUP_VERBOSE: '1',
     BOOTSTRAP_VERBOSE: options.bootstrapVerbose
       ? '1'
       : process.env.MATRIX_BOOTSTRAP_VERBOSE || '0',
