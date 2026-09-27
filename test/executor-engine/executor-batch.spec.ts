@@ -398,7 +398,7 @@ describe('Batch execution: correctness', () => {
     ).rejects.toThrow('Forbidden');
   });
 
-  it('$throw preserves safe details for circular and BigInt values', async () => {
+  it('$throw transports safe details for circular and BigInt values', async () => {
     let thrown: any;
     try {
       await batch([

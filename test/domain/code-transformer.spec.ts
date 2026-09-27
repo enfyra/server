@@ -1,5 +1,8 @@
 import * as kernel from '@enfyra/kernel';
-import { compileScriptSource } from '../../src/shared/utils/script-code.util';
+import {
+  assertScriptSourceContract,
+  compileScriptSource,
+} from '../../src/shared/utils/script-code.util';
 import { transformTemplateSyntax as transformCode } from '../../src/shared/utils/template-syntax.util';
 
 describe('transformCode', () => {
@@ -117,8 +120,53 @@ describe('transformCode', () => {
     );
   });
 
-  it('expands @THROW macros', () => {
-    expect(transformCode('@THROW400("bad")')).toBe(`$ctx.$throw['400']("bad")`);
+  it('lowers status throw aliases to the canonical HTTP throw', () => {
+    const aliases = [400, 401, 403, 404, 409, 422, 429, 500, 503];
+
+    for (const statusCode of aliases) {
+      expect(transformCode(`@THROW${statusCode}("Request failed")`)).toBe(
+        `$ctx.$throw.http(${statusCode}, "Request failed")`,
+      );
+    }
+    expect(transformCode('@THROW.http(502, "Upstream request failed")')).toBe(
+      '$ctx.$throw.http(502, "Upstream request failed")',
+    );
+    expect(transformCode('@THROW403 ("Access denied")')).toBe(
+      '$ctx.$throw.http(403, "Access denied")',
+    );
+  });
+
+  it('accepts only the canonical source-level throw contract', () => {
+    expect(() => assertScriptSourceContract('@THROW.http(502, "Upstream request failed");')).not.toThrow();
+    expect(() => assertScriptSourceContract('@THROW.json({ error: { code: "upstream_error" } }, { statusCode: 502, headers: { "x-should-retry": "true" } });')).not.toThrow();
+    expect(() => assertScriptSourceContract('@THROW404("Project not found");')).not.toThrow();
+    expect(() => assertScriptSourceContract('@THROW400();')).toThrow(
+      '@THROW status aliases require exactly one message',
+    );
+    expect(() => assertScriptSourceContract('@THROW400("Invalid request", { field: "email" });')).toThrow(
+      '@THROW status aliases require exactly one message',
+    );
+    expect(() => assertScriptSourceContract('@THROW.error(502, {});')).toThrow(
+      '$throw exposes only .http(statusCode, message?) and .json(body, options?)',
+    );
+    expect(() => assertScriptSourceContract('$ctx.$throw.notFound("Project");')).toThrow(
+      '$throw exposes only .http(statusCode, message?) and .json(body, options?)',
+    );
+    expect(() => assertScriptSourceContract('$ctx.$throw["404"]("missing");')).toThrow(
+      '$throw exposes only .http(statusCode, message?) and .json(body, options?)',
+    );
+    expect(() => assertScriptSourceContract('@THROW.http(502, "bad", { retry: true });')).toThrow(
+      '$throw.http accepts only statusCode and optional message',
+    );
+    expect(() => assertScriptSourceContract('$ctx.$throw.http.call(null, 502);')).toThrow(
+      '$throw exposes only .http(statusCode, message?) and .json(body, options?)',
+    );
+    expect(() => assertScriptSourceContract('$ctx["$throw"].http(502);')).toThrow(
+      '$throw exposes only .http(statusCode, message?) and .json(body, options?)',
+    );
+    expect(() => assertScriptSourceContract('const thrower = $ctx.$throw;')).toThrow(
+      '$throw exposes only .http(statusCode, message?) and .json(body, options?)',
+    );
   });
 
   it('expands repository shorthand', () => {

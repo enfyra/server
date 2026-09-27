@@ -247,6 +247,8 @@ export function executeBatchSequence(
         );
         err.statusCode = msg.error?.statusCode;
         err.code = msg.error?.code;
+        err.errorCode = msg.error?.code;
+        err.errorPath = msg.error?.errorPath;
         err.details = msg.error?.details;
         if (msg.error?.stack) err.stack = msg.error.stack;
         rejectOnce(err);
@@ -339,6 +341,8 @@ function spawnWorker(
           );
           err.statusCode = result.error?.statusCode;
           err.code = result.error?.code;
+          err.errorCode = result.error?.code;
+          err.errorPath = result.error?.errorPath;
           err.details = result.error?.details;
           if (result.error?.stack) err.stack = result.error.stack;
           if (result.ctxChanges) {

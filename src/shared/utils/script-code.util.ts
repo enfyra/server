@@ -296,6 +296,79 @@ class ScriptContractService {
     };
   }
 
+  assertThrowContract(sourceCode: string): void {
+    const code = transformTemplateSyntax(sourceCode, 'validation');
+    const sourceFile = ts.createSourceFile(
+      'enfyra-script.ts',
+      code,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+
+    const isThrowRoot = (node: ts.Node): boolean => {
+      if (
+        ts.isPropertyAccessExpression(node)
+        && ts.isIdentifier(node.expression)
+        && node.expression.text === '$ctx'
+        && node.name.text === '$throw'
+      ) {
+        return true;
+      }
+      return (
+        ts.isElementAccessExpression(node)
+        && ts.isIdentifier(node.expression)
+        && node.expression.text === '$ctx'
+        && ts.isStringLiteral(node.argumentExpression)
+        && node.argumentExpression.text === '$throw'
+      );
+    };
+
+    const visit = (node: ts.Node): void => {
+      if (
+        ts.isCallExpression(node)
+        && ts.isPropertyAccessExpression(node.expression)
+        && ts.isIdentifier(node.expression.expression)
+        && node.expression.expression.text === '$ctx'
+        && node.expression.name.text === '$throwAlias'
+      ) {
+        if (node.arguments.length !== 2) {
+          throw new Error('@THROW status aliases require exactly one message');
+        }
+      }
+
+      if (isThrowRoot(node)) {
+        const methodAccess = node.parent;
+        const call = methodAccess?.parent;
+        if (
+          !ts.isPropertyAccessExpression(node)
+          || !ts.isPropertyAccessExpression(methodAccess)
+          || methodAccess.expression !== node
+          || !['http', 'json'].includes(methodAccess.name.text)
+          || methodAccess.questionDotToken
+          || !ts.isCallExpression(call)
+          || call.expression !== methodAccess
+          || call.questionDotToken
+        ) {
+          throw new Error(
+            '$throw exposes only .http(statusCode, message?) and .json(body, options?)',
+          );
+        }
+        if (call.arguments.length < 1 || call.arguments.length > 2) {
+          throw new Error(
+            methodAccess.name.text === 'http'
+              ? '$throw.http accepts only statusCode and optional message'
+              : '$throw.json accepts only body and optional options',
+          );
+        }
+      }
+
+      ts.forEachChild(node, visit);
+    };
+
+    visit(sourceFile);
+  }
+
   private transpileTypeScript(transformedCode: string): string {
     const result = ts.transpileModule(transformedCode, {
       compilerOptions: {
@@ -348,6 +421,10 @@ export function compileScriptSource(
   scriptLanguage: unknown,
 ): string | null {
   return scriptContractService.compileSource(sourceCode, scriptLanguage);
+}
+
+export function assertScriptSourceContract(sourceCode: string): void {
+  scriptContractService.assertThrowContract(sourceCode);
 }
 
 export function normalizeScriptRecord(

@@ -116,6 +116,14 @@ export interface DynamicStreams {
   cancel: (stream: DynamicReadable) => Promise<void>;
 }
 
+export interface DynamicThrow {
+  http: (statusCode: number, message?: string) => never;
+  json: (
+    body: unknown,
+    options?: Omit<DynamicResponseStreamOptions, 'mimetype' | 'filename' | 'observer' | 'transform'>,
+  ) => never;
+}
+
 export interface DynamicResponse {
   stream?: (
     stream: NodeJS.ReadableStream | ReadableStream | DynamicReadable,
@@ -134,7 +142,7 @@ export interface DynamicResponse {
 export interface TDynamicContext {
   $body?: any;
   $data?: any;
-  $throw?: any;
+  $throw?: DynamicThrow;
   $error?: any;
   $statusCode?: number;
   $logs?: (...args: any[]) => void;

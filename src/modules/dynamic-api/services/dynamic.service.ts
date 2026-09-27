@@ -76,23 +76,47 @@ function beginNativeResponse(
 
 export function attachStreamResponseHelper(res: any): void {
   if (!res) return;
-  if (!res.__enfyraJson) res.__enfyraJson = async (
+  const writeJson = async (
     jsonText: string,
-    options?: {
+    options: {
       statusCode?: number;
       headers?: Record<
         string,
         string | number | readonly string[] | undefined | null
       >;
-    },
+    } = {},
+    kind: 'success' | 'error',
   ): Promise<void> => {
+    const statusCode = options.statusCode ?? (kind === 'error' ? 500 : 200);
+    const minimum = kind === 'error' ? 400 : 200;
+    const maximum = kind === 'error' ? 599 : 399;
+    if (
+      !Number.isInteger(statusCode)
+      || statusCode < minimum
+      || statusCode > maximum
+    ) {
+      throw new TypeError(
+        kind === 'error'
+          ? '@THROW.json statusCode must be from 400 to 599'
+          : '@RES.json statusCode must be from 200 to 399',
+      );
+    }
     beginNativeResponse(res);
     applyResponseOptions(res, {
       ...options,
+      statusCode,
       mimetype: 'application/json; charset=utf-8',
     });
     res.end(jsonText);
   };
+  if (!res.__enfyraJson) {
+    res.__enfyraJson = (jsonText: string, options?: any) =>
+      writeJson(jsonText, options, 'success');
+  }
+  if (!res.__enfyraErrorJson) {
+    res.__enfyraErrorJson = (jsonText: string, options?: any) =>
+      writeJson(jsonText, options, 'error');
+  }
   if (!res.__enfyraBytes) res.__enfyraBytes = async (
     bytes: Uint8Array,
     options?: {
@@ -321,6 +345,9 @@ export class DynamicService {
     } catch (error) {
       const err = error as {
         code?: string;
+        errorCode?: string;
+        errorPath?: string;
+        isRawScriptErrorCarrier?: boolean;
         statusCode?: number;
         details?: any;
       };
@@ -351,6 +378,42 @@ export class DynamicService {
           isTableOperation: isTableDefinitionOperation,
           userId: req.user?.id ?? req.user?._id,
         });
+      }
+      const carrierCode = err.errorCode ?? err.code;
+      const isRawScriptErrorCarrier = err.isRawScriptErrorCarrier === true;
+      if (isRawScriptErrorCarrier && err.errorPath === '$throw.json') {
+        const errorJsonText = err.details?.errorJsonText;
+        const errorJsonOptions = err.details?.errorJsonOptions;
+        const writeErrorJson = (routeData.res as any)?.__enfyraErrorJson;
+        if (
+          typeof errorJsonText !== 'string'
+          || typeof writeErrorJson !== 'function'
+        ) {
+          throw new ScriptExecutionException(
+            'Custom JSON error response could not be written',
+            routeData.handler,
+          );
+        }
+        await writeErrorJson.call(
+          routeData.res,
+          errorJsonText,
+          errorJsonOptions,
+        );
+        return undefined;
+      }
+      if (
+        isRawScriptErrorCarrier
+        && httpStatus !== undefined
+        && httpStatus >= 400
+        && httpStatus <= 599
+      ) {
+        throw new HttpException(getErrorMessage(error), httpStatus);
+      }
+      if (
+        httpStatus !== undefined
+        && carrierCode === `HTTP_${httpStatus}`
+      ) {
+        throw new HttpException(getErrorMessage(error), httpStatus);
       }
       if (isCustomException(error) || error instanceof HttpException) {
         throw error;

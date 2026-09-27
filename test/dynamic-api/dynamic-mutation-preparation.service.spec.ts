@@ -64,6 +64,46 @@ describe('DynamicMutationPreparationService', () => {
     ).toEqual({ pinnedSeller: null, privateNote: '' });
   });
 
+  it('rejects legacy throw APIs only when new script source is written', () => {
+    const service = new DynamicMutationPreparationService();
+
+    expect(() =>
+      service.normalizeCreate('enfyra_route_handler', {
+        sourceCode: '$ctx.$throw.notFound("Project");',
+        scriptLanguage: 'javascript',
+      }),
+    ).toThrow('$throw exposes only .http(statusCode, message?)');
+
+    expect(() =>
+      service.normalizeUpdate(
+        'enfyra_route_handler',
+        { sourceCode: '@THROW404("missing");' },
+        { sourceCode: '$ctx.$throw.notFound("Project");' },
+      ),
+    ).not.toThrow();
+
+    expect(() =>
+      service.normalizeUpdate(
+        'enfyra_route_handler',
+        { description: 'unchanged source' },
+        { sourceCode: '$ctx.$throw.notFound("Project");' },
+      ),
+    ).not.toThrow();
+
+    expect(() =>
+      service.normalizeFlowStep({
+        type: 'script',
+        config: { code: '$ctx.$throw.notFound("Project");' },
+      }),
+    ).toThrow('$throw exposes only .http(statusCode, message?)');
+    expect(() =>
+      service.normalizeFlowStep({
+        type: 'script',
+        config: { code: '@THROW404("missing");' },
+      }),
+    ).not.toThrow();
+  });
+
   it('preserves supplied private and encrypted values during create', async () => {
     const service = new DynamicMutationPreparationService();
     const mutationAuthorizationService = {

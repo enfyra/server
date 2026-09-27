@@ -1,5 +1,7 @@
 import { BadRequestException } from '../../../domain/exceptions';
 import {
+  assertScriptSourceContract,
+  getScriptLegacyField,
   normalizeFlowStepScriptConfig,
   normalizeScriptPatch,
   normalizeScriptRecord,
@@ -19,8 +21,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export class DynamicMutationPreparationService {
+  private assertScriptSource(
+    tableName: string,
+    body: Record<string, unknown>,
+  ): void {
+    const legacyField = getScriptLegacyField(tableName);
+    const sourceCode = body.sourceCode ?? (legacyField ? body[legacyField] : undefined);
+    if (typeof sourceCode === 'string' && sourceCode !== '') {
+      assertScriptSourceContract(sourceCode);
+    }
+  }
+
   normalizeCreate(tableName: string, body: Record<string, unknown>) {
     try {
+      this.assertScriptSource(tableName, body);
       return normalizeScriptRecord(tableName, body);
     } catch (error) {
       throw this.toScriptBadRequest(error);
@@ -33,6 +47,7 @@ export class DynamicMutationPreparationService {
     existing: Record<string, unknown>,
   ) {
     try {
+      this.assertScriptSource(tableName, body);
       return normalizeScriptPatch(tableName, body, existing);
     } catch (error) {
       throw this.toScriptBadRequest(error);
@@ -41,6 +56,11 @@ export class DynamicMutationPreparationService {
 
   normalizeFlowStep(body: Record<string, unknown>) {
     try {
+      const config = isRecord(body.config) ? body.config : {};
+      const sourceCode = body.sourceCode ?? config.sourceCode ?? config.code;
+      if (typeof sourceCode === 'string' && sourceCode !== '') {
+        assertScriptSourceContract(sourceCode);
+      }
       return normalizeFlowStepScriptConfig(body);
     } catch (error) {
       throw this.toScriptBadRequest(error);

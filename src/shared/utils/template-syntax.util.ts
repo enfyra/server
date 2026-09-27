@@ -26,15 +26,6 @@ const TEMPLATE_MAPPINGS: Record<string, string> = {
   '@FLOW_PAYLOAD': '$ctx.$flow.$payload',
   '@FLOW_LAST': '$ctx.$flow.$last',
   '@FLOW_META': '$ctx.$flow.$meta',
-  '@THROW400': "$ctx.$throw['400']",
-  '@THROW401': "$ctx.$throw['401']",
-  '@THROW403': "$ctx.$throw['403']",
-  '@THROW404': "$ctx.$throw['404']",
-  '@THROW409': "$ctx.$throw['409']",
-  '@THROW422': "$ctx.$throw['422']",
-  '@THROW429': "$ctx.$throw['429']",
-  '@THROW500': "$ctx.$throw['500']",
-  '@THROW503': "$ctx.$throw['503']",
   '@THROW': '$ctx.$throw',
   '@ERROR': '$ctx.$error',
   '@STATUS': '$ctx.$statusCode',
@@ -46,6 +37,17 @@ const STRING_SINGLE = 2;
 const TEMPLATE = 3;
 const COMMENT_LINE = 4;
 const COMMENT_BLOCK = 5;
+const THROW_ALIAS_STATUS = new Map<string, number>([
+  ['@THROW400', 400],
+  ['@THROW401', 401],
+  ['@THROW403', 403],
+  ['@THROW404', 404],
+  ['@THROW409', 409],
+  ['@THROW422', 422],
+  ['@THROW429', 429],
+  ['@THROW500', 500],
+  ['@THROW503', 503],
+]);
 
 interface SourceRange {
   start: number;
@@ -90,7 +92,10 @@ function isIdentifierChar(char: string | undefined): boolean {
   return !!char && /[A-Za-z0-9_]/.test(char);
 }
 
-export function transformTemplateSyntax(code: string): string {
+export function transformTemplateSyntax(
+  code: string,
+  throwAliasMode: 'http' | 'validation' = 'http',
+): string {
   const len = code.length;
   let result = '';
   let pos = 0;
@@ -158,8 +163,19 @@ export function transformTemplateSyntax(code: string): string {
           }
 
           const identifier = code.substring(start, pos);
-          const mapped = TEMPLATE_MAPPINGS[identifier];
-          result += mapped || identifier;
+          const throwStatus = THROW_ALIAS_STATUS.get(identifier);
+          let callStart = pos;
+          while (callStart < len && /\s/.test(code[callStart])) callStart++;
+          if (throwStatus && code[callStart] === '(') {
+            result += throwAliasMode === 'validation'
+              ? `$ctx.$throwAlias(${throwStatus}`
+              : `$ctx.$throw.http(${throwStatus}`;
+            if (code[callStart + 1] !== ')') result += ', ';
+            pos = callStart + 1;
+          } else {
+            const mapped = TEMPLATE_MAPPINGS[identifier];
+            result += mapped || identifier;
+          }
         } else if (char === '#' || char === '%') {
           const start = pos;
           const registry = char === '#' ? '$ctx.$repos.' : '$ctx.$pkgs.';

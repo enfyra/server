@@ -29,15 +29,16 @@ function makeResponse() {
 }
 
 describe('attachStreamResponseHelper', () => {
-  it('writes JSON through the native response boundary without calling res.json', async () => {
+  it('writes an exact custom success without calling res.json', async () => {
     const response = makeResponse() as ReturnType<typeof makeResponse> & {
       __enfyraJson: (jsonText: string, options?: unknown) => Promise<void>;
     };
+    const body = { data: { id: 'project-1' }, success: true };
     attachStreamResponseHelper(response);
 
-    await response.__enfyraJson('{"ok":true}', {
+    await response.__enfyraJson(JSON.stringify(body), {
       statusCode: 201,
-      headers: { 'x-test': 'json' },
+      headers: { 'x-resource-created': 'true' },
     });
 
     expect(response.__enfyraStreamStarted).toBe(true);
@@ -46,9 +47,62 @@ describe('attachStreamResponseHelper', () => {
       'Content-Type',
       'application/json; charset=utf-8',
     );
-    expect(response.setHeader).toHaveBeenCalledWith('x-test', 'json');
+    expect(response.setHeader).toHaveBeenCalledWith(
+      'x-resource-created',
+      'true',
+    );
     expect(response.json).not.toHaveBeenCalled();
-    expect(response.read().toString()).toBe('{"ok":true}');
+    expect(JSON.parse(response.read().toString())).toEqual(body);
+  });
+
+  it('writes an exact custom error through the error JSON boundary', async () => {
+    const response = makeResponse() as ReturnType<typeof makeResponse> & {
+      __enfyraErrorJson: (jsonText: string, options?: unknown) => Promise<void>;
+    };
+    const body = {
+      error: {
+        code: 'upstream_error',
+        message: 'Please retry shortly.',
+        should_retry: true,
+      },
+    };
+    attachStreamResponseHelper(response);
+
+    await response.__enfyraErrorJson(JSON.stringify(body), {
+      statusCode: 502,
+      headers: { 'x-should-retry': 'true' },
+    });
+
+    expect(response.__enfyraStreamStarted).toBe(true);
+    expect(response.status).toHaveBeenCalledWith(502);
+    expect(response.setHeader).toHaveBeenCalledWith(
+      'Content-Type',
+      'application/json; charset=utf-8',
+    );
+    expect(response.setHeader).toHaveBeenCalledWith(
+      'x-should-retry',
+      'true',
+    );
+    expect(response.json).not.toHaveBeenCalled();
+    expect(JSON.parse(response.read().toString())).toEqual(body);
+  });
+
+  it('keeps success and error JSON status ranges separate', async () => {
+    const successResponse = makeResponse() as ReturnType<typeof makeResponse> & {
+      __enfyraJson: (jsonText: string, options?: unknown) => Promise<void>;
+    };
+    const errorResponse = makeResponse() as ReturnType<typeof makeResponse> & {
+      __enfyraErrorJson: (jsonText: string, options?: unknown) => Promise<void>;
+    };
+    attachStreamResponseHelper(successResponse);
+    attachStreamResponseHelper(errorResponse);
+
+    await expect(
+      successResponse.__enfyraJson('{"error":true}', { statusCode: 400 }),
+    ).rejects.toThrow('@RES.json statusCode must be from 200 to 399');
+    await expect(
+      errorResponse.__enfyraErrorJson('{"ok":true}', { statusCode: 200 }),
+    ).rejects.toThrow('@THROW.json statusCode must be from 400 to 599');
   });
 
   it('writes binary bytes through the native response boundary unchanged', async () => {

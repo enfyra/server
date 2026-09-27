@@ -1853,6 +1853,49 @@ describe('stream observer callback', () => {
     }
   });
 
+  it('treats return await success JSON response as a terminal handler boundary', async () => {
+    const service = makeService();
+    const calls: Array<{ value: string; options: unknown }> = [];
+    const response = {
+      __enfyraJson: async (jsonText: string, options: unknown) => {
+        calls.push({ value: jsonText, options });
+      },
+    };
+
+    try {
+      const share = { $logs: [] as string[] };
+      const result = await service.run(
+        `
+          return await $ctx.$res.json(
+            { data: { id: 'project-1' }, success: true },
+            { statusCode: 201, headers: { 'x-resource-created': 'true' } }
+          );
+          $ctx.$share.afterResponse = true;
+        `,
+        {
+          $body: {}, $query: {}, $params: {}, $share: share,
+          $helpers: {}, $cache: {}, $repos: {}, $user: null,
+          $res: response,
+        } as any,
+        2000,
+      );
+
+      expect(result).toBeUndefined();
+      expect(share).not.toHaveProperty('afterResponse');
+      expect(calls).toEqual([
+        {
+          value: '{"data":{"id":"project-1"},"success":true}',
+          options: {
+            statusCode: 201,
+            headers: { 'x-resource-created': 'true' },
+          },
+        },
+      ]);
+    } finally {
+      service.onDestroy();
+    }
+  });
+
   it('sends JSON and binary payloads through native response boundaries', async () => {
     const service = makeService();
     const calls: Array<{ kind: string; value: unknown; options: unknown }> = [];

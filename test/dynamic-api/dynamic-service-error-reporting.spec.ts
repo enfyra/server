@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import {
-  HttpException as KernelHttpException,
+  RawScriptErrorCarrier,
   ValidationException as KernelValidationException,
 } from '@enfyra/kernel';
 import { DynamicService } from '../../src/modules/dynamic-api/services/dynamic.service';
@@ -110,14 +110,15 @@ describe('DynamicService error reporting', () => {
     }
   });
 
-  it.each([
-    new KernelHttpException('Retry in five seconds', 503, {
-      retry_after_seconds: 5,
-    }),
-    new KernelValidationException('Referral code is invalid', {
-      field: 'code',
-    }),
-  ])('preserves cross-boundary custom throws', async (executorError) => {
+  it('normalizes a Kernel HTTP carrier into the generic ESV envelope contract', async () => {
+    const executorError = new RawScriptErrorCarrier(
+      'Retry in five seconds',
+      503,
+      'HTTP_503',
+      '$throw.http',
+      { retry_after_seconds: 5 },
+      'handler-1',
+    );
     const service = new DynamicService({
       executorEngineService: {
         register: vi.fn(),
@@ -130,9 +131,89 @@ describe('DynamicService error reporting', () => {
       },
     } as any);
 
-    await expect(service.runHandler(createRequest())).rejects.toBe(
-      executorError,
+    try {
+      await service.runHandler(createRequest());
+      throw new Error('should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(HttpException);
+      expect(error).not.toBe(executorError);
+      expect(error).toMatchObject({
+        statusCode: 503,
+        errorCode: 'HTTP_ERROR',
+        message: 'Retry in five seconds',
+      });
+      expect((error as HttpException).details).toBeUndefined();
+    }
+  });
+
+  it('writes a Kernel custom JSON error carrier through the ESV error boundary', async () => {
+    const executorError = new RawScriptErrorCarrier(
+      'Custom JSON error response',
+      502,
+      'HTTP_502',
+      '$throw.json',
+      {
+        errorJsonText: '{"error":{"code":"upstream_error","should_retry":true}}',
+        errorJsonOptions: {
+          statusCode: 502,
+          headers: { 'x-should-retry': 'true' },
+        },
+      },
+      'handler-1',
     );
+    const response: any = new EventEmitter();
+    response.writableEnded = false;
+    response.headersSent = false;
+    response.statusCode = 200;
+    response.status = vi.fn((statusCode: number) => {
+      response.statusCode = statusCode;
+      return response;
+    });
+    response.setHeader = vi.fn();
+    response.end = vi.fn(() => {
+      response.writableEnded = true;
+      response.headersSent = true;
+    });
+    const service = new DynamicService({
+      executorEngineService: {
+        register: vi.fn(),
+        runBatch: vi.fn(async () => {
+          throw executorError;
+        }),
+      },
+      loggingService: { error: vi.fn() },
+    } as any);
+    const request = createRequest();
+    request.routeData.res = response;
+
+    await expect(service.runHandler(request)).resolves.toBeUndefined();
+    expect(response.status).toHaveBeenCalledWith(502);
+    expect(response.setHeader).toHaveBeenCalledWith(
+      'x-should-retry',
+      'true',
+    );
+    expect(response.end).toHaveBeenCalledWith(
+      '{"error":{"code":"upstream_error","should_retry":true}}',
+    );
+  });
+
+  it('preserves non-HTTP cross-boundary domain errors', async () => {
+    const executorError = new KernelValidationException('Referral code is invalid', {
+      field: 'code',
+    });
+    const service = new DynamicService({
+      executorEngineService: {
+        register: vi.fn(),
+        runBatch: vi.fn(async () => {
+          throw executorError;
+        }),
+      },
+      loggingService: {
+        error: vi.fn(),
+      },
+    } as any);
+
+    await expect(service.runHandler(createRequest())).rejects.toBe(executorError);
   });
 
   it('treats response-close cancellation as a normal disconnect', async () => {
