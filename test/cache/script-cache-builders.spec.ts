@@ -27,6 +27,7 @@ describe('script cache builders', () => {
             data: [
               {
                 id: 10,
+                flowId: 1,
                 key: 'script',
                 type: 'script',
                 isEnabled: true,

@@ -2,6 +2,11 @@ import pino, { Logger as PinoLogger } from 'pino';
 import { logStore } from './log-store';
 import { getBootstrapLogMode } from './bootstrap-log-context';
 import { recordSystemError } from './runtime-log-buffer';
+import {
+  clearStartupProgressLine,
+  isStartupProgressLineActive,
+  isStartupVerbose,
+} from './startup-log';
 
 type LevelName = 'error' | 'warn' | 'log' | 'debug' | 'verbose';
 
@@ -205,6 +210,7 @@ function printPretty(
   trace?: string,
 ): void {
   if (process.env.LOG_DISABLE_CONSOLE === '1') return;
+  if (isStartupProgressLineActive()) clearStartupProgressLine();
   const icon = LEVEL_ICONS[level];
   const iconColor = LEVEL_COLORS[level];
   const time = formatTime(new Date());
@@ -224,6 +230,10 @@ function printPretty(
 
 function shouldEmit(level: LevelName, context: string | undefined): boolean {
   if (level === 'error' || level === 'warn') return true;
+
+  if (getBootstrapLogMode() === 'quiet' && !isStartupVerbose()) {
+    return false;
+  }
 
   const configured = process.env.LOG_LEVEL || 'info';
   const maxPriority = LOG_LEVEL_PRIORITY[configured] ?? LOG_LEVEL_PRIORITY.info;

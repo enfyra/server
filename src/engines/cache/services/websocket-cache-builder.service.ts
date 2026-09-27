@@ -76,6 +76,13 @@ export class WebsocketCacheBuilder extends BaseCacheService<
   }
 
   private resolveScriptCode(record: any): string | null {
+    if (
+      typeof record?.compiledCode === 'string' &&
+      record.compiledCode.length > 0
+    ) {
+      return record.compiledCode;
+    }
+
     if (typeof record?.sourceCode === 'string' && record.sourceCode !== '') {
       const compiledCode = compileScriptSource(
         record.sourceCode,
@@ -231,30 +238,34 @@ export class WebsocketCacheBuilder extends BaseCacheService<
   }
 
   private async prepareGateways(gateways: any[]): Promise<void> {
-    for (const gateway of gateways) {
-      const normalizedGateway = normalizeScriptRecord(
-        'enfyra_websocket',
-        gateway,
-      );
-      Object.assign(gateway, normalizedGateway);
-      const connectionCode = this.resolveScriptCode(gateway);
-      if (connectionCode) {
-        gateway.connectionHandlerScript = connectionCode;
-      }
-      if (gateway.events) {
-        for (const event of gateway.events) {
-          const normalizedEvent = normalizeScriptRecord(
-            'enfyra_websocket_event',
-            event,
-          );
-          Object.assign(event, normalizedEvent);
-          const code = this.resolveScriptCode(event);
-          if (code) {
-            event.handlerScript = code;
-          }
+    await Promise.all(
+      gateways.map(async (gateway: any) => {
+        const normalizedGateway = normalizeScriptRecord(
+          'enfyra_websocket',
+          gateway,
+        );
+        Object.assign(gateway, normalizedGateway);
+        const connectionCode = this.resolveScriptCode(gateway);
+        if (connectionCode) {
+          gateway.connectionHandlerScript = connectionCode;
         }
-      }
-    }
+        if (gateway.events && Array.isArray(gateway.events)) {
+          await Promise.all(
+            gateway.events.map(async (event: any) => {
+              const normalizedEvent = normalizeScriptRecord(
+                'enfyra_websocket_event',
+                event,
+              );
+              Object.assign(event, normalizedEvent);
+              const code = this.resolveScriptCode(event);
+              if (code) {
+                event.handlerScript = code;
+              }
+            }),
+          );
+        }
+      }),
+    );
   }
 
   protected getLogCount(): string {

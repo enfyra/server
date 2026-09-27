@@ -23,13 +23,18 @@ import {
 } from '../../../shared/utils/enfyra-version.util';
 import { runWithBootstrapLogMode } from '../../../shared/bootstrap-log-context';
 import {
+  beginStartupProgressLine,
+  endStartupProgressLine,
+  formatStartupProgressLine,
+  startupProgressWrite,
+  stopStartupClock,
+} from '../../../shared/startup-log';
+import {
   BOOTSTRAP_PROGRESS_CHANGE_IDS,
   buildBootstrapChangePlan,
 } from '../utils/bootstrap-change-plan.util';
 import type { BootstrapChangeStage, BootstrapPlannedChange } from '../types';
 import type { MongoSagaCoordinator } from '../../mongo';
-
-const BOOTSTRAP_PROGRESS_BAR_WIDTH = 30;
 
 export class FirstRunInitializer {
   private readonly logger = new Logger(FirstRunInitializer.name);
@@ -48,7 +53,6 @@ export class FirstRunInitializer {
   private readonly bootstrapUnitOfWorkService: BootstrapUnitOfWorkService;
   private readonly bootstrapDefinitionService: BootstrapDefinitionService;
   private readonly mongoSagaCoordinator?: MongoSagaCoordinator;
-  private lastProgressLineLength = 0;
   /**
    * The version the declarations were scoped against, also used as the
    * compare-and-set guard when publishing the new version so only the instance that
@@ -124,6 +128,19 @@ export class FirstRunInitializer {
   private async runWithProgress(): Promise<void> {
     if (!(await this.isNeeded())) return;
 
+    // Install/upgrade path owns the detailed bar. On a normal `isInit=true`
+    // boot this whole method returns early, so the wall-clock bar in main.ts
+    // stays the single progress line for the entire startup.
+    stopStartupClock();
+    beginStartupProgressLine();
+    try {
+      await this.runBootPipeline();
+    } finally {
+      endStartupProgressLine();
+    }
+  }
+
+  private async runBootPipeline(): Promise<void> {
     const start = Date.now();
     const waitDeadline = start + REDIS_TTL.PROVISION_LOCK_TTL;
     const lockValue = this.instanceService.getInstanceId();
@@ -493,54 +510,31 @@ export class FirstRunInitializer {
     message: string,
     terminal = false,
   ): void {
-    if (process.env.LOG_DISABLE_CONSOLE === '1') return;
-
     const normalizedPercent = Math.min(
       100,
       Math.max(0, Math.round(percent * 10) / 10),
     );
-    if (!process.stdout.isTTY && normalizedPercent < 100 && !terminal) return;
-
-    const filledWidth = Math.round(
-      (normalizedPercent / 100) * BOOTSTRAP_PROGRESS_BAR_WIDTH,
-    );
-    const progressBar = `${'█'.repeat(filledWidth)}${'░'.repeat(
-      BOOTSTRAP_PROGRESS_BAR_WIDTH - filledWidth,
-    )}`;
-    const now = new Date();
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(
-      now.getSeconds(),
-    )}`;
-    const percentText = Number.isInteger(normalizedPercent)
-      ? normalizedPercent.toFixed(0)
-      : normalizedPercent.toFixed(1);
-    const line = this.fitProgressLine(
-      `[${time}] ${mode} [${progressBar}] ${percentText.padStart(
-        5,
-        ' ',
-      )}% ${message}`,
-    );
-    const padding = ' '.repeat(
-      Math.max(0, this.lastProgressLineLength - line.length),
-    );
-    if (!process.stdout.isTTY) {
-      process.stdout.write(`${line}\n`);
-      this.lastProgressLineLength = 0;
+    if (
+      !process.stdout.isTTY &&
+      !isBootstrapVerbose() &&
+      normalizedPercent < 100 &&
+      !terminal
+    ) {
       return;
     }
 
-    process.stdout.write(`\r${line}${padding}`);
-    this.lastProgressLineLength = line.length;
-    if (normalizedPercent >= 100 || terminal) {
-      process.stdout.write('\n');
-      this.lastProgressLineLength = 0;
-    }
+    const line = this.fitProgressLine(
+      formatStartupProgressLine(mode, normalizedPercent, message),
+    );
+    startupProgressWrite(line, terminal || normalizedPercent >= 100);
   }
 
   private logPlanning(mode: 'Installing' | 'Upgrading', message: string): void {
-    if (process.env.LOG_DISABLE_CONSOLE === '1' || !process.stdout.isTTY)
+    if (!process.stdout.isTTY) return;
+    if (isBootstrapVerbose()) {
+      this.logger.log(`[Planning] ${message}`);
       return;
+    }
     const now = new Date();
     const pad = (value: number) => value.toString().padStart(2, '0');
     const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(
@@ -549,11 +543,7 @@ export class FirstRunInitializer {
     const line = this.fitProgressLine(
       `[${time}] ${mode} [Planning] ${message}`,
     );
-    const padding = ' '.repeat(
-      Math.max(0, this.lastProgressLineLength - line.length),
-    );
-    process.stdout.write(`\r${line}${padding}`);
-    this.lastProgressLineLength = line.length;
+    startupProgressWrite(line);
   }
 
   /**

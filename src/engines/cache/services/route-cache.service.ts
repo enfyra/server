@@ -258,19 +258,21 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     const updatedRoutes = result.data;
     const metadata = await this.metadataCacheService.getMetadata();
-    for (const route of updatedRoutes) {
-      this.hydrateRouteMainTable(route, metadata);
-      this.hydrateRouteMethods(route);
-      this.mergeHooks(
-        route,
-        this.globalPreHooks,
-        this.globalPostHooks,
-        isMongoDB,
-      );
-      await this.transformRouteCode(route);
-    }
-
     const routeIdSet = new Set(routeIds.map(String));
+
+    await Promise.all(
+      updatedRoutes.map(async (route: any) => {
+        this.hydrateRouteMainTable(route, metadata);
+        this.hydrateRouteMethods(route);
+        this.mergeHooks(
+          route,
+          this.globalPreHooks,
+          this.globalPostHooks,
+          isMongoDB,
+        );
+        await this.transformRouteCode(route);
+      }),
+    );
 
     this.cache.routes = this.cache.routes.filter((r: any) => {
       const rid = String(DatabaseConfigService.getRecordId(r));
@@ -388,38 +390,39 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   protected async loadFromDb(): Promise<any> {
-    const methodsResult = await this.queryBuilderService.find({
-      table: 'enfyra_method',
-      fields: ['id', 'name'],
-    });
-    this.setMethodCache(methodsResult.data);
-
-    const result = await this.queryBuilderService.find({
-      table: 'enfyra_route',
-      filter: { isEnabled: { _eq: true } },
-      fields: ROUTE_CACHE_ROUTE_FIELDS,
-    });
-
-    const routes = result.data;
     const isMongoDB = this.queryBuilderService.isMongoDb();
 
-    const [globalPreHooks, globalPostHooks] = await Promise.all([
-      this.loadGlobalHooks('enfyra_pre_hook'),
-      this.loadGlobalHooks('enfyra_post_hook'),
-    ]);
+    const [methodsResult, routesResult, globalPreHooks, globalPostHooks] =
+      await Promise.all([
+        this.queryBuilderService.find({
+          table: 'enfyra_method',
+          fields: ['id', 'name'],
+        }),
+        this.queryBuilderService.find({
+          table: 'enfyra_route',
+          filter: { isEnabled: { _eq: true } },
+          fields: ROUTE_CACHE_ROUTE_FIELDS,
+        }),
+        this.loadGlobalHooks('enfyra_pre_hook'),
+        this.loadGlobalHooks('enfyra_post_hook'),
+      ]);
 
+    this.setMethodCache(methodsResult.data);
     this.globalPreHooks = globalPreHooks;
     this.globalPostHooks = globalPostHooks;
 
+    const routes = routesResult.data || [];
     const metadata = await this.metadataCacheService.getMetadata();
 
-    for (const route of routes) {
-      this.hydrateRouteMainTable(route, metadata);
-      this.hydrateRouteMethods(route);
-      this.mergeHooks(route, globalPreHooks, globalPostHooks, isMongoDB);
+    await Promise.all(
+      routes.map(async (route: any) => {
+        this.hydrateRouteMainTable(route, metadata);
+        this.hydrateRouteMethods(route);
+        this.mergeHooks(route, globalPreHooks, globalPostHooks, isMongoDB);
 
-      await this.transformRouteCode(route);
-    }
+        await this.transformRouteCode(route);
+      }),
+    );
 
     return { routes, methods: this.allMethods };
   }
@@ -437,9 +440,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     return Promise.all(
       result.data.map(async (hook: any) => {
         this.hydrateMethodList(hook.methods);
-        const normalized = normalizeScriptRecord(tableName, hook);
-        Object.assign(hook, normalized);
-        const code = this.resolveScriptCode(hook);
+        const code = this.resolveScriptCode(tableName, hook);
         if (code) {
           hook.code = code;
         }
@@ -550,12 +551,13 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   private async transformRouteCode(route: any): Promise<void> {
     if (route.handlers && Array.isArray(route.handlers)) {
       for (const handler of route.handlers) {
-        const normalized = normalizeScriptRecord(
+        if (!handler.sourceCode && !handler.compiledCode && !handler.logic) {
+          continue;
+        }
+        const code = this.resolveScriptCode(
           'enfyra_route_handler',
           handler,
         );
-        Object.assign(handler, normalized);
-        const code = this.resolveScriptCode(handler);
         if (code) {
           handler.logic = code;
         }
@@ -564,9 +566,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     if (route.preHooks && Array.isArray(route.preHooks)) {
       for (const hook of route.preHooks) {
-        const normalized = normalizeScriptRecord('enfyra_pre_hook', hook);
-        Object.assign(hook, normalized);
-        const code = this.resolveScriptCode(hook);
+        if (!hook.sourceCode && !hook.compiledCode && !hook.code) {
+          continue;
+        }
+        const code = this.resolveScriptCode('enfyra_pre_hook', hook);
         if (code) {
           hook.code = code;
         }
@@ -575,9 +578,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     if (route.postHooks && Array.isArray(route.postHooks)) {
       for (const hook of route.postHooks) {
-        const normalized = normalizeScriptRecord('enfyra_post_hook', hook);
-        Object.assign(hook, normalized);
-        const code = this.resolveScriptCode(hook);
+        if (!hook.sourceCode && !hook.compiledCode && !hook.code) {
+          continue;
+        }
+        const code = this.resolveScriptCode('enfyra_post_hook', hook);
         if (code) {
           hook.code = code;
         }
@@ -585,7 +589,17 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     }
   }
 
-  private resolveScriptCode(record: any): string | null {
+  private resolveScriptCode(tableName: string, record: any): string | null {
+    const normalized = normalizeScriptRecord(tableName, record);
+    Object.assign(record, normalized);
+
+    if (
+      typeof record?.compiledCode === 'string' &&
+      record.compiledCode.length > 0
+    ) {
+      return record.compiledCode;
+    }
+
     if (record.sourceCode) {
       const compiledCode = compileScriptSource(
         record.sourceCode,
