@@ -57,6 +57,12 @@ export class RouteMethodConfigBackfillService {
       );
     }
     const migratingLegacyBindings = existingConfigCount === 0;
+    const handlerConfigIds = new Map(
+      state.handlers.map((handler) => [
+        String(this.recordId(handler)),
+        this.relationId(handler.routeMethodConfig),
+      ]),
+    );
     this.verbose(
       `Route method config matrix: routes=${state.routes.length}, methods=${state.methods.length}, expected=${drafts.length}, existing=${existingConfigCount}`,
     );
@@ -90,7 +96,10 @@ export class RouteMethodConfigBackfillService {
         configByPair.get(key),
       );
       configByPair.set(key, config);
-      if (draft.handlerId != null && migratingLegacyBindings) {
+      if (
+        draft.handlerId != null &&
+        handlerConfigIds.get(String(draft.handlerId)) == null
+      ) {
         await this.attachHandler(draft.handlerId, config);
       }
     }

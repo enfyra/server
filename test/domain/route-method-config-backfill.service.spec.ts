@@ -1,3 +1,4 @@
+import { ObjectId } from 'mongodb';
 import { describe, expect, it, vi } from 'vitest';
 import { RouteMethodConfigBackfillService } from '../../src/engines/bootstrap/services/route-method-config-backfill.service';
 
@@ -61,6 +62,68 @@ describe('RouteMethodConfigBackfillService upgrade safety', () => {
       timeout: 30_000,
     }));
     expect(attachBindings).not.toHaveBeenCalled();
+  });
+
+  it('attaches newly seeded handlers on a later upgrade without changing existing bindings', async () => {
+    const configs = [
+      { id: 3, route: { id: 1 }, method: { id: 2 }, timeout: 45000 },
+      { id: 6, route: { id: 5 }, method: { id: 2 }, timeout: 30000 },
+    ];
+    const instance = service(configs);
+    vi.spyOn(instance as any, 'loadState').mockResolvedValue({
+      ...state(configs),
+      routes: [{ id: 1 }, { id: 5, isSystem: true }],
+      handlers: [
+        { id: 10, route: { id: 1 }, method: { id: 2 }, routeMethodConfig: { id: 3 } },
+        { id: 11, route: { id: 5 }, method: { id: 2 }, routeMethodConfig: null },
+      ],
+    });
+    vi.spyOn(instance as any, 'upsertConfig').mockImplementation(async (_draft: any, existing: any) => existing);
+    const attachHandler = vi.spyOn(instance as any, 'attachHandler').mockResolvedValue(undefined);
+    const attachBindings = vi.spyOn(instance as any, 'attachRouteScopedBindings');
+
+    await instance.run();
+
+    expect(attachHandler).toHaveBeenCalledExactlyOnceWith(11, configs[1]);
+    expect(attachBindings).not.toHaveBeenCalled();
+    expect(configs[0].timeout).toBe(45000);
+  });
+
+  it('attaches unbound handlers with Mongo identities without rewriting existing cells', async () => {
+    const routeId = new ObjectId();
+    const methodId = new ObjectId();
+    const configId = new ObjectId();
+    const handlerId = new ObjectId();
+    const config = { _id: configId, route: routeId, method: methodId, timeout: 45000 };
+    const instance = service([config]);
+    vi.spyOn(instance as any, 'loadState').mockResolvedValue({
+      ...state([config]),
+      routes: [{ _id: routeId }],
+      methods: [{ _id: methodId }],
+      handlers: [{ _id: handlerId, route: routeId, method: methodId, routeMethodConfig: null }],
+    });
+    vi.spyOn(instance as any, 'upsertConfig').mockImplementation(async (_draft: any, existing: any) => existing);
+    const attachHandler = vi.spyOn(instance as any, 'attachHandler').mockResolvedValue(undefined);
+
+    await instance.run();
+
+    expect(attachHandler).toHaveBeenCalledExactlyOnceWith(handlerId, config);
+    expect(config.timeout).toBe(45000);
+  });
+
+  it('does not overwrite an existing operator handler binding', async () => {
+    const config = { id: 3, route: { id: 1 }, method: { id: 2 }, timeout: 45000 };
+    const instance = service([config]);
+    vi.spyOn(instance as any, 'loadState').mockResolvedValue({
+      ...state([config]),
+      handlers: [{ id: 10, route: { id: 1 }, method: { id: 2 }, routeMethodConfig: { id: 99 } }],
+    });
+    vi.spyOn(instance as any, 'upsertConfig').mockImplementation(async (_draft: any, existing: any) => existing);
+    const attachHandler = vi.spyOn(instance as any, 'attachHandler').mockResolvedValue(undefined);
+
+    await instance.run();
+
+    expect(attachHandler).not.toHaveBeenCalled();
   });
 
   it('refuses duplicate or orphan cells before writing anything', async () => {
