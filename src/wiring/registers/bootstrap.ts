@@ -34,6 +34,7 @@ import {
   MetadataProvisionSqlService,
   MetadataProvisionService,
   ProvisionService,
+  RouteMethodConfigBackfillService,
   SchemaHealingService,
   SnapshotTargetVerifierService,
   SystemCoreTableResolver,
@@ -57,6 +58,7 @@ export const bootstrapInfraRegisters = {
   dataProvisionService: asClass(DataProvisionService).singleton(),
   dataMigrationService: asClass(DataMigrationService).singleton(),
   metadataMigrationService: asClass(MetadataMigrationService).singleton(),
+  routeMethodConfigBackfillService: asClass(RouteMethodConfigBackfillService).singleton(),
   snapshotTargetVerifierService: asClass(SnapshotTargetVerifierService).singleton(),
   bootstrapScriptService: asClass(BootstrapScriptService).singleton(),
 } as const;

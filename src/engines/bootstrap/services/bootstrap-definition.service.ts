@@ -17,6 +17,7 @@ import { applyDataMigrationMetadataTargets } from '../utils/data-migration-targe
 import { validateSnapshotMigrationDefinition } from '../utils/metadata-migration.util';
 import type { DatabaseConfigService } from '../../../shared/services';
 import {
+  resolveApplicableSchemaSteps,
   resolveDataMigration,
   resolveSchemaMigration,
 } from '../../../shared/utils/versioned-migration.util';
@@ -148,6 +149,19 @@ export class BootstrapDefinitionService {
 
   getMigration(): SchemaMigrationDef | null {
     return this.definition.migration;
+  }
+
+  getApplicableSchemaSteps(): readonly VersionedSchemaMigration[] {
+    const project = this.isMongo
+      ? toMongoTargetMigration
+      : toSqlTargetMigration;
+    return resolveApplicableSchemaSteps(
+      this.migrations,
+      this.resolvedVersion ?? this.oldestSourceVersion(),
+    ).map((step) => ({
+      ...step,
+      schema: project(step.schema)!,
+    }));
   }
 
   getDefaultData(): BootstrapDefaultData {

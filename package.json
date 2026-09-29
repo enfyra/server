@@ -52,6 +52,7 @@
     "test:e2e:snapshot-migration-matrix": "tsx test/e2e/snapshot-migration-database-matrix.e2e.ts",
     "test:e2e:snapshot-migration-integrity": "tsx test/e2e/snapshot-migration-integrity-matrix.e2e.ts",
     "test:e2e:bootstrap-randomized-matrix": "bash scripts/e2e-bootstrap-randomized-matrix.sh",
+    "test:e2e:route-method-config-matrix": "tsx test/e2e/route-method-config-matrix.e2e.ts",
     "test:e2e:realtime-chat-load": "tsx test/realtime-chat-app.e2e.ts",
     "test:e2e:mock": "yarn test:e2e:cache-load && yarn test:e2e:metadata-reload && yarn test:e2e:flow-engine",
     "test:e2e": "yarn test:e2e:mock && yarn test:e2e:query-builder"

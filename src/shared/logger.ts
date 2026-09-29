@@ -203,6 +203,10 @@ function shouldEmit(level: LevelName): boolean {
     return false;
   }
 
+  if (level === 'verbose' && process.env.STARTUP_VERBOSE === '1') {
+    return true;
+  }
+
   const configured = process.env.LOG_LEVEL || 'info';
   const maxPriority = LOG_LEVEL_PRIORITY[configured] ?? LOG_LEVEL_PRIORITY.info;
   if (LEVEL_PRIORITY[level] > maxPriority) return false;

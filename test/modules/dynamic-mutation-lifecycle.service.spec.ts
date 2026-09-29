@@ -111,6 +111,33 @@ describe('DynamicMutationLifecycleService', () => {
     expect(calls).toEqual(['persist', 'afterWrite', 'buildResult', 'recover']);
   });
 
+  it('waits for critical reload after creating a route or method', async () => {
+    const service = new DynamicMutationLifecycleService();
+    const reloadOptions: any[] = [];
+
+    await service.create(
+      createOptions({
+        tableName: 'enfyra_route',
+        runtime: {
+          find: async () => ({ data: [{ id: 1 }], count: 1 }),
+          getIdField: () => 'id',
+          reload: async (options: any) => {
+            reloadOptions.push(options);
+          },
+          emit: () => {},
+        },
+        routeRouter: {
+          getStrategy: () => ({
+            kind: 'generic',
+            requiresCriticalReload: true,
+          }),
+        },
+      }),
+    );
+
+    expect(reloadOptions).toEqual([{ ids: [1], critical: true }]);
+  });
+
   it('preserves a domain conflict status raised while preparing a create', async () => {
     const service = new DynamicMutationLifecycleService();
 

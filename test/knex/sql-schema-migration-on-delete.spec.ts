@@ -1,8 +1,34 @@
 import { describe, expect, it, vi } from 'vitest';
 import { resolveSqlRelationOnDelete } from '../../src/engines/knex/services/sql-schema-migration.service';
 import { generateSQLFromDiff } from '../../src/engines/knex/utils/migration/sql-diff-generator';
+import { buildSqlIndexContracts, buildSqlUniqueContracts } from '../../src/engines/knex/utils/sql-physical-schema-contract';
 
 describe('resolveSqlRelationOnDelete', () => {
+  it('uses the target physical contract names when generating constraint DDL', async () => {
+    const tableName = 'enfyra_route_method_config_file_field';
+    const metadata = {
+      columns: [{ name: 'id', type: 'int', isPrimary: true }],
+      relations: [{ propertyName: 'routeMethodConfig', type: 'many-to-one', targetTable: 'enfyra_route_method_config' }],
+      uniques: [['routeMethodConfig', 'name']],
+      indexes: [['routeMethodConfig', 'sort']],
+    } as any;
+    const unique = buildSqlUniqueContracts(tableName, metadata)[0];
+    const index = buildSqlIndexContracts(tableName, metadata)[0];
+    const knex = { schema: { hasColumn: vi.fn().mockResolvedValue(true) } } as any;
+    const statements = await generateSQLFromDiff(knex, tableName, {
+      constraints: {
+        uniques: { create: [unique.physicalColumns] },
+        indexes: { create: [index.physicalColumns] },
+      },
+      constraintNames: {
+        uniques: { [JSON.stringify(unique.physicalColumns)]: unique.name },
+        indexes: { [JSON.stringify(index.physicalColumns)]: index.name },
+      },
+    }, 'mysql');
+    expect(statements).toContain(`ALTER TABLE \`${tableName}\` ADD CONSTRAINT \`${unique.name}\` UNIQUE (\`routeMethodConfigId\`, \`name\`)`);
+    expect(statements.some((statement) => statement.includes(`\`${index.name}\``))).toBe(true);
+  });
+
   it('preserves explicit CASCADE for non-null relations', () => {
     expect(
       resolveSqlRelationOnDelete({

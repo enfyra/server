@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import type { UploadedFileInfo } from './file-management.types';
+import type { UploadedFileFields } from './multipart-upload.types';
 import type { CryptoHelper } from '../helpers/crypto.helper';
 import type { FetchHelper } from '../helpers/fetch.helper';
 import type {
@@ -258,6 +259,7 @@ export interface TDynamicContext {
     };
   };
   $uploadedFile?: UploadedFileInfo;
+  $uploadFile?: UploadedFileFields;
   $debug?: any;
   $socket?: {
     join?: (room: string) => void;
@@ -286,8 +288,9 @@ export interface RequestWithRouteData extends Request {
     context: TDynamicContext;
     params: any;
     handler: string;
+    routeMethodConfig?: any;
     handlerRecord?: any;
-    handlers?: any[];
+    routePermissions?: any[];
     preHooks: any[];
     postHooks: any[];
     isPublic: boolean;

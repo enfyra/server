@@ -51,10 +51,29 @@ function mergeTableMigrations(
         });
         continue;
       }
+      const priorTableChange = existing.tableToModify;
+      const nextTableChange = table.tableToModify;
+      if (priorTableChange && nextTableChange) {
+        const repeatedFields = Object.keys(nextTableChange.to).filter(
+          (field) => field in priorTableChange.to,
+        );
+        if (repeatedFields.length > 0) {
+          throw new Error(
+            `Cannot combine versioned table migrations for ${key}: ${repeatedFields.join(', ')} changes in multiple steps. Upgrade through the intermediate version first.`,
+          );
+        }
+      }
       merged.set(key, {
         ...existing,
-        ...(table.tableToModify !== undefined
-          ? { tableToModify: table.tableToModify }
+        ...(nextTableChange !== undefined
+          ? {
+              tableToModify: priorTableChange
+                ? {
+                    from: { ...priorTableChange.from, ...nextTableChange.from },
+                    to: { ...priorTableChange.to, ...nextTableChange.to },
+                  }
+                : nextTableChange,
+            }
           : {}),
         columnsToModify: [
           ...(existing.columnsToModify ?? []),
@@ -110,6 +129,13 @@ function mergeSteps(
  * at the oldest supported source, and an older one fails loudly instead of being
  * migrated with declarations written for a different starting point.
  */
+export function resolveApplicableSchemaSteps(
+  steps: readonly VersionedSchemaMigration[],
+  dbVersion: unknown,
+): readonly VersionedSchemaMigration[] {
+  return selectApplicableSteps(steps, dbVersion).applicable;
+}
+
 export function resolveSchemaMigration(
   steps: readonly VersionedSchemaMigration[],
   dbVersion: unknown,

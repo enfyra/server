@@ -10,6 +10,7 @@ import { MetadataProvisionService } from './metadata-provision.service';
 import { MetadataMigrationService } from './metadata-migration.service';
 import { DataProvisionService } from './data-provision.service';
 import { DataMigrationService } from './data-migration.service';
+import { RouteMethodConfigBackfillService } from './route-method-config-backfill.service';
 import { SchemaHealingService } from './schema-healing.service';
 import { SnapshotTargetVerifierService } from './snapshot-target-verifier.service';
 import { BootstrapUnitOfWorkService } from './bootstrap-unit-of-work.service';
@@ -48,6 +49,7 @@ export class FirstRunInitializer {
   private readonly metadataMigrationService: MetadataMigrationService;
   private readonly dataProvisionService: DataProvisionService;
   private readonly dataMigrationService: DataMigrationService;
+  private readonly routeMethodConfigBackfillService: RouteMethodConfigBackfillService;
   private readonly schemaHealingService: SchemaHealingService;
   private readonly snapshotTargetVerifierService: SnapshotTargetVerifierService;
   private readonly routeDefinitionProcessor: RouteDefinitionProcessor;
@@ -76,6 +78,7 @@ export class FirstRunInitializer {
     metadataMigrationService: MetadataMigrationService;
     dataProvisionService: DataProvisionService;
     dataMigrationService: DataMigrationService;
+    routeMethodConfigBackfillService: RouteMethodConfigBackfillService;
     schemaHealingService: SchemaHealingService;
     snapshotTargetVerifierService: SnapshotTargetVerifierService;
     routeDefinitionProcessor: RouteDefinitionProcessor;
@@ -92,6 +95,7 @@ export class FirstRunInitializer {
     this.metadataMigrationService = deps.metadataMigrationService;
     this.dataProvisionService = deps.dataProvisionService;
     this.dataMigrationService = deps.dataMigrationService;
+    this.routeMethodConfigBackfillService = deps.routeMethodConfigBackfillService;
     this.schemaHealingService = deps.schemaHealingService;
     this.snapshotTargetVerifierService = deps.snapshotTargetVerifierService;
     this.routeDefinitionProcessor = deps.routeDefinitionProcessor;
@@ -361,6 +365,11 @@ export class FirstRunInitializer {
           this.completeProgressStage(changePlan.changes, 'data', mode);
           this.logVerbose(`Data migrations: ${Date.now() - t6}ms`);
         }
+
+        this.logStage(mode, 'backfilling route method configs');
+        await this.runOwnedStep(lease, () =>
+          this.routeMethodConfigBackfillService.run(),
+        );
 
         this.logStage(mode, 'attesting data target state');
         await this.runOwnedStep(lease, () =>

@@ -120,6 +120,8 @@ export class GuardValidationService {
         'isGlobal',
         'position',
         'methods',
+        'routeMethodConfigs',
+        'appliesToAllRouteMethods',
         'type',
         'gqlOperation',
         'table',
@@ -154,6 +156,36 @@ export class GuardValidationService {
         throw new BadRequestException(
           'Guard excludeRoutes is only valid when isGlobal=true. A route-scoped guard already targets exactly one route.',
         );
+      }
+      const routeMethodConfigs = Array.isArray(merged.routeMethodConfigs)
+        ? merged.routeMethodConfigs
+        : merged.routeMethodConfigs == null
+          ? []
+          : [merged.routeMethodConfigs];
+      const methods = Array.isArray(merged.methods)
+        ? merged.methods
+        : merged.methods == null
+          ? []
+          : [merged.methods];
+      if (hasGlobal && routeMethodConfigs.length > 0) {
+        throw new BadRequestException(
+          'Global route guards cannot target routeMethodConfigs. Use methods as the global HTTP verb selector.',
+        );
+      }
+      if (!hasGlobal && !hasParent) {
+        if (methods.length > 0) {
+          throw new BadRequestException(
+            'Route-scoped guards cannot set methods. Use routeMethodConfigs or appliesToAllRouteMethods=true.',
+          );
+        }
+        if (
+          merged.appliesToAllRouteMethods === true &&
+          routeMethodConfigs.length > 0
+        ) {
+          throw new BadRequestException(
+            'Route-scoped guards cannot combine appliesToAllRouteMethods=true with explicit routeMethodConfigs.',
+          );
+        }
       }
     } else {
       // type=graphql

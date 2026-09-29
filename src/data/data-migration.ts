@@ -769,6 +769,14 @@ export const standingDataCorrections = {
       availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
     },
     {
+      _unique: { path: { _eq: '/enfyra_route_method_config' } },
+      availableMethods: ['GET', 'PATCH'],
+    },
+    {
+      _unique: { path: { _eq: '/enfyra_route_method_config_file_field' } },
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
       _unique: {
         path: {
           _eq: '/enfyra_menu',
@@ -1185,6 +1193,11 @@ const dataMigrations: VersionedDataMigration[] = [
         },
       ],
     },
+  },
+  {
+    fromVersion: '2.3.0',
+    toVersion: '2.3.1',
+    data: {},
   },
 ];
 

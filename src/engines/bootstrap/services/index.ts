@@ -11,6 +11,7 @@ export * from './metadata-provision.service';
 export * from './schema-healing.service';
 export * from './snapshot-target-verifier.service';
 export * from './provision.service';
+export * from './route-method-config-backfill.service';
 export * from './system-core-table-resolver.service';
 export * from './legacy-system-metadata/legacy-store-inventory.service';
 export * from './legacy-system-metadata/legacy-assessment.service';

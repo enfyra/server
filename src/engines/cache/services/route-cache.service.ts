@@ -57,6 +57,37 @@ const ROUTE_CACHE_ROUTE_FIELDS = [
   'createdAt',
   'updatedAt',
   'mainTable',
+  'methodConfigs.id',
+  'methodConfigs.available',
+  'methodConfigs.isPublic',
+  'methodConfigs.skipRoleGuard',
+  'methodConfigs.timeout',
+  'methodConfigs.requestBodyType',
+  'methodConfigs.maxUploadFileSize',
+  'methodConfigs.maxFiles',
+  'methodConfigs.description',
+  'methodConfigs.isSystem',
+  'methodConfigs.method',
+  'methodConfigs.handler.id',
+  'methodConfigs.handler.description',
+  'methodConfigs.handler.sourceCode',
+  'methodConfigs.handler.scriptLanguage',
+  'methodConfigs.handler.compiledCode',
+  'methodConfigs.routePermissions.id',
+  'methodConfigs.routePermissions.isEnabled',
+  'methodConfigs.routePermissions.description',
+  'methodConfigs.routePermissions.role.id',
+  'methodConfigs.routePermissions.allowedUsers.id',
+  'methodConfigs.preHooks.id',
+  'methodConfigs.postHooks.id',
+  'methodConfigs.fileFields.id',
+  'methodConfigs.fileFields.name',
+  'methodConfigs.fileFields.required',
+  'methodConfigs.fileFields.maxCount',
+  'methodConfigs.fileFields.maxFileSize',
+  'methodConfigs.fileFields.allowedMimeTypes',
+  'methodConfigs.fileFields.sort',
+  'methodConfigs.fileFields.description',
   'handlers.id',
   'handlers.timeout',
   'handlers.description',
@@ -188,10 +219,17 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       return;
     }
 
+    if (payload.table === 'enfyra_route_method_config_file_field') {
+      await this.reloadFromPartial();
+      return;
+    }
+
     if (
-      ['enfyra_route_handler', 'enfyra_route_permission'].includes(
-        payload.table,
-      ) &&
+      [
+        'enfyra_route_method_config',
+        'enfyra_route_handler',
+        'enfyra_route_permission',
+      ].includes(payload.table) &&
       payload.ids?.length
     ) {
       const routeIds = await this.resolveAffectedRouteIds(
@@ -219,7 +257,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     }
 
     if (['enfyra_role', 'enfyra_method'].includes(payload.table)) {
-      await this.reload();
+      await this.reloadFromPartial();
       return;
     }
 
@@ -239,7 +277,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       }
     }
 
-    await this.reload();
+    await this.reloadFromPartial();
   }
 
   private async reloadSpecificRoutes(
@@ -271,6 +309,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
           isMongoDB,
         );
         await this.transformRouteCode(route);
+        this.finalizeRouteMethodConfigs(route);
       }),
     );
 
@@ -431,6 +470,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
         this.mergeHooks(route, globalPreHooks, globalPostHooks, isMongoDB);
 
         await this.transformRouteCode(route);
+        this.finalizeRouteMethodConfigs(route);
       }),
     );
 
@@ -535,6 +575,9 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     this.hydrateMethodList(route.publicMethods);
     this.hydrateMethodList(route.skipRoleGuardMethods);
 
+    for (const operation of route.methodConfigs || []) {
+      operation.method = this.hydrateMethodRef(operation.method);
+    }
     for (const handler of route.handlers || []) {
       handler.method = this.hydrateMethodRef(handler.method);
     }
@@ -547,6 +590,70 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     for (const hook of route.postHooks || []) {
       this.hydrateMethodList(hook.methods);
     }
+  }
+
+  private finalizeRouteMethodConfigs(route: any): void {
+    if (!Array.isArray(route.methodConfigs)) return;
+
+    for (const operation of route.methodConfigs) {
+      const methodName = operation.method?.name;
+      const handler = operation.handler;
+      if (handler?.sourceCode || handler?.compiledCode || handler?.logic) {
+        const code = this.resolveScriptCode('enfyra_route_handler', handler);
+        if (code) handler.logic = code;
+      }
+      const preHookIds = new Set(
+        (Array.isArray(operation.preHooks) ? operation.preHooks : [])
+          .map((hook: any) => DatabaseConfigService.getRecordId(hook))
+          .filter((id: any) => id != null)
+          .map(String),
+      );
+      const postHookIds = new Set(
+        (Array.isArray(operation.postHooks) ? operation.postHooks : [])
+          .map((hook: any) => DatabaseConfigService.getRecordId(hook))
+          .filter((id: any) => id != null)
+          .map(String),
+      );
+      operation.preHooks = this.uniqueHooks(
+        route.preHooks.filter((hook: any) => {
+          const hookId = DatabaseConfigService.getRecordId(hook);
+          return hook.isGlobal === true
+            ? hook.methods?.some((method: any) => method?.name === methodName)
+            : hookId != null && preHookIds.has(String(hookId));
+        }),
+        this.queryBuilderService.isMongoDb(),
+      );
+      operation.postHooks = this.uniqueHooks(
+        route.postHooks.filter((hook: any) => {
+          const hookId = DatabaseConfigService.getRecordId(hook);
+          return hook.isGlobal === true
+            ? hook.methods?.some((method: any) => method?.name === methodName)
+            : hookId != null && postHookIds.has(String(hookId));
+        }),
+        this.queryBuilderService.isMongoDb(),
+      );
+      operation.fileFields = Array.isArray(operation.fileFields)
+        ? [...operation.fileFields].sort(
+            (left: any, right: any) => (left.sort ?? 0) - (right.sort ?? 0),
+          )
+        : [];
+    }
+
+    route.availableMethods = route.methodConfigs
+      .filter((operation: any) => operation.available === true)
+      .map((operation: any) => operation.method);
+    route.publicMethods = route.methodConfigs
+      .filter((operation: any) => operation.isPublic === true)
+      .map((operation: any) => operation.method);
+    route.skipRoleGuardMethods = route.methodConfigs
+      .filter((operation: any) => operation.skipRoleGuard === true)
+      .map((operation: any) => operation.method);
+    route.handlers = route.methodConfigs
+      .filter((operation: any) => operation.handler)
+      .map((operation: any) => ({
+        ...operation.handler,
+        method: operation.method,
+      }));
   }
 
   private hydrateRouteMainTable(route: any, metadata: any): void {

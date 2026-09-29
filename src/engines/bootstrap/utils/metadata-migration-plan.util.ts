@@ -1,4 +1,7 @@
-import type { SchemaMigrationDef } from '../../../shared/types/schema-migration.types';
+import type {
+  SchemaMigrationDef,
+  VersionedSchemaMigration,
+} from '../../../shared/types/schema-migration.types';
 import type {
   BootstrapSchemaExecutionPlan,
   BootstrapSchemaOperation,
@@ -20,19 +23,47 @@ export interface MetadataMigrationPlanContext {
   database: BootstrapSchemaExecutionPlan['database'];
   targetTableCount: number;
   observedMetadata: BootstrapSchemaExecutionPlan['observedMetadata'];
+  steps?: readonly VersionedSchemaMigration[];
 }
 
 export function compileMetadataMigrationExecutionPlan(
   migration: SchemaMigrationDef | null,
   context: MetadataMigrationPlanContext,
 ): BootstrapSchemaExecutionPlan {
-  const operations =
-    context.mode === 'upgrade'
-      ? compileOperations(migration, context.database)
-      : Object.freeze([] as BootstrapSchemaOperation[]);
-  const phases = compileExecutionPhases(operations, context.database);
+  const { steps, ...planContext } = context;
+  const useSteps = context.mode === 'upgrade' && steps && steps.length > 0;
+  const batches = useSteps
+    ? steps.map((step) =>
+        compileOperations(step.schema, context.database).map((operation) => ({
+          ...operation,
+          id: `${step.toVersion}:${operation.id}`,
+          label: `${step.toVersion}: ${operation.label}`,
+        })),
+      )
+    : context.mode === 'upgrade'
+      ? [compileOperations(migration, context.database)]
+      : [];
+  const operations = Object.freeze(batches.flat());
+  let phaseOffset = 0;
+  const phases = Object.freeze(
+    batches.flatMap((batch) => {
+      const compiled = compileExecutionPhases(batch, context.database);
+      const shifted = compiled.map((phase) =>
+        Object.freeze({
+          index: phase.index + phaseOffset,
+          nodes: Object.freeze(
+            phase.nodes.map((node) =>
+              Object.freeze({ ...node, phase: node.phase + phaseOffset }),
+            ),
+          ),
+        }),
+      );
+      phaseOffset += compiled.length;
+      return shifted;
+    }),
+  );
   return Object.freeze({
-    ...context,
+    ...planContext,
     observedMetadata: Object.freeze({ ...context.observedMetadata }),
     operations,
     phases,

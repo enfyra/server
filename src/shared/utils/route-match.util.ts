@@ -74,6 +74,13 @@ export function matchRouteIndexEntry(
 }
 
 export function getRouteMethods(route: any): string[] {
+  if (Array.isArray(route?.methodConfigs)) {
+    return route.methodConfigs
+      .filter((config: any) => config?.available === true)
+      .map((config: any) => config?.method?.name ?? config?.method)
+      .filter(Boolean);
+  }
+
   const methods = route?.availableMethods ?? route?.methods;
   if (!Array.isArray(methods) || methods.length === 0) return [];
   return methods.map((item: any) => item?.name ?? item).filter(Boolean);

@@ -316,6 +316,21 @@ const snapshotMigrations: VersionedSchemaMigration[] = [
       ],
     },
   },
+  {
+    fromVersion: '2.3.0',
+    toVersion: '2.3.1',
+    schema: {
+      tables: [
+        {
+          _unique: { name: { _eq: 'enfyra_route_handler' } },
+          tableToModify: {
+            from: { uniques: [['route', 'method']] },
+            to: { uniques: [['route', 'method'], ['routeMethodConfig']] },
+          },
+        },
+      ],
+    },
+  },
 ];
 
 export default snapshotMigrations;

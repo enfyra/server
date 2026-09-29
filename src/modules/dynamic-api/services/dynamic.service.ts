@@ -384,10 +384,8 @@ export class DynamicService {
         }
       }
 
-      const routeHandler = routeData.handlers?.find(
-        (h) => h.method?.name === req.method,
-      );
-      const timeoutMs = routeHandler?.timeout || DEFAULT_DYNAMIC_ROUTE_TIMEOUT_MS;
+      const timeoutMs =
+        routeData.routeMethodConfig?.timeout || DEFAULT_DYNAMIC_ROUTE_TIMEOUT_MS;
 
       let value: any;
       let shortCircuit = false;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultData } from '../../src/data';
+import { bootstrapSourceArtifacts } from '../../src/data';
 import {
   BootstrapDefinitionService,
   MetadataMigrationService,
@@ -7,6 +7,17 @@ import {
 import { compileMetadataMigrationExecutionPlan } from '../../src/engines/bootstrap/utils/metadata-migration-plan.util';
 
 describe('BootstrapDefinitionService', () => {
+  it('seeds callable REST routes for method settings and multipart fields', () => {
+    const routes = bootstrapSourceArtifacts.defaultData.enfyra_route as any[];
+    const methodConfig = routes.find(route => route.path === '/enfyra_route_method_config');
+    const fileFields = routes.find(route => route.path === '/enfyra_route_method_config_file_field');
+    expect(methodConfig).toMatchObject({ mainTable: 'enfyra_route_method_config', availableMethods: ['GET', 'PATCH'] });
+    expect(fileFields).toMatchObject({ mainTable: 'enfyra_route_method_config_file_field', availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'] });
+    const migration = new BootstrapDefinitionService().resolveForVersion('2.2.19-patch-1').dataMigration.enfyra_route;
+    expect(migration.some((record: any) => record._unique?.path?._eq === methodConfig.path)).toBe(true);
+    expect(migration.some((record: any) => record._unique?.path?._eq === fileFields.path)).toBe(true);
+  });
+
   it('rejects unsupported deletion declarations while loading artifacts', () => {
     expect(
       () =>
@@ -63,6 +74,28 @@ describe('BootstrapDefinitionService', () => {
     expect(Object.isFrozen(definition.snapshot)).toBe(true);
   });
 
+  it('merges both declared schema and data steps from 2.2.19-patch-1', () => {
+    const service = new BootstrapDefinitionService();
+    const definition = service.resolveForVersion('2.2.19-patch-1');
+    const handler = definition.migration?.tables?.find(
+      (table) => table._unique.name._eq === 'enfyra_route_handler',
+    );
+    const setting = definition.migration?.tables?.find(
+      (table) => table._unique.name._eq === 'enfyra_setting',
+    );
+    expect(handler?.columnsToModify?.map((column) => column.from.name)).toContain('sourceCode');
+    expect(handler?.tableToModify?.to.uniques).toEqual([
+      ['route', 'method'],
+      ['routeMethodConfig'],
+    ]);
+    expect(setting?.columnsToRemove).toContain('uniquesIndexesRepaired');
+    expect(definition.dataMigration.enfyra_column.some(
+      (record: any) => record._unique?._and?.some(
+        (condition: any) => condition?.name?._eq === 'type',
+      ) && record.type === 'enum' && Array.isArray(record.options),
+    )).toBe(true);
+  });
+
   it('loads and freezes the current SQL bootstrap target once', () => {
     const service = new BootstrapDefinitionService();
     const definition = service.resolveForVersion('2.2.19-patch-1');
@@ -93,7 +126,7 @@ describe('BootstrapDefinitionService', () => {
               },
             },
           ],
-          defaultData,
+          defaultData: bootstrapSourceArtifacts.defaultData,
           dataCorrections: {},
           dataMigrations: [],
         }),
@@ -177,6 +210,71 @@ describe('BootstrapDefinitionService', () => {
 
     expect(mongoPlan.operations).toEqual([]);
     expect(mongoPlan.phases).toEqual([]);
+  });
+
+  it('projects every applicable schema step to the active SQL contract', () => {
+    const service = new BootstrapDefinitionService();
+    service.resolveForVersion('2.2.19-patch-1');
+    const steps = service.getApplicableSchemaSteps();
+    const typeChange = steps[0].schema.tables?.find(
+      (table) => table._unique.name._eq === 'enfyra_column',
+    )?.columnsToModify?.find((column) => column.from.name === 'type');
+
+    expect(steps.map((step) => step.toVersion)).toEqual(['2.3.0', '2.3.1']);
+    expect(typeChange?.from.type).toBe('varchar');
+    expect(typeChange?.to.type).toBe('enum');
+    expect(typeChange?.to.options).toContain('simple-json');
+    expect(typeChange?.to.sqlType).toBeUndefined();
+  });
+
+  it('executes each version entirely before the next version starts', async () => {
+    const service = new MetadataMigrationService({
+      bootstrapDefinitionService: new BootstrapDefinitionService(),
+      queryBuilderService: {
+        isMongoDb: () => false,
+        getKnex: () => ({ client: { config: { client: 'pg' } } }),
+      } as any,
+      systemCoreTableResolver: { getNames: async () => ({}) } as any,
+    });
+    const steps = [
+      {
+        fromVersion: '2.2.19-patch-1',
+        toVersion: '2.3.0',
+        schema: {
+          tables: [{
+            _unique: { name: { _eq: 'enfyra_column' } },
+            columnsToModify: [{
+              from: { name: 'type', type: 'varchar' },
+              to: { name: 'type', type: 'enum', options: ['varchar', 'enum'] },
+            }],
+          }],
+        },
+      },
+      {
+        fromVersion: '2.3.0',
+        toVersion: '2.3.1',
+        schema: { coreTablesToRename: [{ from: 'old_core', to: 'new_core' }] },
+      },
+    ];
+    const plan = compileMetadataMigrationExecutionPlan(null, {
+      mode: 'upgrade',
+      database: 'postgresql',
+      targetTableCount: 1,
+      observedMetadata: { tables: 1, columns: 1, relations: 0 },
+      steps,
+    });
+    (service as any).executionPlan = plan;
+    const executed: string[] = [];
+    (service as any).executePlanCommand = async (command: any) => {
+      executed.push(command.operation.id);
+    };
+
+    await service.executeCoreMigrationPlan();
+    await service.executeRemainingMigrationPlan();
+
+    expect(executed.filter((id) => id.startsWith('2.3.0:'))).toHaveLength(2);
+    expect(executed.filter((id) => id.startsWith('2.3.1:'))).toHaveLength(2);
+    expect(executed.findIndex((id) => id.startsWith('2.3.1:'))).toBe(2);
   });
 
   it('executes compiled nodes by dynamic phase and completes each logical change once', async () => {

@@ -5,12 +5,7 @@ import {
 } from '../../domain/auth';
 
 function isPublicRequest(req: Request): boolean {
-  if ((req as any).routeData?.isPublic === true) return true;
-  return (
-    (req as any).routeData?.publicMethods?.some(
-      (method: any) => method?.name === req.method || method === req.method,
-    ) === true
-  );
+  return (req as any).routeData?.routeMethodConfig?.isPublic === true;
 }
 
 function setAnonymousUser(req: Request): void {
