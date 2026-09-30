@@ -124,7 +124,7 @@ export function executeBatch(opts: {
   snapshot: Record<string, any>;
   timeoutMs?: number;
   memoryLimitMb?: number;
-  isolatePoolSize?: number;
+  isolatesPerWorker?: number;
   ctx?: Record<string, any>;
 }): Promise<any> {
   return spawnWorker(
@@ -135,7 +135,7 @@ export function executeBatch(opts: {
       snapshot: opts.snapshot,
       timeoutMs: opts.timeoutMs ?? 10000,
       memoryLimitMb: opts.memoryLimitMb ?? 128,
-      isolatePoolSize: opts.isolatePoolSize,
+      isolatesPerWorker: opts.isolatesPerWorker,
     },
     opts.ctx ?? {},
     opts.timeoutMs ?? 10000,
@@ -149,7 +149,7 @@ export function executeSingle(opts: {
   snapshot: Record<string, any>;
   timeoutMs?: number;
   memoryLimitMb?: number;
-  isolatePoolSize?: number;
+  isolatesPerWorker?: number;
   ctx?: Record<string, any>;
 }): Promise<any> {
   return spawnWorker(
@@ -161,7 +161,7 @@ export function executeSingle(opts: {
       snapshot: opts.snapshot,
       timeoutMs: opts.timeoutMs ?? 10000,
       memoryLimitMb: opts.memoryLimitMb ?? 128,
-      isolatePoolSize: opts.isolatePoolSize,
+      isolatesPerWorker: opts.isolatesPerWorker,
     },
     opts.ctx ?? {},
     opts.timeoutMs ?? 10000,
@@ -175,7 +175,7 @@ export function executeBatchSequence(
     pkgSources?: any[];
     timeoutMs?: number;
     memoryLimitMb?: number;
-    isolatePoolSize?: number;
+    isolatesPerWorker?: number;
   }>,
 ): Promise<any[]> {
   return new Promise((resolve, reject) => {
@@ -219,7 +219,7 @@ export function executeBatchSequence(
         snapshot: req.snapshot,
         timeoutMs,
         memoryLimitMb: req.memoryLimitMb ?? 128,
-        isolatePoolSize: req.isolatePoolSize ?? 1,
+        isolatesPerWorker: req.isolatesPerWorker ?? 1,
       });
     };
 

@@ -56,8 +56,10 @@ describe('computeEngineTuning — exhaustive CPU×RAM sweep', () => {
 
         expect(r.maxConcurrentWorkers).toBeGreaterThanOrEqual(WORKER_FLOOR);
         expect(r.maxConcurrentWorkers).toBeLessThanOrEqual(96);
-        expect(r.isolateMemoryLimitMb).toBeGreaterThanOrEqual(16);
-        expect(r.isolateMemoryLimitMb).toBeLessThanOrEqual(128);
+        expect(r.isolateMemoryLimitMb).toBeGreaterThanOrEqual(40);
+        expect(r.isolatesPerWorker).toBeGreaterThanOrEqual(6);
+        expect(r.isolatesPerWorker).toBeLessThanOrEqual(768);
+        expect(r.isolateMemoryLimitMb).toBe(Math.max(40, Math.round(ramMb / 32)));
       });
     }
   }
@@ -90,16 +92,15 @@ describe('computeEngineTuning — exhaustive CPU×RAM sweep', () => {
     }
   });
 
-  it('monotonicity: more RAM → isolateMemoryLimitMb >= previous', () => {
-    let prev = 0;
+  it('monotonicity: more RAM increases total admitted isolate memory', () => {
+    let previousBudget = 0;
     for (const ramMb of ALL_RAMS_MB) {
-      const r = computeEngineTuning({
-        logicalCpuCount: 4,
-        totalMemoryBytes: ramMb * MB,
-      });
-      expect(r.isolateMemoryLimitMb).toBeGreaterThanOrEqual(prev);
-      prev = r.isolateMemoryLimitMb;
+      const r = computeEngineTuning({ logicalCpuCount: 4, totalMemoryBytes: ramMb * MB });
+      const budget = r.maxConcurrentWorkers * r.isolatesPerWorker * r.isolateMemoryLimitMb;
+      expect(budget).toBeGreaterThanOrEqual(previousBudget);
+      previousBudget = budget;
     }
+    expect(computeEngineTuning({ logicalCpuCount: 4, totalMemoryBytes: 128 * GB }).isolateMemoryLimitMb).toBeGreaterThan(128);
   });
 });
 

@@ -105,8 +105,7 @@ async function executeWithFallbacks(
       },
       timeoutMs: 5_000,
       memoryLimitMb: 128,
-      isolatePoolSize: 1,
-      tasksPerIsolate: 1,
+      isolatesPerWorker: 1,
     });
   });
 }

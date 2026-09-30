@@ -22,8 +22,7 @@ describe('kernel executor crash reporting', () => {
         correlationId: 'req_worker_crash',
         timeoutMs: 600_000,
         isolateMemoryLimitMb: 1024,
-        isolatePoolSize: 2,
-        tasksPerIsolate: 8,
+        isolatesPerWorker: 2,
         scriptBlocks: [{ type: 'handler' as const, scriptId: '541' }],
       }],
     };
