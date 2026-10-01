@@ -77,6 +77,29 @@ describe('UploadFileHelper', () => {
     }
   });
 
+  it('uploads a named multipart field with two files and returns file record ids for an array column', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'enfyra-multipart-helper-'));
+    const paths = ['first.txt', 'second.txt'].map(name => join(tempDir, name));
+    paths.forEach((path, index) => writeFileSync(path, String(index + 1)));
+    const fileManagementService = {
+      uploadFileAndCreateRecord: vi.fn(async (fileData) => {
+        let content = '';
+        for await (const chunk of fileData.stream) content += chunk.toString();
+        return { data: [{ id: Number(content) }] };
+      }),
+    };
+    const helper = new UploadFileHelper({ fileManagementService: fileManagementService as any });
+    const upload = helper.createStorageHelper(makeContext()).$upload;
+    try {
+      const files = paths.map((path, index) => ({ path, originalname: `file-${index}.txt`, mimetype: 'text/plain', size: 1, fieldname: 'attachments' }));
+      const results = await Promise.all(files.map(file => upload({ file })));
+      expect(results.map(result => result.data[0].id)).toEqual([1, 2]);
+      expect(fileManagementService.uploadFileAndCreateRecord).toHaveBeenCalledTimes(2);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('streams large request files in chunks instead of buffering the whole file', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'enfyra-large-upload-helper-'));
     const filePath = join(tempDir, 'large-request-upload.bin');

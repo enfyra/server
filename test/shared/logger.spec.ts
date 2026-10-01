@@ -71,6 +71,26 @@ describe('Logger — basic string messages', () => {
     expect(cap.calls.map((c) => c.level)).toEqual(['warn', 'debug', 'trace']);
   });
 
+  it('STARTUP_VERBOSE emits verbose traces even when LOG_LEVEL is info', () => {
+    const previousLevel = process.env.LOG_LEVEL;
+    const previousStartupVerbose = process.env.STARTUP_VERBOSE;
+    process.env.LOG_LEVEL = 'info';
+    process.env.STARTUP_VERBOSE = '1';
+    try {
+      new Logger('Cache').verbose('cache-query');
+      expect(cap.calls).toEqual([
+        expect.objectContaining({ level: 'trace', msg: 'cache-query' }),
+      ]);
+    } finally {
+      process.env.LOG_LEVEL = previousLevel;
+      if (previousStartupVerbose === undefined) {
+        delete process.env.STARTUP_VERBOSE;
+      } else {
+        process.env.STARTUP_VERBOSE = previousStartupVerbose;
+      }
+    }
+  });
+
   it('numbers, booleans, null are stringified', () => {
     const logger = new Logger('X');
     logger.log(42);

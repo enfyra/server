@@ -188,6 +188,234 @@ export class DynamicTableRouteHandlerService implements TableRouteHandlers {
     return this.dependencies.userRevocationService?.publish(id);
   }
 
+  async createRouteMethodConfigsForRoute(
+    routeId: string | number,
+    isSystem: boolean,
+    routeState: Record<string, any> = {},
+  ): Promise<void> {
+    const idField = this.dependencies.queryBuilderService.getPkField();
+    const methods = await this.dependencies.queryBuilderService.find({
+      table: 'enfyra_method',
+      fields: [idField],
+      limit: 0,
+    });
+    await this.createMissingRouteMethodConfigs(
+      methods.data.map((method: any) => ({
+        routeId,
+        methodId: method[idField],
+        isSystem,
+      })),
+    );
+    await this.syncRouteMethodConfigFlags(routeId, routeState);
+  }
+
+  async createRouteMethodConfigsForMethod(
+    methodId: string | number,
+  ): Promise<void> {
+    const idField = this.dependencies.queryBuilderService.getPkField();
+    const routes = await this.dependencies.queryBuilderService.find({
+      table: 'enfyra_route',
+      fields: [idField, 'isSystem'],
+      limit: 0,
+    });
+    await this.createMissingRouteMethodConfigs(
+      routes.data.map((route: any) => ({
+        routeId: route[idField],
+        methodId,
+        isSystem: route.isSystem === true,
+      })),
+    );
+  }
+
+  async syncRouteMethodConfigFlags(
+    routeId: string | number,
+    routeState: Record<string, any>,
+  ): Promise<void> {
+    const idField = this.dependencies.queryBuilderService.getPkField();
+    const routeResult = await this.dependencies.queryBuilderService.find({
+      table: 'enfyra_route',
+      filter: { [idField]: { _eq: routeId } },
+      fields: [
+        idField,
+        'availableMethods.id',
+        'publicMethods.id',
+        'skipRoleGuardMethods.id',
+      ],
+      limit: 1,
+    });
+    const currentRoute = routeResult.data?.[0] ?? routeState;
+    const available = new Set(
+      this.toMethodIds(
+        Array.isArray(currentRoute.availableMethods)
+          ? currentRoute.availableMethods
+          : [],
+      ),
+    );
+    const publicMethods = new Set(
+      this.toMethodIds(
+        Array.isArray(currentRoute.publicMethods)
+          ? currentRoute.publicMethods
+          : [],
+      ),
+    );
+    const skipRoleGuard = new Set(
+      this.toMethodIds(
+        Array.isArray(currentRoute.skipRoleGuardMethods)
+          ? currentRoute.skipRoleGuardMethods
+          : [],
+      ),
+    );
+    const configs = await this.dependencies.queryBuilderService.find({
+      table: 'enfyra_route_method_config',
+      filter: { route: { [idField]: { _eq: routeId } } },
+      fields: [idField, 'method.id'],
+      limit: 0,
+    });
+
+    for (const config of configs.data) {
+      const configId = config[idField];
+      const methodId = this.getItemId(config.method);
+      if (configId == null || methodId == null) continue;
+      const key = String(methodId);
+      await this.dependencies.queryBuilderService.update(
+        'enfyra_route_method_config',
+        configId,
+        {
+          available: available.has(key),
+          isPublic: publicMethods.has(key),
+          skipRoleGuard: skipRoleGuard.has(key),
+        },
+      );
+    }
+  }
+
+  async removeIncompleteRouteMethodMatrix(
+    tableName: 'enfyra_route' | 'enfyra_method',
+    id: string | number,
+  ): Promise<void> {
+    await this.dependencies.queryBuilderService.delete(tableName, id);
+  }
+
+  assertRouteMethodConfigCreateAllowed(): never {
+    throw new BadRequestException(
+      'Route method configurations are created automatically for every route and method.',
+    );
+  }
+
+  assertRouteMethodConfigUpdate(body: Record<string, any>): void {
+    if (
+      Object.prototype.hasOwnProperty.call(body, 'route') ||
+      Object.prototype.hasOwnProperty.call(body, 'method')
+    ) {
+      throw new BadRequestException(
+        'Route and method cannot be changed on a route method configuration.',
+      );
+    }
+  }
+
+  assertRouteMethodConfigDeleteAllowed(): never {
+    throw new BadRequestException(
+      'Route method configurations are permanent matrix cells. Disable the configuration instead of deleting it.',
+    );
+  }
+
+  async normalizeRouteHandlerConfig(
+    body: Record<string, any>,
+    existing: Record<string, any> | null = null,
+  ): Promise<void> {
+    const route = body.route ?? existing?.route;
+    const method = body.method ?? existing?.method;
+    const routeId = this.getItemId(route);
+    const methodId = this.getItemId(method);
+    if (routeId == null || methodId == null) {
+      throw new BadRequestException(
+        'Route handler requires route and method references.',
+      );
+    }
+
+    const idField = this.dependencies.queryBuilderService.getPkField();
+    const configs = await this.dependencies.queryBuilderService.find({
+      table: 'enfyra_route_method_config',
+      filter: {
+        _and: [
+          { route: { [idField]: { _eq: routeId } } },
+          { method: { [idField]: { _eq: methodId } } },
+        ],
+      },
+      fields: [idField],
+      limit: 1,
+    });
+    const config = configs.data?.[0];
+    if (!config?.[idField]) {
+      throw new BadRequestException(
+        'Route method configuration is missing for this handler.',
+      );
+    }
+    body.routeMethodConfig = { [idField]: config[idField] };
+  }
+
+  async syncRouteHandlerTimeout(
+    body: Record<string, any>,
+    existing: Record<string, any> | null = null,
+  ): Promise<void> {
+    if (!Object.prototype.hasOwnProperty.call(body, 'timeout')) return;
+    const configId = this.getItemId(
+      body.routeMethodConfig ?? existing?.routeMethodConfig,
+    );
+    if (configId == null) return;
+    const timeout = this.normalizeRouteHandlerTimeout(body.timeout);
+    await this.dependencies.queryBuilderService.update(
+      'enfyra_route_method_config',
+      configId,
+      { timeout },
+    );
+  }
+
+  private normalizeRouteHandlerTimeout(value: unknown): number {
+    const timeout = Number(value);
+    if (!Number.isFinite(timeout) || timeout === 0) return 60_000;
+    return Math.max(1, Math.trunc(timeout));
+  }
+
+  private async createMissingRouteMethodConfigs(
+    pairs: Array<{
+      routeId: string | number;
+      methodId: string | number;
+      isSystem: boolean;
+    }>,
+  ): Promise<void> {
+    const idField = this.dependencies.queryBuilderService.getPkField();
+    for (const pair of pairs) {
+      if (pair.routeId == null || pair.methodId == null) continue;
+      try {
+        await this.dependencies.queryBuilderService.insertWithOptions({
+          table: 'enfyra_route_method_config',
+          data: {
+            route: { [idField]: pair.routeId },
+            method: { [idField]: pair.methodId },
+            available: false,
+            isPublic: false,
+            skipRoleGuard: false,
+            timeout: 30_000,
+            requestBodyType: 'none',
+            isSystem: pair.isSystem,
+          },
+        });
+      } catch (error) {
+        if (!this.isDuplicateRouteMethodConfig(error)) throw error;
+      }
+    }
+  }
+
+  private isDuplicateRouteMethodConfig(error: any): boolean {
+    return (
+      error?.code === '23505' ||
+      error?.code === 'ER_DUP_ENTRY' ||
+      error?.errno === 1062 ||
+      error?.code === 11000
+    );
+  }
+
   private getItemId(item: any): any {
     if (item == null) return null;
     if (typeof item === 'string' || typeof item === 'number') return item;

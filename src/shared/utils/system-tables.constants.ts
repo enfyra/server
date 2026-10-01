@@ -10,6 +10,8 @@ export const SYSTEM_TABLES = {
   authHeader: 'enfyra_auth_header',
   corsOrigin: 'enfyra_cors_origin',
   route: 'enfyra_route',
+  routeMethodConfig: 'enfyra_route_method_config',
+  routeMethodConfigFileField: 'enfyra_route_method_config_file_field',
   role: 'enfyra_role',
   routePermission: 'enfyra_route_permission',
   fieldPermission: 'enfyra_field_permission',

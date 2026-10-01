@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Logger } from '../../../shared/logger';
-import { parseExpression } from 'cron-parser';
+import { CronExpressionParser } from 'cron-parser';
 import { Queue } from 'bullmq';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import type { ICache } from '../../../domain/shared/interfaces/cache.interface';
@@ -218,7 +218,7 @@ export class FlowSchedulerService {
           continue;
         }
         try {
-          parseExpression(cron);
+          CronExpressionParser.parse(cron);
         } catch {
           this.logger.warn(
             `Flow "${flow.name}" has invalid cron expression: ${cron}`,

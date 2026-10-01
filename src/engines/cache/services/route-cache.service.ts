@@ -57,6 +57,37 @@ const ROUTE_CACHE_ROUTE_FIELDS = [
   'createdAt',
   'updatedAt',
   'mainTable',
+  'methodConfigs.id',
+  'methodConfigs.available',
+  'methodConfigs.isPublic',
+  'methodConfigs.skipRoleGuard',
+  'methodConfigs.timeout',
+  'methodConfigs.requestBodyType',
+  'methodConfigs.maxUploadFileSize',
+  'methodConfigs.maxFiles',
+  'methodConfigs.description',
+  'methodConfigs.isSystem',
+  'methodConfigs.method',
+  'methodConfigs.handler.id',
+  'methodConfigs.handler.description',
+  'methodConfigs.handler.sourceCode',
+  'methodConfigs.handler.scriptLanguage',
+  'methodConfigs.handler.compiledCode',
+  'methodConfigs.routePermissions.id',
+  'methodConfigs.routePermissions.isEnabled',
+  'methodConfigs.routePermissions.description',
+  'methodConfigs.routePermissions.role.id',
+  'methodConfigs.routePermissions.allowedUsers.id',
+  'methodConfigs.preHooks.id',
+  'methodConfigs.postHooks.id',
+  'methodConfigs.fileFields.id',
+  'methodConfigs.fileFields.name',
+  'methodConfigs.fileFields.required',
+  'methodConfigs.fileFields.maxCount',
+  'methodConfigs.fileFields.maxFileSize',
+  'methodConfigs.fileFields.allowedMimeTypes',
+  'methodConfigs.fileFields.sort',
+  'methodConfigs.fileFields.description',
   'handlers.id',
   'handlers.timeout',
   'handlers.description',
@@ -188,10 +219,17 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       return;
     }
 
+    if (payload.table === 'enfyra_route_method_config_file_field') {
+      await this.reloadFromPartial();
+      return;
+    }
+
     if (
-      ['enfyra_route_handler', 'enfyra_route_permission'].includes(
-        payload.table,
-      ) &&
+      [
+        'enfyra_route_method_config',
+        'enfyra_route_handler',
+        'enfyra_route_permission',
+      ].includes(payload.table) &&
       payload.ids?.length
     ) {
       const routeIds = await this.resolveAffectedRouteIds(
@@ -219,7 +257,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     }
 
     if (['enfyra_role', 'enfyra_method'].includes(payload.table)) {
-      await this.reload();
+      await this.reloadFromPartial();
       return;
     }
 
@@ -239,7 +277,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       }
     }
 
-    await this.reload();
+    await this.reloadFromPartial();
   }
 
   private async reloadSpecificRoutes(
@@ -258,19 +296,22 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     const updatedRoutes = result.data;
     const metadata = await this.metadataCacheService.getMetadata();
-    for (const route of updatedRoutes) {
-      this.hydrateRouteMainTable(route, metadata);
-      this.hydrateRouteMethods(route);
-      this.mergeHooks(
-        route,
-        this.globalPreHooks,
-        this.globalPostHooks,
-        isMongoDB,
-      );
-      await this.transformRouteCode(route);
-    }
-
     const routeIdSet = new Set(routeIds.map(String));
+
+    await Promise.all(
+      updatedRoutes.map(async (route: any) => {
+        this.hydrateRouteMainTable(route, metadata);
+        this.hydrateRouteMethods(route);
+        this.mergeHooks(
+          route,
+          this.globalPreHooks,
+          this.globalPostHooks,
+          isMongoDB,
+        );
+        await this.transformRouteCode(route);
+        this.finalizeRouteMethodConfigs(route);
+      }),
+    );
 
     this.cache.routes = this.cache.routes.filter((r: any) => {
       const rid = String(DatabaseConfigService.getRecordId(r));
@@ -370,8 +411,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       this.loadGlobalHooks('enfyra_post_hook'),
     ]);
 
-    this.globalPreHooks = newGlobalPreHooks;
-    this.globalPostHooks = newGlobalPostHooks;
+    [this.globalPreHooks, this.globalPostHooks] = await Promise.all([
+      this.hydrateAndTransformHooks('enfyra_pre_hook', newGlobalPreHooks),
+      this.hydrateAndTransformHooks('enfyra_post_hook', newGlobalPostHooks),
+    ]);
 
     for (const route of this.cache.routes) {
       this.mergeHooks(
@@ -388,38 +431,48 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   protected async loadFromDb(): Promise<any> {
-    const methodsResult = await this.queryBuilderService.find({
-      table: 'enfyra_method',
-      fields: ['id', 'name'],
-    });
-    this.setMethodCache(methodsResult.data);
-
-    const result = await this.queryBuilderService.find({
-      table: 'enfyra_route',
-      filter: { isEnabled: { _eq: true } },
-      fields: ROUTE_CACHE_ROUTE_FIELDS,
-    });
-
-    const routes = result.data;
     const isMongoDB = this.queryBuilderService.isMongoDb();
 
-    const [globalPreHooks, globalPostHooks] = await Promise.all([
+    const [
+      methodsResult,
+      routesResult,
+      globalPreHookRecords,
+      globalPostHookRecords,
+    ] = await Promise.all([
+      this.queryBuilderService.find({
+        table: 'enfyra_method',
+        fields: ['id', 'name'],
+      }),
+      this.queryBuilderService.find({
+        table: 'enfyra_route',
+        filter: { isEnabled: { _eq: true } },
+        fields: ROUTE_CACHE_ROUTE_FIELDS,
+      }),
       this.loadGlobalHooks('enfyra_pre_hook'),
       this.loadGlobalHooks('enfyra_post_hook'),
     ]);
 
+    this.setMethodCache(methodsResult.data);
+    const [globalPreHooks, globalPostHooks] = await Promise.all([
+      this.hydrateAndTransformHooks('enfyra_pre_hook', globalPreHookRecords),
+      this.hydrateAndTransformHooks('enfyra_post_hook', globalPostHookRecords),
+    ]);
     this.globalPreHooks = globalPreHooks;
     this.globalPostHooks = globalPostHooks;
 
+    const routes = routesResult.data || [];
     const metadata = await this.metadataCacheService.getMetadata();
 
-    for (const route of routes) {
-      this.hydrateRouteMainTable(route, metadata);
-      this.hydrateRouteMethods(route);
-      this.mergeHooks(route, globalPreHooks, globalPostHooks, isMongoDB);
+    await Promise.all(
+      routes.map(async (route: any) => {
+        this.hydrateRouteMainTable(route, metadata);
+        this.hydrateRouteMethods(route);
+        this.mergeHooks(route, globalPreHooks, globalPostHooks, isMongoDB);
 
-      await this.transformRouteCode(route);
-    }
+        await this.transformRouteCode(route);
+        this.finalizeRouteMethodConfigs(route);
+      }),
+    );
 
     return { routes, methods: this.allMethods };
   }
@@ -434,12 +487,17 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       sort: ['priority'],
     });
 
+    return result.data || [];
+  }
+
+  private async hydrateAndTransformHooks(
+    tableName: string,
+    hooks: any[],
+  ): Promise<any[]> {
     return Promise.all(
-      result.data.map(async (hook: any) => {
+      hooks.map(async (hook: any) => {
         this.hydrateMethodList(hook.methods);
-        const normalized = normalizeScriptRecord(tableName, hook);
-        Object.assign(hook, normalized);
-        const code = this.resolveScriptCode(hook);
+        const code = this.resolveScriptCode(tableName, hook);
         if (code) {
           hook.code = code;
         }
@@ -517,6 +575,9 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     this.hydrateMethodList(route.publicMethods);
     this.hydrateMethodList(route.skipRoleGuardMethods);
 
+    for (const operation of route.methodConfigs || []) {
+      operation.method = this.hydrateMethodRef(operation.method);
+    }
     for (const handler of route.handlers || []) {
       handler.method = this.hydrateMethodRef(handler.method);
     }
@@ -529,6 +590,70 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     for (const hook of route.postHooks || []) {
       this.hydrateMethodList(hook.methods);
     }
+  }
+
+  private finalizeRouteMethodConfigs(route: any): void {
+    if (!Array.isArray(route.methodConfigs)) return;
+
+    for (const operation of route.methodConfigs) {
+      const methodName = operation.method?.name;
+      const handler = operation.handler;
+      if (handler?.sourceCode || handler?.compiledCode || handler?.logic) {
+        const code = this.resolveScriptCode('enfyra_route_handler', handler);
+        if (code) handler.logic = code;
+      }
+      const preHookIds = new Set(
+        (Array.isArray(operation.preHooks) ? operation.preHooks : [])
+          .map((hook: any) => DatabaseConfigService.getRecordId(hook))
+          .filter((id: any) => id != null)
+          .map(String),
+      );
+      const postHookIds = new Set(
+        (Array.isArray(operation.postHooks) ? operation.postHooks : [])
+          .map((hook: any) => DatabaseConfigService.getRecordId(hook))
+          .filter((id: any) => id != null)
+          .map(String),
+      );
+      operation.preHooks = this.uniqueHooks(
+        route.preHooks.filter((hook: any) => {
+          const hookId = DatabaseConfigService.getRecordId(hook);
+          return hook.isGlobal === true
+            ? hook.methods?.some((method: any) => method?.name === methodName)
+            : hookId != null && preHookIds.has(String(hookId));
+        }),
+        this.queryBuilderService.isMongoDb(),
+      );
+      operation.postHooks = this.uniqueHooks(
+        route.postHooks.filter((hook: any) => {
+          const hookId = DatabaseConfigService.getRecordId(hook);
+          return hook.isGlobal === true
+            ? hook.methods?.some((method: any) => method?.name === methodName)
+            : hookId != null && postHookIds.has(String(hookId));
+        }),
+        this.queryBuilderService.isMongoDb(),
+      );
+      operation.fileFields = Array.isArray(operation.fileFields)
+        ? [...operation.fileFields].sort(
+            (left: any, right: any) => (left.sort ?? 0) - (right.sort ?? 0),
+          )
+        : [];
+    }
+
+    route.availableMethods = route.methodConfigs
+      .filter((operation: any) => operation.available === true)
+      .map((operation: any) => operation.method);
+    route.publicMethods = route.methodConfigs
+      .filter((operation: any) => operation.isPublic === true)
+      .map((operation: any) => operation.method);
+    route.skipRoleGuardMethods = route.methodConfigs
+      .filter((operation: any) => operation.skipRoleGuard === true)
+      .map((operation: any) => operation.method);
+    route.handlers = route.methodConfigs
+      .filter((operation: any) => operation.handler)
+      .map((operation: any) => ({
+        ...operation.handler,
+        method: operation.method,
+      }));
   }
 
   private hydrateRouteMainTable(route: any, metadata: any): void {
@@ -550,12 +675,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   private async transformRouteCode(route: any): Promise<void> {
     if (route.handlers && Array.isArray(route.handlers)) {
       for (const handler of route.handlers) {
-        const normalized = normalizeScriptRecord(
-          'enfyra_route_handler',
-          handler,
-        );
-        Object.assign(handler, normalized);
-        const code = this.resolveScriptCode(handler);
+        if (!handler.sourceCode && !handler.compiledCode && !handler.logic) {
+          continue;
+        }
+        const code = this.resolveScriptCode('enfyra_route_handler', handler);
         if (code) {
           handler.logic = code;
         }
@@ -564,9 +687,13 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     if (route.preHooks && Array.isArray(route.preHooks)) {
       for (const hook of route.preHooks) {
-        const normalized = normalizeScriptRecord('enfyra_pre_hook', hook);
-        Object.assign(hook, normalized);
-        const code = this.resolveScriptCode(hook);
+        if (
+          hook.isGlobal === true ||
+          (!hook.sourceCode && !hook.compiledCode && !hook.code)
+        ) {
+          continue;
+        }
+        const code = this.resolveScriptCode('enfyra_pre_hook', hook);
         if (code) {
           hook.code = code;
         }
@@ -575,9 +702,13 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     if (route.postHooks && Array.isArray(route.postHooks)) {
       for (const hook of route.postHooks) {
-        const normalized = normalizeScriptRecord('enfyra_post_hook', hook);
-        Object.assign(hook, normalized);
-        const code = this.resolveScriptCode(hook);
+        if (
+          hook.isGlobal === true ||
+          (!hook.sourceCode && !hook.compiledCode && !hook.code)
+        ) {
+          continue;
+        }
+        const code = this.resolveScriptCode('enfyra_post_hook', hook);
         if (code) {
           hook.code = code;
         }
@@ -585,7 +716,17 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     }
   }
 
-  private resolveScriptCode(record: any): string | null {
+  private resolveScriptCode(tableName: string, record: any): string | null {
+    const normalized = normalizeScriptRecord(tableName, record);
+    Object.assign(record, normalized);
+
+    if (
+      typeof record?.compiledCode === 'string' &&
+      record.compiledCode.length > 0
+    ) {
+      return record.compiledCode;
+    }
+
     if (record.sourceCode) {
       const compiledCode = compileScriptSource(
         record.sourceCode,

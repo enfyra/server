@@ -1,4 +1,3 @@
-import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../cradle';
 import type { LegacyAssessmentFinding } from '../../engines/bootstrap/types/legacy-system-metadata.types';
 
@@ -49,7 +48,6 @@ type ParallelCacheReloadPhaseCradle = Pick<
   | 'folderTreeCacheService'
   | 'guardCacheBuilder'
   | 'gqlDefinitionCacheService'
-  | 'bootstrapScriptService'
   | 'sqlFunctionService'
 >;
 type ActivatedSnapshotPhaseCradle = Pick<
@@ -215,7 +213,6 @@ export async function phaseParallelCacheReload(c: ParallelCacheReloadPhaseCradle
     runInitStep('folderTreeCacheService.reload', () => c.folderTreeCacheService.reload()),
     runInitStep('guardCacheBuilder.reload', () => c.guardCacheBuilder.reload()),
     runInitStep('gqlDefinitionCacheService.reload', () => c.gqlDefinitionCacheService.reload()),
-    runInitStep('bootstrapScriptService.onMetadataLoaded', () => c.bootstrapScriptService.onMetadataLoaded()),
     runInitStep('sqlFunctionService.installExtensions', () => c.sqlFunctionService.installExtensions()),
   ]);
 }
@@ -243,6 +240,10 @@ export async function phasePublishActivatedSnapshots(c: ActivatedSnapshotPhaseCr
       await runtimeRegistry.publishFromCache(identifier, service);
     }
   });
+}
+
+export async function phaseBootstrapScripts(c: Pick<Cradle, 'bootstrapScriptService'>): Promise<void> {
+  await runInitStep('bootstrapScriptService.onMetadataLoaded', () => c.bootstrapScriptService.onMetadataLoaded());
 }
 
 export async function phaseFlowAndGraphql(c: FlowAndGraphqlPhaseCradle): Promise<void> {

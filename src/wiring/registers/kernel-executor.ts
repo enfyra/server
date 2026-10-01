@@ -7,6 +7,7 @@ import {
 import { RuntimeScriptExecutorService } from '../../engines/cache';
 import { Logger } from '../../shared/logger';
 import { recordSystemError, recordUserLog } from '../../shared/runtime-log-buffer';
+import { createCacheQueryTracingProxy } from '../../shared/cache-verbose-trace';
 
 const executorLogger = new Logger('IsolatedExecutorService');
 
@@ -41,13 +42,25 @@ export const kernelExecutorRegisters = {
         const block = record.diagnostics.scriptBlocks.find((item) => item.scriptId) ?? record.diagnostics.scriptBlocks[0];
         const metadata = { component: 'Script', correlationId: record.diagnostics.correlationId, sourceKind: block?.type, sourceId: block?.scriptId, statusCode: record.statusCode, truncated: record.logsTruncated };
         recordUserLog(record.logs, metadata);
-        if (record.error && (!record.statusCode || record.statusCode >= 500)) {
-          recordSystemError(record.error.message ?? 'Script execution failed', { ...metadata, ...record.error, details: record.diagnostics });
+        const promiseDiagnostics = (record as typeof record & {
+          promiseDiagnostics?: Record<string, unknown>;
+        }).promiseDiagnostics;
+        if (record.error && (
+          promiseDiagnostics || !record.statusCode || record.statusCode >= 500
+        )) {
+          recordSystemError(record.error.message ?? 'Script execution failed', {
+            ...metadata,
+            ...record.error,
+            details: record.diagnostics,
+            ...(promiseDiagnostics ? { promiseDiagnostics } : {}),
+          });
         }
       },
     }),
   ).singleton(),
-  queryBuilderService: asFunction((cradle: Cradle) => cradle.enfyraKernel.queryBuilderService).singleton(),
+  queryBuilderService: asFunction((cradle: Cradle) =>
+    createCacheQueryTracingProxy(cradle.enfyraKernel.queryBuilderService),
+  ).singleton(),
   isolatedExecutorService: asFunction((cradle: Cradle) => cradle.enfyraKernel.isolatedExecutorService)
     .singleton()
     .disposer((service) => service.onDestroy()),

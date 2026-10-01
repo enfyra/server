@@ -6,7 +6,11 @@ import { init, shutdown } from './init';
 import { buildExpressApp } from './express-app';
 import { env } from './env';
 import { Logger } from './shared/logger';
-import { flushRuntimeLogsBeforeExit, installConsoleErrorCapture } from './shared/runtime-log-buffer';
+import {
+  flushRuntimeLogsBeforeExit,
+  installConsoleErrorCapture,
+} from './shared/runtime-log-buffer';
+import { runWithStartupOutput } from './shared/startup-log';
 
 function registerProcessErrorHandlers(logger: Logger): void {
   installConsoleErrorCapture();
@@ -21,7 +25,10 @@ function registerProcessErrorHandlers(logger: Logger): void {
   });
 }
 
-async function assertPortAvailable(port: number, logger: Logger): Promise<void> {
+async function assertPortAvailable(
+  port: number,
+  logger: Logger,
+): Promise<void> {
   const probe = net.createServer();
 
   try {
@@ -43,7 +50,6 @@ async function assertPortAvailable(port: number, logger: Logger): Promise<void> 
       logger.error(
         `Port ${port} is already in use. Another server instance may be running.`,
       );
-      process.exit(1);
     }
     throw err;
   } finally {
@@ -56,71 +62,71 @@ async function assertPortAvailable(port: number, logger: Logger): Promise<void> 
 }
 
 async function main() {
-  process.stdout.write('\x1Bc');
   const startTime = Date.now();
   const logger = new Logger('Server');
   registerProcessErrorHandlers(logger);
-
-  await assertPortAvailable(env.PORT, logger);
-
-  logger.log('Starting Cold Start...');
-
-  const containerStart = Date.now();
-  const container = buildContainer();
-  logger.log(`Container built: ${Date.now() - containerStart}ms`);
-
-  const initStart = Date.now();
-  await init(container);
-  logger.log(`Init completed: ${Date.now() - initStart}ms`);
-
   let startupComplete = false;
-  const app = buildExpressApp(container, () => startupComplete);
-  const server = http.createServer(app);
 
-  server.on('error', (err: NodeJS.ErrnoException) => {
-    if (err.code === 'EADDRINUSE') return;
-    logger.error('HTTP server runtime error', err);
-    process.exit(1);
-  });
-
-  const gateway = container.cradle.dynamicWebSocketGateway;
-  if (gateway) {
-    const io = new Server(server, {
-      cors: { origin: true, credentials: true },
-    });
-    gateway.server = io;
-    await gateway.afterInit(io);
-    container.cradle.runtimeMonitorService?.start?.();
-  }
-
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const onError = (err: NodeJS.ErrnoException) => {
-        server.removeListener('listening', onListening);
-        reject(err);
-      };
-      const onListening = () => {
-        server.removeListener('error', onError);
-        resolve();
-      };
-      server.once('error', onError);
-      server.once('listening', onListening);
-      server.listen(env.PORT, '0.0.0.0');
-    });
-    logger.log(`HTTP listening on port ${env.PORT}`);
-    await container.cradle.flowExecutionQueueService?.init?.();
+  const { container, server } = await runWithStartupOutput(async () => {
+    await assertPortAvailable(env.PORT, logger);
+    const container = buildContainer();
+    let server!: http.Server;
+    await init(container, [
+      {
+        label: 'building HTTP server',
+        run: () => {
+          server = http.createServer(
+            buildExpressApp(container, () => startupComplete),
+          );
+          server.on('error', (err: NodeJS.ErrnoException) => {
+            if (err.code === 'EADDRINUSE') return;
+            logger.error('HTTP server runtime error', err);
+            process.exit(1);
+          });
+        },
+      },
+      {
+        label: 'initializing WebSocket gateways',
+        run: async () => {
+          const gateway = container.cradle.dynamicWebSocketGateway;
+          if (gateway) {
+            const io = new Server(server, {
+              cors: { origin: true, credentials: true },
+            });
+            gateway.server = io;
+            await gateway.afterInit(io);
+            container.cradle.runtimeMonitorService?.start?.();
+          }
+        },
+      },
+      {
+        label: 'listening for HTTP',
+        run: async () => {
+          await new Promise<void>((resolve, reject) => {
+            const onError = (err: NodeJS.ErrnoException) => {
+              server.removeListener('listening', onListening);
+              reject(err);
+            };
+            const onListening = () => {
+              server.removeListener('error', onError);
+              resolve();
+            };
+            server.once('error', onError);
+            server.once('listening', onListening);
+            server.listen(env.PORT, '0.0.0.0');
+          });
+          logger.log(`HTTP listening on port ${env.PORT}`);
+        },
+      },
+      {
+        label: 'starting flow queue',
+        run: () => container.cradle.flowExecutionQueueService.init(),
+      },
+    ]);
     startupComplete = true;
     if (process.send) process.send('ready');
-  } catch (err: any) {
-    if (err?.code === 'EADDRINUSE') {
-      logger.error(
-        `Port ${env.PORT} is already in use. Another server instance may be running.`,
-      );
-    } else {
-      logger.error('HTTP server error', err);
-    }
-    process.exit(1);
-  }
+    return { container, server };
+  });
 
   logger.log(`Cold Start completed! Total: ${Date.now() - startTime}ms`);
 

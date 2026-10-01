@@ -27,6 +27,7 @@ describe('script cache builders', () => {
             data: [
               {
                 id: 10,
+                flowId: 1,
                 key: 'script',
                 type: 'script',
                 isEnabled: true,
@@ -56,6 +57,55 @@ describe('script cache builders', () => {
       'const value = $ctx.$body.name;',
     );
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it('loads legacy flow throw source without enforcing the new authoring contract', async () => {
+    const queryBuilderService = {
+      find: vi.fn(async ({ table }: any) => {
+        if (table === 'enfyra_flow') {
+          return {
+            data: [
+              {
+                id: 1,
+                name: 'legacy',
+                isEnabled: true,
+                triggers: [],
+              },
+            ],
+          };
+        }
+        if (table === 'enfyra_flow_step') {
+          return {
+            data: [
+              {
+                id: 10,
+                flowId: 1,
+                key: 'script',
+                type: 'script',
+                isEnabled: true,
+                stepOrder: 1,
+                scriptLanguage: 'javascript',
+                sourceCode: '$ctx.$throw.notFound("Project");',
+                compiledCode: '$ctx.$throw.notFound("Project");',
+                config: {},
+              },
+            ],
+          };
+        }
+        return { data: [] };
+      }),
+    };
+    const service = new FlowCacheBuilder({
+      queryBuilderService: queryBuilderService as any,
+      eventEmitter: new EventEmitter2(),
+    });
+
+    await expect(service.reload(false)).resolves.toBeUndefined();
+
+    const flows = await service.getCacheAsync();
+    expect(flows[0].steps[0].compiledCode).toBe(
+      '$ctx.$throw.notFound("Project");',
+    );
   });
 
   it('builds websocket executable code without persisting script repair during reload', async () => {

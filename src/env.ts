@@ -90,6 +90,10 @@ const EnvSchema = z.object({
     .enum(['0', '1'])
     .optional()
     .transform((v) => v === '1'),
+  STARTUP_VERBOSE: z
+    .enum(['0', '1'])
+    .optional()
+    .transform((v) => v === '1'),
   FLOW_WORKER_CONCURRENCY: z.coerce.number().int().positive().optional(),
   FLOW_WORKER_CONCURRENCY_MODE: z
     .enum(['adaptive', 'fixed'])

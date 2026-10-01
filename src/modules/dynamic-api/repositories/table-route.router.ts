@@ -10,6 +10,7 @@ export class TableRouteRouter {
   constructor(private readonly handlers: TableRouteHandlers) {
     this.register('enfyra_route', {
       kind: 'generic',
+      requiresCriticalReload: true,
       normalizeCreate(body) {
         handlers.normalizeRouteMethods(body, null, 'publicMethods');
         handlers.normalizeRouteMethods(body, null, 'skipRoleGuardMethods');
@@ -26,6 +27,75 @@ export class TableRouteRouter {
           );
         }
       },
+      async afterCreateWrite(ctx) {
+        try {
+          await handlers.createRouteMethodConfigsForRoute(
+            ctx.id,
+            ctx.body.isSystem === true,
+            ctx.body,
+          );
+        } catch (error) {
+          await handlers.removeIncompleteRouteMethodMatrix('enfyra_route', ctx.id);
+          throw error;
+        }
+      },
+      async afterUpdateWrite(ctx) {
+        if (
+          ['availableMethods', 'publicMethods', 'skipRoleGuardMethods'].some(
+            (field) => Object.prototype.hasOwnProperty.call(ctx.body, field),
+          )
+        ) {
+          await handlers.syncRouteMethodConfigFlags(ctx.id, {
+            ...ctx.existing,
+            ...ctx.body,
+          });
+        }
+      },
+    });
+    this.register('enfyra_method', {
+      kind: 'generic',
+      requiresCriticalReload: true,
+      async afterCreateWrite(ctx) {
+        try {
+          await handlers.createRouteMethodConfigsForMethod(ctx.id);
+        } catch (error) {
+          await handlers.removeIncompleteRouteMethodMatrix('enfyra_method', ctx.id);
+          throw error;
+        }
+      },
+    });
+    this.register('enfyra_route_method_config', {
+      kind: 'generic',
+      requiresCriticalReload: true,
+      normalizeCreate() {
+        handlers.assertRouteMethodConfigCreateAllowed();
+      },
+      normalizeUpdate(body) {
+        handlers.assertRouteMethodConfigUpdate(body);
+      },
+      beforeDelete() {
+        handlers.assertRouteMethodConfigDeleteAllowed();
+      },
+    });
+    this.register('enfyra_route_handler', {
+      kind: 'generic',
+      requiresCriticalReload: true,
+      async normalizeCreate(body) {
+        await handlers.normalizeRouteHandlerConfig(body);
+      },
+      async normalizeUpdate(body, existing) {
+        await handlers.normalizeRouteHandlerConfig(body, existing);
+      },
+      async afterCreateWrite(ctx) {
+        await handlers.syncRouteHandlerTimeout(ctx.body);
+      },
+      async afterUpdateWrite(ctx) {
+        await handlers.syncRouteHandlerTimeout(ctx.body, ctx.existing);
+      },
+    });
+    this.register('enfyra_route_method_config_file_field', {
+      kind: 'generic',
+      requiresCriticalReload: true,
     });
     this.register('enfyra_extension', {
       kind: 'generic',

@@ -21,11 +21,7 @@ export class PolicyService {
   }
 
   checkRequestAccess(ctx: TPolicyRequestContext): TPolicyDecision {
-    const isPublic = ctx.routeData?.publicMethods?.some(
-      (m: any) => m.name === ctx.method,
-    );
-
-    if (isPublic) return { allow: true };
+    if (ctx.routeData?.routeMethodConfig?.isPublic === true) return { allow: true };
 
     if (!ctx.user) {
       return {
@@ -36,11 +32,9 @@ export class PolicyService {
       };
     }
 
-    const skipRoleGuard = ctx.routeData?.skipRoleGuardMethods?.some(
-      (m: any) => m.name === ctx.method,
-    );
-
-    if (skipRoleGuard) return { allow: true };
+    if (ctx.routeData?.routeMethodConfig?.skipRoleGuard === true) {
+      return { allow: true };
+    }
 
     if (ctx.user.isRootAdmin) return { allow: true };
 
@@ -55,10 +49,6 @@ export class PolicyService {
 
     const userId = String(ctx.user._id || ctx.user.id);
     const canPass = ctx.routeData.routePermissions.find((permission: any) => {
-      const hasMethodAccess = permission.methods.some(
-        (item: any) => item.name === ctx.method,
-      );
-      if (!hasMethodAccess) return false;
       if (
         permission?.allowedUsers?.some(
           (user: any) => String(user?._id || user?.id) === userId,

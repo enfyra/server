@@ -25,7 +25,7 @@ import type { GraphqlService, DynamicResolver } from '../modules/graphql';
 import type { FlowExecutionQueueService, FlowQueueMaintenanceService, FlowRuntimeService, FlowSchedulerService, FlowTriggerDispatcherService, FlowService } from '../modules/flow';
 import type { DynamicWebSocketGateway, BuiltInSocketRegistry, WebsocketEmitService, WebsocketContextFactory, WebsocketRuntimeService } from '../modules/websocket';
 import type { BootstrapScriptService, BootstrapScriptDefinitionProcessor, ExtensionDefinitionProcessor, FlowDefinitionProcessor, FlowExecutionDefinitionProcessor, FlowStepDefinitionProcessor, FolderDefinitionProcessor, GraphQLDefinitionProcessor, GraphQLOperationDefinitionProcessor, MenuDefinitionProcessor, MethodDefinitionProcessor, PostHookDefinitionProcessor, PreHookDefinitionProcessor, FieldPermissionDefinitionProcessor, RouteDefinitionProcessor, RouteHandlerDefinitionProcessor, RoutePermissionDefinitionProcessor, SettingDefinitionProcessor, UserDefinitionProcessor, WebsocketDefinitionProcessor, WebsocketEventDefinitionProcessor } from '../domain/bootstrap';
-import type { BootstrapDefinitionService, BootstrapUnitOfWorkService, DataMigrationService, DataProvisionService, FirstRunInitializer, MetadataMigrationService, MySqlBootstrapSnapshotService, MetadataProvisionMongoService, MetadataProvisionSqlService, MetadataProvisionService, ProvisionService, SchemaHealingService, SnapshotTargetVerifierService, SystemCoreTableResolver, LegacyStoreInventoryService, LegacyAssessmentService } from '../engines/bootstrap';
+import type { BootstrapDefinitionService, BootstrapUnitOfWorkService, DataMigrationService, DataProvisionService, FirstRunInitializer, MetadataMigrationService, MySqlBootstrapSnapshotService, MetadataProvisionMongoService, MetadataProvisionSqlService, MetadataProvisionService, ProvisionService, RouteMethodConfigBackfillService, SchemaHealingService, SnapshotTargetVerifierService, SystemCoreTableResolver, LegacyStoreInventoryService, LegacyAssessmentService } from '../engines/bootstrap';
 
 export interface Cradle {
   envService: EnvService;
@@ -187,6 +187,7 @@ export interface Cradle {
   dataProvisionService: DataProvisionService;
   dataMigrationService: DataMigrationService;
   metadataMigrationService: MetadataMigrationService;
+  routeMethodConfigBackfillService: RouteMethodConfigBackfillService;
   snapshotTargetVerifierService: SnapshotTargetVerifierService;
   bootstrapDefinitionService: BootstrapDefinitionService;
   bootstrapUnitOfWorkService: BootstrapUnitOfWorkService;

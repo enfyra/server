@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { getShortSqlIdentifier } from '../../src/engines/knex/utils/sql-physical-schema-contract';
 import {
   buildSqlForeignKeyContracts,
   getSqlCanonicalConstraintGroups,
@@ -9,6 +10,32 @@ import {
 } from '../../src/engines/knex';
 
 describe('SQL physical schema contract', () => {
+  it('reuses short names and deterministically bounds long physical identifiers', () => {
+    const tableName = 'enfyra_route_method_config_file_field';
+    const relation = 'routeMethodConfigId';
+    const definition = {
+      columns: [{ name: 'id', type: 'int', isPrimary: true }],
+      relations: [{ propertyName: 'routeMethodConfig', type: 'many-to-one', targetTable: 'enfyra_route_method_config' }],
+      uniques: [['routeMethodConfig', 'name']],
+      indexes: [['routeMethodConfig', 'sort']],
+    } as any;
+    const first = {
+      uniques: buildSqlUniqueContracts(tableName, definition),
+      indexes: buildSqlIndexContracts(tableName, definition),
+    };
+    const second = {
+      uniques: buildSqlUniqueContracts(tableName, definition),
+      indexes: buildSqlIndexContracts(tableName, definition),
+    };
+    expect(second).toEqual(first);
+    expect(first.uniques[0].name).toBe(getShortSqlIdentifier('uq', tableName, relation, 'name'));
+    expect(first.indexes[0].name).toBe(getShortSqlIdentifier('idx', tableName, relation, 'sort'));
+    expect(first.uniques[0].name).toMatch(/^uq_.*_[a-f0-9]{16}$/);
+    expect([...first.uniques, ...first.indexes].every(({ name }) => name.length <= 63)).toBe(true);
+    expect(new Set([...first.uniques, ...first.indexes].map(({ name }) => name)).size).toBe(first.uniques.length + first.indexes.length);
+    expect(getShortSqlIdentifier('uq', 'enfyra_route', 'mainTableId')).toBe('uq_enfyra_route_mainTableId');
+  });
+
   const table = {
     name: 'enfyra_route',
     columns: [

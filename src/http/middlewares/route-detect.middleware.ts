@@ -24,15 +24,20 @@ export function routeDetectMiddleware(
       path,
     );
 
-    const isMethodAvailable = (route: any) => {
-      const methods = route?.availableMethods;
-      if (!methods || !Array.isArray(methods) || methods.length === 0)
-        return false;
-      const methodNames = methods.map((m: any) => m?.name ?? m).filter(Boolean);
-      return methodNames.includes(method);
+    const findRouteMethodConfig = (route: any) => {
+      if (!Array.isArray(route?.methodConfigs)) return null;
+      return (
+        route.methodConfigs.find(
+          (config: any) =>
+            config?.available === true &&
+            (config.method?.name ?? config.method) === method,
+        ) ?? null
+      );
     };
 
-    if (matchedRoute && isMethodAvailable(matchedRoute.route)) {
+    if (matchedRoute) {
+      const routeMethodConfig = findRouteMethodConfig(matchedRoute.route);
+      if (!routeMethodConfig) return next();
       const realClientIP = resolveClientIpFromRequest(req);
       const context = dynamicContextFactory.createHttp(req, {
         params: matchedRoute.params ?? {},
@@ -141,35 +146,19 @@ export function routeDetectMiddleware(
       }
 
       const { route, params } = matchedRoute;
-
-      const filterHooks = (hooks: any[]) => {
-        if (!hooks || !Array.isArray(hooks)) return [];
-        return hooks.filter((hook: any) => {
-          const methodList = hook.methods?.map((m: any) => m.name) ?? [];
-          return methodList.includes(method);
-        });
-      };
-
-      const filteredPreHooks = filterHooks(route.preHooks);
-      const filteredPostHooks = filterHooks(route.postHooks);
-      const routeHandlers = Array.isArray(route.handlers) ? route.handlers : [];
-      const handlerRecord =
-        routeHandlers.find((handler: any) => handler.method?.name === method) ??
-        null;
+      const handlerRecord = routeMethodConfig.handler ?? null;
       const handler = handlerRecord?.logic ?? null;
 
       req.routeData = {
         ...route,
-        handlers: routeHandlers,
+        routeMethodConfig,
+        routePermissions: routeMethodConfig.routePermissions ?? [],
         handlerRecord,
         handler,
         params,
-        preHooks: filteredPreHooks,
-        postHooks: filteredPostHooks,
-        isPublic:
-          route.publicMethods?.some(
-            (pubMethod: any) => pubMethod.name === req.method,
-          ) || false,
+        preHooks: routeMethodConfig.preHooks ?? [],
+        postHooks: routeMethodConfig.postHooks ?? [],
+        isPublic: routeMethodConfig.isPublic === true,
         context,
         res,
       };

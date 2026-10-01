@@ -1,5 +1,7 @@
 import { acknowledgeRuntimeLog, peekRuntimeLogs, setRuntimeLogInstance, setRuntimeLogFlush } from '../../../shared/runtime-log-buffer';
 import type { Cradle } from '../../../wiring/cradle';
+import { getBootstrapLogMode } from '../../../shared/bootstrap-log-context';
+import { clearStartupProgressLine } from '../../../shared/startup-log';
 
 const TABLES = ['enfyra_system_error', 'enfyra_user_log'] as const;
 
@@ -68,8 +70,9 @@ export class RuntimeLogWriterService {
         this.lastCleanup = more ? 0 : Date.now();
       }
     } catch {
-      if (Date.now() - this.lastFailure > 60_000) {
+      if (getBootstrapLogMode() !== 'quiet' && Date.now() - this.lastFailure > 60_000) {
         this.lastFailure = Date.now();
+        clearStartupProgressLine();
         process.stderr.write('[RuntimeLog] Database persistence unavailable; bounded memory buffer retained\n');
       }
     }

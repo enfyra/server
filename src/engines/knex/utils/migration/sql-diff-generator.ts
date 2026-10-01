@@ -18,6 +18,7 @@ import { getPrimaryKeyTypeForTable } from './pk-type.util';
 import { getCurrentDatabaseSchema } from '../provision/schema-comparison';
 import {
   buildSqlJunctionTableContract,
+  getShortSqlIdentifier,
   resolveSqlRelationOnDelete,
 } from '../sql-physical-schema-contract';
 import { getPostgresEnumTypeName } from '../sql-enum.util';
@@ -194,6 +195,26 @@ export async function generateSQLFromDiff(
   const tableDiff = diff.table || {};
   const columnDiff = diff.columns || {};
   const constraintDiff = diff.constraints || {};
+  const desiredConstraintName = (
+    kind: 'uniques' | 'indexes',
+    columns: string[],
+  ): string => {
+    const expected = diff.constraintNames?.[kind];
+    const name = expected?.[JSON.stringify(columns)];
+    if (expected && !name) {
+      throw new Error(
+        `Missing ${kind} contract for ${tableName}(${columns.join(', ')})`,
+      );
+    }
+    return (
+      name ||
+      getShortSqlIdentifier(
+        kind === 'uniques' ? 'uq' : 'idx',
+        activeTableName,
+        ...columns,
+      )
+    );
+  };
   const junctionDiff = diff.junctionTables || {};
   const fkDiff = diff.foreignKeys || {};
   const crossTableOps = ensureArray(diff.crossTableOperations);
@@ -404,7 +425,9 @@ export async function generateSQLFromDiff(
       const groupKey = uniqueGroupKey([col.name]);
       if (!plannedUniqueGroups.has(groupKey)) {
         plannedUniqueGroups.add(groupKey);
-        const uniqueConstraintName = `uq_${activeTableName}_${col.name}`;
+        const uniqueConstraintName = desiredConstraintName('uniques', [
+          col.name,
+        ]);
         sqlStatements.push(
           `ALTER TABLE ${qt(activeTableName)} ADD CONSTRAINT ${qt(uniqueConstraintName)} UNIQUE (${qt(col.name)})`,
         );
@@ -418,7 +441,7 @@ export async function generateSQLFromDiff(
       col.type === 'timestamp' ||
       col.type === 'date'
     ) {
-      const indexName = `idx_${activeTableName}_${col.name}`;
+      const indexName = desiredConstraintName('indexes', [col.name, 'id']);
       sqlStatements.push(
         generateAddIndexSQL(
           activeTableName,
@@ -479,7 +502,7 @@ export async function generateSQLFromDiff(
     if (plannedUniqueGroups.has(groupKey)) continue;
     plannedUniqueGroups.add(groupKey);
     const columns = uniqueGroup.map((col: string) => qt(col)).join(', ');
-    const constraintName = `uq_${activeTableName}_${uniqueGroup.join('_')}`;
+    const constraintName = desiredConstraintName('uniques', uniqueGroup);
     sqlStatements.push(
       `ALTER TABLE ${qt(activeTableName)} ADD CONSTRAINT ${qt(constraintName)} UNIQUE (${columns})`,
     );
@@ -502,7 +525,7 @@ export async function generateSQLFromDiff(
       : indexGroup?.value || [];
     if (cols.length === 0) continue;
     if (!(await canIndexColumns(cols))) continue;
-    const indexName = `idx_${activeTableName}_${cols.join('_')}`;
+    const indexName = desiredConstraintName('indexes', cols);
     sqlStatements.push(
       generateAddIndexSQL(activeTableName, indexName, cols, dbType),
     );

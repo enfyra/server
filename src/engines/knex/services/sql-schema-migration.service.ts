@@ -18,6 +18,7 @@ import {
   buildSqlIndexContracts,
   buildSqlJunctionTableContractFromRelation,
   buildSqlUniqueContracts,
+  getShortSqlIdentifier,
   getSqlRelationForeignKeyColumn,
   isSqlForeignKeyRelation,
   resolveSqlRelationOnDelete,
@@ -412,7 +413,10 @@ export class SqlSchemaMigrationService {
                   sourcePkType,
                 );
                 this.applyNullability(fkCol, rel.isNullable);
-                table.index([fkColumn, 'id'], `idx_${targetTable}_${fkColumn}`);
+                table.index(
+                  [fkColumn, 'id'],
+                  getShortSqlIdentifier('idx', targetTable, fkColumn),
+                );
                 const onDelete = resolveSqlRelationOnDelete(rel);
                 table
                   .foreign(fkColumn)

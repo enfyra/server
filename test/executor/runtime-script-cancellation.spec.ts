@@ -25,9 +25,7 @@ function createExecutor() {
     tuning: {
       maxConcurrentWorkers: 1,
       isolateMemoryLimitMb: 64,
-      isolatePoolSize: 1,
-      tasksPerIsolate: 6,
-      tasksPerWorkerCap: 6,
+      isolatesPerWorker: 6,
     },
   });
   const service = new RuntimeScriptExecutorService({

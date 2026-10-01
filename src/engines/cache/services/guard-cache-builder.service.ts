@@ -67,6 +67,9 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
           'table.id',
           'table.name',
           'methods.name',
+          'routeMethodConfigs.id',
+          'routeMethodConfigs.method.id',
+          'routeMethodConfigs.method.name',
           'excludeRoutes.id',
           'excludeRoutes.path',
         ],
@@ -126,11 +129,19 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
     const nodeMap = new Map<number, GuardNode>();
     for (const guard of guards) {
       const id = getId(guard) as number;
-      const methods = Array.isArray(guard.methods)
-        ? guard.methods.map((m: any) => m?.name ?? m).filter(Boolean)
+      const configuredMethods =
+        guard.isGlobal === true || guard.appliesToAllRouteMethods === true
+          ? guard.methods
+          : Array.isArray(guard.routeMethodConfigs)
+            ? guard.routeMethodConfigs.map((config: any) => config?.method)
+            : guard.methods;
+      const methods = Array.isArray(configuredMethods)
+        ? configuredMethods.map((method: any) => method?.name ?? method).filter(Boolean)
         : [];
-      const methodIds = Array.isArray(guard.methods)
-        ? (guard.methods.map((m: any) => getId(m)).filter(Boolean) as number[])
+      const methodIds = Array.isArray(configuredMethods)
+        ? (configuredMethods
+            .map((method: any) => getId(method))
+            .filter(Boolean) as number[])
         : [];
       const excludeRoutes = Array.isArray(guard.excludeRoutes)
         ? guard.excludeRoutes

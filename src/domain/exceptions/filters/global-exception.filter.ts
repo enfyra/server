@@ -7,6 +7,7 @@ import { Request, Response, NextFunction } from 'express';
 import { GraphQLError } from 'graphql';
 import { Logger } from '../../../shared/logger';
 import { AppError } from '../../../shared/errors';
+import { buildErrorResponseTrace } from '../../../shared/utils/error-response-trace.util';
 
 interface ErrorResponse {
   success: false;
@@ -32,8 +33,11 @@ export function globalExceptionMiddleware(
   res: Response,
   _next: NextFunction,
 ): void {
-  const correlationId =
-    (req.headers['x-correlation-id'] as string) || generateCorrelationId();
+  const trace = buildErrorResponseTrace(req, res);
+  const { correlationId } = trace;
+  if (typeof res.setHeader === 'function') {
+    res.setHeader('X-Correlation-ID', correlationId);
+  }
   const { statusCode, errorCode, message, details } = getErrorDetails(err, req);
   logError(err, req, correlationId, statusCode);
 
@@ -41,7 +45,15 @@ export function globalExceptionMiddleware(
     if (typeof res.status === 'function') {
       res.status(statusCode).json({
         errors: [
-          { message, extensions: { code: errorCode, correlationId, details } },
+          {
+            message,
+            extensions: {
+              code: errorCode,
+              statusCode,
+              ...(details !== undefined && details !== null ? { details } : {}),
+              ...trace,
+            },
+          },
         ],
       });
     }
@@ -55,11 +67,8 @@ export function globalExceptionMiddleware(
     error: {
       code: errorCode,
       message,
-      details,
-      timestamp: new Date().toISOString(),
-      path: req.url,
-      method: req.method,
-      correlationId,
+      ...(details !== undefined && details !== null ? { details } : {}),
+      ...trace,
     },
   };
   const retryAfterSeconds = getRetryAfterSeconds(details);
@@ -287,8 +296,4 @@ function logError(
   } else {
     logger.log({ message: `[${statusCode}] ${errorMessage}`, ...logData });
   }
-}
-
-function generateCorrelationId(): string {
-  return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }

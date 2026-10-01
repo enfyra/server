@@ -70,6 +70,8 @@ describe('GuardValidationService.assertGuardBody', () => {
       { isGlobal: true },
       { position: 'pre_auth' },
       { methods: ['GET'] },
+      { routeMethodConfigs: [{ id: 10 }] },
+      { appliesToAllRouteMethods: true },
       { type: 'graphql' },
       { gqlOperation: 'QUERY' },
       { table: { id: 2 } },
@@ -143,7 +145,40 @@ describe('GuardValidationService.assertGuardBody', () => {
     ).not.toThrow();
   });
 
-  it('type=graphql rejects route, isGlobal, and methods', () => {    const svc = makeService();
+  it('enforces canonical route-method targeting modes', () => {
+    const svc = makeService();
+    expect(() =>
+      svc.assertGuardBody({
+        isGlobal: true,
+        routeMethodConfigs: [{ id: 10 }],
+      }),
+    ).toThrow(/Global route guards cannot target routeMethodConfigs/);
+    expect(() =>
+      svc.assertGuardBody({ route: { id: 1 }, methods: [{ id: 2 }] }),
+    ).toThrow(/Route-scoped guards cannot set methods/);
+    expect(() =>
+      svc.assertGuardBody({
+        route: { id: 1 },
+        appliesToAllRouteMethods: true,
+        routeMethodConfigs: [{ id: 10 }],
+      }),
+    ).toThrow(/cannot combine appliesToAllRouteMethods/);
+    expect(() =>
+      svc.assertGuardBody({
+        route: { id: 1 },
+        routeMethodConfigs: [{ id: 10 }],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      svc.assertGuardBody({
+        route: { id: 1 },
+        appliesToAllRouteMethods: true,
+      }),
+    ).not.toThrow();
+  });
+
+  it('type=graphql rejects route, isGlobal, and methods', () => {
+    const svc = makeService();
     expect(() =>
       svc.assertGuardBody({ type: 'graphql', route: { id: 1 } }),
     ).toThrow(/cannot have a route/);

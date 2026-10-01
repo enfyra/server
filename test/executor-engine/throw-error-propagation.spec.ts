@@ -414,11 +414,11 @@ describe('$throw error propagation across isolated-vm boundary', () => {
       }
     });
 
-    it('$throw preserves metadata from a handler when post-hooks run', async () => {
+    it('$throw preserves raw metadata from a handler when post-hooks run', async () => {
       await expect(
         batch([
           {
-            code: `$ctx.$throw['503']('retry later', { retry_after_seconds: 5 });`,
+            code: `$ctx.$throw.http(503, 'retry later', { retry_after_seconds: 5 });`,
             type: 'handler',
           },
           { code: 'return undefined;', type: 'postHook' },
@@ -496,7 +496,7 @@ describe('$throw error propagation across isolated-vm boundary', () => {
   });
 
   describe('custom messages', () => {
-    it('$throw.http(status, message, details) preserves raw HTTP message and details', async () => {
+    it('$throw.http transports raw status, message, and details to ESV', async () => {
       try {
         await single(
           '$ctx.$throw.http(409, "Project already exists", { field: "slug" });',
@@ -509,21 +509,98 @@ describe('$throw error propagation across isolated-vm boundary', () => {
       }
     });
 
-    it('semantic $throw.notFound and $throw.duplicate keep Enfyra-formatted messages', async () => {
-      try {
-        await single('$ctx.$throw.notFound("Project", "p_123");');
-        fail('should have thrown');
-      } catch (err: any) {
-        expect(err.statusCode).toBe(404);
-        expect(err.message).toBe("Project with identifier 'p_123' not found");
-      }
+    it('transports legacy semantic throw payloads without host-side shaping', async () => {
+      const { isolatedExecutorService, service } =
+        createRuntimeScriptExecutorService();
+      const ctx = {
+        $body: {},
+        $query: {},
+        $params: {},
+        $user: null,
+        $share: { $logs: [] },
+      };
 
       try {
-        await single('$ctx.$throw.duplicate("Project", "slug", "demo");');
-        fail('should have thrown');
-      } catch (err: any) {
-        expect(err.statusCode).toBe(409);
-        expect(err.message).toBe("Project with slug 'demo' already exists");
+        await expect(
+          service.run(
+            '$ctx.$throw.notFound("Project", "p_123");',
+            ctx,
+            5000,
+          ),
+        ).rejects.toMatchObject({
+          name: 'RawScriptErrorCarrier',
+          isRawScriptErrorCarrier: true,
+          statusCode: 404,
+          errorCode: 'HTTP_404',
+          errorPath: '$throw.notFound',
+          details: {
+            resource: 'Project',
+            identifier: 'p_123',
+            executorCode: 'HTTP_404',
+          },
+        });
+        await expect(
+          service.run(
+            '$ctx.$throw.duplicate("Project", "slug", "demo");',
+            ctx,
+            5000,
+          ),
+        ).rejects.toMatchObject({
+          name: 'RawScriptErrorCarrier',
+          isRawScriptErrorCarrier: true,
+          statusCode: 409,
+          errorCode: 'HTTP_409',
+          errorPath: '$throw.duplicate',
+          details: {
+            resource: 'Project',
+            field: 'slug',
+            value: 'demo',
+            executorCode: 'HTTP_409',
+          },
+        });
+      } finally {
+        await isolatedExecutorService.onDestroy();
+      }
+    });
+
+    it('$throw.json transports an exact custom error body and options', async () => {
+      const { isolatedExecutorService, service } =
+        createRuntimeScriptExecutorService();
+      try {
+        await expect(
+          service.run(
+            `
+              $ctx.$throw.json(
+                { error: { code: 'upstream_error', should_retry: true } },
+                { statusCode: 502, headers: { 'x-should-retry': 'true' } }
+              );
+            `,
+            {
+              $body: {},
+              $query: {},
+              $params: {},
+              $user: null,
+              $share: { $logs: [] },
+            },
+            5000,
+          ),
+        ).rejects.toMatchObject({
+          name: 'RawScriptErrorCarrier',
+          isRawScriptErrorCarrier: true,
+          statusCode: 502,
+          errorCode: 'HTTP_502',
+          errorPath: '$throw.json',
+          details: {
+            errorJsonText: '{"error":{"code":"upstream_error","should_retry":true}}',
+            errorJsonOptions: {
+              statusCode: 502,
+              headers: { 'x-should-retry': 'true' },
+            },
+            executorCode: 'HTTP_502',
+          },
+        });
+      } finally {
+        await isolatedExecutorService.onDestroy();
       }
     });
 

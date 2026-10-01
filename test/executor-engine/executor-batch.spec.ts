@@ -266,7 +266,7 @@ describe('Batch execution: correctness', () => {
           },
         ],
         snapshot: baseSnapshot(),
-        isolatePoolSize: 1,
+        isolatesPerWorker: 1,
       },
       {
         codeBlocks: [
@@ -276,7 +276,7 @@ describe('Batch execution: correctness', () => {
           },
         ],
         snapshot: baseSnapshot(),
-        isolatePoolSize: 1,
+        isolatesPerWorker: 1,
       },
     ]);
 
@@ -294,7 +294,7 @@ describe('Batch execution: correctness', () => {
           },
         ],
         snapshot: baseSnapshot(),
-        isolatePoolSize: 1,
+        isolatesPerWorker: 1,
       },
       {
         codeBlocks: [
@@ -304,7 +304,7 @@ describe('Batch execution: correctness', () => {
           },
         ],
         snapshot: baseSnapshot(),
-        isolatePoolSize: 1,
+        isolatesPerWorker: 1,
       },
     ]);
 
@@ -323,7 +323,7 @@ describe('Batch execution: correctness', () => {
           },
         ],
         snapshot: baseSnapshot({ $body: { request: 1 }, $share: {} }),
-        isolatePoolSize: 1,
+        isolatesPerWorker: 1,
       },
       {
         codeBlocks: [
@@ -333,7 +333,7 @@ describe('Batch execution: correctness', () => {
           },
         ],
         snapshot: baseSnapshot({ $body: { request: 2 }, $share: {} }),
-        isolatePoolSize: 1,
+        isolatesPerWorker: 1,
       },
     ]);
 
@@ -398,7 +398,7 @@ describe('Batch execution: correctness', () => {
     ).rejects.toThrow('Forbidden');
   });
 
-  it('$throw preserves safe details for circular and BigInt values', async () => {
+  it('$throw transports safe details for circular and BigInt values', async () => {
     let thrown: any;
     try {
       await batch([

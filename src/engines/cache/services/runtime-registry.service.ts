@@ -30,6 +30,7 @@ import type {
   WebSocketEvent,
   WebSocketGateway,
 } from './websocket-cache-builder.service';
+import { summarizeCacheValue } from '../../../shared/cache-verbose-trace';
 import type {
   FolderNode,
   FolderTreeCache,
@@ -99,6 +100,9 @@ export class RuntimeRegistryService {
         throw new Error(`Cache ${identifier} did not return active data`);
       }
       const snapshotData = this.cloneRuntimeData(data);
+      this.logger.verbose(
+        `runtime-cache phase=staged id=${identifier} version=${nextVersion} shape=${summarizeCacheValue(snapshotData)}`,
+      );
       const activatedAt = new Date().toISOString();
       return {
         identifier,
@@ -134,6 +138,9 @@ export class RuntimeRegistryService {
       };
       this.entries.set(snapshot.identifier, entry);
       this.publishStates.set(snapshot.identifier, entry);
+      this.logger.verbose(
+        `runtime-cache phase=activated id=${snapshot.identifier} version=${snapshot.version} shape=${summarizeCacheValue(snapshot.data)}`,
+      );
     }
 
     for (const snapshot of snapshots) {

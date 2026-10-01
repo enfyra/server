@@ -455,7 +455,7 @@ const SQL_CONFIGS = [
 ];
 
 for (const config of SQL_CONFIGS) {
-  describe.sequential(`m2m loader matrix (${config.name})`, () => {
+  describe(`m2m loader matrix (${config.name})`, () => {
     const prefix = `__m2m_mx_${Date.now()}_${config.name}_`;
     const tables = {
       parents: `${prefix}parents`,
@@ -599,7 +599,7 @@ for (const config of SQL_CONFIGS) {
       };
     }, 30_000);
 
-    afterAll(async (ctx) => {
+    afterAll(async () => {
       if (!db) return;
       if (available) {
         await db.schema.dropTableIfExists(tables.junction);
@@ -647,7 +647,7 @@ for (const config of SQL_CONFIGS) {
   });
 }
 
-describe.sequential('m2m loader matrix (mongodb)', () => {
+describe('m2m loader matrix (mongodb)', () => {
   const databaseName = `m2m_matrix_${Date.now()}`;
   const collections = {
     parents: 'parents',
@@ -801,7 +801,7 @@ describe.sequential('m2m loader matrix (mongodb)', () => {
     };
   }, 30_000);
 
-  afterAll(async (ctx) => {
+  afterAll(async () => {
     if (available && db) await db.dropDatabase();
     if (client) await client.close();
   }, 30_000);

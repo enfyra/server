@@ -20,8 +20,7 @@ function executionMessage(id: string, code: string, timeoutMs = 5_000) {
     snapshot,
     timeoutMs,
     memoryLimitMb: 128,
-    isolatePoolSize: 1,
-    tasksPerIsolate: 2,
+    isolatesPerWorker: 2,
   };
 }
 
@@ -232,10 +231,6 @@ describe('executor worker protocol integrity', () => {
       });
 
       expect(results.get(parkedId)).toHaveLength(1);
-      // A plain V8-watchdog timeout leaves the lane usable, so the parked
-      // sibling is not collaterally killed: it stays alive through the other
-      // task's timeout and is failed only by its own budget's host-callback
-      // backstop. Isolate loss is reserved for a disposed isolate.
       expect(results.get(parkedId)?.[0]).toMatchObject({ success: false });
       expect(results.get(parkedId)?.[0]?.error?.code).not.toBe(
         'ERR_EXECUTOR_ISOLATE_LOST',

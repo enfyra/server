@@ -362,6 +362,35 @@ describe('GuardCacheBuilder — tree building', () => {
     );
   });
 
+  it('should derive route-scoped method filters from canonical configs', async () => {
+    const { registry } = await loadGuardCache(
+      [
+        {
+          id: 1,
+          name: 'post-only-route',
+          position: 'pre_auth',
+          combinator: 'and',
+          isEnabled: true,
+          isGlobal: false,
+          priority: 0,
+          parent: null,
+          route: { id: 10, path: '/posts' },
+          methods: [{ name: 'GET' }],
+          routeMethodConfigs: [{ id: 100, method: { id: 2, name: 'POST' } }],
+          appliesToAllRouteMethods: false,
+        },
+      ],
+      [],
+    );
+
+    expect(
+      registry.getGuardsForRoute('pre_auth', '/posts', 'POST'),
+    ).toHaveLength(1);
+    expect(
+      registry.getGuardsForRoute('pre_auth', '/posts', 'GET'),
+    ).toHaveLength(0);
+  });
+
   it('should apply to all methods when methods is empty', async () => {
     const { registry } = await loadGuardCache(
       [

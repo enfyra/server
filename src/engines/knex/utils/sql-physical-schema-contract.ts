@@ -40,13 +40,18 @@ const TEMPORAL_TYPES = new Set(['date', 'datetime', 'timestamp']);
 const SQL_IDENTIFIER_LIMIT = 63;
 
 function shortHash(input: string): string {
-  return createHash('md5').update(input).digest('hex').slice(0, 8);
+  return createHash('sha256').update(input).digest('hex').slice(0, 16);
 }
 
-function getShortSqlIdentifier(prefix: string, ...parts: string[]): string {
+export function getShortSqlIdentifier(prefix: string, ...parts: string[]): string {
   const raw = [prefix, ...parts].filter(Boolean).join('_');
-  if (raw.length <= SQL_IDENTIFIER_LIMIT) return raw;
-  return `${prefix}_${shortHash(raw)}`;
+  if (Buffer.byteLength(raw, 'utf8') <= SQL_IDENTIFIER_LIMIT) return raw;
+  const suffix = `_${shortHash(raw)}`;
+  let base = raw;
+  while (Buffer.byteLength(base + suffix, 'utf8') > SQL_IDENTIFIER_LIMIT) {
+    base = base.slice(0, -1);
+  }
+  return base + suffix;
 }
 
 export function isSqlForeignKeyRelation(relation: RelationLike): boolean {
@@ -154,7 +159,7 @@ export function buildSqlUniqueContracts(
         relations,
       );
       return {
-        name: `uq_${tableName}_${physicalColumns.join('_')}`,
+        name: getShortSqlIdentifier('uq', tableName, ...physicalColumns),
         logicalColumns: group,
         physicalColumns,
       };
@@ -195,7 +200,7 @@ export function buildSqlIndexContracts(
     if (seen.has(key)) return;
     seen.add(key);
     contracts.push({
-      name: `idx_${tableName}_${nameColumns.join('_')}`,
+      name: getShortSqlIdentifier('idx', tableName, ...nameColumns),
       logicalColumns,
       physicalColumns: physicalWithTieBreaker,
       source,

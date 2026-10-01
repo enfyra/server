@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import type { UploadedFileInfo } from './file-management.types';
+import type { UploadedFileFields } from './multipart-upload.types';
 import type { CryptoHelper } from '../helpers/crypto.helper';
 import type { FetchHelper } from '../helpers/fetch.helper';
 import type {
@@ -116,6 +117,20 @@ export interface DynamicStreams {
   cancel: (stream: DynamicReadable) => Promise<void>;
 }
 
+export interface DynamicThrow {
+  http: (statusCode: number, message?: string) => never;
+  json: (
+    body: Record<string, unknown> & {
+      success?: never;
+      statusCode?: never;
+      error?: Record<string, unknown> & {
+        statusCode?: never;
+      };
+    },
+    options?: Omit<DynamicResponseStreamOptions, 'mimetype' | 'filename' | 'observer' | 'transform'>,
+  ) => never;
+}
+
 export interface DynamicResponse {
   stream?: (
     stream: NodeJS.ReadableStream | ReadableStream | DynamicReadable,
@@ -134,7 +149,7 @@ export interface DynamicResponse {
 export interface TDynamicContext {
   $body?: any;
   $data?: any;
-  $throw?: any;
+  $throw?: DynamicThrow;
   $error?: any;
   $statusCode?: number;
   $logs?: (...args: any[]) => void;
@@ -244,6 +259,7 @@ export interface TDynamicContext {
     };
   };
   $uploadedFile?: UploadedFileInfo;
+  $uploadFile?: UploadedFileFields;
   $debug?: any;
   $socket?: {
     join?: (room: string) => void;
@@ -272,8 +288,9 @@ export interface RequestWithRouteData extends Request {
     context: TDynamicContext;
     params: any;
     handler: string;
+    routeMethodConfig?: any;
     handlerRecord?: any;
-    handlers?: any[];
+    routePermissions?: any[];
     preHooks: any[];
     postHooks: any[];
     isPublic: boolean;

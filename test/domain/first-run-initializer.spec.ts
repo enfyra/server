@@ -115,7 +115,8 @@ describe('FirstRunInitializer', () => {
     const initializer = new FirstRunInitializer({} as any);
 
     (initializer as any).logProgress('Upgrading', 57.5, 'healing metadata');
-    (initializer as any).logProgress('Upgrading', 100, 'completed');
+    (initializer as any).logProgress('Upgrading', 100, 'publish initialized version');
+    (initializer as any).logProgress('Upgrading', 100, 'completed', true);
 
     expect(write).toHaveBeenCalledTimes(1);
     expect(String(write.mock.calls[0][0])).toContain('100% completed');
@@ -144,7 +145,12 @@ describe('FirstRunInitializer', () => {
     );
   });
 
-  it('runs snapshot physical migrations before schema healing preflight', async () => {
+  it.each([
+    ['fresh install', false],
+    ['upgrade', true],
+  ])(
+    'materializes route method configs before attestation on %s',
+    async (_mode, hasMigrations) => {
     const calls: string[] = [];
     const initializer = new FirstRunInitializer({
       bootstrapUnitOfWorkService,
@@ -179,11 +185,15 @@ describe('FirstRunInitializer', () => {
         assertSnapshotTargetStateAfterHealing: jest.fn(async () => undefined),
       },
       dataProvisionService: {
-        insertAllDefaultRecords: jest.fn(async () => undefined),
+        insertAllDefaultRecords: jest.fn(async () => {
+          calls.push('default-data');
+        }),
       },
       dataMigrationService: {
-        hasMigrations: jest.fn(() => false),
-        runMigrations: jest.fn(),
+        hasMigrations: jest.fn(() => hasMigrations),
+        runMigrations: jest.fn(async () => {
+          calls.push('data-migration');
+        }),
       },
       schemaHealingService: {
         repairSystemPhysicalColumnsBeforeMetadataProvision: jest.fn(
@@ -198,7 +208,14 @@ describe('FirstRunInitializer', () => {
         runExplicitRepairs: jest.fn(async () => undefined),
       },
       routeDefinitionProcessor: {
-        ensureMissingHandlers: jest.fn(async () => undefined),
+        ensureMissingHandlers: jest.fn(async () => {
+          calls.push('handlers');
+        }),
+      },
+      routeMethodConfigBackfillService: {
+        run: jest.fn(async () => {
+          calls.push('method-configs');
+        }),
       },
       snapshotTargetVerifierService: {
         assertSchemaTargetState: jest.fn(async () => {
@@ -227,8 +244,24 @@ describe('FirstRunInitializer', () => {
       'metadata-heal',
     ]);
     expect(calls).toContain('schema-target-verify');
+    expect(calls.indexOf('default-data')).toBeLessThan(calls.indexOf('handlers'));
+    expect(calls.indexOf('handlers')).toBeLessThan(calls.indexOf('method-configs'));
+    if (hasMigrations) {
+      expect(calls.indexOf('handlers')).toBeLessThan(
+        calls.indexOf('data-migration'),
+      );
+      expect(calls.indexOf('data-migration')).toBeLessThan(
+        calls.indexOf('method-configs'),
+      );
+    } else {
+      expect(calls).not.toContain('data-migration');
+    }
+    expect(calls.indexOf('method-configs')).toBeLessThan(
+      calls.indexOf('data-target-verify'),
+    );
     expect(calls.at(-1)).toBe('data-target-verify');
-  });
+  },
+  );
 
   it('does not acquire the lock or sync when isInit is true', async () => {
     const acquire = jest.fn(async () => true);

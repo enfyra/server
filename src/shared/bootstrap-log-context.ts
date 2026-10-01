@@ -1,16 +1,34 @@
-import { AsyncLocalStorage } from 'async_hooks';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import type { BootstrapLogMode } from './types/startup.types';
 
-export type BootstrapLogMode = 'quiet' | 'verbose';
+interface BootstrapLogScope {
+  mode: BootstrapLogMode;
+  active: boolean;
+  parent?: BootstrapLogScope;
+}
 
-const bootstrapLogStore = new AsyncLocalStorage<{ mode: BootstrapLogMode }>();
+const bootstrapLogStore = new AsyncLocalStorage<BootstrapLogScope>();
 
 export function runWithBootstrapLogMode<T>(
   mode: BootstrapLogMode,
   callback: () => Promise<T>,
 ): Promise<T> {
-  return bootstrapLogStore.run({ mode }, callback);
+  const scope: BootstrapLogScope = {
+    mode,
+    active: true,
+    parent: bootstrapLogStore.getStore(),
+  };
+  return bootstrapLogStore.run(scope, async () => {
+    try {
+      return await callback();
+    } finally {
+      scope.active = false;
+    }
+  });
 }
 
 export function getBootstrapLogMode(): BootstrapLogMode | undefined {
-  return bootstrapLogStore.getStore()?.mode;
+  let scope = bootstrapLogStore.getStore();
+  while (scope && !scope.active) scope = scope.parent;
+  return scope?.mode;
 }

@@ -150,13 +150,21 @@ export const RELOAD_CHAINS: Record<string, ReloadStepName[]> = {
     'column-rule',
   ],
 
-  [SYSTEM_TABLES.route]: ['route', 'graphql', 'guard'],
+  [SYSTEM_TABLES.route]: [
+    'metadata',
+    'repoRegistry',
+    'route',
+    'graphql',
+    'guard',
+  ],
+  [SYSTEM_TABLES.routeMethodConfig]: ['route', 'guard'],
+  [SYSTEM_TABLES.routeMethodConfigFileField]: ['route'],
   [SYSTEM_TABLES.preHook]: ['route'],
   [SYSTEM_TABLES.postHook]: ['route'],
   [SYSTEM_TABLES.routeHandler]: ['route'],
   [SYSTEM_TABLES.routePermission]: ['route'],
   [SYSTEM_TABLES.role]: ['route'],
-  [SYSTEM_TABLES.method]: ['route'],
+  [SYSTEM_TABLES.method]: ['metadata', 'repoRegistry', 'route'],
 
   [SYSTEM_TABLES.guard]: ['guard'],
   [SYSTEM_TABLES.guardRule]: ['guard'],

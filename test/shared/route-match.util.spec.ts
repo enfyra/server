@@ -30,6 +30,40 @@ describe('route-match util', () => {
     expect(match?.params).toEqual({ id: '42' });
   });
 
+  it('matches only available route-method operations', () => {
+    const match = matchRouteInRoutes(
+      [
+        {
+          path: '/posts',
+          methodConfigs: [
+            { available: false, method: { name: 'GET' } },
+            { available: true, method: { name: 'POST' } },
+          ],
+        },
+      ],
+      'GET',
+      '/posts',
+    );
+
+    expect(match).toBeNull();
+
+    const postMatch = matchRouteInRoutes(
+      [
+        {
+          path: '/posts',
+          methodConfigs: [
+            { available: false, method: { name: 'GET' } },
+            { available: true, method: { name: 'POST' } },
+          ],
+        },
+      ],
+      'POST',
+      '/posts',
+    );
+
+    expect(postMatch?.route.path).toBe('/posts');
+  });
+
   it('uses index order as the tie breaker for Redis route index entries', () => {
     const match = matchRouteIndexEntry(
       [

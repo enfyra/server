@@ -296,6 +296,138 @@ class ScriptContractService {
     };
   }
 
+  assertThrowContract(sourceCode: string): void {
+    const code = transformTemplateSyntax(sourceCode, 'validation');
+    const sourceFile = ts.createSourceFile(
+      'enfyra-script.ts',
+      code,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+
+    const isThrowRoot = (node: ts.Node): boolean => {
+      if (
+        ts.isPropertyAccessExpression(node)
+        && ts.isIdentifier(node.expression)
+        && node.expression.text === '$ctx'
+        && node.name.text === '$throw'
+      ) {
+        return true;
+      }
+      return (
+        ts.isElementAccessExpression(node)
+        && ts.isIdentifier(node.expression)
+        && node.expression.text === '$ctx'
+        && ts.isStringLiteral(node.argumentExpression)
+        && node.argumentExpression.text === '$throw'
+      );
+    };
+
+    const visit = (node: ts.Node): void => {
+      if (
+        ts.isCallExpression(node)
+        && ts.isPropertyAccessExpression(node.expression)
+        && ts.isIdentifier(node.expression.expression)
+        && node.expression.expression.text === '$ctx'
+        && node.expression.name.text === '$throwAlias'
+      ) {
+        if (node.arguments.length !== 2) {
+          throw new Error('@THROW status aliases require exactly one message');
+        }
+      }
+
+      if (isThrowRoot(node)) {
+        const methodAccess = node.parent;
+        const call = methodAccess?.parent;
+        if (
+          !ts.isPropertyAccessExpression(node)
+          || !ts.isPropertyAccessExpression(methodAccess)
+          || methodAccess.expression !== node
+          || !['http', 'json'].includes(methodAccess.name.text)
+          || methodAccess.questionDotToken
+          || !ts.isCallExpression(call)
+          || call.expression !== methodAccess
+          || call.questionDotToken
+        ) {
+          throw new Error(
+            '$throw exposes only .http(statusCode, message?) and .json(body, options?)',
+          );
+        }
+        if (call.arguments.length < 1 || call.arguments.length > 2) {
+          throw new Error(
+            methodAccess.name.text === 'http'
+              ? '$throw.http accepts only statusCode and optional message'
+              : '$throw.json accepts only body and optional options',
+          );
+        }
+        if (methodAccess.name.text === 'json') {
+          const body = call.arguments[0];
+          if (
+            ts.isArrayLiteralExpression(body)
+            || ts.isStringLiteral(body)
+            || ts.isNumericLiteral(body)
+            || body.kind === ts.SyntaxKind.TrueKeyword
+            || body.kind === ts.SyntaxKind.FalseKeyword
+            || body.kind === ts.SyntaxKind.NullKeyword
+          ) {
+            throw new Error('$throw.json body must be a JSON object');
+          }
+          if (ts.isObjectLiteralExpression(body)) {
+            const propertyName = (property: ts.ObjectLiteralElementLike) => {
+              if (
+                (ts.isPropertyAssignment(property)
+                  || ts.isShorthandPropertyAssignment(property))
+                && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))
+              ) {
+                return property.name.text;
+              }
+              return undefined;
+            };
+            const reservedRootProperty = body.properties.find((property) =>
+              ['success', 'statusCode'].includes(propertyName(property) ?? ''),
+            );
+            if (reservedRootProperty) {
+              throw new Error(
+                '$throw.json body.success and body.statusCode are server-owned',
+              );
+            }
+            const errorProperty = body.properties.find(
+              (property) => propertyName(property) === 'error',
+            );
+            if (errorProperty && ts.isPropertyAssignment(errorProperty)) {
+              const errorValue = errorProperty.initializer;
+              if (
+                ts.isArrayLiteralExpression(errorValue)
+                || ts.isStringLiteral(errorValue)
+                || ts.isNumericLiteral(errorValue)
+                || errorValue.kind === ts.SyntaxKind.TrueKeyword
+                || errorValue.kind === ts.SyntaxKind.FalseKeyword
+                || errorValue.kind === ts.SyntaxKind.NullKeyword
+              ) {
+                throw new Error('$throw.json body.error must be a JSON object');
+              }
+              if (
+                ts.isObjectLiteralExpression(errorValue)
+                && errorValue.properties.some(
+                  (property) => propertyName(property) === 'statusCode',
+                )
+              ) {
+                throw new Error(
+                  '$throw.json body.error.statusCode is not allowed; use options.statusCode',
+                );
+              }
+            }
+          }
+        }
+      }
+
+      ts.forEachChild(node, visit);
+    };
+
+    visit(sourceFile);
+  }
+
   private transpileTypeScript(transformedCode: string): string {
     const result = ts.transpileModule(transformedCode, {
       compilerOptions: {
@@ -348,6 +480,10 @@ export function compileScriptSource(
   scriptLanguage: unknown,
 ): string | null {
   return scriptContractService.compileSource(sourceCode, scriptLanguage);
+}
+
+export function assertScriptSourceContract(sourceCode: string): void {
+  scriptContractService.assertThrowContract(sourceCode);
 }
 
 export function normalizeScriptRecord(

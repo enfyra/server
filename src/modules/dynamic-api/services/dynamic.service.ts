@@ -15,6 +15,7 @@ import { RequestWithRouteData } from '../../../shared/types';
 import { Readable } from 'stream';
 import { RuntimeScriptRepairService } from '../../../engines/cache';
 import { recordUserLog } from '../../../shared/runtime-log-buffer';
+import { buildErrorResponseTrace } from '../../../shared/utils/error-response-trace.util';
 
 const streamLogger = new Logger('DynamicResponseStream');
 const DEFAULT_DYNAMIC_ROUTE_TIMEOUT_MS = 60_000;
@@ -74,25 +75,128 @@ function beginNativeResponse(
   res.__enfyraStreamStarted = true;
 }
 
+function mergeErrorTrace(
+  jsonText: string,
+  res: any,
+  statusCode: number,
+): { responseText: string; correlationId: string } {
+  const body = JSON.parse(jsonText);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new TypeError('@THROW.json body must be a JSON object');
+  }
+  if (
+    body.error !== undefined
+    && (!body.error || typeof body.error !== 'object' || Array.isArray(body.error))
+  ) {
+    throw new TypeError('@THROW.json body.error must be a JSON object');
+  }
+
+  const trace = buildErrorResponseTrace(res.req, res);
+  const customError = { ...(body.error ?? {}) };
+  delete customError.statusCode;
+  return {
+    correlationId: trace.correlationId,
+    responseText: JSON.stringify({
+      ...body,
+      success: false,
+      statusCode,
+      error: {
+        ...customError,
+        ...trace,
+      },
+    }),
+  };
+}
+
+export async function writeRawScriptErrorJson(
+  error: unknown,
+  res: any,
+  script?: string,
+): Promise<boolean> {
+  const carrier = error as {
+    details?: {
+      errorJsonText?: unknown;
+      errorJsonOptions?: unknown;
+    };
+    errorPath?: string;
+    isRawScriptErrorCarrier?: boolean;
+  };
+  if (
+    carrier.isRawScriptErrorCarrier !== true
+    || carrier.errorPath !== '$throw.json'
+  ) {
+    return false;
+  }
+
+  const errorJsonText = carrier.details?.errorJsonText;
+  const errorJsonOptions = carrier.details?.errorJsonOptions;
+  const writeErrorJson = res?.__enfyraErrorJson;
+  if (
+    typeof errorJsonText !== 'string'
+    || typeof writeErrorJson !== 'function'
+  ) {
+    throw new ScriptExecutionException(
+      'Custom JSON error response could not be written',
+      script,
+    );
+  }
+  await writeErrorJson.call(res, errorJsonText, errorJsonOptions);
+  return true;
+}
+
 export function attachStreamResponseHelper(res: any): void {
   if (!res) return;
-  if (!res.__enfyraJson) res.__enfyraJson = async (
+  const writeJson = async (
     jsonText: string,
-    options?: {
+    options: {
       statusCode?: number;
       headers?: Record<
         string,
         string | number | readonly string[] | undefined | null
       >;
-    },
+    } = {},
+    kind: 'success' | 'error',
   ): Promise<void> => {
+    const statusCode = options.statusCode ?? (kind === 'error' ? 500 : 200);
+    const minimum = kind === 'error' ? 400 : 200;
+    const maximum = kind === 'error' ? 599 : 399;
+    if (
+      !Number.isInteger(statusCode)
+      || statusCode < minimum
+      || statusCode > maximum
+    ) {
+      throw new TypeError(
+        kind === 'error'
+          ? '@THROW.json statusCode must be from 400 to 599'
+          : '@RES.json statusCode must be from 200 to 399',
+      );
+    }
+    const errorResponse = kind === 'error'
+      ? mergeErrorTrace(jsonText, res, statusCode)
+      : null;
+    const responseText = errorResponse?.responseText ?? jsonText;
     beginNativeResponse(res);
     applyResponseOptions(res, {
       ...options,
+      statusCode,
+      headers: {
+        ...options.headers,
+        ...(errorResponse
+          ? { 'X-Correlation-ID': errorResponse.correlationId }
+          : {}),
+      },
       mimetype: 'application/json; charset=utf-8',
     });
-    res.end(jsonText);
+    res.end(responseText);
   };
+  if (!res.__enfyraJson) {
+    res.__enfyraJson = (jsonText: string, options?: any) =>
+      writeJson(jsonText, options, 'success');
+  }
+  if (!res.__enfyraErrorJson) {
+    res.__enfyraErrorJson = (jsonText: string, options?: any) =>
+      writeJson(jsonText, options, 'error');
+  }
   if (!res.__enfyraBytes) res.__enfyraBytes = async (
     bytes: Uint8Array,
     options?: {
@@ -280,10 +384,8 @@ export class DynamicService {
         }
       }
 
-      const routeHandler = routeData.handlers?.find(
-        (h) => h.method?.name === req.method,
-      );
-      const timeoutMs = routeHandler?.timeout || DEFAULT_DYNAMIC_ROUTE_TIMEOUT_MS;
+      const timeoutMs =
+        routeData.routeMethodConfig?.timeout || DEFAULT_DYNAMIC_ROUTE_TIMEOUT_MS;
 
       let value: any;
       let shortCircuit = false;
@@ -321,6 +423,9 @@ export class DynamicService {
     } catch (error) {
       const err = error as {
         code?: string;
+        errorCode?: string;
+        errorPath?: string;
+        isRawScriptErrorCarrier?: boolean;
         statusCode?: number;
         details?: any;
       };
@@ -351,6 +456,27 @@ export class DynamicService {
           isTableOperation: isTableDefinitionOperation,
           userId: req.user?.id ?? req.user?._id,
         });
+      }
+      const carrierCode = err.errorCode ?? err.code;
+      const isRawScriptErrorCarrier = err.isRawScriptErrorCarrier === true;
+      if (
+        await writeRawScriptErrorJson(error, routeData.res, routeData.handler)
+      ) {
+        return undefined;
+      }
+      if (
+        isRawScriptErrorCarrier
+        && httpStatus !== undefined
+        && httpStatus >= 400
+        && httpStatus <= 599
+      ) {
+        throw new HttpException(getErrorMessage(error), httpStatus);
+      }
+      if (
+        httpStatus !== undefined
+        && carrierCode === `HTTP_${httpStatus}`
+      ) {
+        throw new HttpException(getErrorMessage(error), httpStatus);
       }
       if (isCustomException(error) || error instanceof HttpException) {
         throw error;

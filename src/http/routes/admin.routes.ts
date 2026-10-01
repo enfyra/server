@@ -6,7 +6,10 @@ import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
 } from '../../shared/utils/cache-events.constants';
-import { compileScriptSource } from '../../shared/utils/script-code.util';
+import {
+  assertScriptSourceContract,
+  compileScriptSource,
+} from '../../shared/utils/script-code.util';
 import type { TCacheInvalidationPayload } from '../../shared/types/cache.types';
 import type { FlowStepReorderInput } from '../../modules/flow/types/flow-step-reorder.types';
 
@@ -284,6 +287,7 @@ export function registerAdminRoutes(
     const sourceCode = String(body.sourceCode ?? body.code ?? '');
     const scriptLanguage = body.scriptLanguage ?? 'typescript';
     try {
+      assertScriptSourceContract(sourceCode);
       const compiledCode = compileScriptSource(sourceCode, scriptLanguage);
       const AsyncFunction = Object.getPrototypeOf(
         async function () {},

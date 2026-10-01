@@ -148,6 +148,7 @@ export class FlowTriggerDispatcherService {
     if (!matches?.length) return;
     const safeRes = this.safeResult(result);
     for (const { flow, trigger } of matches) {
+      if (trigger.config?.method && trigger.config.method !== method) continue;
       if (this.isInCooldown(trigger.id)) continue;
       this.markDispatched(trigger.id);
       try {

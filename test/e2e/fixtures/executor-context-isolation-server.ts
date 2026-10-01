@@ -20,7 +20,6 @@ const isolatedExecutorService = new IsolatedExecutorService({
     logicalCpuCount: 1,
     totalMemoryBytes: 512 * 1024 * 1024,
     maxLanesPerRunner: 1,
-    tasksPerIsolate: 1,
   }),
 });
 const kernelExecutorEngineService = new ExecutorEngineService({

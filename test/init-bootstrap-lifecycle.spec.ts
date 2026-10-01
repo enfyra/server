@@ -217,3 +217,18 @@ describe('initBootstrap lifecycle', () => {
     expect(container.cradle.metadataCacheService.reload).toHaveBeenCalled();
   });
 });
+
+
+it('runs bootstrap scripts only after all runtime snapshots and SQL functions are ready', async () => {
+  const { container } = runtimeContainer();
+  let snapshots = 0;
+  let sqlReady = false;
+  container.cradle.runtimeRegistryService.publishFromCache.mockImplementation(async () => { snapshots++; });
+  container.cradle.sqlFunctionService.installExtensions.mockImplementation(async () => { sqlReady = true; });
+  container.cradle.bootstrapScriptService.onMetadataLoaded.mockImplementation(async () => {
+    expect(snapshots).toBe(14);
+    expect(sqlReady).toBe(true);
+  });
+  await init(container);
+  expect(container.cradle.bootstrapScriptService.onMetadataLoaded).toHaveBeenCalledTimes(1);
+});

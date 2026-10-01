@@ -892,6 +892,11 @@ snapshot
       .inverse('routesWithAvailable')
       .system()
       .description('HTTP methods this route supports'),
+    methodConfigs: rel
+      .oneToMany('enfyra_route_method_config')
+      .inverse('route')
+      .system()
+      .description('Canonical HTTP method configurations for this route'),
     preHooks: rel
       .oneToMany('enfyra_pre_hook')
       .inverse('route')
@@ -974,6 +979,11 @@ snapshot
       .system()
       .onDelete('CASCADE')
       .description('Route that this permission controls access to'),
+    routeMethodConfigs: rel
+      .manyToMany('enfyra_route_method_config')
+      .inverse('routePermissions')
+      .system()
+      .description('Canonical route operations granted by this permission'),
     allowedUsers: rel
       .manyToMany('enfyra_user')
       .inverse('allowedRoutePermissions')
@@ -1191,6 +1201,56 @@ snapshot
   ]);
 
 snapshot
+  .table('enfyra_route_method_config', {
+    description: 'Defines the complete configuration for one route and HTTP method',
+    system: true,
+  })
+  .columns({
+    id: col.sqlType({ type: 'int' }).mongoType({ type: 'objectId' }).primary().generated().notNull().system().description('Primary key identifier'),
+    available: col.sqlType({ type: 'boolean' }).mongoType({ type: 'bool' }).notNull().system().default(false).description('Whether this route serves this HTTP method'),
+    isPublic: col.sqlType({ type: 'boolean' }).mongoType({ type: 'bool' }).notNull().system().default(false).description('Whether authentication is skipped for this operation'),
+    skipRoleGuard: col.sqlType({ type: 'boolean' }).mongoType({ type: 'bool' }).notNull().system().default(false).description('Whether role authorization is skipped while authentication remains required'),
+    timeout: col.sqlType({ type: 'int' }).mongoType({ type: 'int' }).notNull().system().default(30000).description('Total dynamic execution timeout in milliseconds for this operation'),
+    requestBodyType: col.sqlType({ type: 'enum', options: ['none', 'json', 'urlencoded', 'multipart', 'raw'] }).mongoType({ type: 'enum', options: ['none', 'json', 'urlencoded', 'multipart', 'raw'] }).notNull().system().default('none').description('Request body parser contract for this operation'),
+    maxUploadFileSize: col.sqlType({ type: 'int' }).mongoType({ type: 'int' }).system().nullable().default(null).description('Optional operation upload file size limit in MB, bounded by parent ceilings'),
+    maxFiles: col.sqlType({ type: 'int' }).mongoType({ type: 'int' }).system().nullable().default(null).description('Optional maximum total multipart file count'),
+    description: col.sqlType({ type: 'text' }).mongoType({ type: 'string' }).system().nullable().description('Description of this route method configuration'),
+    isSystem: col.sqlType({ type: 'boolean' }).mongoType({ type: 'bool' }).notNull().system().default(false).description('Whether this is a system-defined operation'),
+  })
+  .relations({
+    route: rel.manyToOne('enfyra_route').inverse('methodConfigs').notNull().system().onDelete('CASCADE').description('Route that owns this method configuration'),
+    method: rel.manyToOne('enfyra_method').inverse('methodConfigs').notNull().system().onDelete('CASCADE').description('HTTP method governed by this method configuration'),
+    fileFields: rel.oneToMany('enfyra_route_method_config_file_field').inverse('routeMethodConfig').system().description('Accepted multipart file fields for this method configuration'),
+    routePermissions: rel.manyToMany('enfyra_route_permission').inverse('routeMethodConfigs').system().description('Route permissions that grant this operation'),
+    preHooks: rel.manyToMany('enfyra_pre_hook').inverse('routeMethodConfigs').system().description('Route-scoped pre-hooks executed for this operation'),
+    postHooks: rel.manyToMany('enfyra_post_hook').inverse('routeMethodConfigs').system().description('Route-scoped post-hooks executed for this operation'),
+    guards: rel.manyToMany('enfyra_guard').inverse('routeMethodConfigs').system().description('Route guards explicitly targeting this operation'),
+  })
+  .uniques([['route', 'method']]);
+
+snapshot
+  .table('enfyra_route_method_config_file_field', {
+    description: 'Declares accepted multipart file fields for a route operation',
+    system: true,
+  })
+  .columns({
+    id: col.sqlType({ type: 'int' }).mongoType({ type: 'objectId' }).primary().generated().notNull().system().description('Primary key identifier'),
+    name: col.sqlType({ type: 'varchar' }).mongoType({ type: 'string' }).notNull().system().description('Exact multipart field name'),
+    required: col.sqlType({ type: 'boolean' }).mongoType({ type: 'bool' }).notNull().system().default(false).description('Whether at least one file is required for this field'),
+    maxCount: col.sqlType({ type: 'int' }).mongoType({ type: 'int' }).notNull().system().default(1).description('Maximum file count for this field'),
+    maxFileSize: col.sqlType({ type: 'int' }).mongoType({ type: 'int' }).system().nullable().default(null).description('Optional per-file size limit in MB, bounded by parent ceilings'),
+    allowedMimeTypes: col.sqlType({ type: 'simple-json' }).mongoType({ type: 'json' }).system().nullable().default(null).description('Optional exact MIME type allow-list'),
+    sort: col.sqlType({ type: 'int' }).mongoType({ type: 'int' }).notNull().system().default(0).description('Stable field order'),
+    description: col.sqlType({ type: 'text' }).mongoType({ type: 'string' }).system().nullable().description('Description of this multipart field'),
+    isSystem: col.sqlType({ type: 'boolean' }).mongoType({ type: 'bool' }).notNull().system().default(false).description('Whether this is a system-defined multipart field'),
+  })
+  .relations({
+    routeMethodConfig: rel.manyToOne('enfyra_route_method_config').inverse('fileFields').notNull().system().onDelete('CASCADE').description('Route method configuration that accepts this file field'),
+  })
+  .uniques([['routeMethodConfig', 'name']])
+  .indexes([['routeMethodConfig', 'sort']]);
+
+snapshot
   .table('enfyra_route_handler', {
     description: 'Stores custom logic handlers for route endpoints',
     system: true,
@@ -1241,6 +1301,13 @@ snapshot
       .description('Description of what this handler does'),
   })
   .relations({
+    routeMethodConfig: rel
+      .oneToOne('enfyra_route_method_config')
+      .inverse('handler')
+      .system()
+      .nullable()
+      .onDelete('CASCADE')
+      .description('Canonical route operation implemented by this handler'),
     route: rel
       .manyToOne('enfyra_route')
       .inverse('handlers')
@@ -1256,7 +1323,7 @@ snapshot
       .onDelete('CASCADE')
       .description('HTTP method (GET, POST, etc.) this handler responds to'),
   })
-  .uniques([['route', 'method']]);
+  .uniques([['route', 'method'], ['routeMethodConfig']]);
 
 snapshot
   .table('enfyra_pre_hook', {
@@ -1347,6 +1414,11 @@ snapshot
       .inverse('preHooks')
       .system()
       .description('HTTP methods this hook applies to'),
+    routeMethodConfigs: rel
+      .manyToMany('enfyra_route_method_config')
+      .inverse('preHooks')
+      .system()
+      .description('Canonical route operations targeted by this non-global hook'),
   });
 
 snapshot
@@ -1438,6 +1510,11 @@ snapshot
       .inverse('postHooks')
       .system()
       .description('HTTP methods this hook applies to'),
+    routeMethodConfigs: rel
+      .manyToMany('enfyra_route_method_config')
+      .inverse('postHooks')
+      .system()
+      .description('Canonical route operations targeted by this non-global hook'),
   });
 
 snapshot
@@ -1685,6 +1762,11 @@ snapshot
       .description('Whether this is a system-defined method'),
   })
   .relations({
+    methodConfigs: rel
+      .oneToMany('enfyra_route_method_config')
+      .inverse('method')
+      .system()
+      .description('Route configurations that use this HTTP method'),
     routePermissions: rel
       .manyToMany('enfyra_route_permission')
       .inverse('methods')
@@ -3090,6 +3172,15 @@ snapshot
       .description(
         'Whether this guard applies globally to all routes. Only meaningful for root guards with type=route',
       ),
+    appliesToAllRouteMethods: col
+      .sqlType({ type: 'boolean' })
+      .mongoType({ type: 'bool' })
+      .notNull()
+      .system()
+      .default(false)
+      .description(
+        'Whether a non-global route guard targets every current and future operation on its route',
+      ),
     type: col
       .sqlType({ type: 'enum', options: ['route', 'graphql'] })
       .mongoType({ type: 'enum', options: ['route', 'graphql'] })
@@ -3160,6 +3251,11 @@ snapshot
       .description(
         'HTTP methods this guard applies to. Only meaningful for root guards with type=route',
       ),
+    routeMethodConfigs: rel
+      .manyToMany('enfyra_route_method_config')
+      .inverse('guards')
+      .system()
+      .description('Canonical route operations explicitly targeted by this guard'),
     excludeRoutes: rel
       .manyToMany('enfyra_route')
       .system()

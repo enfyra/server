@@ -8,6 +8,10 @@ import {
   TCacheInvalidationPayload,
 } from '../../../shared/utils/cache-events.constants';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
+import {
+  runWithCacheVerboseTrace,
+  summarizeCacheValue,
+} from '../../../shared/cache-verbose-trace';
 
 type CacheIdentifier =
   (typeof CACHE_IDENTIFIERS)[keyof typeof CACHE_IDENTIFIERS];
@@ -51,11 +55,27 @@ export abstract class BaseCacheService<T> {
         logMemory(this.logger, 'cache reload start', {
           cache: this.config.cacheName,
         });
-        const data = await this.loadFreshCacheData();
+        this.logger.verbose(
+          `cache-reload phase=start type=full id=${this.config.cacheIdentifier} shared=${this.usesSharedRuntimeCache()}`,
+        );
+        const data = await runWithCacheVerboseTrace(
+          {
+            cacheName: this.config.cacheName,
+            cacheIdentifier: this.config.cacheIdentifier,
+            reloadType: 'full',
+          },
+          () => this.loadFreshCacheData(),
+        );
+        this.logger.verbose(
+          `cache-reload phase=transformed type=full id=${this.config.cacheIdentifier} shape=${summarizeCacheValue(data)}`,
+        );
         logMemory(this.logger, 'cache reload data loaded', {
           cache: this.config.cacheName,
         });
         await this.setLoadedCache(data, { persistShared: true });
+        this.logger.verbose(
+          `cache-reload phase=loaded type=full id=${this.config.cacheIdentifier} count=${this.getCount()} sharedPersisted=${this.usesSharedRuntimeCache()}`,
+        );
 
         const elapsed = Date.now() - start;
         this.logger.log(`Loaded ${this.getLogCount()} in ${elapsed}ms`);
@@ -96,6 +116,9 @@ export abstract class BaseCacheService<T> {
         scope: payload.scope,
         ids: payload.ids?.length ?? 0,
       });
+      this.logger.verbose(
+        `cache-reload phase=start type=partial id=${this.config.cacheIdentifier} table=${payload.table} scope=${payload.scope ?? 'unknown'} ids=${payload.ids?.length ?? 0} shared=${this.usesSharedRuntimeCache()}`,
+      );
       if (this.usesSharedRuntimeCache()) {
         const lockValue =
           await this.redisRuntimeCacheStore!.acquireRefreshLockWithWait(
@@ -118,7 +141,17 @@ export abstract class BaseCacheService<T> {
         }
         this.cache = snapshot.data;
       }
-      await this.applyPartialUpdate(payload);
+      await runWithCacheVerboseTrace(
+        {
+          cacheName: this.config.cacheName,
+          cacheIdentifier: this.config.cacheIdentifier,
+          reloadType: 'partial',
+        },
+        () => this.applyPartialUpdate(payload),
+      );
+      this.logger.verbose(
+        `cache-reload phase=transformed type=partial id=${this.config.cacheIdentifier} shape=${summarizeCacheValue(this.cache)}`,
+      );
       if (this.usesSharedRuntimeCache()) {
         if (this.cache === undefined) {
           const snapshot =
@@ -136,6 +169,9 @@ export abstract class BaseCacheService<T> {
         }
       }
       const elapsed = Date.now() - start;
+      this.logger.verbose(
+        `cache-reload phase=loaded type=partial id=${this.config.cacheIdentifier} count=${this.getCount()} sharedPersisted=${this.usesSharedRuntimeCache()}`,
+      );
       this.logger.log(
         `Partial reload (${payload.ids?.length ?? 0} ids) in ${elapsed}ms`,
       );
@@ -158,6 +194,11 @@ export abstract class BaseCacheService<T> {
       await this.releaseActiveSharedLock();
       this.releaseLocalCacheAfterSharedAccess();
     }
+  }
+
+  protected async reloadFromPartial(): Promise<void> {
+    await this.releaseActiveSharedLock();
+    await this.reload();
   }
 
   supportsPartialReload(): boolean {
@@ -285,6 +326,9 @@ export abstract class BaseCacheService<T> {
       throw new Error(`${this.config.cacheName} shared cache is unavailable`);
     }
     await this.afterSharedCacheHydrate(snapshot.data);
+    this.logger.verbose(
+      `cache-reload phase=shared-hydrated id=${this.config.cacheIdentifier} shape=${summarizeCacheValue(snapshot.data)}`,
+    );
     this.cacheLoaded = true;
     this.emitLoadedEvent();
   }
@@ -338,11 +382,15 @@ export abstract class BaseCacheService<T> {
   }
 
   private async persistSharedCache(data: T): Promise<void> {
+    const startedAt = Date.now();
     await this.redisRuntimeCacheStore!.setSnapshot(
       this.config.cacheIdentifier,
       data,
     );
     await this.afterSharedCachePersist(data);
+    this.logger.verbose(
+      `cache-reload phase=shared-persisted id=${this.config.cacheIdentifier} shape=${summarizeCacheValue(data)} durationMs=${Date.now() - startedAt}`,
+    );
   }
 
   private releaseLocalCacheAfterSharedAccess(): void {

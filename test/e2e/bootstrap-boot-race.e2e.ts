@@ -124,6 +124,7 @@ function spawnServer(
       ADMIN_PASSWORD: adminPassword,
       NODE_ENV: 'test',
       NODE_NAME: nodeName,
+      STARTUP_VERBOSE: '1',
       BOOTSTRAP_VERBOSE: '1',
       MONGO_FORCE_APP_TRANSACTION: '0',
       ...options.env,

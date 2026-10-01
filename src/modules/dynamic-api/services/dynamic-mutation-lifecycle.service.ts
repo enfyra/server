@@ -166,7 +166,11 @@ export class DynamicMutationLifecycleService {
           });
           return result;
         },
-        reload: () => runtime.reload({ ids: [ctx.id] }),
+        reload: () =>
+          runtime.reload({
+            ids: [ctx.id],
+            critical: strategy.requiresCriticalReload,
+          }),
         afterReload: async () => {
           logMemory(this.logger, 'dynamic create done', {
             ...writeMeta,
@@ -444,7 +448,11 @@ export class DynamicMutationLifecycleService {
           });
           return result;
         },
-        reload: () => runtime.reload({ ids: [id] }),
+        reload: () =>
+          runtime.reload({
+            ids: [id],
+            critical: strategy.requiresCriticalReload,
+          }),
         afterReload: async () => {
           logMemory(this.logger, 'dynamic update done', {
             ...writeMeta,
@@ -603,6 +611,8 @@ export class DynamicMutationLifecycleService {
         existing: exists,
       };
 
+      await strategy.beforeDelete?.(ctx);
+
       if (strategy.kind === 'table') {
         const mutation = await runtimeMetadataSchemaRouterService.deleteTable({
           tableId: id,
@@ -638,7 +648,11 @@ export class DynamicMutationLifecycleService {
           message: 'Delete successfully!',
           statusCode: 200,
         }),
-        reload: () => runtime.reload({ ids: [id] }),
+        reload: () =>
+          runtime.reload({
+            ids: [id],
+            critical: strategy.requiresCriticalReload,
+          }),
         afterReload: async () => {
           logMemory(this.logger, 'dynamic delete done', {
             ...writeMeta,

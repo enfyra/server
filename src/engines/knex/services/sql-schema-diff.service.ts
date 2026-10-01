@@ -89,6 +89,18 @@ export class SqlSchemaDiffService {
       this.metadataCacheService,
     );
     this.analyzeConstraintChanges(oldMetadata, newMetadata, diff);
+    diff.constraintNames = {
+      uniques: Object.fromEntries(
+        buildSqlUniqueContracts(newMetadata.name, newMetadata).map(
+          (contract) => [JSON.stringify(contract.physicalColumns), contract.name],
+        ),
+      ),
+      indexes: Object.fromEntries(
+        buildSqlIndexContracts(newMetadata.name, newMetadata).map(
+          (contract) => [JSON.stringify(contract.physicalColumns), contract.name],
+        ),
+      ),
+    };
     return diff;
   }
 

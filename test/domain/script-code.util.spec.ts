@@ -93,6 +93,16 @@ describe('script-code util', () => {
     expect(executable).not.toContain(': string');
   });
 
+  it('keeps legacy throw source executable during cache reload', () => {
+    expect(
+      resolveExecutableScript({
+        scriptLanguage: 'javascript',
+        sourceCode: '$ctx.$throw.notFound("Project");',
+        compiledCode: '$ctx.$throw.notFound("Project");',
+      }).code,
+    ).toBe('$ctx.$throw.notFound("Project");');
+  });
+
   it('keeps valid compiledCode without repair', () => {
     const resolved = resolveExecutableScript({
       scriptLanguage: 'typescript',

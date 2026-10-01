@@ -236,9 +236,7 @@ describe('package runtime task isolation', () => {
     const executor = makeService(fixture.modulePath, {
       maxConcurrentWorkers: 1,
       isolateMemoryLimitMb: 128,
-      tasksPerWorkerCap: 216,
-      isolatePoolSize: 2,
-      tasksPerIsolate: 6,
+      isolatesPerWorker: 6,
     });
     let callbackRuns = 0;
     let signalReady: (() => void) | undefined;
@@ -298,9 +296,7 @@ describe('package runtime task isolation', () => {
     const executor = makeService(fixture.modulePath, {
       maxConcurrentWorkers: 1,
       isolateMemoryLimitMb: 128,
-      tasksPerWorkerCap: 216,
-      isolatePoolSize: 36,
-      tasksPerIsolate: 6,
+      isolatesPerWorker: 6,
     });
     let signalCollateralStarted: (() => void) | undefined;
     const collateralStarted = new Promise<void>((resolve) => {

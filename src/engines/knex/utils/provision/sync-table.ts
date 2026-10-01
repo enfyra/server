@@ -6,6 +6,9 @@ import { getErrorMessage } from '../../../../shared/utils/error.util';
 import { dropPostgresColumnCheckConstraints } from './postgres-column-check-constraints';
 import {
   buildSqlForeignKeyContracts,
+  buildSqlIndexContracts,
+  buildSqlUniqueContracts,
+  getShortSqlIdentifier,
   getSqlRelationForeignKeyColumn,
   getSqlRelationTargetTable,
   resolveSqlRelationOnDelete,
@@ -204,7 +207,10 @@ export async function applyColumnMigrations(
           col.type === 'timestamp' ||
           col.type === 'date'
         ) {
-          table.index([col.name, 'id'], `idx_${tableName}_${col.name}`);
+          table.index(
+            [col.name, 'id'],
+            getShortSqlIdentifier('idx', tableName, col.name),
+          );
         }
       }
     });
@@ -687,7 +693,10 @@ export async function applyRelationMigrations(
               .references(foreignKey.targetColumn)
               .inTable(foreignKey.targetTable);
             fk.onDelete(foreignKey.onDelete).onUpdate(foreignKey.onUpdate);
-            table.index([fkColumn, 'id'], `idx_${tableName}_${fkColumn}`);
+            table.index(
+              [fkColumn, 'id'],
+              getShortSqlIdentifier('idx', tableName, fkColumn),
+            );
           });
         } catch (error) {
           rethrowPostgresTransactionError(knex, error);
@@ -710,7 +719,26 @@ export async function applyIndexAndUniqueMigrations(
   knex: Knex,
   tableName: string,
   diff: ReturnType<typeof compareSchemas>,
+  definition: KnexTableSchema['definition'],
 ): Promise<void> {
+  const uniqueContracts = buildSqlUniqueContracts(tableName, definition);
+  const indexContracts = buildSqlIndexContracts(tableName, definition);
+  const contractName = (columns: string[], kind: 'unique' | 'index'): string => {
+    const matches = (kind === 'unique' ? uniqueContracts : indexContracts).filter(
+      (contract) =>
+        contract.physicalColumns.length === columns.length &&
+        contract.physicalColumns.every(
+          (column, position) =>
+            column.toLowerCase() === columns[position].toLowerCase(),
+        ),
+    );
+    if (matches.length !== 1) {
+      throw new Error(
+        `Expected exactly one ${kind} contract for ${tableName}(${columns.join(', ')})`,
+      );
+    }
+    return matches[0].name;
+  };
   const normalizeCols = (cols: string[] | string): string[] => {
     if (Array.isArray(cols)) return cols;
     return String(cols || '')
@@ -772,7 +800,7 @@ export async function applyIndexAndUniqueMigrations(
       const colsArr = normalizeCols(cols);
       try {
         await knex.schema.alterTable(tableName, (table) => {
-          table.unique(colsArr);
+          table.unique(colsArr, contractName(colsArr, 'unique'));
         });
         console.log(`    + Added UNIQUE (${colsArr.join(', ')})`);
       } catch (err: any) {
@@ -788,7 +816,7 @@ export async function applyIndexAndUniqueMigrations(
       const colsArr = normalizeCols(cols);
       try {
         await knex.schema.alterTable(tableName, (table) => {
-          table.index(colsArr);
+          table.index(colsArr, contractName(colsArr, 'index'));
         });
         console.log(`    + Added INDEX (${colsArr.join(', ')})`);
       } catch (err: any) {
@@ -840,7 +868,7 @@ export async function syncTable(
   console.log(`🔄 Syncing table: ${tableName}`);
   await applyColumnMigrations(knex, tableName, diff, schemas);
   await applyRelationMigrations(knex, tableName, diff, schemas);
-  await applyIndexAndUniqueMigrations(knex, tableName, diff);
+  await applyIndexAndUniqueMigrations(knex, tableName, diff, schema.definition);
   if (!options.additiveOnly) {
     await syncRelationOnDeleteChanges(knex, tableName, schema);
   }

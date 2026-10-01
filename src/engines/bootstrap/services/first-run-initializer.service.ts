@@ -10,6 +10,7 @@ import { MetadataProvisionService } from './metadata-provision.service';
 import { MetadataMigrationService } from './metadata-migration.service';
 import { DataProvisionService } from './data-provision.service';
 import { DataMigrationService } from './data-migration.service';
+import { RouteMethodConfigBackfillService } from './route-method-config-backfill.service';
 import { SchemaHealingService } from './schema-healing.service';
 import { SnapshotTargetVerifierService } from './snapshot-target-verifier.service';
 import { BootstrapUnitOfWorkService } from './bootstrap-unit-of-work.service';
@@ -23,13 +24,19 @@ import {
 } from '../../../shared/utils/enfyra-version.util';
 import { runWithBootstrapLogMode } from '../../../shared/bootstrap-log-context';
 import {
+  beginStartupProgressLine,
+  endStartupProgressLine,
+  formatStartupProgressLine,
+  startupProgressWrite,
+  suppressRawConsole,
+  restoreRawConsole,
+} from '../../../shared/startup-log';
+import {
   BOOTSTRAP_PROGRESS_CHANGE_IDS,
   buildBootstrapChangePlan,
 } from '../utils/bootstrap-change-plan.util';
 import type { BootstrapChangeStage, BootstrapPlannedChange } from '../types';
 import type { MongoSagaCoordinator } from '../../mongo';
-
-const BOOTSTRAP_PROGRESS_BAR_WIDTH = 30;
 
 export class FirstRunInitializer {
   private readonly logger = new Logger(FirstRunInitializer.name);
@@ -42,13 +49,13 @@ export class FirstRunInitializer {
   private readonly metadataMigrationService: MetadataMigrationService;
   private readonly dataProvisionService: DataProvisionService;
   private readonly dataMigrationService: DataMigrationService;
+  private readonly routeMethodConfigBackfillService: RouteMethodConfigBackfillService;
   private readonly schemaHealingService: SchemaHealingService;
   private readonly snapshotTargetVerifierService: SnapshotTargetVerifierService;
   private readonly routeDefinitionProcessor: RouteDefinitionProcessor;
   private readonly bootstrapUnitOfWorkService: BootstrapUnitOfWorkService;
   private readonly bootstrapDefinitionService: BootstrapDefinitionService;
   private readonly mongoSagaCoordinator?: MongoSagaCoordinator;
-  private lastProgressLineLength = 0;
   /**
    * The version the declarations were scoped against, also used as the
    * compare-and-set guard when publishing the new version so only the instance that
@@ -71,6 +78,7 @@ export class FirstRunInitializer {
     metadataMigrationService: MetadataMigrationService;
     dataProvisionService: DataProvisionService;
     dataMigrationService: DataMigrationService;
+    routeMethodConfigBackfillService: RouteMethodConfigBackfillService;
     schemaHealingService: SchemaHealingService;
     snapshotTargetVerifierService: SnapshotTargetVerifierService;
     routeDefinitionProcessor: RouteDefinitionProcessor;
@@ -87,6 +95,7 @@ export class FirstRunInitializer {
     this.metadataMigrationService = deps.metadataMigrationService;
     this.dataProvisionService = deps.dataProvisionService;
     this.dataMigrationService = deps.dataMigrationService;
+    this.routeMethodConfigBackfillService = deps.routeMethodConfigBackfillService;
     this.schemaHealingService = deps.schemaHealingService;
     this.snapshotTargetVerifierService = deps.snapshotTargetVerifierService;
     this.routeDefinitionProcessor = deps.routeDefinitionProcessor;
@@ -124,6 +133,15 @@ export class FirstRunInitializer {
   private async runWithProgress(): Promise<void> {
     if (!(await this.isNeeded())) return;
 
+    beginStartupProgressLine();
+    try {
+      await this.runBootPipeline();
+    } finally {
+      endStartupProgressLine();
+    }
+  }
+
+  private async runBootPipeline(): Promise<void> {
     const start = Date.now();
     const waitDeadline = start + REDIS_TTL.PROVISION_LOCK_TTL;
     const lockValue = this.instanceService.getInstanceId();
@@ -147,7 +165,7 @@ export class FirstRunInitializer {
       }
       const waitResult = await this.waitUntilDone(remainingWaitMs);
       if (waitResult === 'initialized') {
-        this.logProgress(mode, 100, `ready in ${Date.now() - start}ms`);
+        this.logProgress(mode, 100, `ready in ${Date.now() - start}ms`, true);
         return;
       }
     }
@@ -348,6 +366,11 @@ export class FirstRunInitializer {
           this.logVerbose(`Data migrations: ${Date.now() - t6}ms`);
         }
 
+        this.logStage(mode, 'backfilling route method configs');
+        await this.runOwnedStep(lease, () =>
+          this.routeMethodConfigBackfillService.run(),
+        );
+
         this.logStage(mode, 'attesting data target state');
         await this.runOwnedStep(lease, () =>
           this.snapshotTargetVerifierService.assertSchemaTargetState(),
@@ -362,7 +385,7 @@ export class FirstRunInitializer {
         this.completeProgressStage(changePlan.changes, 'finalize', mode);
       });
 
-      this.logProgress(mode, 100, `completed in ${Date.now() - start}ms`);
+      this.logProgress(mode, 100, `completed in ${Date.now() - start}ms`, true);
     } catch (error) {
       await this.metadataCacheService.clearMetadataCache();
       this.logPlannedProgress(
@@ -469,91 +492,26 @@ export class FirstRunInitializer {
     );
   }
 
-  private fitProgressLine(line: string): string {
-    const columns = Number(process.stdout.columns);
-    if (!Number.isFinite(columns) || columns <= 1) return line;
-
-    const maxWidth = Math.max(1, Math.floor(columns) - 1);
-    const characters = Array.from(line);
-    if (characters.length <= maxWidth) return line;
-
-    const countSuffix = line.match(/ \(\d+\/\d+\)$/)?.[0] ?? '';
-    const suffixLength = Array.from(countSuffix).length;
-    if (countSuffix && maxWidth > suffixLength + 1) {
-      return `${characters
-        .slice(0, maxWidth - suffixLength - 1)
-        .join('')}…${countSuffix}`;
-    }
-    return `${characters.slice(0, Math.max(0, maxWidth - 1)).join('')}…`;
-  }
-
   private logProgress(
     mode: 'Installing' | 'Upgrading',
     percent: number,
     message: string,
     terminal = false,
   ): void {
-    if (process.env.LOG_DISABLE_CONSOLE === '1') return;
-
-    const normalizedPercent = Math.min(
-      100,
-      Math.max(0, Math.round(percent * 10) / 10),
+    if (process.env.LOG_DISABLE_CONSOLE === '1' || isBootstrapVerbose()) return;
+    const normalizedPercent = Math.min(100, Math.max(0, Math.round(percent * 10) / 10));
+    startupProgressWrite(
+      formatStartupProgressLine(mode, normalizedPercent, message),
+      terminal,
     );
-    if (!process.stdout.isTTY && normalizedPercent < 100 && !terminal) return;
-
-    const filledWidth = Math.round(
-      (normalizedPercent / 100) * BOOTSTRAP_PROGRESS_BAR_WIDTH,
-    );
-    const progressBar = `${'█'.repeat(filledWidth)}${'░'.repeat(
-      BOOTSTRAP_PROGRESS_BAR_WIDTH - filledWidth,
-    )}`;
-    const now = new Date();
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(
-      now.getSeconds(),
-    )}`;
-    const percentText = Number.isInteger(normalizedPercent)
-      ? normalizedPercent.toFixed(0)
-      : normalizedPercent.toFixed(1);
-    const line = this.fitProgressLine(
-      `[${time}] ${mode} [${progressBar}] ${percentText.padStart(
-        5,
-        ' ',
-      )}% ${message}`,
-    );
-    const padding = ' '.repeat(
-      Math.max(0, this.lastProgressLineLength - line.length),
-    );
-    if (!process.stdout.isTTY) {
-      process.stdout.write(`${line}\n`);
-      this.lastProgressLineLength = 0;
-      return;
-    }
-
-    process.stdout.write(`\r${line}${padding}`);
-    this.lastProgressLineLength = line.length;
-    if (normalizedPercent >= 100 || terminal) {
-      process.stdout.write('\n');
-      this.lastProgressLineLength = 0;
-    }
   }
 
   private logPlanning(mode: 'Installing' | 'Upgrading', message: string): void {
-    if (process.env.LOG_DISABLE_CONSOLE === '1' || !process.stdout.isTTY)
+    if (isBootstrapVerbose()) {
+      this.logger.log(`${mode}: ${message}`);
       return;
-    const now = new Date();
-    const pad = (value: number) => value.toString().padStart(2, '0');
-    const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(
-      now.getSeconds(),
-    )}`;
-    const line = this.fitProgressLine(
-      `[${time}] ${mode} [Planning] ${message}`,
-    );
-    const padding = ' '.repeat(
-      Math.max(0, this.lastProgressLineLength - line.length),
-    );
-    process.stdout.write(`\r${line}${padding}`);
-    this.lastProgressLineLength = line.length;
+    }
+    startupProgressWrite(`${mode} [Planning] ${message}`);
   }
 
   /**
@@ -641,16 +599,11 @@ export class FirstRunInitializer {
       return callback();
     }
 
-    const originalLog = console.log;
-    const originalWarn = console.warn;
-    console.log = () => {};
-    console.warn = () => {};
-
+    suppressRawConsole();
     try {
       return await callback();
     } finally {
-      console.log = originalLog;
-      console.warn = originalWarn;
+      restoreRawConsole();
     }
   }
 

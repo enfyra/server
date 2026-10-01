@@ -101,6 +101,9 @@ export class MetadataMigrationService {
     }
 
     const plan = compileMetadataMigrationExecutionPlan(this.migrations, {
+      steps: hasMetadataStore
+        ? this.bootstrapDefinitionService.getApplicableSchemaSteps()
+        : [],
       mode: hasMetadataStore ? 'upgrade' : 'install',
       database: this.getPlanDatabase(),
       targetTableCount: Object.keys(
@@ -161,11 +164,17 @@ export class MetadataMigrationService {
     beforeNode?: () => Promise<void>,
   ): Promise<void> {
     const plan = this.getExecutionPlan();
+    const firstRemainingPhase = plan.phases.find((phase) =>
+      phase.nodes.some((node) => node.checkpoint === 'remaining'),
+    )?.index;
     for (const phase of plan.phases) {
       const nodes = phase.nodes.filter(
         (node) =>
-          node.checkpoint === checkpoint &&
-          !this.executedPlanNodeIds.has(node.id),
+          !this.executedPlanNodeIds.has(node.id) &&
+          (checkpoint === 'remaining' ||
+            (node.checkpoint === 'core' &&
+              (firstRemainingPhase === undefined ||
+                phase.index < firstRemainingPhase))),
       );
       if (nodes.length === 0) continue;
       this.verbose(`Executing migration phase ${phase.index}`);
@@ -186,6 +195,7 @@ export class MetadataMigrationService {
             `Bootstrap migration node ${node.id} cannot run before ${missingDependency}.`,
           );
         }
+        this.verbose(`Migration command ${node.command.operation.label} (${node.command.kind})`);
         await this.executePlanCommand(node.command);
         this.executedPlanNodeIds.add(node.id);
         if (node.completesChange) {

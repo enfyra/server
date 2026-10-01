@@ -42,6 +42,7 @@ function buildGuardHeaders(
   };
   if (details.reason === 'rate_limit') {
     headers['Retry-After'] = String(details.retryAfterSeconds);
+    headers['x-should-retry'] = 'true';
     headers['X-RateLimit-Limit'] = String(details.limit);
     headers['X-RateLimit-Remaining'] = String(details.remaining);
     headers['X-RateLimit-Reset'] = String(details.resetAt);

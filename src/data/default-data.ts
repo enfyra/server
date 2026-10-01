@@ -411,6 +411,8 @@ const defaultData = {
         "DELETE"
       ]
     },
+    {"path":"/enfyra_route_method_config","mainTable":"enfyra_route_method_config","isEnabled":true,"isSystem":true,"icon":"lucide:route","availableMethods":["GET","PATCH"]},
+    {"path":"/enfyra_route_method_config_file_field","mainTable":"enfyra_route_method_config_file_field","isEnabled":true,"isSystem":true,"icon":"lucide:paperclip","availableMethods":["GET","POST","PATCH","DELETE"]},
     {
       "path": "/enfyra_route_permission",
       "mainTable": "enfyra_route_permission",
