@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import multer from 'multer';
 import os from 'os';
 import crypto from 'crypto';
+import { join } from 'node:path';
 import { unlink } from 'node:fs/promises';
 import { BadRequestException } from '../../domain/exceptions';
 import type { MultipartUploadConfig, UploadedFileFields } from '../../shared/types/multipart-upload.types';
@@ -83,16 +84,6 @@ function toUploadedFileInfo(file: Express.Multer.File): UploadedFileInfo {
   };
 }
 
-async function cleanupRejectedFiles(files: Express.Multer.File[]): Promise<void> {
-  await Promise.all(files.map(file => file.path ? unlink(file.path).catch(() => {}) : Promise.resolve()));
-}
-
-const diskStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, os.tmpdir()),
-  filename: (_req, _file, cb) =>
-    cb(null, `enfyra-upload-${crypto.randomUUID()}`),
-});
-
 export function fileUploadMiddleware(
   runtimeRegistryService: RuntimeRegistryService,
   dynamicWebSocketGateway?: DynamicWebSocketGateway,
@@ -128,6 +119,19 @@ export function fileUploadMiddleware(
         : Number.POSITIVE_INFINITY,
     );
     req.uploadFileSizeLimitBytes = fileSizeLimitBytes;
+    const temporaryPaths = new Set<string>();
+    const uploadDirectory = os.tmpdir();
+    const cleanupTemporaryFiles = async () => {
+      await Promise.all([...temporaryPaths].map(path => unlink(path).catch(() => {})));
+    };
+    const diskStorage = multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, uploadDirectory),
+      filename: (_req, _file, cb) => {
+        const filename = `enfyra-upload-${crypto.randomUUID()}`;
+        temporaryPaths.add(join(uploadDirectory, filename));
+        cb(null, filename);
+      },
+    });
     const upload = multer({
       storage: diskStorage,
       limits: {
@@ -151,7 +155,7 @@ export function fileUploadMiddleware(
           }
           validateMultipartFiles(grouped, multipartConfig!);
         } catch (failure) {
-          await cleanupRejectedFiles(parsedFiles);
+          await cleanupTemporaryFiles();
           emitUploadProgress(req, dynamicWebSocketGateway, {
             phase: 'failed', loaded: req.uploadProgressLoaded || 0,
             total: req.uploadProgressTotal || 0, percent: 0,
@@ -161,7 +165,7 @@ export function fileUploadMiddleware(
       }
       const receivedFiles = [...parsedFiles, ...(req.file ? [req.file] : [])];
       if (receivedFiles.length) {
-        res.once('close', () => { void cleanupRejectedFiles(receivedFiles); });
+        res.once('close', () => { void cleanupTemporaryFiles(); });
       }
       for (const file of receivedFiles) {
         if (!file.originalname) continue;

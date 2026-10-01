@@ -1,5 +1,7 @@
 import { createServer, type Server } from 'node:http';
-import { readFile, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import {
@@ -13,11 +15,15 @@ import {
 
 describe('multipart HTTP upload', () => {
   const servers: Server[] = [];
+  const testDirectories: string[] = [];
+  const temporaryFiles: string[] = [];
   afterEach(async () => {
     await Promise.all(servers.splice(0).map(server => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))));
+    for (const path of temporaryFiles.splice(0)) await rm(path, { force: true });
+    for (const path of testDirectories.splice(0)) await rm(path, { recursive: true, force: true });
   });
 
-  async function send(method: 'POST' | 'PATCH' | 'PUT', config: object, form: FormData) {
+  async function send(method: 'POST' | 'PATCH' | 'PUT', config: object, form: FormData, replacementPath?: string) {
     const app = express();
     app.use((req: any, _res, next) => {
       req.routeData = { path: '/upload-test', routeMethodConfig: config, context: { $body: {} } };
@@ -27,7 +33,11 @@ describe('multipart HTTP upload', () => {
     app.use(async (req: any, res) => {
       const files = req.routeData.context.$uploadFile;
       const paths = Object.values(files ?? {}).flat().map((file: any) => file.path);
+      temporaryFiles.push(...paths);
       const contents = await Promise.all(paths.map(path => readFile(path, 'utf8')));
+      if (replacementPath) {
+        for (const file of Object.values(req.files ?? {}).flat() as Express.Multer.File[]) file.path = replacementPath;
+      }
       res.json({ body: req.routeData.context.$body, files, contents, paths });
     });
     app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => res.status(400).json({ message: error.message }));
@@ -50,6 +60,19 @@ describe('multipart HTTP upload', () => {
     expect(result.files.file).toMatchObject({ originalname: 'proposal.txt', fieldname: 'file' });
     expect(result.contents).toEqual(['hello']);
     await vi.waitFor(async () => expect(await stat(result.paths[0]).then(() => true, () => false)).toBe(false));
+  });
+
+  it('cleans only request-owned temporary files even when file metadata paths change', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'enfyra-upload-test-'));
+    testDirectories.push(directory);
+    const unrelatedPath = join(directory, 'sentinel.txt');
+    await writeFile(unrelatedPath, 'preserve');
+    const form = new FormData();
+    form.set('file', new Blob(['upload']), '../../sentinel.txt');
+    const { status, result } = await send('POST', { requestBodyType: 'multipart', fileFields: [] }, form, unrelatedPath);
+    expect(status).toBe(200);
+    await vi.waitFor(async () => expect(await stat(result.paths[0]).then(() => true, () => false)).toBe(false));
+    expect(await readFile(unrelatedPath, 'utf8')).toBe('preserve');
   });
 
   it('accepts multiple named files on PATCH and rejects an unconfigured field by key', async () => {
