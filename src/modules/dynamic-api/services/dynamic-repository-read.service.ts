@@ -43,7 +43,7 @@ export class DynamicRepositoryReadService {
     },
   ) {}
 
-  async find(options: DynamicReadOptions = {}) {
+  async find(options: DynamicReadOptions = {}, forUpdate = false) {
     const { context, runtimeRegistryService, tableName } = this.deps;
     runtimeRegistryService.lookupTableByName(tableName);
     await this.deps.readAuthorizationService.assertQueryAllowed({
@@ -97,12 +97,13 @@ export class DynamicRepositoryReadService {
       filter,
       page: options.page ?? context.$query?.page ?? 1,
       limit: 'limit' in options ? options.limit : (context.$query?.limit ?? 10),
-      meta: options.meta || context.$query?.meta,
+      meta: forUpdate ? [] : (options.meta || context.$query?.meta),
       sort,
       deep: prepared.deep || {},
       debugMode,
       debugTrace: context.$debug || undefined,
       maxQueryDepth: runtimeRegistryService.getMaxQueryDepth(),
+      ...(forUpdate ? { forUpdate: true } : {}),
     });
     if (!prepared.needsPostSql) return result;
 
@@ -129,7 +130,7 @@ export class DynamicRepositoryReadService {
       context,
       enforceFieldPermission: this.deps.enforceFieldPermission,
     });
-    const metadata = runtimeRegistryService.requireMetadata();
+    runtimeRegistryService.requireMetadata();
     const filter =
       aggregate && typeof aggregate === 'object' && !Array.isArray(aggregate) && 'filter' in aggregate
         ? (aggregate as Record<string, unknown>).filter

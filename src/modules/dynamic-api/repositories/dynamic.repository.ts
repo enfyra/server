@@ -18,6 +18,7 @@ import type {
   DynamicMutationRuntime,
 } from '../types/dynamic-mutation-lifecycle.types';
 import type { DynamicReadOptions } from '../types/dynamic-read.types';
+import type { DynamicLockedReadOptions } from '../types/dynamic-locked-read.types';
 import type { DynamicLockedUpdateOptions, DynamicUpdateOptions } from '../types/dynamic-locked-update.types';
 import { BadRequestException } from '../../../domain/exceptions';
 import type { GuardValidationService } from '../services/guard-validation.service';
@@ -26,7 +27,7 @@ import {
   CACHE_EVENTS,
   DATA_EVENTS,
 } from '../../../shared/utils/cache-events.constants';
-import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
+import type { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import type {
   BcryptService,
   UserRevocationService,
@@ -36,6 +37,7 @@ import type { RuntimeRegistryService } from '../../../engines/cache/services/run
 import type { RuntimeSchemaActivationGateService } from '../../table-management';
 import { TableRouteRouter } from './table-route.router';
 import { deferDynamicTransactionEffect, runWithDeferredDynamicTransactionEffects } from '../../../shared/utils/dynamic-transaction-effects.util';
+import { isInDynamicTransactionScope } from '../../../shared/utils/dynamic-transaction-scope.util';
 
 export class DynamicRepository {
   public context: TDynamicContext;
@@ -273,7 +275,8 @@ export class DynamicRepository {
       throw new BadRequestException('updateLocked supports plain generic tables only');
     }
     return runWithDeferredDynamicTransactionEffects(this.context, async () => {
-      const result = await this.find({ filter: { [this.getIdField()]: { _eq: opt.id } }, fields: '*', deep: {}, limit: 1, page: 1, sort: this.getIdField(), meta: [] });
+      const lockedSqlRead = this.queryBuilderService.isSql();
+      const result = await this.readService.find({ filter: { [this.getIdField()]: { _eq: opt.id } }, fields: '*', deep: {}, limit: 1, page: 1, sort: this.getIdField(), meta: [] }, lockedSqlRead);
       const current = result?.data?.[0];
       if (!current) throw new BadRequestException('updateLocked record not found');
       const data = await opt.data(current);
@@ -282,9 +285,34 @@ export class DynamicRepository {
       }
       return this.executeUpdate({ id: opt.id, data, fields: opt.fields }, {
         ...this.getMutationRuntime(),
-        find: (options) => this.find({ ...options, page: 1, limit: 1 }),
+        readLocked: lockedSqlRead,
+        find: (options) => this.readService.find({ ...options, page: 1, limit: 1 }, lockedSqlRead),
       });
     }, (attempt) => this.queryBuilderService.runWithLockedRecord(this.tableName, opt.id, attempt));
+  }
+
+  async findLocked(opt: DynamicLockedReadOptions) {
+    await this.ensureInit();
+    if (!isInDynamicTransactionScope(this.context)) {
+      throw new BadRequestException('findLocked requires $transaction.run');
+    }
+    if (!['postgres', 'mysql'].includes(this.queryBuilderService.getDatabaseType())) {
+      throw new BadRequestException('findLocked requires a PostgreSQL/MySQL database');
+    }
+    if (!opt || !['string', 'number'].includes(typeof opt.id) || opt.id === '') {
+      throw new BadRequestException('findLocked requires a record id');
+    }
+    return this.queryBuilderService.runWithLockedRecord(this.tableName, opt.id, () =>
+      this.readService.find({
+        filter: { [this.getIdField()]: { _eq: opt.id } },
+        fields: opt.fields ?? '*',
+        deep: opt.deep ?? {},
+        page: 1,
+        limit: 1,
+        sort: this.getIdField(),
+        meta: [],
+      }, true),
+    );
   }
 
   async updateMany(opt: {

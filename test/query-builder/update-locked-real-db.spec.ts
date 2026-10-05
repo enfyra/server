@@ -467,7 +467,7 @@ describe(`updateLocked real database (${selected})`, () => {
     }
   }, 15000);
 
-  if (selected === 'postgres') {
+  if (!isMongo) {
     const createStressContext = async (index: number) => {
       const engine = engines[index % 2] as KnexService;
       const factory = new DynamicContextFactory({
@@ -514,6 +514,89 @@ describe(`updateLocked real database (${selected})`, () => {
       const repo = ctx.$repos.accounts as DynamicRepository;
       return { index, ctx, repo };
     };
+    it('findLocked requires an explicit outer transaction and does not mutate the row', async () => {
+      const { ctx, repo } = await createStressContext(0);
+      await expect(repo.findLocked({ id: 1 })).rejects.toThrow('requires $transaction.run');
+      const row = await ctx.$transaction.run(() =>
+        (ctx.$repos.accounts as DynamicRepository).findLocked({ id: 1, fields: ['id', 'credit'] }),
+      );
+      expect(row.data[0]).toEqual({ id: 1, credit: 100 });
+      expect(mutations).toHaveLength(0);
+      expect(reloads).toHaveLength(0);
+      await expect(ctx.$transaction.run(() =>
+        (ctx.$repos.accounts as DynamicRepository).findLocked({ id: 999 }),
+      )).rejects.toThrow('record not found');
+      await expect(repo.findLocked({ id: 1 })).rejects.toThrow('requires $transaction.run');
+    }, 10000);
+
+    it('findLocked serializes dependent reads and ledger writes across competing executors', async () => {
+      const executor = new IsolatedExecutorService({
+        packageCacheService: { getPackages: async () => [] },
+        packageCdnLoaderService: { getPackageSources: () => [] },
+      });
+      const runner = new RuntimeScriptExecutorService({
+        kernelExecutorEngineService: new ExecutorEngineService({ isolatedExecutorService: executor }),
+      });
+      const concurrency = Number(process.env.LOCKED_UPDATE_STRESS_CONCURRENCY || 16);
+      try {
+        const jobs = [];
+        for (let index = 0; index < concurrency; index++) jobs.push(await createStressContext(index));
+        const results = await Promise.allSettled(jobs.map(({ index, ctx }) => runner.run(`
+          return await $ctx.$transaction.run(async () => {
+            const locked = await $ctx.$repos.accounts.findLocked({id: 1, fields: ['id', 'credit']});
+            await $ctx.$helpers.$sleep(10);
+            const row = locked.data[0];
+            const balance = Number(row.credit) - 1;
+            await $ctx.$repos.accounts.update({id: 1, data: {credit: balance}, fields: ['id']});
+            await $ctx.$repos.ledger.create({data: {operation: ${index + 1}, amount: -1, creditAfter: balance}, fields: ['id']});
+            ${index % 5 === 0 ? "throw new Error('FIND_LOCKED_ROLLBACK');" : 'return balance;'}
+          });`, ctx, 10000)));
+        const committed = results.filter(result => result.status === 'fulfilled');
+        for (const result of results) if (result.status === 'rejected') expect(String(result.reason?.message)).toContain('FIND_LOCKED_ROLLBACK');
+        const persisted = await repositories[0].find({filter: {id: {_eq: 1}}, fields: ['credit'], limit: 1});
+        expect(Number(persisted.data[0].credit)).toBe(100 - committed.length);
+        const ledger = await (engines[0] as KnexService).getUnscopedWriteKnex()(ledgerTable).select('*');
+        expect(ledger).toHaveLength(committed.length);
+        expect(new Set(ledger.map(row => Number(row.creditAfter))).size).toBe(committed.length);
+        expect(ledger.reduce((sum, row) => sum + Number(row.amount), 0)).toBe(-committed.length);
+        expect(mutations).toHaveLength(committed.length * 2);
+      } finally {
+        executor.onDestroy();
+      }
+    }, 15000);
+
+    it('findLocked reads the latest row after a transaction has already established a snapshot', async () => {
+      const { ctx } = await createStressContext(0);
+      const current = await ctx.$transaction.run(async () => {
+        const snapshot = await (ctx.$repos.accounts as DynamicRepository).find({filter: {id: {_eq: 1}}, fields: ['credit'], limit: 1});
+        expect(Number(snapshot.data[0].credit)).toBe(100);
+        await repositories[1].updateLocked({id: 1, data: row => ({credit: Number(row.credit) - 10})});
+        return await (ctx.$repos.accounts as DynamicRepository).findLocked({id: 1, fields: ['credit']});
+      });
+      expect(Number(current.data[0].credit)).toBe(90);
+    }, 10000);
+
+    it('updateLocked calculates from the latest row after an earlier snapshot read', async () => {
+      const { ctx } = await createStressContext(0);
+      const current = await ctx.$transaction.run(async () => {
+        await (ctx.$repos.accounts as DynamicRepository).find({filter: {id: {_eq: 1}}, fields: ['credit'], limit: 1});
+        await repositories[1].updateLocked({id: 1, data: row => ({credit: Number(row.credit) - 10})});
+        return await (ctx.$repos.accounts as DynamicRepository).updateLocked({id: 1, fields: ['credit'], data: row => ({credit: Number(row.credit) - 20})});
+      });
+      expect(Number(current.data[0].credit)).toBe(70);
+    }, 10000);
+
+    it('the Kernel primitive also calculates from a locking read after an earlier snapshot', async () => {
+      const engine = engines[0] as KnexService;
+      const query = new QueryBuilderService({databaseConfigService: config, knexService: engine, lazyRef: {metadataCacheService: {isLoaded: () => true, getMetadata: () => metadata}}});
+      const current = await engine.transaction(async () => {
+        await query.find({table, filter: {id: {_eq: 1}}, fields: ['credit'], limit: 1});
+        await repositories[1].updateLocked({id: 1, data: row => ({credit: Number(row.credit) - 10})});
+        return await query.updateLocked(table, {id: 1, fields: ['credit'], data: row => ({credit: Number(row.credit) - 20})});
+      });
+      expect(Number((current as Record<string, unknown>).credit)).toBe(70);
+    }, 10000);
+
     it('keeps concurrent sandbox outer transactions on their owning SQL connections', async () => {
       const executor = new IsolatedExecutorService({
         packageCacheService: { getPackages: async () => [] },

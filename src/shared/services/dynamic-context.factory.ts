@@ -11,6 +11,7 @@ import type { UploadFileHelper } from '../helpers/upload-file.helper';
 import { autoSlug } from '../utils/auto-slug.helper';
 import { ScriptErrorFactory } from '../utils/script-error-factory';
 import { bindDynamicTransactionEffects, runWithDeferredDynamicTransactionEffects } from '../utils/dynamic-transaction-effects.util';
+import { runWithDynamicTransactionScope } from '../utils/dynamic-transaction-scope.util';
 import type { DynamicTransactionScopeRunner } from '../types/dynamic-transaction.types';
 import type { EnvService } from './env.service';
 import type { DatabaseConfigService } from './database-config.service';
@@ -192,7 +193,7 @@ export class DynamicContextFactory {
           const member = Reflect.get(value, property, receiver);
           if (typeof member === 'function') {
             return (...args: any[]) =>
-              runInTransaction(() => runWithEffects(() => member.apply(value, args)));
+              runInTransaction(() => runWithDynamicTransactionScope(ctx, () => runWithEffects(() => member.apply(value, args))));
           }
           return wrap(member);
         },
