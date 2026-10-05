@@ -661,6 +661,8 @@ export class DynamicWebSocketGateway {
     socket.on('$system:redis:keys:list', async (payload: any, ack: any) => {
       await this.ackRedisAdmin(socket, ack, () =>
         this.redisAdminService.listKeys({
+          sessionId: payload?.sessionId,
+          page: payload?.page,
           cursor: payload?.cursor,
           pattern: payload?.pattern,
           count: payload?.count,

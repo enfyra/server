@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Redis } from 'ioredis';
 import { EnvService } from '../../../shared/services';
 import { RedisCacheService } from '../../../engines/cache';
@@ -38,8 +39,19 @@ type RedisServerHealth = {
   memFragmentationRatio?: number;
 };
 
+type RedisKeyPageSession = {
+  pattern: string;
+  filter: string;
+  count: number;
+  pages: RedisAdminKeySummary[][];
+  cursors: string[];
+  complete: boolean;
+  updatedAt: number;
+};
+
 export class RedisAdminService {
   private readonly redis: Redis;
+  private readonly keyPageSessions = new Map<string, RedisKeyPageSession>();
   private readonly nodeName: string;
   private readonly userCacheLimitBytes: number;
   private readonly userCacheMaxValueBytes: number;
@@ -125,11 +137,16 @@ export class RedisAdminService {
   }
 
   async listKeys(options: {
+    sessionId?: string;
+    page?: number;
     cursor?: string;
     pattern?: string;
     count?: number;
     filter?: RedisAdminSystemKind | 'custom' | 'all';
   }): Promise<{
+    sessionId: string;
+    page: number;
+    hasNextPage: boolean;
     cursor: string;
     count: number;
     keys: RedisAdminKeySummary[];
@@ -139,35 +156,63 @@ export class RedisAdminService {
       DEFAULT_SCAN_COUNT,
       MAX_SCAN_COUNT,
     );
-    const pattern = this.effectiveListPattern(options.pattern);
-    const filter = this.normalizeListFilter(options.filter);
-    let cursor = options.cursor || '0';
+    const pattern = this.effectiveListPattern(options.pattern) || '*';
+    const filter = this.normalizeListFilter(options.filter) || 'all';
+    const sessionId = String(options.sessionId || '').trim() || randomUUID();
+    const requestedPage = Math.max(1, Number(options.page) || 1);
+    const session = this.keyPageSession(sessionId, pattern, filter, count);
+    while (!session.complete && session.pages.length < requestedPage) {
+      await this.appendKeyPage(session, count, pattern, filter);
+    }
+    const page = Math.min(requestedPage, Math.max(1, session.pages.length));
+    const keys = session.pages[page - 1] ?? [];
+    return {
+      sessionId,
+      page,
+      hasNextPage: page < session.pages.length || !session.complete,
+      cursor: session.cursors[page] ?? '0',
+      count: keys.length,
+      keys,
+    };
+  }
+
+  private keyPageSession(sessionId: string, pattern: string, filter: string, count: number) {
+    const now = Date.now();
+    for (const [id, session] of this.keyPageSessions) {
+      if (now - session.updatedAt > 10 * 60 * 1000) this.keyPageSessions.delete(id);
+    }
+    const current = this.keyPageSessions.get(sessionId);
+    if (current && current.pattern === pattern && current.filter === filter && current.count === count) {
+      current.updatedAt = now;
+      return current;
+    }
+    const created: RedisKeyPageSession = {
+      pattern,
+      filter,
+      count,
+      pages: [],
+      cursors: ['0'],
+      complete: false,
+      updatedAt: now,
+    };
+    this.keyPageSessions.set(sessionId, created);
+    return created;
+  }
+
+  private async appendKeyPage(session: RedisKeyPageSession, count: number, pattern: string, filter: string) {
+    if (session.complete) return;
+    let cursor = session.cursors[session.cursors.length - 1] || '0';
     const readable: RedisAdminKeySummary[] = [];
     do {
-      const [nextCursor, keys] = await this.redis.scan(
-        cursor,
-        'MATCH',
-        pattern,
-        'COUNT',
-        count,
-      );
+      const [nextCursor, keys] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', count);
       cursor = nextCursor;
-      const summaries = await Promise.all(
-        keys.map((key) => this.describeKey(key)),
-      );
-      readable.push(
-        ...summaries.filter(
-          (key) =>
-            key.namespaceScope === 'current' &&
-            this.matchesListFilter(key, filter),
-        ),
-      );
+      const summaries = await Promise.all(keys.map((key) => this.describeKey(key)));
+      readable.push(...summaries.filter((key) => key.namespaceScope === 'current' && this.matchesListFilter(key, filter as any)));
     } while (cursor !== '0' && readable.length < count);
-    return {
-      cursor,
-      count: readable.length,
-      keys: readable,
-    };
+    session.pages.push(readable.slice(0, count));
+    session.cursors.push(cursor);
+    session.complete = cursor === '0';
+    session.updatedAt = Date.now();
   }
 
   async getKey(
