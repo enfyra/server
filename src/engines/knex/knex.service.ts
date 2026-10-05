@@ -555,8 +555,13 @@ export class KnexService implements LifecycleAware {
       };
       signal?.addEventListener('abort', onAbort, { once: true });
       try {
-        const row = await trx(table).where('id', id).forUpdate().first().timeout(30000, { cancel: true });
-        if (!row) throw new BadRequestException('updateLocked record not found');
+        const row = await trx(table)
+          .where('id', id)
+          .forUpdate()
+          .first()
+          .timeout(30000, { cancel: true });
+        if (!row)
+          throw new BadRequestException('updateLocked record not found');
         if (signal?.aborted) throw new Error('Operation aborted');
         return await callback();
       } finally {
@@ -845,12 +850,15 @@ export class KnexService implements LifecycleAware {
         const relation = tableMetadata.relations.find(
           (r: any) => r.propertyName === relationName,
         );
-        if (relation && relation.targetTable) {
-          return relation.targetTable;
+        const targetTableName =
+          relation?.targetTableName || relation?.targetTable;
+        if (targetTableName) {
+          return targetTableName;
         }
       }
 
-      const tableDef = await this.knexInstance('enfyra_table')
+      const connection = this.getActiveKnex();
+      const tableDef = await connection('enfyra_table')
         .where('name', parentTableName)
         .first();
 
@@ -858,7 +866,7 @@ export class KnexService implements LifecycleAware {
         return null;
       }
 
-      const relationDef = await this.knexInstance('enfyra_relation')
+      const relationDef = await connection('enfyra_relation')
         .where('sourceTableId', tableDef.id)
         .where('propertyName', relationName)
         .first();
@@ -867,7 +875,7 @@ export class KnexService implements LifecycleAware {
         return null;
       }
 
-      const targetTableDef = await this.knexInstance('enfyra_table')
+      const targetTableDef = await connection('enfyra_table')
         .where('id', relationDef.targetTableId)
         .first();
 
@@ -877,6 +885,7 @@ export class KnexService implements LifecycleAware {
 
       return targetTableDef.name;
     } catch (error) {
+      if (this.knexContext.getStore()) throw error;
       this.logger.warn(
         `[getTargetTableNameFromRelation] Failed to resolve relation '${relationName}' from '${parentTableName}'`,
       );
