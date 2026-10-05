@@ -28,7 +28,7 @@ import {
   buildMongoWritableFieldSet,
   getMongoStoredRelationField,
 } from '../utils/mongo-physical-schema-contract';
-import { DatabaseException } from '../../../domain/exceptions';
+import { BadRequestException, DatabaseException } from '../../../domain/exceptions';
 import type { MongoHookContext } from '../types/mongo-hook.types';
 import { isGeneratedScriptPersistenceField } from '../../../shared/utils/script-persistence-contract.util';
 import {
@@ -494,6 +494,23 @@ export class MongoService {
     return this.appTxSessionAls.getStore()?.txId;
   }
 
+  async runWithLockedRecord<T>(
+    _table: string,
+    _id: string | number,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    if (!this.nativeMultiDocSupported || this.appTxSessionAls.getStore()) {
+      throw new BadRequestException('updateLocked requires native MongoDB transactions; standalone and application saga scopes are unsupported');
+    }
+    if (getIoAbortSignal()?.aborted) throw new Error('Operation aborted');
+    if (this.nativeTxBundleAls.getStore()) return this.scopedDbAccessAls.run(true, callback);
+    const result = await this.runInSaga(callback, {
+      nativeTransactionTimeoutMs: 30000,
+      scopeRawDbAccess: true,
+    });
+    return result.data as T;
+  }
+
   async runInSaga<T>(
     fn: (scope: MongoTransactionScope) => Promise<T>,
     options?: {
@@ -501,6 +518,7 @@ export class MongoService {
       forceApplicationTransaction?: boolean;
       scopeRawDbAccess?: boolean;
       sagaOptions?: ISagaOptions;
+      nativeTransactionTimeoutMs?: number;
     },
   ): Promise<{
     success: boolean;
@@ -526,6 +544,8 @@ export class MongoService {
               fn({ kind: 'native', bundle }),
             ),
           );
+        }, options?.nativeTransactionTimeoutMs === undefined ? undefined : {
+          timeoutMS: options.nativeTransactionTimeoutMs,
         });
         return { success: true, data: dataOut as T, txId: logicalTxId };
       } catch (error) {

@@ -95,7 +95,7 @@ export class DynamicRepositoryReadService {
       table: tableName,
       fields: normalizeRequestedFields(prepared.fields),
       filter,
-      page: context.$query?.page || 1,
+      page: options.page ?? context.$query?.page ?? 1,
       limit: 'limit' in options ? options.limit : (context.$query?.limit ?? 10),
       meta: options.meta || context.$query?.meta,
       sort,

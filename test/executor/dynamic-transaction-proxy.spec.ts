@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { getIoAbortSignal, IsolatedExecutorService } from '@enfyra/kernel';
 import { DynamicContextFactory } from '../../src/shared/services/dynamic-context.factory';
+import { deferDynamicTransactionEffect } from '../../src/shared/utils/dynamic-transaction-effects.util';
 
 function createService() {
   return new IsolatedExecutorService({
@@ -47,6 +48,54 @@ function createContext(events: string[]) {
 }
 
 describe('isolated executor transaction proxy', () => {
+  it('discards repository RPC effects when the sandbox transaction rolls back', async () => {
+    const service = createService();
+    const effects: string[] = [];
+    const factory = new DynamicContextFactory({
+      userCacheService: {},
+      envService: { get: () => 'test-secret' },
+      databaseConfigService: { isMongoDb: () => false },
+      knexService: {
+        transaction: (work: (trx: object) => Promise<unknown>) => work({}),
+        runWithTransaction: (_trx: object, work: () => Promise<unknown>) => work(),
+      },
+    } as unknown as ConstructorParameters<typeof DynamicContextFactory>[0]);
+    const context = factory.createBase({});
+    context.$repos = {
+      records: { create: async () => {
+        const effect = () => { effects.push('created'); };
+        if (!deferDynamicTransactionEffect(context, effect)) effect();
+        return { data: [{ id: 1 }] };
+      } },
+    } as unknown as typeof context.$repos;
+    try {
+      await expect(service.run(`return await $ctx.$transaction.run(async () => {
+        await $ctx.$repos.records.create({ data: {} });
+        throw new Error('rollback');
+      });`, context, 5000)).rejects.toThrow('rollback');
+      expect(effects).toEqual([]);
+    } finally { service.onDestroy(); }
+  });
+
+  it.each(['trusted', 'secure'])('passes an updateLocked callback through the %s repository bridge', async (access) => {
+    const service = createService();
+    const repository = {
+      updateLocked: async (options: { fields: string[]; data: (current: { credit: number }) => Promise<unknown> }) => {
+        expect(typeof options.data).toBe('function');
+        expect(options.fields).toEqual(['credit']);
+        return { data: [await options.data({ credit: 100 })] };
+      },
+    };
+    const context = { ...createContext([]), $repos: { accounts: repository, secure: { accounts: repository } } };
+    try {
+      const path = access === 'secure' ? 'secure.accounts' : 'accounts';
+      const result = await service.run(`return await $ctx.$repos.${path}.updateLocked({ id: 1, fields: ['credit'], data: current => ({ credit: current.credit - 10 }) });`, context, 5000);
+      expect(result).toEqual({ data: [{ credit: 90 }] });
+    } finally {
+      service.onDestroy();
+    }
+  });
+
   it('runs repository RPC calls from the callback through the host transaction', async () => {
     const service = createService();
     const events: string[] = [];

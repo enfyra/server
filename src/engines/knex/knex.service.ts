@@ -1,6 +1,8 @@
 import { Logger } from '../../shared/logger';
 import { knex, type Knex } from 'knex';
 import { AsyncLocalStorage } from 'async_hooks';
+import { getIoAbortSignal } from '@enfyra/kernel';
+import { BadRequestException } from '../../domain/exceptions';
 import type { Cradle } from '../../container';
 import {
   ExtendedKnex,
@@ -538,6 +540,32 @@ export class KnexService implements LifecycleAware {
         ),
       tableName,
     );
+  }
+
+  async runWithLockedRecord<T>(
+    table: string,
+    id: string | number,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    const run = async (trx: Knex.Transaction): Promise<T> => {
+      const signal = getIoAbortSignal();
+      if (signal?.aborted) throw new Error('Operation aborted');
+      const onAbort = () => {
+        if (!trx.isCompleted()) void trx.rollback().catch(() => {});
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+      try {
+        const row = await trx(table).where('id', id).forUpdate().first().timeout(30000, { cancel: true });
+        if (!row) throw new BadRequestException('updateLocked record not found');
+        if (signal?.aborted) throw new Error('Operation aborted');
+        return await callback();
+      } finally {
+        signal?.removeEventListener('abort', onAbort);
+      }
+    };
+    const active = this.knexContext.getStore();
+    if (active && 'commit' in active) return run(active as Knex.Transaction);
+    return this.transaction(run);
   }
 
   async transaction(

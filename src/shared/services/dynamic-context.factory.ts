@@ -10,7 +10,8 @@ import { createCryptoHelper, createFetchHelper } from '../helpers';
 import type { UploadFileHelper } from '../helpers/upload-file.helper';
 import { autoSlug } from '../utils/auto-slug.helper';
 import { ScriptErrorFactory } from '../utils/script-error-factory';
-import { runWithDeferredDynamicTransactionEffects } from '../utils/dynamic-transaction-effects.util';
+import { bindDynamicTransactionEffects, runWithDeferredDynamicTransactionEffects } from '../utils/dynamic-transaction-effects.util';
+import type { DynamicTransactionScopeRunner } from '../types/dynamic-transaction.types';
 import type { EnvService } from './env.service';
 import type { DatabaseConfigService } from './database-config.service';
 import type { KnexService } from '../../engines/knex/knex.service';
@@ -143,23 +144,23 @@ export class DynamicContextFactory {
 
         active = true;
         try {
+          let runInTransaction: DynamicTransactionScopeRunner = (work) => work();
           return await runWithDeferredDynamicTransactionEffects(
             ctx,
-            async () => {
+            () => this.runWithTransactionRepos(ctx, callback, runInTransaction),
+            async (attempt) => {
               if (this.databaseConfigService.isMongoDb()) {
-                const result = await this.mongoService.runInSaga((scope) =>
-                  this.runWithTransactionRepos(ctx, callback, (work) =>
-                    this.mongoService.runWithTransactionScope(scope, work),
-                  ),
-                );
+                const result = await this.mongoService.runInSaga((scope) => {
+                  runInTransaction = (work) => this.mongoService.runWithTransactionScope(scope, work);
+                  return attempt();
+                });
                 return result.data as T;
               }
 
-              return await this.knexService.transaction((trx) =>
-                this.runWithTransactionRepos(ctx, callback, (work) =>
-                  this.knexService.runWithTransaction(trx, work),
-                ),
-              );
+              return await this.knexService.transaction((trx) => {
+                runInTransaction = (work) => this.knexService.runWithTransaction(trx, work);
+                return attempt();
+              });
             },
           );
         } finally {
@@ -175,6 +176,7 @@ export class DynamicContextFactory {
     runInTransaction: <R>(work: () => Promise<R>) => Promise<R>,
   ): Promise<T> {
     const originalRepos = ctx.$repos;
+    const runWithEffects = bindDynamicTransactionEffects(ctx);
     const wrapped = new WeakMap<object, object>();
     const wrap = (target: any): any => {
       if (
@@ -190,7 +192,7 @@ export class DynamicContextFactory {
           const member = Reflect.get(value, property, receiver);
           if (typeof member === 'function') {
             return (...args: any[]) =>
-              runInTransaction(() => member.apply(value, args));
+              runInTransaction(() => runWithEffects(() => member.apply(value, args)));
           }
           return wrap(member);
         },
