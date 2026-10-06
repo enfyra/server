@@ -60,7 +60,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1141.0",
     "@aws-sdk/lib-storage": "^3.1141.0",
-    "@enfyra/kernel": "2.0.17",
+    "@enfyra/kernel": "2.0.19",
     "@envelop/core": "^5.6.1",
     "@envelop/depth-limit": "^7.2.1",
     "@google-cloud/storage": "^8.2.0",
