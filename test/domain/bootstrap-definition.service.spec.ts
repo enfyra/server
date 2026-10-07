@@ -7,6 +7,16 @@ import {
 import { compileMetadataMigrationExecutionPlan } from '../../src/engines/bootstrap/utils/metadata-migration-plan.util';
 
 describe('BootstrapDefinitionService', () => {
+  it('declares the default page relation and preserves custom Dashboard presentation on upgrade', () => {
+    const service = new BootstrapDefinitionService();
+    const definition = service.resolveForVersion('2.3.1-patch-1');
+    expect(definition.snapshot.enfyra_setting.relations).toContainEqual(expect.objectContaining({
+      propertyName: 'defaultPage', targetTable: 'enfyra_menu', type: 'many-to-one', isNullable: true, onDelete: 'RESTRICT',
+    }));
+    const target = definition.dataMigration.enfyra_menu.find((record: any) => record._unique?.path?._eq === '/dashboard');
+    expect(target).toEqual({ _unique: { path: { _eq: '/dashboard' } }, isSystem: false });
+    expect(bootstrapSourceArtifacts.defaultData.enfyra_menu.find((record: any) => record.path === '/dashboard').isSystem).toBe(false);
+  });
   it('seeds callable REST routes for method settings and multipart fields', () => {
     const routes = bootstrapSourceArtifacts.defaultData.enfyra_route as any[];
     const methodConfig = routes.find(route => route.path === '/enfyra_route_method_config');
@@ -220,7 +230,7 @@ describe('BootstrapDefinitionService', () => {
       (table) => table._unique.name._eq === 'enfyra_column',
     )?.columnsToModify?.find((column) => column.from.name === 'type');
 
-    expect(steps.map((step) => step.toVersion)).toEqual(['2.3.0', '2.3.1']);
+    expect(steps.map((step) => step.toVersion)).toEqual(['2.3.0', '2.3.1', '2.3.2']);
     expect(typeChange?.from.type).toBe('varchar');
     expect(typeChange?.to.type).toBe('enum');
     expect(typeChange?.to.options).toContain('simple-json');

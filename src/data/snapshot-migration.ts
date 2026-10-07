@@ -331,6 +331,7 @@ const snapshotMigrations: VersionedSchemaMigration[] = [
       ],
     },
   },
+  { fromVersion: '2.3.1', toVersion: '2.3.2', schema: { tables: [] } },
 ];
 
 export default snapshotMigrations;

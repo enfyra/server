@@ -99,16 +99,6 @@ export const standingDataCorrections = {
     {
       _unique: {
         path: {
-          _eq: '/dashboard',
-        },
-      },
-      isPublic: true,
-      type: 'Menu',
-      isSystem: true,
-    },
-    {
-      _unique: {
-        path: {
           _eq: '/data',
         },
       },
@@ -1198,6 +1188,13 @@ const dataMigrations: VersionedDataMigration[] = [
     fromVersion: '2.3.0',
     toVersion: '2.3.1',
     data: {},
+  },
+  {
+    fromVersion: '2.3.1',
+    toVersion: '2.3.2',
+    data: {
+      enfyra_menu: [{ _unique: { path: { _eq: '/dashboard' } }, isSystem: false }],
+    },
   },
 ];
 
