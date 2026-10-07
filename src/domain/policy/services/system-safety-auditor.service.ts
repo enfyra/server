@@ -4,6 +4,7 @@ import { SchemaMigrationValidatorService } from './schema-migration-validator.se
 import { RuntimeRegistryService } from '../../../engines/cache';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { normalizeMongoDocument } from '../../../engines/mongo/utils/normalize-mongo-document.util';
+import { DefaultPagePolicyService } from './default-page-policy.service';
 import {
   assertGraphqlPermissionScope,
   assertNoPublicPermissionOverlap,
@@ -31,6 +32,9 @@ export class SystemSafetyAuditorService {
 
   async assertSystemSafe(ctx: any) {
     const { operation, tableName, data, existing, currentUser } = ctx;
+    await new DefaultPagePolicyService(this.queryBuilderService).assertSafe(
+      tableName, operation, data ?? {}, existing ?? null,
+    );
     let fullExisting = existing;
     await this.assertGraphqlMetadataSafe({
       operation,

@@ -1026,7 +1026,7 @@ const defaultData = {
       "path": "/dashboard",
       "isEnabled": true,
       "isPublic": true,
-      "isSystem": true,
+      "isSystem": false,
       "description": "Main dashboard",
       "order": 1,
       "permission": {

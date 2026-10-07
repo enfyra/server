@@ -718,7 +718,9 @@ snapshot
         'Enfyra version that last completed bootstrap; compared against package.json to scope upgrades',
       ),
   })
-  .relations({});
+  .relations({
+    defaultPage: rel.manyToOne('enfyra_menu').nullable().system().onDelete('RESTRICT').description('Page opened after login when no redirect is provided'),
+  });
 
 snapshot
   .table('enfyra_auth_header', {

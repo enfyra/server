@@ -28,6 +28,7 @@ export interface DynamicMutationReloadOptions {
 }
 
 export interface DynamicMutationRuntime {
+  readLocked?: boolean;
   find(options: DynamicReadOptions): Promise<DynamicMutationReadResult>;
   getIdField(): string;
   reload(options?: DynamicMutationReloadOptions): Promise<void>;

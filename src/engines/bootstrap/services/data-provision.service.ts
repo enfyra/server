@@ -32,6 +32,7 @@ import {
 import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
 import { SYSTEM_TABLES } from '../../../shared/utils/system-tables.constants';
 import { BootstrapDefinitionService } from './bootstrap-definition.service';
+import { DashboardProvisionService } from './dashboard-provision.service';
 
 export class DataProvisionService {
   private readonly logger = new Logger(DataProvisionService.name);
@@ -194,6 +195,10 @@ export class DataProvisionService {
 
   async insertAllDefaultRecords(): Promise<void> {
     this.verbose('Starting default data upsert...');
+    const existingSettings = await this.queryBuilderService.find({
+      table: SYSTEM_TABLES.setting, fields: [this.queryBuilderService.getPkField()], limit: 1,
+    });
+    const freshInstall = !existingSettings.data?.length;
 
     let totalCreated = 0;
     let totalSkipped = 0;
@@ -246,7 +251,8 @@ export class DataProvisionService {
       this.verbose(`Processing '${tableName}'...`);
 
       try {
-        const records = Array.isArray(rawRecords) ? rawRecords : [rawRecords];
+        const records = (Array.isArray(rawRecords) ? rawRecords : [rawRecords])
+          .filter(record => freshInstall || tableName !== SYSTEM_TABLES.menu || record.path !== '/dashboard');
 
         const result =
           this.dbType === 'mongodb'
@@ -276,6 +282,10 @@ export class DataProvisionService {
         this.logger.debug(`Error: ${getErrorMessage(error)}`);
         throw error;
       }
+    }
+
+    if (freshInstall) {
+      await new DashboardProvisionService(this.queryBuilderService).provision();
     }
 
     this.verbose(
