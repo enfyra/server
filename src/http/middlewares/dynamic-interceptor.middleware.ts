@@ -5,6 +5,14 @@ import { getErrorMessage } from '../../shared/utils/error.util';
 import { HttpException } from '../../domain/exceptions';
 import type { DynamicCancellationService } from '../../modules/dynamic-api/services/dynamic-cancellation.service';
 import {
+  bindDynamicHttpAbort,
+  finishDynamicHttpFailure,
+  getDynamicHttpFailure,
+  isDynamicExecutionTimeout,
+  recordDynamicClientDisconnect,
+  recordDynamicExecutionFailure,
+} from '../../modules/dynamic-api/utils/dynamic-http-failure.util';
+import {
   attachStreamResponseHelper,
   persistDynamicScriptLogs,
   writeRawScriptErrorJson,
@@ -122,8 +130,11 @@ export function dynamicInterceptorBegin(
         } as any);
       }
       const abortController = new AbortController();
+      const unbindAbort = bindDynamicHttpAbort(res, abortController);
       const abortOnDisconnect = () => {
-        if (!res.writableEnded) abortController.abort();
+        if (res.writableEnded) return;
+        recordDynamicClientDisconnect(res);
+        abortController.abort();
       };
       req.once?.('aborted', abortOnDisconnect);
       res.once?.('close', abortOnDisconnect);
@@ -146,10 +157,17 @@ export function dynamicInterceptorBegin(
           return res.json(appendLogs(result.value));
         }
       } catch (error) {
-        if ((error as { code?: string })?.code === 'ERR_EXECUTION_ABORTED') {
-          await dynamicCancellationService?.run(req);
+        const code = (error as { code?: string }).code;
+        let failure = getDynamicHttpFailure(res);
+        if (!failure && isDynamicExecutionTimeout(error)) {
+          failure = recordDynamicExecutionFailure(res, error);
+        }
+        if (failure) {
+          await dynamicCancellationService?.run(req, failure);
+          finishDynamicHttpFailure(res, failure);
           return;
         }
+        if (code === 'ERR_EXECUTION_ABORTED') return;
         const statusCode =
           error instanceof HttpException
             ? error.getStatus()
@@ -160,6 +178,7 @@ export function dynamicInterceptorBegin(
         if (await writeRawScriptErrorJson(error, res)) return;
         return next(error);
       } finally {
+        unbindAbort();
         req.off?.('aborted', abortOnDisconnect);
         res.off?.('close', abortOnDisconnect);
         delete req.routeData.context.$res;

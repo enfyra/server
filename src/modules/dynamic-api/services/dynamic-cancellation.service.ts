@@ -3,6 +3,8 @@ import type { RepoRegistryService } from '../../../engines/cache';
 import type { RequestWithRouteData } from '../../../shared/types';
 import type { DynamicContextFactory } from '../../../shared/services/dynamic-context.factory';
 import { Logger } from '../../../shared/logger';
+import type { DynamicHttpFailure } from '../types/dynamic-http-failure.types';
+import { getDynamicHttpFailure } from '../utils/dynamic-http-failure.util';
 
 export class DynamicCancellationService {
   private readonly logger = new Logger(DynamicCancellationService.name);
@@ -21,23 +23,36 @@ export class DynamicCancellationService {
     this.repoRegistryService = deps.repoRegistryService;
   }
 
-  async run(req: RequestWithRouteData): Promise<void> {
+  async run(
+    req: RequestWithRouteData,
+    failure = getDynamicHttpFailure(req.routeData?.res),
+  ): Promise<void> {
+    if (!failure) return;
     try {
-      await this.runAuditHooks(req);
+      await this.runAuditHooks(req, failure);
     } catch {
       this.logger.warn({
-        message: 'Cancelled request post-hooks failed',
+        message: 'Terminated request audit post-hooks failed',
         executionId: req.routeData?.context.$api?.request?.executionId,
-        statusCode: 499,
+        statusCode: failure.statusCode,
       });
     }
   }
 
-  private async runAuditHooks(req: RequestWithRouteData): Promise<void> {
+  private async runAuditHooks(
+    req: RequestWithRouteData,
+    failure: DynamicHttpFailure,
+  ): Promise<void> {
     const routeData = req.routeData;
     if (!routeData || this.finalized.has(req)) return;
     this.finalized.add(req);
-    const hooks = routeData.postHooks.filter((hook) => hook.code && /^\s*(['"])enfyra:client-disconnect-audit\1;/.test(hook.sourceCode ?? hook.code));
+    const hooks = routeData.postHooks.filter(
+      (hook) =>
+        hook.code &&
+        /^\s*(['"])enfyra:client-disconnect-audit\1;/.test(
+          hook.sourceCode ?? hook.code,
+        ),
+    );
     if (!hooks.length) return;
 
     const previous = routeData.context;
@@ -50,15 +65,14 @@ export class DynamicCancellationService {
       share: { ...previous.$share, $logs: [] },
       apiRequest: previous.$api?.request,
     });
-    context.$statusCode = 499;
-    context.$error = {
-      statusCode: 499,
-      code: 'client_closed_request',
-      message: 'The client closed the request before completion.',
-    };
+    context.$statusCode = failure.statusCode;
+    context.$error = { ...failure };
     context.$api ??= {};
     context.$api.error = context.$error;
-    context.$repos = this.repoRegistryService.createReposProxy(context, routeData.mainTable?.name);
+    context.$repos = this.repoRegistryService.createReposProxy(
+      context,
+      routeData.mainTable?.name,
+    );
     const auditRequest = {
       ...req,
       routeData: { ...routeData, context, __codeBlocks: [] },
@@ -76,7 +90,9 @@ export class DynamicCancellationService {
     const timer = setTimeout(() => controller.abort(), 5000);
     timer.unref();
     try {
-      await this.executorEngineService.runBatch(auditRequest, 5000, { signal: controller.signal });
+      await this.executorEngineService.runBatch(auditRequest, 5000, {
+        signal: controller.signal,
+      });
     } finally {
       clearTimeout(timer);
     }

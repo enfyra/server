@@ -5,6 +5,7 @@ import { RuntimeScriptExecutorService } from '../../src/engines/cache/services/r
 import { DynamicService } from '../../src/modules/dynamic-api/services/dynamic.service';
 import { dynamicInterceptorBegin } from '../../src/http/middlewares/dynamic-interceptor.middleware';
 import { DynamicContextFactory } from '../../src/shared/services/dynamic-context.factory';
+import { recordDynamicClientDisconnect } from '../../src/modules/dynamic-api/utils/dynamic-http-failure.util';
 
 function factory() {
   return new DynamicContextFactory({
@@ -50,7 +51,14 @@ describe('cancelled dynamic request audit', () => {
     const running = service.runHandler(req as any);
     if (event === 'request') req.emit('aborted'); else req.routeData.res.emit('close');
     await running;
-    expect(finalize).toHaveBeenCalledExactlyOnceWith(req);
+      expect(finalize).toHaveBeenCalledExactlyOnceWith(
+        req,
+        expect.objectContaining({
+          origin: 'client',
+          statusCode: 499,
+          code: 'client_closed_request',
+        }),
+      );
     expect(req.listenerCount('aborted')).toBe(0);
     expect(req.routeData.res.listenerCount('close')).toBe(0);
   });
@@ -71,7 +79,14 @@ describe('cancelled dynamic request audit', () => {
     const running = dynamicInterceptorBegin(executor as any, undefined, { run } as any)(req, req.routeData.res as any, next);
     req.routeData.res.emit('close');
     await running;
-    expect(run).toHaveBeenCalledExactlyOnceWith(req);
+    expect(run).toHaveBeenCalledExactlyOnceWith(
+      req,
+      expect.objectContaining({
+        origin: 'client',
+        statusCode: 499,
+        code: 'client_closed_request',
+      }),
+    );
     expect(next).not.toHaveBeenCalled();
     expect(json).not.toHaveBeenCalled();
   });
@@ -80,12 +95,19 @@ describe('cancelled dynamic request audit', () => {
     const { DynamicCancellationService } = await import('../../src/modules/dynamic-api/services/dynamic-cancellation.service');
     const runBatch = vi.fn();
     const finalizer = new DynamicCancellationService({ executorEngineService: { register: vi.fn(), runBatch }, dynamicContextFactory: factory(), repoRegistryService: { createReposProxy: vi.fn() } } as any);
+    const noCause = httpRequest();
+    noCause.routeData.postHooks = [
+      { id: 1, code: "'enfyra:client-disconnect-audit'; await writeAudit();" },
+    ] as any;
+    await finalizer.run(noCause as any);
     const ordinary = httpRequest();
     ordinary.routeData.postHooks = [{ id: 1, code: 'await sendNotification();' }] as any;
+    recordDynamicClientDisconnect(ordinary.routeData.res);
     await finalizer.run(ordinary as any);
     const missingId = httpRequest();
     delete missingId.routeData.context.$api?.request?.executionId;
     missingId.routeData.postHooks = [{ id: 1, code: "'enfyra:client-disconnect-audit'; await writeAudit();" }] as any;
+    recordDynamicClientDisconnect(missingId.routeData.res);
     await finalizer.run(missingId as any);
     expect(runBatch).not.toHaveBeenCalled();
   });
@@ -95,6 +117,7 @@ describe('cancelled dynamic request audit', () => {
     const req = httpRequest();
     req.routeData.postHooks = [{ id: 1, code: "'enfyra:client-disconnect-audit';" }] as any;
     const finalizer = new DynamicCancellationService({ executorEngineService: {}, dynamicContextFactory: { createBase: () => { throw new Error('private fixture diagnostic'); } }, repoRegistryService: {} } as any);
+    recordDynamicClientDisconnect(req.routeData.res);
     await expect(finalizer.run(req as any)).resolves.toBeUndefined();
   });
 

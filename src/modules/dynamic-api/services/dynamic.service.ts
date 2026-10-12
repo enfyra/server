@@ -17,6 +17,15 @@ import { RuntimeScriptRepairService } from '../../../engines/cache';
 import { recordUserLog } from '../../../shared/runtime-log-buffer';
 import { buildErrorResponseTrace } from '../../../shared/utils/error-response-trace.util';
 import type { DynamicCancellationService } from './dynamic-cancellation.service';
+import {
+  bindDynamicHttpAbort,
+  finishDynamicHttpFailure,
+  getDynamicHttpFailure,
+  isDynamicExecutionTimeout,
+  recordDynamicClientDisconnect,
+  recordDynamicExecutionFailure,
+  recordDynamicStreamFailure,
+} from '../utils/dynamic-http-failure.util';
 
 const streamLogger = new Logger('DynamicResponseStream');
 const DEFAULT_DYNAMIC_ROUTE_TIMEOUT_MS = 60_000;
@@ -251,6 +260,7 @@ export function attachStreamResponseHelper(res: any): void {
       };
 
       readable.on('error', (error: Error) => {
+        const failure = recordDynamicStreamFailure(res, error);
         streamLogger.error({
           message: 'Dynamic response stream failed',
           error: error.message,
@@ -259,19 +269,7 @@ export function attachStreamResponseHelper(res: any): void {
           statusCode: res.statusCode,
         });
         settle(() => reject(error));
-        if (!res.headersSent) {
-          res.status(500).json({
-            success: false,
-            message: 'The response stream failed.',
-            statusCode: 500,
-            error: {
-              code: 'STREAM_FAILED',
-              message: 'The response stream failed.',
-            },
-          });
-        } else {
-          res.destroy(error);
-        }
+        finishDynamicHttpFailure(res, failure);
       });
       readable.on('end', () => settle(resolve));
       res.once('close', () => settle(resolve));
@@ -340,11 +338,16 @@ export class DynamicService {
 
       const res = routeData.res;
       const abortController = new AbortController();
+      const unbindAbort = res
+        ? bindDynamicHttpAbort(res, abortController)
+        : undefined;
       const abortOnDisconnect = () => {
         if (res?.writableEnded === true) return;
+        if (res) recordDynamicClientDisconnect(res);
         abortController.abort();
       };
       const removeAbortListeners = () => {
+        unbindAbort?.();
         if (typeof req.off === 'function') req.off('aborted', abortOnDisconnect);
         if (typeof res?.off === 'function') res.off('close', abortOnDisconnect);
       };
@@ -401,6 +404,11 @@ export class DynamicService {
         );
         value = result.value;
         shortCircuit = result.shortCircuit;
+      } catch (error) {
+        if (res && isDynamicExecutionTimeout(error)) {
+          recordDynamicExecutionFailure(res, error);
+        }
+        throw error;
       } finally {
         removeAbortListeners();
         delete routeData.context.$res;
@@ -433,10 +441,16 @@ export class DynamicService {
         statusCode?: number;
         details?: any;
       };
-      if (err.code === 'ERR_EXECUTION_ABORTED') {
-        await this.dynamicCancellationService.run(req);
+      let failure = getDynamicHttpFailure(routeData.res);
+      if (!failure && routeData.res && isDynamicExecutionTimeout(error)) {
+        failure = recordDynamicExecutionFailure(routeData.res, err);
+      }
+      if (failure) {
+        await this.dynamicCancellationService.run(req, failure);
+        if (routeData.res) finishDynamicHttpFailure(routeData.res, failure);
         return undefined;
       }
+      if (err.code === 'ERR_EXECUTION_ABORTED') return undefined;
       const httpStatus =
         error instanceof HttpException
           ? error.getStatus()
