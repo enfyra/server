@@ -90,9 +90,6 @@ describe('init runtime registry publish', () => {
         folderTreeCacheService: cacheService([]),
         guardCacheBuilder: cacheService([]),
         gqlDefinitionCacheService: cacheService([]),
-        bootstrapScriptService: {
-          onMetadataLoaded: vi.fn(async () => undefined),
-        },
         sqlFunctionService: {
           installExtensions: vi.fn(async () => undefined),
         },

@@ -230,7 +230,7 @@ describe('BootstrapDefinitionService', () => {
       (table) => table._unique.name._eq === 'enfyra_column',
     )?.columnsToModify?.find((column) => column.from.name === 'type');
 
-    expect(steps.map((step) => step.toVersion)).toEqual(['2.3.0', '2.3.1', '2.3.2']);
+    expect(steps.map((step) => step.toVersion)).toEqual(['2.3.0', '2.3.1', '2.3.2', '2.3.3']);
     expect(typeChange?.from.type).toBe('varchar');
     expect(typeChange?.to.type).toBe('enum');
     expect(typeChange?.to.options).toContain('simple-json');

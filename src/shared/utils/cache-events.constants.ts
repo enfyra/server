@@ -47,7 +47,6 @@ export const CACHE_IDENTIFIERS = {
   STORAGE: 'storage',
   WEBSOCKET: 'websocket',
   PACKAGE: 'package',
-  BOOTSTRAP: 'bootstrap',
   OAUTH_CONFIG: 'oauth-config',
   AUTH_HEADER: 'auth-header',
   FOLDER_TREE: 'folder-tree',

@@ -16,6 +16,7 @@ import { Readable } from 'stream';
 import { RuntimeScriptRepairService } from '../../../engines/cache';
 import { recordUserLog } from '../../../shared/runtime-log-buffer';
 import { buildErrorResponseTrace } from '../../../shared/utils/error-response-trace.util';
+import type { DynamicCancellationService } from './dynamic-cancellation.service';
 
 const streamLogger = new Logger('DynamicResponseStream');
 const DEFAULT_DYNAMIC_ROUTE_TIMEOUT_MS = 60_000;
@@ -284,15 +285,18 @@ export class DynamicService {
   private readonly executorEngineService: ExecutorEngineService;
   private readonly loggingService: LoggingService;
   private readonly runtimeScriptRepairService?: RuntimeScriptRepairService;
+  private readonly dynamicCancellationService: DynamicCancellationService;
 
   constructor(deps: {
     executorEngineService: ExecutorEngineService;
     loggingService: LoggingService;
     runtimeScriptRepairService?: RuntimeScriptRepairService;
+    dynamicCancellationService: DynamicCancellationService;
   }) {
     this.executorEngineService = deps.executorEngineService;
     this.loggingService = deps.loggingService;
     this.runtimeScriptRepairService = deps.runtimeScriptRepairService;
+    this.dynamicCancellationService = deps.dynamicCancellationService;
   }
 
   private repairCompiledCode(tableName: string, record: any) {
@@ -430,6 +434,7 @@ export class DynamicService {
         details?: any;
       };
       if (err.code === 'ERR_EXECUTION_ABORTED') {
+        await this.dynamicCancellationService.run(req);
         return undefined;
       }
       const httpStatus =

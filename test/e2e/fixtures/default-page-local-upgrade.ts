@@ -25,7 +25,7 @@ async function main() {
       table: 'enfyra_setting',
       fields: ['id', 'enfyraVersion', 'isInit', 'defaultPage.id'],
     });
-    assert.equal(setting?.enfyraVersion, '2.3.2');
+    assert.equal(setting?.enfyraVersion, '2.3.3');
     assert.equal(setting?.isInit, true);
     assert.equal(setting?.defaultPage, null);
     const dashboard = await container.cradle.queryBuilderService.findOne({

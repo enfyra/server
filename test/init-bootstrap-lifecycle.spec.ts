@@ -87,9 +87,6 @@ function runtimeContainer(bootstrapOverrides: Record<string, unknown> = {}) {
     folderTreeCacheService: cacheService(),
     guardCacheBuilder: cacheService(),
     gqlDefinitionCacheService: cacheService(),
-    bootstrapScriptService: {
-      onMetadataLoaded: vi.fn(async () => undefined),
-    },
     sqlFunctionService: { installExtensions: vi.fn(async () => undefined) },
     flowRuntimeService: { init: vi.fn(async () => undefined) },
     flowTriggerDispatcherService: { init: vi.fn(async () => undefined) },
@@ -219,16 +216,16 @@ describe('initBootstrap lifecycle', () => {
 });
 
 
-it('runs bootstrap scripts only after all runtime snapshots and SQL functions are ready', async () => {
+it('activates flows only after runtime snapshots and SQL functions are ready', async () => {
   const { container } = runtimeContainer();
   let snapshots = 0;
   let sqlReady = false;
   container.cradle.runtimeRegistryService.publishFromCache.mockImplementation(async () => { snapshots++; });
   container.cradle.sqlFunctionService.installExtensions.mockImplementation(async () => { sqlReady = true; });
-  container.cradle.bootstrapScriptService.onMetadataLoaded.mockImplementation(async () => {
+  container.cradle.flowRuntimeService.init.mockImplementation(async () => {
     expect(snapshots).toBe(14);
     expect(sqlReady).toBe(true);
   });
   await init(container);
-  expect(container.cradle.bootstrapScriptService.onMetadataLoaded).toHaveBeenCalledTimes(1);
+  expect(container.cradle.flowRuntimeService.init).toHaveBeenCalledTimes(1);
 });

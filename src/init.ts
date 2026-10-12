@@ -20,7 +20,6 @@ import {
   phaseRuntimeSideEffects,
   phaseParallelCacheReload,
   phasePublishActivatedSnapshots,
-  phaseBootstrapScripts,
   phaseFlowAndGraphql,
   phaseDeferredParallel,
   phaseReady,
@@ -64,10 +63,6 @@ export async function init(
     {
       label: 'activating caches',
       run: () => phasePublishActivatedSnapshots(c),
-    },
-    {
-      label: 'executing bootstrap scripts',
-      run: () => phaseBootstrapScripts(c),
     },
     {
       label: 'initializing flows and GraphQL',

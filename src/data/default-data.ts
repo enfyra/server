@@ -585,19 +585,6 @@ const defaultData = {
       ]
     },
     {
-      "path": "/enfyra_bootstrap_script",
-      "mainTable": "enfyra_bootstrap_script",
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:play",
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
       "path": "/enfyra_storage_config",
       "mainTable": "enfyra_storage_config",
       "isEnabled": true,
@@ -1102,12 +1089,6 @@ const defaultData = {
             ]
           },
           {
-            "route": "/enfyra_bootstrap_script",
-            "methods": [
-              "GET"
-            ]
-          },
-          {
             "route": "/enfyra_user",
             "methods": [
               "GET"
@@ -1367,28 +1348,6 @@ const defaultData = {
         "or": [
           {
             "route": "/enfyra_flow",
-            "methods": [
-              "GET"
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "type": "Menu",
-      "label": "Bootstrap Scripts",
-      "icon": "heroicons:play",
-      "path": "/settings/bootstrap",
-      "isEnabled": true,
-      "isPublic": false,
-      "isSystem": true,
-      "description": "Bootstrap script management",
-      "order": 11,
-      "parent": "Settings",
-      "permission": {
-        "or": [
-          {
-            "route": "/enfyra_bootstrap_script",
             "methods": [
               "GET"
             ]

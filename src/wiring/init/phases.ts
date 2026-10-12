@@ -242,10 +242,6 @@ export async function phasePublishActivatedSnapshots(c: ActivatedSnapshotPhaseCr
   });
 }
 
-export async function phaseBootstrapScripts(c: Pick<Cradle, 'bootstrapScriptService'>): Promise<void> {
-  await runInitStep('bootstrapScriptService.onMetadataLoaded', () => c.bootstrapScriptService.onMetadataLoaded());
-}
-
 export async function phaseFlowAndGraphql(c: FlowAndGraphqlPhaseCradle): Promise<void> {
   await runInitStep('flowRuntimeService.init', () => c.flowRuntimeService.init());
   await runInitStep('flowTriggerDispatcherService.init', () => c.flowTriggerDispatcherService.init());

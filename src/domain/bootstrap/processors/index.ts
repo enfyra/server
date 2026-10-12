@@ -1,5 +1,4 @@
 export * from './base-table-processor';
-export * from './bootstrap-script-definition.processor';
 export * from './extension-definition.processor';
 export * from './field-permission-definition.processor';
 export * from './flow-definition.processor';

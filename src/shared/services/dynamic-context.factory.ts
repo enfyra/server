@@ -1,6 +1,7 @@
 import { recordUserLog } from '../runtime-log-buffer';
 import * as jwt from 'jsonwebtoken';
 import { getIoAbortSignal } from '@enfyra/kernel';
+import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { TDynamicContext } from '../types';
 import type { BcryptService } from '../../domain/auth';
@@ -345,6 +346,7 @@ export class DynamicContextFactory {
         method: req.method,
         url: req.url,
         timestamp: new Date().toISOString(),
+        executionId: randomUUID(),
         correlationId:
           (req.headers['x-correlation-id'] as string) ||
           this.generateCorrelationId(),

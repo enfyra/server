@@ -29,7 +29,6 @@ export const SYSTEM_TABLES = {
   file: 'enfyra_file',
   filePermission: 'enfyra_file_permission',
   package: 'enfyra_package',
-  bootstrapScript: 'enfyra_bootstrap_script',
   storageConfig: 'enfyra_storage_config',
   websocket: 'enfyra_websocket',
   websocketEvent: 'enfyra_websocket_event',

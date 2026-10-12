@@ -268,6 +268,7 @@ describe('DynamicService error reporting', () => {
         runBatch,
       },
       loggingService,
+      dynamicCancellationService: { run: vi.fn() },
     } as any);
 
     await expect(service.runHandler(request)).resolves.toBeUndefined();

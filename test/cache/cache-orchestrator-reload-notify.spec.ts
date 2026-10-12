@@ -37,9 +37,6 @@ function createOrchestrator(overrides: Record<string, any> = {}) {
     gqlDefinitionCacheService: cacheMock() as any,
     repoRegistryService: { rebuildFromMetadata: () => undefined } as any,
     graphqlService: { reloadSchema: async () => undefined } as any,
-    bootstrapScriptService: {
-      reloadBootstrapScripts: async () => undefined,
-    } as any,
     dynamicWebSocketGateway: {
       emitToNamespace: (_path: string, event: string, data: any) => {
         emitted.push({ event, data });

@@ -7,7 +7,6 @@ export const SCRIPT_TABLE_LEGACY_FIELDS: Record<string, string> = {
   [SYSTEM_TABLES.routeHandler]: 'logic',
   [SYSTEM_TABLES.preHook]: 'code',
   [SYSTEM_TABLES.postHook]: 'code',
-  [SYSTEM_TABLES.bootstrapScript]: 'logic',
   [SYSTEM_TABLES.websocket]: 'connectionHandlerScript',
   [SYSTEM_TABLES.websocketEvent]: 'handlerScript',
   [SYSTEM_TABLES.flowStep]: '',

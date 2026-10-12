@@ -158,7 +158,7 @@ describe('runtime script request cancellation', () => {
       throw Object.assign(new Error('aborted'), { code: 'ERR_EXECUTION_ABORTED' });
     });
     const loggingService = { error: vi.fn() };
-    const dynamic = new DynamicService({ executorEngineService: { register: vi.fn(), runBatch }, loggingService } as any);
+    const dynamic = new DynamicService({ executorEngineService: { register: vi.fn(), runBatch }, loggingService, dynamicCancellationService: { run: vi.fn() } } as any);
     await expect(dynamic.runHandler(req as any)).resolves.toBeUndefined();
     expect(loggingService.error).not.toHaveBeenCalled();
     expect(req.listenerCount('aborted')).toBe(0);

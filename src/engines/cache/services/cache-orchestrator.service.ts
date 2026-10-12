@@ -36,7 +36,6 @@ import { logMemory } from '../../../shared/utils/memory-log.util';
 import { SYSTEM_TABLES } from '../../../shared/utils/system-tables.constants';
 import { DynamicWebSocketGateway } from '../../../modules/websocket';
 import { GraphqlService } from '../../../modules/graphql';
-import { BootstrapScriptService } from '../../../domain/bootstrap';
 import { LifecycleAware } from '../../../shared/interfaces/lifecycle-aware.interface';
 import type {
   RuntimeCacheIdentifier,
@@ -62,7 +61,6 @@ const FLOW_PRIORITY = [
   'package',
   'menu',
   'extension',
-  'bootstrap',
   'graphql',
   'settingGraphql',
   'repoRegistry',
@@ -86,8 +84,7 @@ type ReloadStepName =
   | 'extension'
   | 'fieldPermission'
   | 'column-rule'
-  | 'settingGraphql'
-  | 'bootstrap';
+  | 'settingGraphql';
 type CacheBuilderReloadStepName = Exclude<
   ReloadStepName,
   'settingGraphql' | 'menu' | 'extension'
@@ -184,7 +181,6 @@ export const RELOAD_CHAINS: Record<string, ReloadStepName[]> = {
   [SYSTEM_TABLES.flowStep]: ['flow'],
   [SYSTEM_TABLES.flowTrigger]: ['flow'],
   [SYSTEM_TABLES.folder]: ['folder'],
-  [SYSTEM_TABLES.bootstrapScript]: ['bootstrap'],
   [SYSTEM_TABLES.menu]: ['menu', 'extension'],
   [SYSTEM_TABLES.menuPermission]: ['menu'],
   [SYSTEM_TABLES.extension]: ['extension'],
@@ -216,7 +212,6 @@ export class CacheOrchestratorService implements LifecycleAware {
   private readonly runtimeRegistryService?: RuntimeRegistryService;
   private readonly runtimeReloadAuditService?: RuntimeReloadAuditService;
   private readonly graphqlService: GraphqlService;
-  private readonly bootstrapScriptService: BootstrapScriptService;
   private readonly dynamicWebSocketGateway: DynamicWebSocketGateway;
   private readonly runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
   private readonly redisRuntimeCacheStore?: RedisRuntimeCacheStore;
@@ -257,7 +252,6 @@ export class CacheOrchestratorService implements LifecycleAware {
     runtimeRegistryService?: RuntimeRegistryService;
     runtimeReloadAuditService?: RuntimeReloadAuditService;
     graphqlService: GraphqlService;
-    bootstrapScriptService: BootstrapScriptService;
     dynamicWebSocketGateway: DynamicWebSocketGateway;
     runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
@@ -283,7 +277,6 @@ export class CacheOrchestratorService implements LifecycleAware {
     this.runtimeRegistryService = deps.runtimeRegistryService;
     this.runtimeReloadAuditService = deps.runtimeReloadAuditService;
     this.graphqlService = deps.graphqlService;
-    this.bootstrapScriptService = deps.bootstrapScriptService;
     this.dynamicWebSocketGateway = deps.dynamicWebSocketGateway;
     this.runtimeMetricsCollectorService = deps.runtimeMetricsCollectorService;
     this.redisRuntimeCacheStore = deps.redisRuntimeCacheStore;
@@ -335,7 +328,6 @@ export class CacheOrchestratorService implements LifecycleAware {
           p,
           options?.sharedReplay,
         ),
-      bootstrap: () => this.reloadBootstrapScripts(),
     };
 
     this.invalidationHandler = this.handleInvalidation.bind(this);
@@ -797,11 +789,6 @@ export class CacheOrchestratorService implements LifecycleAware {
 
   private async reloadSettingGraphql(): Promise<void> {
     await this.graphqlService?.onSettingChanged?.();
-  }
-
-  private async reloadBootstrapScripts(): Promise<void> {
-    if (!this.bootstrapScriptService) return;
-    await this.bootstrapScriptService.reloadBootstrapScripts();
   }
 
   private getRuntimeCachePublishTarget(step: string): {

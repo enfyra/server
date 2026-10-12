@@ -18,7 +18,6 @@ import {
   SettingDefinitionProcessor,
   ExtensionDefinitionProcessor,
   FolderDefinitionProcessor,
-  BootstrapScriptDefinitionProcessor,
   RoutePermissionDefinitionProcessor,
   WebsocketDefinitionProcessor,
   WebsocketEventDefinitionProcessor,
@@ -51,7 +50,6 @@ export class DataProvisionService {
   private readonly settingDefinitionProcessor: SettingDefinitionProcessor;
   private readonly extensionDefinitionProcessor: ExtensionDefinitionProcessor;
   private readonly folderDefinitionProcessor: FolderDefinitionProcessor;
-  private readonly bootstrapScriptDefinitionProcessor: BootstrapScriptDefinitionProcessor;
   private readonly routePermissionDefinitionProcessor: RoutePermissionDefinitionProcessor;
   private readonly websocketDefinitionProcessor: WebsocketDefinitionProcessor;
   private readonly websocketEventDefinitionProcessor: WebsocketEventDefinitionProcessor;
@@ -78,7 +76,6 @@ export class DataProvisionService {
     settingDefinitionProcessor: SettingDefinitionProcessor;
     extensionDefinitionProcessor: ExtensionDefinitionProcessor;
     folderDefinitionProcessor: FolderDefinitionProcessor;
-    bootstrapScriptDefinitionProcessor: BootstrapScriptDefinitionProcessor;
     routePermissionDefinitionProcessor: RoutePermissionDefinitionProcessor;
     websocketDefinitionProcessor: WebsocketDefinitionProcessor;
     websocketEventDefinitionProcessor: WebsocketEventDefinitionProcessor;
@@ -104,8 +101,6 @@ export class DataProvisionService {
     this.settingDefinitionProcessor = deps.settingDefinitionProcessor;
     this.extensionDefinitionProcessor = deps.extensionDefinitionProcessor;
     this.folderDefinitionProcessor = deps.folderDefinitionProcessor;
-    this.bootstrapScriptDefinitionProcessor =
-      deps.bootstrapScriptDefinitionProcessor;
     this.routePermissionDefinitionProcessor =
       deps.routePermissionDefinitionProcessor;
     this.websocketDefinitionProcessor = deps.websocketDefinitionProcessor;
@@ -149,10 +144,6 @@ export class DataProvisionService {
       this.extensionDefinitionProcessor,
     );
     this.processors.set(SYSTEM_TABLES.folder, this.folderDefinitionProcessor);
-    this.processors.set(
-      SYSTEM_TABLES.bootstrapScript,
-      this.bootstrapScriptDefinitionProcessor,
-    );
     this.processors.set(
       SYSTEM_TABLES.routePermission,
       this.routePermissionDefinitionProcessor,

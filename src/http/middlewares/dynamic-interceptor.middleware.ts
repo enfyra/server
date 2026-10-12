@@ -3,6 +3,7 @@ import { ExecutorEngineService } from '@enfyra/kernel';
 import { RuntimeScriptRepairService } from '../../engines/cache';
 import { getErrorMessage } from '../../shared/utils/error.util';
 import { HttpException } from '../../domain/exceptions';
+import type { DynamicCancellationService } from '../../modules/dynamic-api/services/dynamic-cancellation.service';
 import {
   attachStreamResponseHelper,
   persistDynamicScriptLogs,
@@ -27,6 +28,7 @@ function isErrorResponse(res: Response, data: any): boolean {
 export function dynamicInterceptorBegin(
   executorEngineService: ExecutorEngineService,
   runtimeScriptRepairService?: RuntimeScriptRepairService,
+  dynamicCancellationService?: DynamicCancellationService,
 ) {
   return async (req: any, res: Response, next: NextFunction) => {
     if (!req.routeData) {
@@ -144,7 +146,10 @@ export function dynamicInterceptorBegin(
           return res.json(appendLogs(result.value));
         }
       } catch (error) {
-        if ((error as { code?: string })?.code === 'ERR_EXECUTION_ABORTED') return;
+        if ((error as { code?: string })?.code === 'ERR_EXECUTION_ABORTED') {
+          await dynamicCancellationService?.run(req);
+          return;
+        }
         const statusCode =
           error instanceof HttpException
             ? error.getStatus()

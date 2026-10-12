@@ -1,4 +1,3 @@
-export const BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY = 'bootstrap-script-execution';
 export const ENFYRA_ADMIN_WEBSOCKET_NAMESPACE = '/enfyra-admin';
 export const ENFYRA_ADMIN_ROOT_WEBSOCKET_ROOM = '$system:root-admin';
 export const DEFAULT_MAX_QUERY_DEPTH = 7;
@@ -18,7 +17,6 @@ export const MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY =
   'enfyra:mongo-migration-saga-recovery';
 
 export const REDIS_TTL = {
-  BOOTSTRAP_LOCK_TTL: 30000,
   RELOAD_LOCK_TTL: 30000,
   PROVISION_LOCK_TTL: 120000,
   SAGA_ORPHAN_RECOVERY_LOCK_TTL: 300000,

@@ -241,6 +241,7 @@ export interface TDynamicContext {
       url?: string;
       timestamp?: string;
       correlationId?: string;
+      executionId?: string;
       userAgent?: string;
       ip?: string;
     };

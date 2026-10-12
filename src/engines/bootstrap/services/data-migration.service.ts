@@ -10,6 +10,7 @@ import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/u
 import { isCanonicalTableRoutePath } from '../../../domain/bootstrap/utils/canonical-table-route.util';
 import { BootstrapDefinitionService } from './bootstrap-definition.service';
 import { toExactDataMigrationWhere } from '../../../domain/bootstrap/utils/data-migration-filter.util';
+import { deleteMongoMetadataRecords } from '../utils/delete-mongo-metadata-records.util';
 
 interface InitOld {
   [tableName: string]: any | any[];
@@ -175,11 +176,15 @@ export class DataMigrationService {
 
         let count = 0;
         if (DatabaseConfigService.instanceIsMongoDb()) {
-          const result = await this.queryBuilderService
-            .getMongoDb()
-            .collection(table)
-            .deleteMany(exactWhere);
-          count = result.deletedCount || 0;
+          const db = this.queryBuilderService.getMongoDb();
+          if (
+            ['enfyra_route', 'enfyra_menu', 'enfyra_graphql'].includes(table)
+          ) {
+            count = await deleteMongoMetadataRecords(db, table, exactWhere);
+          } else {
+            count = (await db.collection(table).deleteMany(exactWhere))
+              .deletedCount;
+          }
         } else {
           count = await this.queryBuilderService
             .getKnex()(table)

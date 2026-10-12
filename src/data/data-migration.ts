@@ -166,10 +166,6 @@ export const standingDataCorrections = {
             methods: ['GET'],
           },
           {
-            route: '/enfyra_bootstrap_script',
-            methods: ['GET'],
-          },
-          {
             route: '/enfyra_user',
             methods: ['GET'],
           },
@@ -797,14 +793,6 @@ export const standingDataCorrections = {
     {
       _unique: {
         path: {
-          _eq: '/enfyra_bootstrap_script',
-        },
-      },
-      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
-    },
-    {
-      _unique: {
-        path: {
           _eq: '/enfyra_storage_config',
         },
       },
@@ -1194,6 +1182,16 @@ const dataMigrations: VersionedDataMigration[] = [
     toVersion: '2.3.2',
     data: {
       enfyra_menu: [{ _unique: { path: { _eq: '/dashboard' } }, isSystem: false }],
+    },
+  },
+  {
+    fromVersion: '2.3.2',
+    toVersion: '2.3.3',
+    data: {
+      _deletedRecords: [
+        { table: 'enfyra_route', filter: { path: { _eq: '/enfyra_bootstrap_script' } } },
+        { table: 'enfyra_menu', filter: { path: { _eq: '/settings/bootstrap' } } },
+      ],
     },
   },
 ];
