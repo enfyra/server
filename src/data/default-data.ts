@@ -824,6 +824,14 @@ const defaultData = {
       ]
     },
     {
+      "path": "/enfyra_helper",
+      "mainTable": "enfyra_helper",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:code",
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
       "path": "/enfyra_flow",
       "mainTable": "enfyra_flow",
       "isEnabled": true,
@@ -1332,6 +1340,19 @@ const defaultData = {
           }
         ]
       }
+    },
+    {
+      "type": "Menu",
+      "label": "Helpers",
+      "icon": "lucide:code",
+      "path": "/settings/helpers",
+      "isEnabled": true,
+      "isPublic": false,
+      "isSystem": true,
+      "description": "Create, edit and test reusable helper scripts",
+      "order": 11,
+      "parent": "Settings",
+      "permission": { "route": "/enfyra_helper", "methods": ["GET"] }
     },
     {
       "type": "Menu",

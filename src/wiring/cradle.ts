@@ -14,8 +14,38 @@ import type { EnfyraKernel, QueryBuilderService, IsolatedExecutorService, Execut
 import type { KnexService, KnexHookManagerService, MigrationJournalService, MySqlRuntimeWriteBarrierService, ReplicationManager, SchemaMigrationLockService, SqlPoolClusterCoordinatorService, SqlSchemaDiffService, SqlSchemaMigrationService } from '../engines/knex';
 import type { MongoMigrationJournalService, MongoPhysicalMigrationService, MongoSagaSnapshotService, MongoHookManagerService, MongoRelationManagerService, MongoSagaCoordinator, MongoSagaLockService, MongoSchemaDiffService, MongoSchemaMigrationLockService, MongoSchemaMigrationService, MongoService } from '../engines/mongo';
 import type { SqlFunctionService } from '../engines/sql';
-import type { AuthHeaderCacheBuilder, CacheOrchestratorService, FieldPermissionCacheBuilder, ColumnRuleCacheBuilder, FlowCacheBuilder, FolderTreeCacheService, GqlDefinitionCacheService, GuardAlertService, GuardCacheBuilder, GuardEvaluatorService, MetadataCacheService, OAuthConfigCacheBuilder, PackageCacheService, PackageCdnLoaderService, PackageRuntimeService, RateLimitService, RedisPubSubService, RedisRuntimeCacheStore, RedisCacheService, RepoRegistryService, RouteCacheService, RuntimeNamespaceLifecycleService, RuntimeRegistryService, RuntimeReloadAuditService, RuntimeScriptRepairService, SettingCacheService, StorageConfigCacheBuilder, WebsocketCacheBuilder } from '../engines/cache';
-import type { RuntimeScriptExecutorService } from '../engines/cache';
+import type {
+  AuthHeaderCacheBuilder,
+  CacheOrchestratorService,
+  FieldPermissionCacheBuilder,
+  ColumnRuleCacheBuilder,
+  FlowCacheBuilder,
+  FolderTreeCacheService,
+  GqlDefinitionCacheService,
+  GuardAlertService,
+  GuardCacheBuilder,
+  GuardEvaluatorService,
+  MetadataCacheService,
+  OAuthConfigCacheBuilder,
+  PackageCacheService,
+  PackageCdnLoaderService,
+  PackageRuntimeService,
+  RateLimitService,
+  RedisPubSubService,
+  RedisRuntimeCacheStore,
+  RedisCacheService,
+  RepoRegistryService,
+  RouteCacheService,
+  RuntimeNamespaceLifecycleService,
+  RuntimeRegistryService,
+  RuntimeReloadAuditService,
+  RuntimeScriptExecutorService,
+  RuntimeScriptRepairService,
+  SettingCacheService,
+  SharedHelperCacheService,
+  StorageConfigCacheBuilder,
+  WebsocketCacheBuilder,
+} from '../engines/cache';
 import type { DynamicRepositoryFactory, DynamicService, DynamicApiTableValidationService, GuardValidationService } from '../modules/dynamic-api';
 import type { DynamicCancellationService } from '../modules/dynamic-api/services/dynamic-cancellation.service';
 import type { TableHandlerService, SqlTableCreateService, SqlTableUpdateService, SqlTableDeleteService, SqlTableHandlerService, MongoTableCreateService, MongoTableUpdateService, MongoTableDeleteService, MongoTableHandlerService, TableManagementValidationService, MongoMetadataSnapshotService, SqlTableMetadataBuilderService, SqlTableMetadataWriterService, RuntimeSchemaContractCompilerService, RuntimeSchemaPhysicalPlannerService, RuntimeMetadataSchemaRouterService, RuntimeSchemaExecutorService, RuntimeSchemaTargetAttestorService, RuntimeSchemaUnitOfWorkService, RuntimeSchemaJournalService, RuntimeSchemaActivationGateService } from '../modules/table-management';
@@ -102,6 +132,7 @@ export interface Cradle {
   metadataCacheService: MetadataCacheService;
   routeCacheService: RouteCacheService;
   packageCacheService: PackageCacheService;
+  sharedHelperCacheService: SharedHelperCacheService;
   packageRuntimeService: PackageRuntimeService;
   storageConfigCacheBuilder: StorageConfigCacheBuilder;
   websocketCacheBuilder: WebsocketCacheBuilder;

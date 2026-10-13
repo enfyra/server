@@ -1,3 +1,4 @@
+import { emptySharedHelperRegistry } from '../helpers/shared-helper-registry';
 import { EventEmitter } from 'node:events';
 import {
   ExecutorEngineService,
@@ -28,7 +29,7 @@ function createExecutor() {
       isolatesPerWorker: 6,
     },
   });
-  const service = new RuntimeScriptExecutorService({
+  const service = new RuntimeScriptExecutorService({ runtimeRegistryService: emptySharedHelperRegistry(),
     kernelExecutorEngineService: new ExecutorEngineService({
       isolatedExecutorService: isolated,
     }),
@@ -40,7 +41,7 @@ describe('runtime script request cancellation', () => {
   it.each([false, true])('forwards the caller signal through batch execution and repair (%s)', async (repair) => {
     const kernel = { runBatch: vi.fn().mockResolvedValue({ value: true, shortCircuit: false }) };
     if (repair) kernel.runBatch.mockRejectedValueOnce({ details: { errorName: 'SyntaxError', executionStage: 'compile' } });
-    const service = new RuntimeScriptExecutorService({ kernelExecutorEngineService: kernel as any });
+    const service = new RuntimeScriptExecutorService({ runtimeRegistryService: emptySharedHelperRegistry(), kernelExecutorEngineService: kernel as any });
     const signal = new AbortController().signal;
     await service.runBatch(request(repair ? 'invalid source!' : 'return true;'), 1000, { signal });
     expect(kernel.runBatch).toHaveBeenCalledTimes(repair ? 2 : 1);

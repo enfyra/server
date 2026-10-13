@@ -1,3 +1,4 @@
+import { emptySharedHelperRegistry } from '../helpers/shared-helper-registry';
 import { createServer } from 'node:http';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -83,6 +84,7 @@ for (const boundary of ['handler', 'pre-hook']) {
           },
         });
         const executor = new RuntimeScriptExecutorService({
+          runtimeRegistryService: emptySharedHelperRegistry(),
           kernelExecutorEngineService: new ExecutorEngineService({
             isolatedExecutorService: isolated,
           }),

@@ -1,4 +1,5 @@
 import { recordUserLog } from '../runtime-log-buffer';
+import { recordDynamicDeliveryStage } from '../../modules/dynamic-api/utils/dynamic-delivery-diagnostics.util';
 import * as jwt from 'jsonwebtoken';
 import { getIoAbortSignal } from '@enfyra/kernel';
 import { randomUUID } from 'node:crypto';
@@ -313,6 +314,8 @@ export class DynamicContextFactory {
       body: req.routeData?.context?.$body || req.body || {},
       debug: req._debug || undefined,
       helpers: {
+        $delivery: (stage, fields) =>
+          recordDynamicDeliveryStage(req, stage, fields),
         $jwt: (payload: any, exp: string) =>
           jwt.sign(payload, this.envService.get('SECRET_KEY'), {
             expiresIn: exp as JwtExpiresIn,
@@ -347,6 +350,7 @@ export class DynamicContextFactory {
         url: req.url,
         timestamp: new Date().toISOString(),
         executionId: randomUUID(),
+        deliveryDiagnostics: true,
         correlationId:
           (req.headers['x-correlation-id'] as string) ||
           this.generateCorrelationId(),

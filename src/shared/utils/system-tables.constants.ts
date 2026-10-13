@@ -18,6 +18,7 @@ export const SYSTEM_TABLES = {
   routeHandler: 'enfyra_route_handler',
   preHook: 'enfyra_pre_hook',
   postHook: 'enfyra_post_hook',
+  helper: 'enfyra_helper',
   session: 'enfyra_session',
   apiToken: 'enfyra_api_token',
   schemaMigration: 'enfyra_schema_migration',

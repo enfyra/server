@@ -2641,6 +2641,19 @@ snapshot
   .uniques([['gateway', 'eventName']]);
 
 snapshot
+  .table('enfyra_helper', { description: 'Reusable named scripts with explicit params in the caller task', system: true })
+  .columns({
+    id: col.sqlType({ type: 'int' }).mongoType({ type: 'objectId' }).primary().generated().notNull().system().description('Primary key identifier'),
+    name: col.sqlType({ type: 'varchar' }).mongoType({ type: 'string' }).notNull().system().description('Unique lowercase helper name, at most 128 letters, digits or underscores'),
+    description: col.sqlType({ type: 'text' }).mongoType({ type: 'string' }).nullable().system().description('Helper purpose and params contract'),
+    isEnabled: col.sqlType({ type: 'boolean' }).mongoType({ type: 'bool' }).notNull().default(true).system().description('Whether callers may execute this helper'),
+    sourceCode: col.sqlType({ type: 'code' }).mongoType({ type: 'code' }).nullable().system().description('Script body receiving explicit @PARAMS and task capabilities'),
+    scriptLanguage: col.sqlType({ type: 'enum', options: ['javascript', 'typescript'] }).mongoType({ type: 'enum', options: ['javascript', 'typescript'] }).notNull().default('typescript').system().description('Source language before server compilation'),
+    compiledCode: col.sqlType({ type: 'code' }).mongoType({ type: 'code' }).generated().immutable().nullable().system().description('Server-compiled JavaScript executed by the runtime'),
+  })
+  .uniques([['name']]);
+
+snapshot
   .table('enfyra_flow', {
     description:
       'Defines automated workflows with triggers, steps, and execution logic',

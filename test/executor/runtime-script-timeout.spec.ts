@@ -1,3 +1,4 @@
+import { emptySharedHelperRegistry } from '../helpers/shared-helper-registry';
 import { describe, expect, it, vi } from 'vitest';
 import { RuntimeScriptExecutorService } from '../../src/engines/cache/services/runtime-script-executor.service';
 
@@ -9,6 +10,7 @@ function setup() {
   return {
     kernel,
     service: new RuntimeScriptExecutorService({
+      runtimeRegistryService: emptySharedHelperRegistry(),
       kernelExecutorEngineService: kernel as any,
     }),
   };

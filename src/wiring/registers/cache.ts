@@ -26,9 +26,9 @@ import {
   RuntimeNamespaceLifecycleService,
   RuntimeRegistryService,
   RuntimeReloadAuditService,
-  RuntimeScriptExecutorService,
   RuntimeScriptRepairService,
   SettingCacheService,
+  SharedHelperCacheService,
   StorageConfigCacheBuilder,
   WebsocketCacheBuilder,
 } from '../../engines/cache';
@@ -71,6 +71,7 @@ export const cacheRegisters = {
   metadataCacheService: asClass(MetadataCacheService).singleton(),
   routeCacheService: asClass(RouteCacheService).singleton(),
   packageCacheService: asClass(PackageCacheService).singleton(),
+  sharedHelperCacheService: asClass(SharedHelperCacheService).singleton(),
   packageRuntimeService: asClass(PackageRuntimeService).singleton(),
   storageConfigCacheBuilder: asClass(StorageConfigCacheBuilder).singleton(),
   websocketCacheBuilder: asClass(WebsocketCacheBuilder).singleton(),

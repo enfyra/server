@@ -1,3 +1,4 @@
+import { emptySharedHelperRegistry } from '../helpers/shared-helper-registry';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { EventEmitter2 } from 'eventemitter2';
 import { ObjectId } from 'mongodb';
@@ -534,7 +535,7 @@ describe(`updateLocked real database (${selected})`, () => {
         packageCacheService: { getPackages: async () => [] },
         packageCdnLoaderService: { getPackageSources: () => [] },
       });
-      const runner = new RuntimeScriptExecutorService({
+      const runner = new RuntimeScriptExecutorService({ runtimeRegistryService: emptySharedHelperRegistry(),
         kernelExecutorEngineService: new ExecutorEngineService({ isolatedExecutorService: executor }),
       });
       const concurrency = Number(process.env.LOCKED_UPDATE_STRESS_CONCURRENCY || 16);
@@ -602,7 +603,7 @@ describe(`updateLocked real database (${selected})`, () => {
         packageCacheService: { getPackages: async () => [] },
         packageCdnLoaderService: { getPackageSources: () => [] },
       });
-      const runner = new RuntimeScriptExecutorService({
+      const runner = new RuntimeScriptExecutorService({ runtimeRegistryService: emptySharedHelperRegistry(),
         kernelExecutorEngineService: new ExecutorEngineService({
           isolatedExecutorService: executor,
         }),
@@ -687,7 +688,7 @@ describe(`updateLocked real database (${selected})`, () => {
         packageCacheService: { getPackages: async () => [] },
         packageCdnLoaderService: { getPackageSources: () => [] },
       });
-      const runner = new RuntimeScriptExecutorService({
+      const runner = new RuntimeScriptExecutorService({ runtimeRegistryService: emptySharedHelperRegistry(),
         kernelExecutorEngineService: new ExecutorEngineService({
           isolatedExecutorService: executor,
         }),

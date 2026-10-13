@@ -1,3 +1,4 @@
+import { emptySharedHelperRegistry } from '../helpers/shared-helper-registry';
 import { EventEmitter } from 'node:events';
 import { ExecutorEngineService, IsolatedExecutorService, getIoAbortSignal } from '@enfyra/kernel';
 import { describe, expect, it, vi } from 'vitest';
@@ -128,7 +129,7 @@ describe('cancelled dynamic request audit', () => {
       packageCdnLoaderService: { getPackageSources: () => [] },
       tuning: { maxConcurrentWorkers: 1, isolateMemoryLimitMb: 64, isolatesPerWorker: 2 },
     });
-    const executor = new RuntimeScriptExecutorService({ kernelExecutorEngineService: new ExecutorEngineService({ isolatedExecutorService: isolated }) });
+    const executor = new RuntimeScriptExecutorService({ runtimeRegistryService: emptySharedHelperRegistry(), kernelExecutorEngineService: new ExecutorEngineService({ isolatedExecutorService: isolated }) });
     const req = httpRequest();
     let entered = false;
     let aborted = false;

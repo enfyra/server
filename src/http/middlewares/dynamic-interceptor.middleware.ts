@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express';
+import { attachDynamicDeliveryDiagnostics } from '../../modules/dynamic-api/utils/dynamic-delivery-diagnostics.util';
 import { ExecutorEngineService } from '@enfyra/kernel';
 import { RuntimeScriptRepairService } from '../../engines/cache';
 import { getErrorMessage } from '../../shared/utils/error.util';
@@ -116,6 +117,7 @@ export function dynamicInterceptorBegin(
 
     const preHooks = req.routeData?.preHooks;
     if (preHooks?.length) {
+      attachDynamicDeliveryDiagnostics(req, res);
       attachStreamResponseHelper(res);
       req.routeData.context.$res = res;
       for (const hook of preHooks) {

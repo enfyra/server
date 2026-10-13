@@ -26,6 +26,7 @@ type CoreCachePhaseCradle = Pick<
   | 'cacheOrchestratorService'
   | 'runtimeRegistryService'
   | 'metadataCacheService'
+  | 'sharedHelperCacheService'
   | 'eventEmitter'
   | 'repoRegistryService'
 >;
@@ -64,6 +65,7 @@ type ActivatedSnapshotPhaseCradle = Pick<
   | 'websocketCacheBuilder'
   | 'flowCacheBuilder'
   | 'packageCacheService'
+  | 'sharedHelperCacheService'
   | 'folderTreeCacheService'
   | 'guardCacheBuilder'
   | 'gqlDefinitionCacheService'
@@ -186,6 +188,15 @@ export async function phaseCoreCaches(c: CoreCachePhaseCradle): Promise<void> {
   await runInitStep('cacheOrchestratorService.init', () => c.cacheOrchestratorService.init());
   await runInitStep('runtimeRegistryService.init', () => c.runtimeRegistryService.init());
   await runInitStep('metadataCacheService.reload', () => c.metadataCacheService.reload());
+  await runInitStep('sharedHelperCacheService.reload', () =>
+    c.sharedHelperCacheService.reload(),
+  );
+  await runInitStep('runtimeRegistryService.publishHelpers', () =>
+    c.runtimeRegistryService.publishFromCache(
+      CACHE_IDENTIFIERS.HELPER,
+      c.sharedHelperCacheService,
+    ),
+  );
   c.eventEmitter.emit(CACHE_EVENTS.METADATA_LOADED);
   logger.log('Init event emitted: METADATA_LOADED');
   await runInitStep('repoRegistryService.rebuildFromMetadata', () =>
@@ -222,6 +233,7 @@ export async function phasePublishActivatedSnapshots(c: ActivatedSnapshotPhaseCr
     const runtimeRegistry = c.runtimeRegistryService;
     const entries = [
       [CACHE_IDENTIFIERS.METADATA, c.metadataCacheService],
+      [CACHE_IDENTIFIERS.HELPER, c.sharedHelperCacheService],
       [CACHE_IDENTIFIERS.ROUTE, c.routeCacheService],
       [CACHE_IDENTIFIERS.FIELD_PERMISSION, c.fieldPermissionCacheBuilder],
       [CACHE_IDENTIFIERS.COLUMN_RULE, c.columnRuleCacheBuilder],

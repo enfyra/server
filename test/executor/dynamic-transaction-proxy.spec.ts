@@ -5,6 +5,7 @@ import { deferDynamicTransactionEffect } from '../../src/shared/utils/dynamic-tr
 
 function createService() {
   return new IsolatedExecutorService({
+    tuning: { maxConcurrentWorkers: 1, isolateMemoryLimitMb: 64, isolatesPerWorker: 2 },
     packageCacheService: { getPackages: async () => [] } as any,
     packageCdnLoaderService: { getPackageSources: () => [] } as any,
   });

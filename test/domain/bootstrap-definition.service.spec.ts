@@ -7,6 +7,15 @@ import {
 import { compileMetadataMigrationExecutionPlan } from '../../src/engines/bootstrap/utils/metadata-migration-plan.util';
 
 describe('BootstrapDefinitionService', () => {
+  it('seeds the dedicated private Helpers screen under Settings without granting API access', () => {
+    const menu = bootstrapSourceArtifacts.defaultData.enfyra_menu.find((row: any) => row.label === 'Helpers');
+    expect(menu).toMatchObject({ path: '/settings/helpers', parent: 'Settings', isEnabled: true, isPublic: false, isSystem: true, order: 11 });
+    expect(bootstrapSourceArtifacts.defaultData.enfyra_menu.some((row: any) => row.path === '/data/enfyra_helper')).toBe(false);
+    const route = bootstrapSourceArtifacts.defaultData.enfyra_route.find((row: any) => row.path === '/enfyra_helper');
+    expect(route).toMatchObject({ mainTable: 'enfyra_helper', availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'] });
+    expect(route.publicMethods).toBeUndefined();
+    expect(route.skipRoleGuardMethods).toBeUndefined();
+  });
   it('declares the default page relation and preserves custom Dashboard presentation on upgrade', () => {
     const service = new BootstrapDefinitionService();
     const definition = service.resolveForVersion('2.3.1-patch-1');

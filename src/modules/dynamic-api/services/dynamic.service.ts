@@ -1,5 +1,9 @@
 import { Logger } from '../../../shared/logger';
 import {
+  attachDynamicDeliveryDiagnostics,
+  recordDynamicDeliveryTransport,
+} from '../utils/dynamic-delivery-diagnostics.util';
+import {
   HttpException,
   LoggingService,
   ScriptExecutionException,
@@ -250,6 +254,7 @@ export function attachStreamResponseHelper(res: any): void {
     }
     beginNativeResponse(res, { allowHeadersSent: true });
     applyResponseOptions(res, options);
+    recordDynamicDeliveryTransport(res, 'stream_start');
 
     return new Promise<void>((resolve, reject) => {
       let settled = false;
@@ -259,7 +264,17 @@ export function attachStreamResponseHelper(res: any): void {
         callback();
       };
 
+      readable.on('data', (chunk: unknown) => {
+        const bytes =
+          typeof chunk === 'string'
+            ? Buffer.byteLength(chunk)
+            : ArrayBuffer.isView(chunk)
+              ? chunk.byteLength
+              : 0;
+        recordDynamicDeliveryTransport(res, 'stream_chunk', bytes);
+      });
       readable.on('error', (error: Error) => {
+        recordDynamicDeliveryTransport(res, 'stream_error', undefined, error);
         const failure = recordDynamicStreamFailure(res, error);
         streamLogger.error({
           message: 'Dynamic response stream failed',
@@ -271,7 +286,10 @@ export function attachStreamResponseHelper(res: any): void {
         settle(() => reject(error));
         finishDynamicHttpFailure(res, failure);
       });
-      readable.on('end', () => settle(resolve));
+      readable.on('end', () => {
+        recordDynamicDeliveryTransport(res, 'stream_end');
+        settle(resolve);
+      });
       res.once('close', () => settle(resolve));
       readable.pipe(res);
     });
@@ -337,6 +355,7 @@ export class DynamicService {
       }
 
       const res = routeData.res;
+      if (res) attachDynamicDeliveryDiagnostics(req, res);
       const abortController = new AbortController();
       const unbindAbort = res
         ? bindDynamicHttpAbort(res, abortController)

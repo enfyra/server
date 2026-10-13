@@ -27,6 +27,7 @@ function createOrchestrator(overrides: Record<string, any> = {}) {
     flowCacheBuilder: cacheMock() as any,
     websocketCacheBuilder: cacheMock() as any,
     packageCacheService: cacheMock() as any,
+    sharedHelperCacheService: cacheMock() as any,
     settingCacheService: cacheMock() as any,
     authHeaderCacheBuilder: cacheMock() as any,
     storageConfigCacheBuilder: cacheMock() as any,
@@ -668,62 +669,89 @@ describe('CacheOrchestratorService reload notifications', () => {
     ]);
   });
 
-  it('bounds concurrent full reload builder steps', async () => {
-    let active = 0;
-    let maxActive = 0;
-    const completed: string[] = [];
-    const track = async (name: string) => {
-      active += 1;
-      maxActive = Math.max(maxActive, active);
-      await new Promise((resolve) => setTimeout(resolve, 5));
-      completed.push(name);
-      active -= 1;
-    };
-    const trackedCache = (name: string) =>
-      cacheMock({
-        reload: () => track(name),
-        syncFromSharedCache: () => track(`${name}:shared`),
+  it.each([false, true])(
+    'loads metadata and helpers first, then bounds full reload builders with shared replay %s',
+    async (sharedReplay) => {
+      let active = 0;
+      let maxActive = 0;
+      const started: string[] = [];
+      const completed: string[] = [];
+      const track = async (name: string) => {
+        if (!name.startsWith('metadata') && !name.startsWith('helper')) {
+          expect(completed.slice(0, 2)).toEqual(
+            sharedReplay
+              ? ['metadata:shared', 'helper:shared']
+              : ['metadata', 'helper'],
+          );
+        }
+        started.push(name);
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        completed.push(name);
+        active -= 1;
+      };
+      const trackedCache = (name: string) =>
+        cacheMock({
+          reload: () => track(name),
+          syncFromSharedCache: () => track(`${name}:shared`),
+        });
+      const { orchestrator } = createOrchestrator({
+        metadataCacheService: trackedCache('metadata') as any,
+        sharedHelperCacheService: trackedCache('helper') as any,
+        routeCacheService: trackedCache('route') as any,
+        guardCacheBuilder: trackedCache('guard') as any,
+        flowCacheBuilder: trackedCache('flow') as any,
+        websocketCacheBuilder: trackedCache('websocket') as any,
+        packageCacheService: trackedCache('package') as any,
+        settingCacheService: trackedCache('setting') as any,
+        authHeaderCacheBuilder: trackedCache('authHeader') as any,
+        storageConfigCacheBuilder: trackedCache('storage') as any,
+        oauthConfigCacheBuilder: trackedCache('oauth') as any,
+        folderTreeCacheService: trackedCache('folder') as any,
+        fieldPermissionCacheBuilder: trackedCache('fieldPermission') as any,
+        columnRuleCacheBuilder: trackedCache('columnRule') as any,
+        gqlDefinitionCacheService: trackedCache('graphql') as any,
+        repoRegistryService: {
+          rebuildFromMetadata: () => track('repoRegistry'),
+        } as any,
       });
-    const { orchestrator } = createOrchestrator({
-      routeCacheService: trackedCache('route') as any,
-      guardCacheBuilder: trackedCache('guard') as any,
-      flowCacheBuilder: trackedCache('flow') as any,
-      websocketCacheBuilder: trackedCache('websocket') as any,
-      packageCacheService: trackedCache('package') as any,
-      settingCacheService: trackedCache('setting') as any,
-      storageConfigCacheBuilder: trackedCache('storage') as any,
-      oauthConfigCacheBuilder: trackedCache('oauth') as any,
-      folderTreeCacheService: trackedCache('folder') as any,
-      fieldPermissionCacheBuilder: trackedCache('fieldPermission') as any,
-      columnRuleCacheBuilder: trackedCache('columnRule') as any,
-      gqlDefinitionCacheService: trackedCache('graphql') as any,
-      repoRegistryService: {
-        rebuildFromMetadata: () => track('repoRegistry'),
-      } as any,
-    });
 
-    await orchestrator.reloadAll();
+      await (orchestrator as any).reloadAllLocal(true, sharedReplay);
 
-    expect(maxActive).toBeGreaterThan(1);
-    expect(maxActive).toBeLessThanOrEqual(3);
-    expect(completed.sort()).toEqual(
-      [
-        'columnRule',
-        'fieldPermission',
-        'flow',
-        'folder',
-        'graphql',
-        'guard',
-        'oauth',
-        'package',
-        'repoRegistry',
-        'route',
-        'setting',
-        'storage',
-        'websocket',
-      ].sort(),
-    );
-  });
+      expect(started.slice(0, 2)).toEqual(
+        sharedReplay
+          ? ['metadata:shared', 'helper:shared']
+          : ['metadata', 'helper'],
+      );
+      expect(maxActive).toBeGreaterThan(1);
+      expect(maxActive).toBeLessThanOrEqual(3);
+      expect(completed.sort()).toEqual(
+        [
+          'metadata',
+          'helper',
+          'authHeader',
+          'columnRule',
+          'fieldPermission',
+          'flow',
+          'folder',
+          'graphql',
+          'guard',
+          'oauth',
+          'package',
+          'repoRegistry',
+          'route',
+          'setting',
+          'storage',
+          'websocket',
+        ]
+          .map((name) =>
+            sharedReplay && name !== 'repoRegistry' ? `${name}:shared` : name,
+          )
+          .sort(),
+      );
+    },
+  );
 
   it('creates unique reload ids for same-flow reloads queued in one process', async () => {
     const { orchestrator, emitted } = createOrchestrator();
