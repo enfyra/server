@@ -212,6 +212,33 @@ describe('private dynamic delivery diagnostics', () => {
     clearDiagnostics();
   });
 
+  it('retains bounded proxy linkage only as untrusted diagnostics', async () => {
+    clearDiagnostics();
+    const { req, res } = fixture();
+    req.headers['x-enfyra-delivery-hop'] =
+      '46f9cacd-e79f-46b4-8cae-78d207ced765';
+    recordDynamicClientDisconnect(res);
+    res.emit('close');
+    await Promise.resolve();
+    expect((diagnosticRows()[0].record.details as any).proxyLink).toEqual({
+      hopId: '46f9cacd-e79f-46b4-8cae-78d207ced765',
+      trusted: false,
+    });
+    clearDiagnostics();
+    const second = fixture();
+    second.req.headers['x-enfyra-delivery-hop'] = 'private-header-value';
+    recordDynamicClientDisconnect(second.res);
+    second.res.emit('close');
+    await Promise.resolve();
+    expect(
+      (diagnosticRows()[0].record.details as any).proxyLink,
+    ).toBeUndefined();
+    expect(JSON.stringify(diagnosticRows())).not.toContain(
+      'private-header-value',
+    );
+    clearDiagnostics();
+  });
+
   it('captures request abort separately from response close without recording caller join IDs', async () => {
     clearDiagnostics();
     const { req, res } = fixture();

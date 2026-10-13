@@ -190,6 +190,14 @@ export function attachDynamicDeliveryDiagnostics(
         executionId: safeId(
           request.routeData?.context?.$api?.request?.executionId,
         ),
+        ...(safeId(req.headers['x-enfyra-delivery-hop'])
+          ? {
+              proxyLink: {
+                hopId: safeId(req.headers['x-enfyra-delivery-hop']),
+                trusted: false,
+              },
+            }
+          : {}),
         method: /^[A-Z]{1,12}$/.test(req.method) ? req.method : undefined,
         statusCode: failure?.statusCode ?? response.statusCode,
         wireStatusCode: response.statusCode,
