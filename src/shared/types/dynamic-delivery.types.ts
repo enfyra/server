@@ -1,6 +1,20 @@
 export type DynamicDeliveryStage =
   | 'dispatch_start'
   | 'upstream_headers'
+  | 'upstream_body_first_byte'
+  | 'upstream_body_progress'
+  | 'upstream_body_end'
+  | 'buffered_preflight_start'
+  | 'buffered_preflight_end'
+  | 'buffered_read_start'
+  | 'buffered_read_end'
+  | 'frame_inspection_start'
+  | 'frame_inspection_end'
+  | 'transform_start'
+  | 'transform_end'
+  | 'transform_error'
+  | 'public_relay_start'
+  | 'public_relay_end'
   | 'upstream_first_frame'
   | 'upstream_terminal'
   | 'upstream_usage'
@@ -16,6 +30,12 @@ export type DynamicDeliveryStage =
 export interface DynamicDeliveryFields {
   statusCode?: number;
   bytes?: number;
+  chunks?: number;
+  clientStreaming?: boolean;
+  upstreamStreaming?: boolean;
+  protocol?: 'chat' | 'responses' | 'messages';
+  contentKind?: 'sse' | 'json' | 'other';
+  errorCode?: string;
 }
 
 export type DynamicDeliveryRecorder = (

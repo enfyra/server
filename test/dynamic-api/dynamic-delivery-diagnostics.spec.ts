@@ -134,6 +134,84 @@ describe('private dynamic delivery diagnostics', () => {
     expect(res.listenerCount('error')).toBe(0);
   });
 
+  it.each([
+    ['buffered_preflight_start', 'buffered_preflight_end'],
+    ['buffered_read_start', 'buffered_read_end'],
+    ['frame_inspection_start', 'frame_inspection_end'],
+    ['transform_start', 'transform_end'],
+    ['public_relay_start', 'public_relay_end'],
+  ] as const)(
+    'distinguishes an interrupted %s from completed work',
+    async (start, end) => {
+      clearDiagnostics();
+      const { req, res } = fixture();
+      recordDynamicDeliveryStage(req, 'dispatch_start', {
+        clientStreaming: start === 'frame_inspection_start',
+        upstreamStreaming: true,
+        protocol: 'chat',
+      });
+      recordDynamicDeliveryStage(req, start);
+      recordDynamicClientDisconnect(res);
+      res.emit('close');
+      await Promise.resolve();
+      const details = diagnosticRows()[0].record.details as any;
+      expect(details.gateway.dispatch_start.clientStreaming).toBe(
+        start === 'frame_inspection_start',
+      );
+      expect(details.gateway.dispatch_start.upstreamStreaming).toBe(true);
+      expect(details.gateway.dispatch_start.protocol).toBe('chat');
+      expect(details.gateway[start]).toBeDefined();
+      expect(details.gateway[end]).toBeUndefined();
+      clearDiagnostics();
+    },
+  );
+
+  it('retains bounded latest raw-read progress without overwriting its first timestamp', async () => {
+    clearDiagnostics();
+    const { req, res } = fixture();
+    recordDynamicDeliveryStage(req, 'upstream_body_progress', {
+      bytes: 2,
+      chunks: 1,
+    });
+    recordDynamicDeliveryStage(req, 'upstream_body_progress', {
+      bytes: 12,
+      chunks: 3,
+    });
+    recordDynamicDeliveryStage(req, 'upstream_body_progress', {
+      bytes: -1,
+      chunks: Infinity,
+    });
+    recordDynamicDeliveryStage(req, 'upstream_headers', {
+      statusCode: 200,
+      contentKind: 'sse',
+      protocol: 'private-prompt',
+      clientStreaming: 'private-key',
+      errorCode: 'private-error-message',
+      message: 'private-body',
+    } as never);
+    res.emit('close');
+    await Promise.resolve();
+    const details = diagnosticRows()[0].record.details as any;
+    expect(details.gateway.upstream_body_progress).toMatchObject({
+      bytes: 12,
+      chunks: 3,
+      elapsedMs: expect.any(Number),
+      lastElapsedMs: expect.any(Number),
+    });
+    expect(details.gateway.upstream_headers).toMatchObject({
+      statusCode: 200,
+      contentKind: 'sse',
+    });
+    for (const value of [
+      'private-prompt',
+      'private-key',
+      'private-error-message',
+      'private-body',
+    ])
+      expect(JSON.stringify(details)).not.toContain(value);
+    clearDiagnostics();
+  });
+
   it('captures request abort separately from response close without recording caller join IDs', async () => {
     clearDiagnostics();
     const { req, res } = fixture();

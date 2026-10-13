@@ -6,7 +6,10 @@ import type {
 import { recordSystemError } from '../../../shared/runtime-log-buffer';
 import { getDynamicHttpFailure } from './dynamic-http-failure.util';
 
-type Milestone = DynamicDeliveryFields & { elapsedMs: number };
+type Milestone = DynamicDeliveryFields & {
+  elapsedMs: number;
+  lastElapsedMs?: number;
+};
 type DeliveryState = {
   startedAt: number;
   gateway: Partial<Record<DynamicDeliveryStage, Milestone>>;
@@ -18,6 +21,20 @@ const responses = new WeakMap<object, DeliveryState>();
 const stages = new Set<DynamicDeliveryStage>([
   'dispatch_start',
   'upstream_headers',
+  'upstream_body_first_byte',
+  'upstream_body_progress',
+  'upstream_body_end',
+  'buffered_preflight_start',
+  'buffered_preflight_end',
+  'buffered_read_start',
+  'buffered_read_end',
+  'frame_inspection_start',
+  'frame_inspection_end',
+  'transform_start',
+  'transform_end',
+  'transform_error',
+  'public_relay_start',
+  'public_relay_end',
   'upstream_first_frame',
   'upstream_terminal',
   'upstream_usage',
@@ -50,7 +67,16 @@ export function recordDynamicDeliveryStage(
 ): void {
   if (!stages.has(stage)) return;
   const state = stateForRequest(req);
-  if (state.gateway[stage]) return;
+  const previous = state.gateway[stage];
+  if (previous) {
+    if (stage !== 'upstream_body_progress') return;
+    if (Number.isSafeInteger(fields?.bytes) && fields!.bytes! >= 0)
+      previous.bytes = Math.max(previous.bytes ?? 0, fields!.bytes!);
+    if (Number.isSafeInteger(fields?.chunks) && fields!.chunks! >= 0)
+      previous.chunks = Math.max(previous.chunks ?? 0, fields!.chunks!);
+    previous.lastElapsedMs = Math.max(0, Date.now() - state.startedAt);
+    return;
+  }
   const milestone: Milestone = {
     elapsedMs: Math.max(0, Date.now() - state.startedAt),
   };
@@ -62,6 +88,31 @@ export function recordDynamicDeliveryStage(
     milestone.statusCode = fields!.statusCode;
   if (Number.isSafeInteger(fields?.bytes) && fields!.bytes! >= 0)
     milestone.bytes = fields!.bytes;
+  if (Number.isSafeInteger(fields?.chunks) && fields!.chunks! >= 0)
+    milestone.chunks = fields!.chunks;
+  if (typeof fields?.clientStreaming === 'boolean')
+    milestone.clientStreaming = fields.clientStreaming;
+  if (typeof fields?.upstreamStreaming === 'boolean')
+    milestone.upstreamStreaming = fields.upstreamStreaming;
+  if (
+    fields?.protocol === 'chat' ||
+    fields?.protocol === 'responses' ||
+    fields?.protocol === 'messages'
+  )
+    milestone.protocol = fields.protocol;
+  if (
+    fields?.contentKind === 'sse' ||
+    fields?.contentKind === 'json' ||
+    fields?.contentKind === 'other'
+  )
+    milestone.contentKind = fields.contentKind;
+  if (
+    typeof fields?.errorCode === 'string' &&
+    /^(?:ERR|UND_ERR|E)[A-Z0-9_]{1,64}$/.test(fields.errorCode)
+  )
+    milestone.errorCode = fields.errorCode;
+  if (stage === 'upstream_body_progress')
+    milestone.lastElapsedMs = milestone.elapsedMs;
   state.gateway[stage] = milestone;
 }
 
