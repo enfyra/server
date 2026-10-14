@@ -1,5 +1,9 @@
 export type DynamicDeliveryStage =
   | 'dispatch_start'
+  | 'dispatch_body_ready'
+  | 'upstream_request_start'
+  | 'upstream_request_end'
+  | 'upstream_request_error'
   | 'upstream_headers'
   | 'upstream_body_first_byte'
   | 'upstream_body_progress'

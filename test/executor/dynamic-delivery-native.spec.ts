@@ -43,6 +43,9 @@ for (const mode of ['success', 'downstream-close', 'source-error']) {
         loggingService: { error() {} },
       } as any);
       const handler = String.raw`
+        await @HELPERS.$delivery('dispatch_body_ready', { prompt: 'private-prompt' });
+        await @HELPERS.$delivery('upstream_request_start', { url: 'https://private-upstream.invalid' });
+        await @HELPERS.$delivery('upstream_request_end', { headers: { authorization: 'private-upstream-key' } });
         await @HELPERS.$delivery('upstream_headers', { statusCode: 200, secret: 'private-upstream-key' });
         const relay = async function* () {
           await @HELPERS.$delivery('upstream_terminal');
@@ -129,6 +132,15 @@ for (const mode of ['success', 'downstream-close', 'source-error']) {
         else {
           expect(logs).toHaveLength(1);
           const details = logs[0].record.details as any;
+          expect(details.gateway.dispatch_body_ready).toEqual({
+            elapsedMs: expect.any(Number),
+          });
+          expect(details.gateway.upstream_request_start).toEqual({
+            elapsedMs: expect.any(Number),
+          });
+          expect(details.gateway.upstream_request_end).toEqual({
+            elapsedMs: expect.any(Number),
+          });
           expect(details.gateway.upstream_headers.statusCode).toBe(200);
           expect(details.gateway.upstream_terminal).toBeDefined();
           expect(details.gateway.upstream_eof).toBeUndefined();

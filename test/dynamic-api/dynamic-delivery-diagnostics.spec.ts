@@ -99,6 +99,10 @@ describe('private dynamic delivery diagnostics', () => {
     clearDiagnostics();
     const { req, res } = fixture();
     const stages = [
+      'dispatch_body_ready',
+      'upstream_request_start',
+      'upstream_request_end',
+      'upstream_request_error',
       'upstream_protocol_complete',
       'settlement_metadata_start',
       'settlement_metadata_end',

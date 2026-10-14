@@ -20,6 +20,10 @@ const requests = new WeakMap<object, DeliveryState>();
 const responses = new WeakMap<object, DeliveryState>();
 const stages = new Set<DynamicDeliveryStage>([
   'dispatch_start',
+  'dispatch_body_ready',
+  'upstream_request_start',
+  'upstream_request_end',
+  'upstream_request_error',
   'upstream_headers',
   'upstream_body_first_byte',
   'upstream_body_progress',
