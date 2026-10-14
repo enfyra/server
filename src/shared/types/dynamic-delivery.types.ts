@@ -20,12 +20,24 @@ export type DynamicDeliveryStage =
   | 'upstream_usage'
   | 'upstream_done'
   | 'upstream_eof'
+  | 'upstream_protocol_complete'
   | 'upstream_read_error'
   | 'protocol_error'
   | 'public_terminal_ready'
   | 'public_done_ready'
   | 'settlement_start'
-  | 'settlement_committed';
+  | 'settlement_committed'
+  | 'settlement_metadata_start'
+  | 'settlement_metadata_end'
+  | 'settlement_lease_start'
+  | 'settlement_lease_acquired'
+  | 'settlement_transaction_start'
+  | 'settlement_user_lock_start'
+  | 'settlement_user_lock_acquired'
+  | 'settlement_publication_start'
+  | 'settlement_publication_end'
+  | 'settlement_lease_release_start'
+  | 'settlement_lease_release_end';
 
 export interface DynamicDeliveryFields {
   statusCode?: number;

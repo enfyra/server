@@ -95,6 +95,42 @@ describe('private dynamic delivery diagnostics', () => {
     clearDiagnostics();
   });
 
+  it('retains bounded completion and settlement subphases without private lock data', async () => {
+    clearDiagnostics();
+    const { req, res } = fixture();
+    const stages = [
+      'upstream_protocol_complete',
+      'settlement_metadata_start',
+      'settlement_metadata_end',
+      'settlement_lease_start',
+      'settlement_lease_acquired',
+      'settlement_transaction_start',
+      'settlement_user_lock_start',
+      'settlement_user_lock_acquired',
+      'settlement_publication_start',
+      'settlement_publication_end',
+      'settlement_lease_release_start',
+      'settlement_lease_release_end',
+    ] as const;
+    for (const stage of stages) {
+      recordDynamicDeliveryStage(
+        req,
+        stage as any,
+        { lockKey: 'private-user', lockToken: 'private-token' } as any,
+      );
+    }
+    recordDynamicClientDisconnect(res);
+    res.emit('close');
+    await Promise.resolve();
+    const gateway = (diagnosticRows()[0].record.details as any).gateway;
+    for (const stage of stages)
+      expect(gateway[stage]?.elapsedMs).toEqual(expect.any(Number));
+    expect(JSON.stringify(gateway)).not.toMatch(
+      /private-user|private-token|lockKey|lockToken/,
+    );
+    clearDiagnostics();
+  });
+
   it('does not misclassify server destruction or persist error payloads', async () => {
     clearDiagnostics();
     const { req, res } = fixture();

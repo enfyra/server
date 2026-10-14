@@ -24,7 +24,7 @@ function httpRequest() {
     user: { id: 'member' },
   }, { params: {}, realClientIP: '127.0.0.1' });
   return Object.assign(new EventEmitter(), {
-    method: 'POST', url: '/v2/chat/completions', body: context.$body, user: { id: 'member' },
+    method: 'POST', url: '/v2/chat/completions', headers: {}, body: context.$body, user: { id: 'member' },
     routeData: { context, res, handler: '', postHooks: [], preHooks: [], routeMethodConfig: { timeout: 3000 } },
   });
 }
@@ -50,7 +50,8 @@ describe('cancelled dynamic request audit', () => {
     };
     const service = new DynamicService({ executorEngineService: executor, loggingService: { error: vi.fn() }, dynamicCancellationService: { run: finalize } } as any);
     const running = service.runHandler(req as any);
-    if (event === 'request') req.emit('aborted'); else req.routeData.res.emit('close');
+    if (event === 'request') req.emit('aborted');
+    req.routeData.res.emit('close');
     await running;
       expect(finalize).toHaveBeenCalledExactlyOnceWith(
         req,
