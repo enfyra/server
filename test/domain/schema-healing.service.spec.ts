@@ -41,6 +41,7 @@ function makeQb(findImpl: (args: any) => any, updateMock: any) {
   return {
     find: vi.fn(findImpl as any),
     update: updateMock,
+    isMongoDb: vi.fn().mockReturnValue(false),
     getDatabaseType: vi.fn().mockReturnValue('postgres'),
     getKnex: vi.fn().mockReturnValue(knex),
     getMongoDb: vi.fn().mockReturnValue({
@@ -148,7 +149,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
     expect(repairedTables).toEqual([43]);
   });
 
-  it('normalizes fkColumn to propertyName in uniques and indexes', async () => {
+  it('normalizes fkColumn to propertyName and stores SQL metadata as JSON text', async () => {
     const update = vi.fn().mockResolvedValue(undefined);
     const qb = makeQb(() => ({ data: [] }), update);
     const cache = makeCache([
@@ -171,9 +172,32 @@ describe('SchemaHealingService.runIfNeeded', () => {
     const tableUpdate = update.mock.calls[0];
     expect(tableUpdate[0]).toBe('enfyra_table');
     expect(tableUpdate[2]).toEqual({
-      uniques: [['author', 'slug']],
-      indexes: [['post']],
+      uniques: '[["author","slug"]]',
+      indexes: '[["post"]]',
     });
+  });
+
+  it('keeps Mongo metadata groups as native arrays', async () => {
+    const update = vi.fn().mockResolvedValue(undefined);
+    const qb = makeQb(() => ({ data: [] }), update);
+    qb.isMongoDb.mockReturnValue(true);
+    const cache = makeCache([
+      makeTable({
+        id: 42,
+        name: 'comment',
+        uniques: [['authorId', 'slug']],
+        indexes: [['authorId']],
+        relations: [{ propertyName: 'author', foreignKeyColumn: 'authorId' }],
+      }),
+    ]);
+
+    await makeService(qb, cache).runExplicitRepairs();
+
+    expect(update).toHaveBeenCalledWith(
+      'enfyra_table',
+      { where: [{ field: 'id', operator: '=', value: 42 }] },
+      { uniques: [['author', 'slug']], indexes: [] },
+    );
   });
 
   it('removes a dynamic index covered by a unique and drops its physical index', async () => {
@@ -221,12 +245,18 @@ describe('SchemaHealingService.runIfNeeded', () => {
     expect(update).toHaveBeenCalledWith(
       'enfyra_table',
       { where: [{ field: 'id', operator: '=', value: 191 }] },
-      { uniques: [['user', 'discount']], indexes: [['discount'], ['createdAt']] },
+      {
+        uniques: '[["user","discount"]]',
+        indexes: '[["discount"],["createdAt"]]',
+      },
     );
     expect(update).toHaveBeenCalledWith(
       'enfyra_table',
       { where: [{ field: 'id', operator: '=', value: 51 }] },
-      { uniques: [['provider', 'providerUserId']], indexes: [['user']] },
+      {
+        uniques: '[["provider","providerUserId"]]',
+        indexes: '[["user"]]',
+      },
     );
     const dropped = knex.raw.mock.calls
       .map((call: unknown[]) => String(call[0]))
@@ -590,7 +620,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
     const tableUpdate = update.mock.calls.find(
       (c: any) => c[0] === 'enfyra_table',
     );
-    expect(tableUpdate![2].uniques).toEqual([['author']]);
+    expect(tableUpdate![2].uniques).toBe('[["author"]]');
   });
 
   it('heals SQL M2M junction metadata to the physical contract', async () => {

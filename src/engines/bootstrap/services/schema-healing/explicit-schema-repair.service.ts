@@ -83,10 +83,16 @@ export class ExplicitSchemaRepairService {
         await this.dropCoveredPhysicalIndexes(table, coveredIndexes);
 
         const idField = DatabaseConfigService.getPkField();
+        const metadataUpdate = this.queryBuilderService.isMongoDb()
+          ? { uniques: newUniques, indexes: newIndexes }
+          : {
+              uniques: JSON.stringify(newUniques),
+              indexes: JSON.stringify(newIndexes),
+            };
         await this.queryBuilderService.update(
           await this.systemCoreTableResolver.getTableName('table'),
           { where: [{ field: idField, operator: '=', value: table.id }] },
-          { uniques: newUniques, indexes: newIndexes },
+          metadataUpdate,
         );
         repaired++;
         this.log(
