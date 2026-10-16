@@ -19,8 +19,10 @@ import type {
   RuntimeSchemaRelationContract,
 } from '../types/runtime-schema-mutation.types';
 import { buildRuntimeSchemaChangePlan } from '../utils/runtime-schema-change-plan.util';
+import { assertNoManualRelationIndexes, assertNoNewRedundantIndexes } from '../utils/schema-index-validation.util';
 import {
   normalizeRuntimePolicyMetadata,
+  findRuntimeSchemaConstraintConflicts,
   assertRuntimeNestedMetadataIdsOwned,
   normalizeRuntimeTableSchema,
   runtimeRelationDiffKey,
@@ -50,6 +52,16 @@ export class RuntimeSchemaContractCompilerService {
     const targetInput =
       input.afterMetadata ??
       (input.operation === 'create' ? input.data : undefined);
+    assertNoNewRedundantIndexes(targetInput, input.beforeMetadata);
+    assertNoManualRelationIndexes(
+      targetInput,
+      targetInput && typeof targetInput === 'object'
+        ? (targetInput as Record<string, unknown>).indexes
+        : undefined,
+      input.beforeMetadata && typeof input.beforeMetadata === 'object'
+        ? (input.beforeMetadata as Record<string, unknown>).indexes
+        : [],
+    );
     assertRuntimeNestedMetadataIdsOwned(input.operation, input.beforeMetadata, targetInput);
     const executionTarget = normalizeRuntimeTableSchema(targetInput, {
       backend,
@@ -87,11 +99,20 @@ export class RuntimeSchemaContractCompilerService {
       before?.contract.relations ?? [],
       executionTarget?.contract.relations ?? [],
     );
+    const redundantSourceIndexes = findRuntimeSchemaConstraintConflicts(input.beforeMetadata)
+      .map(conflict => conflict.index);
+    const sourceIndexKeys = new Set((before?.contract.indexes as string[][] ?? []).map(index => JSON.stringify(index)));
+    const beforeForDiff = before && redundantSourceIndexes.length > 0
+      ? { ...before, contract: { ...before.contract, indexes: [
+        ...(before.contract.indexes as string[][]),
+        ...redundantSourceIndexes.filter(index => !sourceIndexKeys.has(JSON.stringify(index))),
+      ] } }
+      : before;
     const { changes, diff } = buildRuntimeSchemaChangePlan({
       operation: input.operation,
       tableName:
         after?.contract.name || before?.contract.name || input.tableName.trim(),
-      before,
+      before: beforeForDiff,
       after: executionTarget,
       owningSideInverseCascadeWarnings: warnings,
       policyMetadataChanged,

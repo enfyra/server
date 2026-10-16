@@ -17,6 +17,7 @@ import type { RuntimeSchemaContractCompilerService } from './runtime-schema-cont
 import type { RuntimeSchemaExecutorService } from './runtime-schema-executor.service';
 import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
 import { normalizeTableConstraints } from '../utils/table-constraints.util';
+import { assertNoManualRelationIndexes, assertNoNewRedundantIndexes } from '../utils/schema-index-validation.util';
 import { normalizeRuntimeTableSchema } from '../utils/runtime-schema-normalization.util';
 import { RUNTIME_SCHEMA_METADATA_READ_DEEP } from '../utils/runtime-schema-metadata-read.util';
 import type { TableManagementValidationService } from './table-validation.service';
@@ -266,6 +267,8 @@ export class RuntimeMetadataSchemaRouterService {
   async createTable(
     input: RuntimeTableMutationInput,
   ): Promise<RuntimeMetadataSchemaMutationResult> {
+    assertNoNewRedundantIndexes(input.body);
+    assertNoManualRelationIndexes(input.body, input.body?.indexes);
     const body = this.normalizeCompleteTableConstraints(input.body!);
     this.validateSchemaBody(body);
     const resolvedBody = await this.resolveRelationTargetNames(body);
@@ -523,6 +526,10 @@ export class RuntimeMetadataSchemaRouterService {
         }
         return rel;
       });
+    }
+    assertNoNewRedundantIndexes(target, existing);
+    if (Array.isArray(body.indexes)) {
+      assertNoManualRelationIndexes(target, body.indexes, existing.indexes);
     }
     return this.normalizeCompleteTableConstraints(target, fieldRenames);
   }

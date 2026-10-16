@@ -243,6 +243,7 @@ export function buildMongoFullIndexSpecs(input: {
 
   for (const index of indexes) {
     if (!Array.isArray(index) || index.length === 0) continue;
+    if (uniques.some(unique => unique.length >= index.length && index.every((field, position) => unique[position] === field))) continue;
     const temporalDirection =
       index.length === 1 &&
       (index[0] === 'createdAt' || index[0] === 'updatedAt')
@@ -350,7 +351,7 @@ export function getMongoCanonicalConstraintGroups(input: {
   }
 
   const indexes = (input.indexes || []).filter(
-    (group) => !uniqueKeys.has(group.join('|')),
+    (group) => !uniques.some(unique => unique.length >= group.length && group.every((field, position) => unique[position] === field)),
   );
   const specs = buildMongoFullIndexSpecs({
     ...input,

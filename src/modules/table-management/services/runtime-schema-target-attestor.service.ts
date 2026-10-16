@@ -375,9 +375,9 @@ export class RuntimeSchemaTargetAttestorService {
       return true;
     }
     return buildSqlUniqueContracts(state.name, state as any).some((unique) => {
-      if (unique.physicalColumns.length !== indexPrefix.length) return false;
-      return unique.physicalColumns.every(
-        (column, index) => column.toLowerCase() === indexPrefix[index],
+      if (unique.physicalColumns.length < indexPrefix.length) return false;
+      return indexPrefix.every(
+        (column, index) => unique.physicalColumns[index].toLowerCase() === column,
       );
     });
   }

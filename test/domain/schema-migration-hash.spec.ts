@@ -194,26 +194,18 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
     expect(decision.code).toBe('SCHEMA_CONFIRM_HASH_MISMATCH');
   });
 
-  it('canonicalizes an exact index duplicate of a unique field before compiling a create schema', async () => {
+  it('rejects an explicit index duplicate of a unique field before compiling a create schema', async () => {
     const v = makeValidator();
-    const decision = await v.checkSchemaMigration({
+    await expect(v.checkSchemaMigration({
       operation: 'create',
       tableName: 'enfyra_table',
       data: {
         name: 'runtime_versions',
         uniques: [{ value: ['version'] }],
-        indexes: [
-          { value: ['is_active', 'sort_order'] },
-          { value: ['version'] },
-        ],
+        indexes: [{ value: ['is_active', 'sort_order'] }, { value: ['version'] }],
       },
       requestContext: { $query: {} },
-    });
-
-    expect(decision.allow).toBe(true);
-    expect(
-      decision.details.schemaMutationContract.context.target.indexes,
-    ).toEqual([['createdAt'], ['is_active', 'sort_order'], ['updatedAt']]);
+    })).rejects.toMatchObject({ details: { code: 'SCHEMA_INDEX_OVER_UNIQUE_FIELD' } });
   });
 
   it('allows an index that overlaps a unique field without duplicating its lookup', async () => {
@@ -330,25 +322,20 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
     expect(decision.details.requiredConfirmHash).toHaveLength(64);
   });
 
-  it('allows a shared lookup index for multiple composite unique constraints', async () => {
+  it('rejects a lookup already covered by composite unique prefixes', async () => {
     const v = makeValidator();
-    const decision = await v.checkSchemaMigration({
+    await expect(v.checkSchemaMigration({
       operation: 'create',
       tableName: 'cloud_host_databases',
       data: {
-        uniques: [
-          ['host', 'db_name'],
-          ['host', 'db_user'],
-        ],
+        uniques: [['host', 'db_name'], ['host', 'db_user']],
         indexes: [['host']],
       },
       requestContext: { $query: {} },
-    });
-
-    expect(decision.code).not.toBe('SCHEMA_INDEX_OVER_UNIQUE_FIELD');
-    expect(
-      decision.details.schemaMutationContract.context.target.indexes,
-    ).toContainEqual(['host']);
+    })).rejects.toMatchObject({ details: {
+      code: 'SCHEMA_INDEX_OVER_UNIQUE_FIELD',
+      conflicts: [expect.objectContaining({ index: ['host'], uniqueConstraints: expect.any(Array) })],
+    } });
   });
 
   it('hash differs when adding different column (not just id)', async () => {
