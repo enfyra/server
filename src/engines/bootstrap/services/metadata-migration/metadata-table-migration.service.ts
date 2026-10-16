@@ -12,6 +12,7 @@ import { SystemCoreTableResolver } from '../system-core-table-resolver.service';
 import { MetadataColumnMigrationService } from './metadata-column-migration.service';
 import { MetadataRelationMigrationService } from './metadata-relation-migration.service';
 import { MetadataTableLocator } from './metadata-table-locator.service';
+import { deleteMongoMetadataRecords } from '../../utils/delete-mongo-metadata-records.util';
 
 export class MetadataTableMigrationService {
   private readonly logger = new Logger(MetadataTableMigrationService.name);
@@ -120,18 +121,18 @@ export class MetadataTableMigrationService {
             SYSTEM_TABLES.route,
           )
         ) {
-          await db
-            .collection(SYSTEM_TABLES.route)
-            .deleteMany({ mainTable: tableId });
+          await deleteMongoMetadataRecords(db, SYSTEM_TABLES.route, {
+            mainTable: tableId,
+          });
         }
         if (
           await this.physicalMigration.mongoCollectionExists(
             SYSTEM_TABLES.graphql,
           )
         ) {
-          await db
-            .collection(SYSTEM_TABLES.graphql)
-            .deleteMany({ table: tableId });
+          await deleteMongoMetadataRecords(db, SYSTEM_TABLES.graphql, {
+            table: tableId,
+          });
         }
         if (relationIds.length > 0) {
           await db

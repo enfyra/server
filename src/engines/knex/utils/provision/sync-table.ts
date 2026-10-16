@@ -693,10 +693,6 @@ export async function applyRelationMigrations(
               .references(foreignKey.targetColumn)
               .inTable(foreignKey.targetTable);
             fk.onDelete(foreignKey.onDelete).onUpdate(foreignKey.onUpdate);
-            table.index(
-              [fkColumn, 'id'],
-              getShortSqlIdentifier('idx', tableName, fkColumn),
-            );
           });
         } catch (error) {
           rethrowPostgresTransactionError(knex, error);

@@ -69,7 +69,7 @@ export function pipelineRequestHandling(cradle: Cradle, container: AwilixContain
     fileUploadMiddleware(cradle.runtimeRegistryService, cradle.dynamicWebSocketGateway),
     requestLoggingBegin,
     bodyValidationMiddleware(container),
-    dynamicInterceptorBegin(cradle.executorEngineService, cradle.runtimeScriptRepairService),
+    dynamicInterceptorBegin(cradle.executorEngineService, cradle.runtimeScriptRepairService, cradle.dynamicCancellationService),
   ];
 }
 

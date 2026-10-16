@@ -1,7 +1,11 @@
 import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
-import { BadRequestException } from '../../domain/exceptions';
+import type { RuntimeRegistryService } from '../../engines/cache/services/runtime-registry.service';
+import {
+  createOAuthRedirectValidator,
+  parseOAuthRedirectUrl,
+} from '../../domain/auth/utils/oauth-redirect.util';
 
 export function registerAuthRoutes(
   app: Express,
@@ -70,7 +74,25 @@ export function registerAuthRoutes(
   });
 
   app.get('/auth/set-cookies', async (req: any, res: Response) => {
-    const redirect = requireValidRedirectUrl(req.query.redirect);
+    const redirectUrl = parseOAuthRedirectUrl(req.query.redirect);
+    const runtimeRegistry: RuntimeRegistryService =
+      req.scope?.cradle?.runtimeRegistryService ??
+      container.cradle.runtimeRegistryService;
+    const queryBuilder =
+      req.scope?.cradle?.queryBuilderService ??
+      container.cradle.queryBuilderService;
+    const appOrigins = runtimeRegistry
+      .getOauthProviders()
+      .map((provider) => {
+        const config = runtimeRegistry.getOauthConfigByProvider(provider);
+        return config ? parseOAuthRedirectUrl(config.redirectUri).origin : null;
+      })
+      .filter((origin): origin is string => origin !== null);
+    const validateRedirect = await createOAuthRedirectValidator(
+      queryBuilder,
+      appOrigins,
+    );
+    const redirect = validateRedirect(redirectUrl.toString());
     const error =
       typeof req.query.error === 'string' && req.query.error.length > 0
         ? req.query.error
@@ -95,23 +117,6 @@ export function registerAuthRoutes(
     res.setHeader('Set-Cookie', cookieHeaders);
     return res.redirect(redirect);
   });
-}
-
-function requireValidRedirectUrl(value: unknown): string {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new BadRequestException('Redirect URL is required');
-  }
-
-  try {
-    const parsed = new URL(value);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new BadRequestException('Invalid redirect URL protocol');
-    }
-    return parsed.toString();
-  } catch (err) {
-    if (err instanceof BadRequestException) throw err;
-    throw new BadRequestException('Invalid redirect URL');
-  }
 }
 
 function createAuthCookieHeaders(

@@ -1,6 +1,5 @@
 import { asClass } from 'awilix';
 import {
-  BootstrapScriptDefinitionProcessor,
   ExtensionDefinitionProcessor,
   FlowDefinitionProcessor,
   FlowExecutionDefinitionProcessor,
@@ -20,7 +19,6 @@ import {
   UserDefinitionProcessor,
   WebsocketDefinitionProcessor,
   WebsocketEventDefinitionProcessor,
-  BootstrapScriptService,
 } from '../../domain/bootstrap';
 import {
   BootstrapDefinitionService,
@@ -60,7 +58,6 @@ export const bootstrapInfraRegisters = {
   metadataMigrationService: asClass(MetadataMigrationService).singleton(),
   routeMethodConfigBackfillService: asClass(RouteMethodConfigBackfillService).singleton(),
   snapshotTargetVerifierService: asClass(SnapshotTargetVerifierService).singleton(),
-  bootstrapScriptService: asClass(BootstrapScriptService).singleton(),
 } as const;
 
 export const bootstrapProcessorRegisters = {
@@ -75,7 +72,6 @@ export const bootstrapProcessorRegisters = {
   settingDefinitionProcessor: asClass(SettingDefinitionProcessor).singleton(),
   extensionDefinitionProcessor: asClass(ExtensionDefinitionProcessor).singleton(),
   folderDefinitionProcessor: asClass(FolderDefinitionProcessor).singleton(),
-  bootstrapScriptDefinitionProcessor: asClass(BootstrapScriptDefinitionProcessor).singleton(),
   routePermissionDefinitionProcessor: asClass(RoutePermissionDefinitionProcessor).singleton(),
   websocketDefinitionProcessor: asClass(WebsocketDefinitionProcessor).singleton(),
   websocketEventDefinitionProcessor: asClass(WebsocketEventDefinitionProcessor).singleton(),

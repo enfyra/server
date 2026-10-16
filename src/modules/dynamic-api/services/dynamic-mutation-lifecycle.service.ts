@@ -328,6 +328,7 @@ export class DynamicMutationLifecycleService {
         fields: '*',
         filter: { [runtime.getIdField()]: { _eq: id } },
         limit: 1,
+        ...(runtime.readLocked ? { forUpdate: true } : {}),
       });
       const exists =
         canonicalExistsResult?.data?.[0] ?? existsResult?.data?.[0];

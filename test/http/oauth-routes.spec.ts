@@ -34,7 +34,16 @@ function createHarness() {
   const configService = {
     get: vi.fn(() => 'test-secret'),
   };
+  const queryBuilderService = {
+    find: vi.fn(async () => ({
+      data: [
+        { value: 'https://demo.enfyra.io', isEnabled: true },
+        { value: 'https://chat.example.com', isEnabled: true },
+      ],
+    })),
+  };
   const cradle = {
+    queryBuilderService,
     oauthService,
     oauthExchangeCodeService,
     runtimeRegistryService,

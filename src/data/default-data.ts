@@ -585,19 +585,6 @@ const defaultData = {
       ]
     },
     {
-      "path": "/enfyra_bootstrap_script",
-      "mainTable": "enfyra_bootstrap_script",
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:play",
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
       "path": "/enfyra_storage_config",
       "mainTable": "enfyra_storage_config",
       "isEnabled": true,
@@ -837,6 +824,14 @@ const defaultData = {
       ]
     },
     {
+      "path": "/enfyra_helper",
+      "mainTable": "enfyra_helper",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:code",
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
       "path": "/enfyra_flow",
       "mainTable": "enfyra_flow",
       "isEnabled": true,
@@ -1026,7 +1021,7 @@ const defaultData = {
       "path": "/dashboard",
       "isEnabled": true,
       "isPublic": true,
-      "isSystem": true,
+      "isSystem": false,
       "description": "Main dashboard",
       "order": 1,
       "permission": {
@@ -1097,12 +1092,6 @@ const defaultData = {
           },
           {
             "route": "/enfyra_extension",
-            "methods": [
-              "GET"
-            ]
-          },
-          {
-            "route": "/enfyra_bootstrap_script",
             "methods": [
               "GET"
             ]
@@ -1354,6 +1343,19 @@ const defaultData = {
     },
     {
       "type": "Menu",
+      "label": "Helpers",
+      "icon": "lucide:code",
+      "path": "/settings/helpers",
+      "isEnabled": true,
+      "isPublic": false,
+      "isSystem": true,
+      "description": "Create, edit and test reusable helper scripts",
+      "order": 11,
+      "parent": "Settings",
+      "permission": { "route": "/enfyra_helper", "methods": ["GET"] }
+    },
+    {
+      "type": "Menu",
       "label": "Flows",
       "icon": "lucide:workflow",
       "path": "/settings/flows",
@@ -1367,28 +1369,6 @@ const defaultData = {
         "or": [
           {
             "route": "/enfyra_flow",
-            "methods": [
-              "GET"
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "type": "Menu",
-      "label": "Bootstrap Scripts",
-      "icon": "heroicons:play",
-      "path": "/settings/bootstrap",
-      "isEnabled": true,
-      "isPublic": false,
-      "isSystem": true,
-      "description": "Bootstrap script management",
-      "order": 11,
-      "parent": "Settings",
-      "permission": {
-        "or": [
-          {
-            "route": "/enfyra_bootstrap_script",
             "methods": [
               "GET"
             ]

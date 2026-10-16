@@ -1,5 +1,6 @@
 import { asClass } from 'awilix';
 import { DynamicService } from '../../modules/dynamic-api';
+import { DynamicCancellationService } from '../../modules/dynamic-api/services/dynamic-cancellation.service';
 import {
   FileManagementService,
   FileAssetsService,
@@ -38,6 +39,7 @@ import {
 
 export const dynamicRegisters = {
   dynamicService: asClass(DynamicService).singleton(),
+  dynamicCancellationService: asClass(DynamicCancellationService).singleton(),
 } as const;
 
 export const storageRegisters = {

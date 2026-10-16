@@ -34,6 +34,7 @@ describe('script-code util', () => {
       ].join('\n');
 
       const record = normalizeScriptRecord(tableName, {
+        name: 'fixture',
         sourceCode,
         scriptLanguage: 'javascript',
       });

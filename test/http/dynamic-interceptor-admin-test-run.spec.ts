@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { PassThrough, Readable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import { dynamicInterceptorBegin } from '../../src/http/middlewares/dynamic-interceptor.middleware';
@@ -183,8 +184,11 @@ describe('dynamicInterceptorBegin admin test run isolation', () => {
     const next = vi.fn();
 
     await dynamicInterceptorBegin(executorEngineService as any)(
-      req,
-      { statusCode: 200, json: vi.fn() } as any,
+      Object.assign(new EventEmitter(), req, { headers: {} }),
+      Object.assign(new EventEmitter(), {
+        statusCode: 200,
+        json: vi.fn(),
+      }) as any,
       next,
     );
 
@@ -206,7 +210,9 @@ describe('dynamicInterceptorBegin admin test run isolation', () => {
       routeData: {
         route: { path: '/v2/*' },
         context: { $share: { $logs: [] } },
-        preHooks: [{ code: "@THROW.json({ error: { code: 'upstream_error' } })" }],
+        preHooks: [
+          { code: "@THROW.json({ error: { code: 'upstream_error' } })" },
+        ],
         postHooks: [],
       },
     };
@@ -261,7 +267,9 @@ describe('dynamicInterceptorBegin admin test run isolation', () => {
       headers.set(name.toLowerCase(), value);
       return response;
     });
-    response.getHeader = vi.fn((name: string) => headers.get(name.toLowerCase()));
+    response.getHeader = vi.fn((name: string) =>
+      headers.get(name.toLowerCase()),
+    );
     (response as any).req = req;
     response.json = vi.fn();
     const chunks: Buffer[] = [];
@@ -269,7 +277,7 @@ describe('dynamicInterceptorBegin admin test run isolation', () => {
     const next = vi.fn();
 
     await dynamicInterceptorBegin(executorEngineService as any)(
-      req,
+      Object.assign(new EventEmitter(), req, { headers: {} }),
       response as any,
       next,
     );
@@ -343,7 +351,7 @@ describe('dynamicInterceptorBegin admin test run isolation', () => {
     const next = vi.fn();
 
     await dynamicInterceptorBegin(executorEngineService as any)(
-      req,
+      Object.assign(new EventEmitter(), req, { headers: {} }),
       response as any,
       next,
     );

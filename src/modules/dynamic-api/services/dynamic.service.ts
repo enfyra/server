@@ -1,5 +1,9 @@
 import { Logger } from '../../../shared/logger';
 import {
+  attachDynamicDeliveryDiagnostics,
+  recordDynamicDeliveryTransport,
+} from '../utils/dynamic-delivery-diagnostics.util';
+import {
   HttpException,
   LoggingService,
   ScriptExecutionException,
@@ -10,15 +14,26 @@ import {
   getErrorMessage,
   getErrorStack,
 } from '../../../shared/utils/error.util';
-import { ExecutorEngineService } from '@enfyra/kernel';
 import { RequestWithRouteData } from '../../../shared/types';
 import { Readable } from 'stream';
-import { RuntimeScriptRepairService } from '../../../engines/cache';
+import { RuntimeScriptRepairService, type RuntimeScriptExecutorService } from '../../../engines/cache';
 import { recordUserLog } from '../../../shared/runtime-log-buffer';
 import { buildErrorResponseTrace } from '../../../shared/utils/error-response-trace.util';
+import type { DynamicCancellationService } from './dynamic-cancellation.service';
+import {
+  finishDynamicHttpFailure,
+  getDynamicHttpFailure,
+  isDynamicExecutionTimeout,
+  recordDynamicExecutionFailure,
+  recordDynamicStreamFailure,
+} from '../utils/dynamic-http-failure.util';
+import {
+  beginDynamicRouteExecution,
+  completeDynamicRouteExecution,
+  runDynamicRouteBatch,
+} from '../utils/dynamic-route-execution.util';
 
 const streamLogger = new Logger('DynamicResponseStream');
-const DEFAULT_DYNAMIC_ROUTE_TIMEOUT_MS = 60_000;
 
 export function persistDynamicScriptLogs(
   req: RequestWithRouteData,
@@ -240,6 +255,7 @@ export function attachStreamResponseHelper(res: any): void {
     }
     beginNativeResponse(res, { allowHeadersSent: true });
     applyResponseOptions(res, options);
+    recordDynamicDeliveryTransport(res, 'stream_start');
 
     return new Promise<void>((resolve, reject) => {
       let settled = false;
@@ -249,7 +265,18 @@ export function attachStreamResponseHelper(res: any): void {
         callback();
       };
 
+      readable.on('data', (chunk: unknown) => {
+        const bytes =
+          typeof chunk === 'string'
+            ? Buffer.byteLength(chunk)
+            : ArrayBuffer.isView(chunk)
+              ? chunk.byteLength
+              : 0;
+        recordDynamicDeliveryTransport(res, 'stream_chunk', bytes);
+      });
       readable.on('error', (error: Error) => {
+        recordDynamicDeliveryTransport(res, 'stream_error', undefined, error);
+        const failure = recordDynamicStreamFailure(res, error);
         streamLogger.error({
           message: 'Dynamic response stream failed',
           error: error.message,
@@ -258,21 +285,12 @@ export function attachStreamResponseHelper(res: any): void {
           statusCode: res.statusCode,
         });
         settle(() => reject(error));
-        if (!res.headersSent) {
-          res.status(500).json({
-            success: false,
-            message: 'The response stream failed.',
-            statusCode: 500,
-            error: {
-              code: 'STREAM_FAILED',
-              message: 'The response stream failed.',
-            },
-          });
-        } else {
-          res.destroy(error);
-        }
+        finishDynamicHttpFailure(res, failure);
       });
-      readable.on('end', () => settle(resolve));
+      readable.on('end', () => {
+        recordDynamicDeliveryTransport(res, 'stream_end');
+        settle(resolve);
+      });
       res.once('close', () => settle(resolve));
       readable.pipe(res);
     });
@@ -281,18 +299,21 @@ export function attachStreamResponseHelper(res: any): void {
 
 export class DynamicService {
   private readonly logger = new Logger(DynamicService.name);
-  private readonly executorEngineService: ExecutorEngineService;
+  private readonly executorEngineService: RuntimeScriptExecutorService;
   private readonly loggingService: LoggingService;
   private readonly runtimeScriptRepairService?: RuntimeScriptRepairService;
+  private readonly dynamicCancellationService: DynamicCancellationService;
 
   constructor(deps: {
-    executorEngineService: ExecutorEngineService;
+    executorEngineService: RuntimeScriptExecutorService;
     loggingService: LoggingService;
     runtimeScriptRepairService?: RuntimeScriptRepairService;
+    dynamicCancellationService: DynamicCancellationService;
   }) {
     this.executorEngineService = deps.executorEngineService;
     this.loggingService = deps.loggingService;
     this.runtimeScriptRepairService = deps.runtimeScriptRepairService;
+    this.dynamicCancellationService = deps.dynamicCancellationService;
   }
 
   private repairCompiledCode(tableName: string, record: any) {
@@ -335,24 +356,14 @@ export class DynamicService {
       }
 
       const res = routeData.res;
-      const abortController = new AbortController();
-      const abortOnDisconnect = () => {
-        if (res?.writableEnded === true) return;
-        abortController.abort();
-      };
-      const removeAbortListeners = () => {
-        if (typeof req.off === 'function') req.off('aborted', abortOnDisconnect);
-        if (typeof res?.off === 'function') res.off('close', abortOnDisconnect);
-      };
+      if (res) attachDynamicDeliveryDiagnostics(req, res);
+      if (res) beginDynamicRouteExecution(req, res, this.dynamicCancellationService);
       if (res) {
         attachStreamResponseHelper(res);
         routeData.context.$res = res as unknown as NonNullable<
           RequestWithRouteData['routeData']
         >['context']['$res'];
-        res.once('close', abortOnDisconnect);
       }
-      if (typeof req.once === 'function') req.once('aborted', abortOnDisconnect);
-      if (req.aborted || res?.destroyed) abortOnDisconnect();
 
       this.executorEngineService.register(req, {
         code: handler,
@@ -384,21 +395,21 @@ export class DynamicService {
         }
       }
 
-      const timeoutMs =
-        routeData.routeMethodConfig?.timeout || DEFAULT_DYNAMIC_ROUTE_TIMEOUT_MS;
-
       let value: any;
       let shortCircuit = false;
       try {
-        const result = await this.executorEngineService.runBatch(
-          req,
-          timeoutMs,
-          { signal: abortController.signal },
-        );
+        const result = res
+          ? await runDynamicRouteBatch(req, res, this.executorEngineService)
+          : await this.executorEngineService.runBatch(req, routeData.routeMethodConfig?.timeout || undefined);
         value = result.value;
         shortCircuit = result.shortCircuit;
+      } catch (error) {
+        if (res && isDynamicExecutionTimeout(error)) {
+          recordDynamicExecutionFailure(res, error);
+        }
+        throw error;
       } finally {
-        removeAbortListeners();
+        completeDynamicRouteExecution(req);
         delete routeData.context.$res;
       }
 
@@ -421,6 +432,7 @@ export class DynamicService {
 
       return value;
     } catch (error) {
+      completeDynamicRouteExecution(req);
       const err = error as {
         code?: string;
         errorCode?: string;
@@ -429,9 +441,16 @@ export class DynamicService {
         statusCode?: number;
         details?: any;
       };
-      if (err.code === 'ERR_EXECUTION_ABORTED') {
+      let failure = getDynamicHttpFailure(routeData.res);
+      if (!failure && routeData.res && isDynamicExecutionTimeout(error)) {
+        failure = recordDynamicExecutionFailure(routeData.res, err);
+      }
+      if (failure) {
+        await this.dynamicCancellationService.run(req, failure);
+        if (routeData.res) finishDynamicHttpFailure(routeData.res, failure);
         return undefined;
       }
+      if (err.code === 'ERR_EXECUTION_ABORTED') return undefined;
       const httpStatus =
         error instanceof HttpException
           ? error.getStatus()

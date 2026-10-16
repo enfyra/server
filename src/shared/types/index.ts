@@ -2,6 +2,7 @@
 
 export * from './database-init.types';
 export * from './dynamic-context.types';
+export * from './dynamic-delivery.types';
 export * from './dynamic-pat.types';
 export * from './field-permission-mutation.types';
 export * from './file-management.types';
@@ -13,3 +14,4 @@ export * from './column-type.types';
 export * from './runtime-metrics.types';
 export * from './package-runtime.types';
 export * from './system-tables.types';
+export * from './shared-helper.types';

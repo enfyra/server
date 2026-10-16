@@ -345,11 +345,8 @@ export class SqlSchemaDiffService {
 
   private getLegacySqlAutoIndexes(metadata: any): string[][] {
     const relations = metadata.relations || [];
-    const uniqueKeys = new Set(
-      buildSqlUniqueContracts(metadata.name, metadata).map((unique) =>
-        this.indexKey(unique.physicalColumns),
-      ),
-    );
+    const uniqueGroups = buildSqlUniqueContracts(metadata.name, metadata)
+      .map(unique => unique.physicalColumns);
     const legacyIndexes: string[][] = [];
 
     for (const index of metadata.indexes || []) {
@@ -363,7 +360,8 @@ export class SqlSchemaDiffService {
       );
       if (
         physicalColumns.includes('id')
-        || !uniqueKeys.has(this.indexKey(physicalColumns))
+        || !uniqueGroups.some(unique => unique.length >= physicalColumns.length &&
+          physicalColumns.every((column, position) => unique[position] === column))
       ) {
         continue;
       }

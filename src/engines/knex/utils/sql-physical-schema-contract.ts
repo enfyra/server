@@ -178,11 +178,8 @@ export function buildSqlIndexContracts(
 ): SqlPhysicalIndexContract[] {
   const contracts: SqlPhysicalIndexContract[] = [];
   const seen = new Set<string>();
-  const uniquePhysicalKeys = new Set(
-    buildSqlUniqueContracts(tableName, table).map((contract) =>
-      contract.physicalColumns.join('|').toLowerCase(),
-    ),
-  );
+  const uniquePhysicalGroups = buildSqlUniqueContracts(tableName, table)
+    .map(contract => contract.physicalColumns.map(column => column.toLowerCase()));
   const add = (
     logicalColumns: string[],
     physicalColumns: string[],
@@ -190,7 +187,8 @@ export function buildSqlIndexContracts(
     nameColumns = logicalColumns,
   ) => {
     if (physicalColumns.length === 0) return;
-    if (uniquePhysicalKeys.has(physicalColumns.join('|').toLowerCase())) {
+    if (uniquePhysicalGroups.some(unique => unique.length >= physicalColumns.length &&
+      physicalColumns.every((column, position) => unique[position] === column.toLowerCase()))) {
       return;
     }
     const physicalWithTieBreaker = physicalColumns.includes('id')

@@ -1,7 +1,13 @@
 import { ExecutorEngineService as KernelExecutorEngineService } from '@enfyra/kernel';
 import { compileScriptSource } from '../../../shared/utils/script-code.util';
+import {
+  buildSharedHelperRuntime,
+  wrapWithSharedHelpers,
+} from '../../../shared/utils/shared-helper-runtime.util';
 import { randomUUID } from 'node:crypto';
 import { logStore } from '../../../shared/log-store';
+import type { RuntimeRegistryService } from './runtime-registry.service';
+import type { SharedHelperDefinition } from '../../../shared/types/shared-helper.types';
 
 type RepairCallback = (compiledCode: string) => unknown | Promise<unknown>;
 
@@ -24,18 +30,33 @@ type RunOptions = {
 
 export class RuntimeScriptExecutorService {
   private readonly kernelExecutorEngineService: KernelExecutorEngineService;
+  private readonly runtimeRegistryService: RuntimeRegistryService;
+  private runtimeDefinitions?: readonly SharedHelperDefinition[];
+  private compiledHelperRuntime?: string;
 
   constructor(deps: {
     kernelExecutorEngineService: KernelExecutorEngineService;
+    runtimeRegistryService: RuntimeRegistryService;
   }) {
     this.kernelExecutorEngineService = deps.kernelExecutorEngineService;
+    this.runtimeRegistryService = deps.runtimeRegistryService;
   }
 
   register(req: any, block: CodeBlock): void {
-    if (!req.routeData.__codeBlocks) {
-      req.routeData.__codeBlocks = [];
-    }
+    if (!req.routeData.__codeBlocks) req.routeData.__codeBlocks = [];
     req.routeData.__codeBlocks.push(block);
+  }
+
+  private helperRuntime(): string | undefined {
+    const definitions = this.runtimeRegistryService.getSharedHelpers();
+    if (definitions !== this.runtimeDefinitions) {
+      const runtime = definitions.length
+        ? buildSharedHelperRuntime(definitions)
+        : undefined;
+      this.runtimeDefinitions = definitions;
+      this.compiledHelperRuntime = runtime;
+    }
+    return this.compiledHelperRuntime;
   }
 
   async run(
@@ -51,43 +72,38 @@ export class RuntimeScriptExecutorService {
       ctx.$flow?.$meta?.executionId ??
       randomUUID();
     const sourceCode = options.sourceCode ?? code;
+    const runtime = this.helperRuntime();
+    const executable = (value: string) =>
+      runtime ? wrapWithSharedHelpers(value, runtime, true) : value;
+    const executionOptions = {
+      sourceCode,
+      scriptLanguage: options.scriptLanguage,
+      scriptId: options.scriptId,
+      sourceKind: options.sourceKind ?? (ctx.$flow ? 'flow' : 'run'),
+    };
     try {
       return await this.kernelExecutorEngineService.run(
-        code,
+        executable(code),
         ctx,
         timeoutMs ?? undefined,
-        {
-          sourceCode,
-          scriptLanguage: options.scriptLanguage,
-          scriptId: options.scriptId,
-          sourceKind: options.sourceKind ?? (ctx.$flow ? 'flow' : 'run'),
-        },
+        executionOptions,
       );
     } catch (error) {
-      if (!this.isStaleCompiledCodeFailure(error)) {
-        throw error;
-      }
+      if (!this.isStaleCompiledCodeFailure(error)) throw error;
       const fallbackCode = compileScriptSource(
         sourceCode,
         options.scriptLanguage ?? 'typescript',
       );
-      if (!fallbackCode || fallbackCode === code) {
-        throw error;
-      }
+      if (!fallbackCode || fallbackCode === code) throw error;
       this.scheduleCompiledCodeRepair(
         options.onCompiledCodeRepair,
         fallbackCode,
       );
       return await this.kernelExecutorEngineService.run(
-        fallbackCode,
+        executable(fallbackCode),
         ctx,
         timeoutMs ?? undefined,
-        {
-          sourceCode,
-          scriptLanguage: options.scriptLanguage,
-          scriptId: options.scriptId,
-          sourceKind: options.sourceKind ?? (ctx.$flow ? 'flow' : 'run'),
-        },
+        executionOptions,
       );
     }
   }
@@ -102,19 +118,38 @@ export class RuntimeScriptExecutorService {
     ctx.$api.request ??= {};
     ctx.$api.request.correlationId ??=
       req.correlationId ?? logStore.getStore()?.correlationId ?? randomUUID();
+    const runtime = this.helperRuntime();
+    const executableRequest = (blocks: CodeBlock[]) => {
+      if (!runtime)
+        return {
+          ...req,
+          routeData: { ...req.routeData, __codeBlocks: blocks },
+        };
+      const first = Math.max(
+        0,
+        blocks.findIndex((block) => block.type !== 'postHook'),
+      );
+      return {
+        ...req,
+        routeData: {
+          ...req.routeData,
+          __codeBlocks: blocks.map((block, index) => ({
+            ...block,
+            code: wrapWithSharedHelpers(block.code, runtime, index === first),
+          })),
+        },
+      };
+    };
+    const blocks: CodeBlock[] = req.routeData.__codeBlocks || [];
     try {
       return await this.kernelExecutorEngineService.runBatch(
-        req,
+        executableRequest(blocks),
         timeoutMs ?? undefined,
         options,
       );
     } catch (error) {
-      if (!this.isStaleCompiledCodeFailure(error)) {
-        throw error;
-      }
-
-      const codeBlocks: CodeBlock[] = req.routeData.__codeBlocks || [];
-      const fallbackBlocks = codeBlocks.map((block) => {
+      if (!this.isStaleCompiledCodeFailure(error)) throw error;
+      const fallbackBlocks = blocks.map((block) => {
         const sourceCode = block.sourceCode ?? block.code;
         return {
           ...block,
@@ -126,30 +161,22 @@ export class RuntimeScriptExecutorService {
           sourceCode,
         };
       });
-      const changed = fallbackBlocks.some(
-        (block, index) => block.code !== codeBlocks[index]?.code,
-      );
-      if (!changed) {
+      if (
+        !fallbackBlocks.some(
+          (block, index) => block.code !== blocks[index]?.code,
+        )
+      )
         throw error;
-      }
-      for (const [index, block] of codeBlocks.entries()) {
+      for (const [index, block] of blocks.entries()) {
         const fallbackCode = fallbackBlocks[index]?.code;
-        if (fallbackCode && fallbackCode !== block.code) {
+        if (fallbackCode && fallbackCode !== block.code)
           this.scheduleCompiledCodeRepair(
             block.onCompiledCodeRepair,
             fallbackCode,
           );
-        }
       }
-
       return await this.kernelExecutorEngineService.runBatch(
-        {
-          ...req,
-          routeData: {
-            ...req.routeData,
-            __codeBlocks: fallbackBlocks,
-          },
-        },
+        executableRequest(fallbackBlocks),
         timeoutMs ?? undefined,
         options,
       );
@@ -157,9 +184,8 @@ export class RuntimeScriptExecutorService {
   }
 
   private isStaleCompiledCodeFailure(error: unknown): boolean {
-    if (!error || typeof error !== 'object' || !('details' in error)) {
+    if (!error || typeof error !== 'object' || !('details' in error))
       return false;
-    }
     const details = error.details;
     if (!details || typeof details !== 'object') return false;
     const executionDetails = details as Record<string, unknown>;

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DynamicRepository } from '../../src/modules/dynamic-api';
 import { normalizeDynamicReadProjection } from '../../src/modules/dynamic-api/utils/field-selection.util';
+import { runWithDynamicTransactionScope } from '../../src/shared/utils/dynamic-transaction-scope.util';
 
 const metadata = {
   tables: new Map<string, any>([
@@ -155,6 +156,7 @@ const metadata = {
 };
 
 const seededRows: Record<string, any[]> = {
+  enfyra_user: [{id: 'user-1', email: 'root@example.com', password: 'hashed-password'}],
   secure_storage_config: [
     {
       id: 2,
@@ -242,6 +244,8 @@ function makeRepo({
   runtimeRegistryService?: any;
 } = {}) {
   const queryBuilderService = {
+    getDatabaseType: vi.fn(() => 'postgres'),
+    runWithLockedRecord: vi.fn(async (_table: string, _id: string | number, work: () => Promise<unknown>) => work()),
     getPkField: vi.fn(() => (tableName === 'mongo_doc' ? '_id' : 'id')),
     find: vi.fn().mockImplementation(async (args: any) => {
       const rows = seededRows[args.table] || [];
@@ -273,6 +277,31 @@ function makeRepo({
 }
 
 describe('dynamic read field selection', () => {
+  it('keeps locked secure reads inside their context and strips unpublished fields', async () => {
+    const { repo, queryBuilderService } = makeRepo({tableName: 'secure_storage_config', enforceFieldPermission: true});
+    await expect(repo.findLocked({id: 2})).rejects.toThrow('requires $transaction.run');
+    const result = await runWithDynamicTransactionScope(repo.context, () => repo.findLocked({id: 2, fields: '*'}));
+    expect(result.data[0]).not.toHaveProperty('secretAccessKey');
+    expect(queryBuilderService.find).toHaveBeenCalledWith(expect.objectContaining({forUpdate: true, fields: 'id,name,bucket,updatedBy'}));
+    await expect(runWithDynamicTransactionScope({} as typeof repo.context, () => repo.findLocked({id: 2}))).rejects.toThrow('requires $transaction.run');
+  });
+
+  it('allows locking a persisted user identity without a mutation lifecycle', async () => {
+    const { repo } = makeRepo({tableName: 'enfyra_user', enforceFieldPermission: true});
+    const result = await runWithDynamicTransactionScope(repo.context, () => repo.findLocked({id: 'user-1', fields: ['id', 'email']}));
+    expect(result.data[0]).toMatchObject({id: 'user-1', email: 'root@example.com'});
+    expect(result.data[0]).not.toHaveProperty('password');
+  });
+
+  it('rejects Mongo lock-only reads and invalid ids before issuing a lock', async () => {
+    const { repo, queryBuilderService } = makeRepo({tableName: 'secure_storage_config'});
+    queryBuilderService.getDatabaseType.mockReturnValue('mongodb');
+    await expect(runWithDynamicTransactionScope(repo.context, () => repo.findLocked({id: 2}))).rejects.toThrow('PostgreSQL/MySQL');
+    queryBuilderService.getDatabaseType.mockReturnValue('postgres');
+    await expect(runWithDynamicTransactionScope(repo.context, () => repo.findLocked({id: ''}))).rejects.toThrow('record id');
+    expect(queryBuilderService.runWithLockedRecord).not.toHaveBeenCalled();
+  });
+
   it('keeps normal include mode unchanged', () => {
     expect(
       normalizeDynamicReadProjection({

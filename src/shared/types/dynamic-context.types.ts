@@ -3,6 +3,8 @@ import type { UploadedFileInfo } from './file-management.types';
 import type { UploadedFileFields } from './multipart-upload.types';
 import type { CryptoHelper } from '../helpers/crypto.helper';
 import type { FetchHelper } from '../helpers/fetch.helper';
+import type { SharedHelperRunner } from './shared-helper.types';
+import type { DynamicDeliveryRecorder } from './dynamic-delivery.types';
 import type {
   DynamicPatCreateInput,
   DynamicPatCreateResult,
@@ -154,6 +156,8 @@ export interface TDynamicContext {
   $statusCode?: number;
   $logs?: (...args: any[]) => void;
   $helpers: {
+    $delivery?: DynamicDeliveryRecorder;
+    run?: SharedHelperRunner['run'];
     $jwt?: (payload: any, exp: string) => string;
     $bcrypt?: {
       hash?: (plain: string) => Promise<string>;
@@ -241,6 +245,8 @@ export interface TDynamicContext {
       url?: string;
       timestamp?: string;
       correlationId?: string;
+      executionId?: string;
+      deliveryDiagnostics?: boolean;
       userAgent?: string;
       ip?: string;
     };

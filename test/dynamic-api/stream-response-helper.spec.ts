@@ -263,7 +263,7 @@ describe('attachStreamResponseHelper', () => {
     const completion = response.stream(source);
 
     await expect(completion).rejects.toThrow('upstream failed');
-    expect(response.destroy).toHaveBeenCalledWith(expect.any(Error));
+    expect(response.destroy).toHaveBeenCalledWith();
   });
 
   it('rejects when the readable errors before response headers are sent', async () => {
@@ -278,13 +278,17 @@ describe('attachStreamResponseHelper', () => {
     await expect(response.stream(source)).rejects.toThrow('source failed');
     expect(response.json).toHaveBeenCalledWith({
       success: false,
-      message: 'The response stream failed.',
-      statusCode: 500,
-      error: {
-        code: 'STREAM_FAILED',
-        message: 'The response stream failed.',
-      },
+      message: 'The response stream could not be completed.',
+      statusCode: 502,
+      error: expect.objectContaining({
+        code: 'response_stream_error',
+        message: 'The response stream could not be completed.',
+        should_retry: true,
+        retry_after_seconds: 5,
+      }),
     });
+    expect(response.setHeader).toHaveBeenCalledWith('x-should-retry', 'true');
+    expect(response.setHeader).toHaveBeenCalledWith('Retry-After', '5');
   });
 
   it('resolves when the response closes before the readable ends', async () => {

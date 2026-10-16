@@ -101,7 +101,9 @@ function mergeSteps(
   steps: readonly VersionedSchemaMigration[],
 ): SchemaMigrationDef {
   return {
-    ...(steps.some((step) => (step.schema.mongoColumnTypesToModify ?? []).length > 0)
+    ...(steps.some(
+      (step) => (step.schema.mongoColumnTypesToModify ?? []).length > 0,
+    )
       ? {
           mongoColumnTypesToModify: steps.flatMap(
             (step) => step.schema.mongoColumnTypesToModify ?? [],
@@ -118,7 +120,12 @@ function mergeSteps(
     physicalTablesToRename: steps.flatMap(
       (step) => step.schema.physicalTablesToRename ?? [],
     ),
-    tables: mergeTableMigrations(steps),
+    tables: mergeTableMigrations(steps).filter(
+      (table) =>
+        !steps.some((step) =>
+          step.schema.tablesToDrop?.includes(table._unique.name._eq),
+        ),
+    ),
     tablesToDrop: steps.flatMap((step) => step.schema.tablesToDrop ?? []),
   };
 }
@@ -169,7 +176,9 @@ function toRecordList(value: unknown): any[] {
   return Array.isArray(value) ? value : [value];
 }
 
-function selectApplicableSteps<T extends { fromVersion: string; toVersion: string }>(
+function selectApplicableSteps<
+  T extends { fromVersion: string; toVersion: string },
+>(
   steps: readonly T[],
   dbVersion: unknown,
 ): ResolvedVersionRange & { applicable: T[] } {

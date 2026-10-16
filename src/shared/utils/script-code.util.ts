@@ -1,6 +1,7 @@
 import ts from 'typescript';
 import { transformTemplateSyntax } from './template-syntax.util';
 import { SCRIPT_TABLE_LEGACY_FIELDS } from './script-table-contract.constants';
+import { assertSharedHelperName } from './shared-helper-name.util';
 
 type ScriptLanguage = 'javascript' | 'typescript';
 
@@ -87,6 +88,7 @@ class ScriptContractService {
       return record;
     }
 
+    if (tableName === 'enfyra_helper') assertSharedHelperName(record.name);
     const normalized = { ...record };
     const legacyField = this.getLegacyField(tableName);
     if (
@@ -106,6 +108,13 @@ class ScriptContractService {
       normalized.sourceCode,
       normalized.scriptLanguage,
     );
+    if (
+      tableName === 'enfyra_helper' &&
+      normalized.isEnabled !== false &&
+      !normalized.compiledCode
+    ) {
+      throw new Error('Enabled helper requires executable sourceCode');
+    }
 
     if (legacyField && legacyField in normalized) {
       delete normalized[legacyField];
@@ -123,6 +132,11 @@ class ScriptContractService {
       return patch;
     }
 
+    if (
+      tableName === 'enfyra_helper' &&
+      Object.prototype.hasOwnProperty.call(patch, 'name')
+    )
+      assertSharedHelperName(patch.name);
     const legacyField = this.getLegacyField(tableName);
     const hasCanonicalSource = Object.prototype.hasOwnProperty.call(
       patch,
@@ -137,6 +151,19 @@ class ScriptContractService {
       'scriptLanguage',
     );
     const normalized: ScriptFields = { ...patch };
+
+    if (
+      tableName === 'enfyra_helper' &&
+      (patch.isEnabled ?? existing?.isEnabled) !== false
+    ) {
+      const source = touchesSource ? patch.sourceCode : existing?.sourceCode;
+      if (
+        (touchesSource || patch.isEnabled === true) &&
+        (source == null || source === '')
+      ) {
+        throw new Error('Enabled helper requires executable sourceCode');
+      }
+    }
 
     if (!touchesSource && !touchesLanguage) {
       delete normalized.compiledCode;

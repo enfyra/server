@@ -718,7 +718,9 @@ snapshot
         'Enfyra version that last completed bootstrap; compared against package.json to scope upgrades',
       ),
   })
-  .relations({});
+  .relations({
+    defaultPage: rel.manyToOne('enfyra_menu').nullable().system().onDelete('RESTRICT').description('Page opened after login when no redirect is provided'),
+  });
 
 snapshot
   .table('enfyra_auth_header', {
@@ -2342,97 +2344,6 @@ snapshot
   });
 
 snapshot
-  .table('enfyra_bootstrap_script', {
-    description:
-      'Stores custom scripts that run during application initialization',
-    system: true,
-  })
-  .columns({
-    id: col
-      .sqlType({ type: 'int' })
-      .mongoType({ type: 'objectId' })
-      .primary()
-      .generated()
-      .notNull()
-      .system()
-      .description('Primary key identifier'),
-    name: col
-      .sqlType({ type: 'varchar' })
-      .mongoType({ type: 'string' })
-      .notNull()
-      .system()
-      .description('Unique name identifier for the bootstrap script'),
-    description: col
-      .sqlType({ type: 'text' })
-      .mongoType({ type: 'string' })
-      .system()
-      .description('Description of what the script does'),
-    sourceCode: col
-      .sqlType({ type: 'code' })
-      .mongoType({ type: 'code' })
-      .notNull()
-      .system()
-      .description('Source code to execute'),
-    scriptLanguage: col
-      .sqlType({ type: 'enum', options: ['javascript', 'typescript'] })
-      .mongoType({ type: 'enum', options: ['javascript', 'typescript'] })
-      .notNull()
-      .system()
-      .default('typescript')
-      .description('Language used by sourceCode before server compilation'),
-    compiledCode: col
-      .sqlType({ type: 'code' })
-      .mongoType({ type: 'code' })
-      .generated()
-      .system()
-      .immutable()
-      .nullable()
-      .description('Server-compiled JavaScript code executed by the runtime'),
-    timeout: col
-      .sqlType({ type: 'int' })
-      .mongoType({ type: 'int' })
-      .system()
-      .nullable()
-      .description(
-        'Timeout in milliseconds for script execution. If not set, uses default system timeout.',
-      ),
-    priority: col
-      .sqlType({ type: 'int' })
-      .mongoType({ type: 'int' })
-      .notNull()
-      .system()
-      .default(0)
-      .description('Execution priority order (lower numbers execute first)'),
-    isEnabled: col
-      .sqlType({ type: 'boolean' })
-      .mongoType({ type: 'bool' })
-      .notNull()
-      .system()
-      .default(true)
-      .description('Whether the script is enabled for execution'),
-    isSystem: col
-      .sqlType({ type: 'boolean' })
-      .mongoType({ type: 'bool' })
-      .notNull()
-      .system()
-      .default(false)
-      .description('Whether this is a system-generated script'),
-  })
-  .relations({
-    createdBy: rel
-      .manyToOne('enfyra_user')
-      .system()
-      .nullable()
-      .description('User who created the script'),
-    updatedBy: rel
-      .manyToOne('enfyra_user')
-      .system()
-      .nullable()
-      .description('User who last updated the script'),
-  })
-  .uniques([['name']]);
-
-snapshot
   .table('enfyra_storage_config', {
     description:
       'Configures storage backends for file uploads (local, S3, GCS, etc.)',
@@ -2728,6 +2639,19 @@ snapshot
       .description('Gateway this event belongs to'),
   })
   .uniques([['gateway', 'eventName']]);
+
+snapshot
+  .table('enfyra_helper', { description: 'Reusable named scripts with explicit params in the caller task', system: true })
+  .columns({
+    id: col.sqlType({ type: 'int' }).mongoType({ type: 'objectId' }).primary().generated().notNull().system().description('Primary key identifier'),
+    name: col.sqlType({ type: 'varchar' }).mongoType({ type: 'string' }).notNull().system().description('Unique lowercase helper name, at most 128 letters, digits or underscores'),
+    description: col.sqlType({ type: 'text' }).mongoType({ type: 'string' }).nullable().system().description('Helper purpose and params contract'),
+    isEnabled: col.sqlType({ type: 'boolean' }).mongoType({ type: 'bool' }).notNull().default(true).system().description('Whether callers may execute this helper'),
+    sourceCode: col.sqlType({ type: 'code' }).mongoType({ type: 'code' }).nullable().system().description('Script body receiving explicit @PARAMS and task capabilities'),
+    scriptLanguage: col.sqlType({ type: 'enum', options: ['javascript', 'typescript'] }).mongoType({ type: 'enum', options: ['javascript', 'typescript'] }).notNull().default('typescript').system().description('Source language before server compilation'),
+    compiledCode: col.sqlType({ type: 'code' }).mongoType({ type: 'code' }).generated().immutable().nullable().system().description('Server-compiled JavaScript executed by the runtime'),
+  })
+  .uniques([['name']]);
 
 snapshot
   .table('enfyra_flow', {
