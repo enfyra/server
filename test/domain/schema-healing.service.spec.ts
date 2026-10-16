@@ -172,8 +172,68 @@ describe('SchemaHealingService.runIfNeeded', () => {
     expect(tableUpdate[0]).toBe('enfyra_table');
     expect(tableUpdate[2]).toEqual({
       uniques: [['author', 'slug']],
-      indexes: [['author'], ['post']],
+      indexes: [['post']],
     });
+  });
+
+  it('removes a dynamic index covered by a unique and drops its physical index', async () => {
+    const update = vi.fn().mockResolvedValue(undefined);
+    const qb = makeQb(() => ({ data: [] }), update);
+    const knex = qb.getKnex();
+    knex.client = { config: { client: 'pg' } };
+    knex.schema.hasTable.mockImplementation(
+      async (name: string) => name === 'discount_user' || name === 'oauth_account',
+    );
+    knex.raw.mockImplementation(async (sql: string) => {
+      if (String(sql).includes('pg_index')) {
+        return {
+          rows: [{
+            index_name: 'discount_user_user_id_id_idx',
+            is_unique: false,
+            columns: '{userId,id}',
+          }],
+        };
+      }
+      return { rows: [], 0: [] };
+    });
+    const cache = makeCache([
+      makeTable({
+        id: 191,
+        name: 'discount_user',
+        uniques: [['user', 'discount']],
+        indexes: [['user'], ['discount'], ['createdAt']],
+        relations: [
+          { propertyName: 'user', foreignKeyColumn: 'userId', type: 'many-to-one' },
+          { propertyName: 'discount', foreignKeyColumn: 'discountId', type: 'many-to-one' },
+        ],
+      }),
+      makeTable({
+        id: 51,
+        name: 'oauth_account',
+        uniques: [['provider', 'providerUserId']],
+        indexes: [['userId']],
+        relations: [{ propertyName: 'user', foreignKeyColumn: 'userId', type: 'many-to-one' }],
+      }),
+    ]);
+
+    await makeService(qb, cache).runIfNeeded();
+
+    expect(update).toHaveBeenCalledWith(
+      'enfyra_table',
+      { where: [{ field: 'id', operator: '=', value: 191 }] },
+      { uniques: [['user', 'discount']], indexes: [['discount'], ['createdAt']] },
+    );
+    expect(update).toHaveBeenCalledWith(
+      'enfyra_table',
+      { where: [{ field: 'id', operator: '=', value: 51 }] },
+      { uniques: [['provider', 'providerUserId']], indexes: [['user']] },
+    );
+    const dropped = knex.raw.mock.calls
+      .map((call: unknown[]) => String(call[0]))
+      .filter((sql: string) => /drop index/i.test(sql));
+    expect(dropped).toEqual([
+      expect.stringContaining('discount_user_user_id_id_idx'),
+    ]);
   });
 
   it('repairs Mongo primary key column metadata', async () => {
