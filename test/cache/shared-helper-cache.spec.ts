@@ -128,7 +128,7 @@ describe('metadata shared helpers', () => {
   it('declares unique helper names for both database projections and privileged CRUD', () => {
     for (const databaseType of ['postgres', 'mongodb'] as const) {
       const definition = new BootstrapDefinitionService().resolveForVersion(
-        '2.3.3',
+        '2.3.4',
         databaseType,
       );
       expect(definition.snapshot.enfyra_helper.uniques).toEqual([['name']]);

@@ -161,7 +161,7 @@ export function getKnexColumnType(columnDef: ColumnDef): string {
     date: 'timestamp',
     datetime: 'datetime',
     timestamp: 'timestamp',
-    'simple-json': 'text',
+    'simple-json': 'longtext',
     richtext: 'text',
     code: 'longtext',
     'array-select': 'text',

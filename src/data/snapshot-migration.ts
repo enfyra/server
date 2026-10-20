@@ -29,6 +29,27 @@ function codeColumnModifications(
   }));
 }
 
+/**
+ * Declarations that converge a stored `simple-json` column onto large-text SQL
+ * storage. The logical type is unchanged; the physical contract is reapplied.
+ */
+function jsonColumnModifications(
+  columns: readonly string[],
+): ColumnModifyDef[] {
+  return columns.map((name) => ({
+    from: {
+      name,
+      sqlType: { type: 'simple-json' },
+      mongoType: { type: 'json' },
+    },
+    to: {
+      name,
+      sqlType: { type: 'simple-json' },
+      mongoType: { type: 'json' },
+    },
+  }));
+}
+
 const snapshotMigrations: VersionedSchemaMigration[] = [
   {
     fromVersion: '2.2.19-patch-1',
@@ -336,6 +357,102 @@ const snapshotMigrations: VersionedSchemaMigration[] = [
     fromVersion: '2.3.2',
     toVersion: '2.3.3',
     schema: { tables: [], tablesToDrop: ['enfyra_bootstrap_script'] },
+  },
+  {
+    fromVersion: '2.3.3',
+    toVersion: '2.3.4',
+    schema: {
+      tables: [
+        {
+          _unique: { name: { _eq: 'enfyra_column' } },
+          columnsToModify: jsonColumnModifications([
+            'defaultValue',
+            'options',
+            'metadata',
+          ]),
+        },
+        {
+          _unique: { name: { _eq: 'enfyra_column_rule' } },
+          columnsToModify: jsonColumnModifications(['value']),
+        },
+        {
+          _unique: { name: { _eq: 'enfyra_relation' } },
+          columnsToModify: jsonColumnModifications(['metadata']),
+        },
+        {
+          _unique: { name: { _eq: 'enfyra_table' } },
+          columnsToModify: jsonColumnModifications([
+            'uniques',
+            'indexes',
+            'metadata',
+          ]),
+        },
+        {
+          _unique: { name: { _eq: 'enfyra_field_permission' } },
+          columnsToModify: jsonColumnModifications(['condition']),
+        },
+        {
+          _unique: { name: { _eq: 'enfyra_route_method_config_file_field' } },
+          columnsToModify: jsonColumnModifications(['allowedMimeTypes']),
+        },
+        {
+          _unique: { name: { _eq: 'enfyra_schema_migration' } },
+          columnsToModify: jsonColumnModifications(['beforeSnapshot']),
+        },
+        {
+          _unique: { name: { _eq: 'enfyra_menu' } },
+          columnsToModify: jsonColumnModifications(['permission']),
+        },
+        {
+          _unique: { name: { _eq: 'enfyra_file_permission' } },
+          columnsToModify: jsonColumnModifications(['allowedDomains']),
+        },
+        {
+          _unique: { name: { _eq: 'enfyra_storage_config' } },
+          columnsToModify: jsonColumnModifications(['credentials']),
+        },
+        {
+          _unique: { name: { _eq: 'enfyra_flow_trigger' } },
+          columnsToModify: jsonColumnModifications(['config']),
+        },
+        {
+          _unique: { name: { _eq: 'enfyra_flow_step' } },
+          columnsToModify: jsonColumnModifications(['config']),
+        },
+        {
+          _unique: { name: { _eq: 'enfyra_flow_execution' } },
+          columnsToModify: jsonColumnModifications([
+            'payload',
+            'completedSteps',
+            'error',
+          ]),
+        },
+        {
+          _unique: { name: { _eq: 'enfyra_guard_rule' } },
+          columnsToModify: jsonColumnModifications(['config']),
+        },
+        {
+          _unique: { name: { _eq: 'enfyra_graphql' } },
+          columnsToModify: jsonColumnModifications(['metadata']),
+        },
+        {
+          _unique: { name: { _eq: 'enfyra_runtime_reload_log' } },
+          columnsToModify: jsonColumnModifications([
+            'chain',
+            'steps',
+            'payload',
+          ]),
+        },
+        {
+          _unique: { name: { _eq: 'enfyra_system_error' } },
+          columnsToModify: jsonColumnModifications(['details']),
+        },
+        {
+          _unique: { name: { _eq: 'enfyra_user_log' } },
+          columnsToModify: jsonColumnModifications(['entries']),
+        },
+      ],
+    },
   },
 ];
 

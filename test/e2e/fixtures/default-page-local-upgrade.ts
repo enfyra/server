@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { buildContainer } from '../../../src/container';
 import { init, shutdown } from '../../../src/init';
+import { getEnfyraVersion } from '../../../src/shared/utils/enfyra-version.util';
 import { CACHE_EVENTS } from '../../../src/shared/utils/cache-events.constants';
 
 async function main() {
@@ -25,7 +26,7 @@ async function main() {
       table: 'enfyra_setting',
       fields: ['id', 'enfyraVersion', 'isInit', 'defaultPage.id'],
     });
-    assert.equal(setting?.enfyraVersion, '2.3.3');
+    assert.equal(setting?.enfyraVersion, getEnfyraVersion());
     assert.equal(setting?.isInit, true);
     assert.equal(setting?.defaultPage, null);
     const dashboard = await container.cradle.queryBuilderService.findOne({

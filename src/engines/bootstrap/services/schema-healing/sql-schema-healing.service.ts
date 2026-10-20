@@ -154,6 +154,77 @@ export class SqlSchemaHealingService {
   }
 
   /**
+   * Carries every metadata-declared `simple-json` column onto large-text MySQL
+   * storage. PostgreSQL `text` is already unbounded, and MongoDB stores native
+   * JSON, so only MySQL can silently cap a JSON payload at the 64 KiB `TEXT`
+   * ceiling. The scan reads metadata rather than the snapshot so user-created
+   * tables are carried forward too, and it is idempotent because a `longtext`
+   * column is skipped. A legacy native `json` column converges as well: the
+   * contract has one storage shape per backend.
+   */
+  async repairSqlJsonColumns(): Promise<number> {
+    const knex = this.queryBuilderService.getKnex();
+    if (!knex?.schema?.hasTable) return 0;
+    if (this.queryBuilderService.getDatabaseType?.() !== 'mysql') return 0;
+
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    if (!(await knex.schema.hasTable(coreNames.table))) return 0;
+    if (!(await knex.schema.hasTable(coreNames.column))) return 0;
+
+    const jsonColumns = await knex(`${coreNames.column} as column_def`)
+      .join(
+        `${coreNames.table} as table_def`,
+        'table_def.id',
+        'column_def.tableId',
+      )
+      .where('column_def.type', 'simple-json')
+      .select({
+        tableName: 'table_def.name',
+        columnName: 'column_def.name',
+      });
+    const repairs: Array<{ tableName: string; modification: ColumnModifyDef }> =
+      [];
+
+    for (const metadata of jsonColumns) {
+      const tableName = String(metadata.tableName ?? '');
+      const columnName = String(metadata.columnName ?? '');
+      if (!tableName || !columnName) continue;
+      if (!(await knex.schema.hasTable(tableName))) continue;
+      if (!(await knex.schema.hasColumn(tableName, columnName))) continue;
+
+      const current = await getCurrentDatabaseSchema(knex, tableName);
+      const physical = current.columns.find(
+        (column) => column.name === columnName,
+      );
+      if (!physical || physical.type === 'longtext') continue;
+
+      repairs.push({
+        tableName,
+        modification: {
+          from: {
+            name: columnName,
+            type: physical.type,
+            isNullable: physical.isNullable,
+            defaultValue: physical.defaultValue,
+          },
+          to: { name: columnName, type: 'simple-json' },
+        },
+      });
+    }
+
+    for (const repair of repairs) {
+      await applySqlColumnModifications(
+        knex,
+        repair.tableName,
+        [repair.modification],
+        String(knex.client.config.client),
+      );
+    }
+
+    return repairs.length;
+  }
+
+  /**
    * Carries every temporal column onto its engine's zone-aware physical target.
    *
    * A logical temporal column is an instant, but a physical column can lose that:

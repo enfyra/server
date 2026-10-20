@@ -32,11 +32,13 @@ import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
 import { SYSTEM_TABLES } from '../../../shared/utils/system-tables.constants';
 import { BootstrapDefinitionService } from './bootstrap-definition.service';
 import { DashboardProvisionService } from './dashboard-provision.service';
+import type { MetadataCacheService } from '../../cache';
 
 export class DataProvisionService {
   private readonly logger = new Logger(DataProvisionService.name);
   private readonly processors = new Map<string, BaseTableProcessor>();
   private readonly queryBuilderService: QueryBuilderService;
+  private readonly metadataCacheService: MetadataCacheService;
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly bcryptService: BcryptService;
   private readonly userDefinitionProcessor: UserDefinitionProcessor;
@@ -63,6 +65,7 @@ export class DataProvisionService {
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
+    metadataCacheService: MetadataCacheService;
     databaseConfigService: DatabaseConfigService;
     bcryptService: BcryptService;
     userDefinitionProcessor: UserDefinitionProcessor;
@@ -87,6 +90,7 @@ export class DataProvisionService {
     bootstrapDefinitionService?: BootstrapDefinitionService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
+    this.metadataCacheService = deps.metadataCacheService;
     this.databaseConfigService = deps.databaseConfigService;
     this.bcryptService = deps.bcryptService;
     this.userDefinitionProcessor = deps.userDefinitionProcessor;
@@ -276,7 +280,10 @@ export class DataProvisionService {
     }
 
     if (freshInstall) {
-      await new DashboardProvisionService(this.queryBuilderService).provision();
+      await new DashboardProvisionService(
+        this.queryBuilderService,
+        this.metadataCacheService,
+      ).provision();
     }
 
     this.verbose(

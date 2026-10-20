@@ -47,6 +47,19 @@ export class MetadataProvisionSqlService {
       return id;
     }
   }
+  /**
+   * Core metadata tables are created before metadata exists, so they cannot use
+   * the snapshot contract directly. Their JSON columns must still match it:
+   * `simple-json` is unbounded SQL text, never a native JSON column.
+   */
+  private addJsonColumn(table: any, name: string): void {
+    const column =
+      this.dbType === 'postgres'
+        ? table.text(name)
+        : table.text(name, 'longtext');
+    column.nullable();
+  }
+
   private async ensureCoreTables(): Promise<void> {
     const qb = this.queryBuilderService.getConnection();
     const coreNames = await this.systemCoreTableResolver.getNames();
@@ -62,11 +75,11 @@ export class MetadataProvisionSqlService {
             table.string('name').notNullable().unique();
             table.boolean('isSystem').notNullable().defaultTo(false);
             table.boolean('isSingleRecord').notNullable().defaultTo(false);
-            table.json('uniques').nullable();
-            table.json('indexes').nullable();
+            this.addJsonColumn(table, 'uniques');
+            this.addJsonColumn(table, 'indexes');
             table.string('alias').nullable().unique();
             table.text('description').nullable();
-            table.json('metadata').nullable();
+            this.addJsonColumn(table, 'metadata');
             table.boolean('validateBody').notNullable().defaultTo(true);
             table.timestamp('createdAt').defaultTo(qb.fn.now());
             table.timestamp('updatedAt').defaultTo(qb.fn.now());
@@ -135,7 +148,7 @@ export class MetadataProvisionSqlService {
             table.string('junctionTableName').nullable();
             table.string('junctionSourceColumn').nullable();
             table.string('junctionTargetColumn').nullable();
-            table.json('metadata').nullable();
+            this.addJsonColumn(table, 'metadata');
             table.boolean('isUpdatable').notNullable().defaultTo(true);
             table.unique(['sourceTableId', 'propertyName']);
             table.unique(['mappedById']);
@@ -160,7 +173,7 @@ export class MetadataProvisionSqlService {
   ): Promise<void> {
     if (!(await qb.schema.hasColumn(tableName, 'metadata'))) {
       await qb.schema.alterTable(tableName, (table: any) => {
-        table.json('metadata').nullable();
+        this.addJsonColumn(table, 'metadata');
       });
     }
     if (!(await qb.schema.hasColumn(tableName, 'validateBody'))) {
