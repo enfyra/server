@@ -5,7 +5,6 @@
  * Route mounting order and pipeline order are still defined here explicitly.
  */
 import express from 'express';
-import cors from 'cors';
 import qs from 'qs';
 import type { AwilixContainer } from 'awilix';
 import type { NextFunction, Response } from 'express';
@@ -13,6 +12,7 @@ import { buildRequestScope, type Cradle } from './container';
 import { globalExceptionMiddleware } from './domain/exceptions';
 
 import { bodyParserMiddleware } from './http/middlewares/body-parser.middleware';
+import { corsOriginMiddleware } from './http/middlewares/cors-origin.middleware';
 import {
   pipelinePreRouting,
   pipelineGuardsAuth,
@@ -75,7 +75,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>, isStartupCom
   });
 
   // ── Foundation ────────────────────────────────────────────────────
-  app.use(cors({ origin: true, credentials: true }));
+  app.use(corsOriginMiddleware(c.runtimeRegistryService));
   app.use(bodyParserMiddleware(c.runtimeRegistryService));
 
   // ── Request scope + debug trace ──────────────────────────────────

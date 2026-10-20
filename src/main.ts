@@ -4,6 +4,7 @@ import { Server } from 'socket.io';
 import { buildContainer } from './container';
 import { init, shutdown } from './init';
 import { buildExpressApp } from './express-app';
+import { evaluateCorsOrigin } from './http/middlewares/cors-origin.middleware';
 import { env } from './env';
 import { Logger } from './shared/logger';
 import {
@@ -91,7 +92,16 @@ async function main() {
           const gateway = container.cradle.dynamicWebSocketGateway;
           if (gateway) {
             const io = new Server(server, {
-              cors: { origin: true, credentials: true },
+              cors: {
+                origin: (origin, callback) => {
+                  const allowed = evaluateCorsOrigin(
+                    origin,
+                    container.cradle.runtimeRegistryService.getCorsOriginPolicy(),
+                  );
+                  callback(null, allowed);
+                },
+                credentials: true,
+              },
             });
             gateway.server = io;
             await gateway.afterInit(io);

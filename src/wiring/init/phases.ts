@@ -43,6 +43,7 @@ type ParallelCacheReloadPhaseCradle = Pick<
   | 'authHeaderCacheBuilder'
   | 'storageConfigCacheBuilder'
   | 'oauthConfigCacheBuilder'
+  | 'corsOriginCacheBuilder'
   | 'websocketCacheBuilder'
   | 'flowCacheBuilder'
   | 'packageCacheService'
@@ -62,6 +63,7 @@ type ActivatedSnapshotPhaseCradle = Pick<
   | 'authHeaderCacheBuilder'
   | 'storageConfigCacheBuilder'
   | 'oauthConfigCacheBuilder'
+  | 'corsOriginCacheBuilder'
   | 'websocketCacheBuilder'
   | 'flowCacheBuilder'
   | 'packageCacheService'
@@ -218,6 +220,7 @@ export async function phaseParallelCacheReload(c: ParallelCacheReloadPhaseCradle
     runInitStep('authHeaderCacheBuilder.reload', () => c.authHeaderCacheBuilder.reload()),
     runInitStep('storageConfigCacheBuilder.reload', () => c.storageConfigCacheBuilder.reload()),
     runInitStep('oauthConfigCacheBuilder.reload', () => c.oauthConfigCacheBuilder.reload()),
+    runInitStep('corsOriginCacheBuilder.reload', () => c.corsOriginCacheBuilder.reload()),
     runInitStep('websocketCacheBuilder.reload', () => c.websocketCacheBuilder.reload()),
     runInitStep('flowCacheBuilder.reload', () => c.flowCacheBuilder.reload()),
     runInitStep('packageCacheService.reload', () => c.packageCacheService.reload()),
@@ -241,6 +244,7 @@ export async function phasePublishActivatedSnapshots(c: ActivatedSnapshotPhaseCr
       [CACHE_IDENTIFIERS.AUTH_HEADER, c.authHeaderCacheBuilder],
       [CACHE_IDENTIFIERS.STORAGE, c.storageConfigCacheBuilder],
       [CACHE_IDENTIFIERS.OAUTH_CONFIG, c.oauthConfigCacheBuilder],
+      [CACHE_IDENTIFIERS.CORS_ORIGIN, c.corsOriginCacheBuilder],
       [CACHE_IDENTIFIERS.WEBSOCKET, c.websocketCacheBuilder],
       [CACHE_IDENTIFIERS.FLOW, c.flowCacheBuilder],
       [CACHE_IDENTIFIERS.PACKAGE, c.packageCacheService],

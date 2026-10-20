@@ -270,6 +270,7 @@ describe('metadata shared helpers', () => {
       'authHeaderCacheBuilder',
       'storageConfigCacheBuilder',
       'oauthConfigCacheBuilder',
+      'corsOriginCacheBuilder',
       'websocketCacheBuilder',
       'flowCacheBuilder',
       'packageCacheService',

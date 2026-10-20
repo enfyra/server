@@ -71,7 +71,6 @@
     "awilix": "^13.0.5",
     "bcryptjs": "^3.0.3",
     "bullmq": "^6.3.9",
-    "cors": "^2.8.6",
     "cron-parser": "^5.10.1",
     "dotenv": "^18.0.4",
     "eventemitter2": "^6.4.9",
@@ -105,7 +104,6 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.7",
-    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.2.0",

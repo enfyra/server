@@ -49,6 +49,7 @@ export const CACHE_IDENTIFIERS = {
   PACKAGE: 'package',
   HELPER: 'helper',
   OAUTH_CONFIG: 'oauth-config',
+  CORS_ORIGIN: 'cors-origin',
   AUTH_HEADER: 'auth-header',
   FOLDER_TREE: 'folder-tree',
   FLOW: 'flow',

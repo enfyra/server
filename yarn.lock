@@ -1876,7 +1876,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/cors@npm:^2.8.12, @types/cors@npm:^2.8.19":
+"@types/cors@npm:^2.8.12":
   version: 2.8.19
   resolution: "@types/cors@npm:2.8.19"
   dependencies:
@@ -2959,7 +2959,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"cors@npm:^2.8.6, cors@npm:~2.8.5":
+"cors@npm:~2.8.5":
   version: 2.8.6
   resolution: "cors@npm:2.8.6"
   dependencies:
@@ -3176,7 +3176,6 @@ __metadata:
     "@google-cloud/storage": "npm:^8.2.0"
     "@graphql-tools/schema": "npm:^10.1.1"
     "@socket.io/redis-adapter": "npm:^8.3.0"
-    "@types/cors": "npm:^2.8.19"
     "@types/express": "npm:^5.0.6"
     "@types/jsonwebtoken": "npm:^9.0.10"
     "@types/multer": "npm:^2.2.0"
@@ -3190,7 +3189,6 @@ __metadata:
     awilix: "npm:^13.0.5"
     bcryptjs: "npm:^3.0.3"
     bullmq: "npm:^6.3.9"
-    cors: "npm:^2.8.6"
     cron-parser: "npm:^5.10.1"
     dotenv: "npm:^18.0.4"
     eslint: "npm:^10.11.0"

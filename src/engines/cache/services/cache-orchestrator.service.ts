@@ -15,6 +15,7 @@ import { SharedHelperCacheService } from './shared-helper-cache.service';
 import { SettingCacheService } from './setting-cache.service';
 import { StorageConfigCacheBuilder } from './storage-config-cache-builder.service';
 import { OAuthConfigCacheBuilder } from './oauth-config-cache-builder.service';
+import { CorsOriginCacheBuilder } from './cors-origin-cache-builder.service';
 import { AuthHeaderCacheBuilder } from './auth-header-cache-builder.service';
 import { FolderTreeCacheService } from './folder-tree-cache.service';
 import { FieldPermissionCacheBuilder } from './field-permission-cache-builder.service';
@@ -82,6 +83,7 @@ type ReloadStepName =
   | 'authHeader'
   | 'storage'
   | 'oauth'
+  | 'corsOrigin'
   | 'folder'
   | 'menu'
   | 'extension'
@@ -175,6 +177,7 @@ export const RELOAD_CHAINS: Record<string, ReloadStepName[]> = {
   [SYSTEM_TABLES.authHeader]: ['authHeader'],
   [SYSTEM_TABLES.storageConfig]: ['storage'],
   [SYSTEM_TABLES.oauthConfig]: ['oauth'],
+  [SYSTEM_TABLES.corsOrigin]: ['corsOrigin'],
   [SYSTEM_TABLES.websocket]: ['websocket'],
   [SYSTEM_TABLES.websocketEvent]: ['websocket'],
   [SYSTEM_TABLES.package]: ['package'],
@@ -207,6 +210,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   private readonly authHeaderCacheBuilder: AuthHeaderCacheBuilder;
   private readonly storageConfigCacheBuilder: StorageConfigCacheBuilder;
   private readonly oauthConfigCacheBuilder: OAuthConfigCacheBuilder;
+  private readonly corsOriginCacheBuilder: CorsOriginCacheBuilder;
   private readonly folderTreeCacheService: FolderTreeCacheService;
   private readonly fieldPermissionCacheBuilder: FieldPermissionCacheBuilder;
   private readonly columnRuleCacheBuilder: ColumnRuleCacheBuilder;
@@ -251,6 +255,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     authHeaderCacheBuilder: AuthHeaderCacheBuilder;
     storageConfigCacheBuilder: StorageConfigCacheBuilder;
     oauthConfigCacheBuilder: OAuthConfigCacheBuilder;
+    corsOriginCacheBuilder: CorsOriginCacheBuilder;
     folderTreeCacheService: FolderTreeCacheService;
     fieldPermissionCacheBuilder: FieldPermissionCacheBuilder;
     columnRuleCacheBuilder: ColumnRuleCacheBuilder;
@@ -277,6 +282,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     this.authHeaderCacheBuilder = deps.authHeaderCacheBuilder;
     this.storageConfigCacheBuilder = deps.storageConfigCacheBuilder;
     this.oauthConfigCacheBuilder = deps.oauthConfigCacheBuilder;
+    this.corsOriginCacheBuilder = deps.corsOriginCacheBuilder;
     this.folderTreeCacheService = deps.folderTreeCacheService;
     this.fieldPermissionCacheBuilder = deps.fieldPermissionCacheBuilder;
     this.columnRuleCacheBuilder = deps.columnRuleCacheBuilder;
@@ -325,6 +331,12 @@ export class CacheOrchestratorService implements LifecycleAware {
       oauth: (p, options) =>
         this.reloadSimple(
           this.oauthConfigCacheBuilder,
+          p,
+          options?.sharedReplay,
+        ),
+      corsOrigin: (p, options) =>
+        this.reloadSimple(
+          this.corsOriginCacheBuilder,
           p,
           options?.sharedReplay,
         ),
@@ -876,6 +888,12 @@ export class CacheOrchestratorService implements LifecycleAware {
           service: this
             .oauthConfigCacheBuilder as unknown as RuntimeCacheViewSource,
         };
+      case 'corsOrigin':
+        return {
+          identifier: CACHE_IDENTIFIERS.CORS_ORIGIN,
+          service: this
+            .corsOriginCacheBuilder as unknown as RuntimeCacheViewSource,
+        };
       case 'folder':
         return {
           identifier: CACHE_IDENTIFIERS.FOLDER_TREE,
@@ -1332,6 +1350,13 @@ export class CacheOrchestratorService implements LifecycleAware {
               sharedReplay
                 ? this.oauthConfigCacheBuilder.syncFromSharedCache()
                 : this.oauthConfigCacheBuilder.reload(false),
+          },
+          {
+            name: 'corsOrigin',
+            run: () =>
+              sharedReplay
+                ? this.corsOriginCacheBuilder.syncFromSharedCache()
+                : this.corsOriginCacheBuilder.reload(false),
           },
           {
             name: 'folder',

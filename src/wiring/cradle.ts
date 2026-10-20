@@ -27,6 +27,7 @@ import type {
   GuardEvaluatorService,
   MetadataCacheService,
   OAuthConfigCacheBuilder,
+  CorsOriginCacheBuilder,
   PackageCacheService,
   PackageCdnLoaderService,
   PackageRuntimeService,
@@ -137,6 +138,7 @@ export interface Cradle {
   storageConfigCacheBuilder: StorageConfigCacheBuilder;
   websocketCacheBuilder: WebsocketCacheBuilder;
   oauthConfigCacheBuilder: OAuthConfigCacheBuilder;
+  corsOriginCacheBuilder: CorsOriginCacheBuilder;
   rateLimitService: RateLimitService;
   folderTreeCacheService: FolderTreeCacheService;
   flowCacheBuilder: FlowCacheBuilder;
