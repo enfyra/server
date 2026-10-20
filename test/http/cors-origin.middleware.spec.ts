@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   corsOriginMiddleware,
-  evaluateCorsOrigin,
+  decideCorsOrigin,
 } from '../../src/http/middlewares/cors-origin.middleware';
+
+const ALLOW_LIST = { loaded: true, origins: ['https://a.test'] };
+const EMPTY_LIST = { loaded: true, origins: [] };
 
 function createRes() {
   const headers = new Map<string, string>();
@@ -26,35 +29,61 @@ function makeRegistry(policy: { loaded: boolean; origins: string[] } | null) {
   return { getCorsOriginPolicy: () => policy } as any;
 }
 
-describe('evaluateCorsOrigin', () => {
-  it('allows requests without an Origin header', () => {
-    expect(evaluateCorsOrigin(undefined, null)).toBe(true);
+describe('decideCorsOrigin', () => {
+  it('allows a request without an Origin header and grants no CORS', () => {
+    expect(decideCorsOrigin(undefined, 'api.test', null)).toEqual({
+      allowed: true,
+      corsOrigin: null,
+    });
+  });
+
+  it('treats the request host as same-origin and grants no CORS', () => {
+    expect(decideCorsOrigin('https://api.test', 'api.test', null)).toEqual({
+      allowed: true,
+      corsOrigin: null,
+    });
   });
 
   it('denies a cross-origin request while the allow-list is not loaded', () => {
     expect(
-      evaluateCorsOrigin('https://a.test', { loaded: false, origins: [] }),
-    ).toBe(false);
+      decideCorsOrigin('https://a.test', 'api.test', {
+        loaded: false,
+        origins: [],
+      }),
+    ).toEqual({ allowed: false, corsOrigin: null });
   });
 
-  it('allows every origin when the loaded allow-list is empty', () => {
+  it('denies cross-origin when the allow-list has no entries', () => {
+    expect(decideCorsOrigin('https://a.test', 'api.test', EMPTY_LIST)).toEqual({
+      allowed: false,
+      corsOrigin: null,
+    });
+  });
+
+  it('echoes the configured entry, never the raw header, for a listed origin', () => {
+    expect(decideCorsOrigin('https://a.test', 'api.test', ALLOW_LIST)).toEqual({
+      allowed: true,
+      corsOrigin: 'https://a.test',
+    });
+  });
+
+  it('denies an origin that is not listed', () => {
     expect(
-      evaluateCorsOrigin('https://a.test', { loaded: true, origins: [] }),
-    ).toBe(true);
+      decideCorsOrigin('https://evil.test', 'api.test', ALLOW_LIST),
+    ).toEqual({ allowed: false, corsOrigin: null });
   });
 
-  it('allows only listed origins once the allow-list has entries', () => {
-    const policy = { loaded: true, origins: ['https://a.test'] };
-    expect(evaluateCorsOrigin('https://a.test', policy)).toBe(true);
-    expect(evaluateCorsOrigin('https://b.test', policy)).toBe(false);
+  it('denies a null origin', () => {
+    expect(decideCorsOrigin('null', 'api.test', ALLOW_LIST)).toEqual({
+      allowed: false,
+      corsOrigin: null,
+    });
   });
 });
 
 describe('corsOriginMiddleware', () => {
-  it('grants CORS and answers a preflight for an allowed origin', async () => {
-    const middleware = corsOriginMiddleware(
-      makeRegistry({ loaded: true, origins: ['https://a.test'] }),
-    );
+  it('grants CORS and answers a preflight for a listed origin', async () => {
+    const middleware = corsOriginMiddleware(makeRegistry(ALLOW_LIST));
     const res = createRes();
     const next = vi.fn();
 
@@ -85,9 +114,7 @@ describe('corsOriginMiddleware', () => {
   });
 
   it('rejects a preflight from a denied origin with 403', async () => {
-    const middleware = corsOriginMiddleware(
-      makeRegistry({ loaded: true, origins: ['https://a.test'] }),
-    );
+    const middleware = corsOriginMiddleware(makeRegistry(ALLOW_LIST));
     const res = createRes();
     const next = vi.fn();
 
@@ -109,9 +136,7 @@ describe('corsOriginMiddleware', () => {
   });
 
   it('blocks a state-changing request from a denied origin with 403', async () => {
-    const middleware = corsOriginMiddleware(
-      makeRegistry({ loaded: true, origins: ['https://a.test'] }),
-    );
+    const middleware = corsOriginMiddleware(makeRegistry(ALLOW_LIST));
     const res = createRes();
     const next = vi.fn();
 
@@ -121,15 +146,12 @@ describe('corsOriginMiddleware', () => {
       next,
     );
 
-    const error = next.mock.calls[0][0];
-    expect(error.statusCode).toBe(403);
+    expect(next.mock.calls[0][0].statusCode).toBe(403);
     expect(res.headers.has('Access-Control-Allow-Origin')).toBe(false);
   });
 
   it('lets a safe request through without the CORS grant when the origin is denied', async () => {
-    const middleware = corsOriginMiddleware(
-      makeRegistry({ loaded: true, origins: ['https://a.test'] }),
-    );
+    const middleware = corsOriginMiddleware(makeRegistry(ALLOW_LIST));
     const res = createRes();
     const next = vi.fn();
 
@@ -143,18 +165,43 @@ describe('corsOriginMiddleware', () => {
     expect(res.headers.has('Access-Control-Allow-Origin')).toBe(false);
   });
 
-  it('does not treat a denied request as a preflight when the method is GET', async () => {
-    const middleware = corsOriginMiddleware(makeRegistry(null));
+  it('does not grant CORS to a same-origin request', async () => {
+    const middleware = corsOriginMiddleware(makeRegistry(ALLOW_LIST));
     const res = createRes();
     const next = vi.fn();
 
     await middleware(
-      { method: 'GET', headers: { origin: 'https://evil.test' } } as any,
+      {
+        method: 'GET',
+        headers: { origin: 'https://api.test', host: 'api.test' },
+      } as any,
       res as any,
       next,
     );
 
-    expect(res.statusCode).toBeUndefined();
     expect(next).toHaveBeenCalledWith();
+    expect(res.headers.has('Access-Control-Allow-Origin')).toBe(false);
+  });
+
+  it('uses the forwarded host as the public host behind a proxy', async () => {
+    const middleware = corsOriginMiddleware(makeRegistry(EMPTY_LIST));
+    const res = createRes();
+    const next = vi.fn();
+
+    await middleware(
+      {
+        method: 'GET',
+        headers: {
+          origin: 'https://public.test',
+          host: 'internal:1105',
+          'x-forwarded-host': 'public.test',
+        },
+      } as any,
+      res as any,
+      next,
+    );
+
+    expect(next).toHaveBeenCalledWith();
+    expect(res.headers.has('Access-Control-Allow-Origin')).toBe(false);
   });
 });
