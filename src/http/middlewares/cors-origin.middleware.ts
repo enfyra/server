@@ -39,7 +39,7 @@ export interface CorsOriginDecision {
  */
 export function decideCorsOrigin(
   origin: string | undefined,
-  policy: CorsOriginPolicyInput | null,
+  policy: CorsOriginPolicyInput | undefined,
 ): CorsOriginDecision {
   if (!origin) return { allowed: true };
   if (!policy?.loaded) return { allowed: false };

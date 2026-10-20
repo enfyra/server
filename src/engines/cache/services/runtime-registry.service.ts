@@ -385,11 +385,8 @@ export class RuntimeRegistryService {
     );
   }
 
-  getCorsOriginPolicy(): CorsOriginPolicy | null {
-    return (
-      this.getActiveData<CorsOriginPolicy>(CACHE_IDENTIFIERS.CORS_ORIGIN) ??
-      null
-    );
+  getCorsOriginPolicy(): CorsOriginPolicy | undefined {
+    return this.getActiveData<CorsOriginPolicy>(CACHE_IDENTIFIERS.CORS_ORIGIN);
   }
 
   getFlows(): FlowDefinition[] {
@@ -460,7 +457,9 @@ export class RuntimeRegistryService {
       Array.isArray(user?.roles)
         ? user.roles
             .map((role: any) => this.toIdString(role))
-            .filter((roleId: string | null): roleId is string => roleId !== null)
+            .filter(
+              (roleId: string | null): roleId is string => roleId !== null,
+            )
         : [],
     );
 
