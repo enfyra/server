@@ -14,7 +14,7 @@ export interface CorsOriginPolicyInput {
 
 export interface CorsOriginDecision {
   allowed: boolean;
-  corsOrigin: string | null;
+  corsOrigin?: string;
 }
 
 /**
@@ -29,9 +29,9 @@ export interface CorsOriginDecision {
  *   entry is the value granted.
  *
  * `corsOrigin` is the only value ever written to `Access-Control-Allow-Origin`,
- * and it comes from the allow-list, never from the request header. With
- * credentials enabled, echoing an unlisted request Origin would let any site
- * read authenticated responses.
+ * and it is an allow-list entry, never the request header. With credentials
+ * enabled, echoing an unlisted request Origin would let any site read
+ * authenticated responses.
  *
  * State-changing methods from a denied origin are rejected with 403 so the
  * control holds even when the caller ignores CORS. Safe methods keep serving
@@ -41,14 +41,13 @@ export function decideCorsOrigin(
   origin: string | undefined,
   policy: CorsOriginPolicyInput | null,
 ): CorsOriginDecision {
-  if (!origin) return { allowed: true, corsOrigin: null };
-  if (!policy?.loaded) return { allowed: false, corsOrigin: null };
-  if (policy.origins.length === 0) return { allowed: true, corsOrigin: null };
-  const corsOrigin =
-    policy.origins.find((candidate) => candidate === origin) ?? null;
-  return corsOrigin
-    ? { allowed: true, corsOrigin }
-    : { allowed: false, corsOrigin: null };
+  if (!origin) return { allowed: true };
+  if (!policy?.loaded) return { allowed: false };
+  if (policy.origins.length === 0) return { allowed: true };
+  const corsOrigin = policy.origins.find((candidate) => candidate === origin);
+  return corsOrigin === undefined
+    ? { allowed: false }
+    : { allowed: true, corsOrigin };
 }
 
 function requestedHeadersOf(req: Request): string {
@@ -74,7 +73,7 @@ export function corsOriginMiddleware(
       origin !== undefined &&
       req.headers['access-control-request-method'] !== undefined;
 
-    if (decision.corsOrigin) {
+    if (decision.corsOrigin !== undefined) {
       res.setHeader('Access-Control-Allow-Origin', decision.corsOrigin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Vary', 'Origin');

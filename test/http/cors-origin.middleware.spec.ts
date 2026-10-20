@@ -31,22 +31,18 @@ function makeRegistry(policy: { loaded: boolean; origins: string[] } | null) {
 
 describe('decideCorsOrigin', () => {
   it('allows a request without an Origin header and grants no CORS', () => {
-    expect(decideCorsOrigin(undefined, null)).toEqual({
-      allowed: true,
-      corsOrigin: null,
-    });
+    expect(decideCorsOrigin(undefined, null)).toEqual({ allowed: true });
   });
 
   it('denies a cross-origin request while the allow-list is not loaded', () => {
     expect(
       decideCorsOrigin('https://a.test', { loaded: false, origins: [] }),
-    ).toEqual({ allowed: false, corsOrigin: null });
+    ).toEqual({ allowed: false });
   });
 
   it('allows an unconfigured allow-list without granting CORS', () => {
     expect(decideCorsOrigin('https://a.test', EMPTY_LIST)).toEqual({
       allowed: true,
-      corsOrigin: null,
     });
   });
 
@@ -60,15 +56,11 @@ describe('decideCorsOrigin', () => {
   it('denies an origin that is not listed', () => {
     expect(decideCorsOrigin('https://evil.test', ALLOW_LIST)).toEqual({
       allowed: false,
-      corsOrigin: null,
     });
   });
 
   it('never grants a null origin', () => {
-    expect(decideCorsOrigin('null', ALLOW_LIST)).toEqual({
-      allowed: false,
-      corsOrigin: null,
-    });
+    expect(decideCorsOrigin('null', ALLOW_LIST)).toEqual({ allowed: false });
   });
 });
 
