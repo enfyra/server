@@ -356,12 +356,8 @@ const snapshotMigrations: VersionedSchemaMigration[] = [
   {
     fromVersion: '2.3.2',
     toVersion: '2.3.3',
-    schema: { tables: [], tablesToDrop: ['enfyra_bootstrap_script'] },
-  },
-  {
-    fromVersion: '2.3.3',
-    toVersion: '2.3.4',
     schema: {
+      tablesToDrop: ['enfyra_bootstrap_script'],
       tables: [
         {
           _unique: { name: { _eq: 'enfyra_column' } },

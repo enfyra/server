@@ -1194,11 +1194,6 @@ const dataMigrations: VersionedDataMigration[] = [
       ],
     },
   },
-  {
-    fromVersion: '2.3.3',
-    toVersion: '2.3.4',
-    data: {},
-  },
 ];
 
 export default dataMigrations;

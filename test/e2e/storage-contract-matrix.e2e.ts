@@ -116,7 +116,7 @@ async function main() {
         assert.equal(legacy.length, columns.length);
         assert.ok(legacy.every((column) => column.dataType.toLowerCase() !== targetType));
 
-        await sql('enfyra_setting').update({ enfyraVersion: '2.3.3', isInit: true });
+        await sql('enfyra_setting').update({ enfyraVersion: '2.3.2', isInit: true });
         const upgrade = await boot(uri.href, namespace, 1, backend, 'legacy-upgrade');
         assert.equal(upgrade.bootstrapRuns, 1);
         const migrated = await jsonColumns(sql, backend);
@@ -132,6 +132,48 @@ async function main() {
           }
         }
         await boot(uri.href, namespace, 0, backend, 'post-upgrade-stable');
+
+        // A database can also hold native JSON columns: Enfyra has one JSON
+        // storage shape per SQL backend, so healing must converge them.
+        const userTable = 'storage_json_user_table';
+        await sql.raw(`CREATE TABLE ?? (id INTEGER PRIMARY KEY, payload ${backend === 'postgres' ? 'json' : 'JSON'} NULL)`, [userTable]);
+        await sql(userTable).insert({ id: 1, payload: JSON.stringify({ kept: 'yes' }) });
+        await sql('enfyra_table').insert({
+          name: userTable, isSystem: false, isSingleRecord: false,
+          uniques: '[]', indexes: '[]', metadata: '{}', validateBody: true,
+        });
+        const userTableRow = await sql('enfyra_table').where({ name: userTable }).first('id');
+        await sql('enfyra_column').insert([
+          { tableId: userTableRow.id, name: 'id', type: 'int', isPrimary: true, isNullable: false },
+          { tableId: userTableRow.id, name: 'payload', type: 'simple-json', isNullable: true },
+        ]);
+
+        const nativeJsonColumns = [
+          ['enfyra_table', 'uniques'],
+          ['enfyra_table', 'indexes'],
+          ['enfyra_table', 'metadata'],
+          ['enfyra_relation', 'metadata'],
+        ];
+        for (const [tableName, columnName] of nativeJsonColumns) {
+          const values = await sql(tableName).select(columnName).whereNotNull(columnName);
+          const allJson = values.every((row) => {
+            try { JSON.parse(String(row[columnName])); return true; } catch { return false; }
+          });
+          if (!allJson) continue;
+          if (backend === 'postgres') {
+            await sql.raw('ALTER TABLE ?? ALTER COLUMN ?? TYPE json USING ??::json', [tableName, columnName, columnName]);
+          } else {
+            await sql.raw('ALTER TABLE ?? MODIFY COLUMN ?? JSON NULL', [tableName, columnName]);
+          }
+        }
+        await sql('enfyra_setting').update({ enfyraVersion: '2.3.2', isInit: true });
+        await boot(uri.href, namespace, 1, backend, 'native-json-heal');
+
+        const healed = await jsonColumns(sql, backend);
+        for (const column of healed) {
+          assert.equal(String(column.dataType).toLowerCase(), targetType, `${backend}: ${column.tableName}.${column.columnName} stayed ${column.dataType}`);
+        }
+        assert.deepEqual(JSON.parse(String((await sql(userTable).where({ id: 1 }).first('payload')).payload)), { kept: 'yes' });
       }
 
       console.log(JSON.stringify({ backend, freshInstall: fresh.bootstrapRuns, stableBoot: stable.bootstrapRuns, legacyUpgrade: sql ? 1 : 'n/a', jsonStorage: sql ? targetType : 'native-json', passed: true }));

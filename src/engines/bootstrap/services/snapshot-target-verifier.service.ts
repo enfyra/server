@@ -103,7 +103,7 @@ export class SnapshotTargetVerifierService {
             change !== 'type' ||
             column.type !== 'simple-json' ||
             !currentColumn ||
-            !/json|text/i.test(currentColumn.type),
+            !/text/i.test(currentColumn.type),
         );
         if (targetChanges.length === 0) continue;
         errors.push(

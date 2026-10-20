@@ -76,7 +76,18 @@ describe('SQL JSON storage healing', () => {
     );
   });
 
-  it('does nothing on PostgreSQL, where text is already unbounded', async () => {
+  it('converges a PostgreSQL native JSON column onto text', async () => {
+    vi.mocked(applySqlColumnModifications).mockClear();
+    await expect(service('json', 'postgres').repairSqlJsonColumns()).resolves.toBe(1);
+    expect(applySqlColumnModifications).toHaveBeenCalledWith(
+      expect.anything(),
+      'posts',
+      [expect.objectContaining({ to: { name: 'payload', type: 'simple-json' } })],
+      'pg',
+    );
+  });
+
+  it('leaves PostgreSQL text alone', async () => {
     vi.mocked(applySqlColumnModifications).mockClear();
     await expect(service('text', 'postgres').repairSqlJsonColumns()).resolves.toBe(0);
     expect(applySqlColumnModifications).not.toHaveBeenCalled();
