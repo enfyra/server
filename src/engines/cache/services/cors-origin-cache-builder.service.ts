@@ -51,11 +51,30 @@ export class CorsOriginCacheBuilder extends BaseCacheService<CorsOriginPolicy> {
   protected transformData(rawData: any[]): CorsOriginPolicy {
     const origins = rawData
       .filter((record) => record?.isEnabled !== false)
-      .map((record) =>
-        typeof record?.value === 'string' ? record.value.trim() : '',
-      )
-      .filter((origin) => origin.length > 0);
+      .map((record) => normalizeAllowedOrigin(record?.value))
+      .filter((origin): origin is string => origin !== null);
 
     return { loaded: true, origins: [...new Set(origins)] };
+  }
+}
+
+/**
+ * Only an absolute http(s) origin can be granted, because that is the only
+ * shape a browser sends as `Origin`. This rejects the `"null"` origin, which
+ * any sandboxed iframe or `data:` URL can present, along with bare hosts and
+ * paths that could never match a real request anyway.
+ */
+function normalizeAllowedOrigin(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
+      return null;
+    if (!parsed.host) return null;
+    return parsed.origin;
+  } catch {
+    return null;
   }
 }

@@ -21,15 +21,17 @@ export interface CorsOriginDecision {
  * The one CORS contract, shared with the Nuxt bridge and the WebSocket bridge.
  *
  * - No Origin header: not a browser cross-origin request, allowed without CORS.
- * - Same origin as the request's public host: allowed without CORS, because a
- *   browser never needs the grant for its own origin.
  * - Allow-list not loaded yet: denied, so a cold cache never grants access.
- * - Allow-list loaded: only a listed origin is allowed, and the value echoed
- *   back is the configured entry rather than the raw header. An allow-list with
- *   no entries therefore grants no cross-origin access.
+ * - Allow-list loaded and empty: allowed without CORS. This is the unconfigured
+ *   default, where the app is reached through its own origin, so no browser
+ *   needs a grant; a cross-origin browser still cannot read the response.
+ * - Allow-list loaded with entries: only an exact entry is allowed, and that
+ *   entry is the value granted.
  *
- * The echoed value is never the request's own header: with credentials enabled
- * that would let any site read authenticated responses.
+ * `corsOrigin` is the only value ever written to `Access-Control-Allow-Origin`,
+ * and it comes from the allow-list, never from the request header. With
+ * credentials enabled, echoing an unlisted request Origin would let any site
+ * read authenticated responses.
  *
  * State-changing methods from a denied origin are rejected with 403 so the
  * control holds even when the caller ignores CORS. Safe methods keep serving
@@ -37,35 +39,16 @@ export interface CorsOriginDecision {
  */
 export function decideCorsOrigin(
   origin: string | undefined,
-  publicHost: string | undefined,
   policy: CorsOriginPolicyInput | null,
 ): CorsOriginDecision {
   if (!origin) return { allowed: true, corsOrigin: null };
-  if (isSameHost(origin, publicHost))
-    return { allowed: true, corsOrigin: null };
   if (!policy?.loaded) return { allowed: false, corsOrigin: null };
+  if (policy.origins.length === 0) return { allowed: true, corsOrigin: null };
   const corsOrigin =
     policy.origins.find((candidate) => candidate === origin) ?? null;
   return corsOrigin
     ? { allowed: true, corsOrigin }
     : { allowed: false, corsOrigin: null };
-}
-
-function isSameHost(origin: string, publicHost: string | undefined): boolean {
-  if (!publicHost) return false;
-  try {
-    return new URL(origin).host.toLowerCase() === publicHost.toLowerCase();
-  } catch {
-    return false;
-  }
-}
-
-function publicHostOf(req: Request): string | undefined {
-  const forwarded = req.headers['x-forwarded-host'];
-  const raw = Array.isArray(forwarded)
-    ? forwarded[0]
-    : (forwarded ?? req.headers.host);
-  return typeof raw === 'string' ? raw.split(',')[0]?.trim() : undefined;
 }
 
 function requestedHeadersOf(req: Request): string {
@@ -84,7 +67,6 @@ export function corsOriginMiddleware(
       typeof req.headers.origin === 'string' ? req.headers.origin : undefined;
     const decision = decideCorsOrigin(
       origin,
-      publicHostOf(req),
       runtimeRegistryService.getCorsOriginPolicy(),
     );
     const isPreflight =

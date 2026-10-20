@@ -92,17 +92,20 @@ async function main() {
           const gateway = container.cradle.dynamicWebSocketGateway;
           if (gateway) {
             const io = new Server(server, {
-              cors: { origin: true, credentials: true },
+              cors: {
+                origin: (origin, callback) => {
+                  const decision = decideCorsOrigin(
+                    origin,
+                    container.cradle.runtimeRegistryService.getCorsOriginPolicy(),
+                  );
+                  callback(null, decision.corsOrigin ?? false);
+                },
+                credentials: true,
+              },
               allowRequest: (req, callback) => {
                 const origin = req.headers.origin;
-                const forwardedHost = req.headers['x-forwarded-host'];
-                const publicHost =
-                  typeof forwardedHost === 'string'
-                    ? forwardedHost.split(',')[0]?.trim()
-                    : req.headers.host;
                 const decision = decideCorsOrigin(
                   typeof origin === 'string' ? origin : undefined,
-                  publicHost,
                   container.cradle.runtimeRegistryService.getCorsOriginPolicy(),
                 );
                 callback(

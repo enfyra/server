@@ -31,14 +31,7 @@ function makeRegistry(policy: { loaded: boolean; origins: string[] } | null) {
 
 describe('decideCorsOrigin', () => {
   it('allows a request without an Origin header and grants no CORS', () => {
-    expect(decideCorsOrigin(undefined, 'api.test', null)).toEqual({
-      allowed: true,
-      corsOrigin: null,
-    });
-  });
-
-  it('treats the request host as same-origin and grants no CORS', () => {
-    expect(decideCorsOrigin('https://api.test', 'api.test', null)).toEqual({
+    expect(decideCorsOrigin(undefined, null)).toEqual({
       allowed: true,
       corsOrigin: null,
     });
@@ -46,35 +39,33 @@ describe('decideCorsOrigin', () => {
 
   it('denies a cross-origin request while the allow-list is not loaded', () => {
     expect(
-      decideCorsOrigin('https://a.test', 'api.test', {
-        loaded: false,
-        origins: [],
-      }),
+      decideCorsOrigin('https://a.test', { loaded: false, origins: [] }),
     ).toEqual({ allowed: false, corsOrigin: null });
   });
 
-  it('denies cross-origin when the allow-list has no entries', () => {
-    expect(decideCorsOrigin('https://a.test', 'api.test', EMPTY_LIST)).toEqual({
-      allowed: false,
+  it('allows an unconfigured allow-list without granting CORS', () => {
+    expect(decideCorsOrigin('https://a.test', EMPTY_LIST)).toEqual({
+      allowed: true,
       corsOrigin: null,
     });
   });
 
-  it('echoes the configured entry, never the raw header, for a listed origin', () => {
-    expect(decideCorsOrigin('https://a.test', 'api.test', ALLOW_LIST)).toEqual({
+  it('grants the configured entry for a listed origin', () => {
+    expect(decideCorsOrigin('https://a.test', ALLOW_LIST)).toEqual({
       allowed: true,
       corsOrigin: 'https://a.test',
     });
   });
 
   it('denies an origin that is not listed', () => {
-    expect(
-      decideCorsOrigin('https://evil.test', 'api.test', ALLOW_LIST),
-    ).toEqual({ allowed: false, corsOrigin: null });
+    expect(decideCorsOrigin('https://evil.test', ALLOW_LIST)).toEqual({
+      allowed: false,
+      corsOrigin: null,
+    });
   });
 
-  it('denies a null origin', () => {
-    expect(decideCorsOrigin('null', 'api.test', ALLOW_LIST)).toEqual({
+  it('never grants a null origin', () => {
+    expect(decideCorsOrigin('null', ALLOW_LIST)).toEqual({
       allowed: false,
       corsOrigin: null,
     });
@@ -165,38 +156,13 @@ describe('corsOriginMiddleware', () => {
     expect(res.headers.has('Access-Control-Allow-Origin')).toBe(false);
   });
 
-  it('does not grant CORS to a same-origin request', async () => {
-    const middleware = corsOriginMiddleware(makeRegistry(ALLOW_LIST));
-    const res = createRes();
-    const next = vi.fn();
-
-    await middleware(
-      {
-        method: 'GET',
-        headers: { origin: 'https://api.test', host: 'api.test' },
-      } as any,
-      res as any,
-      next,
-    );
-
-    expect(next).toHaveBeenCalledWith();
-    expect(res.headers.has('Access-Control-Allow-Origin')).toBe(false);
-  });
-
-  it('uses the forwarded host as the public host behind a proxy', async () => {
+  it('allows an unconfigured allow-list without granting CORS', async () => {
     const middleware = corsOriginMiddleware(makeRegistry(EMPTY_LIST));
     const res = createRes();
     const next = vi.fn();
 
     await middleware(
-      {
-        method: 'GET',
-        headers: {
-          origin: 'https://public.test',
-          host: 'internal:1105',
-          'x-forwarded-host': 'public.test',
-        },
-      } as any,
+      { method: 'GET', headers: { origin: 'https://a.test' } } as any,
       res as any,
       next,
     );
