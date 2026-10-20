@@ -23,6 +23,8 @@ export interface ICache {
   ): Promise<boolean>;
   exists(key: string, value: any): Promise<boolean>;
   deleteKey(key: string): Promise<void>;
+  /** Reads and removes a key in one Redis round-trip, so a one-time value cannot be read twice. */
+  getAndDelete<T = any>(key: string): Promise<T | null>;
   setNoExpire<T = any>(key: string, value: T): Promise<void>;
   clearAll(): Promise<void>;
   acquire(key: string, value: any, ttlMs: number): Promise<boolean>;

@@ -29,7 +29,7 @@ export async function createOAuthRedirectValidator(
     const { data } = await queryBuilder.find({
       table: 'enfyra_cors_origin',
       fields: ['value', 'isEnabled'],
-      limit: 100000,
+      limit: 0,
     });
     allowedOrigins = data
       .filter(

@@ -284,6 +284,19 @@ export class RedisCacheService implements ICache {
     if (this.policy.quota) await this.untrack(decoratedKey);
   }
 
+  /**
+   * `GETDEL` is one atomic server-side operation, so two concurrent callers can
+   * never both receive the same value. A read-then-delete pair would let both
+   * requests observe the value before either deletion landed.
+   */
+  async getAndDelete<T = any>(key: string): Promise<T | null> {
+    const decoratedKey = this.decorateKey(key);
+    const current = await this.redis.getdel(decoratedKey);
+    await this.runtimeNamespaceLifecycleService?.unregisterManagedKey(decoratedKey);
+    if (this.policy.quota) await this.untrack(decoratedKey);
+    return this.deserialize(current);
+  }
+
   async setNoExpire<T = any>(key: string, value: T): Promise<void> {
     await this.set(key, value, 0);
   }
