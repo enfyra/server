@@ -512,12 +512,34 @@ describe('RedisAdminService', () => {
         isSystem: true,
         modifiable: false,
         systemKind: 'user_cache_lock',
+        reason: '$cache distributed lock',
       }),
     );
     await expect(service.deleteKey('user_cache_lock:renewal')).rejects.toMatchObject({
       statusCode: 403,
       errorCode: 'AUTHORIZATION_ERROR',
     });
+  });
+
+  it('groups user-cache locks with user cache instead of a separate category', async () => {
+    const { redis, service } = makeService();
+    redis.setSync('app-a:user_cache:report:daily', 'value');
+    redis.setSync('app-a:user_cache_lock:quota-renewal:24', 'owner-token');
+
+    const overview = await service.getOverview();
+    const listed = await service.listKeys({ filter: 'user_cache' });
+
+    expect(overview.groups).toEqual([
+      expect.objectContaining({
+        name: 'user cache',
+        systemKind: 'user_cache',
+        count: 2,
+      }),
+    ]);
+    expect(listed.keys.map((item) => item.key).sort()).toEqual([
+      'report:daily',
+      'user_cache_lock:quota-renewal:24',
+    ]);
   });
 
   it('marks system keys and blocks mutation', async () => {

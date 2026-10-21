@@ -127,7 +127,9 @@ export class RedisAdminService {
       scanned: keys.scanned,
       scanComplete: keys.complete,
       userCache: await this.getUserCacheQuota(),
-      groups: [...groups.values()].sort((a, b) => b.count - a.count),
+      groups: [...groups.values()].sort(
+        (a, b) => b.count - a.count || a.name.localeCompare(b.name),
+      ),
       topKeys: browserSummaries
         .filter((item) => item.memoryBytes != null)
         .sort((a, b) => (b.memoryBytes ?? 0) - (a.memoryBytes ?? 0))
@@ -738,11 +740,12 @@ export class RedisAdminService {
     scope: RedisAdminNamespaceScope;
   } {
     if (summary.namespaceScope === 'current') {
+      const systemKind = this.categoryKind(summary.systemKind);
       return {
-        name: summary.systemKind
-          ? this.systemKindLabel(summary.systemKind)
+        name: systemKind
+          ? this.systemKindLabel(systemKind)
           : 'current namespace',
-        systemKind: summary.systemKind,
+        systemKind,
         scope: summary.namespaceScope,
       };
     }
@@ -779,7 +782,13 @@ export class RedisAdminService {
     if (this.isTransientKey(key)) return false;
     if (!filter || filter === 'all') return true;
     if (filter === 'custom') return !key.isSystem && !key.systemKind;
-    return key.systemKind === filter;
+    return this.categoryKind(key.systemKind) === filter;
+  }
+
+  private categoryKind(
+    kind?: RedisAdminSystemKind,
+  ): RedisAdminSystemKind | undefined {
+    return kind === 'user_cache_lock' ? 'user_cache' : kind;
   }
 
   private isTransientKey(key: RedisAdminKeySummary): boolean {
@@ -968,9 +977,8 @@ export class RedisAdminService {
       case 'runtime_cache':
         return 'runtime cache';
       case 'user_cache':
-        return 'user cache';
       case 'user_cache_lock':
-        return 'user cache lock';
+        return 'user cache';
       case 'bullmq':
         return 'BullMQ';
       case 'socket_io':
