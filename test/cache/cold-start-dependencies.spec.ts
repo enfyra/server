@@ -191,9 +191,7 @@ describe('cold-start cache dependencies', () => {
       expect(normalize).toHaveBeenCalledTimes(1);
       expect(resolve).not.toHaveBeenCalled();
       expect(result[0].steps[0].compiledCode).toContain('const value =');
-      expect(result[0].steps[0].config.code).toBe(
-        result[0].steps[0].compiledCode,
-      );
+      expect(result[0].steps[0].config).toBeUndefined();
     } finally {
       resolve.mockRestore();
       normalize.mockRestore();

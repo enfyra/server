@@ -8,7 +8,7 @@ import type { QueryBuilderService } from '@enfyra/kernel';
 import { BadRequestException } from '../../../domain/exceptions';
 import {
   executeStepCore,
-  getExecutableStepConfig,
+  getExecutableStepScript,
 } from '../utils/step-executor.util';
 import { SocketEmitCapture } from '../../websocket';
 import { DynamicContextFactory } from '../../../shared/services';
@@ -27,7 +27,6 @@ interface FlowStepTestInput {
   flowId?: number | string;
   flowName?: string;
   type: string;
-  config: any;
   sourceCode?: string | null;
   scriptLanguage?: string | null;
   compiledCode?: string | null;
@@ -85,7 +84,8 @@ export class FlowService {
         limit: 0,
       });
       const records = Array.isArray(result?.data) ? result.data : [];
-      const getId = (record: any) => record?.[pkField] ?? record?.id ?? record?._id;
+      const getId = (record: any) =>
+        record?.[pkField] ?? record?.id ?? record?._id;
       const getRelationId = (value: any) =>
         value && typeof value === 'object' ? getId(value) : value;
       const current = records.find(
@@ -114,7 +114,9 @@ export class FlowService {
         Number(current.stepOrder) !== input.expectedCurrentOrder ||
         Number(swap.stepOrder) !== input.expectedSwapOrder
       ) {
-        throw new BadRequestException('Flow step order changed; reload and retry');
+        throw new BadRequestException(
+          'Flow step order changed; reload and retry',
+        );
       }
 
       await context.$repos.main.update({
@@ -137,7 +139,8 @@ export class FlowService {
 
   private flowStepRepairCallback(step: any) {
     if (!this.runtimeScriptRepairService) return undefined;
-    return () => this.runtimeScriptRepairService?.repairFlowStepScriptRecord(step);
+    return () =>
+      this.runtimeScriptRepairService?.repairFlowStepScriptRecord(step);
   }
 
   async trigger(
@@ -230,7 +233,6 @@ export class FlowService {
     try {
       const resolved = await this.resolveTestFlowStep(step);
       const targetStep = resolved?.step ?? step;
-      const targetConfig = getExecutableStepConfig(targetStep);
 
       if (resolved) {
         await this.primeFlowTestContext({
@@ -242,31 +244,16 @@ export class FlowService {
         });
       }
 
-      let result: any;
-
-      if (targetStep.type === 'trigger_flow') {
-        result = {
-          triggered: true,
-          flowId: targetConfig.flowId,
-          flowName: targetConfig.flowName,
-          note: 'test mode - not actually triggered',
-        };
-      } else if (targetStep.type === 'sleep') {
-        result = {
-          slept: targetConfig.ms || 1000,
-          note: 'test mode - not actually sleeping',
-        };
-      } else {
-        result = await executeStepCore({
-          type: targetStep.type,
-          config: targetConfig,
-          timeout,
-          ctx,
-          executorEngineService: this.executorEngineService,
-          shouldTransformCode: true,
-          onCompiledCodeRepair: this.flowStepRepairCallback(targetStep),
-        });
-      }
+      const result = await executeStepCore({
+        type: targetStep.type,
+        stepKey: targetStep.key,
+        ...getExecutableStepScript(targetStep),
+        timeout,
+        ctx,
+        executorEngineService: this.executorEngineService,
+        shouldTransformCode: true,
+        onCompiledCodeRepair: this.flowStepRepairCallback(targetStep),
+      });
 
       if (targetStep.key) {
         flowContext[targetStep.key] = result;
@@ -323,7 +310,6 @@ export class FlowService {
       const mergedStep = {
         ...liveStep,
         type: step.type || liveStep.type,
-        config: step.config ?? liveStep.config,
         sourceCode: step.sourceCode ?? liveStep.sourceCode,
         scriptLanguage: step.scriptLanguage ?? liveStep.scriptLanguage,
         compiledCode: step.compiledCode ?? liveStep.compiledCode,
@@ -386,19 +372,11 @@ export class FlowService {
   }
 
   private getStepSourceCode(step: {
-    config?: any;
     sourceCode?: string | null;
     compiledCode?: string | null;
   }): string {
     if (!step || typeof step !== 'object') return '';
-    return String(
-      step.sourceCode ??
-        step.config?.sourceCode ??
-        step.config?.code ??
-        step.compiledCode ??
-        step.config?.compiledCode ??
-        '',
-    );
+    return String(step.sourceCode ?? step.compiledCode ?? '');
   }
 
   private async primeFlowTestContext(opts: {
@@ -434,7 +412,7 @@ export class FlowService {
       flowContext.$last = result;
 
       if (step.type !== 'condition') return;
-      const branchSteps = getChildren(step.id, !!result ? 'true' : 'false');
+      const branchSteps = getChildren(step.id, result ? 'true' : 'false');
       for (const child of branchSteps) {
         await runStep(child);
       }
@@ -462,24 +440,11 @@ export class FlowService {
     ctx: any,
     timeout: number,
   ): Promise<any> {
-    const config = getExecutableStepConfig(step);
-    if (step.type === 'trigger_flow') {
-      return {
-        triggered: true,
-        flowId: config.flowId,
-        flowName: config.flowName,
-        note: 'test mode - not actually triggered',
-      };
-    }
-    if (step.type === 'sleep') {
-      return {
-        slept: config.ms || 1000,
-        note: 'test mode - not actually sleeping',
-      };
-    }
+    const script = getExecutableStepScript(step);
     return executeStepCore({
       type: step.type,
-      config,
+      stepKey: step.key,
+      ...script,
       timeout,
       ctx,
       executorEngineService: this.executorEngineService,

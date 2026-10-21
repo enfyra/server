@@ -79,8 +79,7 @@ describe('script-code util', () => {
     expect(record.scriptLanguage).toBe('typescript');
     expect(record.sourceCode).toContain('@FLOW_PAYLOAD.id');
     expect(record.compiledCode).toContain('$ctx.$flow.$payload.id');
-    expect(record.config.code).toBeUndefined();
-    expect(record.config.sourceCode).toBeUndefined();
+    expect(record.config).toBeUndefined();
   });
 
   it('executes sourceCode over stale compiledCode', () => {
@@ -224,9 +223,14 @@ describe('script-code util', () => {
     expect(normalized.compiledCode).toBeUndefined();
   });
 
-  it('does not rewrite invalid JSON flow configs', () => {
-    const record = { type: 'script', config: '{broken json' };
-    expect(normalizeFlowStepScriptConfig(record)).toBe(record);
+  it('drops unparsable legacy flow config and keeps the step scriptable', () => {
+    const normalized = normalizeFlowStepScriptConfig({
+      type: 'script',
+      config: '{broken json',
+    });
+
+    expect(normalized.config).toBeUndefined();
+    expect(normalized.sourceCode).toBeNull();
   });
 
   it('normalizes JSON string flow configs and removes legacy code', () => {
@@ -237,10 +241,7 @@ describe('script-code util', () => {
       }),
     });
 
-    expect(typeof normalized.config).toBe('string');
-    const config = JSON.parse(normalized.config);
-    expect(config.code).toBeUndefined();
-    expect(config.sourceCode).toBeUndefined();
+    expect(normalized.config).toBeUndefined();
     expect(normalized.sourceCode).toContain('@BODY.enabled');
     expect(normalized.compiledCode).toContain('$ctx.$body.enabled');
   });

@@ -104,6 +104,33 @@ describe('DynamicMutationPreparationService', () => {
     ).not.toThrow();
   });
 
+  it('rejects retired flow step types and drops config from the write body', () => {
+    const service = new DynamicMutationPreparationService();
+
+    expect(() => service.normalizeFlowStep({ type: 'sleep' })).toThrow(
+      'Flow steps are script-only',
+    );
+    expect(() => service.normalizeFlowStep({ type: 'query' })).toThrow(
+      'Flow steps are script-only',
+    );
+    expect(() =>
+      service.normalizeFlowStep({
+        type: 'script',
+        sourceCode: 'return 1;',
+        config: { table: 'enfyra_user', limit: 5 },
+      }),
+    ).toThrow('step config is not supported');
+
+    const body: Record<string, unknown> = {
+      type: 'script',
+      sourceCode: 'return 1;',
+      config: { code: 'return 2;' },
+    };
+    service.normalizeFlowStep(body);
+    expect(body.config).toBeUndefined();
+    expect(body.sourceCode).toBe('return 1;');
+  });
+
   it('preserves supplied private and encrypted values during create', async () => {
     const service = new DynamicMutationPreparationService();
     const mutationAuthorizationService = {

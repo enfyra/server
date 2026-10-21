@@ -650,7 +650,6 @@ async function runTest(body: any, cradle: any, currentUser: any = null) {
         flowId: body.flowId ?? body.flow?.id,
         flowName: body.flowName ?? body.flow?.name,
         type: body.type,
-        config: body.config,
         sourceCode: body.sourceCode,
         scriptLanguage: body.scriptLanguage,
         compiledCode: body.compiledCode,

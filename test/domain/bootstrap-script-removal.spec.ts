@@ -95,7 +95,7 @@ describe('custom startup script removal', () => {
       expect(definition.migration?.tablesToDrop).toEqual([retiredTable]);
       expect(
         service.getApplicableSchemaSteps().map((step) => step.toVersion),
-      ).toEqual(['2.3.3']);
+      ).toEqual(['2.3.3', '2.3.4']);
       expect(definition.dataMigration._deletedRecords).toEqual([
         {
           table: 'enfyra_route',
@@ -120,7 +120,7 @@ describe('custom startup script removal', () => {
         }),
       );
       expect(JSON.parse(readFileSync('package.json', 'utf8')).version).toBe(
-        '2.3.3',
+        '2.3.4',
       );
     },
   );

@@ -277,7 +277,7 @@ class ScriptContractService {
       try {
         config = JSON.parse(config);
       } catch {
-        return record;
+        config = null;
       }
     }
     const configObject = config && typeof config === 'object' ? config : {};
@@ -294,20 +294,9 @@ class ScriptContractService {
       normalized.sourceCode,
       normalized.scriptLanguage,
     );
+    delete normalized.config;
 
-    const normalizedConfig = { ...configObject };
-    delete normalizedConfig.sourceCode;
-    delete normalizedConfig.scriptLanguage;
-    delete normalizedConfig.compiledCode;
-    delete normalizedConfig.code;
-
-    return {
-      ...normalized,
-      config:
-        typeof record.config === 'string'
-          ? JSON.stringify(normalizedConfig)
-          : normalizedConfig,
-    };
+    return normalized;
   }
 
   repairContract(record: ScriptFields): ScriptContractRepairResult {
@@ -335,29 +324,29 @@ class ScriptContractService {
 
     const isThrowRoot = (node: ts.Node): boolean => {
       if (
-        ts.isPropertyAccessExpression(node)
-        && ts.isIdentifier(node.expression)
-        && node.expression.text === '$ctx'
-        && node.name.text === '$throw'
+        ts.isPropertyAccessExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === '$ctx' &&
+        node.name.text === '$throw'
       ) {
         return true;
       }
       return (
-        ts.isElementAccessExpression(node)
-        && ts.isIdentifier(node.expression)
-        && node.expression.text === '$ctx'
-        && ts.isStringLiteral(node.argumentExpression)
-        && node.argumentExpression.text === '$throw'
+        ts.isElementAccessExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === '$ctx' &&
+        ts.isStringLiteral(node.argumentExpression) &&
+        node.argumentExpression.text === '$throw'
       );
     };
 
     const visit = (node: ts.Node): void => {
       if (
-        ts.isCallExpression(node)
-        && ts.isPropertyAccessExpression(node.expression)
-        && ts.isIdentifier(node.expression.expression)
-        && node.expression.expression.text === '$ctx'
-        && node.expression.name.text === '$throwAlias'
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        ts.isIdentifier(node.expression.expression) &&
+        node.expression.expression.text === '$ctx' &&
+        node.expression.name.text === '$throwAlias'
       ) {
         if (node.arguments.length !== 2) {
           throw new Error('@THROW status aliases require exactly one message');
@@ -368,14 +357,14 @@ class ScriptContractService {
         const methodAccess = node.parent;
         const call = methodAccess?.parent;
         if (
-          !ts.isPropertyAccessExpression(node)
-          || !ts.isPropertyAccessExpression(methodAccess)
-          || methodAccess.expression !== node
-          || !['http', 'json'].includes(methodAccess.name.text)
-          || methodAccess.questionDotToken
-          || !ts.isCallExpression(call)
-          || call.expression !== methodAccess
-          || call.questionDotToken
+          !ts.isPropertyAccessExpression(node) ||
+          !ts.isPropertyAccessExpression(methodAccess) ||
+          methodAccess.expression !== node ||
+          !['http', 'json'].includes(methodAccess.name.text) ||
+          methodAccess.questionDotToken ||
+          !ts.isCallExpression(call) ||
+          call.expression !== methodAccess ||
+          call.questionDotToken
         ) {
           throw new Error(
             '$throw exposes only .http(statusCode, message?) and .json(body, options?)',
@@ -391,21 +380,22 @@ class ScriptContractService {
         if (methodAccess.name.text === 'json') {
           const body = call.arguments[0];
           if (
-            ts.isArrayLiteralExpression(body)
-            || ts.isStringLiteral(body)
-            || ts.isNumericLiteral(body)
-            || body.kind === ts.SyntaxKind.TrueKeyword
-            || body.kind === ts.SyntaxKind.FalseKeyword
-            || body.kind === ts.SyntaxKind.NullKeyword
+            ts.isArrayLiteralExpression(body) ||
+            ts.isStringLiteral(body) ||
+            ts.isNumericLiteral(body) ||
+            body.kind === ts.SyntaxKind.TrueKeyword ||
+            body.kind === ts.SyntaxKind.FalseKeyword ||
+            body.kind === ts.SyntaxKind.NullKeyword
           ) {
             throw new Error('$throw.json body must be a JSON object');
           }
           if (ts.isObjectLiteralExpression(body)) {
             const propertyName = (property: ts.ObjectLiteralElementLike) => {
               if (
-                (ts.isPropertyAssignment(property)
-                  || ts.isShorthandPropertyAssignment(property))
-                && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))
+                (ts.isPropertyAssignment(property) ||
+                  ts.isShorthandPropertyAssignment(property)) &&
+                (ts.isIdentifier(property.name) ||
+                  ts.isStringLiteral(property.name))
               ) {
                 return property.name.text;
               }
@@ -425,18 +415,18 @@ class ScriptContractService {
             if (errorProperty && ts.isPropertyAssignment(errorProperty)) {
               const errorValue = errorProperty.initializer;
               if (
-                ts.isArrayLiteralExpression(errorValue)
-                || ts.isStringLiteral(errorValue)
-                || ts.isNumericLiteral(errorValue)
-                || errorValue.kind === ts.SyntaxKind.TrueKeyword
-                || errorValue.kind === ts.SyntaxKind.FalseKeyword
-                || errorValue.kind === ts.SyntaxKind.NullKeyword
+                ts.isArrayLiteralExpression(errorValue) ||
+                ts.isStringLiteral(errorValue) ||
+                ts.isNumericLiteral(errorValue) ||
+                errorValue.kind === ts.SyntaxKind.TrueKeyword ||
+                errorValue.kind === ts.SyntaxKind.FalseKeyword ||
+                errorValue.kind === ts.SyntaxKind.NullKeyword
               ) {
                 throw new Error('$throw.json body.error must be a JSON object');
               }
               if (
-                ts.isObjectLiteralExpression(errorValue)
-                && errorValue.properties.some(
+                ts.isObjectLiteralExpression(errorValue) &&
+                errorValue.properties.some(
                   (property) => propertyName(property) === 'statusCode',
                 )
               ) {

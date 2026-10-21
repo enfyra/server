@@ -6,11 +6,7 @@ import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
 } from '../../../shared/utils/cache-events.constants';
-import {
-  normalizeFlowStepScriptConfig,
-  normalizeScriptLanguage,
-  resolveExecutableScript,
-} from '../../../shared/utils/script-code.util';
+import { normalizeFlowStepScriptConfig } from '../../../shared/utils/script-code.util';
 import type { QueryBuilderService } from '@enfyra/kernel';
 import type {
   FlowDefinition,
@@ -130,54 +126,30 @@ export class FlowCacheBuilder extends BaseCacheService<FlowDefinition[]> {
           (a: any, b: any) => (a.stepOrder || 0) - (b.stepOrder || 0),
         );
 
-        const steps: FlowStep[] = await Promise.all(
-          rawSteps.map(async (step: any) => {
-            if (step.type === 'script' || step.type === 'condition') {
-              const normalizedStep = normalizeFlowStepScriptConfig(step);
-              Object.assign(step, normalizedStep);
-              if (step.sourceCode || step.compiledCode) {
-                step.scriptLanguage = normalizeScriptLanguage(
-                  step.scriptLanguage,
-                );
-                const result =
-                  normalizedStep !== step &&
-                  typeof step.compiledCode === 'string' &&
-                  step.compiledCode.length > 0
-                    ? {
-                        compiledCode: step.compiledCode,
-                        code: step.compiledCode,
-                      }
-                    : resolveExecutableScript(step);
-                step.compiledCode = result.compiledCode;
-                if (result.code) {
-                  step.config = {
-                    ...(step.config || {}),
-                    sourceCode: step.sourceCode,
-                    scriptLanguage: step.scriptLanguage,
-                    compiledCode: step.compiledCode,
-                    code: result.code,
-                  };
-                }
-              }
-            }
-            return {
-              id: step[idField],
-              key: step.key,
-              stepOrder: step.stepOrder,
-              type: step.type,
-              config: step.config,
-              sourceCode: step.sourceCode ?? null,
-              scriptLanguage: step.scriptLanguage ?? 'typescript',
-              compiledCode: step.compiledCode ?? null,
-              timeout: step.timeout || 5000,
-              onError: step.onError || 'stop',
-              retryAttempts: step.retryAttempts || 0,
-              isEnabled: step.isEnabled,
-              parentId: step.parentId || step.parent?.[idField] || null,
-              branch: step.branch || null,
-            };
-          }),
-        );
+        const steps: FlowStep[] = rawSteps.map((step: any) => {
+          if (step.type === 'script' || step.type === 'condition') {
+            const normalized = normalizeFlowStepScriptConfig(step);
+            step.sourceCode = normalized.sourceCode ?? null;
+            step.scriptLanguage = normalized.scriptLanguage;
+            step.compiledCode = normalized.compiledCode ?? null;
+            delete step.config;
+          }
+          return {
+            id: step[idField],
+            key: step.key,
+            stepOrder: step.stepOrder,
+            type: step.type,
+            sourceCode: step.sourceCode ?? null,
+            scriptLanguage: step.scriptLanguage ?? 'typescript',
+            compiledCode: step.compiledCode ?? null,
+            timeout: step.timeout || 5000,
+            onError: step.onError || 'stop',
+            retryAttempts: step.retryAttempts || 0,
+            isEnabled: step.isEnabled,
+            parentId: step.parentId || step.parent?.[idField] || null,
+            branch: step.branch || null,
+          };
+        });
 
         return {
           id: flow[idField],

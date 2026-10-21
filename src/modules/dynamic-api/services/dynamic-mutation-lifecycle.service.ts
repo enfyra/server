@@ -399,12 +399,12 @@ export class DynamicMutationLifecycleService {
         mutationPreparationService.normalizeUpdate(tableName, body, exists),
       );
       if (tableName === 'enfyra_flow_step') {
-        const normalizedFlowStep = mutationPreparationService.normalizeFlowStep(
-          {
-            ...exists,
-            ...body,
-          },
-        );
+        const existingForNormalization = { ...exists };
+        delete existingForNormalization.config;
+        const normalizedFlowStep = mutationPreparationService.normalizeFlowStep({
+          ...existingForNormalization,
+          ...body,
+        });
         if ('sourceCode' in normalizedFlowStep) {
           body.sourceCode = normalizedFlowStep.sourceCode;
         }
@@ -414,9 +414,7 @@ export class DynamicMutationLifecycleService {
         if ('compiledCode' in normalizedFlowStep) {
           body.compiledCode = normalizedFlowStep.compiledCode;
         }
-        if ('config' in normalizedFlowStep) {
-          body.config = normalizedFlowStep.config;
-        }
+        delete body.config;
       }
 
       this.applyUpdateVersion(tableName, body, exists);

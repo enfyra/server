@@ -2895,45 +2895,11 @@ snapshot
       .default(0)
       .description('Execution order of the step within the flow'),
     type: col
-      .sqlType({
-        type: 'enum',
-        options: [
-          'script',
-          'condition',
-          'query',
-          'create',
-          'update',
-          'delete',
-          'http',
-          'trigger_flow',
-          'sleep',
-          'log',
-        ],
-      })
-      .mongoType({
-        type: 'enum',
-        options: [
-          'script',
-          'condition',
-          'query',
-          'create',
-          'update',
-          'delete',
-          'http',
-          'trigger_flow',
-          'sleep',
-          'log',
-        ],
-      })
+      .sqlType({ type: 'enum', options: ['script', 'condition'] })
+      .mongoType({ type: 'enum', options: ['script', 'condition'] })
       .notNull()
       .system()
       .description('Type of operation this step performs'),
-    config: col
-      .sqlType({ type: 'simple-json' })
-      .mongoType({ type: 'json' })
-      .system()
-      .nullable()
-      .description('JSON config for the step (code, URL, table, filter, etc.)'),
     version: col
       .sqlType({ type: 'varchar' })
       .mongoType({ type: 'string' })

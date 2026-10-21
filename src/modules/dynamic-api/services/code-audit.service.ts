@@ -19,6 +19,7 @@ const PRE_IMAGE_EXCLUDED_FIELDS = new Set([
   'createdAt',
   'updatedAt',
   'compiledCode',
+  'config',
 ]);
 
 export function projectCodeAuditPreImage(

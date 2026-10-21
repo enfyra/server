@@ -22,10 +22,6 @@ export class FlowStepDefinitionProcessor extends BaseTableProcessor {
 
       Object.assign(transformed, normalizeFlowStepScriptConfig(transformed));
 
-      if (transformed.config && typeof transformed.config === 'object') {
-        transformed.config = JSON.stringify(transformed.config);
-      }
-
       return this.autoTransformFkFields(
         transformed,
         'enfyra_flow_step',

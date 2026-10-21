@@ -14,7 +14,7 @@ describe('SnapshotDefinition', () => {
     expect(tables).toHaveLength(48);
     expect(
       tables.reduce((total, table) => total + table.columns.length, 0),
-    ).toBe(411);
+    ).toBe(410);
     expect(
       tables.reduce(
         (total, table) => total + (table.relations?.length ?? 0),

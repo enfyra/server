@@ -22,7 +22,7 @@ import {
 } from '../../../shared/types/flow.types';
 import {
   executeStepCore,
-  getExecutableStepConfig,
+  getExecutableStepScript,
 } from '../utils/step-executor.util';
 import {
   DynamicContextFactory,
@@ -656,12 +656,7 @@ export class FlowExecutionQueueService {
 
       try {
         const executeStepStarted = Date.now();
-        const result = await this.executeStep(
-          step,
-          ctx,
-          (flow as any).timeout,
-          visitedFlowIds,
-        );
+        const result = await this.executeStep(step, ctx, (flow as any).timeout);
         const executeStepMs = Date.now() - executeStepStarted;
         flowContext[step.key] = result;
         flowContext.$last = result;
@@ -685,7 +680,7 @@ export class FlowExecutionQueueService {
         };
 
         if (step.type === 'condition') {
-          const branchValue = !!result ? 'true' : 'false';
+          const branchValue = result ? 'true' : 'false';
           entry.branch = branchValue;
           completedSteps.push(entry);
 
@@ -704,11 +699,15 @@ export class FlowExecutionQueueService {
             totalSteps: allSteps.length,
           })
           .catch(() => {});
-        await this.flowExecutionHistoryService.updateProgress(flow, executionHistoryId, {
-          completedSteps,
-          currentStep: step.key,
-          totalSteps: allSteps.length,
-        });
+        await this.flowExecutionHistoryService.updateProgress(
+          flow,
+          executionHistoryId,
+          {
+            completedSteps,
+            currentStep: step.key,
+            totalSteps: allSteps.length,
+          },
+        );
         this.runtimeMetricsCollectorService?.recordFlowStep({
           flowId: flow.id,
           flowName: flow.name,
@@ -761,7 +760,6 @@ export class FlowExecutionQueueService {
                 step,
                 ctx,
                 (flow as any).timeout,
-                visitedFlowIds,
               );
               flowContext[step.key] = result;
               flowContext.$last = result;
@@ -771,11 +769,15 @@ export class FlowExecutionQueueService {
                 duration: Date.now() - stepStart,
                 retries: i + 1,
               });
-              await this.flowExecutionHistoryService.updateProgress(flow, executionHistoryId, {
-                completedSteps,
-                currentStep: step.key,
-                totalSteps: allSteps.length,
-              });
+              await this.flowExecutionHistoryService.updateProgress(
+                flow,
+                executionHistoryId,
+                {
+                  completedSteps,
+                  currentStep: step.key,
+                  totalSteps: allSteps.length,
+                },
+              );
               retrySuccess = true;
               break;
             } catch (retryErr: any) {
@@ -800,11 +802,15 @@ export class FlowExecutionQueueService {
             error: getErrorMessage(error),
             duration: Date.now() - stepStart,
           });
-          await this.flowExecutionHistoryService.updateProgress(flow, executionHistoryId, {
-            completedSteps,
-            currentStep: step.key,
-            totalSteps: allSteps.length,
-          });
+          await this.flowExecutionHistoryService.updateProgress(
+            flow,
+            executionHistoryId,
+            {
+              completedSteps,
+              currentStep: step.key,
+              totalSteps: allSteps.length,
+            },
+          );
           return;
         } else {
           throw error;
@@ -842,51 +848,15 @@ export class FlowExecutionQueueService {
     step: FlowStep,
     ctx: TDynamicContext,
     flowTimeout: number,
-    visitedFlowIds: (number | string)[] = [],
   ): Promise<any> {
     const raw = (step as any).timeout || flowTimeout || 5000;
     const timeout = Math.min(Math.max(raw, 1), MAX_STEP_TIMEOUT);
-    const config = getExecutableStepConfig(step);
-
-    if (step.type === 'trigger_flow') {
-      const targetFlow =
-        this.getFlowById((config as any).flowId) ||
-        this.getFlowByName((config as any).flowName);
-      if (!targetFlow)
-        throw new Error(
-          `Target flow ${(config as any).flowId || (config as any).flowName} not found`,
-        );
-      const childPayload =
-        (config as any).payload || (ctx as any).$flow?.$last || {};
-      const currentDepth = (ctx as any).$flow?.$meta?.depth || 0;
-      await this.flowQueue.add(
-        `flow:${targetFlow.name}`,
-        {
-          flowId: targetFlow.id,
-          flowName: targetFlow.name,
-          payload: childPayload,
-          depth: currentDepth + 1,
-          visitedFlowIds,
-          sourceFlowId: (ctx as any).$flow?.$meta?.flowId,
-          sourceFlowName: (ctx as any).$flow?.$meta?.flowName,
-          sourceStepKey: step.key,
-        },
-        {
-          attempts: 1,
-          removeOnComplete: { count: 200, age: 3600 * 24 },
-          removeOnFail: { count: 500, age: 3600 * 24 * 7 },
-        },
-      );
-      return {
-        triggered: true,
-        flowId: targetFlow.id,
-        flowName: targetFlow.name,
-      };
-    }
+    const script = getExecutableStepScript(step);
 
     return executeStepCore({
       type: step.type,
-      config,
+      stepKey: step.key,
+      ...script,
       timeout,
       ctx,
       executorEngineService: this.executorEngineService,

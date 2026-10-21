@@ -60,6 +60,7 @@ export async function revertCodeAudit({
   const restore = { ...entry.previous, version };
   delete restore.id;
   delete restore._id;
+  delete restore.config;
   const marker = context.$codeAudit;
   context.$codeAudit = {
     action: 'revert',

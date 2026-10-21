@@ -16,6 +16,15 @@ type MutableTableMetadata = {
   columns?: MutableColumnMetadata[];
 };
 
+const FLOW_STEP_TYPES = new Set(['script', 'condition']);
+
+const LEGACY_FLOW_STEP_CODE_KEYS = new Set([
+  'sourceCode',
+  'code',
+  'scriptLanguage',
+  'compiledCode',
+]);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -56,12 +65,27 @@ export class DynamicMutationPreparationService {
 
   normalizeFlowStep(body: Record<string, unknown>) {
     try {
+      if (body.type !== undefined && !FLOW_STEP_TYPES.has(String(body.type))) {
+        throw new Error(
+          'Flow steps are script-only: type must be script or condition.',
+        );
+      }
       const config = isRecord(body.config) ? body.config : {};
+      const unsupportedOptions = Object.keys(config).filter(
+        (key) => !LEGACY_FLOW_STEP_CODE_KEYS.has(key),
+      );
+      if (unsupportedOptions.length > 0) {
+        throw new Error(
+          `Flow steps are script-only: step config is not supported (${unsupportedOptions.join(', ')}). Put the logic in sourceCode.`,
+        );
+      }
       const sourceCode = body.sourceCode ?? config.sourceCode ?? config.code;
       if (typeof sourceCode === 'string' && sourceCode !== '') {
         assertScriptSourceContract(sourceCode);
       }
-      return normalizeFlowStepScriptConfig(body);
+      const normalized = normalizeFlowStepScriptConfig(body);
+      delete body.config;
+      return normalized;
     } catch (error) {
       throw this.toScriptBadRequest(error);
     }

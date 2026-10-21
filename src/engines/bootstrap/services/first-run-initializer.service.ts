@@ -16,6 +16,7 @@ import { SnapshotTargetVerifierService } from './snapshot-target-verifier.servic
 import { BootstrapUnitOfWorkService } from './bootstrap-unit-of-work.service';
 import { BootstrapDefinitionService } from './bootstrap-definition.service';
 import { RouteDefinitionProcessor } from '../../../domain/bootstrap';
+import { convertLegacyFlowSteps } from '../../../domain/bootstrap/utils/legacy-flow-step-conversion.util';
 import { REDIS_TTL, PROVISION_LOCK_KEY } from '../../../shared/utils/constant';
 import { isBootstrapVerbose } from '../utils/bootstrap-logging.util';
 import {
@@ -209,6 +210,9 @@ export class FirstRunInitializer {
       await lease.assertOwned();
 
       await this.bootstrapUnitOfWorkService.run(async () => {
+        await this.runOwnedStep(lease, () =>
+          convertLegacyFlowSteps(this.queryBuilderService, this.logger),
+        );
         const coreT0 = Date.now();
         this.logStage(mode, 'migrating core metadata tables');
         await this.runOwnedStep(lease, () =>

@@ -412,10 +412,6 @@ const snapshotMigrations: VersionedSchemaMigration[] = [
           columnsToModify: jsonColumnModifications(['config']),
         },
         {
-          _unique: { name: { _eq: 'enfyra_flow_step' } },
-          columnsToModify: jsonColumnModifications(['config']),
-        },
-        {
           _unique: { name: { _eq: 'enfyra_flow_execution' } },
           columnsToModify: jsonColumnModifications([
             'payload',
@@ -446,6 +442,60 @@ const snapshotMigrations: VersionedSchemaMigration[] = [
         {
           _unique: { name: { _eq: 'enfyra_user_log' } },
           columnsToModify: jsonColumnModifications(['entries']),
+        },
+      ],
+    },
+  },
+  {
+    fromVersion: '2.3.3',
+    toVersion: '2.3.4',
+    schema: {
+      tables: [
+        {
+          _unique: { name: { _eq: 'enfyra_flow_step' } },
+          columnsToRemove: ['config'],
+          columnsToModify: [
+            {
+              from: {
+                name: 'type',
+                sqlType: {
+                  type: 'enum',
+                  options: [
+                    'script',
+                    'condition',
+                    'query',
+                    'create',
+                    'update',
+                    'delete',
+                    'http',
+                    'trigger_flow',
+                    'sleep',
+                    'log',
+                  ],
+                },
+                mongoType: {
+                  type: 'enum',
+                  options: [
+                    'script',
+                    'condition',
+                    'query',
+                    'create',
+                    'update',
+                    'delete',
+                    'http',
+                    'trigger_flow',
+                    'sleep',
+                    'log',
+                  ],
+                },
+              },
+              to: {
+                name: 'type',
+                sqlType: { type: 'enum', options: ['script', 'condition'] },
+                mongoType: { type: 'enum', options: ['script', 'condition'] },
+              },
+            },
+          ],
         },
       ],
     },

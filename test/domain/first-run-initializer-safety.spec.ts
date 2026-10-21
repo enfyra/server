@@ -1,6 +1,14 @@
 import { FirstRunInitializer } from '../../src/engines/bootstrap/services/first-run-initializer.service';
 import { getEnfyraVersion } from '../../src/shared/utils/enfyra-version.util';
 
+const offlineQueryBuilder = () => ({
+  getKnex: () => ({
+    schema: { hasTable: async () => false, hasColumn: async () => false },
+  }),
+  getMongoDb: () => null,
+});
+
+
 type SafetyFixtureOptions = {
   cacheService?: Record<string, unknown>;
   commonService?: Record<string, unknown>;
@@ -35,7 +43,7 @@ function createSafetyFixture(options: SafetyFixtureOptions = {}) {
       delay: jest.fn(async () => undefined),
       ...options.commonService,
     },
-    queryBuilderService: {},
+    queryBuilderService: offlineQueryBuilder(),
     cacheService,
     instanceService: {
       getInstanceId: jest.fn(() => options.instanceId ?? 'test-instance'),
