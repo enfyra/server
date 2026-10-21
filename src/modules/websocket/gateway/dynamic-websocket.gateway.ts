@@ -653,6 +653,28 @@ export class DynamicWebSocketGateway {
         .catch(() => {});
     }
 
+    socket.on(
+      '$system:runtime:metrics:get',
+      async (_payload: unknown, ack: unknown) => {
+        try {
+          const user = await this.loadSocketUser(socket);
+          if (!user?.isRootAdmin) throw new Error('Root admin access required');
+          if (typeof ack !== 'function') return;
+          const data = await this.lazyRef.runtimeMonitorService.getClusterSnapshot();
+          ack({ success: true, data });
+        } catch (error) {
+          if (typeof ack === 'function') {
+            ack({
+              success: false,
+              error: {
+                message: getErrorMessage(error) || 'Runtime metrics request failed',
+              },
+            });
+          }
+        }
+      },
+    );
+
     socket.on('$system:redis:overview:get', async (_payload: any, ack: any) => {
       await this.ackRedisAdmin(socket, ack, () =>
         this.redisAdminService.getOverview(),
