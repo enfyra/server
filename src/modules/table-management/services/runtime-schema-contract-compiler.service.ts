@@ -27,6 +27,10 @@ import {
   normalizeRuntimeTableSchema,
   runtimeRelationDiffKey,
 } from '../utils/runtime-schema-normalization.util';
+import {
+  getTableConstraintFields,
+  parseTableConstraintGroups,
+} from '../utils/table-constraints.util';
 import type {
   RuntimeSchemaPhysicalPlannerService,
   PhysicalPlan,
@@ -55,9 +59,7 @@ export class RuntimeSchemaContractCompilerService {
     assertNoNewRedundantIndexes(targetInput, input.beforeMetadata);
     assertNoManualRelationIndexes(
       targetInput,
-      targetInput && typeof targetInput === 'object'
-        ? (targetInput as Record<string, unknown>).indexes
-        : undefined,
+      this.callerDeclaredIndexes(targetInput, backend),
       input.beforeMetadata && typeof input.beforeMetadata === 'object'
         ? (input.beforeMetadata as Record<string, unknown>).indexes
         : [],
@@ -196,6 +198,32 @@ export class RuntimeSchemaContractCompilerService {
     if (dbType === 'postgres') return 'postgresql';
     if (dbType === 'mysql' || dbType === 'mongodb') return dbType;
     throw new Error(`Unsupported schema mutation backend: ${dbType}`);
+  }
+
+  // Canonical normalization injects indexes the caller never declared (owning FK,
+  // system timestamps, temporal columns). Manual-index validation must only see
+  // the groups a caller actually supplied, so subtract the auto-generated set.
+  private callerDeclaredIndexes(
+    targetInput: unknown,
+    backend: SchemaMutationBackend,
+  ): unknown {
+    if (!targetInput || typeof targetInput !== 'object') return undefined;
+    const target = targetInput as Record<string, unknown>;
+    const declared = parseTableConstraintGroups(target.indexes);
+    if (declared.length === 0) return target.indexes;
+    const autoOnly = normalizeRuntimeTableSchema(
+      { ...target, indexes: [] },
+      { backend, mode: 'persisted' },
+    );
+    const autoKeys = new Set(
+      ((autoOnly?.contract.indexes ?? []) as string[][]).map((group) =>
+        JSON.stringify(group),
+      ),
+    );
+    if (autoKeys.size === 0) return target.indexes;
+    return declared.filter(
+      (group) => !autoKeys.has(JSON.stringify(getTableConstraintFields(group))),
+    );
   }
 
   private async collectCascadeWarnings(

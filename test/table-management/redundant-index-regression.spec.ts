@@ -3,6 +3,7 @@ import { RuntimeSchemaContractCompilerService } from '../../src/modules/table-ma
 import { RuntimeMetadataSchemaRouterService } from '../../src/modules/table-management/services/runtime-metadata-schema-router.service';
 import { TableManagementValidationService } from '../../src/modules/table-management/services/table-validation.service';
 import { buildSqlIndexContracts } from '../../src/engines/knex/utils/sql-physical-schema-contract';
+import { normalizeRuntimeTableSchema } from '../../src/modules/table-management/utils/runtime-schema-normalization.util';
 import { getMongoCanonicalConstraintGroups } from '../../src/engines/mongo/utils/mongo-physical-schema-contract';
 import { SqlSchemaDiffService } from '../../src/engines/knex/services/sql-schema-diff.service';
 import { MongoSchemaDiffService } from '../../src/engines/mongo/services/mongo-schema-diff.service';
@@ -53,6 +54,84 @@ describe('redundant relation indexes', () => {
     } as any);
     await expect(router.createTable({ body: { ...schema, uniques: [], indexes: [['user']] } as any }))
       .rejects.toMatchObject({ details: { code: 'SCHEMA_INDEX_AUTO_MANAGED' } });
+  });
+
+  it.each([
+    ['postgres', 'postgresql', 'user'],
+    ['mysql', 'mysql', 'user'],
+    ['mongodb', 'mongodb', 'userId'],
+  ])('accepts the canonical relation index normalization injects when a relation is added on %s', async (database, backend, autoIndex) => {
+    const before = {
+      id: 208,
+      name: 'ai_internal_tool_history',
+      columns: [{ id: 1, name: 'id', type: 'int', isPrimary: true }],
+      relations: [],
+      uniques: [],
+      indexes: [],
+    };
+    const normalized = normalizeRuntimeTableSchema({
+      ...before,
+      relations: [{ id: 2, propertyName: 'user', type: 'many-to-one', targetTableName: 'enfyra_user', foreignKeyColumn: 'userId' }],
+    }, { backend: backend as any, mode: 'persisted' });
+    expect(normalized?.contract.indexes).toContainEqual([autoIndex]);
+    await expect(compiler(database).compile({
+      operation: 'update',
+      tableName: before.name,
+      beforeMetadata: before,
+      afterMetadata: normalized?.contract,
+    })).resolves.toBeTruthy();
+  });
+
+  it('adds a relation through the aggregate router without a false manual-index rejection', async () => {
+    const existing = {
+      id: 208,
+      name: 'ai_internal_tool_history',
+      columns: [{ id: 1, name: 'id', type: 'int', isPrimary: true }],
+      relations: [],
+      uniques: [],
+      indexes: [['createdAt'], ['updatedAt']],
+    };
+    const compile = vi.fn(async () => ({ contract: { context: { diff: { schemaChanged: true } } }, requiredConfirmHash: 'hash' }));
+    const router = new RuntimeMetadataSchemaRouterService({
+      queryBuilderService: {
+        findOne: vi.fn(async ({ table }: any) => table === 'enfyra_table' ? existing : { id: 4, name: 'enfyra_user' }),
+      } as any,
+      tableHandlerService: {} as any,
+      databaseConfigService: { getDbType: () => 'postgres', isMongoDb: () => false } as any,
+      tableManagementValidationService: new TableManagementValidationService(),
+      runtimeSchemaContractCompilerService: { compile } as any,
+      runtimeSchemaExecutorService: { execute: vi.fn() } as any,
+    });
+    await expect(router.updateTable({
+      tableId: 208,
+      body: { relations: [{ propertyName: 'user', type: 'many-to-one', targetTable: 4, isNullable: false }] } as any,
+    })).resolves.toBeTruthy();
+    expect(compile).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a caller-declared owning relation index through the aggregate router', async () => {
+    const existing = {
+      id: 208,
+      name: 'ai_internal_tool_history',
+      columns: [{ id: 1, name: 'id', type: 'int', isPrimary: true }],
+      relations: [{ id: 2, propertyName: 'user', type: 'many-to-one', targetTableName: 'enfyra_user', foreignKeyColumn: 'userId' }],
+      uniques: [],
+      indexes: [],
+    };
+    const compile = vi.fn();
+    const execute = vi.fn();
+    const router = new RuntimeMetadataSchemaRouterService({
+      queryBuilderService: { findOne: vi.fn(async () => existing) } as any,
+      tableHandlerService: {} as any,
+      databaseConfigService: { getDbType: () => 'postgres', isMongoDb: () => false } as any,
+      tableManagementValidationService: new TableManagementValidationService(),
+      runtimeSchemaContractCompilerService: { compile } as any,
+      runtimeSchemaExecutorService: { execute } as any,
+    });
+    await expect(router.updateTable({ tableId: 208, body: { indexes: [['user']] } as any }))
+      .rejects.toMatchObject({ details: { code: 'SCHEMA_INDEX_AUTO_MANAGED' } });
+    expect(compile).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it('rejects a unique prefix expressed through the persisted physical FK alias', async () => {
