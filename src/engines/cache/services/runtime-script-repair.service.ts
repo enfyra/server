@@ -2,7 +2,6 @@ import { QueryBuilderService } from '@enfyra/kernel';
 import { DatabaseConfigService } from '../../../shared/services';
 import {
   compileScriptSource,
-  normalizeFlowStepScriptConfig,
   normalizeScriptLanguage,
   normalizeScriptRecord,
   resolveExecutableScript,
@@ -47,8 +46,6 @@ export class RuntimeScriptRepairService {
 
   async repairFlowStepScriptRecord(step: any): Promise<void> {
     const idField = DatabaseConfigService.getPkField();
-    const normalizedStep = normalizeFlowStepScriptConfig(step);
-    Object.assign(step, normalizedStep);
 
     if (!step.sourceCode && !step.compiledCode) {
       return;

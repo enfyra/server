@@ -36,48 +36,68 @@ import {
   SchemaHealingService,
   SnapshotTargetVerifierService,
   SystemCoreTableResolver,
-  LegacyStoreInventoryService,
-  LegacyAssessmentService,
 } from '../../engines/bootstrap';
 
 export const bootstrapInfraRegisters = {
   provisionService: asClass(ProvisionService).singleton(),
   bootstrapDefinitionService: asClass(BootstrapDefinitionService).singleton(),
   bootstrapUnitOfWorkService: asClass(BootstrapUnitOfWorkService).singleton(),
-  mySqlBootstrapSnapshotService: asClass(MySqlBootstrapSnapshotService).singleton(),
+  mySqlBootstrapSnapshotService: asClass(
+    MySqlBootstrapSnapshotService,
+  ).singleton(),
   firstRunInitializer: asClass(FirstRunInitializer).singleton(),
   schemaHealingService: asClass(SchemaHealingService).singleton(),
   systemCoreTableResolver: asClass(SystemCoreTableResolver).singleton(),
-  legacyStoreInventoryService: asClass(LegacyStoreInventoryService).singleton(),
-  legacyAssessmentService: asClass(LegacyAssessmentService).singleton(),
   metadataProvisionService: asClass(MetadataProvisionService).singleton(),
   metadataProvisionSqlService: asClass(MetadataProvisionSqlService).singleton(),
-  metadataProvisionMongoService: asClass(MetadataProvisionMongoService).singleton(),
+  metadataProvisionMongoService: asClass(
+    MetadataProvisionMongoService,
+  ).singleton(),
   dataProvisionService: asClass(DataProvisionService).singleton(),
   dataMigrationService: asClass(DataMigrationService).singleton(),
   metadataMigrationService: asClass(MetadataMigrationService).singleton(),
-  routeMethodConfigBackfillService: asClass(RouteMethodConfigBackfillService).singleton(),
-  snapshotTargetVerifierService: asClass(SnapshotTargetVerifierService).singleton(),
+  routeMethodConfigBackfillService: asClass(
+    RouteMethodConfigBackfillService,
+  ).singleton(),
+  snapshotTargetVerifierService: asClass(
+    SnapshotTargetVerifierService,
+  ).singleton(),
 } as const;
 
 export const bootstrapProcessorRegisters = {
   userDefinitionProcessor: asClass(UserDefinitionProcessor).singleton(),
   menuDefinitionProcessor: asClass(MenuDefinitionProcessor).singleton(),
   routeDefinitionProcessor: asClass(RouteDefinitionProcessor).singleton(),
-  routeHandlerDefinitionProcessor: asClass(RouteHandlerDefinitionProcessor).singleton(),
+  routeHandlerDefinitionProcessor: asClass(
+    RouteHandlerDefinitionProcessor,
+  ).singleton(),
   methodDefinitionProcessor: asClass(MethodDefinitionProcessor).singleton(),
   preHookDefinitionProcessor: asClass(PreHookDefinitionProcessor).singleton(),
   postHookDefinitionProcessor: asClass(PostHookDefinitionProcessor).singleton(),
-  fieldPermissionDefinitionProcessor: asClass(FieldPermissionDefinitionProcessor).singleton(),
+  fieldPermissionDefinitionProcessor: asClass(
+    FieldPermissionDefinitionProcessor,
+  ).singleton(),
   settingDefinitionProcessor: asClass(SettingDefinitionProcessor).singleton(),
-  extensionDefinitionProcessor: asClass(ExtensionDefinitionProcessor).singleton(),
+  extensionDefinitionProcessor: asClass(
+    ExtensionDefinitionProcessor,
+  ).singleton(),
   folderDefinitionProcessor: asClass(FolderDefinitionProcessor).singleton(),
-  routePermissionDefinitionProcessor: asClass(RoutePermissionDefinitionProcessor).singleton(),
-  websocketDefinitionProcessor: asClass(WebsocketDefinitionProcessor).singleton(),
-  websocketEventDefinitionProcessor: asClass(WebsocketEventDefinitionProcessor).singleton(),
+  routePermissionDefinitionProcessor: asClass(
+    RoutePermissionDefinitionProcessor,
+  ).singleton(),
+  websocketDefinitionProcessor: asClass(
+    WebsocketDefinitionProcessor,
+  ).singleton(),
+  websocketEventDefinitionProcessor: asClass(
+    WebsocketEventDefinitionProcessor,
+  ).singleton(),
   flowDefinitionProcessor: asClass(FlowDefinitionProcessor).singleton(),
   flowStepDefinitionProcessor: asClass(FlowStepDefinitionProcessor).singleton(),
-  flowExecutionDefinitionProcessor: asClass(FlowExecutionDefinitionProcessor).singleton(),
+  flowExecutionDefinitionProcessor: asClass(
+    FlowExecutionDefinitionProcessor,
+  ).singleton(),
   graphqlDefinitionProcessor: asClass(GraphQLDefinitionProcessor).singleton(),
-  graphqlOperationDefinitionProcessor: asClass(GraphQLOperationDefinitionProcessor).singleton(),
+  graphqlOperationDefinitionProcessor: asClass(
+    GraphQLOperationDefinitionProcessor,
+  ).singleton(),
 } as const;

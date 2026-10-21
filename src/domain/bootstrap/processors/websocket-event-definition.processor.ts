@@ -23,10 +23,7 @@ export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
           transformed.description = null;
         if (transformed.isSystem === undefined) transformed.isSystem = false;
         if (transformed.isEnabled === undefined) transformed.isEnabled = true;
-        if (transformed.handlerScript === undefined)
-          transformed.handlerScript = null;
-        if (transformed.sourceCode === undefined)
-          transformed.sourceCode = transformed.handlerScript;
+        if (transformed.sourceCode === undefined) transformed.sourceCode = null;
         if (transformed.timeout === undefined) transformed.timeout = 5000;
 
         if (isMongoDB) {

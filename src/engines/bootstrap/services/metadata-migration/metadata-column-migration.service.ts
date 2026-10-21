@@ -4,7 +4,6 @@ import type { ColumnModifyDef } from '../../../../shared/types/schema-migration.
 import { SYSTEM_TABLES } from '../../../../shared/utils/system-tables.constants';
 import {
   buildColumnMetadataUpdate,
-  getLegacyScriptTargetColumn,
   hasColumnMetadataChanges,
 } from '../../utils/metadata-migration.util';
 import { MetadataPhysicalMigrationHelper } from '../../utils/metadata-physical-migration.util';
@@ -150,11 +149,6 @@ export class MetadataColumnMigrationService {
   ): Promise<void> {
     for (const colName of columns) {
       const coreNames = await this.systemCoreTableResolver.getNames();
-      await this.copyLegacyScriptColumnBeforeRemove(
-        tableName,
-        colName,
-        isMongoDB,
-      );
 
       if (isMongoDB) {
         const db = this.getMongoDb()!;
@@ -229,59 +223,5 @@ export class MetadataColumnMigrationService {
       propertyName,
     });
     return !!relation;
-  }
-
-  private getLegacyScriptTargetColumn(
-    tableName: string,
-    colName: string,
-  ): string | null {
-    return getLegacyScriptTargetColumn(tableName, colName);
-  }
-
-  private async copyLegacyScriptColumnBeforeRemove(
-    tableName: string,
-    colName: string,
-    isMongoDB: boolean,
-  ): Promise<void> {
-    const targetColumn = this.getLegacyScriptTargetColumn(tableName, colName);
-    if (!targetColumn) return;
-
-    if (isMongoDB) {
-      const db = this.getMongoDb()!;
-      await db.collection(tableName).updateMany(
-        {
-          [colName]: { $exists: true, $ne: null },
-          $or: [
-            { [targetColumn]: { $exists: false } },
-            { [targetColumn]: null },
-            { [targetColumn]: '' },
-          ],
-        },
-        [
-          {
-            $set: {
-              [targetColumn]: `$${colName}`,
-            },
-          },
-        ] as any,
-      );
-      return;
-    }
-
-    const knex = this.queryBuilderService.getKnex();
-    const [hasSource, hasTarget] = await Promise.all([
-      knex.schema.hasColumn(tableName, colName),
-      knex.schema.hasColumn(tableName, targetColumn),
-    ]);
-    if (!hasSource || !hasTarget) return;
-
-    await knex(tableName)
-      .whereNotNull(colName)
-      .where((qb: any) => {
-        qb.whereNull(targetColumn).orWhere(targetColumn, '');
-      })
-      .update({
-        [targetColumn]: knex.ref(colName),
-      });
   }
 }

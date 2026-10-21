@@ -1,8 +1,6 @@
 import { BadRequestException } from '../../../domain/exceptions';
 import {
   assertScriptSourceContract,
-  getScriptLegacyField,
-  normalizeFlowStepScriptConfig,
   normalizeScriptPatch,
   normalizeScriptRecord,
 } from '../../../shared/utils/script-code.util';
@@ -18,24 +16,16 @@ type MutableTableMetadata = {
 
 const FLOW_STEP_TYPES = new Set(['script', 'condition']);
 
-const LEGACY_FLOW_STEP_CODE_KEYS = new Set([
-  'sourceCode',
-  'code',
-  'scriptLanguage',
-  'compiledCode',
-]);
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 export class DynamicMutationPreparationService {
   private assertScriptSource(
-    tableName: string,
+    _tableName: string,
     body: Record<string, unknown>,
   ): void {
-    const legacyField = getScriptLegacyField(tableName);
-    const sourceCode = body.sourceCode ?? (legacyField ? body[legacyField] : undefined);
+    const sourceCode = body.sourceCode;
     if (typeof sourceCode === 'string' && sourceCode !== '') {
       assertScriptSourceContract(sourceCode);
     }
@@ -70,22 +60,16 @@ export class DynamicMutationPreparationService {
           'Flow steps are script-only: type must be script or condition.',
         );
       }
-      const config = isRecord(body.config) ? body.config : {};
-      const unsupportedOptions = Object.keys(config).filter(
-        (key) => !LEGACY_FLOW_STEP_CODE_KEYS.has(key),
-      );
-      if (unsupportedOptions.length > 0) {
+      if (Object.prototype.hasOwnProperty.call(body, 'config')) {
         throw new Error(
-          `Flow steps are script-only: step config is not supported (${unsupportedOptions.join(', ')}). Put the logic in sourceCode.`,
+          'Flow steps have no config column. Send type plus sourceCode and scriptLanguage.',
         );
       }
-      const sourceCode = body.sourceCode ?? config.sourceCode ?? config.code;
+      const sourceCode = body.sourceCode;
       if (typeof sourceCode === 'string' && sourceCode !== '') {
         assertScriptSourceContract(sourceCode);
       }
-      const normalized = normalizeFlowStepScriptConfig(body);
-      delete body.config;
-      return normalized;
+      return normalizeScriptRecord('enfyra_flow_step', body);
     } catch (error) {
       throw this.toScriptBadRequest(error);
     }

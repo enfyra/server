@@ -3,10 +3,7 @@ import assert from 'node:assert';
 import knex, { type Knex } from 'knex';
 import { RuntimeScriptRepairService } from '../src/engines/cache';
 import { DatabaseConfigService } from '../src/shared/services';
-import {
-  SCRIPT_TABLE_LEGACY_FIELDS,
-  SCRIPT_TABLE_NAMES,
-} from '../src/shared/utils/script-table-contract.constants';
+import { SCRIPT_TABLE_NAMES } from '../src/shared/utils/script-table-contract.constants';
 import {
   isExecutableJavaScript,
   normalizeScriptRecord,
@@ -30,7 +27,9 @@ function createKnex() {
         ? 'sqlite3'
         : null;
   assert(client, `Unsupported DB_URI protocol for E2E: ${uri.split(':')[0]}`);
-  DatabaseConfigService.overrideForTesting(client === 'mysql2' ? 'mysql' : 'postgres');
+  DatabaseConfigService.overrideForTesting(
+    client === 'mysql2' ? 'mysql' : 'postgres',
+  );
   return knex({ client, connection: uri });
 }
 
@@ -44,7 +43,11 @@ function pickColumns(data: Record<string, any>, columns: Set<string>) {
   );
 }
 
-async function insertReturning(db: Knex, table: string, data: Record<string, any>) {
+async function insertReturning(
+  db: Knex,
+  table: string,
+  data: Record<string, any>,
+) {
   const columns = await getColumns(db, table);
   const payload = pickColumns(data, columns);
   if (db.client.config.client === 'pg') {
@@ -62,9 +65,13 @@ async function scanDbScriptRecords(db: Knex) {
 
   for (const table of SCRIPT_TABLE_NAMES) {
     const columns = await getColumns(db, table);
-    const legacyField = SCRIPT_TABLE_LEGACY_FIELDS[table];
-    const fields = ['id', '_id', 'sourceCode', 'scriptLanguage', 'compiledCode'];
-    if (legacyField) fields.push(legacyField);
+    const fields = [
+      'id',
+      '_id',
+      'sourceCode',
+      'scriptLanguage',
+      'compiledCode',
+    ];
     const existingFields = fields.filter((field) => columns.has(field));
     const rows = await db(table).select(existingFields).limit(1000);
 

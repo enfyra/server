@@ -93,18 +93,18 @@ describe('DynamicMutationPreparationService', () => {
     expect(() =>
       service.normalizeFlowStep({
         type: 'script',
-        config: { code: '$ctx.$throw.notFound("Project");' },
+        sourceCode: '$ctx.$throw.notFound("Project");',
       }),
     ).toThrow('$throw exposes only .http(statusCode, message?)');
     expect(() =>
       service.normalizeFlowStep({
         type: 'script',
-        config: { code: '@THROW404("missing");' },
+        sourceCode: '@THROW404("missing");',
       }),
     ).not.toThrow();
   });
 
-  it('rejects retired flow step types and drops config from the write body', () => {
+  it('rejects retired flow step types and any config key on the write body', () => {
     const service = new DynamicMutationPreparationService();
 
     expect(() => service.normalizeFlowStep({ type: 'sleep' })).toThrow(
@@ -119,16 +119,21 @@ describe('DynamicMutationPreparationService', () => {
         sourceCode: 'return 1;',
         config: { table: 'enfyra_user', limit: 5 },
       }),
-    ).toThrow('step config is not supported');
+    ).toThrow('Flow steps have no config column');
+    expect(() =>
+      service.normalizeFlowStep({
+        type: 'script',
+        sourceCode: 'return 1;',
+        config: { code: 'return 2;' },
+      }),
+    ).toThrow('Flow steps have no config column');
 
-    const body: Record<string, unknown> = {
+    const normalized = service.normalizeFlowStep({
       type: 'script',
       sourceCode: 'return 1;',
-      config: { code: 'return 2;' },
-    };
-    service.normalizeFlowStep(body);
-    expect(body.config).toBeUndefined();
-    expect(body.sourceCode).toBe('return 1;');
+    });
+    expect(normalized.sourceCode).toBe('return 1;');
+    expect(normalized.compiledCode).toBe('return 1;');
   });
 
   it('preserves supplied private and encrypted values during create', async () => {

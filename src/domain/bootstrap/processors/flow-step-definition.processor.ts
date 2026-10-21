@@ -1,6 +1,5 @@
 import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
-import { normalizeFlowStepScriptConfig } from '../../../shared/utils/script-code.util';
 import { mapSequentially } from '../utils/map-sequentially.util';
 
 export class FlowStepDefinitionProcessor extends BaseTableProcessor {
@@ -19,8 +18,6 @@ export class FlowStepDefinitionProcessor extends BaseTableProcessor {
       if (transformed.retryAttempts === undefined)
         transformed.retryAttempts = 0;
       if (transformed.timeout === undefined) transformed.timeout = 5000;
-
-      Object.assign(transformed, normalizeFlowStepScriptConfig(transformed));
 
       return this.autoTransformFkFields(
         transformed,

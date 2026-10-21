@@ -6,7 +6,7 @@ import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
 } from '../../../shared/utils/cache-events.constants';
-import { normalizeFlowStepScriptConfig } from '../../../shared/utils/script-code.util';
+import { normalizeFlowStepScript } from '../../../shared/utils/script-code.util';
 import type { QueryBuilderService } from '@enfyra/kernel';
 import type {
   FlowDefinition,
@@ -127,22 +127,16 @@ export class FlowCacheBuilder extends BaseCacheService<FlowDefinition[]> {
         );
 
         const steps: FlowStep[] = rawSteps.map((step: any) => {
-          if (step.type === 'script' || step.type === 'condition') {
-            const normalized = normalizeFlowStepScriptConfig(step);
-            step.sourceCode = normalized.sourceCode ?? null;
-            step.scriptLanguage = normalized.scriptLanguage;
-            step.compiledCode = normalized.compiledCode ?? null;
-            delete step.config;
-          }
+          const normalized = normalizeFlowStepScript(step);
           return {
-            id: step[idField],
-            key: step.key,
-            stepOrder: step.stepOrder,
-            type: step.type,
-            sourceCode: step.sourceCode ?? null,
-            scriptLanguage: step.scriptLanguage ?? 'typescript',
-            compiledCode: step.compiledCode ?? null,
-            timeout: step.timeout || 5000,
+            id: normalized[idField],
+            key: normalized.key,
+            stepOrder: normalized.stepOrder,
+            type: normalized.type,
+            sourceCode: normalized.sourceCode ?? null,
+            scriptLanguage: normalized.scriptLanguage ?? 'typescript',
+            compiledCode: normalized.compiledCode ?? null,
+            timeout: normalized.timeout || 5000,
             onError: step.onError || 'stop',
             retryAttempts: step.retryAttempts || 0,
             isEnabled: step.isEnabled,

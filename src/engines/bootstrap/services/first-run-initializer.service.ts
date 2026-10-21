@@ -16,7 +16,6 @@ import { SnapshotTargetVerifierService } from './snapshot-target-verifier.servic
 import { BootstrapUnitOfWorkService } from './bootstrap-unit-of-work.service';
 import { BootstrapDefinitionService } from './bootstrap-definition.service';
 import { RouteDefinitionProcessor } from '../../../domain/bootstrap';
-import { convertLegacyFlowSteps } from '../../../domain/bootstrap/utils/legacy-flow-step-conversion.util';
 import { REDIS_TTL, PROVISION_LOCK_KEY } from '../../../shared/utils/constant';
 import { isBootstrapVerbose } from '../utils/bootstrap-logging.util';
 import {
@@ -96,7 +95,8 @@ export class FirstRunInitializer {
     this.metadataMigrationService = deps.metadataMigrationService;
     this.dataProvisionService = deps.dataProvisionService;
     this.dataMigrationService = deps.dataMigrationService;
-    this.routeMethodConfigBackfillService = deps.routeMethodConfigBackfillService;
+    this.routeMethodConfigBackfillService =
+      deps.routeMethodConfigBackfillService;
     this.schemaHealingService = deps.schemaHealingService;
     this.snapshotTargetVerifierService = deps.snapshotTargetVerifierService;
     this.routeDefinitionProcessor = deps.routeDefinitionProcessor;
@@ -210,9 +210,6 @@ export class FirstRunInitializer {
       await lease.assertOwned();
 
       await this.bootstrapUnitOfWorkService.run(async () => {
-        await this.runOwnedStep(lease, () =>
-          convertLegacyFlowSteps(this.queryBuilderService, this.logger),
-        );
         const coreT0 = Date.now();
         this.logStage(mode, 'migrating core metadata tables');
         await this.runOwnedStep(lease, () =>
@@ -503,7 +500,10 @@ export class FirstRunInitializer {
     terminal = false,
   ): void {
     if (process.env.LOG_DISABLE_CONSOLE === '1' || isBootstrapVerbose()) return;
-    const normalizedPercent = Math.min(100, Math.max(0, Math.round(percent * 10) / 10));
+    const normalizedPercent = Math.min(
+      100,
+      Math.max(0, Math.round(percent * 10) / 10),
+    );
     startupProgressWrite(
       formatStartupProgressLine(mode, normalizedPercent, message),
       terminal,

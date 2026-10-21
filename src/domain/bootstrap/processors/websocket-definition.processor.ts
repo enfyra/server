@@ -27,11 +27,8 @@ export class WebsocketDefinitionProcessor extends BaseTableProcessor {
           transformedRecord.isEnabled = true;
         if (transformedRecord.requireAuth === undefined)
           transformedRecord.requireAuth = true;
-        if (transformedRecord.connectionHandlerScript === undefined)
-          transformedRecord.connectionHandlerScript = null;
         if (transformedRecord.sourceCode === undefined)
-          transformedRecord.sourceCode =
-            transformedRecord.connectionHandlerScript;
+          transformedRecord.sourceCode = null;
         if (transformedRecord.connectionHandlerTimeout === undefined)
           transformedRecord.connectionHandlerTimeout = 5000;
 

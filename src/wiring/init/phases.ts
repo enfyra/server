@@ -1,5 +1,4 @@
 import type { Cradle } from '../cradle';
-import type { LegacyAssessmentFinding } from '../../engines/bootstrap/types/legacy-system-metadata.types';
 
 type StoragePhaseCradle = Pick<
   Cradle,
@@ -15,10 +14,6 @@ type RedisPhaseCradle = Pick<
 >;
 type SagaPhaseCradle = Pick<Cradle, 'mongoSagaCoordinator'>;
 type ProvisionPhaseCradle = Pick<Cradle, 'provisionService'>;
-type LegacyAssessmentPhaseCradle = Pick<
-  Cradle,
-  'legacyStoreInventoryService' | 'legacyAssessmentService'
->;
 type FirstRunPhaseCradle = Pick<Cradle, 'firstRunInitializer'>;
 type ReloadRepairPhaseCradle = Pick<Cradle, 'runtimeReloadAuditService'>;
 type CoreCachePhaseCradle = Pick<
@@ -119,7 +114,9 @@ export async function runInitStep(
 
 // ── Bootstrap phases ──────────────────────────────────────────────
 
-export async function phaseStorageEngines(c: StoragePhaseCradle): Promise<void> {
+export async function phaseStorageEngines(
+  c: StoragePhaseCradle,
+): Promise<void> {
   await runInitStep('mongoService.init', () => c.mongoService.init());
   await runInitStep('ensureDatabaseExists', async () => {
     const dbType = c.databaseConfigService.getDbType();
@@ -127,45 +124,41 @@ export async function phaseStorageEngines(c: StoragePhaseCradle): Promise<void> 
       await ensureDatabaseExists();
     }
   });
-  await runInitStep('replicationManager.init', () => c.replicationManager.init());
+  await runInitStep('replicationManager.init', () =>
+    c.replicationManager.init(),
+  );
   await runInitStep('knexService.init', () => c.knexService.init());
   await runInitStep('sqlPoolClusterCoordinatorService.init', () =>
     c.sqlPoolClusterCoordinatorService.init(),
   );
 }
 
-export async function phaseRedisAndNamespace(c: RedisPhaseCradle): Promise<void> {
-  await runInitStep('redisPubSubService.init', () => c.redisPubSubService.init());
+export async function phaseRedisAndNamespace(
+  c: RedisPhaseCradle,
+): Promise<void> {
+  await runInitStep('redisPubSubService.init', () =>
+    c.redisPubSubService.init(),
+  );
   await runInitStep('runtimeNamespaceLifecycleService.init', () =>
     c.runtimeNamespaceLifecycleService.init(),
   );
 }
 
 export async function phaseSaga(c: SagaPhaseCradle): Promise<void> {
-  await runInitStep('mongoSagaCoordinator.init', () => c.mongoSagaCoordinator.init());
+  await runInitStep('mongoSagaCoordinator.init', () =>
+    c.mongoSagaCoordinator.init(),
+  );
 }
 
-export async function phaseProvisionGate(c: ProvisionPhaseCradle): Promise<void> {
-  await runInitStep('provisionService.waitForDatabase', () => c.provisionService.waitForDatabase());
-  await runInitStep('provisionService.recoverJournals', () => c.provisionService.recoverJournals());
-}
-
-export async function phaseLegacyAssessment(c: LegacyAssessmentPhaseCradle): Promise<void> {
-  await runInitStep('legacyStoreAssessment', async () => {
-    const inventory = await c.legacyStoreInventoryService.inventory();
-    const report = c.legacyAssessmentService.assess(inventory);
-    if (report.hasBlockingFindings) {
-      const details = report.findings
-        .filter((finding: LegacyAssessmentFinding) => finding.blocking)
-        .map((finding: LegacyAssessmentFinding) =>
-          `[${finding.coreKey}] ${finding.outcome}: ${finding.detail}`,
-        )
-        .join('; ');
-      throw new Error(
-        `Legacy system metadata assessment found blocking issues, boot cannot continue: ${details}`,
-      );
-    }
-  });
+export async function phaseProvisionGate(
+  c: ProvisionPhaseCradle,
+): Promise<void> {
+  await runInitStep('provisionService.waitForDatabase', () =>
+    c.provisionService.waitForDatabase(),
+  );
+  await runInitStep('provisionService.recoverJournals', () =>
+    c.provisionService.recoverJournals(),
+  );
 }
 
 export async function phaseFirstRun(c: FirstRunPhaseCradle): Promise<void> {
@@ -178,7 +171,9 @@ export async function phaseFirstRun(c: FirstRunPhaseCradle): Promise<void> {
 
 // ── Runtime phases ────────────────────────────────────────────────
 
-export async function phaseReloadRepair(c: ReloadRepairPhaseCradle): Promise<void> {
+export async function phaseReloadRepair(
+  c: ReloadRepairPhaseCradle,
+): Promise<void> {
   await runInitStep('runtimeReloadAuditService.repairInterruptedReloads', () =>
     c.runtimeReloadAuditService.markInterruptedReloadsFailed(
       'Runtime reload was interrupted by process restart before activation',
@@ -187,9 +182,15 @@ export async function phaseReloadRepair(c: ReloadRepairPhaseCradle): Promise<voi
 }
 
 export async function phaseCoreCaches(c: CoreCachePhaseCradle): Promise<void> {
-  await runInitStep('cacheOrchestratorService.init', () => c.cacheOrchestratorService.init());
-  await runInitStep('runtimeRegistryService.init', () => c.runtimeRegistryService.init());
-  await runInitStep('metadataCacheService.reload', () => c.metadataCacheService.reload());
+  await runInitStep('cacheOrchestratorService.init', () =>
+    c.cacheOrchestratorService.init(),
+  );
+  await runInitStep('runtimeRegistryService.init', () =>
+    c.runtimeRegistryService.init(),
+  );
+  await runInitStep('metadataCacheService.reload', () =>
+    c.metadataCacheService.reload(),
+  );
   await runInitStep('sharedHelperCacheService.reload', () =>
     c.sharedHelperCacheService.reload(),
   );
@@ -206,32 +207,66 @@ export async function phaseCoreCaches(c: CoreCachePhaseCradle): Promise<void> {
   );
 }
 
-export async function phaseRuntimeSideEffects(c: RuntimeSideEffectPhaseCradle): Promise<void> {
-  await runInitStep('websocketRuntimeService.init', () => c.websocketRuntimeService.init());
-  await runInitStep('packageRuntimeService.init', () => c.packageRuntimeService.init());
+export async function phaseRuntimeSideEffects(
+  c: RuntimeSideEffectPhaseCradle,
+): Promise<void> {
+  await runInitStep('websocketRuntimeService.init', () =>
+    c.websocketRuntimeService.init(),
+  );
+  await runInitStep('packageRuntimeService.init', () =>
+    c.packageRuntimeService.init(),
+  );
 }
 
-export async function phaseParallelCacheReload(c: ParallelCacheReloadPhaseCradle): Promise<void> {
+export async function phaseParallelCacheReload(
+  c: ParallelCacheReloadPhaseCradle,
+): Promise<void> {
   await Promise.all([
     runInitStep('routeCacheService.reload', () => c.routeCacheService.reload()),
-    runInitStep('fieldPermissionCacheBuilder.reload', () => c.fieldPermissionCacheBuilder.reload()),
-    runInitStep('columnRuleCacheBuilder.reload', () => c.columnRuleCacheBuilder.reload()),
-    runInitStep('settingCacheService.reload', () => c.settingCacheService.reload()),
-    runInitStep('authHeaderCacheBuilder.reload', () => c.authHeaderCacheBuilder.reload()),
-    runInitStep('storageConfigCacheBuilder.reload', () => c.storageConfigCacheBuilder.reload()),
-    runInitStep('oauthConfigCacheBuilder.reload', () => c.oauthConfigCacheBuilder.reload()),
-    runInitStep('corsOriginCacheBuilder.reload', () => c.corsOriginCacheBuilder.reload()),
-    runInitStep('websocketCacheBuilder.reload', () => c.websocketCacheBuilder.reload()),
+    runInitStep('fieldPermissionCacheBuilder.reload', () =>
+      c.fieldPermissionCacheBuilder.reload(),
+    ),
+    runInitStep('columnRuleCacheBuilder.reload', () =>
+      c.columnRuleCacheBuilder.reload(),
+    ),
+    runInitStep('settingCacheService.reload', () =>
+      c.settingCacheService.reload(),
+    ),
+    runInitStep('authHeaderCacheBuilder.reload', () =>
+      c.authHeaderCacheBuilder.reload(),
+    ),
+    runInitStep('storageConfigCacheBuilder.reload', () =>
+      c.storageConfigCacheBuilder.reload(),
+    ),
+    runInitStep('oauthConfigCacheBuilder.reload', () =>
+      c.oauthConfigCacheBuilder.reload(),
+    ),
+    runInitStep('corsOriginCacheBuilder.reload', () =>
+      c.corsOriginCacheBuilder.reload(),
+    ),
+    runInitStep('websocketCacheBuilder.reload', () =>
+      c.websocketCacheBuilder.reload(),
+    ),
     runInitStep('flowCacheBuilder.reload', () => c.flowCacheBuilder.reload()),
-    runInitStep('packageCacheService.reload', () => c.packageCacheService.reload()),
-    runInitStep('folderTreeCacheService.reload', () => c.folderTreeCacheService.reload()),
+    runInitStep('packageCacheService.reload', () =>
+      c.packageCacheService.reload(),
+    ),
+    runInitStep('folderTreeCacheService.reload', () =>
+      c.folderTreeCacheService.reload(),
+    ),
     runInitStep('guardCacheBuilder.reload', () => c.guardCacheBuilder.reload()),
-    runInitStep('gqlDefinitionCacheService.reload', () => c.gqlDefinitionCacheService.reload()),
-    runInitStep('sqlFunctionService.installExtensions', () => c.sqlFunctionService.installExtensions()),
+    runInitStep('gqlDefinitionCacheService.reload', () =>
+      c.gqlDefinitionCacheService.reload(),
+    ),
+    runInitStep('sqlFunctionService.installExtensions', () =>
+      c.sqlFunctionService.installExtensions(),
+    ),
   ]);
 }
 
-export async function phasePublishActivatedSnapshots(c: ActivatedSnapshotPhaseCradle): Promise<void> {
+export async function phasePublishActivatedSnapshots(
+  c: ActivatedSnapshotPhaseCradle,
+): Promise<void> {
   await runInitStep('runtimeRegistryService.publishInitialCaches', async () => {
     const runtimeRegistry = c.runtimeRegistryService;
     const entries = [
@@ -258,30 +293,50 @@ export async function phasePublishActivatedSnapshots(c: ActivatedSnapshotPhaseCr
   });
 }
 
-export async function phaseFlowAndGraphql(c: FlowAndGraphqlPhaseCradle): Promise<void> {
-  await runInitStep('flowRuntimeService.init', () => c.flowRuntimeService.init());
-  await runInitStep('flowTriggerDispatcherService.init', () => c.flowTriggerDispatcherService.init());
-  await runInitStep('graphqlService.reloadSchema', () => c.graphqlService.reloadSchema());
+export async function phaseFlowAndGraphql(
+  c: FlowAndGraphqlPhaseCradle,
+): Promise<void> {
+  await runInitStep('flowRuntimeService.init', () =>
+    c.flowRuntimeService.init(),
+  );
+  await runInitStep('flowTriggerDispatcherService.init', () =>
+    c.flowTriggerDispatcherService.init(),
+  );
+  await runInitStep('graphqlService.reloadSchema', () =>
+    c.graphqlService.reloadSchema(),
+  );
   c.eventEmitter.emit(CACHE_EVENTS.GRAPHQL_LOADED);
   logger.log('Init event emitted: GRAPHQL_LOADED');
 }
 
-export async function phaseDeferredParallel(c: DeferredPhaseCradle): Promise<void> {
+export async function phaseDeferredParallel(
+  c: DeferredPhaseCradle,
+): Promise<void> {
   await Promise.all([
-    runInitStep('sessionCleanupService.init', () => c.sessionCleanupService.init()),
-    runInitStep('userRevocationService.init', () => c.userRevocationService.init()),
+    runInitStep('sessionCleanupService.init', () =>
+      c.sessionCleanupService.init(),
+    ),
+    runInitStep('userRevocationService.init', () =>
+      c.userRevocationService.init(),
+    ),
     runInitStep('patVerifierService.init', () => c.patVerifierService.init()),
-    runInitStep('oauthExchangeCodeService.init', () => c.oauthExchangeCodeService.init()),
-    runInitStep('mongoPhysicalMigrationService.init', () => c.mongoPhysicalMigrationService.init()),
+    runInitStep('oauthExchangeCodeService.init', () =>
+      c.oauthExchangeCodeService.init(),
+    ),
+    runInitStep('mongoPhysicalMigrationService.init', () =>
+      c.mongoPhysicalMigrationService.init(),
+    ),
   ]);
 }
 
 export async function phaseReady(c: ReadyPhaseCradle): Promise<void> {
-  await runInitStep('runtimeNamespaceLifecycleService.renewReadyNamespace', () =>
-    c.runtimeNamespaceLifecycleService.renewCurrentNamespaceKeys(),
+  await runInitStep(
+    'runtimeNamespaceLifecycleService.renewReadyNamespace',
+    () => c.runtimeNamespaceLifecycleService.renewCurrentNamespaceKeys(),
   );
-  await runInitStep('runtimeSchemaJournalService.completeRecoveredActivations', () =>
-    c.runtimeSchemaJournalService.completeRecoveredActivations(),
+  await runInitStep(
+    'runtimeSchemaJournalService.completeRecoveredActivations',
+    () => c.runtimeSchemaJournalService.completeRecoveredActivations(),
   );
   c.eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
   logger.log('Init event emitted: SYSTEM_READY');

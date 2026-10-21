@@ -1,6 +1,6 @@
 import ts from 'typescript';
 import { transformTemplateSyntax } from './template-syntax.util';
-import { SCRIPT_TABLE_LEGACY_FIELDS } from './script-table-contract.constants';
+import { SCRIPT_TABLE_NAME_SET } from './script-table-contract.constants';
 import { assertSharedHelperName } from './shared-helper-name.util';
 
 type ScriptLanguage = 'javascript' | 'typescript';
@@ -23,29 +23,13 @@ interface ScriptContractRepairResult extends ExecutableScriptResult {
   scriptLanguage: ScriptLanguage;
 }
 
-export function getScriptLegacyField(tableName: string): string | undefined {
-  return scriptContractService.getLegacyField(tableName);
-}
-
 export function normalizeScriptLanguage(value: unknown): ScriptLanguage {
   return scriptContractService.normalizeLanguage(value);
 }
 
 class ScriptContractService {
-  getLegacyField(tableName: string): string | undefined {
-    return Object.prototype.hasOwnProperty.call(
-      SCRIPT_TABLE_LEGACY_FIELDS,
-      tableName,
-    )
-      ? SCRIPT_TABLE_LEGACY_FIELDS[tableName]
-      : undefined;
-  }
-
   isScriptTable(tableName: string): boolean {
-    return Object.prototype.hasOwnProperty.call(
-      SCRIPT_TABLE_LEGACY_FIELDS,
-      tableName,
-    );
+    return SCRIPT_TABLE_NAME_SET.has(tableName);
   }
 
   normalizeLanguage(value: unknown): ScriptLanguage {
@@ -90,16 +74,6 @@ class ScriptContractService {
 
     if (tableName === 'enfyra_helper') assertSharedHelperName(record.name);
     const normalized = { ...record };
-    const legacyField = this.getLegacyField(tableName);
-    if (
-      legacyField &&
-      (normalized.sourceCode === undefined ||
-        normalized.sourceCode === null ||
-        normalized.sourceCode === '') &&
-      normalized[legacyField] !== undefined
-    ) {
-      normalized.sourceCode = normalized[legacyField];
-    }
 
     normalized.scriptLanguage = this.normalizeLanguage(
       normalized.scriptLanguage,
@@ -114,10 +88,6 @@ class ScriptContractService {
       !normalized.compiledCode
     ) {
       throw new Error('Enabled helper requires executable sourceCode');
-    }
-
-    if (legacyField && legacyField in normalized) {
-      delete normalized[legacyField];
     }
 
     return normalized;
@@ -137,15 +107,10 @@ class ScriptContractService {
       Object.prototype.hasOwnProperty.call(patch, 'name')
     )
       assertSharedHelperName(patch.name);
-    const legacyField = this.getLegacyField(tableName);
-    const hasCanonicalSource = Object.prototype.hasOwnProperty.call(
+    const touchesSource = Object.prototype.hasOwnProperty.call(
       patch,
       'sourceCode',
     );
-    const hasLegacySource = legacyField
-      ? Object.prototype.hasOwnProperty.call(patch, legacyField)
-      : false;
-    const touchesSource = hasCanonicalSource || hasLegacySource;
     const touchesLanguage = Object.prototype.hasOwnProperty.call(
       patch,
       'scriptLanguage',
@@ -176,15 +141,10 @@ class ScriptContractService {
     }
 
     let sourceCode: string | null | undefined;
-    if (hasCanonicalSource) {
+    if (touchesSource) {
       sourceCode = patch.sourceCode;
-    } else if (hasLegacySource && legacyField) {
-      sourceCode = patch[legacyField];
     } else {
       sourceCode = existing?.sourceCode;
-      if (sourceCode === undefined && legacyField && existing) {
-        sourceCode = existing[legacyField];
-      }
     }
     const scriptLanguage = touchesLanguage
       ? patch.scriptLanguage
@@ -199,15 +159,27 @@ class ScriptContractService {
       normalized.scriptLanguage,
     );
 
-    if (legacyField && legacyField in normalized) {
-      delete normalized[legacyField];
-    }
-
     return normalized;
   }
 
   getExecutableScript(record: ScriptFields): string | null {
     return this.resolveExecutableScript(record).code;
+  }
+
+  normalizeFlowStepScript(record: any): any {
+    if (!record || typeof record !== 'object') return record;
+    if (record.type !== 'script' && record.type !== 'condition') return record;
+
+    const normalized = { ...record };
+    normalized.sourceCode = normalized.sourceCode ?? null;
+    normalized.scriptLanguage = this.normalizeLanguage(
+      normalized.scriptLanguage,
+    );
+    normalized.compiledCode = this.compileSource(
+      normalized.sourceCode,
+      normalized.scriptLanguage,
+    );
+    return normalized;
   }
 
   resolveExecutableScript(record: ScriptFields): ExecutableScriptResult {
@@ -231,26 +203,6 @@ class ScriptContractService {
       };
     }
 
-    const legacyCode = Object.values(SCRIPT_TABLE_LEGACY_FIELDS)
-      .filter((fieldName) => fieldName !== '')
-      .map((fieldName) =>
-        Object.prototype.hasOwnProperty.call(record, fieldName)
-          ? record[fieldName]
-          : undefined,
-      )
-      .find((value) => typeof value === 'string' && value !== '');
-    if (typeof legacyCode === 'string') {
-      const compiledCode = this.compileSource(
-        legacyCode,
-        record.scriptLanguage,
-      );
-      return {
-        code: compiledCode,
-        compiledCode,
-        shouldPersistCompiledCode: compiledCode !== record.compiledCode,
-      };
-    }
-
     if (
       typeof record.compiledCode === 'string' &&
       record.compiledCode !== '' &&
@@ -264,39 +216,6 @@ class ScriptContractService {
     }
 
     return { code: null, compiledCode: null, shouldPersistCompiledCode: false };
-  }
-
-  normalizeFlowStepScriptConfig(record: any): any {
-    if (!record || typeof record !== 'object') return record;
-    const type = record.type;
-    if (type !== 'script' && type !== 'condition') return record;
-
-    const normalized = { ...record };
-    let config = record.config;
-    if (typeof config === 'string') {
-      try {
-        config = JSON.parse(config);
-      } catch {
-        config = null;
-      }
-    }
-    const configObject = config && typeof config === 'object' ? config : {};
-
-    normalized.sourceCode =
-      normalized.sourceCode ??
-      configObject.sourceCode ??
-      configObject.code ??
-      null;
-    normalized.scriptLanguage = this.normalizeLanguage(
-      normalized.scriptLanguage ?? configObject.scriptLanguage,
-    );
-    normalized.compiledCode = this.compileSource(
-      normalized.sourceCode,
-      normalized.scriptLanguage,
-    );
-    delete normalized.config;
-
-    return normalized;
   }
 
   repairContract(record: ScriptFields): ScriptContractRepairResult {
@@ -524,6 +443,6 @@ export function resolveExecutableScript(
   return scriptContractService.resolveExecutableScript(record);
 }
 
-export function normalizeFlowStepScriptConfig(record: any): any {
-  return scriptContractService.normalizeFlowStepScriptConfig(record);
+export function normalizeFlowStepScript(record: any): any {
+  return scriptContractService.normalizeFlowStepScript(record);
 }

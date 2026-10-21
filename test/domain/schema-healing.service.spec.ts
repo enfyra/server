@@ -206,16 +206,19 @@ describe('SchemaHealingService.runIfNeeded', () => {
     const knex = qb.getKnex();
     knex.client = { config: { client: 'pg' } };
     knex.schema.hasTable.mockImplementation(
-      async (name: string) => name === 'discount_user' || name === 'oauth_account',
+      async (name: string) =>
+        name === 'discount_user' || name === 'oauth_account',
     );
     knex.raw.mockImplementation(async (sql: string) => {
       if (String(sql).includes('pg_index')) {
         return {
-          rows: [{
-            index_name: 'discount_user_user_id_id_idx',
-            is_unique: false,
-            columns: '{userId,id}',
-          }],
+          rows: [
+            {
+              index_name: 'discount_user_user_id_id_idx',
+              is_unique: false,
+              columns: '{userId,id}',
+            },
+          ],
         };
       }
       return { rows: [], 0: [] };
@@ -227,8 +230,16 @@ describe('SchemaHealingService.runIfNeeded', () => {
         uniques: [['user', 'discount']],
         indexes: [['user'], ['discount'], ['createdAt']],
         relations: [
-          { propertyName: 'user', foreignKeyColumn: 'userId', type: 'many-to-one' },
-          { propertyName: 'discount', foreignKeyColumn: 'discountId', type: 'many-to-one' },
+          {
+            propertyName: 'user',
+            foreignKeyColumn: 'userId',
+            type: 'many-to-one',
+          },
+          {
+            propertyName: 'discount',
+            foreignKeyColumn: 'discountId',
+            type: 'many-to-one',
+          },
         ],
       }),
       makeTable({
@@ -236,7 +247,13 @@ describe('SchemaHealingService.runIfNeeded', () => {
         name: 'oauth_account',
         uniques: [['provider', 'providerUserId']],
         indexes: [['userId']],
-        relations: [{ propertyName: 'user', foreignKeyColumn: 'userId', type: 'many-to-one' }],
+        relations: [
+          {
+            propertyName: 'user',
+            foreignKeyColumn: 'userId',
+            type: 'many-to-one',
+          },
+        ],
       }),
     ]);
 
@@ -623,7 +640,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
     expect(tableUpdate![2].uniques).toBe('[["author"]]');
   });
 
-  it('heals SQL M2M junction metadata to the physical contract', async () => {
+  it('repairs SQL M2M junction metadata without renaming physical tables', async () => {
     const update = vi.fn().mockResolvedValue(undefined);
     const relationUpdate = vi.fn().mockResolvedValue(undefined);
     const relationTable = vi.fn(() => ({ update: relationUpdate }));
@@ -692,11 +709,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
 
     await svc.runIfNeeded();
 
-    expect(knex.schema.renameTable).toHaveBeenCalledWith(
-      'test_students_students',
-      expect.stringMatching(/^j_[a-f0-9]{12}$/),
-    );
-    expect(knex.schema.alterTable).toHaveBeenCalledTimes(2);
+    expect(knex.schema.renameTable).not.toHaveBeenCalled();
     expect(relationUpdate).toHaveBeenCalledTimes(2);
     expect(relationUpdate.mock.calls[0][0]).toEqual({
       junctionTableName: expect.stringMatching(/^j_[a-f0-9]{12}$/),
@@ -710,7 +723,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
     });
   });
 
-  it('heals Mongo M2M junction collection and field names to the physical contract', async () => {
+  it('repairs Mongo M2M junction metadata without renaming legacy collections', async () => {
     DatabaseConfigService.overrideForTesting?.('mongodb');
     const junction = getSqlJunctionPhysicalNames({
       sourceTable: 'test',
@@ -800,14 +813,9 @@ describe('SchemaHealingService.runIfNeeded', () => {
 
     await svc.runIfNeeded();
 
-    expect(rename).toHaveBeenCalledWith(junction.junctionTableName);
-    expect(updateMany).toHaveBeenCalledWith(
-      { testId: { $exists: true }, sourceId: { $exists: false } },
-      { $rename: { testId: 'sourceId' } },
-    );
-    expect(updateMany).toHaveBeenCalledWith(
-      { studentsId: { $exists: true }, targetId: { $exists: false } },
-      { $rename: { studentsId: 'targetId' } },
+    expect(rename).not.toHaveBeenCalled();
+    expect(db.createCollection).toHaveBeenCalledWith(
+      junction.junctionTableName,
     );
     expect(updateOne).toHaveBeenCalledTimes(2);
     expect(updateOne.mock.calls[0][1].$set).toEqual({

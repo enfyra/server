@@ -28,7 +28,10 @@ describe('init runtime registry publish', () => {
 
     await init({
       cradle: {
-        runtimeLogWriterService: { start: vi.fn(), assertReady: vi.fn(async () => {}) },
+        runtimeLogWriterService: {
+          start: vi.fn(),
+          assertReady: vi.fn(async () => {}),
+        },
         eventEmitter,
         databaseConfigService: { getDbType: () => 'mongodb' },
         mongoService: { init: vi.fn(async () => undefined) },
@@ -46,21 +49,6 @@ describe('init runtime registry publish', () => {
         provisionService: {
           waitForDatabase: vi.fn(async () => undefined),
           recoverJournals: vi.fn(async () => undefined),
-        },
-        legacyStoreInventoryService: {
-          inventory: vi.fn(async () => ({
-            backend: 'postgresql',
-            entries: [],
-            capturedAt: new Date().toISOString(),
-          })),
-        },
-        legacyAssessmentService: {
-          assess: vi.fn(() => ({
-            backend: 'postgresql',
-            findings: [],
-            hasBlockingFindings: false,
-            assessedAt: new Date().toISOString(),
-          })),
         },
         firstRunInitializer: {
           isNeeded: vi.fn(async () => false),

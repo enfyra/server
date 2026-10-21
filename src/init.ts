@@ -13,7 +13,6 @@ import {
   phaseRedisAndNamespace,
   phaseSaga,
   phaseProvisionGate,
-  phaseLegacyAssessment,
   phaseFirstRun,
   phaseReloadRepair,
   phaseCoreCaches,
@@ -37,7 +36,6 @@ function bootstrapSteps(c: Cradle): StartupStep[] {
     { label: 'connecting Redis', run: () => phaseRedisAndNamespace(c) },
     { label: 'recovering transactions', run: () => phaseSaga(c) },
     { label: 'checking provision state', run: () => phaseProvisionGate(c) },
-    { label: 'assessing metadata', run: () => phaseLegacyAssessment(c) },
     { label: 'initializing schema', run: () => phaseFirstRun(c) },
   ];
 }

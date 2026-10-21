@@ -46,12 +46,6 @@ export const SYSTEM_TABLES = {
   codeAudit: 'enfyra_audit',
 } as const;
 
-export const LEGACY_CORE_SYSTEM_TABLES = {
-  table: 'table_definition',
-  column: 'column_definition',
-  relation: 'relation_definition',
-} as const;
-
 export const CORE_SYSTEM_TABLES = {
   table: SYSTEM_TABLES.table,
   column: SYSTEM_TABLES.column,

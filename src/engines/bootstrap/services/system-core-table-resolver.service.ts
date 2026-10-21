@@ -1,8 +1,5 @@
 import { QueryBuilderService } from '@enfyra/kernel';
-import {
-  CORE_SYSTEM_TABLES,
-  LEGACY_CORE_SYSTEM_TABLES,
-} from '../../../shared/utils/system-tables.constants';
+import { CORE_SYSTEM_TABLES } from '../../../shared/utils/system-tables.constants';
 import type {
   CoreSystemTableKey,
   CoreSystemTableNames,
@@ -29,10 +26,7 @@ export class SystemCoreTableResolver {
 
   private async resolveOne(key: CoreSystemTableKey): Promise<string> {
     const canonical = CORE_SYSTEM_TABLES[key];
-    const legacy = LEGACY_CORE_SYSTEM_TABLES[key];
-
     if (await this.physicalTableExists(canonical)) return canonical;
-    if (await this.physicalTableExists(legacy)) return legacy;
     return canonical;
   }
 

@@ -25,7 +25,6 @@ export {
   buildTableMetadataUpdate,
   buildColumnMetadataUpdate,
   buildRelationMetadataUpdate,
-  getLegacyScriptTargetColumn,
 } from './metadata-diff.util';
 
 export { validateSnapshotMigrationDefinition } from './metadata-migration-validation.util';

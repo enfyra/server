@@ -114,28 +114,10 @@ export class MongoSchemaHealingService {
         propertyName: rel.propertyName,
         targetTable: targetTable.name,
       });
-      const legacyColumns = this.getLegacyJunctionColumnNames(
-        sourceTable.name,
-        targetTable.name,
-      );
       await this.ensureMongoJunctionCollection(db, {
-        oldJunctionTableName: rel.junctionTableName || null,
-        oldJunctionSourceColumn: rel.junctionSourceColumn || null,
-        oldJunctionTargetColumn: rel.junctionTargetColumn || null,
         junctionTableName: target.junctionTableName,
         junctionSourceColumn: target.junctionSourceColumn,
         junctionTargetColumn: target.junctionTargetColumn,
-        legacyJunctions: [
-          {
-            tableName: this.getLegacyJunctionTableName(
-              sourceTable.name,
-              rel.propertyName,
-              targetTable.name,
-            ),
-            sourceColumn: legacyColumns.sourceColumn,
-            targetColumn: legacyColumns.targetColumn,
-          },
-        ],
       });
 
       const owningUpdate = diffJunctionMetadata(rel, target);
@@ -160,173 +142,25 @@ export class MongoSchemaHealingService {
       }
     }
 
-    repaired += await this.cleanupMongoLegacyJunctionCollections(snapshot);
-
-    return repaired;
-  }
-
-  private async cleanupMongoLegacyJunctionCollections(
-    snapshot: SchemaHealingSnapshot,
-  ): Promise<number> {
-    const db = this.queryBuilderService.getMongoDb();
-    const coreNames = await this.systemCoreTableResolver.getNames();
-    const relations = await db
-      .collection(coreNames.relation)
-      .find({})
-      .toArray();
-    const tables = await db.collection(coreNames.table).find({}).toArray();
-    const tableById = new Map<string, any>(
-      tables.map((table: any) => [String(table._id), table]),
-    );
-    let repaired = 0;
-
-    for (const rel of relations) {
-      if (rel.type !== 'many-to-many' || rel.mappedBy) continue;
-      const sourceTable = tableById.get(String(rel.sourceTable));
-      const targetTable = tableById.get(String(rel.targetTable));
-      if (!sourceTable?.name || !targetTable?.name || !rel.propertyName) {
-        continue;
-      }
-
-      const target = getTargetJunctionContract(snapshot, {
-        sourceTable: sourceTable.name,
-        propertyName: rel.propertyName,
-        targetTable: targetTable.name,
-      });
-      const legacyColumns = this.getLegacyJunctionColumnNames(
-        sourceTable.name,
-        targetTable.name,
-      );
-      const legacyTable = this.getLegacyJunctionTableName(
-        sourceTable.name,
-        rel.propertyName,
-        targetTable.name,
-      );
-      if (
-        legacyTable === target.junctionTableName ||
-        !(await this.mongoCollectionExists(db, legacyTable)) ||
-        !(await this.mongoCollectionExists(db, target.junctionTableName))
-      ) {
-        continue;
-      }
-
-      const mergeResult = await this.mergeMongoJunctionCollection(db, {
-        oldJunctionTableName: legacyTable,
-        oldJunctionSourceColumn: legacyColumns.sourceColumn,
-        oldJunctionTargetColumn: legacyColumns.targetColumn,
-        junctionTableName: target.junctionTableName,
-        junctionSourceColumn: target.junctionSourceColumn,
-        junctionTargetColumn: target.junctionTargetColumn,
-      });
-      if (mergeResult.unmappable > 0) {
-        throw new Error(
-          `Junction healing blocked: ${mergeResult.unmappable} unmappable row(s) in '${legacyTable}'. ` +
-            `Legacy collection will NOT be dropped until all source rows are mappable.`,
-        );
-      }
-      await db.collection(legacyTable).drop();
-      repaired++;
-      this.log(
-        `Removed orphan legacy junction collection '${legacyTable}' after merging into '${target.junctionTableName}'`,
-      );
-    }
-
     return repaired;
   }
 
   private async ensureMongoJunctionCollection(
     db: any,
     input: {
-      oldJunctionTableName: string | null;
-      oldJunctionSourceColumn: string | null;
-      oldJunctionTargetColumn: string | null;
       junctionTableName: string;
       junctionSourceColumn: string;
       junctionTargetColumn: string;
-      legacyJunctions?: Array<{
-        tableName: string;
-        sourceColumn: string;
-        targetColumn: string;
-      }>;
     },
   ): Promise<void> {
-    const standardExists = await this.mongoCollectionExists(
-      db,
-      input.junctionTableName,
-    );
-    const legacyCandidates = this.getMongoJunctionLegacyCandidates(input);
-    let renamedFrom: {
-      tableName: string;
-      sourceColumn: string | null;
-      targetColumn: string | null;
-    } | null = null;
-
-    if (!standardExists) {
-      const existingLegacy = await this.findExistingMongoJunctionCandidate(
-        db,
-        legacyCandidates,
+    if (!(await this.mongoCollectionExists(db, input.junctionTableName))) {
+      await db.createCollection(input.junctionTableName);
+      this.log(
+        `Created missing junction collection '${input.junctionTableName}'`,
       );
-      if (existingLegacy) {
-        await db
-          .collection(existingLegacy.tableName)
-          .rename(input.junctionTableName);
-        renamedFrom = existingLegacy;
-        this.log(
-          `Renamed junction collection '${existingLegacy.tableName}' to '${input.junctionTableName}'`,
-        );
-      } else {
-        await db.createCollection(input.junctionTableName);
-        this.log(
-          `Created missing junction collection '${input.junctionTableName}'`,
-        );
-      }
-    } else {
-      for (const candidate of legacyCandidates) {
-        if (!(await this.mongoCollectionExists(db, candidate.tableName))) {
-          continue;
-        }
-        const mergeResult = await this.mergeMongoJunctionCollection(db, {
-          oldJunctionTableName: candidate.tableName,
-          oldJunctionSourceColumn: candidate.sourceColumn,
-          oldJunctionTargetColumn: candidate.targetColumn,
-          junctionTableName: input.junctionTableName,
-          junctionSourceColumn: input.junctionSourceColumn,
-          junctionTargetColumn: input.junctionTargetColumn,
-        });
-        if (mergeResult.unmappable > 0) {
-          throw new Error(
-            `Junction healing blocked: ${mergeResult.unmappable} unmappable row(s) in '${candidate.tableName}'. ` +
-              `Legacy collection will NOT be dropped until all source rows are mappable.`,
-          );
-        }
-        await db.collection(candidate.tableName).drop();
-        this.log(
-          `Merged legacy junction collection '${candidate.tableName}' into '${input.junctionTableName}'`,
-        );
-      }
     }
 
     const collection = db.collection(input.junctionTableName);
-    await this.assertMongoJunctionFieldRenameSafe(
-      collection,
-      renamedFrom?.sourceColumn || input.oldJunctionSourceColumn,
-      input.junctionSourceColumn,
-    );
-    await this.assertMongoJunctionFieldRenameSafe(
-      collection,
-      renamedFrom?.targetColumn || input.oldJunctionTargetColumn,
-      input.junctionTargetColumn,
-    );
-    await this.renameMongoJunctionFieldIfNeeded(
-      collection,
-      renamedFrom?.sourceColumn || input.oldJunctionSourceColumn,
-      input.junctionSourceColumn,
-    );
-    await this.renameMongoJunctionFieldIfNeeded(
-      collection,
-      renamedFrom?.targetColumn || input.oldJunctionTargetColumn,
-      input.junctionTargetColumn,
-    );
     try {
       await collection.createIndex(
         {
@@ -348,235 +182,9 @@ export class MongoSchemaHealingService {
     }
   }
 
-  private async mergeMongoJunctionCollection(
-    db: any,
-    input: {
-      oldJunctionTableName: string;
-      oldJunctionSourceColumn: string | null;
-      oldJunctionTargetColumn: string | null;
-      junctionTableName: string;
-      junctionSourceColumn: string;
-      junctionTargetColumn: string;
-    },
-  ): Promise<{ merged: number; unmappable: number }> {
-    const sourceCollection = db.collection(input.oldJunctionTableName);
-    const targetCollection = db.collection(input.junctionTableName);
-    let unmappable = 0;
-
-    for await (const doc of sourceCollection.find({})) {
-      if (!doc) continue;
-      const source = this.resolveMongoJunctionIdentity(
-        doc,
-        input.oldJunctionSourceColumn,
-        input.junctionSourceColumn,
-      );
-      const target = this.resolveMongoJunctionIdentity(
-        doc,
-        input.oldJunctionTargetColumn,
-        input.junctionTargetColumn,
-      );
-      if (
-        source.conflicting ||
-        target.conflicting ||
-        source.value == null ||
-        target.value == null
-      ) {
-        unmappable++;
-      }
-    }
-    if (unmappable > 0) {
-      return { merged: 0, unmappable };
-    }
-
-    let merged = 0;
-    for await (const doc of sourceCollection.find({})) {
-      if (!doc) continue;
-      const sourceValue = this.resolveMongoJunctionIdentity(
-        doc,
-        input.oldJunctionSourceColumn,
-        input.junctionSourceColumn,
-      ).value;
-      const targetValue = this.resolveMongoJunctionIdentity(
-        doc,
-        input.oldJunctionTargetColumn,
-        input.junctionTargetColumn,
-      ).value;
-      await targetCollection.updateOne(
-        {
-          [input.junctionSourceColumn]: sourceValue,
-          [input.junctionTargetColumn]: targetValue,
-        },
-        {
-          $setOnInsert: {
-            [input.junctionSourceColumn]: sourceValue,
-            [input.junctionTargetColumn]: targetValue,
-          },
-        },
-        { upsert: true },
-      );
-      merged++;
-    }
-    return { merged, unmappable };
-  }
-
-  private resolveMongoJunctionIdentity(
-    doc: any,
-    legacyField: string | null,
-    canonicalField: string,
-  ): { value: any; conflicting: boolean } {
-    const legacyValue = legacyField ? doc[legacyField] : undefined;
-    const canonicalValue = doc[canonicalField];
-    const conflicting =
-      legacyValue != null &&
-      canonicalValue != null &&
-      !this.mongoIdentityEquals(legacyValue, canonicalValue);
-    return {
-      value: canonicalValue ?? legacyValue,
-      conflicting,
-    };
-  }
-
-  private mongoIdentityEquals(left: any, right: any): boolean {
-    if (left === right) return true;
-    try {
-      if (typeof left?.equals === 'function' && left.equals(right)) return true;
-      if (typeof right?.equals === 'function' && right.equals(left))
-        return true;
-    } catch {}
-    return String(left) === String(right);
-  }
-
-  private getLegacyJunctionTableName(
-    sourceTable: string,
-    propertyName: string,
-    targetTable: string,
-  ): string {
-    return `${sourceTable}_${propertyName}_${targetTable}`;
-  }
-
-  private getLegacyJunctionColumnNames(
-    sourceTable: string,
-    targetTable: string,
-  ): { sourceColumn: string; targetColumn: string } {
-    return {
-      sourceColumn: `${this.toCamelCase(sourceTable)}Id`,
-      targetColumn: `${this.toCamelCase(targetTable)}Id`,
-    };
-  }
-
-  private toCamelCase(value: string): string {
-    return value.replace(/_([a-z])/g, (_, letter: string) =>
-      letter.toUpperCase(),
-    );
-  }
-
-  private getMongoJunctionLegacyCandidates(input: {
-    oldJunctionTableName: string | null;
-    oldJunctionSourceColumn: string | null;
-    oldJunctionTargetColumn: string | null;
-    junctionTableName: string;
-    legacyJunctions?: Array<{
-      tableName: string;
-      sourceColumn: string;
-      targetColumn: string;
-    }>;
-  }): Array<{
-    tableName: string;
-    sourceColumn: string | null;
-    targetColumn: string | null;
-  }> {
-    const candidates: Array<{
-      tableName: string;
-      sourceColumn: string | null;
-      targetColumn: string | null;
-    }> = [];
-    if (
-      input.oldJunctionTableName &&
-      input.oldJunctionTableName !== input.junctionTableName
-    ) {
-      candidates.push({
-        tableName: input.oldJunctionTableName,
-        sourceColumn: input.oldJunctionSourceColumn,
-        targetColumn: input.oldJunctionTargetColumn,
-      });
-    }
-    for (const legacy of input.legacyJunctions || []) {
-      if (legacy.tableName === input.junctionTableName) continue;
-      if (
-        candidates.some((candidate) => candidate.tableName === legacy.tableName)
-      ) {
-        continue;
-      }
-      candidates.push({
-        tableName: legacy.tableName,
-        sourceColumn: legacy.sourceColumn,
-        targetColumn: legacy.targetColumn,
-      });
-    }
-    return candidates;
-  }
-
-  private async findExistingMongoJunctionCandidate(
-    db: any,
-    candidates: Array<{
-      tableName: string;
-      sourceColumn: string | null;
-      targetColumn: string | null;
-    }>,
-  ): Promise<{
-    tableName: string;
-    sourceColumn: string | null;
-    targetColumn: string | null;
-  } | null> {
-    for (const candidate of candidates) {
-      if (await this.mongoCollectionExists(db, candidate.tableName)) {
-        return candidate;
-      }
-    }
-    return null;
-  }
-
   private async mongoCollectionExists(db: any, name: string): Promise<boolean> {
     const existing = await db.listCollections({ name }).toArray();
     return existing.length > 0;
-  }
-
-  private async renameMongoJunctionFieldIfNeeded(
-    collection: any,
-    oldField: string | null,
-    newField: string,
-  ): Promise<void> {
-    if (!oldField || oldField === newField) return;
-    await collection.updateMany(
-      { [oldField]: { $exists: true }, [newField]: { $exists: false } },
-      { $rename: { [oldField]: newField } },
-    );
-  }
-
-  private async assertMongoJunctionFieldRenameSafe(
-    collection: any,
-    oldField: string | null,
-    newField: string,
-  ): Promise<void> {
-    for await (const doc of collection.find({})) {
-      if (!doc) continue;
-      const oldValue = oldField ? doc[oldField] : undefined;
-      const newValue = doc[newField];
-      if (oldValue == null && newValue == null) {
-        throw new Error(
-          `Junction healing blocked: row is missing required field '${newField}'.`,
-        );
-      }
-      if (
-        oldValue != null &&
-        newValue != null &&
-        !this.mongoIdentityEquals(oldValue, newValue)
-      ) {
-        throw new Error(
-          `Junction healing blocked: conflicting values for '${oldField}' and '${newField}'.`,
-        );
-      }
-    }
   }
 
   async repairMongoRelationPhysicalMappings(): Promise<number> {
