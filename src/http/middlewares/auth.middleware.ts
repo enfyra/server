@@ -12,7 +12,10 @@ function setAnonymousUser(req: Request): void {
   (req as any).user = null;
   (req as any).auth = null;
   const routeData = (req as any).routeData;
-  if (routeData) routeData.context.$user = null;
+  if (routeData) {
+    routeData.context.$user = null;
+    routeData.context.$authSource = undefined;
+  }
 }
 
 export function authMiddleware(
@@ -46,5 +49,8 @@ function applyAuthenticatedUser(
   (req as any).user = authenticated.user;
   (req as any).auth = authenticated;
   const routeData = (req as any).routeData;
-  if (routeData) routeData.context.$user = authenticated.user;
+  if (routeData) {
+    routeData.context.$user = authenticated.user;
+    routeData.context.$authSource = authenticated.source;
+  }
 }

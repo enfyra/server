@@ -14,6 +14,19 @@ import { BadRequestException } from '../../../domain/exceptions';
 import { isCustomException } from '../../../domain/exceptions/custom-exceptions';
 import { classifyDynamicDatabaseError } from '../utils/database-error-classifier.util';
 import { logMemory } from '../../../shared/utils/memory-log.util';
+import {
+  DEFAULT_RECORD_VERSION,
+  isVersionedTable,
+  normalizeCreateVersion,
+  normalizeUpdateVersion,
+} from '../../../shared/utils/record-version.util';
+import { isEnfyraVersionNewer } from '../../../shared/utils/enfyra-version.util';
+import {
+  projectCodeAuditPreImage,
+  recordCodeAuditEntries,
+  recordCodeAuditEntry,
+  resolveVersionValue,
+} from './code-audit.service';
 import { Logger } from '../../../shared/logger';
 
 export class DynamicMutationLifecycleService {
@@ -94,6 +107,7 @@ export class DynamicMutationLifecycleService {
         ...writeMeta,
         bodyKeys: Object.keys(body).length,
       });
+      this.applyCreateVersion(tableName, body);
 
       const ctx = {
         tableName,
@@ -153,6 +167,13 @@ export class DynamicMutationLifecycleService {
           return { inserted, createdId };
         },
         afterWrite: async () => {
+          await recordCodeAuditEntry(queryBuilderService, context, tableName, {
+            recordId: ctx.id,
+            action: 'create',
+            toVersion:
+              resolveVersionValue(body.version) ?? DEFAULT_RECORD_VERSION,
+            previous: null,
+          });
           await strategy.afterCreateWrite?.(ctx);
         },
         buildResult: async (_context, { createdId }) => {
@@ -227,6 +248,7 @@ export class DynamicMutationLifecycleService {
       tableValidationService,
       tableName,
       tableMetadata,
+      context,
       data,
       fields,
     } = options;
@@ -236,15 +258,15 @@ export class DynamicMutationLifecycleService {
       const rows = this.requireManyRecords(data, 'data');
       const bodies: Record<string, any>[] = [];
       for (const row of rows) {
-        bodies.push(
-          await mutationPreparationService.prepareCreateBody(
-            row,
-            tableName,
-            tableMetadata,
-            mutationAuthorizationService,
-            tableValidationService,
-          ),
+        const body = await mutationPreparationService.prepareCreateBody(
+          row,
+          tableName,
+          tableMetadata,
+          mutationAuthorizationService,
+          tableValidationService,
         );
+        this.applyCreateVersion(tableName, body);
+        bodies.push(body);
       }
 
       const created =
@@ -268,6 +290,21 @@ export class DynamicMutationLifecycleService {
           existing: null,
         },
         persist: async () => ids,
+        afterWrite: async () => {
+          await recordCodeAuditEntries(
+            queryBuilderService,
+            context,
+            tableName,
+            ids.map((id, index) => ({
+              recordId: id,
+              action: 'create' as const,
+              toVersion:
+                resolveVersionValue(bodies[index]?.version) ??
+                DEFAULT_RECORD_VERSION,
+              previous: null,
+            })),
+          );
+        },
         buildResult: async () => {
           const result = await runtime.find({
             filter: { [runtime.getIdField()]: { _in: ids } },
@@ -382,6 +419,8 @@ export class DynamicMutationLifecycleService {
         }
       }
 
+      this.applyUpdateVersion(tableName, body, exists);
+
       const ctx = {
         tableName,
         id,
@@ -432,6 +471,18 @@ export class DynamicMutationLifecycleService {
             ),
           ),
         afterWrite: async () => {
+          const revert = context?.$codeAudit;
+          await recordCodeAuditEntry(queryBuilderService, context, tableName, {
+            recordId: id,
+            action: revert?.action === 'revert' ? 'revert' : 'update',
+            fromVersion: resolveVersionValue(exists.version),
+            toVersion: resolveVersionValue(body.version),
+            restoredFrom:
+              revert?.action === 'revert'
+                ? (revert.restoredFrom ?? null)
+                : null,
+            previous: projectCodeAuditPreImage(exists, tableMetadata),
+          });
           await strategy.afterUpdateWrite?.(ctx);
           logMemory(this.logger, 'dynamic update persisted', {
             ...writeMeta,
@@ -483,6 +534,7 @@ export class DynamicMutationLifecycleService {
       tableValidationService,
       tableName,
       tableMetadata,
+      context,
       ids: requestedIds,
       data,
       fields,
@@ -525,6 +577,18 @@ export class DynamicMutationLifecycleService {
         );
       }
 
+      if (isVersionedTable(tableName)) {
+        const currentVersions = ids.map(
+          (id) => existingRecords.get(String(id))?.version,
+        );
+        body.version = normalizeUpdateVersion(
+          body.version,
+          currentVersions.reduce((highest, candidate) =>
+            isEnfyraVersionNewer(candidate, highest) ? candidate : highest,
+          ),
+        );
+      }
+
       return this.run({
         context: {
           tableName,
@@ -543,6 +607,24 @@ export class DynamicMutationLifecycleService {
               ),
             ),
           ),
+        afterWrite: async () => {
+          await recordCodeAuditEntries(
+            queryBuilderService,
+            context,
+            tableName,
+            ids.map((recordId) => ({
+              recordId,
+              action: 'update' as const,
+              fromVersion:
+                existingRecords.get(String(recordId))?.version ?? null,
+              toVersion: resolveVersionValue(body.version),
+              previous: projectCodeAuditPreImage(
+                existingRecords.get(String(recordId)),
+                tableMetadata,
+              ),
+            })),
+          );
+        },
         buildResult: async () => {
           const result = await runtime.find({
             filter: { [runtime.getIdField()]: { _in: ids } },
@@ -643,6 +725,12 @@ export class DynamicMutationLifecycleService {
             queryBuilderService.delete(tableName, id),
           ),
         afterWrite: async () => {
+          await recordCodeAuditEntry(queryBuilderService, context, tableName, {
+            recordId: id,
+            action: 'delete',
+            fromVersion: resolveVersionValue(exists.version),
+            previous: projectCodeAuditPreImage(exists, tableMetadata),
+          });
           await strategy.afterDeleteWrite?.(ctx);
         },
         buildResult: () => ({
@@ -682,6 +770,7 @@ export class DynamicMutationLifecycleService {
       tableValidationService,
       tableName,
       tableMetadata,
+      context,
       ids: requestedIds,
     } = options;
 
@@ -723,6 +812,23 @@ export class DynamicMutationLifecycleService {
               runtime.getIdField(),
             ),
           ),
+        afterWrite: async () => {
+          await recordCodeAuditEntries(
+            queryBuilderService,
+            context,
+            tableName,
+            ids.map((recordId) => ({
+              recordId,
+              action: 'delete' as const,
+              fromVersion:
+                existingRecords.get(String(recordId))?.version ?? null,
+              previous: projectCodeAuditPreImage(
+                existingRecords.get(String(recordId)),
+                tableMetadata,
+              ),
+            })),
+          );
+        },
         buildResult: () => ({
           message: 'Delete successfully!' as const,
           statusCode: 200 as const,
@@ -734,6 +840,28 @@ export class DynamicMutationLifecycleService {
     } catch (error: any) {
       this.throwMutationError(error);
     }
+  }
+
+  private applyCreateVersion(
+    tableName: string,
+    body: Record<string, any>,
+  ): void {
+    if (!isVersionedTable(tableName)) return;
+    const version = normalizeCreateVersion(body.version);
+    if (version === undefined) {
+      delete body.version;
+      return;
+    }
+    body.version = version;
+  }
+
+  private applyUpdateVersion(
+    tableName: string,
+    body: Record<string, any>,
+    existing: Record<string, any>,
+  ): void {
+    if (!isVersionedTable(tableName)) return;
+    body.version = normalizeUpdateVersion(body.version, existing?.version);
   }
 
   private assertBulkSupported(routeRouter: any, tableName: string): void {

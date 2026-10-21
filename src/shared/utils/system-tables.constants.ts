@@ -43,6 +43,7 @@ export const SYSTEM_TABLES = {
   graphqlOperation: 'enfyra_graphql_operation',
   graphqlPermission: 'enfyra_graphql_permission',
   runtimeReloadLog: 'enfyra_runtime_reload_log',
+  codeAudit: 'enfyra_audit',
 } as const;
 
 export const LEGACY_CORE_SYSTEM_TABLES = {

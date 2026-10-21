@@ -233,6 +233,11 @@ export interface TDynamicContext {
   $query?: any;
   $env?: EnvSnapshot;
   $user?: any;
+  $authSource?: 'pat' | 'jwt';
+  $codeAudit?: {
+    action?: 'revert';
+    restoredFrom?: string | null;
+  };
   $repos: Record<string, any>;
   $req?: DynamicRequestContext;
   $res?: DynamicResponse;

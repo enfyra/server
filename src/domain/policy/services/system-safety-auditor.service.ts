@@ -32,6 +32,9 @@ export class SystemSafetyAuditorService {
 
   async assertSystemSafe(ctx: any) {
     const { operation, tableName, data, existing, currentUser } = ctx;
+    if (tableName === 'enfyra_audit') {
+      throw new Error('Code history is read-only');
+    }
     await new DefaultPagePolicyService(this.queryBuilderService).assertSafe(
       tableName, operation, data ?? {}, existing ?? null,
     );

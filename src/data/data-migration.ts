@@ -89,6 +89,7 @@ export const standingDataCorrections = {
     {
       _unique: { path: { _eq: '/settings/admin/logs' } },
       description: 'Trace system errors and user script logs',
+      path: '/settings/logs',
       permission: {
         or: [
           { route: '/enfyra_system_error', methods: ['GET'] },
@@ -761,6 +762,14 @@ export const standingDataCorrections = {
     {
       _unique: { path: { _eq: '/enfyra_route_method_config_file_field' } },
       availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
+      _unique: { path: { _eq: '/enfyra_audit' } },
+      availableMethods: ['GET'],
+    },
+    {
+      _unique: { path: { _eq: '/admin/code-audit/revert' } },
+      availableMethods: ['POST'],
     },
     {
       _unique: {

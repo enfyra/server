@@ -77,14 +77,15 @@ function createSafetyFixture(options: SafetyFixtureOptions = {}) {
       repairDerivedContracts: jest.fn(async () =>
         runPhase('repairDerivedContracts'),
       ),
-      runExplicitRepairs: jest.fn(async () =>
-        runPhase('runExplicitRepairs'),
-      ),
+      runExplicitRepairs: jest.fn(async () => runPhase('runExplicitRepairs')),
     },
     routeDefinitionProcessor: {
       ensureMissingHandlers: jest.fn(async () =>
         runPhase('ensureMissingHandlers'),
       ),
+    },
+    routeMethodConfigBackfillService: {
+      run: jest.fn(async () => runPhase('routeMethodConfigBackfill')),
     },
     snapshotTargetVerifierService: {
       assertSchemaTargetState: jest.fn(async () =>

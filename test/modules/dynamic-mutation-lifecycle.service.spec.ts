@@ -63,7 +63,10 @@ describe('DynamicMutationLifecycleService', () => {
       },
     });
 
-    expect(result).toEqual({ message: 'Delete successfully!', statusCode: 200 });
+    expect(result).toEqual({
+      message: 'Delete successfully!',
+      statusCode: 200,
+    });
     expect(calls).toEqual([
       'persist',
       'afterWrite',
@@ -175,5 +178,135 @@ describe('DynamicMutationLifecycleService', () => {
         }),
       ),
     ).rejects.toMatchObject({ statusCode: 409, errorCode: 'CONFLICT' });
+  });
+
+  it('appends a pre-image audit entry for a versioned update', async () => {
+    const service = new DynamicMutationLifecycleService();
+    const inserted: any[] = [];
+    const knex = () => ({
+      insert: async (row: Record<string, any>) => {
+        inserted.push(row);
+      },
+    });
+    const queryBuilderService = {
+      getDatabaseType: () => 'postgres',
+      isMongoDb: () => false,
+      getKnex: () => knex,
+      find: async () => ({
+        data: [
+          {
+            id: 3,
+            name: 'handler',
+            version: '1.0.0',
+            sourceCode: 'return 1;',
+            compiledCode: 'compiled()',
+          },
+        ],
+      }),
+      update: async () => undefined,
+    };
+
+    await service.update(
+      createOptions({
+        tableName: 'enfyra_route_handler',
+        tableMetadata: {
+          columns: [
+            { name: 'id' },
+            { name: 'name' },
+            { name: 'version' },
+            { name: 'sourceCode' },
+            { name: 'compiledCode' },
+          ],
+        },
+        queryBuilderService,
+        runtime: {
+          find: async () => ({
+            data: [{ id: 3, version: '1.0.0', sourceCode: 'return 1;' }],
+            count: 1,
+          }),
+          getIdField: () => 'id',
+          reload: async () => {},
+          emit: () => {},
+        },
+        context: {
+          $user: { id: 9, email: 'root@example.com' },
+          $authSource: 'jwt',
+        },
+        id: 3,
+        data: { version: '1.0.1', sourceCode: 'return 2;' },
+        mutationPreparationService: {
+          prepareUpdateBody: (body: any) => body,
+          normalizeUpdate: (_table: string, body: any) => body,
+        },
+        mutationAuthorizationService: {
+          stripUnauthorizedDirectFields: async (_a: any, body: any) => body,
+          assertMutationSafety: async () => {},
+          runWithFieldPermissionCheck: async (fn: any) => fn(),
+          runWithMutationPolicy: async (fn: any) => fn(),
+        },
+        tableValidationService: { assertTableValid: async () => {} },
+      }),
+    );
+
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]).toMatchObject({
+      tableName: 'enfyra_route_handler',
+      recordId: '3',
+      action: 'update',
+      fromVersion: '1.0.0',
+      toVersion: '1.0.1',
+      changedById: 9,
+      changedByEmail: 'root@example.com',
+      changedBySource: 'jwt',
+    });
+    expect(JSON.parse(inserted[0].previous)).toEqual({
+      name: 'handler',
+      version: '1.0.0',
+      sourceCode: 'return 1;',
+    });
+  });
+
+  it('does not audit a table outside the versioned set', async () => {
+    const service = new DynamicMutationLifecycleService();
+    const inserted: any[] = [];
+    const knex = () => ({
+      insert: async (row: Record<string, any>) => {
+        inserted.push(row);
+      },
+    });
+
+    await service.update(
+      createOptions({
+        tableName: 'enfyra_flow',
+        queryBuilderService: {
+          getDatabaseType: () => 'postgres',
+          isMongoDb: () => false,
+          getKnex: () => knex,
+          find: async () => ({ data: [{ id: 3 }] }),
+          update: async () => undefined,
+        },
+        runtime: {
+          find: async () => ({ data: [{ id: 3 }], count: 1 }),
+          getIdField: () => 'id',
+          reload: async () => {},
+          emit: () => {},
+        },
+        id: 3,
+        data: { name: 'flow' },
+        mutationPreparationService: {
+          prepareUpdateBody: (body: any) => body,
+          normalizeUpdate: (_table: string, body: any) => body,
+        },
+        mutationAuthorizationService: {
+          stripUnauthorizedDirectFields: async (_a: any, body: any) => body,
+          assertMutationSafety: async () => {},
+          runWithFieldPermissionCheck: async (fn: any) => fn(),
+          runWithMutationPolicy: async (fn: any) => fn(),
+        },
+        tableValidationService: { assertTableValid: async () => {} },
+      }),
+    );
+
+    expect(inserted).toHaveLength(0);
   });
 });

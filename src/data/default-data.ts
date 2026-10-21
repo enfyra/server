@@ -641,6 +641,16 @@ const defaultData = {
       ]
     },
     {
+      "path": "/admin/code-audit/revert",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:history",
+      "description": "Restore a versioned code record from an audit entry as a new version",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
       "path": "/admin/reload/metadata",
       "isEnabled": true,
       "isSystem": true,
@@ -925,6 +935,16 @@ const defaultData = {
       "isEnabled": true,
       "isSystem": true,
       "icon": "lucide:activity",
+      "availableMethods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/enfyra_audit",
+      "mainTable": "enfyra_audit",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:history",
       "availableMethods": [
         "GET"
       ]
@@ -1402,7 +1422,7 @@ const defaultData = {
       "type": "Menu",
       "label": "Server Logs",
       "icon": "lucide:file-text",
-      "path": "/settings/admin/logs",
+      "path": "/settings/logs",
       "isEnabled": true,
       "isPublic": false,
       "isSystem": true,
@@ -1417,6 +1437,23 @@ const defaultData = {
               "GET"
             ]
           }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Audit",
+      "icon": "lucide:history",
+      "path": "/settings/audit",
+      "isEnabled": true,
+      "isPublic": false,
+      "isSystem": true,
+      "description": "Audit code changes and restore an earlier revision as a new version",
+      "order": 14,
+      "parent": "Settings",
+      "permission": {
+        "and": [
+          { "route": "/enfyra_audit", "methods": ["GET"] }
         ]
       }
     },
