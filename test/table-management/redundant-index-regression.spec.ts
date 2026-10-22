@@ -4,6 +4,7 @@ import { RuntimeMetadataSchemaRouterService } from '../../src/modules/table-mana
 import { TableManagementValidationService } from '../../src/modules/table-management/services/table-validation.service';
 import { buildSqlIndexContracts } from '../../src/engines/knex/utils/sql-physical-schema-contract';
 import { normalizeRuntimeTableSchema } from '../../src/modules/table-management/utils/runtime-schema-normalization.util';
+import { stripOwningRelationIndexes } from '../../src/modules/table-management/utils/schema-index-validation.util';
 import { getMongoCanonicalConstraintGroups } from '../../src/engines/mongo/utils/mongo-physical-schema-contract';
 import { SqlSchemaDiffService } from '../../src/engines/knex/services/sql-schema-diff.service';
 import { MongoSchemaDiffService } from '../../src/engines/mongo/services/mongo-schema-diff.service';
@@ -29,10 +30,24 @@ function compiler(database: string) {
 }
 
 describe('redundant relation indexes', () => {
-  it.each(['postgres', 'mysql', 'mongodb'])('rejects a newly added unique-prefix index before planning on %s', async (database) => {
-    await expect(compiler(database).compile({
+  it.each(['postgres', 'mysql', 'mongodb'])('drops a caller-added unique-prefix index on an owning relation on %s instead of rejecting it', async (database) => {
+    const { contract } = await compiler(database).compile({
       operation: 'update', tableName: schema.name, beforeMetadata: schema,
       afterMetadata: { ...schema, indexes: [...schema.indexes, ['user']] },
+    });
+    expect(contract.context.target?.indexes).not.toContainEqual(['user']);
+  });
+
+  it.each(['postgres', 'mysql', 'mongodb'])('still rejects a unique-prefix index over scalar columns on %s', async (database) => {
+    const scalarSchema = {
+      ...schema,
+      relations: [],
+      uniques: [['status', 'createdAt']],
+      indexes: [],
+    };
+    await expect(compiler(database).compile({
+      operation: 'update', tableName: scalarSchema.name, beforeMetadata: scalarSchema,
+      afterMetadata: { ...scalarSchema, indexes: [['status']] },
     })).rejects.toMatchObject({ details: { code: 'SCHEMA_INDEX_OVER_UNIQUE_FIELD' } });
   });
 
@@ -48,12 +63,24 @@ describe('redundant relation indexes', () => {
     expect(contract.context.target?.indexes).not.toContainEqual(['user']);
   });
 
-  it('rejects a manually declared owning relation index on create because the relation already owns its automatic lookup', async () => {
+  it('strips a manually declared owning relation index on create because the relation already owns its automatic lookup', async () => {
+    const body = { ...schema, uniques: [], indexes: [['user'], ['createdAt']] };
+    expect(stripOwningRelationIndexes(body, body.indexes)).toEqual([['createdAt']]);
+    expect(stripOwningRelationIndexes({ ...body, relations: [] }, [['user']])).toEqual([['user']]);
+    expect(stripOwningRelationIndexes(body, [['user', 'discount']])).toEqual([['user', 'discount']]);
+  });
+
+  it('keeps a caller-declared owning relation index out of the persisted constraint set on create', async () => {
     const router = new RuntimeMetadataSchemaRouterService({
       databaseConfigService: { getDbType: () => 'postgres', isMongoDb: () => false } as any,
     } as any);
-    await expect(router.createTable({ body: { ...schema, uniques: [], indexes: [['user']] } as any }))
-      .rejects.toMatchObject({ details: { code: 'SCHEMA_INDEX_AUTO_MANAGED' } });
+    const normalized = (router as any).normalizeCompleteTableConstraints({
+      ...schema,
+      uniques: [],
+      indexes: stripOwningRelationIndexes(schema, [['user']]),
+    });
+    expect(normalized.indexes).toContainEqual(['user']);
+    expect(normalized.indexes.filter((group: string[]) => group.length === 1 && group[0] === 'user')).toHaveLength(1);
   });
 
   it.each([
@@ -109,7 +136,7 @@ describe('redundant relation indexes', () => {
     expect(compile).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects a caller-declared owning relation index through the aggregate router', async () => {
+  it('drops a caller-declared owning relation index through the aggregate router and keeps the automatic one', async () => {
     const existing = {
       id: 208,
       name: 'ai_internal_tool_history',
@@ -118,8 +145,8 @@ describe('redundant relation indexes', () => {
       uniques: [],
       indexes: [],
     };
-    const compile = vi.fn();
-    const execute = vi.fn();
+    const compile = vi.fn(async () => ({ contract: { context: { diff: { schemaChanged: true } } }, requiredConfirmHash: 'hash' }));
+    const execute = vi.fn(async () => ({ recordId: 208, affectedTables: [] }));
     const router = new RuntimeMetadataSchemaRouterService({
       queryBuilderService: { findOne: vi.fn(async () => existing) } as any,
       tableHandlerService: {} as any,
@@ -128,17 +155,17 @@ describe('redundant relation indexes', () => {
       runtimeSchemaContractCompilerService: { compile } as any,
       runtimeSchemaExecutorService: { execute } as any,
     });
-    await expect(router.updateTable({ tableId: 208, body: { indexes: [['user']] } as any }))
-      .rejects.toMatchObject({ details: { code: 'SCHEMA_INDEX_AUTO_MANAGED' } });
-    expect(compile).not.toHaveBeenCalled();
-    expect(execute).not.toHaveBeenCalled();
+    await router.updateTable({ tableId: 208, body: { indexes: [['user']] } as any });
+    const sent = (compile.mock.calls[0] as any[])[0].afterMetadata;
+    expect(sent.indexes.filter((group: string[]) => group.length === 1 && group[0] === 'user')).toHaveLength(1);
   });
 
-  it('rejects a unique prefix expressed through the persisted physical FK alias', async () => {
-    await expect(compiler('postgres').compile({
+  it('drops a unique prefix expressed through the persisted physical FK alias', async () => {
+    const { contract } = await compiler('postgres').compile({
       operation: 'update', tableName: schema.name, beforeMetadata: schema,
       afterMetadata: { ...schema, indexes: [...schema.indexes, ['userId']] },
-    })).rejects.toMatchObject({ details: { code: 'SCHEMA_INDEX_OVER_UNIQUE_FIELD' } });
+    });
+    expect(contract.context.target?.indexes).not.toContainEqual(['userId']);
   });
 
   it('does not regenerate a SQL owning FK index covered by a compound unique prefix', () => {

@@ -1,27 +1,27 @@
 import { ValidationException } from '../../../domain/exceptions';
 import { findRuntimeSchemaConstraintConflicts } from './runtime-schema-normalization.util';
-import { getTableConstraintFields, parseTableConstraintGroups } from './table-constraints.util';
+import { getTableConstraintFields, parseTableConstraintGroups, type TableConstraintGroup } from './table-constraints.util';
 
-export function assertNoManualRelationIndexes(
+export function stripOwningRelationIndexes(
   target: unknown,
   requestedIndexes: unknown,
-  existingIndexes: unknown = [],
-): void {
-  if (!target || typeof target !== 'object') return;
+): unknown {
+  if (!target || typeof target !== 'object') return requestedIndexes;
   const relations = (target as Record<string, unknown>).relations;
-  if (!Array.isArray(relations)) return;
-  const owningFields = new Set(relations.filter(relation =>
-    !relation.mappedBy && !relation.mappedById && ['many-to-one', 'one-to-one'].includes(relation.type),
-  ).flatMap(relation => [relation.propertyName, relation.foreignKeyColumn].filter(Boolean)));
-  const existingKeys = new Set(parseTableConstraintGroups(existingIndexes).map(group => JSON.stringify(getTableConstraintFields(group))));
-  const indexes = parseTableConstraintGroups(requestedIndexes).map(getTableConstraintFields)
-    .filter(group => !existingKeys.has(JSON.stringify(group)))
-    .filter(group => group.length === 1 && owningFields.has(group[0]));
-  if (indexes.length > 0) {
-    throw new ValidationException('Owning relations already have automatic lookup indexes. Remove the manually declared relation index.', {
-      code: 'SCHEMA_INDEX_AUTO_MANAGED', indexes,
-    });
-  }
+  if (!Array.isArray(relations)) return requestedIndexes;
+  const owningFields = new Set<string>(
+    relations
+      .filter(relation => !relation.mappedBy && !relation.mappedById && ['many-to-one', 'one-to-one'].includes(relation.type))
+      .flatMap(relation => [relation.propertyName, relation.foreignKeyColumn])
+      .filter((field): field is string => typeof field === 'string' && field.length > 0),
+  );
+  const groups = parseTableConstraintGroups(requestedIndexes);
+  const isOwningSingleton = (group: TableConstraintGroup) => {
+    const fields = getTableConstraintFields(group);
+    return fields.length === 1 && owningFields.has(fields[0]);
+  };
+  if (!groups.some(isOwningSingleton)) return requestedIndexes;
+  return groups.filter(group => !isOwningSingleton(group)).map(getTableConstraintFields);
 }
 
 export function assertNoNewRedundantIndexes(target: unknown, source?: unknown): void {

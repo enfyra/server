@@ -17,7 +17,7 @@ import type { RuntimeSchemaContractCompilerService } from './runtime-schema-cont
 import type { RuntimeSchemaExecutorService } from './runtime-schema-executor.service';
 import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
 import { normalizeTableConstraints } from '../utils/table-constraints.util';
-import { assertNoManualRelationIndexes, assertNoNewRedundantIndexes } from '../utils/schema-index-validation.util';
+import { stripOwningRelationIndexes, assertNoNewRedundantIndexes } from '../utils/schema-index-validation.util';
 import { normalizeRuntimeTableSchema } from '../utils/runtime-schema-normalization.util';
 import { RUNTIME_SCHEMA_METADATA_READ_DEEP } from '../utils/runtime-schema-metadata-read.util';
 import type { TableManagementValidationService } from './table-validation.service';
@@ -268,8 +268,10 @@ export class RuntimeMetadataSchemaRouterService {
     input: RuntimeTableMutationInput,
   ): Promise<RuntimeMetadataSchemaMutationResult> {
     assertNoNewRedundantIndexes(input.body);
-    assertNoManualRelationIndexes(input.body, input.body?.indexes);
-    const body = this.normalizeCompleteTableConstraints(input.body!);
+    const body = this.normalizeCompleteTableConstraints({
+      ...input.body!,
+      indexes: stripOwningRelationIndexes(input.body, input.body?.indexes) as any,
+    });
     this.validateSchemaBody(body);
     const resolvedBody = await this.resolveRelationTargetNames(body);
     this.assertNotReservedTableName(String(resolvedBody.name));
@@ -529,7 +531,7 @@ export class RuntimeMetadataSchemaRouterService {
     }
     assertNoNewRedundantIndexes(target, existing);
     if (Array.isArray(body.indexes)) {
-      assertNoManualRelationIndexes(target, body.indexes, existing.indexes);
+      target.indexes = stripOwningRelationIndexes(target, body.indexes);
     }
     return this.normalizeCompleteTableConstraints(target, fieldRenames);
   }

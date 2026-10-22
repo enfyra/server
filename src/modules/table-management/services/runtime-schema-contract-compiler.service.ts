@@ -19,7 +19,7 @@ import type {
   RuntimeSchemaRelationContract,
 } from '../types/runtime-schema-mutation.types';
 import { buildRuntimeSchemaChangePlan } from '../utils/runtime-schema-change-plan.util';
-import { assertNoManualRelationIndexes, assertNoNewRedundantIndexes } from '../utils/schema-index-validation.util';
+import { stripOwningRelationIndexes, assertNoNewRedundantIndexes } from '../utils/schema-index-validation.util';
 import {
   normalizeRuntimePolicyMetadata,
   findRuntimeSchemaConstraintConflicts,
@@ -27,10 +27,6 @@ import {
   normalizeRuntimeTableSchema,
   runtimeRelationDiffKey,
 } from '../utils/runtime-schema-normalization.util';
-import {
-  getTableConstraintFields,
-  parseTableConstraintGroups,
-} from '../utils/table-constraints.util';
 import type {
   RuntimeSchemaPhysicalPlannerService,
   PhysicalPlan,
@@ -53,17 +49,11 @@ export class RuntimeSchemaContractCompilerService {
       backend,
       mode: 'persisted',
     });
-    const targetInput =
+    const targetInput = this.withStrippedRelationIndexes(
       input.afterMetadata ??
-      (input.operation === 'create' ? input.data : undefined);
-    assertNoNewRedundantIndexes(targetInput, input.beforeMetadata);
-    assertNoManualRelationIndexes(
-      targetInput,
-      this.callerDeclaredIndexes(targetInput, backend),
-      input.beforeMetadata && typeof input.beforeMetadata === 'object'
-        ? (input.beforeMetadata as Record<string, unknown>).indexes
-        : [],
+        (input.operation === 'create' ? input.data : undefined),
     );
+    assertNoNewRedundantIndexes(targetInput, input.beforeMetadata);
     assertRuntimeNestedMetadataIdsOwned(input.operation, input.beforeMetadata, targetInput);
     const executionTarget = normalizeRuntimeTableSchema(targetInput, {
       backend,
@@ -200,30 +190,14 @@ export class RuntimeSchemaContractCompilerService {
     throw new Error(`Unsupported schema mutation backend: ${dbType}`);
   }
 
-  // Canonical normalization injects indexes the caller never declared (owning FK,
-  // system timestamps, temporal columns). Manual-index validation must only see
-  // the groups a caller actually supplied, so subtract the auto-generated set.
-  private callerDeclaredIndexes(
-    targetInput: unknown,
-    backend: SchemaMutationBackend,
-  ): unknown {
-    if (!targetInput || typeof targetInput !== 'object') return undefined;
+  // An owning relation always receives its own lookup index, so a caller-declared
+  // singleton index for that relation is dropped instead of persisted twice.
+  private withStrippedRelationIndexes(targetInput: unknown): unknown {
+    if (!targetInput || typeof targetInput !== 'object') return targetInput;
     const target = targetInput as Record<string, unknown>;
-    const declared = parseTableConstraintGroups(target.indexes);
-    if (declared.length === 0) return target.indexes;
-    const autoOnly = normalizeRuntimeTableSchema(
-      { ...target, indexes: [] },
-      { backend, mode: 'persisted' },
-    );
-    const autoKeys = new Set(
-      ((autoOnly?.contract.indexes ?? []) as string[][]).map((group) =>
-        JSON.stringify(group),
-      ),
-    );
-    if (autoKeys.size === 0) return target.indexes;
-    return declared.filter(
-      (group) => !autoKeys.has(JSON.stringify(getTableConstraintFields(group))),
-    );
+    const stripped = stripOwningRelationIndexes(target, target.indexes);
+    if (stripped === target.indexes) return targetInput;
+    return { ...target, indexes: stripped };
   }
 
   private async collectCascadeWarnings(
