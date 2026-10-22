@@ -490,12 +490,7 @@ snapshot
     roles: rel
       .manyToMany('enfyra_role')
       .system()
-      .description("User's assigned roles for permissions")
-      .junction({
-        table: 'enfyra_user_roles',
-        source: 'userId',
-        target: 'roleId',
-      }),
+      .description("User's assigned roles for permissions"),
   })
   .uniques([['email']]);
 
@@ -2260,12 +2255,7 @@ snapshot
       .manyToMany('enfyra_user')
       .system()
       .nullable()
-      .description('Specific users who have this permission')
-      .junction({
-        table: 'j_8110450610b3',
-        source: 'enfyra_file_permissionId',
-        target: 'enfyra_userId',
-      }),
+      .description('Specific users who have this permission'),
   })
   .uniques([['file', 'role']]);
 

@@ -765,7 +765,7 @@ export const standingDataCorrections = {
     },
     {
       _unique: { path: { _eq: '/enfyra_audit' } },
-      availableMethods: ['GET'],
+      availableMethods: ['GET', 'DELETE'],
     },
     {
       _unique: { path: { _eq: '/admin/code-audit/revert' } },
@@ -1043,6 +1043,17 @@ export const standingDataCorrections = {
       },
       isEnabled: true,
       isSystem: true,
+    },
+  ],
+  enfyra_route_method_config: [
+    {
+      _unique: {
+        _and: [
+          { route: { path: { _eq: '/enfyra_audit' } } },
+          { method: { name: { _eq: 'DELETE' } } },
+        ],
+      },
+      available: true,
     },
   ],
   enfyra_table: [

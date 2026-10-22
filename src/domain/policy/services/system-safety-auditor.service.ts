@@ -32,7 +32,7 @@ export class SystemSafetyAuditorService {
 
   async assertSystemSafe(ctx: any) {
     const { operation, tableName, data, existing, currentUser } = ctx;
-    if (tableName === 'enfyra_audit') {
+    if (tableName === 'enfyra_audit' && operation !== 'delete') {
       throw new Error('Code history is read-only');
     }
     await new DefaultPagePolicyService(this.queryBuilderService).assertSafe(

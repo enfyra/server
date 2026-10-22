@@ -946,7 +946,8 @@ const defaultData = {
       "isSystem": true,
       "icon": "lucide:history",
       "availableMethods": [
-        "GET"
+        "GET",
+        "DELETE"
       ]
     },
     {

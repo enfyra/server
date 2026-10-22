@@ -16,11 +16,10 @@ import {
   postgresTemporalUsingExpression,
 } from '../../../knex/utils/provision/postgres-temporal.util';
 import type { SchemaHealingSnapshot } from '../../types/schema-healing.types';
-import {
-  diffJunctionMetadata,
-  getTargetJunctionContract,
-} from '../../utils/schema-healing-junction.util';
+import { diffJunctionMetadata } from '../../utils/schema-healing-junction.util';
+import { getSqlJunctionPhysicalNames } from '../../../../modules/table-management/utils/sql-junction-naming.util';
 import { SystemCoreTableResolver } from '../system-core-table-resolver.service';
+import { SqlJunctionHealingService } from './sql-junction-healing.service';
 
 export class SqlSchemaHealingService {
   private readonly queryBuilderService: QueryBuilderService;
@@ -436,9 +435,7 @@ export class SqlSchemaHealingService {
     return repaired;
   }
 
-  async healSqlJunctionContracts(
-    snapshot: SchemaHealingSnapshot,
-  ): Promise<number> {
+  async healSqlJunctionContracts(): Promise<number> {
     const knex = this.queryBuilderService.getKnex();
     const coreNames = await this.systemCoreTableResolver.getNames();
     const rows = await knex(`${coreNames.relation} as r`)
@@ -473,19 +470,25 @@ export class SqlSchemaHealingService {
         continue;
       }
 
-      const target = getTargetJunctionContract(snapshot, {
+      const target = getSqlJunctionPhysicalNames({
         sourceTable: rel.sourceTableName,
         propertyName: rel.propertyName,
         targetTable: rel.targetTableName,
       });
-      await this.ensureSqlJunctionPhysicalTable(knex, {
+      await new SqlJunctionHealingService(this.queryBuilderService).converge({
+        ...target,
+        sourceTable: rel.sourceTableName,
+        targetTable: rel.targetTableName,
+        propertyName: rel.propertyName,
+        previousTableName: rel.junctionTableName,
+        previousSourceColumn: rel.junctionSourceColumn,
+        previousTargetColumn: rel.junctionTargetColumn,
+      }, () => this.ensureSqlJunctionPhysicalTable(knex, {
         sourceTable: rel.sourceTableName,
         targetTable: rel.targetTableName,
         sourcePropertyName: rel.propertyName,
-        junctionTableName: target.junctionTableName,
-        junctionSourceColumn: target.junctionSourceColumn,
-        junctionTargetColumn: target.junctionTargetColumn,
-      });
+        ...target,
+      }));
 
       const owningUpdate = diffJunctionMetadata(rel, target);
       if (Object.keys(owningUpdate).length > 0) {

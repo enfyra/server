@@ -477,7 +477,10 @@ function isDefaultEquivalent(
     sqlFunctions.includes(snapshotDefault.toLowerCase())
   ) {
     if (typeof currentDefault === 'string') {
-      const normalized = currentDefault.toLowerCase().replace(/[()]/g, '');
+      const normalized = currentDefault
+        .toLowerCase()
+        .replace(/^(now|current_timestamp)\s*\(\s*[0-6]?\s*\)$/, '$1')
+        .replace(/[()]/g, '');
       if (sqlFunctions.includes(normalized)) return true;
     }
     return false;

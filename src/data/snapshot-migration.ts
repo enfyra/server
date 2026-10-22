@@ -443,14 +443,6 @@ const snapshotMigrations: VersionedSchemaMigration[] = [
           _unique: { name: { _eq: 'enfyra_user_log' } },
           columnsToModify: jsonColumnModifications(['entries']),
         },
-      ],
-    },
-  },
-  {
-    fromVersion: '2.3.3',
-    toVersion: '2.3.4',
-    schema: {
-      tables: [
         {
           _unique: { name: { _eq: 'enfyra_flow_step' } },
           columnsToRemove: ['config'],

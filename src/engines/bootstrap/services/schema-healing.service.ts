@@ -74,8 +74,8 @@ export class SchemaHealingService {
       ? await this.mongoHealing.repairMongoRelationPhysicalMappings()
       : await this.sqlHealing.repairSqlRelationPhysicalMappings();
     const junctionContractRepairCount = isMongoDB
-      ? await this.mongoHealing.healMongoJunctionContracts(snapshot)
-      : await this.sqlHealing.healSqlJunctionContracts(snapshot);
+      ? await this.mongoHealing.healMongoJunctionContracts()
+      : await this.sqlHealing.healSqlJunctionContracts();
 
     if (relationPhysicalMappingRepairCount > 0) {
       this.logger.log(

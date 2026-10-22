@@ -169,6 +169,9 @@ export class ReplicationManager implements LifecycleAware {
           if (field.type === 'DATE') {
             return field.string();
           }
+          if (field.type === 'LONGLONG') {
+            return field.string();
+          }
           if (field.type === 'TINY' && field.length === 1) {
             const val = field.string();
             return val === null ? null : val === '1';

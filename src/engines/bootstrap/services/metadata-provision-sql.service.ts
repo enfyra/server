@@ -12,6 +12,7 @@ import {
   syncJunctionTables,
   createAllTables,
 } from '../../knex';
+import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';
 import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
 import { SystemCoreTableResolver } from './system-core-table-resolver.service';
 
@@ -424,18 +425,16 @@ export class MetadataProvisionSqlService {
             insertData.constraintName = rel.constraintName || null;
           }
           if (rel.type === 'many-to-many') {
-            insertData.junctionTableName =
-              rel.junctionTableName ||
-              getJunctionTableName(
-                tableName,
-                rel.propertyName,
-                rel.targetTable,
-              );
-            insertData.junctionSourceColumn =
-              rel.junctionSourceColumn || getForeignKeyColumnName(tableName);
-            insertData.junctionTargetColumn =
-              rel.junctionTargetColumn ||
-              getForeignKeyColumnName(rel.targetTable);
+            Object.assign(insertData, getSqlJunctionPhysicalNames({
+              sourceTable: tableName,
+              propertyName: rel.propertyName,
+              targetTable: rel.targetTable,
+            }));
+            if (_isInverse) {
+              insertData.junctionTableName = rel.junctionTableName;
+              insertData.junctionSourceColumn = rel.junctionSourceColumn;
+              insertData.junctionTargetColumn = rel.junctionTargetColumn;
+            }
           }
           const id = await this.insertAndGetId(
             trx,

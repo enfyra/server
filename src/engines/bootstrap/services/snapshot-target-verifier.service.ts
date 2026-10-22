@@ -207,22 +207,14 @@ export class SnapshotTargetVerifierService {
           );
         }
         if (relation.type !== 'many-to-many' || relation.mappedBy) continue;
-        const fallback = getSqlJunctionPhysicalNames({
+        const junction = getSqlJunctionPhysicalNames({
           sourceTable,
           propertyName: relation.propertyName,
           targetTable: relation.targetTable,
         });
         const contract = buildSqlJunctionTableContractFromRelation(
           sourceTable,
-          {
-            ...relation,
-            junctionTableName:
-              relation.junctionTableName ?? fallback.junctionTableName,
-            junctionSourceColumn:
-              relation.junctionSourceColumn ?? fallback.junctionSourceColumn,
-            junctionTargetColumn:
-              relation.junctionTargetColumn ?? fallback.junctionTargetColumn,
-          } as any,
+          { ...relation, ...junction } as any,
         );
         if (!contract || visited.has(contract.tableName)) continue;
         visited.add(contract.tableName);
@@ -485,17 +477,15 @@ export class SnapshotTargetVerifierService {
           );
         }
         if (relation.type !== 'many-to-many' || relation.mappedBy) continue;
-        const fallback = getSqlJunctionPhysicalNames({
+        const {
+          junctionTableName: tableName,
+          junctionSourceColumn: sourceColumn,
+          junctionTargetColumn: targetColumn,
+        } = getSqlJunctionPhysicalNames({
           sourceTable,
           propertyName: relation.propertyName,
           targetTable: relation.targetTable,
         });
-        const tableName =
-          relation.junctionTableName ?? fallback.junctionTableName;
-        const sourceColumn =
-          relation.junctionSourceColumn ?? fallback.junctionSourceColumn;
-        const targetColumn =
-          relation.junctionTargetColumn ?? fallback.junctionTargetColumn;
         if (visited.has(tableName)) continue;
         visited.add(tableName);
 

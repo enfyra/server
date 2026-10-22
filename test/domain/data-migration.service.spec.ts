@@ -59,7 +59,7 @@ function makeKnex(methodRows: any[] = []) {
         }),
         first: jest.fn(() =>
           Promise.resolve({
-            junctionTableName: `j_${propertyName}`,
+            junctionTableName: routeMethodJunction(propertyName),
             junctionSourceColumn: 'sourceId',
             junctionTargetColumn: 'targetId',
           }),
@@ -451,6 +451,46 @@ describe('DataMigrationService.migrateTable — end-to-end for publicMethods cle
         isSystem: true,
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it.each(['postgres', 'mysql', 'mongodb'] as const)('attests an explicitly declared route-method cell on %s', async backend => {
+    DatabaseConfigService.overrideForTesting(backend);
+    const cell = { id: 990, available: true, timeout: 45000 };
+    const findOne = jest.fn(async () => cell);
+    const first = jest.fn(async () => cell);
+    const chain: any = {
+      join: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      first,
+    };
+    const qb = makeQueryBuilder({
+      getKnex: jest.fn(() => jest.fn(() => chain)),
+      getMongoDb: jest.fn(() => ({ collection: (table: string) => ({
+        findOne: table === 'enfyra_route_method_config' ? findOne : jest.fn(async () => ({ _id: table })),
+      }) })),
+    });
+    const svc = makeService(qb);
+    const target = {
+      _unique: { _and: [
+        { route: { path: { _eq: '/enfyra_audit' } } },
+        { method: { name: { _eq: 'DELETE' } } },
+      ] },
+      available: true,
+    };
+    try {
+      await expect((svc as any).assertRecordTarget('enfyra_route_method_config', target)).resolves.toBeUndefined();
+      cell.available = false;
+      await expect((svc as any).assertRecordTarget('enfyra_route_method_config', target)).rejects.toThrow('differs on available');
+      expect(qb.update).not.toHaveBeenCalled();
+      if (backend === 'mongodb') {
+        expect(findOne).toHaveBeenCalledWith({ route: 'enfyra_route', method: 'enfyra_method' });
+      } else {
+        expect(chain.where).toHaveBeenCalledWith({ 'route.path': '/enfyra_audit', 'method.name': 'DELETE' });
+      }
+    } finally {
+      DatabaseConfigService.resetForTesting();
+    }
   });
 
   it('updates existing own-password field permission through data migration', async () => {

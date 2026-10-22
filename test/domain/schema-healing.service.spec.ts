@@ -3,6 +3,8 @@ import { SchemaHealingService } from '../../src/engines/bootstrap';
 import { SystemMetadataHealingService } from '../../src/engines/bootstrap/services/schema-healing/system-metadata-healing.service';
 import { DatabaseConfigService } from '../../src/shared/services';
 import { getSqlJunctionPhysicalNames } from '../../src/modules/table-management/utils/sql-junction-naming.util';
+import { SqlJunctionHealingService } from '../../src/engines/bootstrap/services/schema-healing/sql-junction-healing.service';
+import { MongoJunctionHealingService } from '../../src/engines/bootstrap/services/schema-healing/mongo-junction-healing.service';
 
 function makeTable(
   overrides: Partial<{
@@ -100,6 +102,7 @@ function makeSystemMetadataHealing(qb: any) {
 
 describe('SchemaHealingService.runIfNeeded', () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     DatabaseConfigService.overrideForTesting?.('postgres');
   });
 
@@ -640,7 +643,10 @@ describe('SchemaHealingService.runIfNeeded', () => {
     expect(tableUpdate![2].uniques).toBe('[["author"]]');
   });
 
-  it('repairs SQL M2M junction metadata without renaming physical tables', async () => {
+  it.each(['success', 'conflict'])('publishes SQL M2M metadata only after physical convergence: %s', async scenario => {
+    const converge = vi.spyOn(SqlJunctionHealingService.prototype, 'converge');
+    if (scenario === 'conflict') converge.mockRejectedValue(new Error('Junction healing blocked: conflicting identities'));
+    else converge.mockResolvedValue(undefined);
     const update = vi.fn().mockResolvedValue(undefined);
     const relationUpdate = vi.fn().mockResolvedValue(undefined);
     const relationTable = vi.fn(() => ({ update: relationUpdate }));
@@ -707,9 +713,15 @@ describe('SchemaHealingService.runIfNeeded', () => {
     } as any;
     const svc = makeService(qb, makeCache([]));
 
+    if (scenario === 'conflict') {
+      await expect(svc.runIfNeeded()).rejects.toThrow(/conflicting identities/);
+      expect(relationUpdate).not.toHaveBeenCalled();
+      return;
+    }
     await svc.runIfNeeded();
 
-    expect(knex.schema.renameTable).not.toHaveBeenCalled();
+    expect(converge).toHaveBeenCalledWith(expect.objectContaining({ previousTableName: 'test_students_students', previousSourceColumn: 'testId', previousTargetColumn: 'studentsId' }), expect.any(Function));
+    expect(converge.mock.invocationCallOrder[0]).toBeLessThan(relationUpdate.mock.invocationCallOrder[0]);
     expect(relationUpdate).toHaveBeenCalledTimes(2);
     expect(relationUpdate.mock.calls[0][0]).toEqual({
       junctionTableName: expect.stringMatching(/^j_[a-f0-9]{12}$/),
@@ -723,7 +735,10 @@ describe('SchemaHealingService.runIfNeeded', () => {
     });
   });
 
-  it('repairs Mongo M2M junction metadata without renaming legacy collections', async () => {
+  it.each(['success', 'conflict'])('publishes Mongo M2M metadata only after physical convergence: %s', async scenario => {
+    const converge = vi.spyOn(MongoJunctionHealingService.prototype, 'converge');
+    if (scenario === 'conflict') converge.mockRejectedValue(new Error('Junction healing blocked: conflicting identities'));
+    else converge.mockResolvedValue(undefined);
     DatabaseConfigService.overrideForTesting?.('mongodb');
     const junction = getSqlJunctionPhysicalNames({
       sourceTable: 'test',
@@ -811,12 +826,15 @@ describe('SchemaHealingService.runIfNeeded', () => {
     } as any;
     const svc = makeService(qb, makeCache([]));
 
+    if (scenario === 'conflict') {
+      await expect(svc.runIfNeeded()).rejects.toThrow(/conflicting identities/);
+      expect(updateOne).not.toHaveBeenCalled();
+      return;
+    }
     await svc.runIfNeeded();
 
-    expect(rename).not.toHaveBeenCalled();
-    expect(db.createCollection).toHaveBeenCalledWith(
-      junction.junctionTableName,
-    );
+    expect(converge).toHaveBeenCalledWith(db, expect.objectContaining({ previousTableName: 'bad_junction', junctionTableName: junction.junctionTableName }));
+    expect(converge.mock.invocationCallOrder[0]).toBeLessThan(updateOne.mock.invocationCallOrder[0]);
     expect(updateOne).toHaveBeenCalledTimes(2);
     expect(updateOne.mock.calls[0][1].$set).toEqual({
       junctionTableName: junction.junctionTableName,

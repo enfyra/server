@@ -9,10 +9,8 @@ import {
   MONGO_PRIMARY_KEY_TYPE,
 } from '../../../../modules/table-management/utils/mongo-primary-key.util';
 import type { SchemaHealingSnapshot } from '../../types/schema-healing.types';
-import {
-  diffJunctionMetadata,
-  getTargetJunctionContract,
-} from '../../utils/schema-healing-junction.util';
+import { diffJunctionMetadata } from '../../utils/schema-healing-junction.util';
+import { getSqlJunctionPhysicalNames } from '../../../../modules/table-management/utils/sql-junction-naming.util';
 import { getErrorMessage } from '../../../../shared/utils/error.util';
 import {
   coerceTemporalWriteValue,
@@ -20,6 +18,7 @@ import {
 } from '../../../../shared/utils/temporal-write.util';
 import { Logger } from '../../../../shared/logger';
 import { SystemCoreTableResolver } from '../system-core-table-resolver.service';
+import { MongoJunctionHealingService } from './mongo-junction-healing.service';
 
 export class MongoSchemaHealingService {
   private readonly logger = new Logger(MongoSchemaHealingService.name);
@@ -78,9 +77,7 @@ export class MongoSchemaHealingService {
     return synchronized;
   }
 
-  async healMongoJunctionContracts(
-    snapshot: SchemaHealingSnapshot,
-  ): Promise<number> {
+  async healMongoJunctionContracts(): Promise<number> {
     const db = this.queryBuilderService.getMongoDb();
     const coreNames = await this.systemCoreTableResolver.getNames();
     const relations = await db
@@ -109,15 +106,19 @@ export class MongoSchemaHealingService {
         continue;
       }
 
-      const target = getTargetJunctionContract(snapshot, {
+      const target = getSqlJunctionPhysicalNames({
         sourceTable: sourceTable.name,
         propertyName: rel.propertyName,
         targetTable: targetTable.name,
       });
-      await this.ensureMongoJunctionCollection(db, {
-        junctionTableName: target.junctionTableName,
-        junctionSourceColumn: target.junctionSourceColumn,
-        junctionTargetColumn: target.junctionTargetColumn,
+      await new MongoJunctionHealingService().converge(db, {
+        ...target,
+        sourceTable: sourceTable.name,
+        targetTable: targetTable.name,
+        propertyName: rel.propertyName,
+        previousTableName: rel.junctionTableName,
+        previousSourceColumn: rel.junctionSourceColumn,
+        previousTargetColumn: rel.junctionTargetColumn,
       });
 
       const owningUpdate = diffJunctionMetadata(rel, target);
@@ -143,43 +144,6 @@ export class MongoSchemaHealingService {
     }
 
     return repaired;
-  }
-
-  private async ensureMongoJunctionCollection(
-    db: any,
-    input: {
-      junctionTableName: string;
-      junctionSourceColumn: string;
-      junctionTargetColumn: string;
-    },
-  ): Promise<void> {
-    if (!(await this.mongoCollectionExists(db, input.junctionTableName))) {
-      await db.createCollection(input.junctionTableName);
-      this.log(
-        `Created missing junction collection '${input.junctionTableName}'`,
-      );
-    }
-
-    const collection = db.collection(input.junctionTableName);
-    try {
-      await collection.createIndex(
-        {
-          [input.junctionSourceColumn]: 1,
-          [input.junctionTargetColumn]: 1,
-        },
-        { unique: true, name: `${input.junctionTableName}_src_tgt_uq` },
-      );
-    } catch (error: any) {
-      if (error.code !== 85 && error.code !== 86) throw error;
-    }
-    try {
-      await collection.createIndex(
-        { [input.junctionTargetColumn]: 1 },
-        { name: `${input.junctionTableName}_tgt_idx` },
-      );
-    } catch (error: any) {
-      if (error.code !== 85 && error.code !== 86) throw error;
-    }
   }
 
   private async mongoCollectionExists(db: any, name: string): Promise<boolean> {

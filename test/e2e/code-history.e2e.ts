@@ -378,8 +378,8 @@ async function assertCodeHistoryProvisioned(
     .map((config: any) => config.method?.name);
   assert.deepEqual(
     methods,
-    ['GET'],
-    `${label}: history route must expose GET only`,
+    ['GET', 'DELETE'],
+    `${label}: history route must expose GET and DELETE`,
   );
 
   const revert = await call(

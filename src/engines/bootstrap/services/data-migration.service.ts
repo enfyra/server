@@ -361,6 +361,27 @@ export class DataMigrationService {
         : null;
     }
 
+    if (tableName === 'enfyra_route_method_config') {
+      const routePath = conditions.find((condition: any) => condition.route)?.route?.path?._eq;
+      const methodName = conditions.find((condition: any) => condition.method)?.method?.name?._eq;
+      if (routePath && methodName) {
+        if (isMongoDB) {
+          const db = this.queryBuilderService.getMongoDb();
+          const route = await db.collection('enfyra_route').findOne({ path: routePath });
+          const method = await db.collection('enfyra_method').findOne({ name: methodName });
+          return route && method
+            ? db.collection(tableName).findOne({ route: route._id, method: method._id })
+            : null;
+        }
+        return this.queryBuilderService.getKnex()(`${tableName} as config`)
+          .join('enfyra_route as route', 'route.id', 'config.routeId')
+          .join('enfyra_method as method', 'method.id', 'config.methodId')
+          .select('config.*')
+          .where({ 'route.path': routePath, 'method.name': methodName })
+          .first();
+      }
+    }
+
     if (tableName === 'enfyra_column' && relatedTableName && valueOf('name')) {
       if (isMongoDB) {
         const db = this.queryBuilderService.getMongoDb();

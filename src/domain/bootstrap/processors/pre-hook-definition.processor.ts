@@ -32,12 +32,6 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
       if (transformedHook.isSystem === undefined) {
         transformedHook.isSystem = false;
       }
-      if (transformedHook.code === undefined) {
-        transformedHook.code = null;
-      }
-      if (transformedHook.sourceCode === undefined) {
-        transformedHook.sourceCode = transformedHook.code;
-      }
       if (transformedHook.description === undefined) {
         transformedHook.description = null;
       }

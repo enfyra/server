@@ -18,6 +18,24 @@ describe('Audit navigation', () => {
     });
   });
 
+  it('declares Audit read/delete access for fresh installs and existing method cells', () => {
+    const route = defaultData.enfyra_route.find(item => item.path === '/enfyra_audit');
+    expect(route).toMatchObject({ mainTable: 'enfyra_audit', availableMethods: ['GET', 'DELETE'] });
+    expect(standingDataCorrections.enfyra_route).toContainEqual({
+      _unique: { path: { _eq: '/enfyra_audit' } },
+      availableMethods: ['GET', 'DELETE'],
+    });
+    expect(standingDataCorrections).toHaveProperty('enfyra_route_method_config', [{
+      _unique: {
+        _and: [
+          { route: { path: { _eq: '/enfyra_audit' } } },
+          { method: { name: { _eq: 'DELETE' } } },
+        ],
+      },
+      available: true,
+    }]);
+  });
+
   it('keeps every Settings menu directly under /settings', () => {
     const nested = defaultData.enfyra_menu.filter(
       (item: any) =>
