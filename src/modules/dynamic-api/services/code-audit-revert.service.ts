@@ -3,6 +3,7 @@ import {
   ForbiddenException,
 } from '../../../domain/exceptions';
 import { isVersionedTable } from '../../../shared/utils/record-version.util';
+import { resolveRouteOperation } from '../../../shared/utils/route-operation.util';
 import { SYSTEM_TABLES } from '../../../shared/utils/system-tables.constants';
 import type { CodeAuditRevertInput } from '../types/code-audit.types';
 
@@ -38,20 +39,13 @@ export async function revertCodeAudit({
     (item) =>
       item.mainTable?.name === entry.tableName && item.isEnabled !== false,
   );
-  const method = route?.methodConfigs?.find(
-    (item: Record<string, any>) =>
-      item.available === true && (item.method?.name ?? item.method) === 'PATCH',
-  );
+  const operation = route ? resolveRouteOperation(route, 'PATCH') : null;
   if (
-    !method ||
+    !operation ||
     !policyService.checkRequestAccess({
       method: 'PATCH',
       user: context.$user,
-      routeData: {
-        ...route,
-        routeMethodConfig: method,
-        routePermissions: method.routePermissions ?? [],
-      },
+      routeData: operation,
     }).allow
   )
     throw new ForbiddenException('Forbidden');

@@ -52,7 +52,7 @@ export class DynamicRepositoryReadService {
       enforceFieldPermission: this.deps.enforceFieldPermission,
     });
 
-    const rawFields = options.fields || context.$query?.fields;
+    const rawFields = normalizeRequestedFields(options.fields || context.$query?.fields);
     const rawDeep =
       'deep' in options ? options.deep ?? {} : context.$query?.deep ?? {};
     const metadata = runtimeRegistryService.requireMetadata();
@@ -93,7 +93,7 @@ export class DynamicRepositoryReadService {
     );
     const result = await this.deps.queryBuilderService.find({
       table: tableName,
-      fields: normalizeRequestedFields(prepared.fields),
+      fields: prepared.fields,
       filter,
       page: options.page ?? context.$query?.page ?? 1,
       limit: 'limit' in options ? options.limit : (context.$query?.limit ?? 10),
@@ -117,6 +117,8 @@ export class DynamicRepositoryReadService {
       requested: buildRequestedShapeFromQuery({
         fields: projection.fields,
         deep: projectedDeep,
+        tableName,
+        metadata,
       }),
     });
     return { ...result, data };

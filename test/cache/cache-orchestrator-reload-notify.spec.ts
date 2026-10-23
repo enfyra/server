@@ -11,6 +11,7 @@ function cacheMock(overrides: Record<string, any> = {}) {
     reload: async () => undefined,
     isLoaded: () => true,
     supportsPartialReload: () => false,
+    syncFromSharedCache: async () => undefined,
     ...overrides,
   };
 }
@@ -50,6 +51,90 @@ function createOrchestrator(overrides: Record<string, any> = {}) {
 }
 
 describe('CacheOrchestratorService reload notifications', () => {
+  it('pins a shared replay only after earlier local reloads release the queue', async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    let generation = 1;
+    const pinned: number[] = [];
+    const { orchestrator } = createOrchestrator({
+      redisRuntimeCacheStore: {
+        isEnabled: () => true,
+        commitPublication: async () => {},
+        runWithPublication: async (work: () => Promise<void>) => work(),
+        runWithCommittedSnapshots: async (work: () => Promise<void>) => {
+          pinned.push(generation);
+          return work();
+        },
+      },
+    });
+    const first = (orchestrator as any).runWithReloadLock(async () => {
+      await blocked;
+      generation = 2;
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    const replay = (orchestrator as any).reloadAllLocal(false, true);
+    release();
+    await first;
+    await replay;
+    expect(pinned).toEqual([2]);
+  });
+
+  it('retains client-only menu notifications on shared snapshot replay', async () => {
+    const { orchestrator, emitted } = createOrchestrator({
+      redisPubSubService: {
+        isChannelForBase: () => true,
+        subscribeWithHandler: () => {},
+      },
+      redisRuntimeCacheStore: { isEnabled: () => true },
+    });
+    const hydrate = vi.spyOn(orchestrator as any, 'reloadAllLocal').mockResolvedValue(undefined);
+    (orchestrator as any).subscribeToRedis();
+    await (orchestrator as any).messageHandler('test', JSON.stringify({
+      instanceId: 'peer',
+      timestamp: 1,
+      payload: { table: 'enfyra_menu', scope: 'full' },
+    }));
+    expect(hydrate).toHaveBeenCalledWith(false, true);
+    expect(emitted).toEqual([expect.objectContaining({
+      data: expect.objectContaining({ status: 'done', steps: ['menu', 'extension'] }),
+    })]);
+  });
+
+  it('keeps independent invalidation origins and completes both chains', async () => {
+    const settingReload = vi.fn(async () => undefined);
+    const authReload = vi.fn(async () => undefined);
+    const { orchestrator } = createOrchestrator({ settingCacheService: cacheMock({ reload: settingReload }), authHeaderCacheBuilder: cacheMock({ reload: authReload }) });
+    try {
+      await Promise.all(['enfyra_setting', 'enfyra_auth_header'].map(table => (orchestrator as any).handleInvalidation({ table, scope: 'full', action: 'update', timestamp: Date.now(), critical: true })));
+      expect(settingReload).toHaveBeenCalledOnce();
+      expect(authReload).toHaveBeenCalledOnce();
+    } finally { orchestrator.onDestroy(); }
+  });
+
+  it.each([false, true])('activates every rebuilt full-reload cache (shared replay=%s)', async sharedReplay => {
+    const published: string[] = [];
+    const { orchestrator } = createOrchestrator({
+      runtimeRegistryService: { publishFromCache: async (name: string) => { published.push(name); } },
+      metadataCacheService: cacheMock({ syncFromSharedCache: async () => {} }),
+      sharedHelperCacheService: cacheMock({ syncFromSharedCache: async () => {} }),
+    });
+    const builders = ['routeCacheService', 'guardCacheBuilder', 'flowCacheBuilder', 'websocketCacheBuilder', 'packageCacheService', 'settingCacheService', 'authHeaderCacheBuilder', 'storageConfigCacheBuilder', 'oauthConfigCacheBuilder', 'corsOriginCacheBuilder', 'folderTreeCacheService', 'fieldPermissionCacheBuilder', 'columnRuleCacheBuilder', 'gqlDefinitionCacheService'];
+    for (const name of builders) (orchestrator as any)[name].syncFromSharedCache = async () => {};
+    await (orchestrator as any).reloadAllLocal(false, sharedReplay);
+    expect(published).toContain(CACHE_IDENTIFIERS.AUTH_HEADER);
+    expect(published).toContain(CACHE_IDENTIFIERS.CORS_ORIGIN);
+  });
+
+  it('does not let one failed origin acknowledge or discard a different origin', async () => {
+    const authReload = vi.fn(async () => {});
+    const { orchestrator } = createOrchestrator({ settingCacheService: cacheMock({ reload: async () => { throw new Error('setting failed'); } }), authHeaderCacheBuilder: cacheMock({ reload: authReload }) });
+    try {
+      const results = await Promise.allSettled(['enfyra_setting', 'enfyra_auth_header'].map(table => (orchestrator as any).handleInvalidation({ table, scope: 'full', action: 'update', timestamp: Date.now(), critical: true })));
+      expect(results.map(result => result.status)).toEqual(['rejected', 'fulfilled']);
+      expect(authReload).toHaveBeenCalledOnce();
+    } finally { orchestrator.onDestroy(); }
+  });
+
   it('keeps invalidation fire-and-forget when cache activation fails', async () => {
     const { orchestrator, emitted } = createOrchestrator({
       packageCacheService: cacheMock({

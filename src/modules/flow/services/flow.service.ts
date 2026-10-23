@@ -3,6 +3,7 @@ import { Queue } from 'bullmq';
 import { RepoRegistryService } from '../../../engines/cache';
 import { FlowJobData } from '../../../shared/types/flow.types';
 import { getErrorMessage } from '../../../shared/utils/error.util';
+import { compileScriptSource } from '../../../shared/utils/script-code.util';
 import { ExecutorEngineService } from '@enfyra/kernel';
 import type { QueryBuilderService } from '@enfyra/kernel';
 import { BadRequestException } from '../../../domain/exceptions';
@@ -312,7 +313,9 @@ export class FlowService {
         type: step.type || liveStep.type,
         sourceCode: step.sourceCode ?? liveStep.sourceCode,
         scriptLanguage: step.scriptLanguage ?? liveStep.scriptLanguage,
-        compiledCode: step.compiledCode ?? liveStep.compiledCode,
+        compiledCode: step.sourceCode !== undefined || step.scriptLanguage !== undefined
+          ? compileScriptSource(step.sourceCode ?? liveStep.sourceCode ?? '', step.scriptLanguage ?? liveStep.scriptLanguage ?? 'typescript')
+          : step.compiledCode ?? liveStep.compiledCode,
         timeout: step.timeout ?? liveStep.timeout,
         key: liveStep.key,
       } as FlowStep;

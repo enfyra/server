@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { DynamicMutationLifecycleService } from '../../src/modules/dynamic-api/services/dynamic-mutation-lifecycle.service';
 import { ConflictException } from '../../src/domain/exceptions';
+import { runWithDeferredDynamicTransactionEffects } from '../../src/shared/utils/dynamic-transaction-effects.util';
+import type { TDynamicContext } from '../../src/shared/types';
 
 function createOptions(overrides: Record<string, unknown> = {}): any {
   return {
@@ -30,6 +32,53 @@ function createOptions(overrides: Record<string, unknown> = {}): any {
 }
 
 describe('DynamicMutationLifecycleService', () => {
+  it.each([false, true])('publishes completion only after commit (rollback=%s)', async rollback => {
+    const service = new DynamicMutationLifecycleService();
+    const context = {} as TDynamicContext;
+    const calls: string[] = [];
+    const operation = runWithDeferredDynamicTransactionEffects(context, async () => {
+      await service.run({
+        dynamicContext: context,
+        context: { tableName: 'posts', id: 1, body: {}, existing: null },
+        persist: async () => { calls.push('persist'); },
+        afterWrite: async () => { calls.push('database-hook'); },
+        buildResult: () => ({}),
+        reload: async () => { calls.push('reload'); },
+        afterReload: async () => { calls.push('external-hook'); },
+        emit: () => { calls.push('event'); },
+      } as any);
+      expect(calls).toEqual(['persist', 'database-hook']);
+      if (rollback) throw new Error('rollback');
+      calls.push('commit');
+    });
+    if (rollback) await expect(operation).rejects.toThrow('rollback');
+    else await operation;
+    expect(calls).toEqual(rollback ? ['persist', 'database-hook'] : ['persist', 'database-hook', 'commit', 'reload', 'external-hook', 'event']);
+  });
+
+  it.each([false, true])('publishes persisted writes despite result read failure (transaction=%s)', async transaction => {
+    const service = new DynamicMutationLifecycleService();
+    const context = {} as TDynamicContext;
+    const calls: string[] = [];
+    const mutate = () => service.run({
+      dynamicContext: context,
+      context: { tableName: 'users', id: 1, body: {}, existing: null },
+      persist: async () => {},
+      buildResult: () => { throw new Error('result read failed'); },
+      afterCommit: async () => { calls.push('revoke'); },
+      reload: async () => { calls.push('reload'); },
+    });
+    if (transaction) {
+      await runWithDeferredDynamicTransactionEffects(context, async () => {
+        await expect(mutate()).rejects.toThrow('result read failed');
+        expect(calls).toEqual([]);
+      });
+    } else {
+      await expect(mutate()).rejects.toThrow('result read failed');
+    }
+    expect(calls).toEqual(['revoke', 'reload']);
+  });
+
   it('runs generic mutation stages in lifecycle order', async () => {
     const service = new DynamicMutationLifecycleService();
     const calls: string[] = [];
@@ -111,7 +160,26 @@ describe('DynamicMutationLifecycleService', () => {
     });
 
     expect(result).toEqual({ data: [{ id: 42 }] });
-    expect(calls).toEqual(['persist', 'afterWrite', 'buildResult', 'recover']);
+    expect(calls).toEqual(['persist', 'afterWrite', 'buildResult', 'recover', 'reload']);
+  });
+
+  it('keeps recovered PostgreSQL readback publication commit-owned and exactly once', async () => {
+    const service = new DynamicMutationLifecycleService();
+    const context = {} as TDynamicContext;
+    const calls: string[] = [];
+    await runWithDeferredDynamicTransactionEffects(context, async () => {
+      await service.create(createOptions({
+        context,
+        runtime: {
+          find: async () => { throw { code: '42883' }; },
+          getIdField: () => 'id',
+          reload: async () => { calls.push('reload'); },
+          emit: () => { calls.push('event'); },
+        },
+      }));
+      expect(calls).toEqual([]);
+    });
+    expect(calls).toEqual(['reload', 'event']);
   });
 
   it('waits for critical reload after creating a route or method', async () => {

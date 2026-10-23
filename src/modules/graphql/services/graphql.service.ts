@@ -10,11 +10,11 @@ import { Logger } from '../../../shared/logger';
 import { EventEmitter2 } from 'eventemitter2';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { DynamicResolver } from '../resolvers/dynamic.resolver';
+import type { TableGraphQLDef } from '../types/graphql-schema.types';
 import {
   buildTableGraphQLDef,
   buildStubType,
   MetaResultType,
-  TableGraphQLDef,
   GraphQLJSON,
 } from '../utils/generate-type-defs';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';

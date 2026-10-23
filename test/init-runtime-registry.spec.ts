@@ -58,9 +58,12 @@ describe('init runtime registry publish', () => {
           markInterruptedReloadsFailed: vi.fn(async () => undefined),
         },
         cacheOrchestratorService: { init: vi.fn(async () => undefined) },
+        redisRuntimeCacheStore: { runWithPublication: async (work: () => Promise<void>) => work(), commitPublication: async () => {} },
         runtimeRegistryService,
         metadataCacheService,
-        repoRegistryService: {
+        sharedHelperCacheService: cacheService([]),
+        corsOriginCacheBuilder: cacheService([]),
+        fileCleanupService: { init: vi.fn(async () => undefined) },        repoRegistryService: {
           rebuildFromMetadata: vi.fn(async () => undefined),
         },
         websocketRuntimeService: { init: vi.fn(() => undefined) },

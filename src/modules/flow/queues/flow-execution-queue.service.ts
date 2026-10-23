@@ -334,9 +334,9 @@ export class FlowExecutionQueueService {
     }
 
     const resolveStarted = Date.now();
-    const flow = flowName
-      ? this.getFlowByName(flowName)
-      : this.getFlowById(flowId);
+    const flow = flowId != null && flowId !== ''
+      ? this.getFlowById(flowId)
+      : this.getFlowByName(flowName);
     const resolveFlowMs = Date.now() - resolveStarted;
 
     if (!flow) {
@@ -638,8 +638,17 @@ export class FlowExecutionQueueService {
           (s as any).branch === branch,
       );
 
+    const configuredBudget = Number(flow.timeout);
+    const deadline = Number.isFinite(configuredBudget) && configuredBudget > 0 ? performance.now() + configuredBudget : null;
+    const remainingBudget = () => {
+      if (deadline === null) return undefined;
+      const remaining = Math.ceil(deadline - performance.now());
+      if (remaining <= 0) throw new Error(`Flow "${flow.name}" timed out`);
+      return remaining;
+    };
     const runStep = async (step: FlowStep): Promise<void> => {
       if (!step.isEnabled) return;
+      remainingBudget();
 
       flowContext.$meta.currentStep = step.key;
       const stepStart = Date.now();
@@ -654,12 +663,23 @@ export class FlowExecutionQueueService {
         stepStartedProgress,
       );
 
-      try {
-        const executeStepStarted = Date.now();
-        const result = await this.executeStep(step, ctx, (flow as any).timeout);
-        const executeStepMs = Date.now() - executeStepStarted;
+      let completed = false;
+      const complete = async (result: any, retries?: number) => {
+        remainingBudget();
+        completed = true;
         flowContext[step.key] = result;
         flowContext.$last = result;
+        const entry: any = { key: step.key, type: step.type, duration: Date.now() - stepStart, ...(retries ? { retries } : {}) };
+        if (step.type === 'condition') entry.branch = result ? 'true' : 'false';
+        completedSteps.push(entry);
+        if (step.type === 'condition') {
+          for (const child of getChildren(step.id, entry.branch)) await runStep(child);
+        }
+      };
+      try {
+        const executeStepStarted = Date.now();
+        const result = await this.executeStep(step, ctx, (flow as any).timeout, remainingBudget());
+        const executeStepMs = Date.now() - executeStepStarted;
         this.trace('flow_step', {
           jobId: job.id,
           executionId,
@@ -673,24 +693,7 @@ export class FlowExecutionQueueService {
           totalMs: Date.now() - stepStart,
         });
 
-        const entry: any = {
-          key: step.key,
-          type: step.type,
-          duration: Date.now() - stepStart,
-        };
-
-        if (step.type === 'condition') {
-          const branchValue = result ? 'true' : 'false';
-          entry.branch = branchValue;
-          completedSteps.push(entry);
-
-          const branchSteps = getChildren((step as any).id, branchValue);
-          for (const child of branchSteps) {
-            await runStep(child);
-          }
-        } else {
-          completedSteps.push(entry);
-        }
+        await complete(result);
 
         job
           .updateProgress({
@@ -715,6 +718,7 @@ export class FlowExecutionQueueService {
           durationMs: Date.now() - stepStart,
         });
       } catch (error: any) {
+        if (completed) throw error;
         this.trace('flow_step', {
           jobId: job.id,
           executionId,
@@ -749,26 +753,16 @@ export class FlowExecutionQueueService {
           durationMs: Date.now() - stepStart,
           failed: true,
         });
+        remainingBudget();
         if (step.onError === 'retry' && (step as any).retryAttempts > 0) {
           const retryAttempts = (step as any).retryAttempts as number;
           let retrySuccess = false;
           for (let i = 0; i < retryAttempts; i++) {
             try {
-              const backoffMs = Math.min(1000 * Math.pow(2, i), 30000);
+              const backoffMs = Math.min(1000 * Math.pow(2, i), 30000, remainingBudget() ?? Infinity);
               await new Promise((r) => setTimeout(r, backoffMs));
-              const result = await this.executeStep(
-                step,
-                ctx,
-                (flow as any).timeout,
-              );
-              flowContext[step.key] = result;
-              flowContext.$last = result;
-              completedSteps.push({
-                key: step.key,
-                type: step.type,
-                duration: Date.now() - stepStart,
-                retries: i + 1,
-              });
+              const result = await this.executeStep(step, ctx, (flow as any).timeout, remainingBudget());
+              await complete(result, i + 1);
               await this.flowExecutionHistoryService.updateProgress(
                 flow,
                 executionHistoryId,
@@ -781,6 +775,8 @@ export class FlowExecutionQueueService {
               retrySuccess = true;
               break;
             } catch (retryErr: any) {
+              if (completed) throw retryErr;
+              remainingBudget();
               if (i === retryAttempts - 1) {
                 this.logger.warn(
                   `Step "${step.key}" failed after ${retryAttempts} retries: ${retryErr.message}`,
@@ -848,9 +844,10 @@ export class FlowExecutionQueueService {
     step: FlowStep,
     ctx: TDynamicContext,
     flowTimeout: number,
+    remainingMs?: number,
   ): Promise<any> {
     const raw = (step as any).timeout || flowTimeout || 5000;
-    const timeout = Math.min(Math.max(raw, 1), MAX_STEP_TIMEOUT);
+    const timeout = Math.min(Math.max(raw, 1), MAX_STEP_TIMEOUT, remainingMs ?? Infinity);
     const script = getExecutableStepScript(step);
 
     return executeStepCore({

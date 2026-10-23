@@ -194,6 +194,7 @@ export class SqlTableCreateService extends SqlTableHandlerService {
         {
           name: body.name,
           isSystem: body.isSystem,
+          validateBody: body.validateBody ?? true,
           ...(body.isSingleRecord && { isSingleRecord: true }),
           alias: body.alias,
           description: body.description,

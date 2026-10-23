@@ -28,6 +28,8 @@ import {
   resolveVersionValue,
 } from './code-audit.service';
 import { Logger } from '../../../shared/logger';
+import { deferDynamicTransactionEffect } from '../../../shared/utils/dynamic-transaction-effects.util';
+import { markMutationPersistence } from '../../../shared/utils/mutation-outcome.util';
 
 export class DynamicMutationLifecycleService {
   private readonly logger = new Logger('DynamicMutationLifecycleService');
@@ -35,19 +37,29 @@ export class DynamicMutationLifecycleService {
   async run<TPersisted, TResult>(
     options: DynamicMutationLifecycleOptions<TPersisted, TResult>,
   ): Promise<TResult> {
+    markMutationPersistence('unknown');
     const persisted = await options.persist();
-    await options.afterWrite?.(options.context, persisted);
-    try {
-      const result = await options.buildResult(options.context, persisted);
+    markMutationPersistence('persisted');
+    const publish = async () => {
+      await options.afterCommit?.(options.context);
       await options.reload(options.context);
       await options.afterReload?.(options.context);
       options.emit?.(options.context);
-      return result;
-    } catch (error) {
-      if (options.recover) {
-        return options.recover(options.context, persisted, error);
+    };
+    const deferred = options.dynamicContext
+      && deferDynamicTransactionEffect(options.dynamicContext, publish);
+    try {
+      await options.afterWrite?.(options.context, persisted);
+      try {
+        return await options.buildResult(options.context, persisted);
+      } catch (error) {
+        if (options.recover) {
+          return await options.recover(options.context, persisted, error);
+        }
+        throw error;
       }
-      throw error;
+    } finally {
+      if (!deferred) await publish();
     }
   }
 
@@ -76,6 +88,7 @@ export class DynamicMutationLifecycleService {
       batch: batch === true,
     };
 
+    markMutationPersistence('not_persisted');
     logMemory(this.logger, 'dynamic create start', writeMeta);
 
     try {
@@ -150,6 +163,7 @@ export class DynamicMutationLifecycleService {
       }
 
       return this.run({
+        dynamicContext: context,
         context: ctx,
         persist: async () => {
           const inserted = await mutationPreparationService.executeCreateBody(
@@ -199,7 +213,7 @@ export class DynamicMutationLifecycleService {
           });
         },
         emit: () => runtime.emit('create', [ctx.id], body),
-        recover: async (_context, { inserted, createdId }, error) => {
+        recover: async (_context, { inserted }, error) => {
           const databaseError = classifyDynamicDatabaseError(
             error,
             queryBuilderService.getDatabaseType(),
@@ -207,13 +221,11 @@ export class DynamicMutationLifecycleService {
           if (databaseError.kind !== 'postgres_incompatible_operator') {
             throw error;
           }
-          await runtime.reload({ ids: [createdId] });
           logMemory(this.logger, 'dynamic create done', {
             ...writeMeta,
             durationMs: Date.now() - startedAt,
             fallbackResult: true,
           });
-          runtime.emit('create', [createdId], body);
           return {
             data: [inserted],
             count: 1,
@@ -283,6 +295,7 @@ export class DynamicMutationLifecycleService {
       }
 
       return this.run({
+        dynamicContext: context,
         context: {
           tableName,
           id: ids[0],
@@ -343,6 +356,7 @@ export class DynamicMutationLifecycleService {
     const startedAt = Date.now();
     const writeMeta = { table: tableName, operation: 'update', id };
 
+    markMutationPersistence('not_persisted');
     logMemory(this.logger, 'dynamic update start', writeMeta);
 
     try {
@@ -461,6 +475,7 @@ export class DynamicMutationLifecycleService {
       }
 
       return this.run({
+        dynamicContext: context,
         context: ctx,
         persist: () =>
           mutationAuthorizationService.runWithFieldPermissionCheck(() =>
@@ -503,6 +518,7 @@ export class DynamicMutationLifecycleService {
             ids: [id],
             critical: strategy.requiresCriticalReload,
           }),
+        afterCommit: () => strategy.afterUpdateCommit?.(ctx),
         afterReload: async () => {
           logMemory(this.logger, 'dynamic update done', {
             ...writeMeta,
@@ -588,6 +604,7 @@ export class DynamicMutationLifecycleService {
       }
 
       return this.run({
+        dynamicContext: context,
         context: {
           tableName,
           id: ids[0],
@@ -659,6 +676,7 @@ export class DynamicMutationLifecycleService {
     const startedAt = Date.now();
     const writeMeta = { table: tableName, operation: 'delete', id };
 
+    markMutationPersistence('not_persisted');
     logMemory(this.logger, 'dynamic delete start', writeMeta);
 
     try {
@@ -717,6 +735,7 @@ export class DynamicMutationLifecycleService {
       }
 
       return this.run({
+        dynamicContext: context,
         context: ctx,
         persist: () =>
           mutationAuthorizationService.runWithMutationPolicy(() =>
@@ -740,6 +759,7 @@ export class DynamicMutationLifecycleService {
             ids: [id],
             critical: strategy.requiresCriticalReload,
           }),
+        afterCommit: () => strategy.afterDeleteCommit?.(ctx),
         afterReload: async () => {
           logMemory(this.logger, 'dynamic delete done', {
             ...writeMeta,
@@ -796,6 +816,7 @@ export class DynamicMutationLifecycleService {
       }
 
       return this.run({
+        dynamicContext: context,
         context: {
           tableName,
           id: ids[0],

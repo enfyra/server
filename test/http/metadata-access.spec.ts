@@ -3,6 +3,7 @@ import {
   getAccessibleMetadataTableActions,
   projectMetadataForUser,
 } from '../../src/shared/utils/metadata-access.util';
+import { PolicyService } from '../../src/domain/policy/policy.service';
 
 function table(name: string, columns: any[] = [], relations: any[] = []) {
   return { id: name, name, columns, relations };
@@ -108,6 +109,20 @@ function fieldPermissionPolicyReader(rules: any[]) {
 }
 
 describe('metadata access projection', () => {
+  it('uses method-owned permissions from the active route contract', async () => {
+    const actions = await getAccessibleMetadataTableActions({
+      metadata: metadata([table('posts', [col('title')])]),
+      user: { id: 'reader', roles: [{ id: 'member' }] },
+      policyService: new PolicyService({} as any),
+      routeCacheService: routeCacheService([{ path: '/posts', mainTable: { name: 'posts' }, methodConfigs: [
+        { available: true, method: { name: 'GET' }, routePermissions: [{ isEnabled: true, role: { id: 'member' } }] },
+        { available: true, method: { name: 'PATCH' }, routePermissions: [{ isEnabled: false, role: { id: 'member' } }] },
+        { available: false, method: { name: 'POST' }, isPublic: true },
+      ] }]),
+    });
+    expect([...actions.get('posts') ?? []]).toEqual(['read']);
+  });
+
   it('returns full metadata for root admin without applying route or field filters', async () => {
     const meta = metadata([
       table('secret_definition', [col('secret', { isPublished: false })]),

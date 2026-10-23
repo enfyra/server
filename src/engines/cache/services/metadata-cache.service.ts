@@ -61,6 +61,11 @@ export class MetadataCacheService implements IMetadataCache {
   }
 
   async reload(publish = true): Promise<void> {
+    if (this.usesSharedRuntimeCache()) return this.redisRuntimeCacheStore!.runWithPublication(() => this.reloadLocal(publish));
+    return this.reloadLocal(publish);
+  }
+
+  private async reloadLocal(publish: boolean): Promise<void> {
     if (this.isLoading && this.loadingPromise) {
       return this.loadingPromise;
     }
@@ -97,6 +102,11 @@ export class MetadataCacheService implements IMetadataCache {
   }
 
   async partialReload(payload: TCacheInvalidationPayload): Promise<void> {
+    if (this.usesSharedRuntimeCache()) return this.redisRuntimeCacheStore!.runWithPublication(() => this.partialReloadLocal(payload));
+    return this.partialReloadLocal(payload);
+  }
+
+  private async partialReloadLocal(payload: TCacheInvalidationPayload): Promise<void> {
     if (this.isLoading && this.loadingPromise) {
       await this.loadingPromise;
     }
@@ -793,15 +803,14 @@ export class MetadataCacheService implements IMetadataCache {
 
   private async loadAndCacheMetadata(): Promise<EnfyraMetadata> {
     if (this.initialLoadPromise) return this.initialLoadPromise;
-    this.initialLoadPromise = (async () => {
-      try {
-        const metadata = await this.loadFreshMetadataForReload();
-        await this.setLoadedMetadata(metadata);
-        return metadata;
-      } finally {
-        this.initialLoadPromise = null;
-      }
-    })();
+    const load = async () => {
+      const metadata = await this.loadFreshMetadataForReload();
+      await this.setLoadedMetadata(metadata);
+      return metadata;
+    };
+    this.initialLoadPromise = (this.usesSharedRuntimeCache() ? this.redisRuntimeCacheStore!.runWithPublication(load) : load()).finally(() => {
+      this.initialLoadPromise = null;
+    });
     return this.initialLoadPromise;
   }
 
@@ -866,7 +875,7 @@ export class MetadataCacheService implements IMetadataCache {
 
   private async setLoadedMetadata(
     metadata: EnfyraMetadata,
-    publish = true,
+    _publish = true,
   ): Promise<void> {
     metadata = this.normalizeMetadataSnapshot(metadata);
     if (this.usesSharedRuntimeCache()) {
@@ -924,20 +933,8 @@ export class MetadataCacheService implements IMetadataCache {
     }
 
     const lockValue =
-      await this.redisRuntimeCacheStore!.acquireRefreshLock('metadata');
-    if (!lockValue) {
-      if (this.sharedCacheLoaded) {
-        const snapshot =
-          await this.redisRuntimeCacheStore!.waitForSnapshot<EnfyraMetadata>(
-            'metadata',
-          );
-        if (snapshot) return this.normalizeMetadataSnapshot(snapshot.data);
-      } else {
-        this.logger.warn(
-          'Cold start: metadata refresh lock unavailable but cache not yet loaded, forcing DB read',
-        );
-      }
-    }
+      await this.redisRuntimeCacheStore!.acquireRefreshLockWithWait('metadata');
+    if (!lockValue) throw new Error('Metadata shared cache refresh lock timed out');
 
     try {
       return await this.loadMetadataFromDb();

@@ -52,19 +52,15 @@ export async function init(
       run: () => c.runtimeLogWriterService.assertReady(),
     },
     { label: 'repairing interrupted reloads', run: () => phaseReloadRepair(c) },
-    { label: 'loading metadata', run: () => phaseCoreCaches(c) },
     {
-      label: 'initializing runtime services',
-      run: () => phaseRuntimeSideEffects(c),
-    },
-    { label: 'loading runtime caches', run: () => phaseParallelCacheReload(c) },
-    {
-      label: 'activating caches',
-      run: () => phasePublishActivatedSnapshots(c),
-    },
-    {
-      label: 'initializing flows and GraphQL',
-      run: () => phaseFlowAndGraphql(c),
+      label: 'loading and activating runtime caches',
+      run: () => c.redisRuntimeCacheStore.runWithPublication(async () => {
+        await phaseCoreCaches(c);
+        await phaseRuntimeSideEffects(c);
+        await phaseParallelCacheReload(c);
+        await phasePublishActivatedSnapshots(c);
+        await phaseFlowAndGraphql(c);
+      }),
     },
     {
       label: 'initializing background services',

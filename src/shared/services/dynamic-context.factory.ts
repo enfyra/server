@@ -179,6 +179,7 @@ export class DynamicContextFactory {
     runInTransaction: <R>(work: () => Promise<R>) => Promise<R>,
   ): Promise<T> {
     const originalRepos = ctx.$repos;
+    const originalStorage = ctx.$storage;
     const runWithEffects = bindDynamicTransactionEffects(ctx);
     const wrapped = new WeakMap<object, object>();
     const wrap = (target: any): any => {
@@ -205,10 +206,12 @@ export class DynamicContextFactory {
     };
 
     ctx.$repos = wrap(originalRepos);
+    ctx.$storage = wrap(originalStorage);
     try {
       return await this.runWithAbort(callback);
     } finally {
       ctx.$repos = originalRepos;
+      ctx.$storage = originalStorage;
     }
   }
 

@@ -436,7 +436,7 @@ export class MongoService {
 
   getDb(): Db {
     const db = this.getRawDb();
-    if (!this.scopedDbAccessAls.getStore() || !this.isInSaga()) return db;
+    if (!this.nativeTxBundleAls.getStore() && (!this.scopedDbAccessAls.getStore() || !this.isInSaga())) return db;
     if (this.scopedDb) return this.scopedDb;
 
     const mongoService = this;

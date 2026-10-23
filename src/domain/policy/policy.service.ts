@@ -49,6 +49,7 @@ export class PolicyService {
 
     const userId = String(ctx.user._id || ctx.user.id);
     const canPass = ctx.routeData.routePermissions.find((permission: any) => {
+      if (permission?.isEnabled === false) return false;
       if (
         permission?.allowedUsers?.some(
           (user: any) => String(user?._id || user?.id) === userId,

@@ -50,6 +50,7 @@ type ParallelCacheReloadPhaseCradle = Pick<
 type ActivatedSnapshotPhaseCradle = Pick<
   Cradle,
   | 'runtimeRegistryService'
+  | 'redisRuntimeCacheStore'
   | 'metadataCacheService'
   | 'routeCacheService'
   | 'fieldPermissionCacheBuilder'
@@ -76,6 +77,7 @@ type FlowAndGraphqlPhaseCradle = Pick<
 >;
 type DeferredPhaseCradle = Pick<
   Cradle,
+  | 'fileCleanupService'
   | 'sessionCleanupService'
   | 'userRevocationService'
   | 'patVerifierService'
@@ -221,7 +223,7 @@ export async function phaseRuntimeSideEffects(
 export async function phaseParallelCacheReload(
   c: ParallelCacheReloadPhaseCradle,
 ): Promise<void> {
-  await Promise.all([
+  const results = await Promise.allSettled([
     runInitStep('routeCacheService.reload', () => c.routeCacheService.reload()),
     runInitStep('fieldPermissionCacheBuilder.reload', () =>
       c.fieldPermissionCacheBuilder.reload(),
@@ -262,6 +264,8 @@ export async function phaseParallelCacheReload(
       c.sqlFunctionService.installExtensions(),
     ),
   ]);
+  const failure = results.find(result => result.status === 'rejected');
+  if (failure?.status === 'rejected') throw failure.reason;
 }
 
 export async function phasePublishActivatedSnapshots(
@@ -287,8 +291,18 @@ export async function phasePublishActivatedSnapshots(
       [CACHE_IDENTIFIERS.GUARD, c.guardCacheBuilder],
       [CACHE_IDENTIFIERS.GRAPHQL, c.gqlDefinitionCacheService],
     ] as const;
-    for (const [identifier, service] of entries) {
-      await runtimeRegistry.publishFromCache(identifier, service);
+    if (runtimeRegistry.stageSnapshotFromCache && runtimeRegistry.activateSnapshots) {
+      const snapshots = [];
+      for (const [identifier, service] of entries) {
+        snapshots.push(await runtimeRegistry.stageSnapshotFromCache(identifier, service));
+      }
+      await c.redisRuntimeCacheStore.commitPublication();
+      runtimeRegistry.activateSnapshots(snapshots);
+    } else {
+      await c.redisRuntimeCacheStore.commitPublication();
+      for (const [identifier, service] of entries) {
+        await runtimeRegistry.publishFromCache(identifier, service);
+      }
     }
   });
 }
@@ -313,6 +327,7 @@ export async function phaseDeferredParallel(
   c: DeferredPhaseCradle,
 ): Promise<void> {
   await Promise.all([
+    runInitStep('fileCleanupService.init', () => c.fileCleanupService.init()),
     runInitStep('sessionCleanupService.init', () =>
       c.sessionCleanupService.init(),
     ),

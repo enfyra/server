@@ -16,6 +16,7 @@ import {
   Kind,
 } from 'graphql';
 import { DatabaseConfigService } from '../../../shared/services';
+import type { TableGraphQLDef } from '../types/graphql-schema.types';
 
 export const GraphQLJSON = new GraphQLScalarType({
   name: 'JSON',
@@ -51,7 +52,8 @@ function parseLiteralJSON(ast: any): any {
   }
 }
 
-function mapColumnTypeToGraphQLType(type: string): GraphQLScalarType {
+function mapColumnTypeToGraphQLType(type: string): GraphQLScalarType | GraphQLList<typeof GraphQLString> {
+  if (type === 'array-select') return new GraphQLList(GraphQLString);
   const map: Record<string, GraphQLScalarType> = {
     int: GraphQLInt,
     integer: GraphQLInt,
@@ -95,16 +97,6 @@ export const MetaResultType = new GraphQLObjectType({
   },
 });
 
-export interface TableGraphQLDef {
-  type: GraphQLObjectType;
-  resultType: GraphQLObjectType;
-  inputType: GraphQLInputObjectType | null;
-  updateInputType: GraphQLInputObjectType | null;
-  queryField: { type: GraphQLOutputType; args: Record<string, any> } | null;
-  mutationFields: Record<string, any>;
-  referencedStubs: Set<string>;
-}
-
 export function buildTableGraphQLDef(
   table: any,
   queryableTableNames: Set<string>,
@@ -135,8 +127,6 @@ export function buildTableGraphQLDef(
     let finalType: GraphQLOutputType;
     if (column.isPrimary && (baseType === GraphQLID || isMongoId)) {
       finalType = new GraphQLNonNull(GraphQLID);
-    } else if (!column.isNullable) {
-      finalType = new GraphQLNonNull(baseType);
     } else {
       finalType = baseType;
     }
@@ -161,9 +151,7 @@ export function buildTableGraphQLDef(
 
       typeFields[relName] = {
         type: isArray
-          ? new GraphQLNonNull(
-              new GraphQLList(new GraphQLNonNull(GraphQLString)),
-            )
+          ? new GraphQLList(new GraphQLNonNull(GraphQLString))
           : GraphQLString,
         extensions: { __lazyTarget: targetType, __isArray: isArray },
       };
@@ -190,9 +178,7 @@ export function buildTableGraphQLDef(
           if (targetGqlType) {
             resolved[key] = {
               type: ext.__isArray
-                ? new GraphQLNonNull(
-                    new GraphQLList(new GraphQLNonNull(targetGqlType)),
-                  )
+                ? new GraphQLList(new GraphQLNonNull(targetGqlType))
                 : targetGqlType,
             };
           } else {
@@ -217,9 +203,7 @@ export function buildTableGraphQLDef(
   });
 
   const inputFields: GraphQLInputFieldConfigMap = {};
-  const updateInputFields: GraphQLInputFieldConfigMap = {
-    id: { type: new GraphQLNonNull(GraphQLID) },
-  };
+  const updateInputFields: GraphQLInputFieldConfigMap = {};
   let hasInputFields = false;
 
   for (const column of table.columns || []) {
@@ -293,7 +277,7 @@ export function buildTableGraphQLDef(
       type: new GraphQLNonNull(type),
       args: {
         id: { type: new GraphQLNonNull(GraphQLID) },
-        input: { type: new GraphQLNonNull(inputType) },
+        input: { type: new GraphQLNonNull(updateInputType) },
       },
     },
     [`delete_${table.name}`]: {

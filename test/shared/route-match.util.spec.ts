@@ -64,6 +64,16 @@ describe('route-match util', () => {
     expect(postMatch?.route.path).toBe('/posts');
   });
 
+  it('matches literal casing like Express while preserving parameter case', () => {
+    const match = matchRouteInRoutes([{ path: '/Files/:id', methodConfigs: [{ available: true, method: 'GET' }] }], 'GET', '/FILES/AbC/');
+    expect(match?.route.path).toBe('/Files/:id');
+    expect(match?.params).toEqual({ id: 'AbC' });
+  });
+
+  it('does not bind a disabled route', () => {
+    expect(matchRouteInRoutes([{ path: '/files', isEnabled: false, methodConfigs: [{ available: true, method: 'GET' }] }], 'GET', '/files')).toBeNull();
+  });
+
   it('uses index order as the tie breaker for Redis route index entries', () => {
     const match = matchRouteIndexEntry(
       [

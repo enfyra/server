@@ -1,4 +1,5 @@
 import type { Queue } from 'bullmq';
+import type { FileCleanupService } from '../modules/file-management/services/file-cleanup.service';
 import type { EventEmitter2 } from 'eventemitter2';
 import type { Request, Response } from 'express';
 import type Redis from 'ioredis';
@@ -320,6 +321,8 @@ export interface Cradle {
   dynamicService: DynamicService;
   dynamicCancellationService: DynamicCancellationService;
 
+  fileCleanupService: FileCleanupService;
+  fileCleanupQueue: Queue;
   fileManagementService: FileManagementService;
   fileAssetsService: FileAssetsService;
   localStorageService: LocalStorageService;

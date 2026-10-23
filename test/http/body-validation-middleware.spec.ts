@@ -373,6 +373,23 @@ describe('bodyValidationMiddleware — field-permission input stripping', () => 
     expect(req.body).toEqual({});
   });
 
+  it('uses detected route captures before Express mounts the PATCH handler', async () => {
+    const container = makeContainer({
+      tableMeta,
+      existingRecord: { id: 7, ownerId: 'editor' },
+      fieldPermissionPolicies: [fieldPermissionPolicy({ action: 'update', columnName: 'privateValue', effect: 'allow', condition: { ownerId: { _eq: '@USER.id' } } })],
+    });
+    const { req, res, next } = makeReqRes({
+      method: 'PATCH', params: {},
+      routeData: { params: { id: '7' }, context: { $user: { id: 'editor' } }, mainTable: tableMeta, path: '/permission_post' },
+      body: { privateValue: 'retained' },
+    });
+    await bodyValidationMiddleware(container)(req, res, next);
+    expect(next).toHaveBeenCalledWith();
+    expect(req.body).toEqual({ privateValue: 'retained' });
+    expect(container.cradle.queryBuilderService.find).toHaveBeenCalledWith(expect.objectContaining({ filter: { id: { _eq: '7' } } }));
+  });
+
   it('keeps a conditionally allowed private PATCH field for validation', async () => {
     const mw = bodyValidationMiddleware(
       makeContainer({

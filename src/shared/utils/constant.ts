@@ -6,6 +6,7 @@ export const DEFAULT_MAX_REQUEST_BODY_SIZE_MB = 1;
 
 export const SYSTEM_QUEUES = {
   SESSION_CLEANUP: 'sys_session-cleanup',
+  FILE_CLEANUP: 'sys_file-cleanup',
   WS_CONNECTION: 'sys_ws-connection',
   WS_EVENT: 'sys_ws-event',
   FLOW_EXECUTION: 'sys_flow-execution',

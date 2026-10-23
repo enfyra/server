@@ -1,4 +1,6 @@
 import { Long } from 'mongodb';
+import { isExactInt64 } from '../../../shared/utils/int64.util';
+import { BadRequestException } from '../../../domain/exceptions';
 
 export const MONGO_LONG_COLUMN_TYPES = new Set(['long', 'bigint']);
 
@@ -22,6 +24,7 @@ export function coerceMongoLongWriteValue(value: unknown): unknown {
     return Number.isSafeInteger(value) ? Long.fromNumber(value) : value;
   }
   if (typeof value === 'string' && INTEGER_STRING_PATTERN.test(value)) {
+    if (!isExactInt64(value)) throw new BadRequestException('Expected an exact signed 64-bit integer');
     return Long.fromString(value);
   }
   return value;

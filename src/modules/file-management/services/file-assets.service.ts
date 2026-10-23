@@ -50,6 +50,8 @@ export class FileAssetsService {
       fileId,
     );
     if (!file) throw new NotFoundException(`File not found: ${fileId}`);
+    const isPublic = file.isPublic === true;
+    if (!isPublic) res.setHeader('Cache-Control', 'private, no-store');
 
     const {
       location,
@@ -78,6 +80,7 @@ export class FileAssetsService {
           res,
           filename,
           storageConfigId,
+          isPublic,
         ));
       }
 
@@ -131,6 +134,7 @@ export class FileAssetsService {
           req,
           res,
           actualFilename,
+          isPublic,
         ));
       }
 
@@ -148,6 +152,7 @@ export class FileAssetsService {
           res,
           filename,
           storageConfigId,
+          isPublic,
         ));
       }
 
@@ -217,6 +222,8 @@ export class FileAssetsService {
         req,
         res,
         filename,
+        undefined,
+        isPublic,
       ));
     }
 

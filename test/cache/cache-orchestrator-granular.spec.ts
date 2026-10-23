@@ -198,21 +198,4 @@ describe('CacheOrchestratorService — RELOAD_CHAINS + multi-instance', () => {
     });
   });
 
-  describe('mergePayload — cross-table merge picks longer chain', () => {
-    it('should pick enfyra_table over enfyra_route', () => {
-      const chainA = RELOAD_CHAINS['enfyra_table'];
-      const chainB = RELOAD_CHAINS['enfyra_route'];
-      const winner =
-        chainA.length >= chainB.length ? 'enfyra_table' : 'enfyra_route';
-      expect(winner).toBe('enfyra_table');
-    });
-
-    it('should pick enfyra_column over enfyra_pre_hook', () => {
-      const chainA = RELOAD_CHAINS['enfyra_column'];
-      const chainB = RELOAD_CHAINS['enfyra_pre_hook'];
-      const winner =
-        chainA.length >= chainB.length ? 'enfyra_column' : 'enfyra_pre_hook';
-      expect(winner).toBe('enfyra_column');
-    });
-  });
 });

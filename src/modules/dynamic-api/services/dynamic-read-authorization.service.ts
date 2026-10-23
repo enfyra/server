@@ -5,6 +5,8 @@ import {
 } from '@enfyra/kernel';
 import type { EnfyraMetadata } from '../../../engines/cache/services/metadata-cache.service';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
+import { getFieldPermissionConditionFields } from '../../../shared/utils/field-permission-condition.util';
+import { normalizeDynamicReadProjection } from '../utils/field-selection.util';
 import {
   decideFieldPermission,
   fieldPermissionRuleAppliesToUser,
@@ -230,7 +232,7 @@ export class DynamicReadAuthorizationService {
     deep: Record<string, ReadDeepEntry> | undefined;
     needsPostSql: boolean;
   }> {
-    if (!enforceFieldPermission) {
+    if (!enforceFieldPermission || context.$user?.isRootAdmin === true) {
       return { fields, deep, needsPostSql: false };
     }
 
@@ -269,10 +271,17 @@ export class DynamicReadAuthorizationService {
       if (relations.has(relationName)) relationsToCheck.add(relationName);
     }
 
+    const dependencies = new Set<string>();
     const deniedColumns = new Set<string>();
     for (const name of columnsToCheck) {
       const column = tableMetadata.columns?.find((item) => item.name === name);
       if (column?.isPrimary === true) continue;
+      const conditionalFields = await this.getConditionalFieldsForField(tableName, 'column', name, context);
+      if (conditionalFields !== null) {
+        hasConditionalPending = true;
+        for (const field of conditionalFields) dependencies.add(field);
+        continue;
+      }
       const defaultAllowed = column?.isPublished !== false;
       const decision = await this.decideReadField(
         tableName,
@@ -281,22 +290,7 @@ export class DynamicReadAuthorizationService {
         defaultAllowed,
         context,
       );
-      if (!decision.allowed) {
-        if (defaultAllowed) {
-          deniedColumns.add(name);
-        } else if (
-          await this.hasConditionalRulesForField(
-            tableName,
-            'column',
-            name,
-            context,
-          )
-        ) {
-          hasConditionalPending = true;
-        } else {
-          deniedColumns.add(name);
-        }
-      }
+      if (!decision.allowed) deniedColumns.add(name);
     }
 
     const deniedRelations = new Set<string>();
@@ -304,44 +298,33 @@ export class DynamicReadAuthorizationService {
       const relation = tableMetadata.relations?.find(
         (item) => item.propertyName === name,
       );
-      const defaultAllowed = relation?.isPublished !== false;
+      const conditionalFields = await this.getConditionalFieldsForField(tableName, 'relation', name, context);
+      if (conditionalFields !== null) {
+        hasConditionalPending = true;
+        for (const field of conditionalFields) dependencies.add(field);
+        continue;
+      }
       const decision = await this.decideReadField(
         tableName,
         'relation',
         name,
-        defaultAllowed,
+        relation?.isPublished !== false,
         context,
       );
-      if (!decision.allowed) {
-        if (defaultAllowed) {
-          deniedRelations.add(name);
-        } else if (
-          await this.hasConditionalRulesForField(
-            tableName,
-            'relation',
-            name,
-            context,
-          )
-        ) {
-          hasConditionalPending = true;
-        } else {
-          deniedRelations.add(name);
-        }
-      }
+      if (!decision.allowed) deniedRelations.add(name);
     }
 
-    const hasDenied = deniedColumns.size > 0 || deniedRelations.size > 0;
-    const cleanFieldList = hasDenied
-      ? fieldList.filter((field) => {
-          const [first] = field.split('.');
-          return !deniedColumns.has(first) && !deniedRelations.has(first);
-        })
-      : fieldList;
-    const cleanFields =
-      typeof fields === 'string' || isWildcard
+    const cleanFieldList = fieldList.filter((field) => {
+      const [first] = field.split('.');
+      return !deniedColumns.has(first) && !deniedRelations.has(first);
+    });
+    let cleanFields: string | string[] = cleanFieldList.length === 0
+      ? []
+      : typeof fields === 'string' || isWildcard
         ? cleanFieldList.join(',')
         : cleanFieldList;
-    const cleanDeep = deep ? { ...deep } : undefined;
+    let cleanDeep = deep ? { ...deep } : undefined;
+    if (cleanFieldList.length === 0) hasConditionalPending = true;
 
     if (cleanDeep) {
       for (const relation of deniedRelations) delete cleanDeep[relation];
@@ -401,6 +384,17 @@ export class DynamicReadAuthorizationService {
       }
     }
 
+    if (dependencies.size > 0) {
+      const internal = normalizeDynamicReadProjection({
+        tableName,
+        fields: [...new Set([...cleanFieldList, ...dependencies])],
+        deep: cleanDeep,
+        metadata: this.deps.runtimeRegistryService.requireMetadata(),
+      });
+      cleanFields = internal.fields ?? [];
+      cleanDeep = internal.deep;
+    }
+
     return {
       fields: cleanFields,
       deep: cleanDeep,
@@ -429,29 +423,21 @@ export class DynamicReadAuthorizationService {
     );
   }
 
-  private async hasConditionalRulesForField(
+  private async getConditionalFieldsForField(
     tableName: string,
     subjectType: 'column' | 'relation',
     subjectName: string,
     context: DynamicReadAuthorizationContext,
-  ): Promise<boolean> {
-    const policies =
-      this.deps.runtimeRegistryService.getFieldPermissionPoliciesFor?.(
-        context.$user,
-        tableName,
-        'read',
-      ) ?? [];
-    return policies.some((policy) =>
-      (policy.rules ?? []).some(
-        (rule) =>
-          rule.condition != null &&
-          rule.tableName === tableName &&
-          rule.action === 'read' &&
-          (subjectType === 'column'
-            ? rule.columnName === subjectName
-            : rule.relationPropertyName === subjectName),
-      ),
+  ): Promise<string[] | null> {
+    const policies = await this.deps.runtimeRegistryService.getFieldPermissionPoliciesFor?.(
+      context.$user, tableName, 'read',
+    ) ?? [];
+    const rules = policies.flatMap((policy) => policy.rules ?? []).filter((rule) =>
+      rule.condition != null &&
+      fieldPermissionRuleMatchesSubject(rule, { tableName, action: 'read', subjectType, subjectName }) &&
+      fieldPermissionRuleAppliesToUser(rule, context.$user),
     );
+    return rules.length === 0 ? null : rules.flatMap((rule) => getFieldPermissionConditionFields(rule.condition));
   }
 
   private isPublishedReadField(

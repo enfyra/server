@@ -5,6 +5,7 @@ import { DynamicContextFactory } from '../../../shared/services';
 import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
 import type { PolicyService } from '../../../domain/policy';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
+import { resolveRouteOperation } from '../../../shared/utils/route-operation.util';
 
 export class MeService {
   private readonly repoRegistryService: RepoRegistryService;
@@ -103,10 +104,12 @@ export class MeService {
       .getRoutes()
       .find((route: any) => route?.path === '/enfyra_user');
     if (!userRoute) return false;
+    const operation = resolveRouteOperation(userRoute, 'PATCH');
+    if (!operation) return false;
 
     return this.policyService.checkRequestAccess({
       method: 'PATCH',
-      routeData: userRoute,
+      routeData: operation,
       user: req.user,
     }).allow;
   }

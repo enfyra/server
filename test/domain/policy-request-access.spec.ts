@@ -71,6 +71,18 @@ describe('PolicyService.checkRequestAccess', () => {
     expect(d.allow).toBe(false);
   });
 
+  it.each([
+    { isEnabled: false, role: { id: 5 } },
+    { isEnabled: false, allowedUsers: [{ id: 1 }] },
+  ])('does not grant an explicitly disabled permission %j', permission => {
+    const decision = policy.checkRequestAccess({
+      method: 'GET',
+      user: { id: 1, roles: [{ id: 5 }] },
+      routeData: { routePermissions: [permission] },
+    });
+    expect(decision.allow).toBe(false);
+  });
+
   it('matches role by numeric id', () => {
     const d = policy.checkRequestAccess({
       method: 'GET',

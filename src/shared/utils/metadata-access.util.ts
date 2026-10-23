@@ -1,4 +1,6 @@
 import type { PolicyService } from '../../domain/policy';
+import { getRouteMethods as getAvailableRouteMethods } from './route-match.util';
+import { resolveRouteOperation } from './route-operation.util';
 import {
   decideFieldPermission,
   type TFieldPermissionPolicyReader,
@@ -36,6 +38,7 @@ function getRouteTableName(route: any): string | null {
 }
 
 function getRouteMethods(route: any): string[] {
+  if (Array.isArray(route?.methodConfigs)) return getAvailableRouteMethods(route);
   const candidates =
     route?.availableMethods ?? route?.publicMethods ?? route?.methods ?? [];
   if (!Array.isArray(candidates)) return [];
@@ -50,9 +53,11 @@ function canAccessRouteMethod(
   user: any,
   policyService: PolicyService,
 ) {
+  const operation = Array.isArray(route?.methodConfigs) ? resolveRouteOperation(route, method) : route;
+  if (!operation || route.isEnabled === false) return false;
   return policyService.checkRequestAccess({
     method,
-    routeData: route,
+    routeData: operation,
     user,
   }).allow;
 }

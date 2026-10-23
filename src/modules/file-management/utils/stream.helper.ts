@@ -1,6 +1,6 @@
 import { Response } from 'express';
 import { Logger } from '../../../shared/logger';
-import { PassThrough } from 'stream';
+import { PassThrough, type Readable } from 'stream';
 import * as fs from 'fs';
 import * as sharp from 'sharp';
 import type { StorageByteRange } from '../storage/storage.interface';
@@ -106,10 +106,7 @@ export class StreamHelper {
         : `inline; filename="${filename}"`,
     );
     const fileStream = fs.createReadStream(filePath, range);
-    fileStream.on('error', (error) => {
-      this.logger.error('File stream error:', error);
-      if (!res.headersSent) res.status(500).json({ error: 'Stream error' });
-    });
+    this.handleStreamError(fileStream, res, 'File stream error');
     fileStream.pipe(res);
   }
   async streamCloudFile(
@@ -141,10 +138,7 @@ export class StreamHelper {
     } else if (stream.contentLength) {
       res.setHeader('Content-Length', stream.contentLength);
     }
-    stream.on('error', (error: Error) => {
-      this.logger.error('Cloud stream error:', error);
-      if (!res.headersSent) res.status(500).json({ error: 'Stream error' });
-    });
+    this.handleStreamError(stream, res, 'Cloud stream error');
     stream.pipe(res);
   }
   setupImageStream(
@@ -153,9 +147,11 @@ export class StreamHelper {
     shouldCache: boolean,
     onCache?: (buffer: Buffer) => Promise<void>,
   ): void {
+    this.handleStreamError(sharpStream, res, 'Image processing failed');
     if (shouldCache && onCache) {
       const cacheBuffer: Buffer[] = [];
       const teeStream = new PassThrough();
+      this.bindResponseLifecycle(teeStream, res);
       teeStream.on('data', (chunk: Buffer) => {
         cacheBuffer.push(chunk);
       });
@@ -177,10 +173,24 @@ export class StreamHelper {
       });
     }
   }
-  handleStreamError(stream: any, res: Response, errorMessage: string): void {
+  private bindResponseLifecycle(stream: Readable, res: Response): void {
+    const closeSource = () => { stream.destroy(); };
+    const cleanup = () => {
+      res.off('close', closeSource);
+      res.off('error', closeSource);
+    };
+    res.once('close', closeSource);
+    res.once('error', closeSource);
+    stream.once('close', cleanup);
+    if (res.destroyed || res.writableEnded) closeSource();
+  }
+
+  handleStreamError(stream: Readable, res: Response, errorMessage: string): void {
+    this.bindResponseLifecycle(stream, res);
     stream.on('error', (error: Error) => {
       this.logger.error(`${errorMessage}:`, error);
-      if (!res.headersSent) res.status(500).json({ error: errorMessage });
+      if (!res.headersSent && !res.destroyed) res.status(500).json({ error: errorMessage });
+      else if (!res.destroyed) res.destroy(error);
     });
   }
 }

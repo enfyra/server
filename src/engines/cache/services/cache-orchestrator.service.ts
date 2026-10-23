@@ -231,10 +231,11 @@ export class CacheOrchestratorService implements LifecycleAware {
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private debounceResolvers: Array<{
+    table: string;
     resolve: () => void;
     reject: (err: any) => void;
   }> = [];
-  private pendingPayload: TCacheInvalidationPayload | null = null;
+  private pendingPayloads = new Map<string, TCacheInvalidationPayload>();
   private reloadLock: Promise<void> | null = null;
   private reloadEventSequence = 0;
   private processedVersions: Set<string> = new Set();
@@ -376,7 +377,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     }
     const resolvers = this.debounceResolvers.splice(0);
     resolvers.forEach((r) => r.resolve());
-    this.pendingPayload = null;
+    this.pendingPayloads.clear();
     this.messageHandler = null;
   }
 
@@ -384,75 +385,46 @@ export class CacheOrchestratorService implements LifecycleAware {
     payload: TCacheInvalidationPayload,
   ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      this.debounceResolvers.push({ resolve, reject });
+      this.debounceResolvers.push({ table: payload.table, resolve, reject });
       this.mergePayload(payload);
       if (this.debounceTimer) clearTimeout(this.debounceTimer);
       this.debounceTimer = setTimeout(async () => {
         this.debounceTimer = null;
         const resolvers = this.debounceResolvers.splice(0);
-        const merged = this.pendingPayload;
-        this.pendingPayload = null;
-        try {
-          if (merged) {
+        const payloads = [...this.pendingPayloads.values()];
+        this.pendingPayloads.clear();
+        for (const merged of payloads) {
+          const waiting = resolvers.filter((entry) => entry.table === merged.table);
+          try {
             await this.executeChain(merged, true);
+            waiting.forEach((entry) => entry.resolve());
+          } catch (error) {
+            this.logger.error('Invalidation chain failed:', error);
+            waiting.forEach((entry) => merged.critical ? entry.reject(error) : entry.resolve());
           }
-          resolvers.forEach((r) => r.resolve());
-        } catch (error) {
-          this.logger.error('Invalidation chain failed:', error);
-          if (merged?.critical) {
-            resolvers.forEach((r) => r.reject(error));
-            return;
-          }
-          resolvers.forEach((r) => r.resolve());
         }
       }, CACHE_ORCHESTRATOR_DEFAULTS.invalidationDebounceMs);
     });
   }
 
   private mergePayload(payload: TCacheInvalidationPayload): void {
-    if (!this.pendingPayload) {
-      this.pendingPayload = { ...payload };
+    const pending = this.pendingPayloads.get(payload.table);
+    if (!pending) {
+      this.pendingPayloads.set(payload.table, { ...payload });
       return;
     }
-    if (payload.critical) this.pendingPayload.critical = true;
-    if (this.pendingPayload.table !== payload.table) {
-      const currentChain = RELOAD_CHAINS[this.pendingPayload.table] || [];
-      const incomingChain = RELOAD_CHAINS[payload.table] || [];
-      if (incomingChain.length > currentChain.length) {
-        this.pendingPayload.table = payload.table;
-      }
-      this.pendingPayload.scope = 'full';
-      this.pendingPayload.ids = undefined;
-      this.pendingPayload.affectedTables = undefined;
-      this.pendingPayload.tableRenames = undefined;
+    pending.critical ||= payload.critical;
+    pending.timestamp = Math.max(pending.timestamp, payload.timestamp);
+    const tables = new Set([...(pending.affectedTables ?? []), ...(payload.affectedTables ?? [])]);
+    pending.affectedTables = tables.size ? [...tables] : undefined;
+    const renames = [...(pending.tableRenames ?? []), ...(payload.tableRenames ?? [])];
+    pending.tableRenames = renames.length ? renames : undefined;
+    if (payload.scope === 'full' || pending.scope === 'full') {
+      pending.scope = 'full';
+      pending.ids = undefined;
       return;
     }
-    if (payload.scope === 'full' || this.pendingPayload.scope === 'full') {
-      this.pendingPayload.scope = 'full';
-      this.pendingPayload.ids = undefined;
-      this.pendingPayload.affectedTables = undefined;
-      this.pendingPayload.tableRenames = undefined;
-      return;
-    }
-    const mergedIds = new Set([
-      ...(this.pendingPayload.ids || []),
-      ...(payload.ids || []),
-    ]);
-    const mergedTables = new Set([
-      ...(this.pendingPayload.affectedTables || []),
-      ...(payload.affectedTables || []),
-    ]);
-    const mergedRenames = [
-      ...(this.pendingPayload.tableRenames || []),
-      ...(payload.tableRenames || []),
-    ];
-    this.pendingPayload.ids = [...mergedIds];
-    this.pendingPayload.affectedTables = mergedTables.size
-      ? [...mergedTables]
-      : undefined;
-    this.pendingPayload.tableRenames = mergedRenames.length
-      ? mergedRenames
-      : undefined;
+    pending.ids = [...new Set([...(pending.ids ?? []), ...(payload.ids ?? [])])];
   }
 
   private async executeChain(
@@ -550,7 +522,7 @@ export class CacheOrchestratorService implements LifecycleAware {
         );
         if (middleSteps.length > 0) {
           const s = Date.now();
-          await Promise.all(
+          const results = await Promise.allSettled(
             middleSteps.map(async (step) => {
               const fn = this.stepMap[step];
               if (fn) {
@@ -558,6 +530,8 @@ export class CacheOrchestratorService implements LifecycleAware {
               }
             }),
           );
+          const failure = results.find((result) => result.status === 'rejected');
+          if (failure?.status === 'rejected') throw failure.reason;
           stepTimings.push(`[${middleSteps.join('+')}]:${Date.now() - s}ms`);
         }
 
@@ -660,14 +634,18 @@ export class CacheOrchestratorService implements LifecycleAware {
           reloadId,
         );
       }
-    });
+    }, sharedReplay);
   }
 
-  private async runWithReloadLock(run: () => Promise<void>): Promise<void> {
+  private async runWithReloadLock(run: () => Promise<void>, sharedReplay = false): Promise<void> {
     const previous = this.reloadLock;
     const current = (previous ?? Promise.resolve())
       .catch(() => undefined)
-      .then(run);
+      .then(() => this.redisRuntimeCacheStore?.isEnabled()
+        ? sharedReplay
+          ? this.redisRuntimeCacheStore.runWithCommittedSnapshots(run)
+          : this.redisRuntimeCacheStore.runWithPublication(run)
+        : run());
     this.reloadLock = current;
     try {
       await current;
@@ -685,7 +663,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   ): Promise<void> {
     let nextIndex = 0;
     const workerCount = Math.min(Math.max(1, concurrency), items.length);
-    await Promise.all(
+    const results = await Promise.allSettled(
       Array.from({ length: workerCount }, async () => {
         while (nextIndex < items.length) {
           const item = items[nextIndex++];
@@ -693,6 +671,8 @@ export class CacheOrchestratorService implements LifecycleAware {
         }
       }),
     );
+    const failure = results.find((result) => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
   }
 
   private resolveFlowName(chain: string[]): string {
@@ -968,12 +948,14 @@ export class CacheOrchestratorService implements LifecycleAware {
       !this.runtimeRegistryService?.stageSnapshotFromCache ||
       !this.runtimeRegistryService?.activateSnapshots
     ) {
+      await this.redisRuntimeCacheStore?.commitPublication();
       await this.publishRuntimeCachesForSteps(steps);
       await this.reloadRuntimeArtifactsAfterCommit(steps, payload);
       return;
     }
 
     const snapshots = await this.stageRuntimeSnapshotsForSteps(steps);
+    await this.redisRuntimeCacheStore?.commitPublication();
     this.runtimeRegistryService.activateSnapshots(snapshots);
     await this.reloadRuntimeArtifactsAfterCommit(steps, payload);
   }
@@ -1231,8 +1213,10 @@ export class CacheOrchestratorService implements LifecycleAware {
         'websocket',
         'package',
         'setting',
+        'authHeader',
         'storage',
         'oauth',
+        'corsOrigin',
         'folder',
         'fieldPermission',
         'columnRule',
@@ -1459,7 +1443,7 @@ export class CacheOrchestratorService implements LifecycleAware {
         return;
       }
       await runReload();
-    });
+    }, sharedReplay);
   }
 
   private subscribeToRedis(): void {
@@ -1487,8 +1471,16 @@ export class CacheOrchestratorService implements LifecycleAware {
             CACHE_EVENTS.SYNC_INVALIDATE,
             signal.payload,
           );
-          if (signal.payload?.table === '__admin_reload_all') {
-            await this.reloadAllLocal(false, this.usesSharedRuntimeCache());
+          if (this.usesSharedRuntimeCache()) {
+            await this.reloadAllLocal(false, true);
+            const clientSteps = RELOAD_CHAINS[signal.payload?.table]?.filter(
+              step => step === 'menu' || step === 'extension',
+            );
+            if (clientSteps?.length) {
+              this.notifyClients('done', this.resolveFlowName(clientSteps), clientSteps);
+            }
+          } else if (signal.payload?.table === '__admin_reload_all') {
+            await this.reloadAllLocal(false, false);
           } else {
             await this.executeChain(signal.payload, false);
           }

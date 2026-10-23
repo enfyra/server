@@ -11,21 +11,28 @@ import { Readable } from 'stream';
 import { FileSignatureHelper } from '../utils/file-signature.helper';
 import type { StorageStreamOptions } from '../storage/storage.interface';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
+import type { MutationOutcomeScope } from '../../../shared/types/mutation-outcome.types';
+import { runWithMutationOutcome } from '../../../shared/utils/mutation-outcome.util';
+import { deferDynamicTransactionResource } from '../../../shared/utils/dynamic-transaction-effects.util';
+import type { FileCleanupService } from './file-cleanup.service';
 
 export class FileManagementService {
   private readonly logger = new Logger(FileManagementService.name);
   private readonly queryBuilderService: QueryBuilderService;
   private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly storageFactoryService: StorageFactoryService;
+  private readonly fileCleanupService: FileCleanupService;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     runtimeRegistryService: RuntimeRegistryService;
     storageFactoryService: StorageFactoryService;
+    fileCleanupService: FileCleanupService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.runtimeRegistryService = deps.runtimeRegistryService;
     this.storageFactoryService = deps.storageFactoryService;
+    this.fileCleanupService = deps.fileCleanupService;
   }
 
   private getIdField(): string {
@@ -255,11 +262,8 @@ export class FileManagementService {
       storageConfigId ?? undefined,
     );
 
-    let fileUploadedToCloud = false;
-    try {
-      fileUploadedToCloud = true;
-
-      const savedFile = await fileRepo.create({
+    return this.runBlobMutation(
+      () => fileRepo.create({
         data: {
           filename: processedFile.filename,
           mimetype: processedFile.mimetype,
@@ -275,27 +279,9 @@ export class FileManagementService {
             ? this.createIdReference(processedFile.storage_config_id)
             : null,
         },
-      });
-
-      return savedFile;
-    } catch (error) {
-      if (fileUploadedToCloud) {
-        this.logger.warn(
-          `Database save failed for file ${processedFile.location}, rolling back cloud storage upload`,
-        );
-        try {
-          await this.rollbackFileCreation(
-            processedFile.location,
-            processedFile.storage_config_id,
-          );
-        } catch (rollbackError) {
-          this.logger.error(
-            `Failed to rollback cloud storage upload for ${processedFile.location}: ${getErrorMessage(rollbackError)}`,
-          );
-        }
-      }
-      throw error;
-    }
+      }),
+      processedFile,
+    );
   }
 
   async registerExternalFileRecord(
@@ -428,8 +414,7 @@ export class FileManagementService {
       nextStorageConfigId ?? undefined,
     );
 
-    try {
-      const updateData = {
+    const updateData = {
         filename: processedFile.filename,
         mimetype: processedFile.mimetype,
         type: processedFile.type,
@@ -445,23 +430,16 @@ export class FileManagementService {
           : null,
       };
 
-      const result = await fileRepo.update({ id, data: updateData });
-
-      await this.deleteOldPhysicalFileAfterReplace(
+    return this.runBlobMutation(
+      () => fileRepo.update({ id, data: updateData }),
+      processedFile,
+      () => this.deleteOldPhysicalFileAfterReplace(
         currentFile.location,
         currentStorageConfigId,
         processedFile.location,
         processedFile.storage_config_id,
-      );
-
-      return result;
-    } catch (error) {
-      await this.rollbackFileCreation(
-        processedFile.location,
-        processedFile.storage_config_id,
-      );
-      throw error;
-    }
+      ),
+    );
   }
 
   async updateFileMetadataRecord(
@@ -509,11 +487,33 @@ export class FileManagementService {
     id: number | string,
     currentFile: any,
   ): Promise<any> {
-    await this.deletePhysicalFile(
+    const result = await fileRepo.delete({ id });
+    const cleanup = () => this.fileCleanupService.enqueue(
       currentFile.location,
       this.getFileStorageConfigId(currentFile) ?? undefined,
     );
-    return fileRepo.delete({ id });
+    if (!deferDynamicTransactionResource(cleanup, () => {})) await cleanup();
+    return result;
+  }
+
+  private async runBlobMutation<T>(
+    mutate: () => Promise<T>,
+    file: ProcessedFileInfo,
+    afterCommit: () => Promise<void> = async () => {},
+  ): Promise<T> {
+    const outcome: MutationOutcomeScope = { persistence: 'unknown' };
+    const rollback = () => this.fileCleanupService.enqueue(file.location, file.storage_config_id);
+    let persisted = false;
+    const deferred = deferDynamicTransactionResource(async () => { if (persisted) await afterCommit(); }, rollback);
+    try {
+      const result = await runWithMutationOutcome(outcome, mutate);
+      persisted = true;
+      if (!deferred) await afterCommit();
+      return result;
+    } catch (error) {
+      if (!deferred && outcome.persistence === 'not_persisted') await rollback();
+      throw error;
+    }
   }
 
   private async deleteOldPhysicalFileAfterReplace(
@@ -529,16 +529,7 @@ export class FileManagementService {
       return;
     }
 
-    try {
-      await this.deletePhysicalFile(
-        oldLocation,
-        oldStorageConfigId ?? undefined,
-      );
-    } catch (error) {
-      this.logger.warn(
-        `Failed to delete old physical file after replace: ${oldLocation}: ${getErrorMessage(error)}`,
-      );
-    }
+    await this.fileCleanupService.enqueue(oldLocation, oldStorageConfigId ?? undefined);
   }
 
   async deletePhysicalFile(

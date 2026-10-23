@@ -53,11 +53,15 @@ function runtimeContainer(bootstrapOverrides: Record<string, unknown> = {}) {
       markInterruptedReloadsFailed: vi.fn(async () => undefined),
     },
     cacheOrchestratorService: { init: vi.fn(async () => undefined) },
+    redisRuntimeCacheStore: { runWithPublication: async (work: () => Promise<void>) => work(), commitPublication: async () => {} },
     runtimeRegistryService: {
       init: vi.fn(async () => undefined),
       publishFromCache: vi.fn(async () => undefined),
     },
     metadataCacheService: { reload: vi.fn(async () => undefined) },
+    sharedHelperCacheService: cacheService(),
+    corsOriginCacheBuilder: cacheService(),
+    fileCleanupService: { init: vi.fn(async () => undefined) },
     repoRegistryService: {
       rebuildFromMetadata: vi.fn(async () => undefined),
     },
@@ -187,7 +191,7 @@ it('activates flows only after runtime snapshots and SQL functions are ready', a
     },
   );
   container.cradle.flowRuntimeService.init.mockImplementation(async () => {
-    expect(snapshots).toBe(14);
+    expect(snapshots).toBe(17);
     expect(sqlReady).toBe(true);
   });
   await init(container);

@@ -182,6 +182,27 @@ function evalOperatorNode(
   return true;
 }
 
+export function getFieldPermissionConditionFields(condition: unknown): string[] {
+  if (!isPlainObject(condition)) return [];
+  const fields = new Set<string>();
+  for (const [key, node] of Object.entries(condition as Record<string, unknown>)) {
+    if (key === '_and' || key === '_or') {
+      if (Array.isArray(node)) {
+        for (const child of node) {
+          for (const field of getFieldPermissionConditionFields(child)) fields.add(field);
+        }
+      }
+    } else if (key === '_not') {
+      for (const field of getFieldPermissionConditionFields(node)) fields.add(field);
+    } else if (!key.startsWith('_')) {
+      const children = isOperatorNode(node) ? [] : getFieldPermissionConditionFields(node);
+      if (children.length === 0) fields.add(key);
+      for (const field of children) fields.add(`${key}.${field}`);
+    }
+  }
+  return [...fields];
+}
+
 export function matchFieldPermissionCondition(
   condition: any,
   record: any,

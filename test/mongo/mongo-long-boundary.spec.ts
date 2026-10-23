@@ -19,6 +19,10 @@ describe('Mongo 64-bit integer boundary', () => {
     expect(coerceMongoLongWriteValue(1.5)).toBe(1.5);
   });
 
+  it.each(['9223372036854775808', '-9223372036854775809'])('never wraps an out-of-range integer %s', value => {
+    expect(() => coerceMongoLongWriteValue(value)).toThrow(/64-bit/);
+  });
+
   it('reads a BSON Long back as a decimal string that survives JSON', () => {
     const value = Long.fromString('9223372036854775807');
     expect(normalizeBsonLongs({ filesize: value })).toEqual({

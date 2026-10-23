@@ -87,7 +87,7 @@ export function getRouteMethods(route: any): string[] {
 }
 
 export function isRouteMethodAvailable(route: any, method: string): boolean {
-  return getRouteMethods(route).includes(method);
+  return route?.isEnabled !== false && getRouteMethods(route).includes(method);
 }
 
 export function getRouteCandidatePaths(route: any, method: string): string[] {
@@ -132,7 +132,7 @@ export function matchRoutePattern(
       }
       continue;
     }
-    if (patternSegment !== pathSegment) return null;
+    if (patternSegment.toLowerCase() !== pathSegment.toLowerCase()) return null;
   }
 
   return patternSegments.length === pathSegments.length ? params : null;

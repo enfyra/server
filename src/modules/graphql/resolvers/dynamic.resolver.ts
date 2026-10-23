@@ -65,8 +65,8 @@ export class DynamicResolver {
       'QUERY',
       context,
     );
-    const selections = info.fieldNodes?.[0]?.selectionSet?.selections || [];
-    const fullFieldPicker = convertFieldNodesToFieldPicker(selections);
+    const selections = (info.fieldNodes ?? []).flatMap((node: { selectionSet?: { selections?: [] } }) => node.selectionSet?.selections ?? []);
+    const fullFieldPicker = convertFieldNodesToFieldPicker(selections, [], info.fragments, info.variableValues);
     const fieldPicker = fullFieldPicker
       .filter((f) => f.startsWith('data.'))
       .map((f) => f.replace(/^data\./, ''));

@@ -117,6 +117,8 @@ export interface DynamicMutationDeleteManyOptions extends DynamicMutationOperati
 
 export interface DynamicMutationLifecycleOptions<TPersisted, TResult> {
   context: MutationContext;
+  dynamicContext?: TDynamicContext;
+  afterCommit?: (context: MutationContext) => Promise<void> | void;
   persist: () => Promise<TPersisted>;
   afterWrite?: (
     context: MutationContext,

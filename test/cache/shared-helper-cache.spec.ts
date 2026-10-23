@@ -258,6 +258,7 @@ describe('metadata shared helpers', () => {
       runtimeRegistryService: registry,
       sqlFunctionService: { installExtensions: vi.fn() },
       cacheOrchestratorService: { init: vi.fn() },
+      redisRuntimeCacheStore: { commitPublication: async () => {} },
       repoRegistryService: { rebuildFromMetadata: vi.fn() },
       eventEmitter: new EventEmitter2(),
     };

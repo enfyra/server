@@ -271,7 +271,7 @@ export class DynamicRepository {
     }
     if (typeof opt.data !== 'function') throw new BadRequestException('updateLocked data must be a callback');
     const strategy = this.routeRouter.getStrategy(this.tableName);
-    if (strategy.kind !== 'generic' || strategy.normalizeUpdate || strategy.afterUpdateWrite || strategy.afterUpdateReload) {
+    if (strategy.kind !== 'generic' || strategy.normalizeUpdate || strategy.afterUpdateWrite || strategy.afterUpdateReload || strategy.afterUpdateCommit) {
       throw new BadRequestException('updateLocked supports plain generic tables only');
     }
     return runWithDeferredDynamicTransactionEffects(this.context, async () => {

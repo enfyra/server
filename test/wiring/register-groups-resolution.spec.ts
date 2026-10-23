@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { asValue } from 'awilix';
+import { storageRegisters } from '../../src/wiring/registers/modules';
 import { buildContainer } from '../../src/container';
 import type { Cradle } from '../../src/wiring/cradle';
 import { authRegisters } from '../../src/wiring/registers/auth';
@@ -23,6 +25,14 @@ async function expectRegistrationsToResolve(
 }
 
 describe('Awilix registration groups', () => {
+  it('resolves storage and durable cleanup without opening external connections', async () => {
+    const container = buildContainer();
+    container.register({ fileCleanupQueue: asValue({}), queryBuilderService: asValue({}), runtimeRegistryService: asValue({}) });
+    try {
+      for (const name of registrationNames(storageRegisters)) expect(container.resolve(name)).toBeDefined();
+    } finally { await container.dispose(); }
+  });
+
   it('resolves every cache registration through the typed cradle', async () => {
     await expectRegistrationsToResolve(cacheRegisters);
   });
