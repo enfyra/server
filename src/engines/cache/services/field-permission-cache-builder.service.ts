@@ -92,7 +92,8 @@ export class FieldPermissionCacheBuilder extends BaseCacheService<
         table: 'enfyra_field_permission',
         fields: FIELD_PERMISSION_CACHE_FIELDS,
         filter: { isEnabled: { _eq: true } },
-        limit: 100000,
+        deep: { allowedUsers: { limit: -1 } },
+        limit: -1,
       }),
       this.metadataCacheService.getMetadata(),
     ]);
@@ -141,6 +142,7 @@ export class FieldPermissionCacheBuilder extends BaseCacheService<
       table: 'enfyra_field_permission',
       fields: FIELD_PERMISSION_CACHE_FIELDS,
       filter: { id: { _in: ids } },
+      deep: { allowedUsers: { limit: -1 } },
       limit: ids.length,
     });
     const rows: any[] = result?.data ?? [];

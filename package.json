@@ -6,14 +6,15 @@
   "license": "Elastic-2.0",
   "packageManager": "yarn@4.17.0+sha512.c2957de2f9025ab14d63b24d0d8be1f1655810e22c341042c27f7ecd017b180ec12db73d69ac366d71b304ef9f069349ce462de96f04f8f1da317f4f762c95ae",
   "engines": {
-    "node": ">=24 <25",
+    "node": ">=24.22.1 <25 || >=26.12.1 <27",
     "yarn": ">=4.17 <5"
   },
   "volta": {
-    "node": "24.9.0"
+    "node": "26.12.1"
   },
   "scripts": {
     "check:node": "node scripts/check-node-version.js",
+    "test:node": "node --test --test-concurrency=1 scripts/test-node-version.js",
     "ci:architecture": "node scripts/check-architecture-guard.mjs",
     "ci:large-files": "node scripts/report-large-files.mjs",
     "preinstall": "node scripts/check-node-version.js",
@@ -62,7 +63,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1141.0",
     "@aws-sdk/lib-storage": "^3.1141.0",
-    "@enfyra/kernel": "2.0.23",
+    "@enfyra/kernel": "2.0.25",
     "@envelop/core": "^5.6.1",
     "@envelop/depth-limit": "^7.2.1",
     "@google-cloud/storage": "^8.2.0",
