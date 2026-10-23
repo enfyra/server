@@ -64,11 +64,12 @@ REFRESH_TOKEN_NO_REMEMBER_EXP=1d
 REFRESH_TOKEN_REMEMBER_EXP=7d
 
 ############################################
-# Admin Account - required
+# Admin Account - optional bootstrap
 ############################################
-# Default admin account (created on first init)
-ADMIN_EMAIL=enfyra@admin.com
-ADMIN_PASSWORD=1234
+# Set both to create the initial root admin when none exists.
+# Omit or leave empty to skip admin creation; existing admins are not reset.
+# ADMIN_EMAIL=operator@example.com
+# ADMIN_PASSWORD=replace-with-a-private-password
 
 ############################################
 # Environment - required
