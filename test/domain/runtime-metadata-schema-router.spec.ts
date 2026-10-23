@@ -242,6 +242,9 @@ describe('RuntimeMetadataSchemaRouterService', () => {
     ]);
     expect(body.columns[2]).not.toHaveProperty('table');
     expect(harness.runtimeSchemaExecutorService.execute).toHaveBeenCalledOnce();
+    const executeInput = harness.runtimeSchemaExecutorService.execute.mock.calls[0]?.[0];
+    expect(executeInput).not.toHaveProperty('context');
+    expect(result).not.toHaveProperty('tableRenames');
     expect(result).toEqual({
       recordId: 99,
       ownerTableId: 10,

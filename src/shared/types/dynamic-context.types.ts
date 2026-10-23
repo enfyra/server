@@ -241,7 +241,7 @@ export interface TDynamicContext {
   $args?: unknown;
   $env?: EnvSnapshot;
   $user?: any;
-  $authSource?: 'pat' | 'jwt';
+  $authSource?: 'pat' | 'jwt' | undefined;
   $codeAudit?: {
     action?: 'revert';
     restoredFrom?: string | null;

@@ -79,7 +79,7 @@ export class MetadataOverlapIdentityService {
     options: { remapCoreOwnerIds?: boolean } = {},
   ): string | null {
     const logicalKey = this.getCoreMetadataRowKey(rename, row, {
-      remapOwnerIds: options.remapCoreOwnerIds,
+      remapOwnerIds: options.remapCoreOwnerIds !== false,
     });
     if (logicalKey) return logicalKey;
 

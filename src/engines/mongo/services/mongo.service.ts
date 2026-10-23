@@ -58,7 +58,7 @@ export class MongoService {
   private readonly mongoRelationManagerService: MongoRelationManagerService;
   private readonly mongoHookManagerService: MongoHookManagerService;
   private readonly lazyRef: Cradle;
-  private readonly sagaTraceFile?: string;
+  private readonly sagaTraceFile: string | undefined;
 
   private readonly policyContext = new AsyncLocalStorage<{
     check: (
@@ -582,14 +582,7 @@ export class MongoService {
         { txId: execResult.txId },
       );
     }
-    return {
-      success: execResult.success,
-      data: execResult.data,
-      error: execResult.error,
-      txId: execResult.txId,
-      rollbackResult: execResult.rollbackResult,
-      stats: execResult.stats,
-    };
+    return execResult;
   }
 
   private runWithScopedDbAccess<T>(
@@ -977,11 +970,17 @@ export class MongoService {
 
     const entries = processedRows.map((row, index) => {
       const insertedId = row._id;
-      rowContexts[index].insertedId = insertedId;
+      const context = rowContexts[index];
+      if (context === undefined) {
+        throw new Error(
+          `Missing insert hook context for ${collectionName} row ${index}`,
+        );
+      }
+      context.insertedId = insertedId;
       return {
         insertedId,
         data: row,
-        context: rowContexts[index],
+        context,
       };
     });
 
@@ -1482,7 +1481,7 @@ export class MongoService {
 
   private extractDbName(uri: string): string {
     const match = uri.match(/\/([^/?]+)(\?|$)/);
-    return match ? match[1] : 'enfyra';
+    return match?.[1] ?? 'enfyra';
   }
 }
 
@@ -1688,8 +1687,8 @@ export class SagaCollection<_T extends Document = Document> {
       },
       toArray: () =>
         getTx().find(collName, filter, {
-          skip: skipVal || undefined,
-          limit: limitVal,
+          ...(skipVal ? { skip: skipVal } : {}),
+          ...(limitVal === undefined ? {} : { limit: limitVal }),
           sort: sortVal,
           projection: projectionVal,
         }),

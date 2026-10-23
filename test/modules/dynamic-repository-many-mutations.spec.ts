@@ -113,6 +113,26 @@ describe('DynamicRepository many mutations', () => {
     expect((repo as any).reload).toHaveBeenCalledWith({ ids: [11, 12] });
   });
 
+  it('rejects empty bulk inputs before persistence and publication', async () => {
+    const { repo, queryBuilderService } = makeRepo();
+
+    await expect(repo.createMany({ data: [] })).rejects.toThrow(
+      'data must contain at least one record',
+    );
+    await expect(repo.updateMany({ ids: [], data: { title: 'Updated' } })).rejects.toThrow(
+      'ids must contain at least one id',
+    );
+    await expect(repo.deleteMany({ ids: [] })).rejects.toThrow(
+      'ids must contain at least one id',
+    );
+
+    expect(queryBuilderService.createMany).not.toHaveBeenCalled();
+    expect(queryBuilderService.updateMany).not.toHaveBeenCalled();
+    expect(queryBuilderService.deleteMany).not.toHaveBeenCalled();
+    expect((repo as any).reload).not.toHaveBeenCalled();
+    expect((repo as any).emitTableMutation).not.toHaveBeenCalled();
+  });
+
   it('rejects a missing target before deleting any record', async () => {
     const { repo, queryBuilderService } = makeRepo();
     queryBuilderService.find.mockResolvedValueOnce({

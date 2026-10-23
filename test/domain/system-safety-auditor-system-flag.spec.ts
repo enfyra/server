@@ -29,6 +29,13 @@ function makeService(
             columns: tableColumns,
           },
         ],
+        [
+          'enfyra_user',
+          {
+            name: 'enfyra_user',
+            columns: tableColumns,
+          },
+        ],
       ]),
     }),
   };
@@ -159,6 +166,62 @@ describe('SystemSafetyAuditorService isSystem field contract', () => {
         existing: null,
       }),
     ).rejects.toThrow('Cannot delete system record!');
+  });
+
+  it('rejects creating a Root Admin user from ordinary user provisioning', async () => {
+    const { service } = makeService();
+
+    await expect(
+      service.assertSystemSafe({
+        operation: 'create',
+        tableName: 'enfyra_user',
+        data: { email: 'audit@example.invalid', isRootAdmin: true },
+        existing: null,
+        currentUser: { id: 'ordinary' },
+      }),
+    ).rejects.toThrow('Cannot create a Root Admin user');
+  });
+
+  it('allows a Root Admin to create another Root Admin user', async () => {
+    const { service } = makeService();
+
+    await expect(
+      service.assertSystemSafe({
+        operation: 'create',
+        tableName: 'enfyra_user',
+        data: { email: 'audit@example.invalid', isRootAdmin: true },
+        existing: null,
+        currentUser: { id: 'root', isRootAdmin: true },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('rejects deleting a Root Admin user identified by the full preimage', async () => {
+    const { service } = makeService();
+
+    await expect(
+      service.assertSystemSafe({
+        operation: 'delete',
+        tableName: 'enfyra_user',
+        data: {},
+        existing: { id: 'root', isRootAdmin: true },
+        currentUser: { id: 'ordinary' },
+      }),
+    ).rejects.toThrow('Cannot delete Root Admin user');
+  });
+
+  it('allows deleting an ordinary user', async () => {
+    const { service } = makeService();
+
+    await expect(
+      service.assertSystemSafe({
+        operation: 'delete',
+        tableName: 'enfyra_user',
+        data: {},
+        existing: { id: 'member', isRootAdmin: false },
+        currentUser: { id: 'ordinary' },
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it('ignores isSystem payloads for tables without an isSystem column', async () => {

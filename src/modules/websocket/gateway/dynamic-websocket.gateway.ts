@@ -507,13 +507,15 @@ export class DynamicWebSocketGateway {
       {
         sourceCode,
         scriptLanguage: gatewayData.scriptLanguage ?? 'typescript',
-        onCompiledCodeRepair: scriptRecord
-          ? () =>
-              this.lazyRef.runtimeScriptRepairService?.repairScriptRecord(
-                'enfyra_websocket',
-                scriptRecord,
-              )
-          : undefined,
+        ...(scriptRecord
+          ? {
+              onCompiledCodeRepair: () =>
+                this.lazyRef.runtimeScriptRepairService?.repairScriptRecord(
+                  'enfyra_websocket',
+                  scriptRecord,
+                ),
+            }
+          : {}),
       },
     );
   }
@@ -567,13 +569,15 @@ export class DynamicWebSocketGateway {
         {
           sourceCode: sourceCode ?? script,
           scriptLanguage: scriptLanguage ?? 'typescript',
-          onCompiledCodeRepair: scriptRecord
-            ? () =>
-                this.lazyRef.runtimeScriptRepairService?.repairScriptRecord(
-                  'enfyra_websocket_event',
-                  scriptRecord,
-                )
-            : undefined,
+          ...(scriptRecord
+            ? {
+                onCompiledCodeRepair: () =>
+                  this.lazyRef.runtimeScriptRepairService?.repairScriptRecord(
+                    'enfyra_websocket_event',
+                    scriptRecord,
+                  ),
+              }
+            : {}),
         },
       );
       ctx.$socket?.reply?.('ws:result', {
@@ -882,7 +886,7 @@ export class DynamicWebSocketGateway {
           done = resolve;
         })
       : Promise.resolve();
-    const job = { path, room, event, data, done };
+    const job = { path, room, event, data, ...(done ? { done } : {}) };
     if (queue) {
       queue.push(job);
     } else {

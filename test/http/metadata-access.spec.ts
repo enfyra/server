@@ -123,6 +123,30 @@ describe('metadata access projection', () => {
     expect([...actions.get('posts') ?? []]).toEqual(['read']);
   });
 
+  it('keeps unpublished subjects hidden when the optional field policy reader is absent', async () => {
+    const data = await projectMetadataForUser({
+      metadata: metadata([
+        table('posts', [col('title'), col('secret', { isPublished: false })], [
+          rel('author'),
+          rel('privateOwner', { isPublished: false }),
+        ]),
+        table('private_posts', [col('secret')]),
+      ]),
+      user: null,
+      policyService: new PolicyService({} as any),
+      routeCacheService: routeCacheService([{
+        path: '/posts',
+        mainTable: { name: 'posts' },
+        methodConfigs: [{ available: true, method: { name: 'GET' }, isPublic: true }],
+      }]),
+    });
+
+    expect(data).toHaveLength(1);
+    expect(data[0].name).toBe('posts');
+    expect(data[0].columns.map((column: any) => column.name)).toEqual(['title']);
+    expect(data[0].relations.map((relation: any) => relation.propertyName)).toEqual(['author']);
+  });
+
   it('returns full metadata for root admin without applying route or field filters', async () => {
     const meta = metadata([
       table('secret_definition', [col('secret', { isPublished: false })]),

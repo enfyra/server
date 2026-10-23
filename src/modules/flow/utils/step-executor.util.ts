@@ -63,7 +63,7 @@ export async function executeStepCore(opts: StepExecOptions): Promise<unknown> {
   const result = await executorEngineService.run(code, ctx, timeout, {
     sourceCode,
     scriptLanguage,
-    onCompiledCodeRepair,
+    ...(onCompiledCodeRepair !== undefined ? { onCompiledCodeRepair } : {}),
   });
 
   if (isCondition && typeof result !== 'boolean') {

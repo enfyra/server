@@ -52,7 +52,7 @@ export interface RuntimeCacheViewSource {
 
 export class RuntimeRegistryService {
   private readonly logger = new Logger(RuntimeRegistryService.name);
-  private readonly eventEmitter?: EventEmitter2;
+  private readonly eventEmitter: EventEmitter2 | undefined;
   private readonly entries = new Map<
     RuntimeCacheIdentifier,
     RuntimeRegistryEntry

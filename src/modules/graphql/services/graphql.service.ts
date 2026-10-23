@@ -413,7 +413,7 @@ export class GraphqlService {
   getStatus(): GraphqlRuntimeStatus {
     return {
       schemaReady: !!this.schema,
-      lastReload: this.lastReload ? { ...this.lastReload } : undefined,
+      ...(this.lastReload ? { lastReload: { ...this.lastReload } } : {}),
     };
   }
 

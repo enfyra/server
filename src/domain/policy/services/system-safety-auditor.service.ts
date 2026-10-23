@@ -178,6 +178,13 @@ export class SystemSafetyAuditorService {
     }
 
     if (tableName === 'enfyra_user') {
+      if (
+        operation === 'create' &&
+        data?.isRootAdmin === true &&
+        currentUser?.isRootAdmin !== true
+      ) {
+        throw new Error('Cannot create a Root Admin user');
+      }
       const isRoot = fullExisting?.isRootAdmin;
       if (operation === 'delete' && isRoot)
         throw new Error('Cannot delete Root Admin user');

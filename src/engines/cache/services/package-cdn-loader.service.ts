@@ -419,7 +419,8 @@ export class PackageCdnLoaderService {
       /\b(from\s*["']|import\s*["'])(\/[^"']+|file:\/\/[^"']+|\.{1,2}\/[^"']+)(["'])/g;
     const specifiers = new Set<string>();
     for (const match of code.matchAll(importPattern)) {
-      specifiers.add(match[2]);
+      const specifier = match[2];
+      if (specifier !== undefined) specifiers.add(specifier);
     }
 
     await Promise.all(

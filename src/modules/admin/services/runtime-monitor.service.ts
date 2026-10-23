@@ -31,7 +31,7 @@ export class RuntimeMonitorService {
   private readonly runtimeQueueMetricsService: RuntimeQueueMetricsService;
   private readonly runtimeDbMetricsService: RuntimeDbMetricsService;
   private readonly redisAdminService: RedisAdminService;
-  private timer?: ReturnType<typeof setInterval>;
+  private timer: ReturnType<typeof setInterval> | undefined;
   private sampling = false;
   private averageReset?: Promise<void>;
   private lastRedisSampleAt = 0;

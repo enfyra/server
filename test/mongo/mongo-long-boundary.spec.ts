@@ -40,6 +40,17 @@ describe('Mongo 64-bit integer boundary', () => {
     });
   });
 
+  it('normalizes serialized ObjectId bytes in numeric rather than lexicographic key order', () => {
+    const buffer = Object.fromEntries(
+      Array.from({ length: 12 }, (_, index) => [String(index), index]),
+    );
+
+    expect(normalizeMongoDocument({ buffer })).toBe('000102030405060708090a0b');
+    expect(normalizeMongoDocument({ nested: { buffer } })).toEqual({
+      nested: '000102030405060708090a0b',
+    });
+  });
+
   it('keeps ordinary primitives and ObjectIds intact', () => {
     expect(normalizeBsonLongs({ count: 3, name: 'x', flag: false })).toEqual({
       count: 3,

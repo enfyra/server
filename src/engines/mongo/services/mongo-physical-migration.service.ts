@@ -387,8 +387,9 @@ export class MongoPhysicalMigrationService {
         .sort({ _id: 1 })
         .limit(BATCH_SIZE)
         .toArray();
-      if (docs.length === 0) break;
-      lastId = docs[docs.length - 1]._id;
+      const lastDoc = docs.at(-1);
+      if (lastDoc === undefined) break;
+      lastId = lastDoc._id;
 
       const result = await collection.bulkWrite(
         docs.map((doc) => ({

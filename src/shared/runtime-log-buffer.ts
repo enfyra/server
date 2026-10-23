@@ -99,8 +99,8 @@ export function peekRuntimeLogs(limit = 50): PendingRuntimeLog[] { return pendin
 export function acknowledgeRuntimeLog(eventId: string): void {
   const index = pending.findIndex((item) => item.record.eventId === eventId);
   if (index < 0) return;
-  queuedBytes -= pending[index].bytes;
-  pending.splice(index, 1);
+  const [acknowledged] = pending.splice(index, 1);
+  if (acknowledged) queuedBytes -= acknowledged.bytes;
 }
 export function setRuntimeLogInstance(value: string): void { instanceId = value; }
 export function getRuntimeLogBufferStats() { return { pending: pending.length, bytes: queuedBytes, dropped }; }

@@ -2,9 +2,18 @@ import { describe, expect, it } from 'vitest';
 import {
   matchRouteInRoutes,
   matchRouteIndexEntry,
+  matchRoutePattern,
 } from '../../src/shared/utils/route-match.util';
 
 describe('route-match util', () => {
+  it('preserves wildcard, missing-segment and malformed-escape matching', () => {
+    expect(matchRoutePattern('/files/*', '/files')).toEqual({ splat: '' });
+    expect(matchRoutePattern('/files/*', '/files/a/b')).toEqual({ splat: 'a/b' });
+    expect(matchRoutePattern('/files/:id', '/files')).toBeNull();
+    expect(matchRoutePattern('/files/:id', '/files/%ZZ')).toEqual({ id: '%ZZ' });
+    expect(matchRouteIndexEntry([], 'GET', '/files')).toBeNull();
+  });
+
   it('matches static routes before parameter routes with the same method', () => {
     const match = matchRouteInRoutes(
       [

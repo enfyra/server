@@ -19,7 +19,9 @@ function extractCandidates(source: string): string[] {
   const regex = /["'`]([^"'`]*)["'`]/g;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(source)) !== null) {
-    for (const token of match[1].split(/\s+/)) {
+    const candidate = match[1];
+    if (candidate === undefined) continue;
+    for (const token of candidate.split(/\s+/)) {
       if (token && /^[a-zA-Z!@\-_]/.test(token) && token.length < 100) {
         candidates.add(token);
       }

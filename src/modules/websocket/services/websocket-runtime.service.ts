@@ -82,7 +82,7 @@ export class WebsocketRuntimeService {
   getStatus(): WebsocketRuntimeStatus {
     return {
       initialized: this.initialized,
-      lastRefresh: this.lastRefresh ? { ...this.lastRefresh } : undefined,
+      ...(this.lastRefresh ? { lastRefresh: { ...this.lastRefresh } } : {}),
     };
   }
 }

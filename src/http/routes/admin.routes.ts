@@ -10,7 +10,6 @@ import {
   assertScriptSourceContract,
   compileScriptSource,
 } from '../../shared/utils/script-code.util';
-import { SYSTEM_TABLES } from '../../shared/utils/system-tables.constants';
 import { revertCodeAudit } from '../../modules/dynamic-api/services/code-audit-revert.service';
 import type { TCacheInvalidationPayload } from '../../shared/types/cache.types';
 import type { FlowStepReorderInput } from '../../modules/flow/types/flow-step-reorder.types';
@@ -761,7 +760,7 @@ async function runTest(body: any, cradle: any, currentUser: any = null) {
       cradle,
       currentUser,
       route: resolved.route,
-      mainTableName: tableName,
+      ...(tableName === undefined ? {} : { mainTableName: tableName }),
     });
     ctx.$repos = repoRegistryService.createReposProxy(ctx, tableName);
 

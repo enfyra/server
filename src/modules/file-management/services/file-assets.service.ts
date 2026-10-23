@@ -31,7 +31,7 @@ export class FileAssetsService {
 
     this.fileAssetAccessService = new FileAssetAccessService({
       queryBuilderService: deps.queryBuilderService,
-      eventEmitter: deps.eventEmitter,
+      ...(deps.eventEmitter !== undefined ? { eventEmitter: deps.eventEmitter } : {}),
     });
 
     this.imageAssetProcessorService = new ImageAssetProcessorService({

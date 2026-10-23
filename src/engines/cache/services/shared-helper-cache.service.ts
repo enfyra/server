@@ -65,12 +65,12 @@ export class SharedHelperCacheService extends BaseCacheService<
         );
       const id = DatabaseConfigService.getRecordId(record);
       return {
-        id: id == null ? undefined : String(id),
+        ...(id == null ? {} : { id: String(id) }),
         name: record.name,
         isEnabled: enabled,
         code: code ?? '',
-        sourceCode: record.sourceCode,
-        scriptLanguage: record.scriptLanguage,
+        ...(record.sourceCode !== undefined ? { sourceCode: record.sourceCode } : {}),
+        ...(record.scriptLanguage !== undefined ? { scriptLanguage: record.scriptLanguage } : {}),
       };
     });
   }

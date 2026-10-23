@@ -6,4 +6,6 @@ export interface CacheOrchestratorConfig {
   signalRetryMaxAttempts: number;
   signalRetryBaseDelayMs: number;
   signalRetryMaxDelayMs: number;
+  signalRetryBudgetMs: number;
+  sharedGenerationReconcileMs: number;
 }

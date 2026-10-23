@@ -59,9 +59,9 @@ export function normalizeMongoDocument(doc: any): any {
   ) {
     try {
       const bufferObj = doc.buffer as Record<string, number>;
-      const bufferArray = Object.keys(bufferObj)
-        .sort((a, b) => parseInt(a) - parseInt(b))
-        .map((key) => bufferObj[key]);
+      const bufferArray = Object.entries(bufferObj)
+        .sort(([a], [b]) => parseInt(a) - parseInt(b))
+        .map(([, value]) => value);
       const objectId = new ObjectId(Buffer.from(bufferArray));
       return objectId.toString();
     } catch {}
@@ -86,9 +86,9 @@ export function normalizeMongoDocument(doc: any): any {
       ) {
         try {
           const bufferObj = value.buffer as Record<string, number>;
-          const bufferArray = Object.keys(bufferObj)
-            .sort((a, b) => parseInt(a) - parseInt(b))
-            .map((key) => bufferObj[key]);
+          const bufferArray = Object.entries(bufferObj)
+            .sort(([a], [b]) => parseInt(a) - parseInt(b))
+            .map(([, value]) => value);
           const objectId = new ObjectId(Buffer.from(bufferArray));
           normalized[key] = objectId.toString();
         } catch {

@@ -31,7 +31,7 @@ function percentile(values: number[], p: number) {
     sorted.length - 1,
     Math.ceil((p / 100) * sorted.length) - 1,
   );
-  return sorted[Math.max(0, index)];
+  return sorted[Math.max(0, index)] ?? 0;
 }
 
 function isPoolAcquireTimeout(error: unknown) {
@@ -158,7 +158,7 @@ class RuntimeMetricsRedisStore {
 export class RuntimeMetricsCollectorService {
   private readonly queryContext = new AsyncLocalStorage<QueryMetricContext>();
   private readonly redisStore?: RuntimeMetricsRedisStore;
-  private readonly instanceId?: string;
+  private readonly instanceId: string | undefined;
   private readonly requests = new Map<string, RuntimeRouteMetric>();
   private readonly queries = new Map<string, RuntimeQueryMetric>();
   private readonly flows = new Map<string, RuntimeFlowMetric>();
@@ -313,9 +313,10 @@ export class RuntimeMetricsCollectorService {
   }
 
   recordCacheReload(metric: RuntimeCacheReloadMetric) {
-    const record = {
+    const instanceId = metric.instanceId ?? this.instanceId;
+    const record: RuntimeCacheReloadMetric = {
       ...metric,
-      instanceId: metric.instanceId ?? this.instanceId,
+      ...(instanceId !== undefined ? { instanceId } : {}),
     };
     if (this.redisStore) {
       this.redisStore.pushCacheReload(record);
@@ -601,8 +602,8 @@ export class RuntimeMetricsCollectorService {
       failed?: boolean;
     },
   ): void {
-    metric.stepLatencies[input.stepKey] ??= [];
-    pushLatency(metric.stepLatencies[input.stepKey], input.durationMs);
+    const latencies = metric.stepLatencies[input.stepKey] ??= [];
+    pushLatency(latencies, input.durationMs);
     if (input.failed) {
       metric.failedSteps[input.stepKey] =
         (metric.failedSteps[input.stepKey] ?? 0) + 1;

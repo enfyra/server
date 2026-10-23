@@ -157,11 +157,17 @@ export class RateLimitService {
         throw new Error('Redis pipeline execution failed');
       }
 
-      const count = results[1][1] as number;
-      const oldestResult = results[2][1] as string[];
+      const countResult = results[1];
+      const oldestEntry = results[2];
+      if (!countResult || !oldestEntry) {
+        throw new Error('Redis pipeline execution failed');
+      }
+      const count = countResult[1] as number;
+      const oldestResult = oldestEntry[1] as string[];
+      const oldestScore = oldestResult?.[1];
       let resetAt = now + options.perSeconds * 1000;
-      if (oldestResult && oldestResult.length >= 2) {
-        const oldestTimestamp = parseFloat(oldestResult[1]);
+      if (oldestScore !== undefined) {
+        const oldestTimestamp = parseFloat(oldestScore);
         if (!Number.isNaN(oldestTimestamp)) {
           resetAt = oldestTimestamp + options.perSeconds * 1000;
         }

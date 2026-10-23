@@ -50,11 +50,16 @@ export function decodeEncryptedFieldValue(value: unknown): unknown {
 
   const text = String(value);
   const parts = text.slice(ENCRYPTED_PREFIX.length).split(':');
-  if (parts.length !== 3) {
+  const [ivText, tagText, encryptedText] = parts;
+  if (
+    parts.length !== 3 ||
+    ivText === undefined ||
+    tagText === undefined ||
+    encryptedText === undefined
+  ) {
     throw new Error('Invalid encrypted field format');
   }
 
-  const [ivText, tagText, encryptedText] = parts;
   const decipher = createDecipheriv(
     'aes-256-gcm',
     getMasterKey(),

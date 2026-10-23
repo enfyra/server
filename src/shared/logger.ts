@@ -211,7 +211,7 @@ function shouldEmit(level: LevelName): boolean {
   }
 
   const configured = process.env.LOG_LEVEL || 'info';
-  const maxPriority = LOG_LEVEL_PRIORITY[configured] ?? LOG_LEVEL_PRIORITY.info;
+  const maxPriority = LOG_LEVEL_PRIORITY[configured] ?? LEVEL_PRIORITY.log;
   if (LEVEL_PRIORITY[level] > maxPriority) return false;
 
 
@@ -219,7 +219,7 @@ function shouldEmit(level: LevelName): boolean {
 }
 
 export class Logger {
-  private readonly context?: string;
+  private readonly context: string | undefined;
 
   constructor(context?: string) {
     this.context = context;

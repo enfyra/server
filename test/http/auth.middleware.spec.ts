@@ -71,7 +71,7 @@ describe('authMiddleware', () => {
       headers: { authorization: 'Bearer malformed.jwt.token' },
       routeData: {
         routeMethodConfig: { isPublic: true },
-        context: { $user: 'existing' },
+        context: { $user: 'existing', $authSource: 'pat' },
       },
     };
     const next = vi.fn();
@@ -80,6 +80,8 @@ describe('authMiddleware', () => {
 
     expect(req.user).toBeNull();
     expect(req.routeData.context.$user).toBeNull();
+    expect(req.routeData.context.$authSource).toBeUndefined();
+    expect(Object.hasOwn(req.routeData.context, '$authSource')).toBe(true);
     expect(next).toHaveBeenCalledWith();
   });
 

@@ -106,6 +106,26 @@ describe('MongoSagaSnapshotService snapshot rollback', () => {
     expect(posts.deleteMany).not.toHaveBeenCalled();
   });
 
+  it('attributes partial bulk restore failures to the matching document snapshots', async () => {
+    const { service, posts } = createService();
+    const firstId = new ObjectId('65f000000000000000000001');
+    const secondId = new ObjectId('65f000000000000000000002');
+    posts.bulkWrite.mockRejectedValueOnce({
+      writeErrors: [{ index: 1, errmsg: 'restore conflict' }],
+    });
+
+    const result = await (service as any).rollbackBatch('tx-test', [
+      snapshot({ seq: 1, documentId: firstId, before: { _id: firstId, title: 'first' } }),
+      snapshot({ seq: 2, documentId: secondId, before: { _id: secondId, title: 'second' } }),
+    ]);
+
+    expect(result.success).toBe(false);
+    expect(result.rolledBackSnapshots).toEqual(['tx-test-1']);
+    expect(result.failedSnapshots).toEqual([
+      { snapshotId: 'tx-test-2', error: 'restore conflict' },
+    ]);
+  });
+
   it('deletes a document when its first session snapshot is an insert', async () => {
     const { service, posts } = createService();
     const id = new ObjectId('65f000000000000000000001');

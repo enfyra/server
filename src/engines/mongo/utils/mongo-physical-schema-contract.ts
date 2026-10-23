@@ -50,11 +50,12 @@ export function buildMongoStoredRelationContracts(
       continue;
     }
 
+    const targetTable = relation.targetTableName || relation.targetTable;
     contracts.push({
       propertyName: relation.propertyName,
       type: relation.type,
       storedField,
-      targetTable: relation.targetTableName || relation.targetTable,
+      ...(targetTable === undefined ? {} : { targetTable }),
     });
   }
 
@@ -221,6 +222,8 @@ export function buildMongoFullIndexSpecs(input: {
 
   for (const unique of uniques) {
     if (!Array.isArray(unique) || unique.length === 0) continue;
+    const firstField = unique[0];
+    if (firstField === undefined) continue;
     const keys: Record<string, 1> = {};
     for (const field of unique) {
       keys[field] = 1;
@@ -238,11 +241,13 @@ export function buildMongoFullIndexSpecs(input: {
       name: `${input.collectionName}_${unique.join('_')}_unique`,
       logicalFields: unique,
     });
-    indexedFields.add(unique[0]);
+    indexedFields.add(firstField);
   }
 
   for (const index of indexes) {
     if (!Array.isArray(index) || index.length === 0) continue;
+    const firstField = index[0];
+    if (firstField === undefined) continue;
     if (uniques.some(unique => unique.length >= index.length && index.every((field, position) => unique[position] === field))) continue;
     const temporalDirection =
       index.length === 1 &&
@@ -254,8 +259,8 @@ export function buildMongoFullIndexSpecs(input: {
       keys[field] = temporalDirection;
     }
     const indexName =
-      index.length === 1 && storedRelationFields.has(index[0])
-        ? `${input.collectionName}_${index[0]}_fk_idx`
+      index.length === 1 && storedRelationFields.has(firstField)
+        ? `${input.collectionName}_${firstField}_fk_idx`
         : `${input.collectionName}_${index.join('_')}_idx`;
     specs.push({
       keys: withStableIdTieBreaker(keys),

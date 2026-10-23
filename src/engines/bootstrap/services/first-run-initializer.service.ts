@@ -55,7 +55,7 @@ export class FirstRunInitializer {
   private readonly routeDefinitionProcessor: RouteDefinitionProcessor;
   private readonly bootstrapUnitOfWorkService: BootstrapUnitOfWorkService;
   private readonly bootstrapDefinitionService: BootstrapDefinitionService;
-  private readonly mongoSagaCoordinator?: MongoSagaCoordinator;
+  private readonly mongoSagaCoordinator: MongoSagaCoordinator | undefined;
   /**
    * The version the declarations were scoped against, also used as the
    * compare-and-set guard when publishing the new version so only the instance that
@@ -399,7 +399,11 @@ export class FirstRunInitializer {
     } finally {
       await lease.stop();
       await this.cacheService.release(PROVISION_LOCK_KEY, lockValue);
-      process.noDeprecation = originalNoDeprecation;
+      if (originalNoDeprecation === undefined) {
+        delete process.noDeprecation;
+      } else {
+        process.noDeprecation = originalNoDeprecation;
+      }
     }
   }
 

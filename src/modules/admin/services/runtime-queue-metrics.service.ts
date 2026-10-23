@@ -51,7 +51,7 @@ export class RuntimeQueueMetricsService {
             failedReason: job.failedReason,
             attemptsMade: job.attemptsMade,
             timestamp: job.timestamp,
-            finishedOn: job.finishedOn,
+            ...(job.finishedOn !== undefined ? { finishedOn: job.finishedOn } : {}),
           });
         }
       }

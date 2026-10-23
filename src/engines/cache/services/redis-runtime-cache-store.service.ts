@@ -89,7 +89,7 @@ export class RedisRuntimeCacheStore {
   private readonly committedRead = new AsyncLocalStorage<RuntimeCacheCommittedReadScope>();
   private readonly nodeName: string;
   private readonly enabled: boolean;
-  private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
+  private readonly runtimeNamespaceLifecycleService: RuntimeNamespaceLifecycleService | undefined;
 
   constructor(deps: {
     redis: Redis;
@@ -109,6 +109,20 @@ export class RedisRuntimeCacheStore {
 
   private committedKey(): string {
     return `${this.nodeName}:runtime_cache:committed`;
+  }
+
+  private generationKey(): string {
+    return `${this.nodeName}:runtime_cache:generation`;
+  }
+
+  async readCommittedGeneration(): Promise<string | null> {
+    if (!this.enabled) return null;
+    try {
+      const value = await this.redis.get(this.generationKey());
+      return value ? String(value) : null;
+    } catch {
+      return null;
+    }
   }
 
   private getActiveCommittedRead(): RuntimeCacheCommittedReadScope | undefined {
@@ -205,7 +219,11 @@ export class RedisRuntimeCacheStore {
     const committed = await this.redis.eval(script, keys.length, ...keys, scope.token!, ttl, snapshots.length, auxiliary.length, ...snapshots.flatMap(([id, data]) => [id, data]), ...auxiliary.map(([, data]) => data));
     if (committed !== 1) throw new Error('Runtime cache publication lease lost');
     scope.committed = true;
+    await this.redis
+      .set(this.generationKey(), String(Date.now()), 'PX', ttl)
+      .catch(() => undefined);
     for (const key of writtenKeys) await this.runtimeNamespaceLifecycleService?.registerManagedKey(key);
+    await this.runtimeNamespaceLifecycleService?.registerManagedKey(this.generationKey());
     for (const key of deletedAuxiliary) await this.runtimeNamespaceLifecycleService?.unregisterManagedKey(key);
   }
 

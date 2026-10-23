@@ -1,7 +1,9 @@
 import type { Request } from 'express';
 import type { RuntimeScriptExecutorService } from '../../src/engines/cache/services/runtime-script-executor.service';
 import type { FlowStepExecutor } from '../../src/modules/flow/interfaces/flow-step-executor.interface';
-import type { FlowStepTestResult } from '../../src/modules/flow/types/flow-step-execution.types';
+import type { FlowStepTestResult, StepExecOptions } from '../../src/modules/flow/types/flow-step-execution.types';
+import type { DynamicReadOptions } from '../../src/modules/dynamic-api/types/dynamic-read.types';
+import type { DynamicMutationReloadOptions } from '../../src/modules/dynamic-api/types/dynamic-mutation-lifecycle.types';
 import type { TableGraphQLDef } from '../../src/modules/graphql/types/graphql-schema.types';
 import type { GraphqlResolverContext } from '../../src/modules/graphql/types/graphql-resolver.types';
 import type { DynamicRequestContext } from '../../src/shared/types/dynamic-context.types';
@@ -36,8 +38,23 @@ export function checkRequestSnapshots(request: Request): GraphqlResolverContext 
   const graphql: DynamicRequestContext = { headers: new Headers() };
   // @ts-expect-error A context snapshot does not provide the Express request methods.
   http.get('authorization');
-  return { request: graphql, clientIp: websocket.ip ?? undefined };
+  const clientIp = websocket.ip;
+  return { request: graphql, ...(clientIp != null ? { clientIp } : {}) };
 }
+
+type AssertTrue<T extends true> = T;
+type Rejects<Expected, Candidate> = Candidate extends Expected ? false : true;
+
+export type ExecutionOptionalContracts = [
+  AssertTrue<Rejects<DynamicReadOptions, { fields: undefined }>>,
+  AssertTrue<Rejects<DynamicReadOptions, { limit: undefined }>>,
+  AssertTrue<Rejects<DynamicMutationReloadOptions, { critical: undefined }>>,
+  AssertTrue<Rejects<DynamicMutationReloadOptions, { ids: undefined }>>,
+  AssertTrue<Rejects<StepExecOptions, Omit<StepExecOptions, 'stepKey'> & { stepKey: undefined }>>,
+  AssertTrue<Rejects<StepExecOptions, Omit<StepExecOptions, 'onCompiledCodeRepair'> & { onCompiledCodeRepair: undefined }>>,
+  AssertTrue<{} extends DynamicReadOptions ? true : false>,
+  AssertTrue<{ critical: false; ids: [] } extends DynamicMutationReloadOptions ? true : false>,
+];
 
 export function checkGraphqlFields(field: NonNullable<TableGraphQLDef['queryField']>): void {
   // @ts-expect-error GraphQL field arguments require GraphQL input types.

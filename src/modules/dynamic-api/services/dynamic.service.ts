@@ -14,7 +14,8 @@ import {
   getErrorMessage,
   getErrorStack,
 } from '../../../shared/utils/error.util';
-import { RequestWithRouteData } from '../../../shared/types';
+import type { RequestWithRouteData } from '../../../shared/types';
+import type { DynamicResponse } from '../../../shared/types/dynamic-context.types';
 import { Readable } from 'stream';
 import { RuntimeScriptRepairService, type RuntimeScriptExecutorService } from '../../../engines/cache';
 import { recordUserLog } from '../../../shared/runtime-log-buffer';
@@ -312,7 +313,9 @@ export class DynamicService {
   }) {
     this.executorEngineService = deps.executorEngineService;
     this.loggingService = deps.loggingService;
-    this.runtimeScriptRepairService = deps.runtimeScriptRepairService;
+    if (deps.runtimeScriptRepairService !== undefined) {
+      this.runtimeScriptRepairService = deps.runtimeScriptRepairService;
+    }
     this.dynamicCancellationService = deps.dynamicCancellationService;
   }
 
@@ -360,9 +363,7 @@ export class DynamicService {
       if (res) beginDynamicRouteExecution(req, res, this.dynamicCancellationService);
       if (res) {
         attachStreamResponseHelper(res);
-        routeData.context.$res = res as unknown as NonNullable<
-          RequestWithRouteData['routeData']
-        >['context']['$res'];
+        routeData.context.$res = res as unknown as DynamicResponse;
       }
 
       this.executorEngineService.register(req, {

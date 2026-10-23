@@ -289,7 +289,8 @@ class ScriptContractService {
             '$throw exposes only .http(statusCode, message?) and .json(body, options?)',
           );
         }
-        if (call.arguments.length < 1 || call.arguments.length > 2) {
+        const body = call.arguments[0];
+        if (body === undefined || call.arguments.length > 2) {
           throw new Error(
             methodAccess.name.text === 'http'
               ? '$throw.http accepts only statusCode and optional message'
@@ -297,7 +298,6 @@ class ScriptContractService {
           );
         }
         if (methodAccess.name.text === 'json') {
-          const body = call.arguments[0];
           if (
             ts.isArrayLiteralExpression(body) ||
             ts.isStringLiteral(body) ||

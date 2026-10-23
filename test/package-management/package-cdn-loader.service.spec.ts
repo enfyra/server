@@ -11,6 +11,7 @@ import {
   CACHE_IDENTIFIERS,
 } from '../../src/shared/utils/cache-events.constants';
 import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../src/shared/utils/constant';
+import { isNativeCdnImport, parseCdnPackageSpecifier } from '../../src/engines/cache/utils/package-cdn-loader.util';
 
 function response(body: string, ok = true, status = 200) {
   return {
@@ -24,6 +25,16 @@ function response(body: string, ok = true, status = 200) {
 describe('PackageCdnLoaderService', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('parses scoped and unscoped CDN packages without guessing missing segments', () => {
+    expect(parseCdnPackageSpecifier('/')).toBeNull();
+    expect(parseCdnPackageSpecifier('/@scope')).toBeNull();
+    expect(parseCdnPackageSpecifier('local')).toBeNull();
+    expect(parseCdnPackageSpecifier('/demo@1.2.3/node/main.mjs?target=node')).toEqual({ name: 'demo', version: '1.2.3', packagePath: '/demo@1.2.3/node/main.mjs', query: 'target=node' });
+    expect(parseCdnPackageSpecifier('/@scope/demo@1.2.3/node/main.mjs')).toEqual({ name: '@scope/demo', version: '1.2.3', packagePath: '/@scope/demo@1.2.3/node/main.mjs', query: '' });
+    expect(isNativeCdnImport('/native.node?target=node')).toBe(true);
+    expect(isNativeCdnImport('')).toBe(false);
   });
 
   it('rewrites esm.sh absolute CDN imports to local cached modules before import', async () => {

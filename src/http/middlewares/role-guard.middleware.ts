@@ -15,7 +15,7 @@ export function roleGuardMiddleware(policyService: PolicyService) {
       const decision = policyService.checkRequestAccess({
         method: req.method,
         routeData: req.routeData,
-        user: req.user,
+        ...(req.user === undefined ? {} : { user: req.user }),
       });
 
       if (decision.allow) {

@@ -18,7 +18,9 @@ function parseRequestedFields(fields: any): {
   let includeAll = false;
   for (const f of arr) {
     if (f === '*') includeAll = true;
-    set.add(String(f).split('.')[0]);
+    const field = String(f);
+    const dotIndex = field.indexOf('.');
+    set.add(dotIndex === -1 ? field : field.slice(0, dotIndex));
   }
   return { includeAll, set };
 }

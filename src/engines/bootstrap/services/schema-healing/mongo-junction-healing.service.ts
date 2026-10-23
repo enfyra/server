@@ -86,7 +86,7 @@ export class MongoJunctionHealingService {
         key: { [input.junctionTargetColumn]: 1 },
         unique: false,
       },
-    ];
+    ] as const;
     for (const index of indexes) {
       if (index.name === '_id_') continue;
       const expected = expectedIndexes.find(

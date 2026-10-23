@@ -7,7 +7,7 @@ import type { FileCleanupJob } from '../types/file-cleanup.types';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 
 export class FileCleanupService {
-  private worker?: Worker<FileCleanupJob>;
+  private worker: Worker<FileCleanupJob> | undefined;
 
   constructor(private readonly deps: {
     fileCleanupQueue: Queue<FileCleanupJob>;
@@ -27,7 +27,10 @@ export class FileCleanupService {
   }
 
   async enqueue(location: string, storageConfigId?: number | string): Promise<void> {
-    await this.deps.fileCleanupQueue.add('delete-unreferenced-object', { location, storageConfigId }, {
+    await this.deps.fileCleanupQueue.add('delete-unreferenced-object', {
+      location,
+      ...(storageConfigId !== undefined ? { storageConfigId } : {}),
+    }, {
       attempts: 8,
       backoff: { type: 'exponential', delay: 1000 },
       removeOnComplete: { count: 100, age: 86400 },

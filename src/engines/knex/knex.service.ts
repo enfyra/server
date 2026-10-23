@@ -54,7 +54,7 @@ export class KnexService implements LifecycleAware {
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly envService: EnvService;
   private readonly knexHookManagerService: KnexHookManagerService;
-  private readonly replicationManager?: ReplicationManager;
+  private readonly replicationManager: ReplicationManager | undefined;
   private readonly lazyRef: Cradle;
 
   constructor(deps: {
@@ -120,7 +120,9 @@ export class KnexService implements LifecycleAware {
           user: parsed.user,
           password: parsed.password,
           database: parsed.database,
-          filename: parsed.filename,
+          ...(parsed.filename === undefined
+            ? {}
+            : { filename: parsed.filename }),
         };
       } else {
         connectionConfig = {
@@ -177,12 +179,14 @@ export class KnexService implements LifecycleAware {
         pool: {
           min: poolConfig.min,
           max: poolConfig.max,
-          afterCreate: isPostgres
-            ? undefined
-            : (
-                connection: any,
-                done: (error: unknown, connection?: any) => void,
-              ) => applyMySqlSessionTimeZone(connection, done),
+          ...(isPostgres
+            ? {}
+            : {
+                afterCreate: (
+                  connection: any,
+                  done: (error: unknown, connection?: any) => void,
+                ) => applyMySqlSessionTimeZone(connection, done),
+              }),
         },
         acquireConnectionTimeout: SQL_ACQUIRE_TIMEOUT_MS,
         debug: false,

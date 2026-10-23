@@ -51,16 +51,18 @@ export class RuntimeSchemaUnitOfWorkService {
       throw new Error('MongoDB runtime schema UOW requires its immutable contract');
     }
     const result = await this.mongoService.runInSaga(
-      async () =>
-        callback({ sagaSessionId: this.mongoService.getCurrentSagaId() }),
-      {
-      forceApplicationTransaction: true,
-      scopeRawDbAccess: true,
-      sagaOptions: {
-        maxDurationMs: REDIS_TTL.PROVISION_LOCK_TTL,
-        purpose: 'runtime-schema',
-        mutationId: contract.mutationId,
+      async () => {
+        const sagaSessionId = this.mongoService.getCurrentSagaId();
+        return callback(sagaSessionId === undefined ? {} : { sagaSessionId });
       },
+      {
+        forceApplicationTransaction: true,
+        scopeRawDbAccess: true,
+        sagaOptions: {
+          maxDurationMs: REDIS_TTL.PROVISION_LOCK_TTL,
+          purpose: 'runtime-schema',
+          mutationId: contract.mutationId,
+        },
       },
     );
     return result.data as T;

@@ -54,6 +54,56 @@ function createOrchestrator(overrides: Record<string, any> = {}) {
 }
 
 describe('CacheOrchestratorService reload notifications', () => {
+  it('merges full invalidation without undefined optional fields', () => {
+    const { orchestrator } = createOrchestrator();
+    const internals = orchestrator as any;
+    try {
+      internals.mergePayload({ table: 'enfyra_route', action: 'reload', scope: 'partial', ids: [1], timestamp: 1 });
+      internals.mergePayload({ table: 'enfyra_route', action: 'reload', scope: 'full', timestamp: 2 });
+      expect(internals.pendingPayloads.get('enfyra_route')).toStrictEqual({ table: 'enfyra_route', action: 'reload', scope: 'full', timestamp: 2 });
+      internals.mergePayload({ table: 'enfyra_route', action: 'reload', scope: 'partial', ids: [2], critical: true, timestamp: 3 });
+      expect(internals.pendingPayloads.get('enfyra_route')).toStrictEqual({ table: 'enfyra_route', action: 'reload', scope: 'full', critical: true, timestamp: 3 });
+    } finally { orchestrator.onDestroy(); }
+  });
+
+  it('omits absent tracking metadata and retains failure messages', () => {
+    const recordCacheReload = vi.fn();
+    const { orchestrator } = createOrchestrator({ runtimeMetricsCollectorService: { recordCacheReload } });
+    try {
+      const tracker = (orchestrator as any).createReloadTracker('route', 'enfyra_route', 'full');
+      tracker.finish(null);
+      expect(recordCacheReload).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'success' }));
+      const success = recordCacheReload.mock.calls[0]?.[0];
+      expect(success).not.toHaveProperty('error');
+      expect(success).not.toHaveProperty('reloadId');
+      tracker.finish(new Error('failed'));
+      expect(recordCacheReload).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'failed', error: 'failed' }));
+    } finally { orchestrator.onDestroy(); }
+  });
+
+  it('runs bounded steps once and settles sibling work before rejecting', async () => {
+    const { orchestrator } = createOrchestrator();
+    const started: number[] = [];
+    const completed: number[] = [];
+    let active = 0;
+    let peak = 0;
+    try {
+      await expect((orchestrator as any).runBoundedReloadSteps([1, 2, 3, 4], 2, async (item: number) => {
+        started.push(item);
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        active--;
+        if (item === 1) throw new Error('step failed');
+        completed.push(item);
+      })).rejects.toThrow('step failed');
+      expect(peak).toBe(2);
+      expect(active).toBe(0);
+      expect(started).toEqual([1, 2, 3, 4]);
+      expect(completed).toEqual([2, 3, 4]);
+    } finally { orchestrator.onDestroy(); }
+  });
+
   it('keeps route and GraphQL guards attached after a table rename', async () => {
     let name = 'old_items';
     const runtimeRegistryService = new RuntimeRegistryService();

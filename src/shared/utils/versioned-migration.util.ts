@@ -182,7 +182,12 @@ function selectApplicableSteps<
   steps: readonly T[],
   dbVersion: unknown,
 ): ResolvedVersionRange & { applicable: T[] } {
-  if (steps.length === 0) {
+  const ordered = [...steps].sort((left, right) =>
+    compareEnfyraVersions(left.toVersion, right.toVersion),
+  );
+  const [firstStep] = ordered;
+  if (firstStep === undefined) {
+    if (steps.length > 0) throw new Error('Enfyra migration steps must contain valid version declarations');
     return {
       appliedSteps: 0,
       sourceVersion: normalizeEnfyraVersion(dbVersion),
@@ -191,11 +196,8 @@ function selectApplicableSteps<
     };
   }
 
-  const ordered = [...steps].sort((left, right) =>
-    compareEnfyraVersions(left.toVersion, right.toVersion),
-  );
   assertContiguousSteps(ordered);
-  const oldestSource = ordered[0].fromVersion;
+  const oldestSource = firstStep.fromVersion;
   const recordedVersion = normalizeEnfyraVersion(dbVersion);
   const assumedSourceVersion = recordedVersion === '';
   if (!assumedSourceVersion && !isEnfyraVersion(recordedVersion)) {
@@ -230,13 +232,14 @@ function selectApplicableSteps<
 function assertContiguousSteps(
   ordered: readonly { fromVersion: string; toVersion: string }[],
 ): void {
-  for (let index = 1; index < ordered.length; index++) {
-    const previous = ordered[index - 1];
-    const current = ordered[index];
-    if (compareEnfyraVersions(previous.toVersion, current.fromVersion) !== 0) {
+  let previous: (typeof ordered)[number] | undefined;
+  for (const current of ordered) {
+    if (current === undefined) throw new Error('Enfyra migration steps must contain valid version declarations');
+    if (previous && compareEnfyraVersions(previous.toVersion, current.fromVersion) !== 0) {
       throw new Error(
         `Enfyra migration steps are not contiguous: ${previous.toVersion} does not lead to ${current.fromVersion}.`,
       );
     }
+    previous = current;
   }
 }

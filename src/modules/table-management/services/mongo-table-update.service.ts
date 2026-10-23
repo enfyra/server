@@ -238,7 +238,9 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
             indexes: body.indexes,
             columns: body.columns || [],
             renames: this.getConstraintFieldRenames(oldMetadata, body),
-            allowedFields: allowedConstraintFields ?? undefined,
+            ...(allowedConstraintFields == null
+              ? {}
+              : { allowedFields: allowedConstraintFields }),
           });
           const bodyUniques = constraints.uniques;
           const bodyIndexes =

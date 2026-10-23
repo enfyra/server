@@ -28,6 +28,22 @@ describe('database runtime logs', () => {
     expect(valid.record.code).toBe('worker_failure');
     expect(sanitizeRuntimeLog(Object.assign(new Error('private failure'), { code: 403 }))).toHaveProperty('code', 403);
   });
+  it('acknowledges each buffered record once without losing byte accounting', () => {
+    recordSystemError('first');
+    recordSystemError('second');
+    const [first] = peekRuntimeLogs();
+    if (!first) throw new Error('Missing buffered record');
+    const initial = getRuntimeLogBufferStats();
+    acknowledgeRuntimeLog(first.record.eventId);
+    const acknowledged = getRuntimeLogBufferStats();
+    expect(acknowledged.pending).toBe(initial.pending - 1);
+    expect(acknowledged.bytes).toBe(initial.bytes - first.bytes);
+    acknowledgeRuntimeLog(first.record.eventId);
+    expect(getRuntimeLogBufferStats()).toEqual(acknowledged);
+    clear();
+    expect(getRuntimeLogBufferStats().bytes).toBe(0);
+  });
+
   it('bounds user entries and queue memory', () => {
     recordUserLog(Array.from({ length: 300 }, () => 'x'.repeat(9000)));
     const [event] = peekRuntimeLogs();

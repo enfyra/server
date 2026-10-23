@@ -63,7 +63,7 @@ export class FlowExecutionQueueService {
   private readonly runtimeScriptRepairService?: RuntimeScriptRepairService;
   private readonly flowQueue: Queue;
   private readonly flowExecutionHistoryService: FlowExecutionHistoryService;
-  private readonly traceFile?: string;
+  private readonly traceFile: string | undefined;
   private readonly flowWorkerEventLoopDelay = monitorEventLoopDelay({
     resolution: 20,
   });
@@ -94,8 +94,12 @@ export class FlowExecutionQueueService {
     this.dynamicContextFactory = deps.dynamicContextFactory;
     this.envService = deps.envService;
     this.isolatedExecutorService = deps.isolatedExecutorService;
-    this.runtimeMetricsCollectorService = deps.runtimeMetricsCollectorService;
-    this.runtimeScriptRepairService = deps.runtimeScriptRepairService;
+    if (deps.runtimeMetricsCollectorService !== undefined) {
+      this.runtimeMetricsCollectorService = deps.runtimeMetricsCollectorService;
+    }
+    if (deps.runtimeScriptRepairService !== undefined) {
+      this.runtimeScriptRepairService = deps.runtimeScriptRepairService;
+    }
     this.flowQueue = deps.flowQueue;
     this.flowExecutionHistoryService = new FlowExecutionHistoryService({
       queryBuilderService: this.queryBuilderService,
@@ -297,11 +301,11 @@ export class FlowExecutionQueueService {
   async onDestroy() {
     if (this.worker) {
       await this.worker.close();
-      this.worker = undefined;
+      delete this.worker;
     }
     if (this.tuneInterval) {
       clearInterval(this.tuneInterval);
-      this.tuneInterval = undefined;
+      delete this.tuneInterval;
     }
     this.flowWorkerEventLoopDelay.disable();
   }

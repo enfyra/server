@@ -276,8 +276,9 @@ function buildRuntimeCommandNodes(
   changes: readonly RuntimeSchemaLogicalChange[],
   physicalPlan: PhysicalPlan,
 ): UnphasedSchemaMutationExecutionNode<RuntimeSchemaMutationCommand>[] {
-  if (changes.length === 0) return [];
-  const firstChangeId = changes[0].id;
+  const firstChange = changes[0];
+  if (firstChange === undefined) return [];
+  const firstChangeId = firstChange.id;
   const nodes: UnphasedSchemaMutationExecutionNode<RuntimeSchemaMutationCommand>[] =
     [];
   const add = (

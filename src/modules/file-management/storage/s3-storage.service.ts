@@ -36,7 +36,7 @@ export class S3StorageService implements IStorageService {
 
     return new S3Client({
       region: config.region,
-      endpoint: config.endpoint,
+      ...(config.endpoint !== undefined ? { endpoint: config.endpoint } : {}),
       credentials: {
         accessKeyId: config.accessKeyId,
         secretAccessKey: config.secretAccessKey,

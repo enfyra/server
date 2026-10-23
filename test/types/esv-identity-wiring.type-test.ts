@@ -2,7 +2,8 @@ import type { Resolver } from 'awilix';
 import type { AuthenticatedRequest } from '../../src/domain/auth/types/auth.types';
 import type { PolicyService } from '../../src/domain/policy/policy.service';
 import type { RuntimeRequest } from '../../src/http/types/request-context.types';
-import type { RequestWithRouteData } from '../../src/shared/types/dynamic-context.types';
+import type { TDynamicContext, RequestWithRouteData } from '../../src/shared/types/dynamic-context.types';
+import type { ClientIpRequest } from '../../src/shared/types/client-ip.types';
 import type {
   CradleRegistrations,
   RootCradleRegistrations,
@@ -30,6 +31,17 @@ type UserRoleIsNotAny = Assert<
 >;
 type HttpRequestMatchesRequestScope = Assert<
   Assignable<RuntimeRequest, RequestWithRouteData>
+>;
+type HttpRequestMatchesClientIpResolver = Assert<
+  Assignable<RuntimeRequest, ClientIpRequest>
+>;
+type AuthSourceResetIsAccepted = Assert<
+  Assignable<{ $authSource: undefined }, Pick<TDynamicContext, '$authSource'>>
+>;
+type InvalidAuthSourceIsRejected = Assert<
+  Assignable<{ $authSource: 'session' }, Pick<TDynamicContext, '$authSource'>> extends false
+    ? true
+    : false
 >;
 type HttpPermissionsCannotBeNull = Assert<
   Assignable<null, NonNullable<RuntimeRequest['routeData']>['routePermissions']> extends false ? true : false

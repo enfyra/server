@@ -6,6 +6,7 @@ import { DynamicRepository } from '../../src/modules/dynamic-api';
 type TransactionHarness = {
   ctx: any;
   events: string[];
+  factory: DynamicContextFactory;
 };
 
 function createHarness(dbType: 'mysql' | 'mongodb'): TransactionHarness {
@@ -69,10 +70,38 @@ function createHarness(dbType: 'mysql' | 'mongodb'): TransactionHarness {
     websocketContextFactory: {} as any,
   });
   const ctx = factory.createBase({ repos: { records: repo } });
-  return { ctx, events };
+  return { ctx, events, factory };
 }
 
 describe('dynamic transaction context', () => {
+  it('omits absent optional context fields before and after a transaction', async () => {
+    const { ctx } = createHarness('mysql');
+    for (const key of ['$req', '$socket', '$storage', '$api', '$uploadedFile']) {
+      expect(Object.hasOwn(ctx, key)).toBe(false);
+    }
+
+    await ctx.$transaction.run(async () => 'done');
+
+    expect(Object.hasOwn(ctx, '$storage')).toBe(false);
+  });
+
+  it('binds extracted cache methods to their service and omits unavailable methods', async () => {
+    const { factory } = createHarness('mysql');
+    const cache = {
+      prefix: 'bound',
+      async get(key: string) {
+        return `${this.prefix}:${key}`;
+      },
+    };
+    const ctx = factory.createBase({ cache });
+    const get = ctx.$cache.get;
+    if (!get) throw new Error('Expected cache get facade');
+
+    await expect(get('item')).resolves.toBe('bound:item');
+    expect(Object.hasOwn(ctx.$cache, 'set')).toBe(false);
+    expect(Object.hasOwn(ctx.$cache, 'acquire')).toBe(false);
+  });
+
   it('runs every repository call inside one SQL transaction', async () => {
     const { ctx, events } = createHarness('mysql');
 

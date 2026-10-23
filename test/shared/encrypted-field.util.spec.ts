@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import {
+  decodeEncryptedFieldValue,
   decryptRecordFields,
   encodeEncryptedFieldPlainValue,
   encryptRecordFields,
@@ -41,6 +42,29 @@ describe('encrypted field utilities', () => {
         { name: 'secretValue', isEncrypted: true },
       ]),
     ).toThrow('Encrypted field values must be submitted as plaintext');
+  });
+
+  it.each(['enc:v1:', 'enc:v1:iv:tag', 'enc:v1:iv:tag:data:extra'])(
+    'rejects malformed encrypted field structure %s',
+    (value) => {
+      expect(() => decodeEncryptedFieldValue(value)).toThrow('Invalid encrypted field format');
+    },
+  );
+
+  it.each(['enc:v1:::', 'enc:v1:iv::data', 'enc:v1:iv:tag:'])(
+    'does not accept empty ciphertext components %s',
+    (value) => {
+      expect(() => decodeEncryptedFieldValue(value)).toThrow();
+    },
+  );
+
+  it('rejects tampered authenticated ciphertext', () => {
+    const encrypted = encodeEncryptedFieldPlainValue('hidden');
+    const dataStart = encrypted.lastIndexOf(':') + 1;
+    const replacement = encrypted.charAt(dataStart) === 'A' ? 'B' : 'A';
+    const tampered = `${encrypted.slice(0, dataStart)}${replacement}${encrypted.slice(dataStart + 1)}`;
+
+    expect(() => decodeEncryptedFieldValue(tampered)).toThrow();
   });
 
   it('preserves scalar string values that look like JSON', () => {

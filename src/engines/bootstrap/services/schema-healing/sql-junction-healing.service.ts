@@ -64,11 +64,12 @@ export class SqlJunctionHealingService {
             table.dropForeign([], key.constraintName),
         );
       const primary = await this.primaryKey(knex, previous.name);
-      if (primary.length)
+      const firstPrimary = primary[0];
+      if (firstPrimary)
         await knex.schema.alterTable(
           previous.name,
           (table: Knex.AlterTableBuilder) =>
-            table.dropPrimary(primary[0].constraintName),
+            table.dropPrimary(firstPrimary.constraintName),
         );
       for (const unique of schema.uniques)
         await knex.schema.alterTable(
@@ -167,12 +168,12 @@ export class SqlJunctionHealingService {
       this.identityExpression(knex, mapping.targetAliases),
     ]);
     for (const aliases of [mapping.sourceAliases, mapping.targetAliases]) {
-      for (let index = 0; index < aliases.length; index++) {
+      for (const [index, alias] of aliases.entries()) {
         for (const other of aliases.slice(index + 1))
           invalid.orWhereRaw('?? IS NOT NULL AND ?? IS NOT NULL AND ?? <> ??', [
-            aliases[index],
+            alias,
             other,
-            aliases[index],
+            alias,
             other,
           ]);
       }
@@ -272,11 +273,12 @@ export class SqlJunctionHealingService {
         (table: Knex.AlterTableBuilder) =>
           table.dropForeign([], foreignKey.constraintName),
       );
-    if (primary.length)
+    const firstPrimary = primary[0];
+    if (firstPrimary)
       await knex.schema.alterTable(
         contract.tableName,
         (table: Knex.AlterTableBuilder) =>
-          table.dropPrimary(primary[0].constraintName),
+          table.dropPrimary(firstPrimary.constraintName),
       );
     for (const unique of schema.uniques)
       await knex.schema.alterTable(
@@ -294,13 +296,19 @@ export class SqlJunctionHealingService {
       [contract.sourceColumn, mapping.sourceAliases],
       [contract.targetColumn, mapping.targetAliases],
     ] as const) {
+      const firstAlias = aliases[0];
+      if (firstAlias === undefined) {
+        throw new Error(
+          `Junction healing blocked: missing identity mapping for ${contract.tableName}.${canonical}`,
+        );
+      }
       if (!aliases.includes(canonical))
         await knex.schema.alterTable(
           contract.tableName,
           (table: Knex.AlterTableBuilder) =>
-            table.renameColumn(aliases[0], canonical),
+            table.renameColumn(firstAlias, canonical),
         );
-      const retained = aliases.includes(canonical) ? canonical : aliases[0];
+      const retained = aliases.includes(canonical) ? canonical : firstAlias;
       if (aliases.length > 1)
         await knex(contract.tableName).update({
           [canonical]: this.identityExpression(knex, [

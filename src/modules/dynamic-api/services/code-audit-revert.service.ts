@@ -63,6 +63,7 @@ export async function revertCodeAudit({
   try {
     return await repository.update({ id: entry.recordId, data: restore });
   } finally {
-    context.$codeAudit = marker;
+    if (marker === undefined) delete context.$codeAudit;
+    else context.$codeAudit = marker;
   }
 }

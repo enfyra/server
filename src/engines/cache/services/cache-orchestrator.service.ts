@@ -217,12 +217,12 @@ export class CacheOrchestratorService implements LifecycleAware {
   private readonly columnRuleCacheBuilder: ColumnRuleCacheBuilder;
   private readonly gqlDefinitionCacheService: GqlDefinitionCacheService;
   private readonly repoRegistryService: RepoRegistryService;
-  private readonly runtimeRegistryService?: RuntimeRegistryService;
-  private readonly runtimeReloadAuditService?: RuntimeReloadAuditService;
+  private readonly runtimeRegistryService: RuntimeRegistryService | undefined;
+  private readonly runtimeReloadAuditService: RuntimeReloadAuditService | undefined;
   private readonly graphqlService: GraphqlService;
   private readonly dynamicWebSocketGateway: DynamicWebSocketGateway;
-  private readonly runtimeMetricsCollectorService?: RuntimeMetricsCollectorService;
-  private readonly redisRuntimeCacheStore?: RedisRuntimeCacheStore;
+  private readonly runtimeMetricsCollectorService: RuntimeMetricsCollectorService | undefined;
+  private readonly redisRuntimeCacheStore: RedisRuntimeCacheStore | undefined;
   private stepMap: Record<CacheBuilderReloadStepName, ReloadStep>;
   private messageHandler: ((channel: string, message: string) => void) | null =
     null;
@@ -242,6 +242,10 @@ export class CacheOrchestratorService implements LifecycleAware {
   private reloadEventSequence = 0;
   private processedVersions: Set<string> = new Set();
   private signalRetryCounts: Map<string, number> = new Map();
+  private signalFirstFailures: Map<string, number> = new Map();
+  private appliedSharedGeneration: string | null = null;
+  private reconcilingSharedGeneration = false;
+  private generationReconciler: ReturnType<typeof setInterval> | null = null;
 
   constructor(deps: {
     redisPubSubService: RedisPubSubService;
@@ -369,10 +373,15 @@ export class CacheOrchestratorService implements LifecycleAware {
 
   async init() {
     this.subscribeToRedis();
+    this.startSharedGenerationReconcile();
   }
 
   onDestroy(): void {
     this.eventEmitter.off(CACHE_EVENTS.INVALIDATE, this.invalidationHandler);
+    if (this.generationReconciler) {
+      clearInterval(this.generationReconciler);
+      this.generationReconciler = null;
+    }
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
@@ -415,15 +424,19 @@ export class CacheOrchestratorService implements LifecycleAware {
       this.pendingPayloads.set(payload.table, { ...payload });
       return;
     }
-    pending.critical ||= payload.critical;
+    if (!pending.critical && payload.critical !== undefined) {
+      pending.critical = payload.critical;
+    }
     pending.timestamp = Math.max(pending.timestamp, payload.timestamp);
     const tables = new Set([...(pending.affectedTables ?? []), ...(payload.affectedTables ?? [])]);
-    pending.affectedTables = tables.size ? [...tables] : undefined;
+    if (tables.size) pending.affectedTables = [...tables];
+    else delete pending.affectedTables;
     const renames = [...(pending.tableRenames ?? []), ...(payload.tableRenames ?? [])];
-    pending.tableRenames = renames.length ? renames : undefined;
+    if (renames.length) pending.tableRenames = renames;
+    else delete pending.tableRenames;
     if (payload.scope === 'full' || pending.scope === 'full') {
       pending.scope = 'full';
-      pending.ids = undefined;
+      delete pending.ids;
       return;
     }
     pending.ids = [...new Set([...(pending.ids ?? []), ...(payload.ids ?? [])])];
@@ -560,11 +573,7 @@ export class CacheOrchestratorService implements LifecycleAware {
           steps,
           startedAt,
           completedAt,
-          error: reloadError
-            ? reloadError instanceof Error
-              ? reloadError.message
-              : String(reloadError)
-            : undefined,
+          ...this.formatReloadError(reloadError),
         });
       }
 
@@ -609,13 +618,14 @@ export class CacheOrchestratorService implements LifecycleAware {
           durationMs: Date.now() - auditStartedAt,
           steps: auditSteps,
         });
+        await this.markSharedGenerationApplied();
       } catch (error) {
         reloadFailed = true;
         await this.runtimeReloadAuditService?.markFailed({
           reloadId,
           durationMs: Date.now() - auditStartedAt,
           steps: auditSteps,
-          error: this.formatReloadError(error),
+          ...this.formatReloadError(error),
         });
         throw error;
       } finally {
@@ -668,13 +678,14 @@ export class CacheOrchestratorService implements LifecycleAware {
     concurrency: number,
     run: (item: T) => Promise<void>,
   ): Promise<void> {
-    let nextIndex = 0;
+    const pending = items.values();
     const workerCount = Math.min(Math.max(1, concurrency), items.length);
     const results = await Promise.allSettled(
       Array.from({ length: workerCount }, async () => {
-        while (nextIndex < items.length) {
-          const item = items[nextIndex++];
-          await run(item);
+        while (true) {
+          const next = pending.next();
+          if (next.done) return;
+          await run(next.value);
         }
       }),
     );
@@ -992,9 +1003,10 @@ export class CacheOrchestratorService implements LifecycleAware {
     }
   }
 
-  private formatReloadError(error: unknown): string | undefined {
-    if (!error) return undefined;
-    return error instanceof Error ? error.message : String(error);
+  private formatReloadError(error: unknown): Pick<CacheReloadStepMetric, 'error'> {
+    return error
+      ? { error: error instanceof Error ? error.message : String(error) }
+      : {};
   }
 
   private createReloadTracker(
@@ -1020,14 +1032,14 @@ export class CacheOrchestratorService implements LifecycleAware {
           name,
           durationMs: Date.now() - stepStart,
           status: 'failed',
-          error: this.formatReloadError(error),
+          ...this.formatReloadError(error),
         });
         throw error;
       }
     };
     const finish = (error: unknown) => {
       this.runtimeMetricsCollectorService?.recordCacheReload({
-        reloadId,
+        ...(reloadId !== undefined ? { reloadId } : {}),
         flow,
         table,
         scope,
@@ -1036,7 +1048,7 @@ export class CacheOrchestratorService implements LifecycleAware {
         steps,
         startedAt,
         completedAt: new Date().toISOString(),
-        error: this.formatReloadError(error),
+        ...this.formatReloadError(error),
       });
     };
     return {
@@ -1093,7 +1105,7 @@ export class CacheOrchestratorService implements LifecycleAware {
           reloadId,
           durationMs: tracker.elapsed(),
           steps: tracker.steps,
-          error: this.formatReloadError(error),
+          ...this.formatReloadError(error),
         });
         throw error;
       } finally {
@@ -1380,6 +1392,7 @@ export class CacheOrchestratorService implements LifecycleAware {
           durationMs: Date.now() - start,
           steps: stepMetrics,
         });
+        await this.markSharedGenerationApplied();
       } catch (error) {
         reloadError = error;
         this.logger.error('Admin reload ALL failed:', error);
@@ -1387,7 +1400,7 @@ export class CacheOrchestratorService implements LifecycleAware {
           reloadId,
           durationMs: Date.now() - start,
           steps: stepMetrics,
-          error: this.formatReloadError(error),
+          ...this.formatReloadError(error),
         });
         throw error;
       } finally {
@@ -1423,11 +1436,7 @@ export class CacheOrchestratorService implements LifecycleAware {
           steps: stepMetrics,
           startedAt,
           completedAt: new Date().toISOString(),
-          error: reloadError
-            ? reloadError instanceof Error
-              ? reloadError.message
-              : String(reloadError)
-            : undefined,
+          ...this.formatReloadError(reloadError),
         });
       }
       this.logger.log(`Admin reload ALL: ${Date.now() - start}ms`);
@@ -1483,6 +1492,7 @@ export class CacheOrchestratorService implements LifecycleAware {
             await this.executeChain(signal.payload, false);
           }
           this.signalRetryCounts.delete(version);
+          this.signalFirstFailures.delete(version);
           this.processedVersions.add(version);
           if (this.processedVersions.size > 1000) {
             const first = this.processedVersions.values().next().value!;
@@ -1492,7 +1502,16 @@ export class CacheOrchestratorService implements LifecycleAware {
           this.logger.error('Failed to process Redis signal:', error);
           if (!version) return;
           const retries = (this.signalRetryCounts.get(version) ?? 0) + 1;
-          if (retries <= CACHE_ORCHESTRATOR_DEFAULTS.signalRetryMaxAttempts) {
+          const firstFailure =
+            this.signalFirstFailures.get(version) ?? Date.now();
+          this.signalFirstFailures.set(version, firstFailure);
+          const withinBudget =
+            Date.now() - firstFailure <=
+            CACHE_ORCHESTRATOR_DEFAULTS.signalRetryBudgetMs;
+          if (
+            retries <= CACHE_ORCHESTRATOR_DEFAULTS.signalRetryMaxAttempts ||
+            withinBudget
+          ) {
             this.signalRetryCounts.set(version, retries);
             setTimeout(
               () => this.messageHandler?.(channel, message),
@@ -1501,6 +1520,12 @@ export class CacheOrchestratorService implements LifecycleAware {
                 CACHE_ORCHESTRATOR_DEFAULTS.signalRetryMaxDelayMs,
               ),
             );
+          } else {
+            this.logger.error(
+              `Giving up on Redis reload signal after ${CACHE_ORCHESTRATOR_DEFAULTS.signalRetryBudgetMs}ms: ${version.slice(0, 60)}`,
+            );
+            this.signalFirstFailures.delete(version);
+            this.signalRetryCounts.delete(version);
           }
         }
       }
@@ -1544,5 +1569,58 @@ export class CacheOrchestratorService implements LifecycleAware {
 
   private usesSharedRuntimeCache(): boolean {
     return this.redisRuntimeCacheStore?.isEnabled() === true;
+  }
+
+  private startSharedGenerationReconcile(): void {
+    if (!this.usesSharedRuntimeCache() || this.generationReconciler) return;
+    const intervalMs = CACHE_ORCHESTRATOR_DEFAULTS.sharedGenerationReconcileMs;
+    if (!Number.isFinite(intervalMs) || intervalMs <= 0) return;
+    this.generationReconciler = setInterval(() => {
+      void this.reconcileSharedGeneration();
+    }, intervalMs);
+    this.generationReconciler.unref?.();
+  }
+
+  private async markSharedGenerationApplied(): Promise<void> {
+    const store = this.redisRuntimeCacheStore;
+    if (typeof store?.readCommittedGeneration !== 'function') return;
+    try {
+      const generation = await store.readCommittedGeneration();
+      if (generation) this.appliedSharedGeneration = generation;
+    } catch {
+      return;
+    }
+  }
+
+  /**
+   * Cross-instance reload signals are ephemeral, so a replica that missed one
+   * would keep serving its previous policy snapshot indefinitely. The shared
+   * committed generation advances on every publication; comparing it here
+   * converges a replica that lost the signal without operator action.
+   */
+  private async reconcileSharedGeneration(): Promise<void> {
+    if (this.reconcilingSharedGeneration) return;
+    if (!this.usesSharedRuntimeCache()) return;
+    const store = this.redisRuntimeCacheStore;
+    if (typeof store?.readCommittedGeneration !== 'function') return;
+    this.reconcilingSharedGeneration = true;
+    try {
+      const generation = await store.readCommittedGeneration();
+      if (!generation) return;
+      if (this.appliedSharedGeneration === null) {
+        this.appliedSharedGeneration = generation;
+        return;
+      }
+      if (generation === this.appliedSharedGeneration) return;
+      this.logger.warn(
+        `Shared runtime cache generation advanced (${this.appliedSharedGeneration} -> ${generation}); replaying committed snapshots`,
+      );
+      await this.reloadAllLocal(false, true);
+      this.appliedSharedGeneration = generation;
+    } catch (error) {
+      this.logger.error('Shared runtime cache generation reconcile failed:', error);
+    } finally {
+      this.reconcilingSharedGeneration = false;
+    }
   }
 }

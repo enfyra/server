@@ -18,7 +18,7 @@ export function stripOwningRelationIndexes(
   const groups = parseTableConstraintGroups(requestedIndexes);
   const isOwningSingleton = (group: TableConstraintGroup) => {
     const fields = getTableConstraintFields(group);
-    return fields.length === 1 && owningFields.has(fields[0]);
+    return fields.length === 1 && fields.some(field => owningFields.has(field));
   };
   if (!groups.some(isOwningSingleton)) return requestedIndexes;
   return groups.filter(group => !isOwningSingleton(group)).map(getTableConstraintFields);

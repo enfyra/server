@@ -11,7 +11,10 @@ describe('IP parser', () => {
       expect(normalizeIpAddress(value)).toBeNull();
     },
   );
-  it.each(['bad', '10.0.0.0/33', '::/129', '10.0.0.1/8oops', '10.0.0.1/8/8'])(
+  it.each([
+    '', '/', '/8', 'bad', '10.0.0.1/', '10.0.0.0/33', '::/129',
+    '10.0.0.1/8oops', '10.0.0.1/8/8',
+  ])(
     'rejects invalid CIDR %s',
     (value) => {
       expect(isIpInRange('10.0.0.1', value)).toBe(false);

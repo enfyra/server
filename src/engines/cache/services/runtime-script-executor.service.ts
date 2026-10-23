@@ -32,7 +32,7 @@ export class RuntimeScriptExecutorService {
   private readonly kernelExecutorEngineService: KernelExecutorEngineService;
   private readonly runtimeRegistryService: RuntimeRegistryService;
   private runtimeDefinitions?: readonly SharedHelperDefinition[];
-  private compiledHelperRuntime?: string;
+  private compiledHelperRuntime: string | undefined;
 
   constructor(deps: {
     kernelExecutorEngineService: KernelExecutorEngineService;

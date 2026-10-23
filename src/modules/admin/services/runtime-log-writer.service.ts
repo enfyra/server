@@ -7,8 +7,8 @@ import { clearStartupProgressLine } from '../../../shared/startup-log';
 const TABLES = ['enfyra_system_error', 'enfyra_user_log'] as const;
 
 export class RuntimeLogWriterService {
-  private timer?: ReturnType<typeof setInterval>;
-  private flushing?: Promise<void>;
+  private timer: ReturnType<typeof setInterval> | undefined;
+  private flushing: Promise<void> | undefined;
   private lastCleanup = 0;
   private lastFailure = 0;
 

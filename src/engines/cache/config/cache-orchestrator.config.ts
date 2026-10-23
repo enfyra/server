@@ -8,4 +8,6 @@ export const CACHE_ORCHESTRATOR_DEFAULTS: CacheOrchestratorConfig = {
   signalRetryMaxAttempts: 3,
   signalRetryBaseDelayMs: 1000,
   signalRetryMaxDelayMs: 5000,
+  signalRetryBudgetMs: 120000,
+  sharedGenerationReconcileMs: 30000,
 };

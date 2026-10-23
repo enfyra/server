@@ -38,7 +38,7 @@ export class MetadataCacheService implements IMetadataCache {
   private loadingPromise: Promise<void> | null = null;
   private readonly dbType: string;
   private readonly lazyRef: Cradle;
-  private readonly redisRuntimeCacheStore?: RedisRuntimeCacheStore;
+  private readonly redisRuntimeCacheStore: RedisRuntimeCacheStore | undefined;
   private sharedCacheLoaded = false;
   private sharedRefreshLockValue: string | null = null;
   private systemReady = false;

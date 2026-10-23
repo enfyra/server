@@ -16,7 +16,30 @@ import type {
   RuntimeSchemaPhysicalPlanPayload,
 } from '../../src/modules/table-management/types/runtime-schema-physical-plan.types';
 
+import type { ISagaResult } from '../../src/engines/mongo/services/mongo-saga.types';
+import type {
+  RuntimeSchemaJournalAdvanceOptions,
+  RuntimeSchemaUnitOfWorkContext,
+} from '../../src/modules/table-management/types/runtime-schema-executor.types';
+import type {
+  RuntimeMetadataSchemaMutationResult,
+  RuntimeTableMutationInput,
+} from '../../src/modules/table-management/types/runtime-metadata-schema-router.types';
+
 declare function accept<T>(value: T): void;
+
+declare const optionalPropertyContracts: [
+  { sagaSessionId: undefined } extends RuntimeSchemaUnitOfWorkContext ? false : true,
+  { sagaSessionId: undefined } extends RuntimeSchemaJournalAdvanceOptions ? false : true,
+  { context: undefined } extends RuntimeTableMutationInput ? false : true,
+  { tableRenames: undefined } extends RuntimeMetadataSchemaMutationResult ? false : true,
+  { success: true; txId: string; data: undefined } extends ISagaResult<undefined> ? true : false,
+  { success: true; txId: string; data: undefined } extends ISagaResult<string> ? false : true,
+];
+accept<[true, true, true, true, true, true]>(optionalPropertyContracts);
+accept<RuntimeSchemaUnitOfWorkContext>({});
+accept<RuntimeSchemaUnitOfWorkContext>({ sagaSessionId: 'tx-schema' });
+accept<ISagaResult<undefined>>({ success: true, txId: 'tx-schema', data: undefined });
 
 declare const dropTable: Extract<BootstrapSchemaOperation, { kind: 'drop-table' }>;
 declare const renameTable: Extract<BootstrapSchemaOperation, { kind: 'rename-table' }>;

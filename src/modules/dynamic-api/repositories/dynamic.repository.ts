@@ -121,16 +121,19 @@ export class DynamicRepository {
         tableName,
       },
     );
-    this.runtimeSchemaActivationGateService =
-      runtimeSchemaActivationGateService;
+    if (runtimeSchemaActivationGateService !== undefined) {
+      this.runtimeSchemaActivationGateService = runtimeSchemaActivationGateService;
+    }
     this.routeRouter = new TableRouteRouter(
       new DynamicTableRouteHandlerService({
         bcryptService,
-        flowQueueMaintenanceService,
+        ...(flowQueueMaintenanceService !== undefined
+          ? { flowQueueMaintenanceService }
+          : {}),
         guardValidationService,
         queryBuilderService,
         runtimeMetadataSchemaRouterService,
-        userRevocationService,
+        ...(userRevocationService !== undefined ? { userRevocationService } : {}),
       }),
     );
     this.schemaActivationService = new DynamicSchemaActivationService(
@@ -211,8 +214,8 @@ export class DynamicRepository {
       tableMetadata: this.tableMetadata,
       context: this.context,
       data: opt.data,
-      fields: opt.fields,
-      batch: opt.batch,
+      ...(opt.fields !== undefined ? { fields: opt.fields } : {}),
+      ...(opt.batch !== undefined ? { batch: opt.batch } : {}),
     });
   }
 
@@ -235,7 +238,7 @@ export class DynamicRepository {
       tableMetadata: this.tableMetadata,
       context: this.context,
       data: opt.data,
-      fields: opt.fields,
+      ...(opt.fields !== undefined ? { fields: opt.fields } : {}),
     });
   }
 
@@ -259,7 +262,7 @@ export class DynamicRepository {
       context: this.context,
       id: opt.id,
       data: opt.data,
-      fields: opt.fields,
+      ...(opt.fields !== undefined ? { fields: opt.fields } : {}),
       schemaActivationService: this.schemaActivationService,
     });
   }
@@ -283,7 +286,11 @@ export class DynamicRepository {
       if (!data || typeof data !== 'object' || Array.isArray(data)) {
         throw new BadRequestException('updateLocked data callback must return a record patch');
       }
-      return this.executeUpdate({ id: opt.id, data, fields: opt.fields }, {
+      return this.executeUpdate({
+        id: opt.id,
+        data,
+        ...(opt.fields !== undefined ? { fields: opt.fields } : {}),
+      }, {
         ...this.getMutationRuntime(),
         readLocked: lockedSqlRead,
         find: (options) => this.readService.find({ ...options, page: 1, limit: 1 }, lockedSqlRead),
@@ -336,7 +343,7 @@ export class DynamicRepository {
       context: this.context,
       ids: opt.ids,
       data: opt.data,
-      fields: opt.fields,
+      ...(opt.fields !== undefined ? { fields: opt.fields } : {}),
     });
   }
 
@@ -389,10 +396,10 @@ export class DynamicRepository {
       action: 'reload',
       timestamp: Date.now(),
       scope: opts?.ids?.length ? 'partial' : 'full',
-      ids: opts?.ids,
-      affectedTables: opts?.affectedTables,
-      critical: opts?.critical,
-      tableRenames: opts?.tableRenames,
+      ...(opts?.ids !== undefined ? { ids: opts.ids } : {}),
+      ...(opts?.affectedTables !== undefined ? { affectedTables: opts.affectedTables } : {}),
+      ...(opts?.critical !== undefined ? { critical: opts.critical } : {}),
+      ...(opts?.tableRenames !== undefined ? { tableRenames: opts.tableRenames } : {}),
     };
     const emit = async () => {
       if (typeof this.eventEmitter.emitAsync === 'function') {

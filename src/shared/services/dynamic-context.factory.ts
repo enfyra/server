@@ -23,7 +23,7 @@ import {
   type WebsocketContextFactory,
 } from '../../modules/websocket';
 
-type JwtExpiresIn = jwt.SignOptions['expiresIn'];
+type JwtExpiresIn = NonNullable<jwt.SignOptions['expiresIn']>;
 
 type DynamicContextOptions = {
   body?: any;
@@ -82,7 +82,9 @@ export class DynamicContextFactory {
     this.knexService = deps.knexService;
     this.mongoService = deps.mongoService;
     this.websocketContextFactory = deps.websocketContextFactory;
-    this.uploadFileHelper = deps.uploadFileHelper;
+    if (deps.uploadFileHelper !== undefined) {
+      this.uploadFileHelper = deps.uploadFileHelper;
+    }
   }
 
   createBase(options: DynamicContextOptions = {}): TDynamicContext {
@@ -103,12 +105,14 @@ export class DynamicContextFactory {
       $env: this.createEnvSnapshot(),
       $user: options.user ?? null,
       $repos: options.repos ?? {},
-      $req: options.req,
+      ...(options.req !== undefined ? { $req: options.req } : {}),
       $share: options.share ?? { $logs: [] },
-      $socket: options.socket,
-      $storage: options.storage,
-      $api: options.apiRequest ? { request: options.apiRequest } : undefined,
-      $uploadedFile: options.uploadedFile,
+      ...(options.socket !== undefined ? { $socket: options.socket } : {}),
+      ...(options.storage !== undefined ? { $storage: options.storage } : {}),
+      ...(options.apiRequest ? { $api: { request: options.apiRequest } } : {}),
+      ...(options.uploadedFile !== undefined
+        ? { $uploadedFile: options.uploadedFile }
+        : {}),
     };
 
     if (!ctx.$storage && this.uploadFileHelper) {
@@ -205,12 +209,13 @@ export class DynamicContextFactory {
     };
 
     ctx.$repos = wrap(originalRepos);
-    ctx.$storage = wrap(originalStorage);
+    if (originalStorage !== undefined) ctx.$storage = wrap(originalStorage);
     try {
       return await this.runWithAbort(callback);
     } finally {
       ctx.$repos = originalRepos;
-      ctx.$storage = originalStorage;
+      if (originalStorage === undefined) delete ctx.$storage;
+      else ctx.$storage = originalStorage;
     }
   }
 
@@ -240,8 +245,8 @@ export class DynamicContextFactory {
     });
   }
 
-  private createEnvSnapshot(): TDynamicContext['$env'] {
-    const out: TDynamicContext['$env'] = {};
+  private createEnvSnapshot(): NonNullable<TDynamicContext['$env']> {
+    const out: NonNullable<TDynamicContext['$env']> = {};
     for (const [key, value] of Object.entries(process.env)) {
       if (ENV_EXPOSE_DENY_KEYS.has(key)) continue;
       out[key] = value;
@@ -290,25 +295,24 @@ export class DynamicContextFactory {
   private createCacheFacade(
     cache: NonNullable<TDynamicContext['$cache']>,
   ): TDynamicContext['$cache'] {
-    return {
-      acquire: cache.acquire
-        ? (key, value, ttlMs) => cache.acquire!(key, value, ttlMs)
-        : undefined,
-      release: cache.release
-        ? (key, value) => cache.release!(key, value)
-        : undefined,
-      get: cache.get ? (key) => cache.get!(key) : undefined,
-      set: cache.set
-        ? (key, value, ttlMs) => cache.set!(key, value, ttlMs)
-        : undefined,
-      exists: cache.exists
-        ? (key, value) => cache.exists!(key, value)
-        : undefined,
-      deleteKey: cache.deleteKey ? (key) => cache.deleteKey!(key) : undefined,
-      setNoExpire: cache.setNoExpire
-        ? (key, value) => cache.setNoExpire!(key, value)
-        : undefined,
-    };
+    const { acquire, release, get, set, exists, deleteKey, setNoExpire } = cache;
+    const facade: TDynamicContext['$cache'] = {};
+    if (acquire) {
+      facade.acquire = (key, value, ttlMs) => acquire.call(cache, key, value, ttlMs);
+    }
+    if (release) {
+      facade.release = (key, value) => release.call(cache, key, value);
+    }
+    if (get) facade.get = (key) => get.call(cache, key);
+    if (set) {
+      facade.set = (key, value, ttlMs) => set.call(cache, key, value, ttlMs);
+    }
+    if (exists) facade.exists = (key, value) => exists.call(cache, key, value);
+    if (deleteKey) facade.deleteKey = (key) => deleteKey.call(cache, key);
+    if (setNoExpire) {
+      facade.setNoExpire = (key, value) => setNoExpire.call(cache, key, value);
+    }
+    return facade;
   }
 
   createHttp(req: any, options: { params: any; realClientIP: string }) {
@@ -399,7 +403,7 @@ export class DynamicContextFactory {
     return this.createBase({
       body: options.payload || {},
       user: options.user ?? null,
-      share: options.share,
+      ...(options.share !== undefined ? { share: options.share } : {}),
       socket:
         options.socket ?? this.websocketContextFactory.createGlobalProxy(),
     });
@@ -414,7 +418,7 @@ export class DynamicContextFactory {
     return this.createFlow({
       payload: options.payload,
       user: options.user,
-      share: options.share,
+      ...(options.share !== undefined ? { share: options.share } : {}),
       socket: this.websocketContextFactory.createCaptureProxy(options.emitted),
     });
   }
@@ -447,7 +451,7 @@ export class DynamicContextFactory {
         method: options.method,
         url: options.apiUrl ?? options.url,
         timestamp: new Date().toISOString(),
-        ip: options.ip ?? undefined,
+        ...(options.ip != null ? { ip: options.ip } : {}),
       },
     });
   }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { RedisAdminService } from '../../src/modules/admin';
 
 class FakePipeline {
@@ -302,12 +302,27 @@ describe('RedisAdminService', () => {
       expect.objectContaining({
         name: 'current namespace',
         system: false,
-        systemKind: undefined,
       }),
     );
+    expect(overview.groups[0]).not.toHaveProperty('systemKind');
     expect(overview.topKeys[0]).toEqual(
       expect.objectContaining({ key: 'user:key', modifiable: true }),
     );
+  });
+
+  it('reads empty hash field values without inventing missing entries', async () => {
+    const { redis, service } = makeService();
+    redis.values.set('app-a:custom:hash', { type: 'hash', value: { empty: '', filled: 'value' }, ttl: -1 });
+    expect((await service.getKey('custom:hash')).value).toEqual({ empty: '', filled: 'value' });
+  });
+
+  it('rejects incomplete Redis hash pairs rather than returning a partial value', async () => {
+    const { redis, service } = makeService();
+    redis.values.set('app-a:custom:hash', { type: 'hash', value: { field: 'value' }, ttl: -1 });
+    const scan = vi.spyOn(redis, 'hscan').mockResolvedValue(['0', ['field']]);
+    try {
+      await expect(service.getKey('custom:hash')).rejects.toThrow('Redis hash scan returned an incomplete field/value pair');
+    } finally { scan.mockRestore(); }
   });
 
   it('does not warn for high Redis fragmentation on tiny datasets', async () => {

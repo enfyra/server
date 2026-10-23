@@ -38,7 +38,7 @@ export class SqlPoolClusterCoordinatorService {
   private readonly envService: EnvService;
   private readonly knexService: KnexService;
   private readonly eventEmitter: EventEmitter2;
-  private readonly replicationManager?: ReplicationManager;
+  private readonly replicationManager: ReplicationManager | undefined;
   private readonly coordinationKeyTtlMs = Math.max(
     SQL_COORD_STALE_MS * 2,
     SQL_COORD_HEARTBEAT_MS * 5,

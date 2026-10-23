@@ -183,12 +183,14 @@ export class ReplicationManager implements LifecycleAware {
       pool: {
         min: poolMinSize,
         max: poolMaxSize,
-        afterCreate: isPostgres
-          ? undefined
-          : (
-              connection: any,
-              done: (error: unknown, connection?: any) => void,
-            ) => applyMySqlSessionTimeZone(connection, done),
+        ...(isPostgres
+          ? {}
+          : {
+              afterCreate: (
+                connection: any,
+                done: (error: unknown, connection?: any) => void,
+              ) => applyMySqlSessionTimeZone(connection, done),
+            }),
       },
       acquireConnectionTimeout: SQL_ACQUIRE_TIMEOUT_MS,
       debug: false,
@@ -302,6 +304,7 @@ export class ReplicationManager implements LifecycleAware {
         return this.masterKnex;
       }
       const selectedNode = healthyReplicas[replicaIndex];
+      if (!selectedNode) return this.masterKnex;
       selectedNode.connectionCount++;
       return selectedNode.knex;
     }
@@ -309,6 +312,7 @@ export class ReplicationManager implements LifecycleAware {
       healthyReplicas[this.currentReplicaIndex % healthyReplicas.length];
     this.currentReplicaIndex =
       (this.currentReplicaIndex + 1) % healthyReplicas.length;
+    if (!selectedNode) return this.masterKnex;
     selectedNode.connectionCount++;
     return selectedNode.knex;
   }

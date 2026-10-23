@@ -66,7 +66,7 @@ export class DynamicResolver {
       .filter((f) => f.startsWith('meta.'))
       .map((f) => f.replace(/^meta\./, ''));
     const handlerCtx = this.dynamicContextFactory.createGraphql({
-      request: context.request,
+      ...(context.request !== undefined ? { request: context.request } : {}),
       user: user ?? null,
       body: {},
       params: {},
@@ -112,11 +112,11 @@ export class DynamicResolver {
   ) {
     try {
       const match = mutationName.match(/^(create|update|delete)_(.+)$/);
-      if (!match) {
+      const operation = match?.[1];
+      const tableName = match?.[2];
+      if (!operation || !tableName) {
         throw new BadRequestException(`Invalid mutation name: ${mutationName}`);
       }
-      const operation = match[1];
-      const tableName = match[2];
       const graphqlOperation = operation === 'create' ? 'CREATE' : operation === 'update' ? 'UPDATE' : 'DELETE';
       const { user } = await this.middleware(
         tableName,
@@ -124,7 +124,7 @@ export class DynamicResolver {
         context,
       );
       const handlerCtx = this.dynamicContextFactory.createGraphql({
-        request: context.request,
+        ...(context.request !== undefined ? { request: context.request } : {}),
         user: user ?? null,
         body: args.input || {},
         params: { id: args.id },
@@ -315,8 +315,9 @@ export class DynamicResolver {
     if (requestAuth) return requestAuth.user;
 
     try {
+      const headers = context.request?.headers;
       const authenticated = await this.authenticationService.authenticate({
-        headers: context.request?.headers,
+        ...(headers !== undefined ? { headers } : {}),
         allowAnonymous: false,
       });
       return authenticated?.user ?? null;

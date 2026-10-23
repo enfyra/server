@@ -99,7 +99,7 @@ export class DynamicRepositoryReadService {
     );
     const result = await this.deps.queryBuilderService.find({
       table: tableName,
-      fields: prepared.fields,
+      ...(prepared.fields !== undefined ? { fields: prepared.fields } : {}),
       filter,
       page: options.page ?? context.$query?.page ?? 1,
       limit: 'limit' in options ? options.limit : (context.$query?.limit ?? 10),
@@ -133,11 +133,6 @@ export class DynamicRepositoryReadService {
   async aggregate(aggregate: unknown): Promise<any> {
     const { context, runtimeRegistryService, tableName } = this.deps;
     runtimeRegistryService.lookupTableByName(tableName);
-    await this.deps.readAuthorizationService.assertQueryAllowed({
-      tableName,
-      context,
-      enforceFieldPermission: this.deps.enforceFieldPermission,
-    });
     runtimeRegistryService.requireMetadata();
     const filter =
       aggregate &&
@@ -153,6 +148,19 @@ export class DynamicRepositoryReadService {
       'sort' in aggregate
         ? (aggregate as Record<string, unknown>).sort
         : undefined;
+    const sortTokens = Array.isArray(sort)
+      ? sort
+          .map(
+            (item: any) =>
+              `${item.direction === 'desc' ? '-' : ''}${item.field}`,
+          )
+          .join(',')
+      : undefined;
+    await this.deps.readAuthorizationService.assertQueryAllowed({
+      tableName,
+      context: { ...context, $query: { filter, sort: sortTokens } },
+      enforceFieldPermission: this.deps.enforceFieldPermission,
+    });
     await this.deps.readAuthorizationService.assertAggregateFieldsAllowed(
       tableName,
       aggregate,
@@ -162,14 +170,7 @@ export class DynamicRepositoryReadService {
     await this.deps.readAuthorizationService.assertEncryptedQueryFieldsAllowed(
       tableName,
       filter,
-      Array.isArray(sort)
-        ? sort
-            .map(
-              (item: any) =>
-                `${item.direction === 'desc' ? '-' : ''}${item.field}`,
-            )
-            .join(',')
-        : undefined,
+      sortTokens,
       {},
     );
     const result = await this.deps.queryBuilderService.aggregate({

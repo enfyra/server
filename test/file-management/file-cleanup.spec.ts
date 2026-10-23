@@ -30,6 +30,8 @@ it('queues cleanup with bounded retries and never deletes a referenced object', 
   const service = new FileCleanupService({ fileCleanupQueue: { add }, queryBuilderService: { find, transaction, getPkField: () => 'id' }, runtimeRegistryService: { getStorageConfigById: () => ({ id: 's3', isEnabled: true }) }, storageFactoryService: { getStorageServiceByConfig: () => ({ delete: remove }) } } as any);
   await service.enqueue('uploads/old', 's3');
   expect(add).toHaveBeenCalledWith('delete-unreferenced-object', { location: 'uploads/old', storageConfigId: 's3' }, expect.objectContaining({ attempts: 8, backoff: { type: 'exponential', delay: 1000 }, removeOnFail: false }));
+  await service.enqueue('uploads/local');
+  expect(add).toHaveBeenLastCalledWith('delete-unreferenced-object', { location: 'uploads/local' }, expect.objectContaining({ attempts: 8, removeOnFail: false }));
   await service.process({ location: 'uploads/old', storageConfigId: 's3' });
   expect(remove).not.toHaveBeenCalled();
   expect(transaction).toHaveBeenCalledOnce();

@@ -86,14 +86,14 @@ export function generateModifyColumnSQL(
       }
 
       const defaultMatch = typeOnly.match(/\s+DEFAULT\s+(.+)$/i);
-      if (defaultMatch) {
+      if (defaultMatch?.[1] !== undefined) {
         hasDefault = true;
         defaultValue = defaultMatch[1].trim();
         typeOnly = typeOnly.replace(/\s+DEFAULT\s+.+$/i, '').trim();
       }
 
       const checkMatch = typeOnly.match(/\s+CHECK\s+(.+)$/i);
-      if (checkMatch) {
+      if (checkMatch?.[1] !== undefined) {
         checkConstraint = checkMatch[1].trim();
         typeOnly = typeOnly.replace(/\s+CHECK\s+.+$/i, '').trim();
       }

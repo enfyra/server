@@ -248,7 +248,9 @@ async function projectTable(
       subjectName: name,
       subject: column,
       actions,
-      fieldPermissionPolicyReader,
+      ...(fieldPermissionPolicyReader === undefined
+        ? {}
+        : { fieldPermissionPolicyReader }),
     });
     if (hasAnyAccess(metadataAccess)) {
       columns.push({ ...column, metadataAccess });
@@ -266,7 +268,9 @@ async function projectTable(
       subjectName: name,
       subject: relation,
       actions,
-      fieldPermissionPolicyReader,
+      ...(fieldPermissionPolicyReader === undefined
+        ? {}
+        : { fieldPermissionPolicyReader }),
     });
     if (hasAnyAccess(metadataAccess)) {
       relations.push({ ...relation, metadataAccess });
@@ -314,7 +318,6 @@ export async function projectMetadataForUser({
     user,
     routeCacheService,
     policyService,
-    fieldPermissionPolicyReader,
   });
 
   const canSeeTable = (table: any) =>

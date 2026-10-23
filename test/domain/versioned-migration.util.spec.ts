@@ -16,6 +16,18 @@ const table = (from: Record<string, unknown>, to: Record<string, unknown>) => ({
 });
 
 describe('versioned schema migration merge', () => {
+  it('handles an empty migration chain without inventing a source version', () => {
+    expect(resolveSchemaMigration([], '2.3.1')).toEqual({ migration: null, appliedSteps: 0, sourceVersion: '2.3.1', assumedSourceVersion: false });
+  });
+
+  it('rejects gapped migration chains before selecting declarations', () => {
+    const steps = versions({ tables: [] }, { tables: [] });
+    const [first] = steps;
+    if (!first) throw new Error('Missing test migration');
+    first.toVersion = '2.2.20';
+    expect(() => resolveSchemaMigration(steps, '2.2.19-patch-1')).toThrow('Enfyra migration steps are not contiguous');
+  });
+
   it('keeps historical execution steps but omits dropped tables from the merged final target', () => {
     const steps = versions(
       { tables: [table({ description: 'old' }, { description: 'new' })] },

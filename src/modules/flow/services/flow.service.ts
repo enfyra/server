@@ -49,8 +49,12 @@ export class FlowService {
     this.executorEngineService = deps.executorEngineService;
     this.repoRegistryService = deps.repoRegistryService;
     this.dynamicContextFactory = deps.dynamicContextFactory;
-    this.runtimeScriptRepairService = deps.runtimeScriptRepairService;
-    this.queryBuilderService = deps.queryBuilderService;
+    if (deps.runtimeScriptRepairService !== undefined) {
+      this.runtimeScriptRepairService = deps.runtimeScriptRepairService;
+    }
+    if (deps.queryBuilderService !== undefined) {
+      this.queryBuilderService = deps.queryBuilderService;
+    }
   }
 
   async swapStepOrder(input: FlowStepReorderInput, user: any) {
@@ -225,15 +229,16 @@ export class FlowService {
         });
       }
 
+      const onCompiledCodeRepair = this.flowStepRepairCallback(targetStep);
       const result = await executeStepCore({
         type: targetStep.type,
-        stepKey: targetStep.key,
+        ...(targetStep.key !== undefined ? { stepKey: targetStep.key } : {}),
         ...getExecutableStepScript(targetStep),
         timeout,
         ctx,
         executorEngineService: this.executorEngineService,
         shouldTransformCode: true,
-        onCompiledCodeRepair: this.flowStepRepairCallback(targetStep),
+        ...(onCompiledCodeRepair !== undefined ? { onCompiledCodeRepair } : {}),
       });
 
       if (targetStep.key) {
@@ -424,6 +429,7 @@ export class FlowService {
     timeout: number,
   ): Promise<unknown> {
     const script = getExecutableStepScript(step);
+    const onCompiledCodeRepair = this.flowStepRepairCallback(step);
     return executeStepCore({
       type: step.type,
       stepKey: step.key,
@@ -432,7 +438,7 @@ export class FlowService {
       ctx,
       executorEngineService: this.executorEngineService,
       shouldTransformCode: true,
-      onCompiledCodeRepair: this.flowStepRepairCallback(step),
+      ...(onCompiledCodeRepair !== undefined ? { onCompiledCodeRepair } : {}),
     });
   }
 }

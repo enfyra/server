@@ -348,7 +348,10 @@ export class FlowSchedulerService {
   private async upsertSchedule(schedule: DesiredFlowSchedule): Promise<void> {
     await this.flowQueue.upsertJobScheduler(
       schedule.schedulerId,
-      { pattern: schedule.cron, tz: schedule.timezone },
+      {
+        pattern: schedule.cron,
+        ...(schedule.timezone !== undefined ? { tz: schedule.timezone } : {}),
+      },
       {
         name: `flow:${schedule.flow.name}`,
         data: {

@@ -11,7 +11,7 @@ export class RedisCacheService implements ICache {
   private readonly redis: Redis;
   private readonly namespace: string | null;
   private readonly policy: RedisCachePolicy;
-  private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
+  private readonly runtimeNamespaceLifecycleService: RuntimeNamespaceLifecycleService | undefined;
 
   constructor(deps: {
     redis: Redis;

@@ -84,12 +84,15 @@ export function recordDynamicDeliveryStage(
   if (!stages.has(stage)) return;
   const state = stateForRequest(req);
   const previous = state.gateway[stage];
+  const bytes = fields?.bytes;
+  const chunks = fields?.chunks;
+  const statusCode = fields?.statusCode;
   if (previous) {
     if (stage !== 'upstream_body_progress') return;
-    if (Number.isSafeInteger(fields?.bytes) && fields!.bytes! >= 0)
-      previous.bytes = Math.max(previous.bytes ?? 0, fields!.bytes!);
-    if (Number.isSafeInteger(fields?.chunks) && fields!.chunks! >= 0)
-      previous.chunks = Math.max(previous.chunks ?? 0, fields!.chunks!);
+    if (typeof bytes === 'number' && Number.isSafeInteger(bytes) && bytes >= 0)
+      previous.bytes = Math.max(previous.bytes ?? 0, bytes);
+    if (typeof chunks === 'number' && Number.isSafeInteger(chunks) && chunks >= 0)
+      previous.chunks = Math.max(previous.chunks ?? 0, chunks);
     previous.lastElapsedMs = Math.max(0, Date.now() - state.startedAt);
     return;
   }
@@ -97,15 +100,16 @@ export function recordDynamicDeliveryStage(
     elapsedMs: Math.max(0, Date.now() - state.startedAt),
   };
   if (
-    Number.isInteger(fields?.statusCode) &&
-    fields!.statusCode! >= 100 &&
-    fields!.statusCode! <= 599
+    typeof statusCode === 'number' &&
+    Number.isInteger(statusCode) &&
+    statusCode >= 100 &&
+    statusCode <= 599
   )
-    milestone.statusCode = fields!.statusCode;
-  if (Number.isSafeInteger(fields?.bytes) && fields!.bytes! >= 0)
-    milestone.bytes = fields!.bytes;
-  if (Number.isSafeInteger(fields?.chunks) && fields!.chunks! >= 0)
-    milestone.chunks = fields!.chunks;
+    milestone.statusCode = statusCode;
+  if (typeof bytes === 'number' && Number.isSafeInteger(bytes) && bytes >= 0)
+    milestone.bytes = bytes;
+  if (typeof chunks === 'number' && Number.isSafeInteger(chunks) && chunks >= 0)
+    milestone.chunks = chunks;
   if (typeof fields?.clientStreaming === 'boolean')
     milestone.clientStreaming = fields.clientStreaming;
   if (typeof fields?.upstreamStreaming === 'boolean')

@@ -131,6 +131,17 @@ describe('Client IP topology boundaries', () => {
     ).toBe(visitor);
   });
 
+  it.each([
+    'proto=https',
+    'for=',
+    `for=${visitor};for=1.1.1.1`,
+    'for="[2001:db8::5]:65536"',
+  ])('does not fall back past malformed Forwarded entry %s', (forwarded) => {
+    expect(
+      resolve('127.0.0.1', { forwarded, 'x-real-ip': visitor }),
+    ).toBe('127.0.0.1');
+  });
+
   it('does not fall back to another header after malformed XFF', () => {
     expect(
       resolve('127.0.0.1', { 'x-forwarded-for': 'bad', 'x-real-ip': visitor }),

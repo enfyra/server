@@ -202,7 +202,7 @@ export class FileManagementService {
         filesize: fileData.size,
         storage_config_id: normalizedStorageConfigId,
         location: uploadResult.location,
-        description: fileData.description,
+        ...(fileData.description !== undefined ? { description: fileData.description } : {}),
         status: 'active',
       };
 
@@ -253,11 +253,11 @@ export class FileManagementService {
         filename: fileData.filename,
         mimetype: fileData.mimetype,
         stream: fileData.stream,
-        signatureBuffer: fileData.signatureBuffer,
+        ...(fileData.signatureBuffer !== undefined ? { signatureBuffer: fileData.signatureBuffer } : {}),
         size: fileData.size,
         folder: folderData,
         title: options.title || fileData.filename,
-        description: options.description || undefined,
+        ...(options.description ? { description: options.description } : {}),
       },
       storageConfigId ?? undefined,
     );
@@ -405,7 +405,7 @@ export class FileManagementService {
         filename: fileData.filename,
         mimetype: fileData.mimetype,
         stream: fileData.stream,
-        signatureBuffer: fileData.signatureBuffer,
+        ...(fileData.signatureBuffer !== undefined ? { signatureBuffer: fileData.signatureBuffer } : {}),
         size: fileData.size,
         folder: nextFolder,
         title: options.title || fileData.filename,

@@ -3,6 +3,8 @@ import { Socket } from 'node:net';
 import { describe, expect, it, vi } from 'vitest';
 import { buildExpressApp } from '../../src/express-app';
 import { PolicyService } from '../../src/domain/policy/policy.service';
+import { roleGuardMiddleware } from '../../src/http/middlewares/role-guard.middleware';
+import { UnauthorizedException } from '../../src/domain/exceptions';
 
 function fixture(options: { missing?: boolean; unavailable?: boolean; allowed?: boolean; fallback?: boolean } = {}) {
   const routes = options.missing ? [] : [{
@@ -39,6 +41,24 @@ function fixture(options: { missing?: boolean; unavailable?: boolean; allowed?: 
 }
 
 describe('native route authorization binding', () => {
+  it.each([{}, { user: null }])('rejects a protected route for anonymous request state %j', async (state) => {
+    const req: any = {
+      method: 'GET',
+      routeData: {
+        routeMethodConfig: { isPublic: false },
+        routePermissions: [{ allowedUsers: [{ id: 'reader' }] }],
+      },
+      ...state,
+    };
+    const status = vi.fn();
+    const next = vi.fn();
+
+    await roleGuardMiddleware(new PolicyService({} as any))(req, { status } as any, next);
+
+    expect(next).toHaveBeenCalledWith(expect.any(UnauthorizedException));
+    expect(status).not.toHaveBeenCalled();
+  });
+
   it('denies the canonical and mixed-case native endpoint without a grant', async () => {
     const { dispatch, getKey } = fixture();
     expect((await dispatch('/admin/redis/key?key=fixture')).status).toBe(403);

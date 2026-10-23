@@ -6,6 +6,13 @@ import { RequestWithRouteData } from '../../../shared/types';
 import { getUserRoleIds, toRoleId } from '../../../shared/utils/user-role.util';
 import * as fs from 'fs';
 
+const READ_ACTIONS = new Set(['view', 'download']);
+
+function permissionAllowsRead(actions: unknown): boolean {
+  if (!Array.isArray(actions) || actions.length === 0) return true;
+  return actions.some((action) => READ_ACTIONS.has(String(action)));
+}
+
 export class FileValidationHelper {
   static isImageFile(mimetype: string, fileType: string): boolean {
     return mimetype.startsWith('image/') || fileType === 'image';
@@ -57,6 +64,7 @@ export class FileValidationHelper {
     const hasAccess = (file.permissions || []).some(
       (p: any) => {
         if (p.isEnabled === false) return false;
+        if (!permissionAllowsRead(p.actions)) return false;
         const allowedUserMatch = Array.isArray(p.allowedUsers)
           ? p.allowedUsers.some((u: any) => String(u?._id ?? u?.id ?? u) === userId)
           : p.allowedUsers

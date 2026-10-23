@@ -95,8 +95,8 @@ export function registerOAuthRoutes(
 
     const payload = JSON.stringify({
       redirect: validatedRedirect,
-      cookieBridgePrefix: cookieBridgePrefix ?? undefined,
-      clientState,
+      ...(cookieBridgePrefix === undefined ? {} : { cookieBridgePrefix }),
+      ...(clientState === undefined ? {} : { clientState }),
       ts: Date.now(),
     } satisfies OAuthStatePayload);
     const sig = signState(payload, configService);
@@ -231,8 +231,8 @@ function parseStatePayload(
 
     return {
       redirect: parsed.redirect,
-      cookieBridgePrefix,
-      clientState,
+      ...(cookieBridgePrefix === undefined ? {} : { cookieBridgePrefix }),
+      ...(clientState === undefined ? {} : { clientState }),
       ts: parsed.ts || 0,
     };
   } catch {

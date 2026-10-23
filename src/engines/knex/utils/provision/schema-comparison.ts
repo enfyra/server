@@ -415,7 +415,7 @@ export function compareSchemas(
       (g) => normalizeGroup(g) === key,
     );
     if (!existsInSnapshot) {
-      diff.uniquesToRemove.push({ columns: info.columns, name: info.name });
+      diff.uniquesToRemove.push(info);
     }
   }
   for (const group of snapshotIndexGroups) {
@@ -434,9 +434,9 @@ export function compareSchemas(
     if (!existsInSnapshot) {
       const isFkBackingIndex =
         info.columns.length === 1 &&
-        fkColumnSet.has(info.columns[0].toLowerCase());
+        info.columns.some((column) => fkColumnSet.has(column.toLowerCase()));
       if (isFkBackingIndex) continue;
-      diff.indexesToRemove.push({ columns: info.columns, name: info.name });
+      diff.indexesToRemove.push(info);
     }
   }
   return diff;

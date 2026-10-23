@@ -78,7 +78,7 @@ export class RuntimeMetadataSchemaRouterService {
       contract,
       ownerTableId,
       body,
-      context: input.context,
+      ...(input.context === undefined ? {} : { context: input.context }),
     });
     if (execResult.preview) {
       return { preview: execResult.preview, ownerTableId };
@@ -102,7 +102,9 @@ export class RuntimeMetadataSchemaRouterService {
       recordId: this.getRecordId(created),
       ownerTableId,
       affectedTables: execResult.affectedTables as string[],
-      tableRenames: execResult.tableRenames,
+      ...(execResult.tableRenames === undefined
+        ? {}
+        : { tableRenames: execResult.tableRenames }),
       mutationId: execResult.mutationId,
     };
   }
@@ -177,7 +179,7 @@ export class RuntimeMetadataSchemaRouterService {
       contract,
       ownerTableId,
       body,
-      context: input.context,
+      ...(input.context === undefined ? {} : { context: input.context }),
     });
     if (execResult.preview) {
       return {
@@ -190,7 +192,9 @@ export class RuntimeMetadataSchemaRouterService {
       recordId: input.recordId,
       ownerTableId,
       affectedTables: execResult.affectedTables as string[],
-      tableRenames: execResult.tableRenames,
+      ...(execResult.tableRenames === undefined
+        ? {}
+        : { tableRenames: execResult.tableRenames }),
       mutationId: execResult.mutationId,
     };
   }
@@ -242,7 +246,7 @@ export class RuntimeMetadataSchemaRouterService {
       contract,
       ownerTableId,
       body,
-      context: input.context,
+      ...(input.context === undefined ? {} : { context: input.context }),
     });
     if (execResult.preview) {
       return {
@@ -255,7 +259,9 @@ export class RuntimeMetadataSchemaRouterService {
       recordId: input.recordId,
       ownerTableId,
       affectedTables: execResult.affectedTables as string[],
-      tableRenames: execResult.tableRenames,
+      ...(execResult.tableRenames === undefined
+        ? {}
+        : { tableRenames: execResult.tableRenames }),
       mutationId: execResult.mutationId,
     };
   }
@@ -298,15 +304,19 @@ export class RuntimeMetadataSchemaRouterService {
     const execResult = await this.deps.runtimeSchemaExecutorService.execute({
       contract,
       body: resolvedBody,
-      context: input.context,
+      ...(input.context === undefined ? {} : { context: input.context }),
     });
     if (execResult.preview) {
       return { preview: execResult.preview };
     }
     return {
-      recordId: execResult.recordId,
+      ...(execResult.recordId === undefined
+        ? {}
+        : { recordId: execResult.recordId }),
       affectedTables: execResult.affectedTables as string[],
-      tableRenames: execResult.tableRenames,
+      ...(execResult.tableRenames === undefined
+        ? {}
+        : { tableRenames: execResult.tableRenames }),
       mutationId: execResult.mutationId,
     };
   }
@@ -372,7 +382,7 @@ export class RuntimeMetadataSchemaRouterService {
       contract,
       ownerTableId: tableId,
       body: target,
-      context: input.context,
+      ...(input.context === undefined ? {} : { context: input.context }),
     });
     if (execResult.preview) {
       return { preview: execResult.preview };
@@ -381,7 +391,9 @@ export class RuntimeMetadataSchemaRouterService {
       recordId: execResult.recordId ?? tableId,
       ownerTableId: tableId,
       affectedTables: execResult.affectedTables as string[],
-      tableRenames: execResult.tableRenames,
+      ...(execResult.tableRenames === undefined
+        ? {}
+        : { tableRenames: execResult.tableRenames }),
       mutationId: execResult.mutationId,
     };
   }
@@ -434,7 +446,7 @@ export class RuntimeMetadataSchemaRouterService {
     const execResult = await this.deps.runtimeSchemaExecutorService.execute({
       contract,
       tableId,
-      context: input.context,
+      ...(input.context === undefined ? {} : { context: input.context }),
     });
     if (execResult.preview) {
       return { preview: execResult.preview };
@@ -443,7 +455,9 @@ export class RuntimeMetadataSchemaRouterService {
       recordId: tableId,
       ownerTableId: tableId,
       affectedTables: execResult.affectedTables as string[],
-      tableRenames: execResult.tableRenames,
+      ...(execResult.tableRenames === undefined
+        ? {}
+        : { tableRenames: execResult.tableRenames }),
       mutationId: execResult.mutationId,
     };
   }
@@ -605,7 +619,7 @@ export class RuntimeMetadataSchemaRouterService {
         uniques: constraints.uniques,
         indexes: constraints.indexes,
       },
-      { backend, mode: 'persisted' },
+      { ...(backend === undefined ? {} : { backend }), mode: 'persisted' },
     );
     return {
       ...body,

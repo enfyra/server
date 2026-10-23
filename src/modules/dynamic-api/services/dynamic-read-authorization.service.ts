@@ -132,9 +132,12 @@ export class DynamicReadAuthorizationService {
       currentTable: string,
       path: string,
     ): Promise<void> => {
-      const parts = path.split('.');
-      for (let index = 0; index < parts.length; index++) {
-        const target = await checkField(currentTable, parts[index]);
+      const parts = path
+        .split('.')
+        .map((part) => part.trim())
+        .filter(Boolean);
+      for (const [index, part] of parts.entries()) {
+        const target = await checkField(currentTable, part);
         if (index < parts.length - 1) {
           if (!target) return;
           currentTable = target;
@@ -182,7 +185,7 @@ export class DynamicReadAuthorizationService {
     for (const token of tokens) {
       const field = token.trim().replace(/^-/, '');
       const aggregate = field.match(/^_(count|max|min)\(([^)]+)\)$/);
-      await checkPath(tableName, aggregate ? aggregate[2] : field);
+      await checkPath(tableName, aggregate?.[2] ?? field);
     }
   }
 
@@ -296,7 +299,7 @@ export class DynamicReadAuthorizationService {
     }
 
     const cleanFieldList = fieldList.filter((field) => {
-      const [first] = field.split('.');
+      const first = field.split('.').at(0) ?? '';
       return !deniedColumns.has(first) && !deniedRelations.has(first);
     });
     let cleanFields: string | string[] =
@@ -336,11 +339,12 @@ export class DynamicReadAuthorizationService {
           enforceFieldPermission,
         });
 
-        cleanDeep[relationName] = {
-          ...entry,
-          ...(nested.fields !== entry.fields ? { fields: nested.fields } : {}),
-          ...(nested.deep !== entry.deep ? { deep: nested.deep } : {}),
-        };
+        const cleanEntry = { ...entry };
+        if (nested.fields === undefined) delete cleanEntry.fields;
+        else cleanEntry.fields = nested.fields;
+        if (nested.deep === undefined) delete cleanEntry.deep;
+        else cleanEntry.deep = nested.deep;
+        cleanDeep[relationName] = cleanEntry;
       }
     }
 
@@ -437,7 +441,7 @@ export class DynamicReadAuthorizationService {
         if (key === '_and' || key === '_or' || key === '_not') {
           walkFilter(nested);
         } else if (!key.startsWith('_')) {
-          fields.add(key.split('.')[0]);
+          fields.add(key.split('.').at(0) ?? '');
           walkFilter(nested);
         }
       }
@@ -468,6 +472,21 @@ export class DynamicReadAuthorizationService {
     for (const field of fields) {
       const column = table.columns?.find((item) => item.name === field);
       if (!column) continue;
+      const conditional = await this.getConditionalFieldsForField(
+        tableName,
+        'column',
+        field,
+        context,
+      );
+      if (conditional !== null) {
+        throw new ForbiddenException(
+          formatFieldPermissionErrorMessage({
+            action: 'filter',
+            tableName,
+            fields: [{ type: 'column', name: field }],
+          }),
+        );
+      }
       const decision = await this.decideReadField(
         tableName,
         'column',

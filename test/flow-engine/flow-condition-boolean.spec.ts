@@ -123,6 +123,25 @@ describe('condition step boolean contract', () => {
     );
   });
 
+  it('keeps an absent draft step key optional and preserves the condition fallback label', async () => {
+    const service = createService();
+    const script = await service.testStep({
+      type: 'script',
+      sourceCode: 'return 0;',
+      scriptLanguage: 'javascript',
+    });
+    expect(script.success).toBe(true);
+    expect(script.result).toBe(0);
+
+    const condition = await service.testStep({
+      type: 'condition',
+      sourceCode: '',
+      scriptLanguage: 'javascript',
+    });
+    expect(condition.success).toBe(false);
+    expect(condition.error).toContain('Condition step "unknown" needs sourceCode');
+  });
+
   it('keeps script steps free to return any value', async () => {
     const result = await createService().testStep({
       type: 'script',

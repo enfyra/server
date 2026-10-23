@@ -137,11 +137,11 @@ export class DynamicMutationLifecycleService {
         });
         if (mutation.preview) return { data: [mutation.preview] };
         await schemaActivationService.activate(mutation, {
-          ids: mutation.recordId == null ? undefined : [mutation.recordId],
+          ...(mutation.recordId != null ? { ids: [mutation.recordId] } : {}),
         });
         return runtime.find({
           filter: { [runtime.getIdField()]: { _eq: mutation.recordId } },
-          fields,
+          ...(fields !== undefined ? { fields } : {}),
         });
       }
 
@@ -154,11 +154,11 @@ export class DynamicMutationLifecycleService {
         if (mutation.preview) return { data: [mutation.preview] };
         const idValue = mutation.recordId;
         await schemaActivationService.activate(mutation, {
-          ids: idValue == null ? undefined : [idValue],
+          ...(idValue != null ? { ids: [idValue] } : {}),
         });
         return runtime.find({
           filter: { [runtime.getIdField()]: { _eq: idValue } },
-          fields,
+          ...(fields !== undefined ? { fields } : {}),
         });
       }
 
@@ -193,7 +193,7 @@ export class DynamicMutationLifecycleService {
         buildResult: async (_context, { createdId }) => {
           const result = await runtime.find({
             filter: { [runtime.getIdField()]: { _eq: createdId } },
-            fields,
+            ...(fields !== undefined ? { fields } : {}),
           });
           logMemory(this.logger, 'dynamic create result loaded', {
             ...writeMeta,
@@ -204,7 +204,9 @@ export class DynamicMutationLifecycleService {
         reload: () =>
           runtime.reload({
             ids: [ctx.id],
-            critical: strategy.requiresCriticalReload,
+            ...(strategy.requiresCriticalReload !== undefined
+              ? { critical: strategy.requiresCriticalReload }
+              : {}),
           }),
         afterReload: async () => {
           logMemory(this.logger, 'dynamic create done', {
@@ -288,7 +290,9 @@ export class DynamicMutationLifecycleService {
           ),
         );
       const ids = this.extractIds(created, runtime.getIdField());
-      if (ids.length !== bodies.length) {
+      const firstId = ids[0];
+      const firstBody = bodies[0];
+      if (ids.length !== bodies.length || firstId === undefined || !firstBody) {
         throw new BadRequestException(
           'Bulk create did not return a primary key for every record',
         );
@@ -298,8 +302,8 @@ export class DynamicMutationLifecycleService {
         dynamicContext: context,
         context: {
           tableName,
-          id: ids[0],
-          body: bodies[0],
+          id: firstId,
+          body: firstBody,
           existing: null,
         },
         persist: async () => ids,
@@ -321,7 +325,7 @@ export class DynamicMutationLifecycleService {
         buildResult: async () => {
           const result = await runtime.find({
             filter: { [runtime.getIdField()]: { _in: ids } },
-            fields,
+            ...(fields !== undefined ? { fields } : {}),
             limit: 0,
           });
           return {
@@ -454,7 +458,7 @@ export class DynamicMutationLifecycleService {
         });
         const result = await runtime.find({
           filter: { [runtime.getIdField()]: { _eq: tableId } },
-          fields,
+          ...(fields !== undefined ? { fields } : {}),
         });
         return result;
       }
@@ -470,7 +474,7 @@ export class DynamicMutationLifecycleService {
         await schemaActivationService.activate(mutation, { ids: [id] });
         return runtime.find({
           filter: { [runtime.getIdField()]: { _eq: id } },
-          fields,
+          ...(fields !== undefined ? { fields } : {}),
         });
       }
 
@@ -505,7 +509,7 @@ export class DynamicMutationLifecycleService {
         buildResult: async () => {
           const result = await runtime.find({
             filter: { [runtime.getIdField()]: { _eq: id } },
-            fields,
+            ...(fields !== undefined ? { fields } : {}),
           });
           logMemory(this.logger, 'dynamic update result loaded', {
             ...writeMeta,
@@ -516,7 +520,9 @@ export class DynamicMutationLifecycleService {
         reload: () =>
           runtime.reload({
             ids: [id],
-            critical: strategy.requiresCriticalReload,
+            ...(strategy.requiresCriticalReload !== undefined
+              ? { critical: strategy.requiresCriticalReload }
+              : {}),
           }),
         afterCommit: () => strategy.afterUpdateCommit?.(ctx),
         afterReload: async () => {
@@ -557,6 +563,10 @@ export class DynamicMutationLifecycleService {
     try {
       this.assertBulkSupported(routeRouter, tableName);
       const ids = this.requireManyIds(requestedIds);
+      const firstId = ids[0];
+      if (firstId === undefined) {
+        throw new BadRequestException('ids must contain at least one id');
+      }
       let body = mutationPreparationService.prepareUpdateBody(
         data,
         tableMetadata,
@@ -572,7 +582,7 @@ export class DynamicMutationLifecycleService {
         body = await mutationAuthorizationService.stripUnauthorizedDirectFields(
           'update',
           body,
-          existingRecords.get(String(id))!,
+          this.requireExistingRecord(existingRecords, id),
         );
       }
       this.assertNoRelationPayload(body, tableMetadata);
@@ -583,7 +593,7 @@ export class DynamicMutationLifecycleService {
         tableMetadata,
       });
       for (const id of ids) {
-        const existing = existingRecords.get(String(id))!;
+        const existing = this.requireExistingRecord(existingRecords, id);
         await mutationAuthorizationService.assertMutationSafety(
           'update',
           body,
@@ -607,9 +617,9 @@ export class DynamicMutationLifecycleService {
         dynamicContext: context,
         context: {
           tableName,
-          id: ids[0],
+          id: firstId,
           body,
-          existing: existingRecords.get(String(ids[0]))!,
+          existing: this.requireExistingRecord(existingRecords, firstId),
         },
         persist: () =>
           mutationAuthorizationService.runWithFieldPermissionCheck(() =>
@@ -643,7 +653,7 @@ export class DynamicMutationLifecycleService {
         buildResult: async () => {
           const result = await runtime.find({
             filter: { [runtime.getIdField()]: { _in: ids } },
-            fields,
+            ...(fields !== undefined ? { fields } : {}),
             limit: 0,
           });
           return {
@@ -681,11 +691,15 @@ export class DynamicMutationLifecycleService {
 
     try {
       const idField = runtime.getIdField();
-      const existsResult = await runtime.find({
-        filter: { [idField]: { _eq: id } },
-      });
-      const exists = existsResult?.data?.[0];
-      if (!exists) throw new BadRequestException(`id ${id} is not exists!`);
+      const exists = this.requireExistingRecord(
+        await this.loadExistingRecords(
+          queryBuilderService,
+          tableName,
+          idField,
+          [id],
+        ),
+        id,
+      );
       logMemory(this.logger, 'dynamic delete existing loaded', {
         ...writeMeta,
         durationMs: Date.now() - startedAt,
@@ -757,7 +771,9 @@ export class DynamicMutationLifecycleService {
         reload: () =>
           runtime.reload({
             ids: [id],
-            critical: strategy.requiresCriticalReload,
+            ...(strategy.requiresCriticalReload !== undefined
+              ? { critical: strategy.requiresCriticalReload }
+              : {}),
           }),
         afterCommit: () => strategy.afterDeleteCommit?.(ctx),
         afterReload: async () => {
@@ -795,6 +811,10 @@ export class DynamicMutationLifecycleService {
     try {
       this.assertBulkSupported(routeRouter, tableName);
       const ids = this.requireManyIds(requestedIds);
+      const firstId = ids[0];
+      if (firstId === undefined) {
+        throw new BadRequestException('ids must contain at least one id');
+      }
       const existingRecords = await this.loadExistingRecords(
         queryBuilderService,
         tableName,
@@ -811,7 +831,7 @@ export class DynamicMutationLifecycleService {
         await mutationAuthorizationService.assertMutationSafety(
           'delete',
           {},
-          existingRecords.get(String(id))!,
+          this.requireExistingRecord(existingRecords, id),
         );
       }
 
@@ -819,9 +839,9 @@ export class DynamicMutationLifecycleService {
         dynamicContext: context,
         context: {
           tableName,
-          id: ids[0],
+          id: firstId,
           body: {},
-          existing: existingRecords.get(String(ids[0]))!,
+          existing: this.requireExistingRecord(existingRecords, firstId),
         },
         persist: () =>
           mutationAuthorizationService.runWithMutationPolicy(() =>
@@ -923,6 +943,17 @@ export class DynamicMutationLifecycleService {
       unique.add(key);
     }
     return ids;
+  }
+
+  private requireExistingRecord(
+    records: Map<string, Record<string, any>>,
+    id: DynamicMutationId,
+  ): Record<string, any> {
+    const record = records.get(String(id));
+    if (!record) {
+      throw new BadRequestException(`id ${id} is not exists!`);
+    }
+    return record;
   }
 
   private async loadExistingRecords(
