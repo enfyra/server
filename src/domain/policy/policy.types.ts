@@ -1,3 +1,5 @@
+import type { TAuthenticatedUser } from '../../shared/types/authenticated-user.types';
+
 export type TPolicyDeny = {
   allow: false;
   statusCode: 401 | 403 | 409 | 422;
@@ -19,6 +21,8 @@ type TPolicyPreview = {
 
 export type TPolicyDecision = TPolicyAllow | TPolicyDeny | TPolicyPreview;
 
+export type TPolicyRequestDecision = TPolicyAllow | TPolicyDeny;
+
 export function isPolicyDeny(
   decision: TPolicyDecision,
 ): decision is TPolicyDeny {
@@ -28,15 +32,21 @@ export function isPolicyDeny(
 export function isPolicyPreview(
   decision: TPolicyDecision,
 ): decision is TPolicyPreview {
-  return decision.allow === false && (decision as any).preview === true;
+  return decision.allow === false && 'preview' in decision && decision.preview === true;
 }
 
 type TSchemaOperation = 'create' | 'update' | 'delete';
 
 export type TPolicyRequestContext = {
   method: string;
-  routeData?: any;
-  user?: any;
+  routeData?: {
+    routeMethodConfig?: {
+      isPublic?: boolean;
+      skipRoleGuard?: boolean;
+    } | null;
+    routePermissions?: unknown[] | null;
+  } | null;
+  user?: TAuthenticatedUser | null;
 };
 
 export type TPolicyMutationContext = {

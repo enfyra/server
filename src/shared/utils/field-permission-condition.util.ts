@@ -1,3 +1,5 @@
+import { types } from 'node:util';
+
 const FIELD_OPERATORS = new Set([
   '_eq',
   '_neq',
@@ -26,6 +28,9 @@ function isOperatorNode(v: any): boolean {
 
 function toIdString(v: any): string | null {
   if (v === undefined || v === null) return null;
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number') return String(v);
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
   if (typeof v === 'object') return String(v._id ?? v.id ?? '');
   return String(v);
 }
@@ -45,7 +50,10 @@ function resolveMacroInArray(arr: any, user: any): any {
 
 function resolvePathOnObject(root: any, path: string): any {
   if (root == null) return undefined;
-  const parts = path.split('.');
+  return resolvePathParts(root, path.split('.'));
+}
+
+function resolvePathParts(root: any, parts: string[]): any {
   let cur: any = root;
   for (const part of parts) {
     if (cur == null) return undefined;
@@ -115,6 +123,52 @@ function equalsLoose(a: any, b: any): boolean {
   return sa === sb;
 }
 
+function matchesOperator(
+  op: string,
+  rawExpected: any,
+  actual: any,
+  user: any,
+): boolean {
+  switch (op) {
+    case '_eq':
+    case '_neq': {
+      const expected = resolveMacro(rawExpected, user);
+      if (expected === undefined) return false;
+      const equal = equalsLoose(actual, expected);
+      return op === '_eq' ? equal : !equal;
+    }
+    case '_gt':
+    case '_gte':
+    case '_lt':
+    case '_lte': {
+      const expected = resolveMacro(rawExpected, user);
+      if (expected === undefined) return false;
+      const short = op.slice(1) as 'gt' | 'gte' | 'lt' | 'lte';
+      return compareNumericOrdered(short, actual, expected);
+    }
+    case '_in':
+    case '_not_in':
+    case '_nin': {
+      const expected = Array.isArray(rawExpected)
+        ? resolveMacroInArray(rawExpected, user)
+        : resolveMacro(rawExpected, user);
+      if (!Array.isArray(expected)) return false;
+      const includes = expected.some((value) => equalsLoose(actual, value));
+      return op === '_in' ? includes : !includes;
+    }
+    case '_is_null': {
+      const want = rawExpected === true || rawExpected === 'true';
+      return want === (actual === null || actual === undefined);
+    }
+    case '_is_not_null': {
+      const want = rawExpected === true || rawExpected === 'true';
+      return want === (actual !== null && actual !== undefined);
+    }
+    default:
+      return false;
+  }
+}
+
 function evalOperatorNode(
   node: Record<string, any>,
   actual: any,
@@ -122,80 +176,151 @@ function evalOperatorNode(
 ): boolean {
   for (const op of Object.keys(node)) {
     if (!FIELD_OPERATORS.has(op)) return false;
-    const rawExpected = node[op];
-    switch (op) {
-      case '_eq': {
-        const expected = resolveMacro(rawExpected, user);
-        if (expected === undefined) return false;
-        if (!equalsLoose(actual, expected)) return false;
-        break;
-      }
-      case '_neq': {
-        const expected = resolveMacro(rawExpected, user);
-        if (expected === undefined) return false;
-        if (equalsLoose(actual, expected)) return false;
-        break;
-      }
-      case '_gt':
-      case '_gte':
-      case '_lt':
-      case '_lte': {
-        const expected = resolveMacro(rawExpected, user);
-        if (expected === undefined) return false;
-        const short = op.slice(1) as 'gt' | 'gte' | 'lt' | 'lte';
-        if (!compareNumericOrdered(short, actual, expected)) return false;
-        break;
-      }
-      case '_in': {
-        const expected = Array.isArray(rawExpected)
-          ? resolveMacroInArray(rawExpected, user)
-          : resolveMacro(rawExpected, user);
-        if (!Array.isArray(expected)) return false;
-        if (!expected.some((e) => equalsLoose(actual, e))) return false;
-        break;
-      }
-      case '_not_in':
-      case '_nin': {
-        const expected = Array.isArray(rawExpected)
-          ? resolveMacroInArray(rawExpected, user)
-          : resolveMacro(rawExpected, user);
-        if (!Array.isArray(expected)) return false;
-        if (expected.some((e) => equalsLoose(actual, e))) return false;
-        break;
-      }
-      case '_is_null': {
-        const want = rawExpected === true || rawExpected === 'true';
-        const isNull = actual === null || actual === undefined;
-        if (want !== isNull) return false;
-        break;
-      }
-      case '_is_not_null': {
-        const want = rawExpected === true || rawExpected === 'true';
-        const isNotNull = actual !== null && actual !== undefined;
-        if (want !== isNotNull) return false;
-        break;
-      }
-      default:
-        return false;
-    }
+    if (!matchesOperator(op, node[op], actual, user)) return false;
   }
   return true;
 }
 
-export function getFieldPermissionConditionFields(condition: unknown): string[] {
+type ConditionMatcher = (record: any, user: any) => boolean;
+
+const preparedConditions = new WeakMap<object, ConditionMatcher>();
+const neverMatches: ConditionMatcher = () => false;
+
+function collectConditionObjects(condition: object): object[] | null {
+  const objects: object[] = [];
+  const visiting = new Set<object>();
+  const visited = new Set<object>();
+  const pending = [{ value: condition as unknown, exit: false }];
+  while (pending.length > 0) {
+    const { value, exit } = pending.pop()!;
+    if (
+      value == null ||
+      ['string', 'number', 'boolean', 'undefined'].includes(typeof value)
+    )
+      continue;
+    if (typeof value !== 'object') return null;
+    if (exit) {
+      visiting.delete(value);
+      visited.add(value);
+      continue;
+    }
+    if (visiting.has(value)) return null;
+    if (visited.has(value)) continue;
+    if (types.isProxy(value)) return null;
+    const prototype = Object.getPrototypeOf(value);
+    if (
+      Array.isArray(value)
+        ? prototype !== Array.prototype
+        : prototype !== Object.prototype && prototype !== null
+    )
+      return null;
+    visiting.add(value);
+    objects.push(value);
+    pending.push({ value, exit: true });
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== 'string') return null;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
+      if (!('value' in descriptor)) return null;
+      if (!descriptor.enumerable) {
+        if (Array.isArray(value) && key === 'length') continue;
+        return null;
+      }
+      pending.push({ value: descriptor.value, exit: false });
+    }
+  }
+  return objects;
+}
+
+function compileConditionEntry(key: string, node: any): ConditionMatcher {
+  if (key === '_and' || key === '_or') {
+    if (!Array.isArray(node) || node.length === 0) return neverMatches;
+    const children = node.map(compileCondition);
+    return key === '_and'
+      ? (record, user) => children.every((match) => match(record, user))
+      : (record, user) => children.some((match) => match(record, user));
+  }
+  if (key === '_not') {
+    if (!isPlainObject(node)) return neverMatches;
+    const match = compileCondition(node);
+    return (record, user) => !match(record, user);
+  }
+  if (key.startsWith('_')) return neverMatches;
+  const path = key.split('.');
+  if (isOperatorNode(node)) {
+    const operators = Object.keys(node);
+    const expected = operators.map((op) => node[op]);
+    return (record, user) => {
+      const actual = resolvePathParts(record, path);
+      for (let index = 0; index < operators.length; index++) {
+        if (!matchesOperator(operators[index], expected[index], actual, user))
+          return false;
+      }
+      return true;
+    };
+  }
+  if (!isPlainObject(node)) {
+    return (record) => {
+      resolvePathParts(record, path);
+      return false;
+    };
+  }
+  const match = compileCondition(node);
+  return (record, user) => {
+    const actual = resolvePathParts(record, path);
+    return (
+      actual != null &&
+      typeof actual === 'object' &&
+      !Array.isArray(actual) &&
+      match(actual, user)
+    );
+  };
+}
+
+function compileCondition(condition: any): ConditionMatcher {
+  if (!isPlainObject(condition)) return neverMatches;
+  const matchers = Object.keys(condition).map((key) =>
+    compileConditionEntry(key, condition[key]),
+  );
+  return (record, user) => {
+    for (const match of matchers) {
+      if (!match(record, user)) return false;
+    }
+    return true;
+  };
+}
+
+export function prepareFieldPermissionCondition(condition: unknown): void {
+  if (!isPlainObject(condition) || preparedConditions.has(condition as object))
+    return;
+  const objects = collectConditionObjects(condition as object);
+  if (!objects) return;
+  const match = compileCondition(condition);
+  for (const object of objects) Object.freeze(object);
+  preparedConditions.set(condition as object, match);
+}
+
+export function getFieldPermissionConditionFields(
+  condition: unknown,
+): string[] {
   if (!isPlainObject(condition)) return [];
   const fields = new Set<string>();
-  for (const [key, node] of Object.entries(condition as Record<string, unknown>)) {
+  for (const [key, node] of Object.entries(
+    condition as Record<string, unknown>,
+  )) {
     if (key === '_and' || key === '_or') {
       if (Array.isArray(node)) {
         for (const child of node) {
-          for (const field of getFieldPermissionConditionFields(child)) fields.add(field);
+          for (const field of getFieldPermissionConditionFields(child))
+            fields.add(field);
         }
       }
     } else if (key === '_not') {
-      for (const field of getFieldPermissionConditionFields(node)) fields.add(field);
+      for (const field of getFieldPermissionConditionFields(node))
+        fields.add(field);
     } else if (!key.startsWith('_')) {
-      const children = isOperatorNode(node) ? [] : getFieldPermissionConditionFields(node);
+      const children = isOperatorNode(node)
+        ? []
+        : getFieldPermissionConditionFields(node);
       if (children.length === 0) fields.add(key);
       for (const field of children) fields.add(`${key}.${field}`);
     }
@@ -209,6 +334,8 @@ export function matchFieldPermissionCondition(
   user: any,
 ): boolean {
   if (!isPlainObject(condition)) return false;
+  const prepared = preparedConditions.get(condition);
+  if (prepared) return prepared(record, user);
 
   for (const key of Object.keys(condition)) {
     const node = condition[key];

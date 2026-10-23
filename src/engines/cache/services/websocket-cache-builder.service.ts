@@ -108,11 +108,11 @@ export class WebsocketCacheBuilder extends BaseCacheService<
     return gateways;
   }
 
-  supportsPartialReload(): boolean {
+  override supportsPartialReload(): boolean {
     return true;
   }
 
-  async partialReload(
+  override async partialReload(
     payload: TCacheInvalidationPayload,
     publish = true,
   ): Promise<void> {
@@ -126,7 +126,7 @@ export class WebsocketCacheBuilder extends BaseCacheService<
     await super.partialReload(payload, publish);
   }
 
-  protected async applyPartialUpdate(
+  protected override async applyPartialUpdate(
     payload: TCacheInvalidationPayload,
   ): Promise<void> {
     const ids = payload.ids ?? [];
@@ -269,11 +269,11 @@ export class WebsocketCacheBuilder extends BaseCacheService<
     );
   }
 
-  protected getLogCount(): string {
+  protected override getLogCount(): string {
     return `${this.cache.length} websocket gateways`;
   }
 
-  protected emitLoadedEvent(): void {
+  protected override emitLoadedEvent(): void {
     if (this.eventEmitter) {
       this.eventEmitter.emit(`${this.config.cacheIdentifier}_LOADED`);
     }

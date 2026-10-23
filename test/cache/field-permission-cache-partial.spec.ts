@@ -154,6 +154,41 @@ describe('FieldPermissionCacheBuilder — partial reload', () => {
     },
   );
 
+  it('rebuilds prepared conditional denies after a partial metadata update', async () => {
+    const condition = { owner: { _eq: 7 } };
+    const rows = [makeRow({ role: null, effect: 'deny', condition })];
+    const { svc, registry } = makeService(rows);
+    const context = {
+      user: { id: 7 },
+      tableName: 'post',
+      action: 'read' as const,
+      subjectType: 'column' as const,
+      subjectName: 'name',
+      record: { owner: 7 },
+    };
+    await svc.reload(false);
+    expect((await decideFieldPermission(registry, context)).allowed).toBe(false);
+    condition.owner._eq = 8;
+    expect((await decideFieldPermission(registry, context)).allowed).toBe(false);
+    await svc.partialReload(
+      {
+        table: 'enfyra_field_permission',
+        action: 'reload',
+        timestamp: 0,
+        scope: 'partial',
+        ids: [1],
+      },
+      false,
+    );
+    expect((await decideFieldPermission(registry, context)).allowed).toBe(true);
+    expect(
+      (await decideFieldPermission(registry, {
+        ...context,
+        record: { owner: 8 },
+      })).allowed,
+    ).toBe(false);
+  });
+
   it('supportsPartialReload returns true', () => {
     const { svc } = makeService([]);
     expect(svc.supportsPartialReload()).toBe(true);

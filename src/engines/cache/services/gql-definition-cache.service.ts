@@ -121,7 +121,7 @@ export class GqlDefinitionCacheService extends BaseCacheService<
     return map;
   }
 
-  protected getLogCount(): string {
+  protected override getLogCount(): string {
     return `${this.cache?.size ?? 0} definitions`;
   }
 

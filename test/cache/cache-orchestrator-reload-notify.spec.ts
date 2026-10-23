@@ -5,6 +5,9 @@ import {
   RuntimeRegistryService,
 } from '../../src/engines/cache';
 import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants';
+import { RepoRegistryService } from '../../src/engines/cache/services/repo-registry.service';
+import { GuardCacheBuilder } from '../../src/engines/cache/services/guard-cache-builder.service';
+import { GuardEvaluatorService } from '../../src/engines/cache/services/guard-evaluator.service';
 
 function cacheMock(overrides: Record<string, any> = {}) {
   return {
@@ -38,7 +41,7 @@ function createOrchestrator(overrides: Record<string, any> = {}) {
     fieldPermissionCacheBuilder: cacheMock() as any,
     columnRuleCacheBuilder: cacheMock() as any,
     gqlDefinitionCacheService: cacheMock() as any,
-    repoRegistryService: { rebuildFromMetadata: () => undefined } as any,
+    repoRegistryService: { stageFromMetadata: async () => new Map(), activateAliases: () => undefined } as any,
     graphqlService: { reloadSchema: async () => undefined } as any,
     dynamicWebSocketGateway: {
       emitToNamespace: (_path: string, event: string, data: any) => {
@@ -51,6 +54,78 @@ function createOrchestrator(overrides: Record<string, any> = {}) {
 }
 
 describe('CacheOrchestratorService reload notifications', () => {
+  it('keeps route and GraphQL guards attached after a table rename', async () => {
+    let name = 'old_items';
+    const runtimeRegistryService = new RuntimeRegistryService();
+    const guardCacheBuilder = new GuardCacheBuilder({ eventEmitter: new EventEmitter2(), queryBuilderService: { isMongoDb: () => false, find: async ({ table }: any) => ({ data: table === 'enfyra_guard' ? [{ id: 1, name: 'route', position: 'pre_auth', isEnabled: true, route: { id: 1, path: `/${name}` } }, { id: 2, name: 'gql', position: 'pre_auth', isEnabled: true, type: 'graphql', gqlOperation: 'QUERY', table: { id: 1, name } }] : [1, 2].map((guardId) => ({ id: guardId, guard: { id: guardId }, type: 'ip_whitelist', config: { ips: ['127.0.0.1'] }, isEnabled: true })) }) } } as any);
+    await guardCacheBuilder.reload(false);
+    await runtimeRegistryService.publishFromCache(CACHE_IDENTIFIERS.GUARD, guardCacheBuilder);
+    const { orchestrator } = createOrchestrator({ metadataCacheService: cacheMock({ partialReload: async () => {} }), guardCacheBuilder, runtimeRegistryService: { publishFromCache: async (id: string, builder: any) => { if (id === CACHE_IDENTIFIERS.GUARD) await runtimeRegistryService.publishFromCache(id, builder); } } });
+    try {
+      name = 'new_items';
+      await (orchestrator as any).executeChain({ table: 'enfyra_table', action: 'reload', scope: 'partial', ids: [1], tableRenames: [{ id: 1, oldName: 'old_items', newName: name }], timestamp: Date.now() }, true);
+      expect(runtimeRegistryService.getGuardsForRoute('pre_auth', '/new_items', 'GET').map(guard => guard.id)).toEqual([1]);
+      expect(runtimeRegistryService.getGuardsForGraphql('pre_auth', 'new_items', 'QUERY').map(guard => guard.id)).toEqual([2]);
+      expect(runtimeRegistryService.getGuardsForRoute('pre_auth', '/old_items', 'GET')).toEqual([]);
+      const evaluator = new GuardEvaluatorService({ rateLimitService: {} as any });
+      const routeGuard = runtimeRegistryService.getGuardsForRoute('pre_auth', '/new_items', 'GET')[0];
+      const graphqlGuard = runtimeRegistryService.getGuardsForGraphql('pre_auth', 'new_items', 'QUERY')[0];
+      for (const guard of [routeGuard, graphqlGuard]) {
+        expect((await evaluator.evaluateGuard(guard, { clientIp: '203.0.113.5', routePath: '/new_items', tableName: 'new_items', operation: 'QUERY' })).reject).toMatchObject({ statusCode: 403, errorCode: 'IP_NOT_ALLOWED' });
+        expect((await evaluator.evaluateGuard(guard, { clientIp: '127.0.0.1', routePath: '/new_items', tableName: 'new_items', operation: 'QUERY' })).reject).toBeNull();
+      }
+    } finally { orchestrator.onDestroy(); }
+  });
+
+  it('does not expose candidate repository aliases when a sibling reload fails', async () => {
+    let tables = [{ name: 'items', alias: 'oldAlias' }];
+    const metadataCacheService = cacheMock({ getAllTablesMetadata: async () => tables });
+    const repoRegistryService = new RepoRegistryService({ metadataCacheService, eventEmitter: new EventEmitter2(), dynamicRepositoryFactory: {} } as any);
+    await repoRegistryService.rebuildFromMetadata();
+    const { orchestrator } = createOrchestrator({ metadataCacheService, repoRegistryService, routeCacheService: cacheMock({ reload: async () => { await new Promise(resolve => setImmediate(resolve)); throw new Error('route failed'); } }) });
+    try {
+      tables = [{ name: 'items', alias: 'newAlias' }];
+      await expect(orchestrator.reloadMetadataAndDeps()).rejects.toThrow('route failed');
+      expect(repoRegistryService.resolveTableName('oldAlias')).toBe('items');
+      expect(repoRegistryService.resolveTableName('newAlias')).toBeNull();
+    } finally { orchestrator.onDestroy(); }
+  });
+
+  it.each([false, true])('activates repository aliases only after a successful shared commit (commit fails=%s)', async (failCommit) => {
+    let tables = [{ name: 'items', alias: 'oldAlias' }];
+    const metadataCacheService = cacheMock({ getAllTablesMetadata: async () => tables });
+    const repoRegistryService = new RepoRegistryService({ metadataCacheService, eventEmitter: new EventEmitter2(), dynamicRepositoryFactory: {} } as any);
+    await repoRegistryService.rebuildFromMetadata();
+    const { orchestrator } = createOrchestrator({ metadataCacheService, repoRegistryService, redisRuntimeCacheStore: {
+      isEnabled: () => true,
+      runWithPublication: async (work: () => Promise<void>) => work(),
+      commitPublication: async () => {
+        expect(repoRegistryService.resolveTableName('oldAlias')).toBe('items');
+        expect(repoRegistryService.resolveTableName('newAlias')).toBeNull();
+        if (failCommit) throw new Error('commit failed');
+      },
+    } });
+    try {
+      tables = [{ name: 'items', alias: 'newAlias' }];
+      const reload = orchestrator.reloadMetadataAndDeps();
+      if (failCommit) await expect(reload).rejects.toThrow('commit failed');
+      else await reload;
+      expect(repoRegistryService.resolveTableName('oldAlias')).toBe(failCommit ? 'items' : null);
+      expect(repoRegistryService.resolveTableName('newAlias')).toBe(failCommit ? null : 'items');
+    } finally { orchestrator.onDestroy(); }
+  });
+
+  it.each(['mutation', 'admin', 'all'])('notifies peers after committed snapshots even when GraphQL artifacts fail (%s)', async mode => {
+    let committed = false;
+    const publish = vi.fn(async () => { expect(committed).toBe(true); });
+    const { orchestrator } = createOrchestrator({ redisRuntimeCacheStore: { isEnabled: () => true, runWithPublication: async (work: () => Promise<void>) => work(), commitPublication: async () => { committed = true; } }, redisPubSubService: { publish }, graphqlService: { reloadSchema: async () => { throw new Error('artifact failed'); } } });
+    try {
+      const reload = mode === 'admin' ? orchestrator.reloadGraphqlOnly() : mode === 'all' ? orchestrator.reloadAll() : (orchestrator as any).executeChain({ table: 'enfyra_graphql', action: 'reload', scope: 'full', timestamp: Date.now() }, true);
+      await expect(reload).rejects.toThrow('artifact failed');
+      expect(publish).toHaveBeenCalledOnce();
+    } finally { orchestrator.onDestroy(); }
+  });
+
   it('pins a shared replay only after earlier local reloads release the queue', async () => {
     let release!: () => void;
     const blocked = new Promise<void>(resolve => { release = resolve; });
@@ -636,7 +711,7 @@ describe('CacheOrchestratorService reload notifications', () => {
         method: 'reloadMetadataAndDeps',
         flow: 'metadata',
         table: 'enfyra_table',
-        steps: ['metadata', 'repoRegistry', 'route', 'graphql'],
+        steps: ['metadata', 'repoRegistry', 'route', 'guard', 'graphql'],
       },
       {
         method: 'reloadRoutesOnly',
@@ -800,7 +875,8 @@ describe('CacheOrchestratorService reload notifications', () => {
         columnRuleCacheBuilder: trackedCache('columnRule') as any,
         gqlDefinitionCacheService: trackedCache('graphql') as any,
         repoRegistryService: {
-          rebuildFromMetadata: () => track('repoRegistry'),
+          stageFromMetadata: async () => { await track('repoRegistry'); return new Map(); },
+          activateAliases: () => undefined,
         } as any,
       });
 

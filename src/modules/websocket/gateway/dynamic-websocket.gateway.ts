@@ -1,5 +1,5 @@
 import { Logger } from '../../../shared/logger';
-import { Server, Socket } from 'socket.io';
+import { Server, Socket, type Namespace } from 'socket.io';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 import { createAdapter } from '@socket.io/redis-adapter';
@@ -24,11 +24,12 @@ import {
   withUserRequestContext,
 } from '../../../shared/utils/load-user-with-role.util';
 import type { Cradle } from '../../../container';
+import type { TUserIdentity } from '../../../shared/types/authenticated-user.types';
 
 interface SocketData extends Socket {
   data: {
     user?: any;
-    userId?: number | string;
+    userId?: TUserIdentity;
     gateway?: any;
   };
 }
@@ -50,6 +51,7 @@ export class DynamicWebSocketGateway {
   private readonly roomFanoutParallelChunks: number;
   private readonly roomFanoutBackpressureThreshold: number;
   private registeredGateways = new Set<string>();
+  private namespaceBindings?: WeakSet<Namespace>;
   private gatewayConfigsByPath = new Map<string, any>();
   private roomFanoutQueues = new Map<string, RoomFanoutJob[]>();
   private activeRoomFanoutQueues = new Set<string>();
@@ -172,7 +174,6 @@ export class DynamicWebSocketGateway {
         if (!newPaths.has(path)) {
           const namespace = this.server.of(path);
           namespace.disconnectSockets();
-          namespace.removeAllListeners();
           this.registeredGateways.delete(path);
         }
       }
@@ -185,7 +186,9 @@ export class DynamicWebSocketGateway {
               gateway,
             )
           ) {
-            this.server.of(gateway.path).disconnectSockets(true);
+            for (const socket of this.server.of(gateway.path).sockets.values()) {
+              socket.conn.close();
+            }
           }
           continue;
         }
@@ -195,6 +198,7 @@ export class DynamicWebSocketGateway {
       this.logger.log(`Registered ${gateways.length} websocket gateways`);
     } catch (error) {
       this.logger.error('Failed to register websocket gateways:', error);
+      throw error;
     }
   }
 
@@ -233,6 +237,9 @@ export class DynamicWebSocketGateway {
 
   private setupNamespace(path: string) {
     const namespace = this.server.of(path);
+    this.namespaceBindings ??= new WeakSet<Namespace>();
+    if (this.namespaceBindings.has(namespace)) return;
+    this.namespaceBindings.add(namespace);
     namespace.use(async (socket: SocketData, next) => {
       const gateway = this.gatewayConfigsByPath.get(path);
       if (!gateway) {
@@ -761,19 +768,6 @@ export class DynamicWebSocketGateway {
 
   async reloadGateways() {
     this.logger.log('Reloading websocket gateways...');
-    const keepAdminNamespace = this.registeredGateways.has(
-      ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
-    );
-    for (const path of this.registeredGateways) {
-      if (path === ENFYRA_ADMIN_WEBSOCKET_NAMESPACE) continue;
-      const namespace = this.server.of(path);
-      namespace.disconnectSockets();
-      namespace.removeAllListeners();
-    }
-    this.registeredGateways.clear();
-    if (keepAdminNamespace) {
-      this.registeredGateways.add(ENFYRA_ADMIN_WEBSOCKET_NAMESPACE);
-    }
     await this.registerGateways();
     this.logger.log(
       `Gateways reloaded. Total registered: ${this.registeredGateways.size}`,

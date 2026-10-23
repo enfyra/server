@@ -1,11 +1,12 @@
-import type { GraphQLInputObjectType, GraphQLObjectType, GraphQLOutputType } from 'graphql';
+import type { GraphQLFieldConfig, GraphQLInputObjectType, GraphQLObjectType } from 'graphql';
+import type { GraphqlMutationArguments, GraphqlQueryArguments, GraphqlResolverContext } from './graphql-resolver.types';
 
 export interface TableGraphQLDef {
   type: GraphQLObjectType;
   resultType: GraphQLObjectType;
   inputType: GraphQLInputObjectType | null;
   updateInputType: GraphQLInputObjectType | null;
-  queryField: { type: GraphQLOutputType; args: Record<string, any> } | null;
-  mutationFields: Record<string, any>;
+  queryField: GraphQLFieldConfig<unknown, GraphqlResolverContext, GraphqlQueryArguments> | null;
+  mutationFields: Record<string, GraphQLFieldConfig<unknown, GraphqlResolverContext, GraphqlMutationArguments>>;
   referencedStubs: Set<string>;
 }

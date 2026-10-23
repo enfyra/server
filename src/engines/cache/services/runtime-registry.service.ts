@@ -1,6 +1,7 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { Logger } from '../../../shared/logger';
 import { getErrorMessage } from '../../../shared/utils/error.util';
+import { prepareFieldPermissionCondition } from '../../../shared/utils/field-permission-condition.util';
 import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
@@ -102,6 +103,14 @@ export class RuntimeRegistryService {
         throw new Error(`Cache ${identifier} did not return active data`);
       }
       const snapshotData = this.cloneRuntimeData(data);
+      if (identifier === CACHE_IDENTIFIERS.FIELD_PERMISSION) {
+        const policies = snapshotData as Map<string, TCompiledFieldPolicy>;
+        for (const policy of policies.values()) {
+          for (const rule of policy.rules) {
+            prepareFieldPermissionCondition(rule.condition);
+          }
+        }
+      }
       this.logger.verbose(
         `runtime-cache phase=staged id=${identifier} version=${nextVersion} shape=${summarizeCacheValue(snapshotData)}`,
       );

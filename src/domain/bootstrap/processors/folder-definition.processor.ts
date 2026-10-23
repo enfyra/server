@@ -2,7 +2,7 @@ import { BaseTableProcessor } from './base-table-processor';
 import { DatabaseConfigService } from '../../../shared/services';
 
 export class FolderDefinitionProcessor extends BaseTableProcessor {
-  async transformRecords(records: any[], _context?: any): Promise<any[]> {
+  override async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = [];
     const rootFolders = records.filter((r) => !r.parent);
@@ -50,7 +50,7 @@ export class FolderDefinitionProcessor extends BaseTableProcessor {
     }
     return identifiers.length > 0 ? identifiers : [{ id: record.id }];
   }
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     return ['name', 'slug', 'path', 'order', 'icon', 'description', 'isSystem'];
   }
 }

@@ -87,7 +87,7 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
     return sortNodes(roots);
   }
 
-  protected getLogCount(): string {
+  protected override getLogCount(): string {
     return `${this.cache.folders.size} folders`;
   }
 }

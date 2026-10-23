@@ -9,7 +9,7 @@ export class FlowStepDefinitionProcessor extends BaseTableProcessor {
     this.queryBuilderService = deps.queryBuilderService;
   }
 
-  async transformRecords(records: any[], _context?: any): Promise<any[]> {
+  override async transformRecords(records: any[], _context?: any): Promise<any[]> {
     return mapSequentially(records, async (record) => {
       const transformed = { ...record };
       if (transformed.isEnabled === undefined) transformed.isEnabled = true;
@@ -31,11 +31,11 @@ export class FlowStepDefinitionProcessor extends BaseTableProcessor {
     return this.autoGetUniqueIdentifier(record, 'enfyra_flow_step');
   }
 
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     return this.autoGetCompareFields('enfyra_flow_step');
   }
 
-  protected getRecordIdentifier(record: any): string {
+  protected override getRecordIdentifier(record: any): string {
     return `[FlowStep] ${record.key}`;
   }
 }

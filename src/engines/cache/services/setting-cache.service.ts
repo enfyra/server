@@ -62,7 +62,7 @@ export class SettingCacheService extends BaseCacheService<SettingData> {
     };
   }
 
-  protected getLogCount(): string {
+  protected override getLogCount(): string {
     return '1 setting record';
   }
 

@@ -173,7 +173,11 @@ export class MetadataCacheService implements IMetadataCache {
     isMongoDB: boolean,
   ): void {
     for (const rel of relations) {
-      const rawRef = isMongoDB ? rel.mappedBy : rel.mappedById;
+      const rawRef = isMongoDB
+        ? Object.prototype.hasOwnProperty.call(rel, 'mappedByRelationId')
+          ? rel.mappedByRelationId
+          : rel.mappedBy
+        : rel.mappedById;
       rel.mappedByRelationId =
         rawRef != null && rawRef !== '' ? String(rawRef) : null;
       if (rawRef) {
@@ -257,7 +261,7 @@ export class MetadataCacheService implements IMetadataCache {
     }
 
     const existingRelations = this.inMemoryCache.tablesList.flatMap(
-      (t: any) => t.relations || [],
+      (t: any) => (t.relations || []).map((relation: any) => ({ ...relation })),
     );
     const reloadedSourceTableIds = new Set(uniqueTableIds);
     for (const rel of existingRelations) {

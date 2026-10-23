@@ -36,6 +36,22 @@ describe('WebsocketRuntimeService', () => {
     );
   });
 
+  it('runs a trailing refresh for activations received during an in-flight refresh', async () => {
+    const { dynamicWebSocketGateway, service } = createRuntime();
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    dynamicWebSocketGateway.refreshGateways.mockImplementationOnce(async () => { entered(); await blocked; });
+    const first = service.refreshGateways();
+    await started;
+    const second = service.refreshGateways();
+    release();
+    await Promise.all([first, second]);
+    expect(dynamicWebSocketGateway.refreshGateways).toHaveBeenCalledTimes(2);
+    expect(service.getStatus().lastRefresh?.status).toBe('ok');
+  });
+
   it('marks websocket runtime refresh as degraded when gateway refresh fails', async () => {
     const { eventEmitter, dynamicWebSocketGateway, service } = createRuntime();
     dynamicWebSocketGateway.refreshGateways.mockRejectedValueOnce(

@@ -10,12 +10,10 @@ import {
 } from '../../../shared/utils/schema-mutation-contract.util';
 import type {
   RuntimeSchemaCascadeWarning,
-  RuntimeSchemaCommandKind,
   RuntimeSchemaContractCompilation,
   RuntimeSchemaContractCompileInput,
   RuntimeSchemaLogicalChange,
   RuntimeSchemaMutationCommand,
-  RuntimeSchemaPhysicalPlanPayload,
   RuntimeSchemaRelationContract,
 } from '../types/runtime-schema-mutation.types';
 import { buildRuntimeSchemaChangePlan } from '../utils/runtime-schema-change-plan.util';
@@ -27,10 +25,11 @@ import {
   normalizeRuntimeTableSchema,
   runtimeRelationDiffKey,
 } from '../utils/runtime-schema-normalization.util';
+import type { RuntimeSchemaPhysicalPlannerService } from './runtime-schema-physical-planner.service';
 import type {
-  RuntimeSchemaPhysicalPlannerService,
   PhysicalPlan,
-} from './runtime-schema-physical-planner.service';
+  RuntimeSchemaPhysicalPlanPayload,
+} from '../types/runtime-schema-physical-plan.types';
 
 export class RuntimeSchemaContractCompilerService {
   constructor(
@@ -284,36 +283,30 @@ function buildRuntimeCommandNodes(
   const add = (
     id: string,
     changeId: string,
-    kind: RuntimeSchemaCommandKind,
+    command: RuntimeSchemaMutationCommand,
     dependsOn: readonly string[],
     completesChange: boolean,
-    change?: RuntimeSchemaLogicalChange,
-    physicalPlanPayload?: RuntimeSchemaPhysicalPlanPayload,
   ) => {
     nodes.push({
       id,
       changeId,
       dependsOn,
       completesChange,
-      command: {
-        kind,
-        ...(change ? { change } : {}),
-        ...(physicalPlanPayload ? { physicalPlan: physicalPlanPayload } : {}),
-      },
+      command,
     });
     return id;
   };
   const sourceNode = add(
     'runtime:attest-source',
     firstChangeId,
-    'attest-source',
+    { kind: 'attest-source' },
     [],
     false,
   );
   const captureNode = add(
     'runtime:capture-compensation',
     firstChangeId,
-    'capture-compensation',
+    { kind: 'capture-compensation' },
     [sourceNode],
     false,
   );
@@ -324,28 +317,30 @@ function buildRuntimeCommandNodes(
       ? physicalPlan.backend === 'mongodb'
         ? {
             backend: 'mongodb',
-            upDiff: (physicalPlan as any).upDiff,
-            downDiff: (physicalPlan as any).downDiff,
+            upDiff: physicalPlan.upDiff,
+            downDiff: physicalPlan.downDiff,
           }
         : {
             backend: physicalPlan.backend,
-            upStatements: (physicalPlan as any).upStatements,
-            upBatch: (physicalPlan as any).upBatch,
-            downStatements: (physicalPlan as any).downStatements,
-            downBatch: (physicalPlan as any).downBatch,
-            metadataUpdate: (physicalPlan as any).metadataUpdate ?? null,
-            activeTableName: (physicalPlan as any).activeTableName,
+            upStatements: physicalPlan.upStatements,
+            upBatch: physicalPlan.upBatch,
+            downStatements: physicalPlan.downStatements,
+            downBatch: physicalPlan.downBatch,
+            metadataUpdate: physicalPlan.metadataUpdate ?? null,
+            activeTableName: physicalPlan.activeTableName,
           }
       : undefined;
   for (const change of changes) {
     previousPhysical = add(
       `${change.id}:physical`,
       change.id,
-      'apply-physical-change',
+      {
+        kind: 'apply-physical-change',
+        change,
+        ...(planPayload ? { physicalPlan: planPayload } : {}),
+      },
       [previousPhysical],
       false,
-      change,
-      planPayload,
     );
     physicalByChange.set(change.id, previousPhysical);
   }
@@ -354,44 +349,43 @@ function buildRuntimeCommandNodes(
     previousMetadata = add(
       `${change.id}:metadata`,
       change.id,
-      'apply-metadata-change',
+      { kind: 'apply-metadata-change', change },
       [previousMetadata, physicalByChange.get(change.id)!],
       false,
-      change,
     );
   }
   const artifactsNode = add(
     'runtime:apply-artifacts',
     firstChangeId,
-    'apply-artifacts',
+    { kind: 'apply-artifacts' },
     [previousMetadata],
     false,
   );
   const attestNode = add(
     'runtime:attest-target',
     firstChangeId,
-    'attest-target',
+    { kind: 'attest-target' },
     [artifactsNode],
     false,
   );
   const stageCacheNode = add(
     'runtime:stage-cache',
     firstChangeId,
-    'stage-cache',
+    { kind: 'stage-cache' },
     [attestNode],
     false,
   );
   const commitNode = add(
     'runtime:commit-database',
     firstChangeId,
-    'commit-database',
+    { kind: 'commit-database' },
     [stageCacheNode],
     false,
   );
   const activateNode = add(
     'runtime:activate-runtime',
     firstChangeId,
-    'activate-runtime',
+    { kind: 'activate-runtime' },
     [commitNode],
     false,
   );
@@ -399,10 +393,9 @@ function buildRuntimeCommandNodes(
     add(
       `${change.id}:complete`,
       change.id,
-      'complete-change',
+      { kind: 'complete-change', change },
       [activateNode],
       true,
-      change,
     );
   }
   return nodes;

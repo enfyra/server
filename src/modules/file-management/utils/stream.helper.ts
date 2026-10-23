@@ -1,9 +1,10 @@
-import { Response } from 'express';
+import type { Response } from 'express';
 import { Logger } from '../../../shared/logger';
 import { PassThrough, type Readable } from 'stream';
 import * as fs from 'fs';
 import * as sharp from 'sharp';
 import type { StorageByteRange } from '../storage/storage.interface';
+import type { StorageReadableStream } from '../types/storage-stream.types';
 
 export type ParsedHttpRange =
   | { type: 'full' }
@@ -110,7 +111,7 @@ export class StreamHelper {
     fileStream.pipe(res);
   }
   async streamCloudFile(
-    stream: any,
+    stream: StorageReadableStream,
     res: Response,
     filename: string,
     mimetype: string,

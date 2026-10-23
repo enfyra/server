@@ -14,19 +14,20 @@ import {
   GraphQLInputType,
   GraphQLScalarType,
   Kind,
+  type ValueNode,
 } from 'graphql';
 import { DatabaseConfigService } from '../../../shared/services';
 import type { TableGraphQLDef } from '../types/graphql-schema.types';
 
-export const GraphQLJSON = new GraphQLScalarType({
+export const GraphQLJSON = new GraphQLScalarType<unknown, unknown>({
   name: 'JSON',
   description: 'Arbitrary JSON value',
-  serialize: (value: any) => value,
-  parseValue: (value: any) => value,
-  parseLiteral: (ast: any) => parseLiteralJSON(ast),
+  serialize: (value) => value,
+  parseValue: (value) => value,
+  parseLiteral: (ast) => parseLiteralJSON(ast),
 });
 
-function parseLiteralJSON(ast: any): any {
+function parseLiteralJSON(ast: ValueNode): unknown {
   switch (ast.kind) {
     case Kind.STRING:
       return ast.value;
@@ -41,7 +42,7 @@ function parseLiteralJSON(ast: any): any {
     case Kind.LIST:
       return ast.values.map(parseLiteralJSON);
     case Kind.OBJECT: {
-      const obj: Record<string, any> = {};
+      const obj: Record<string, unknown> = {};
       for (const field of ast.fields) {
         obj[field.name.value] = parseLiteralJSON(field.value);
       }
@@ -258,7 +259,7 @@ export function buildTableGraphQLDef(
     fields: updateInputFields,
   });
 
-  const queryField = {
+  const queryField: NonNullable<TableGraphQLDef['queryField']> = {
     type: new GraphQLNonNull(resultType),
     args: {
       filter: { type: GraphQLJSON },
@@ -268,7 +269,7 @@ export function buildTableGraphQLDef(
     },
   };
 
-  const mutationFields: Record<string, any> = {
+  const mutationFields: TableGraphQLDef['mutationFields'] = {
     [`create_${table.name}`]: {
       type: new GraphQLNonNull(type),
       args: { input: { type: new GraphQLNonNull(inputType) } },

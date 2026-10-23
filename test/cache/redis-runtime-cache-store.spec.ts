@@ -1,3 +1,4 @@
+import { AsyncResource } from 'node:async_hooks';
 import { describe, expect, it, vi } from 'vitest';
 import { ObjectId } from 'mongodb';
 import {
@@ -149,6 +150,119 @@ class SharedTestCache extends BaseCacheService<Map<string, Set<string>>> {
 }
 
 describe('Redis runtime cache mode', () => {
+  it.each([false, true])('expires inherited publication reads and writes after settlement (failed=%s)', async (failed) => {
+    const redis = new MemoryRedis();
+    const store = createStore(redis);
+    const peer = createStore(redis);
+    let inherited: AsyncResource | undefined;
+    try {
+      await store.setAux('route', 'route:old', { revision: 'old' });
+      const publication = store.runWithPublication(async () => {
+        inherited = new AsyncResource('runtime-cache-publication-test');
+        await store.setSnapshot('route', { revision: 'candidate' });
+        await store.deleteAuxByPrefix('route', 'route:');
+        await store.setAux('route', 'route:candidate', { revision: 'candidate' });
+        if (failed) throw new Error('candidate failed');
+      });
+      if (failed) {
+        await expect(publication).rejects.toThrow('candidate failed');
+      } else {
+        await publication;
+      }
+      await peer.runWithPublication(async () => {
+        await peer.setSnapshot('route', { revision: 'latest' });
+        await peer.setAux('route', 'route:old', { revision: 'latest' });
+        await peer.setAux('route', 'route:candidate', { revision: 'latest' });
+      });
+      await inherited!.runInAsyncScope(async () => {
+        expect((await store.getSnapshot<{ revision: string }>('route'))?.data.revision).toBe('latest');
+        expect(await store.getAux('route', 'route:old')).toEqual({ revision: 'latest' });
+        expect(await store.getAux('route', 'route:candidate')).toEqual({ revision: 'latest' });
+        await store.commitPublication();
+        await store.setSnapshot('route', { revision: 'patched' });
+        await store.setAux('route', 'route:patched', { revision: 'patched' });
+        await store.deleteAuxByPrefix('route', 'route:candidate');
+      });
+      expect((await peer.getSnapshot<{ revision: string }>('route'))?.data.revision).toBe('patched');
+      expect(await peer.getAux('route', 'route:patched')).toEqual({ revision: 'patched' });
+      expect(await peer.getAux('route', 'route:candidate')).toBeNull();
+    } finally {
+      inherited?.emitDestroy();
+    }
+  });
+
+  it.each([false, true])('expires inherited committed reads after replay settlement (failed=%s)', async (failed) => {
+    const redis = new MemoryRedis();
+    const store = createStore(redis);
+    const peer = createStore(redis);
+    let inherited: AsyncResource | undefined;
+    try {
+      await peer.runWithPublication(async () => {
+        await peer.setSnapshot('route', { revision: 'old' });
+        await peer.setAux('route', 'index', { revision: 'old' });
+      });
+      const replay = store.runWithCommittedSnapshots(async () => {
+        inherited = new AsyncResource('runtime-cache-replay-test');
+        expect((await store.getSnapshot<{ revision: string }>('route'))?.data.revision).toBe('old');
+        if (failed) throw new Error('replay failed');
+      });
+      if (failed) {
+        await expect(replay).rejects.toThrow('replay failed');
+      } else {
+        await replay;
+      }
+      await peer.runWithPublication(async () => {
+        await peer.setSnapshot('route', { revision: 'latest' });
+        await peer.setAux('route', 'index', { revision: 'latest' });
+      });
+      await inherited!.runInAsyncScope(async () => {
+        expect((await store.getSnapshot<{ revision: string }>('route'))?.data.revision).toBe('latest');
+        expect(await store.getAux('route', 'index')).toEqual({ revision: 'latest' });
+        await store.runWithCommittedSnapshots(async () => {
+          expect((await store.getSnapshot<{ revision: string }>('route'))?.data.revision).toBe('latest');
+        });
+        await store.runWithPublication(async () => {
+          await store.setSnapshot('route', { revision: 'patched' });
+          await store.setAux('route', 'index', { revision: 'patched' });
+        });
+        await store.setSnapshot('route', { revision: 'patched' });
+        await store.setAux('route', 'index', { revision: 'patched' });
+        await store.deleteAuxByPrefix('route', 'route:removed');
+      });
+      expect((await peer.getSnapshot<{ revision: string }>('route'))?.data.revision).toBe('patched');
+      expect(await peer.getAux('route', 'index')).toEqual({ revision: 'patched' });
+    } finally {
+      inherited?.emitDestroy();
+    }
+  });
+
+  it('rejects publication during an active committed replay instead of running a producer without ownership', async () => {
+    const store = createStore();
+    const producer = vi.fn(async () => {});
+    await store.runWithCommittedSnapshots(async () => {
+      await expect(store.runWithPublication(producer)).rejects.toThrow('committed snapshot replay');
+      await expect(store.setSnapshot('route', {})).rejects.toThrow('committed snapshot replay');
+      await expect(store.setAux('route', 'index', {})).rejects.toThrow('committed snapshot replay');
+      await expect(store.deleteAuxByPrefix('route', 'route:')).rejects.toThrow('committed snapshot replay');
+      expect(producer).not.toHaveBeenCalled();
+    });
+  });
+
+  it('keeps nested producers in one publication and rejects writes after an explicit commit', async () => {
+    const store = createStore();
+    const acquire = vi.spyOn(store, 'acquireRefreshLockWithWait');
+    await store.runWithPublication(async () => {
+      await store.runWithPublication(() => store.setSnapshot('route', { revision: 'committed' }));
+      await store.commitPublication();
+      await expect(store.runWithPublication(() => store.setSnapshot('route', { revision: 'late' }))).rejects.toThrow('already committed');
+      await expect(store.setAux('route', 'route:late', {})).rejects.toThrow('already committed');
+      await expect(store.deleteAuxByPrefix('route', 'route:')).rejects.toThrow('already committed');
+    });
+    expect(acquire).toHaveBeenCalledExactlyOnceWith('publication');
+    expect((await store.getSnapshot<{ revision: string }>('route'))?.data.revision).toBe('committed');
+    expect(await store.getAux('route', 'route:late')).toBeNull();
+  });
+
   it('rebuilds after lock contention instead of acknowledging an existing stale snapshot', async () => {
     const store = createStore();
     const cache = new SharedTestCache(store);

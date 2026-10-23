@@ -3,16 +3,13 @@ import { Job, Queue, Worker } from 'bullmq';
 import { appendFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
-import {
-  ExecutorEngineService,
-  type IsolatedExecutorService,
-} from '@enfyra/kernel';
-import { RepoRegistryService } from '../../../engines/cache';
+import { QueryBuilderService, type IsolatedExecutorService } from '@enfyra/kernel';
+import type { FlowStepExecutor } from '../interfaces/flow-step-executor.interface';
+import { RepoRegistryService, type RuntimeScriptRepairService } from '../../../engines/cache';
 import {
   getErrorMessage,
   getErrorStack,
 } from '../../../shared/utils/error.util';
-import { QueryBuilderService } from '@enfyra/kernel';
 import { WebsocketEmitService } from '../../websocket';
 import { TDynamicContext } from '../../../shared/types';
 import {
@@ -37,7 +34,6 @@ import type {
   FlowProgressSnapshot,
 } from '../types/flow-execution-history.types';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
-import type { RuntimeScriptRepairService } from '../../../engines/cache';
 
 const MAX_FLOW_DEPTH = 10;
 const MAX_STEP_TIMEOUT = 300000;
@@ -55,7 +51,7 @@ type FlowWorkerConcurrencyTuning = {
 
 export class FlowExecutionQueueService {
   private readonly logger = new Logger(FlowExecutionQueueService.name);
-  private readonly executorEngineService: ExecutorEngineService;
+  private readonly executorEngineService: FlowStepExecutor;
   private readonly repoRegistryService: RepoRegistryService;
   private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly queryBuilderService: QueryBuilderService;
@@ -78,7 +74,7 @@ export class FlowExecutionQueueService {
   private idleTuneTicks = 0;
 
   constructor(deps: {
-    executorEngineService: ExecutorEngineService;
+    executorEngineService: FlowStepExecutor;
     repoRegistryService: RepoRegistryService;
     runtimeRegistryService: RuntimeRegistryService;
     queryBuilderService: QueryBuilderService;
@@ -845,8 +841,8 @@ export class FlowExecutionQueueService {
     ctx: TDynamicContext,
     flowTimeout: number,
     remainingMs?: number,
-  ): Promise<any> {
-    const raw = (step as any).timeout || flowTimeout || 5000;
+  ): Promise<unknown> {
+    const raw = step.timeout || flowTimeout || 5000;
     const timeout = Math.min(Math.max(raw, 1), MAX_STEP_TIMEOUT, remainingMs ?? Infinity);
     const script = getExecutableStepScript(step);
 

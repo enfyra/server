@@ -79,11 +79,11 @@ export class ColumnRuleCacheBuilder extends BaseCacheService<
     return map;
   }
 
-  supportsPartialReload(): boolean {
+  override supportsPartialReload(): boolean {
     return true;
   }
 
-  async partialReload(
+  override async partialReload(
     payload: TCacheInvalidationPayload,
     publish = true,
   ): Promise<void> {
@@ -94,7 +94,7 @@ export class ColumnRuleCacheBuilder extends BaseCacheService<
     await super.partialReload(payload, publish);
   }
 
-  protected async applyPartialUpdate(
+  protected override async applyPartialUpdate(
     payload: TCacheInvalidationPayload,
   ): Promise<void> {
     if (!this.cache) {

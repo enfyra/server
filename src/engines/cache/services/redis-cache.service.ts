@@ -37,7 +37,7 @@ export class RedisCacheService implements ICache {
     return this.policy.quota ?? null;
   }
 
-  async acquire(key: string, value: any, ttlMs: number): Promise<boolean> {
+  async acquire(key: string, value: unknown, ttlMs: number): Promise<boolean> {
     const decoratedKey = this.decorateLockKey(key);
     const result = await this.redis.set(
       decoratedKey,
@@ -49,7 +49,7 @@ export class RedisCacheService implements ICache {
     return result === 'OK';
   }
 
-  async renew(key: string, value: any, ttlMs: number): Promise<boolean> {
+  async renew(key: string, value: unknown, ttlMs: number): Promise<boolean> {
     const decoratedKey = this.decorateLockKey(key);
     const lua = `
       if redis.call("get", KEYS[1]) == ARGV[1] then
@@ -71,7 +71,7 @@ export class RedisCacheService implements ICache {
     }
   }
 
-  async release(key: string, value: any): Promise<boolean> {
+  async release(key: string, value: unknown): Promise<boolean> {
     const decoratedKey = this.decorateLockKey(key);
     const serializedValue = this.serialize(value);
     const lua = `
@@ -93,7 +93,8 @@ export class RedisCacheService implements ICache {
     }
   }
 
-  async get<T = any>(key: string): Promise<T | null> {
+  get<T = unknown>(key: string): Promise<T | null>;
+  async get(key: string): Promise<unknown> {
     const decoratedKey = this.decorateKey(key);
     const current = await this.redis.get(decoratedKey);
     if (this.policy.quota) {
@@ -106,7 +107,7 @@ export class RedisCacheService implements ICache {
     return this.deserialize(current);
   }
 
-  async set<T = any>(key: string, value: T, ttlMs?: number): Promise<void> {
+  async set<T = unknown>(key: string, value: T, ttlMs?: number): Promise<void> {
     const decoratedKey = this.decorateKey(key);
     const serializedValue = this.serialize(value);
     const size = this.valueSize(serializedValue);
@@ -238,7 +239,7 @@ export class RedisCacheService implements ICache {
     if (this.policy.quota) await this.evictIfNeeded();
   }
 
-  async compareAndSet<T = any>(
+  async compareAndSet<T = unknown>(
     key: string,
     expectedValue: T,
     value: T,
@@ -262,7 +263,7 @@ export class RedisCacheService implements ICache {
     return result === 1;
   }
 
-  async exists(key: string, value: any): Promise<boolean> {
+  async exists(key: string, value: unknown): Promise<boolean> {
     const decoratedKey = this.decorateKey(key);
     const current = await this.redis.get(decoratedKey);
     if (this.policy.quota) {
@@ -289,7 +290,8 @@ export class RedisCacheService implements ICache {
    * never both receive the same value. A read-then-delete pair would let both
    * requests observe the value before either deletion landed.
    */
-  async getAndDelete<T = any>(key: string): Promise<T | null> {
+  getAndDelete<T = unknown>(key: string): Promise<T | null>;
+  async getAndDelete(key: string): Promise<unknown> {
     const decoratedKey = this.decorateKey(key);
     const current = await this.redis.getdel(decoratedKey);
     await this.runtimeNamespaceLifecycleService?.unregisterManagedKey(decoratedKey);
@@ -297,7 +299,7 @@ export class RedisCacheService implements ICache {
     return this.deserialize(current);
   }
 
-  async setNoExpire<T = any>(key: string, value: T): Promise<void> {
+  async setNoExpire<T = unknown>(key: string, value: T): Promise<void> {
     await this.set(key, value, 0);
   }
 
@@ -383,11 +385,11 @@ export class RedisCacheService implements ICache {
     return `${this.metaPrefix()}total_bytes`;
   }
 
-  private serialize(value: any): string {
+  private serialize(value: unknown): string {
     return typeof value === 'string' ? value : JSON.stringify(value);
   }
 
-  private deserialize(value: string | null): any {
+  private deserialize(value: string | null): unknown {
     if (value === null) return null;
     try {
       return JSON.parse(value);

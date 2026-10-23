@@ -81,7 +81,7 @@ export class SharedHelperCacheService extends BaseCacheService<
     return data;
   }
 
-  protected getLogCount(): string {
+  protected override getLogCount(): string {
     return `${this.cache.length} helpers`;
   }
 }

@@ -1,16 +1,12 @@
 import { GraphQLError } from 'graphql';
-
-export interface ThrowGqlErrorOptions {
-  statusCode?: number;
-  details?: any;
-}
+import type { ThrowGqlErrorOptions } from '../types/graphql-resolver.types';
 
 export function throwGqlError(
   code: string,
   message: string,
   options?: ThrowGqlErrorOptions,
 ): never {
-  const extensions: Record<string, any> = { code };
+  const extensions: Record<string, unknown> = { code };
   if (typeof options?.statusCode === 'number') {
     extensions.statusCode = options.statusCode;
   }

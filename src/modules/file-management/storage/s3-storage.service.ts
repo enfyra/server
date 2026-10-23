@@ -1,4 +1,5 @@
 import { Logger } from '../../../shared/logger';
+import { getStorageErrorMessage, isStorageObjectNotFound } from '../utils/storage-error.util';
 import { BadRequestException } from '../../../domain/exceptions';
 import {
   S3Client,
@@ -8,7 +9,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { Readable } from 'stream';
-import {
+import type {
   IStorageService,
   StorageConfig,
   StorageStreamOptions,
@@ -67,8 +68,8 @@ export class S3StorageService implements IStorageService {
       return {
         location: relativePath,
       };
-    } catch (error: any) {
-      const cloudError = error.message || error.name || 'Unknown error';
+    } catch (error: unknown) {
+      const cloudError = getStorageErrorMessage(error);
       const errorMessage = `Failed to upload to S3: ${cloudError}`;
       this.logger.error(errorMessage, error);
       throw new BadRequestException(errorMessage);
@@ -85,8 +86,8 @@ export class S3StorageService implements IStorageService {
       });
 
       await s3Client.send(command);
-    } catch (error: any) {
-      const cloudError = error.message || error.name || 'Unknown error';
+    } catch (error: unknown) {
+      const cloudError = getStorageErrorMessage(error);
       const errorMessage = `Failed to delete from S3: ${cloudError}`;
       this.logger.error(errorMessage, error);
       throw new BadRequestException(errorMessage);
@@ -117,12 +118,12 @@ export class S3StorageService implements IStorageService {
 
       const stream = response.Body as Readable;
       if (response.ContentLength !== undefined) {
-        (stream as any).contentLength = response.ContentLength;
+        Object.assign(stream, { contentLength: response.ContentLength });
       }
 
       return stream;
-    } catch (error: any) {
-      const cloudError = error.message || error.name || 'Unknown error';
+    } catch (error: unknown) {
+      const cloudError = getStorageErrorMessage(error);
       const errorMessage = `Failed to stream from S3: ${cloudError}`;
       this.logger.error(errorMessage, error);
       throw new BadRequestException(errorMessage);
@@ -154,8 +155,8 @@ export class S3StorageService implements IStorageService {
       const buffer = Buffer.concat(chunks);
 
       return buffer;
-    } catch (error: any) {
-      const cloudError = error.message || error.name || 'Unknown error';
+    } catch (error: unknown) {
+      const cloudError = getStorageErrorMessage(error);
       const errorMessage = `Failed to download from S3: ${cloudError}`;
       this.logger.error(errorMessage, error);
       throw new BadRequestException(errorMessage);
@@ -182,14 +183,11 @@ export class S3StorageService implements IStorageService {
 
       await s3Client.send(command);
       return true;
-    } catch (error: any) {
-      if (
-        error.name === 'NotFound' ||
-        error.$metadata?.httpStatusCode === 404
-      ) {
+    } catch (error: unknown) {
+      if (isStorageObjectNotFound(error)) {
         return false;
       }
-      this.logger.warn(`Error checking file existence in S3: ${error.message}`);
+      this.logger.warn(`Error checking file existence in S3: ${getStorageErrorMessage(error)}`);
       return false;
     }
   }

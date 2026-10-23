@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { RuntimeCachePublicationScope } from '../types/runtime-cache-publication.types';
+import type { RuntimeCacheCommittedReadScope, RuntimeCachePublicationScope } from '../types/runtime-cache-publication.types';
 import { serialize, deserialize } from 'node:v8';
 import type { Redis } from 'ioredis';
 import { EnvService } from '../../../shared/services';
@@ -86,7 +86,7 @@ function escapeRedisGlob(value: string): string {
 export class RedisRuntimeCacheStore {
   private readonly redis: Redis;
   private readonly publication = new AsyncLocalStorage<RuntimeCachePublicationScope>();
-  private readonly committedRead = new AsyncLocalStorage<Map<string, Buffer>>();
+  private readonly committedRead = new AsyncLocalStorage<RuntimeCacheCommittedReadScope>();
   private readonly nodeName: string;
   private readonly enabled: boolean;
   private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
@@ -111,34 +111,68 @@ export class RedisRuntimeCacheStore {
     return `${this.nodeName}:runtime_cache:committed`;
   }
 
+  private getActiveCommittedRead(): RuntimeCacheCommittedReadScope | undefined {
+    const scope = this.committedRead.getStore();
+    return scope?.active ? scope : undefined;
+  }
+
   async runWithCommittedSnapshots<T>(work: () => Promise<T>): Promise<T> {
-    if (!this.enabled || this.committedRead.getStore()) return work();
+    if (!this.enabled || this.getActiveCommittedRead()) return work();
     const values = await this.redis.hgetallBuffer(this.committedKey());
-    return this.committedRead.run(new Map(Object.entries(values)), work);
+    const scope: RuntimeCacheCommittedReadScope = {
+      active: true,
+      snapshots: new Map(Object.entries(values)),
+    };
+    try {
+      return await this.committedRead.run(scope, work);
+    } finally {
+      scope.active = false;
+      scope.snapshots.clear();
+    }
+  }
+
+  private getActivePublication(): RuntimeCachePublicationScope | undefined {
+    const scope = this.publication.getStore();
+    return scope?.active ? scope : undefined;
   }
 
   async runWithPublication<T>(work: () => Promise<T>): Promise<T> {
-    if (!this.enabled || this.publication.getStore() || this.committedRead.getStore()) return work();
+    if (!this.enabled) return work();
+    if (this.getActiveCommittedRead()) {
+      throw new Error('Runtime cache publication is not allowed during committed snapshot replay');
+    }
+    if (this.getActivePublication()) return work();
     const token = await this.acquireRefreshLockWithWait('publication');
     if (!token) throw new Error('Runtime cache publication lock timed out');
+    const scope: RuntimeCachePublicationScope = {
+      active: true,
+      token,
+      snapshots: new Map(),
+      auxiliary: new Map(),
+      deletedAuxiliary: new Set(),
+    };
     const heartbeat = setInterval(() => {
       void this.redis.eval(`if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) end return 0`, 1, this.lockKey('publication'), token, 30000).catch(() => undefined);
     }, 10000);
     heartbeat.unref();
     try {
-      return await this.publication.run({ token, snapshots: new Map(), auxiliary: new Map(), deletedAuxiliary: new Set() }, async () => {
+      return await this.publication.run(scope, async () => {
         const result = await work();
         await this.commitPublication();
         return result;
       });
     } finally {
+      scope.active = false;
+      scope.snapshots.clear();
+      scope.auxiliary.clear();
+      scope.deletedAuxiliary.clear();
       clearInterval(heartbeat);
       await this.releaseRefreshLock('publication', token);
     }
   }
 
   async commitPublication(): Promise<void> {
-    const scope = this.publication.getStore();
+    const scope = this.getActivePublication();
     if (!scope || scope.committed) return;
     const snapshots = [...scope.snapshots];
     const auxiliary = [...scope.auxiliary];
@@ -226,8 +260,8 @@ export class RedisRuntimeCacheStore {
   ): Promise<RedisRuntimeCacheSnapshot<T> | null> {
     if (!this.enabled) return null;
     const key = this.cacheKey(cacheIdentifier);
-    const staged = this.publication.getStore()?.snapshots.get(cacheIdentifier);
-    const pinned = this.committedRead.getStore();
+    const staged = this.getActivePublication()?.snapshots.get(cacheIdentifier);
+    const pinned = this.getActiveCommittedRead()?.snapshots;
     const raw = staged ?? (pinned ? pinned.get(cacheIdentifier) : await this.redis.hgetBuffer(this.committedKey(), cacheIdentifier) ?? await this.getBuffer(key));
     if (!raw) return null;
     await this.touchLifecycleKey(key);
@@ -246,7 +280,7 @@ export class RedisRuntimeCacheStore {
       data,
     };
     if (!this.enabled) return snapshot;
-    const staged = this.publication.getStore();
+    const staged = this.getActivePublication();
     if (!staged) return this.runWithPublication(() => this.setSnapshot(cacheIdentifier, data));
     if (staged.committed) throw new Error('Runtime cache publication is already committed');
     staged.snapshots.set(cacheIdentifier, this.encode(snapshot));
@@ -256,9 +290,9 @@ export class RedisRuntimeCacheStore {
   async getAux<T>(cacheIdentifier: string, key: string): Promise<T | null> {
     if (!this.enabled) return null;
     const redisKey = this.auxKey(cacheIdentifier, key);
-    const scope = this.publication.getStore();
+    const scope = this.getActivePublication();
     if (scope?.deletedAuxiliary.has(redisKey)) return null;
-    const pinned = this.committedRead.getStore();
+    const pinned = this.getActiveCommittedRead()?.snapshots;
     const raw = scope?.auxiliary.get(redisKey) ?? (pinned ? pinned.get(`aux:${redisKey}`) : await this.redis.hgetBuffer(this.committedKey(), `aux:${redisKey}`) ?? await this.getBuffer(redisKey));
     if (!raw) return null;
     await this.touchLifecycleKey(redisKey);
@@ -272,7 +306,7 @@ export class RedisRuntimeCacheStore {
   ): Promise<void> {
     if (!this.enabled) return;
     const redisKey = this.auxKey(cacheIdentifier, key);
-    const staged = this.publication.getStore();
+    const staged = this.getActivePublication();
     if (!staged) return this.runWithPublication(() => this.setAux(cacheIdentifier, key, value));
     if (staged.committed) throw new Error('Runtime cache publication is already committed');
     staged.deletedAuxiliary.delete(redisKey);
@@ -284,7 +318,7 @@ export class RedisRuntimeCacheStore {
     keyPrefix: string,
   ): Promise<void> {
     if (!this.enabled) return;
-    const scope = this.publication.getStore();
+    const scope = this.getActivePublication();
     if (!scope) return this.runWithPublication(() => this.deleteAuxByPrefix(cacheIdentifier, keyPrefix));
     if (scope.committed) throw new Error('Runtime cache publication is already committed');
     const prefix = this.auxKey(cacheIdentifier, keyPrefix);

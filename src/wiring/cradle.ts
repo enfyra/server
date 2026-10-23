@@ -323,6 +323,10 @@ export interface Cradle {
 
   fileCleanupService: FileCleanupService;
   fileCleanupQueue: Queue;
+  flowQueue: Queue;
+  wsConnectionQueue: Queue;
+  wsEventQueue: Queue;
+  cleanupQueue: Queue;
   fileManagementService: FileManagementService;
   fileAssetsService: FileAssetsService;
   localStorageService: LocalStorageService;

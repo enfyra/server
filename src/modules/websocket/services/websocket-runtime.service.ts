@@ -22,6 +22,7 @@ export class WebsocketRuntimeService {
   private readonly eventEmitter: any;
   private initialized = false;
   private refreshPromise: Promise<void> | null = null;
+  private refreshRequested = false;
   private lastRefresh: WebsocketRuntimeStatus['lastRefresh'];
 
   constructor(deps: {
@@ -46,32 +47,34 @@ export class WebsocketRuntimeService {
   }
 
   async refreshGateways(): Promise<void> {
+    this.refreshRequested = true;
     if (this.refreshPromise) return this.refreshPromise;
-
-    const startedAt = new Date().toISOString();
-    this.lastRefresh = { status: 'running', startedAt };
-    this.refreshPromise = this.dynamicWebSocketGateway
-      .refreshGateways()
-      .then(() => {
-        this.lastRefresh = {
-          status: 'ok',
-          startedAt,
-          completedAt: new Date().toISOString(),
-        };
-      })
-      .catch((error) => {
-        const message = getErrorMessage(error);
-        this.lastRefresh = {
-          status: 'degraded',
-          startedAt,
-          completedAt: new Date().toISOString(),
-          error: message,
-        };
-        this.logger.error(`Failed to refresh websocket gateways: ${message}`);
-      })
-      .finally(() => {
-        this.refreshPromise = null;
-      });
+    this.refreshPromise = (async () => {
+      do {
+        this.refreshRequested = false;
+        const startedAt = new Date().toISOString();
+        this.lastRefresh = { status: 'running', startedAt };
+        try {
+          await this.dynamicWebSocketGateway.refreshGateways();
+          this.lastRefresh = {
+            status: 'ok',
+            startedAt,
+            completedAt: new Date().toISOString(),
+          };
+        } catch (error) {
+          const message = getErrorMessage(error);
+          this.lastRefresh = {
+            status: 'degraded',
+            startedAt,
+            completedAt: new Date().toISOString(),
+            error: message,
+          };
+          this.logger.error(`Failed to refresh websocket gateways: ${message}`);
+        }
+      } while (this.refreshRequested);
+    })().finally(() => {
+      this.refreshPromise = null;
+    });
 
     return this.refreshPromise;
   }

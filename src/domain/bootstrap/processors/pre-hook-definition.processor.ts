@@ -16,7 +16,7 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
     super();
     this.queryBuilderService = deps.queryBuilderService;
   }
-  async transformRecords(records: any[], _context?: any): Promise<any[]> {
+  override async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = await mapSequentially(records, async (hook) => {
       const transformedHook = { ...hook };
@@ -113,7 +113,7 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
     });
     return transformedRecords.filter(Boolean);
   }
-  async afterUpsert(
+  override async afterUpsert(
     record: any,
     _isNew: boolean,
     _context?: any,
@@ -172,7 +172,7 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
   }
   // The method list is stored as junction rows, not as an inline document
   // field, so it must be dropped before the document is written.
-  protected cleanRecordForMongo(record: any): any {
+  protected override cleanRecordForMongo(record: any): any {
     const cleaned = super.cleanRecordForMongo(record);
     delete cleaned.methods;
     delete cleaned._methods;
@@ -199,7 +199,7 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
       targetIds: methodIds,
     });
   }
-  protected prepareRecordForWrite(record: any, _tableName: string): any {
+  protected override prepareRecordForWrite(record: any, _tableName: string): any {
     if (DatabaseConfigService.instanceIsMongoDb()) {
       const prepared = { ...record };
       delete prepared.methods;
@@ -209,7 +209,7 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
     delete prepared._methods;
     return prepared;
   }
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     return [
       'name',
       'description',
@@ -222,7 +222,7 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
       'isGlobal',
     ];
   }
-  protected getRecordIdentifier(record: any): string {
+  protected override getRecordIdentifier(record: any): string {
     const route = record.route;
     const methods = record.methods;
     let routeStr = '';

@@ -30,8 +30,13 @@ export class RepoRegistryService implements IRepoRegistry {
   async rebuildFromMetadata(
     metadataCache?: MetadataCacheService,
   ): Promise<void> {
-    const cache = metadataCache || this.metadataCacheService;
-    const tables = await cache.getAllTablesMetadata();
+    this.activateAliases(await this.stageFromMetadata(metadataCache));
+  }
+
+  async stageFromMetadata(
+    metadataCache: MetadataCacheService = this.metadataCacheService,
+  ): Promise<Map<string, string>> {
+    const tables = await metadataCache.getAllTablesMetadata();
     const newMap = new Map<string, string>();
     for (const table of tables) {
       newMap.set(table.name, table.name);
@@ -39,7 +44,11 @@ export class RepoRegistryService implements IRepoRegistry {
         newMap.set(table.alias, table.name);
       }
     }
-    this.aliasToName = newMap;
+    return newMap;
+  }
+
+  activateAliases(aliases: Map<string, string>): void {
+    this.aliasToName = aliases;
     this.initialized = true;
   }
 

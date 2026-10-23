@@ -132,6 +132,7 @@ export const RELOAD_CHAINS: Record<string, ReloadStepName[]> = {
     'graphql',
     'fieldPermission',
     'column-rule',
+    'guard',
   ],
   [SYSTEM_TABLES.column]: [
     'metadata',
@@ -237,6 +238,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   }> = [];
   private pendingPayloads = new Map<string, TCacheInvalidationPayload>();
   private reloadLock: Promise<void> | null = null;
+  private stagedRepoAliases: Map<string, string> | undefined;
   private reloadEventSequence = 0;
   private processedVersions: Set<string> = new Set();
   private signalRetryCounts: Map<string, number> = new Map();
@@ -597,10 +599,11 @@ export class CacheOrchestratorService implements LifecycleAware {
         } else {
           await runReload();
         }
-        await this.commitRuntimeReloadTransaction(chain, payload);
-        if (publish && sharedRuntimeCache) {
-          await this.publishSignal(payload);
-        }
+        await this.commitRuntimeReloadTransaction(
+          chain,
+          payload,
+          publish && sharedRuntimeCache ? payload : undefined,
+        );
         await this.runtimeReloadAuditService?.markActivated({
           reloadId,
           durationMs: Date.now() - auditStartedAt,
@@ -638,14 +641,18 @@ export class CacheOrchestratorService implements LifecycleAware {
   }
 
   private async runWithReloadLock(run: () => Promise<void>, sharedReplay = false): Promise<void> {
+    const execute = async () => {
+      this.stagedRepoAliases = undefined;
+      try { await run(); } finally { this.stagedRepoAliases = undefined; }
+    };
     const previous = this.reloadLock;
     const current = (previous ?? Promise.resolve())
       .catch(() => undefined)
       .then(() => this.redisRuntimeCacheStore?.isEnabled()
         ? sharedReplay
-          ? this.redisRuntimeCacheStore.runWithCommittedSnapshots(run)
-          : this.redisRuntimeCacheStore.runWithPublication(run)
-        : run());
+          ? this.redisRuntimeCacheStore.runWithCommittedSnapshots(execute)
+          : this.redisRuntimeCacheStore.runWithPublication(execute)
+        : execute());
     this.reloadLock = current;
     try {
       await current;
@@ -731,7 +738,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   }
 
   private async reloadRepoRegistry(): Promise<void> {
-    await this.repoRegistryService.rebuildFromMetadata(
+    this.stagedRepoAliases = await this.repoRegistryService.stageFromMetadata(
       this.metadataCacheService,
     );
   }
@@ -943,21 +950,32 @@ export class CacheOrchestratorService implements LifecycleAware {
   private async commitRuntimeReloadTransaction(
     steps: string[],
     payload?: TCacheInvalidationPayload,
+    signalPayload?: TCacheInvalidationPayload,
   ): Promise<void> {
     if (
       !this.runtimeRegistryService?.stageSnapshotFromCache ||
       !this.runtimeRegistryService?.activateSnapshots
     ) {
       await this.redisRuntimeCacheStore?.commitPublication();
+      this.activateRepoAliases();
       await this.publishRuntimeCachesForSteps(steps);
+      if (signalPayload) await this.publishSignal(signalPayload);
       await this.reloadRuntimeArtifactsAfterCommit(steps, payload);
       return;
     }
 
     const snapshots = await this.stageRuntimeSnapshotsForSteps(steps);
     await this.redisRuntimeCacheStore?.commitPublication();
+    this.activateRepoAliases();
     this.runtimeRegistryService.activateSnapshots(snapshots);
+    if (signalPayload) await this.publishSignal(signalPayload);
     await this.reloadRuntimeArtifactsAfterCommit(steps, payload);
+  }
+
+  private activateRepoAliases(): void {
+    if (!this.stagedRepoAliases) return;
+    this.repoRegistryService.activateAliases(this.stagedRepoAliases);
+    this.stagedRepoAliases = undefined;
   }
 
   private async reloadRuntimeArtifactsAfterCommit(
@@ -1057,7 +1075,12 @@ export class CacheOrchestratorService implements LifecycleAware {
       this.notifyClients('pending', input.flow, input.steps, reloadId);
       try {
         await input.run(tracker.runStep);
-        await this.commitRuntimeReloadTransaction(input.steps);
+        await this.commitRuntimeReloadTransaction(input.steps, undefined, {
+          table: input.table,
+          action: 'reload',
+          scope: 'full',
+          timestamp: Date.now(),
+        });
         await this.runtimeReloadAuditService?.markActivated({
           reloadId,
           durationMs: tracker.elapsed(),
@@ -1098,7 +1121,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   }
 
   async reloadMetadataAndDeps(): Promise<void> {
-    const steps = ['metadata', 'repoRegistry', 'route', 'graphql'];
+    const steps = ['metadata', 'repoRegistry', 'route', 'guard', 'graphql'];
     await this.runTrackedAdminReload({
       flow: 'metadata',
       table: 'enfyra_table',
@@ -1108,16 +1131,11 @@ export class CacheOrchestratorService implements LifecycleAware {
         await runStep('metadata', () => this.metadataCacheService.reload());
         await runStep('repoRegistry', () => this.reloadRepoRegistry());
         await runStep('route', () => this.routeCacheService.reload(false));
+        await runStep('guard', () => this.guardCacheBuilder.reload(false));
         await runStep('graphql', () =>
           this.gqlDefinitionCacheService.reload(false),
         );
       },
-    });
-    await this.publishSignal({
-      table: 'enfyra_table',
-      action: 'reload',
-      scope: 'full',
-      timestamp: Date.now(),
     });
   }
 
@@ -1131,12 +1149,6 @@ export class CacheOrchestratorService implements LifecycleAware {
       run: async (runStep) => {
         await runStep('route', () => this.routeCacheService.reload(false));
       },
-    });
-    await this.publishSignal({
-      table: 'enfyra_route',
-      action: 'reload',
-      scope: 'full',
-      timestamp: Date.now(),
     });
   }
 
@@ -1153,12 +1165,6 @@ export class CacheOrchestratorService implements LifecycleAware {
         );
       },
     });
-    await this.publishSignal({
-      table: 'enfyra_graphql',
-      action: 'reload',
-      scope: 'full',
-      timestamp: Date.now(),
-    });
   }
 
   async reloadGuardsOnly(): Promise<void> {
@@ -1172,12 +1178,6 @@ export class CacheOrchestratorService implements LifecycleAware {
         await runStep('guard', () => this.guardCacheBuilder.reload(false));
       },
     });
-    await this.publishSignal({
-      table: 'enfyra_guard',
-      action: 'reload',
-      scope: 'full',
-      timestamp: Date.now(),
-    });
   }
 
   async reloadAll(): Promise<void> {
@@ -1190,15 +1190,13 @@ export class CacheOrchestratorService implements LifecycleAware {
     if (!this.usesSharedRuntimeCache()) {
       await this.publishSignal(payload);
     }
-    await this.reloadAllLocal(true, false);
-    if (this.usesSharedRuntimeCache()) {
-      await this.publishSignal(payload);
-    }
+    await this.reloadAllLocal(true, false, this.usesSharedRuntimeCache() ? payload : undefined);
   }
 
   private async reloadAllLocal(
     notify = true,
     sharedReplay = false,
+    signalPayload?: TCacheInvalidationPayload,
   ): Promise<void> {
     const runReload = async () => {
       const start = Date.now();
@@ -1376,7 +1374,7 @@ export class CacheOrchestratorService implements LifecycleAware {
           CACHE_ORCHESTRATOR_DEFAULTS.fullReloadBuilderConcurrency,
           (step) => runStep(step.name, step.run),
         );
-        await this.commitRuntimeReloadTransaction(steps);
+        await this.commitRuntimeReloadTransaction(steps, undefined, signalPayload);
         await this.runtimeReloadAuditService?.markActivated({
           reloadId,
           durationMs: Date.now() - start,

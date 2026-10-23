@@ -1,39 +1,27 @@
 import { Logger } from '../../../shared/logger';
 import { Queue } from 'bullmq';
-import { RepoRegistryService } from '../../../engines/cache';
-import { FlowJobData } from '../../../shared/types/flow.types';
+import { RepoRegistryService, type RuntimeScriptRepairService } from '../../../engines/cache';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { compileScriptSource } from '../../../shared/utils/script-code.util';
-import { ExecutorEngineService } from '@enfyra/kernel';
 import type { QueryBuilderService } from '@enfyra/kernel';
 import { BadRequestException } from '../../../domain/exceptions';
 import {
   executeStepCore,
   getExecutableStepScript,
 } from '../utils/step-executor.util';
-import { SocketEmitCapture } from '../../websocket';
+import type { SocketEmitCapture } from '../../websocket';
 import { DynamicContextFactory } from '../../../shared/services';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
-import type { RuntimeScriptRepairService } from '../../../engines/cache';
 import type {
   FlowDefinition,
+  FlowJobData,
   FlowStep,
 } from '../../../shared/types/flow.types';
 import type { FlowStepReorderInput } from '../types/flow-step-reorder.types';
-
-interface FlowStepTestInput {
-  id?: number | string;
-  stepId?: number | string;
-  flowId?: number | string;
-  flowName?: string;
-  type: string;
-  sourceCode?: string | null;
-  scriptLanguage?: string | null;
-  compiledCode?: string | null;
-  timeout?: number;
-  key?: string;
-}
+import type { FlowStepExecutor } from '../interfaces/flow-step-executor.interface';
+import type { FlowStepTestInput, FlowStepTestResult } from '../types/flow-step-execution.types';
+import type { TDynamicContext } from '../../../shared/types/dynamic-context.types';
 
 const DEFAULT_FLOW_STEP_TEST_TIMEOUT_MS = 60_000;
 
@@ -41,7 +29,7 @@ export class FlowService {
   private readonly logger = new Logger(FlowService.name);
   private readonly flowQueue: Queue;
   private readonly runtimeRegistryService: RuntimeRegistryService;
-  private readonly executorEngineService: ExecutorEngineService;
+  private readonly executorEngineService: FlowStepExecutor;
   private readonly repoRegistryService: RepoRegistryService;
   private readonly dynamicContextFactory: DynamicContextFactory;
   private readonly runtimeScriptRepairService?: RuntimeScriptRepairService;
@@ -50,7 +38,7 @@ export class FlowService {
   constructor(deps: {
     flowQueue: Queue;
     runtimeRegistryService: RuntimeRegistryService;
-    executorEngineService: ExecutorEngineService;
+    executorEngineService: FlowStepExecutor;
     repoRegistryService: RepoRegistryService;
     dynamicContextFactory: DynamicContextFactory;
     runtimeScriptRepairService?: RuntimeScriptRepairService;
@@ -186,20 +174,12 @@ export class FlowService {
   async testStep(
     step: FlowStepTestInput,
     mockFlow?: any,
-  ): Promise<{
-    success: boolean;
-    result?: any;
-    error?: string;
-    duration: number;
-    flowContext?: any;
-    logs?: any[];
-    emitted?: SocketEmitCapture;
-  }> {
+  ): Promise<FlowStepTestResult> {
     const startTime = Date.now();
-    const logs: any[] = [];
+    const logs: unknown[] = [];
     const emitted: SocketEmitCapture = [];
 
-    const flowContext: any = {
+    const flowContext: Record<string, unknown> = {
       $payload: mockFlow?.$payload || {},
       $last: mockFlow?.$last || null,
       $meta: { flowId: 'test', flowName: 'test', executionId: 'test' },
@@ -385,8 +365,8 @@ export class FlowService {
   private async primeFlowTestContext(opts: {
     flow: FlowDefinition;
     targetStep: FlowStep | FlowStepTestInput;
-    flowContext: any;
-    ctx: any;
+    flowContext: Record<string, unknown>;
+    ctx: TDynamicContext;
     timeout: number;
   }): Promise<void> {
     const { flow, targetStep, flowContext, ctx, timeout } = opts;
@@ -440,9 +420,9 @@ export class FlowService {
 
   private async executeTestStep(
     step: FlowStep,
-    ctx: any,
+    ctx: TDynamicContext,
     timeout: number,
-  ): Promise<any> {
+  ): Promise<unknown> {
     const script = getExecutableStepScript(step);
     return executeStepCore({
       type: step.type,

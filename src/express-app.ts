@@ -35,15 +35,8 @@ import { registerDynamicRoutes } from './http/routes/dynamic.routes';
 import { registerReadinessRoute } from './http/routes/readiness.routes';
 import { DebugTrace } from './shared/utils/debug-trace.util';
 import { resolveClientIpFromRequest } from './shared/utils/client-ip.util';
-import type { RequestWithRouteData } from './shared/types/dynamic-context.types';
+import type { RuntimeRequest } from './http/types/request-context.types';
 import { createNativeRouteRegistrar } from './http/utils/native-route-binding.util';
-
-type RuntimeRequest = RequestWithRouteData & {
-  auth?: unknown;
-  scope?: AwilixContainer<Cradle>;
-  _perfStart?: number;
-  _debug?: DebugTrace;
-};
 
 export function disposeRequestScopeOnResponse(
   req: RuntimeRequest,

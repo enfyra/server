@@ -1,7 +1,59 @@
+import { ObjectId } from 'mongodb';
 import { PolicyService } from '../../src/domain/policy';
 
 describe('PolicyService.checkRequestAccess', () => {
-  const policy = new PolicyService({} as any, {} as any);
+  const policy = new PolicyService({} as any);
+
+  it.each([null, false, 'permission', [], { role: { id: { nested: true } } }])(
+    'denies malformed permission metadata %j',
+    (permission: unknown) => {
+      const decision = policy.checkRequestAccess({
+        method: 'GET',
+        user: { id: 'user-1', roles: [{ id: 'role-1' }] },
+        routeData: { routePermissions: [permission] },
+      });
+      expect(decision).toMatchObject({ allow: false, statusCode: 403 });
+    },
+  );
+
+  it('does not call methods from malformed allowedUsers metadata', () => {
+    let called = false;
+    const decision = policy.checkRequestAccess({
+      method: 'GET',
+      user: { id: 'user-1', roles: [] },
+      routeData: {
+        routePermissions: [{
+          allowedUsers: { some: () => { called = true; return true; } },
+        }],
+      },
+    });
+    expect(called).toBe(false);
+    expect(decision).toMatchObject({ allow: false, statusCode: 403 });
+  });
+
+  it('matches SQL allowed-user identities across string and numeric projections', () => {
+    const decision = policy.checkRequestAccess({
+      method: 'GET',
+      user: { id: 42, roles: [] },
+      routeData: { routePermissions: [{ allowedUsers: [{ id: '42' }] }] },
+    });
+    expect(decision.allow).toBe(true);
+  });
+
+  it('matches persisted Mongo ObjectId user and role identities', () => {
+    const userId = new ObjectId();
+    const roleId = new ObjectId();
+    expect(policy.checkRequestAccess({
+      method: 'GET',
+      user: { _id: userId, roles: [{ _id: roleId }] },
+      routeData: { routePermissions: [{ role: { _id: roleId } }] },
+    }).allow).toBe(true);
+    expect(policy.checkRequestAccess({
+      method: 'GET',
+      user: { _id: userId, roles: [] },
+      routeData: { routePermissions: [{ allowedUsers: [{ _id: userId }] }] },
+    }).allow).toBe(true);
+  });
 
   it('allows a public method config without user', () => {
     const d = policy.checkRequestAccess({

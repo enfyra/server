@@ -114,11 +114,11 @@ export class FieldPermissionCacheBuilder extends BaseCacheService<
     return map;
   }
 
-  supportsPartialReload(): boolean {
+  override supportsPartialReload(): boolean {
     return true;
   }
 
-  async partialReload(
+  override async partialReload(
     payload: TCacheInvalidationPayload,
     publish = true,
   ): Promise<void> {
@@ -129,7 +129,7 @@ export class FieldPermissionCacheBuilder extends BaseCacheService<
     await super.partialReload(payload, publish);
   }
 
-  protected async applyPartialUpdate(
+  protected override async applyPartialUpdate(
     payload: TCacheInvalidationPayload,
   ): Promise<void> {
     if (!this.cache) {
@@ -340,11 +340,11 @@ export class FieldPermissionCacheBuilder extends BaseCacheService<
     }
   }
 
-  protected getLogCount(): string {
+  protected override getLogCount(): string {
     return `${this.cache?.size ?? 0} buckets`;
   }
 
-  async ensureLoaded(): Promise<void> {
+  override async ensureLoaded(): Promise<void> {
     await super.ensureLoaded();
   }
 }

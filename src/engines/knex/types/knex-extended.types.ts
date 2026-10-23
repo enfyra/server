@@ -1,4 +1,4 @@
-import { Knex } from 'knex';
+import type { Knex } from 'knex';
 
 export interface KnexQueryOptions {
   skipMetadataHooks?: boolean;
@@ -9,7 +9,7 @@ export interface KnexQueryOptions {
  */
 export interface ExtendedQueryBuilder<
   TRecord extends {} = any,
-  TResult = any,
+  TResult = TRecord[],
 > extends Knex.QueryBuilder<TRecord, TResult> {
   /**
    * Auto-join relations based on metadata (like TypeORM relations option)
@@ -35,7 +35,7 @@ export interface ExtendedQueryBuilder<
  * Extended Knex instance with custom QueryBuilder
  */
 export interface ExtendedKnex extends Knex {
-  <TRecord extends object = any, TResult = any>(
+  <TRecord extends object = any, TResult = TRecord[]>(
     tableName: string,
   ): ExtendedQueryBuilder<TRecord, TResult>;
 }

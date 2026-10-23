@@ -13,7 +13,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     this.queryBuilderService = deps.queryBuilderService;
   }
 
-  async processSql(
+  override async processSql(
     records: any[],
     knex: Knex,
     tableName: string,
@@ -156,7 +156,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     return { created: true, skipped: false };
   }
 
-  async processMongo(
+  override async processMongo(
     records: any[],
     db: any,
     collectionName: string,
@@ -298,7 +298,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     return { created: true, skipped: false };
   }
 
-  async processWithQueryBuilder(
+  override async processWithQueryBuilder(
     records: any[],
     queryBuilder: any,
     tableName: string,
@@ -383,7 +383,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     return { created: totalCreated, skipped: totalSkipped };
   }
 
-  async transformRecords(records: any[], context?: any): Promise<any[]> {
+  override async transformRecords(records: any[], context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = [];
     for (const record of records) {
@@ -450,7 +450,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     }
     return conditions;
   }
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const parentField = isMongoDB ? 'parent' : 'parentId';
     return [
@@ -465,7 +465,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
       parentField,
     ];
   }
-  protected hasValueChanged(newValue: any, existingValue: any): boolean {
+  protected override hasValueChanged(newValue: any, existingValue: any): boolean {
     if (newValue == null && existingValue == null) {
       return false;
     }
@@ -504,7 +504,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     }
     return super.hasValueChanged(newValue, existingValue);
   }
-  protected getRecordIdentifier(record: any): string {
+  protected override getRecordIdentifier(record: any): string {
     const type = record.type;
     const label = record.label;
     const parent = record.parent;

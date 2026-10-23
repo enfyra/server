@@ -5,7 +5,7 @@ export class MethodDefinitionProcessor extends BaseTableProcessor {
   constructor() {
     super();
   }
-  async transformRecords(records: any[]): Promise<any[]> {
+  override async transformRecords(records: any[]): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     return records.map((record) => {
       const transformed = {
@@ -25,7 +25,7 @@ export class MethodDefinitionProcessor extends BaseTableProcessor {
   getUniqueIdentifier(record: any): object {
     return { name: record.name };
   }
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     return ['name', 'isSystem'];
   }
 }

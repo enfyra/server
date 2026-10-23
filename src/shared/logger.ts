@@ -1,4 +1,4 @@
-import pino, { Logger as PinoLogger } from 'pino';
+import pino, { type Logger as PinoLogger } from 'pino';
 import { logStore } from './log-store';
 import { getBootstrapLogMode } from './bootstrap-log-context';
 import { recordSystemError } from './runtime-log-buffer';
@@ -84,7 +84,7 @@ function redactSensitiveText(value: string): string {
   );
 }
 
-function sanitizeLogValue(value: any, seen = new WeakSet<object>()): any {
+function sanitizeLogValue(value: unknown, seen = new WeakSet<object>()): unknown {
   if (typeof value === 'string') {
     return redactSensitiveText(value);
   }
@@ -141,7 +141,7 @@ const pinoInstance: PinoLogger = pino(
     timestamp: () => `,"timestamp":"${new Date().toISOString()}"`,
     mixin: () => {
       const store = logStore.getStore();
-      const mix: Record<string, any> = { id: generateLogId() };
+      const mix: Record<string, unknown> = { id: generateLogId() };
       if (store?.correlationId) mix.correlationId = store.correlationId;
       if (store?.context) {
         for (const [k, v] of Object.entries(store.context)) {
@@ -159,10 +159,13 @@ export function __pinoInstanceForTests(): PinoLogger {
 }
 
 function extractObjectMessage(
-  payload: Record<string, any>,
+  payload: object,
   fallback: string,
-): { msg: string; meta: Record<string, any> } {
-  const { message, msg: msgField, ...rest } = payload;
+): { msg: string; meta: Record<string, unknown> } {
+  const fields: Record<string, unknown> = Object.fromEntries(Object.entries(payload));
+  const { message: _message, msg: _msgField, ...rest } = fields;
+  const message = 'message' in payload ? payload.message : undefined;
+  const msgField = 'msg' in payload ? payload.msg : undefined;
   const picked =
     (typeof message === 'string' && message) ||
     (typeof msgField === 'string' && msgField) ||
@@ -222,40 +225,40 @@ export class Logger {
     this.context = context;
   }
 
-  log(message: any, context?: string): void {
+  log(message: unknown, context?: string): void {
     this.emit('log', message, undefined, context);
   }
 
   error(
-    message: any,
+    message: unknown,
     trace?: unknown,
     context?: string,
   ): void {
     this.emit('error', message, trace, context);
   }
 
-  warn(message: any, context?: string): void {
+  warn(message: unknown, context?: string): void {
     this.emit('warn', message, undefined, context);
   }
 
-  debug(message: any, context?: string): void {
+  debug(message: unknown, context?: string): void {
     this.emit('debug', message, undefined, context);
   }
 
-  verbose(message: any, context?: string): void {
+  verbose(message: unknown, context?: string): void {
     this.emit('verbose', message, undefined, context);
   }
 
-  fatal(message: any, trace?: unknown, context?: string): void {
+  fatal(message: unknown, trace?: unknown, context?: string): void {
     this.emit('error', message, trace, context, { fatal: true });
   }
 
   private emit(
     level: LevelName,
-    message: any,
+    message: unknown,
     trace: unknown,
     context: string | undefined,
-    extraMeta?: Record<string, any>,
+    extraMeta?: Record<string, unknown>,
   ): void {
     const ctx = context || this.context;
     const fallback =
@@ -270,7 +273,7 @@ export class Logger {
               : 'Verbose';
 
     let msg: string;
-    const meta: Record<string, any> = { ...(extraMeta || {}) };
+    const meta: Record<string, unknown> = { ...(extraMeta || {}) };
 
     if (typeof message === 'object' && message !== null) {
       if (message instanceof Error) {
@@ -292,7 +295,7 @@ export class Logger {
     } else if (typeof trace === 'string') {
       meta.stack = trace;
     } else if (trace && typeof trace === 'object') {
-      const { message: _m, ...rest } = trace as Record<string, any>;
+      const { message: _m, ...rest } = Object.fromEntries(Object.entries(trace));
       for (const [k, v] of Object.entries(rest)) {
         if (meta[k] === undefined) meta[k] = v;
       }
@@ -305,7 +308,10 @@ export class Logger {
     }
 
     const pinoLevel = PINO_LEVEL[level];
-    const safeMeta = sanitizeLogValue(meta);
+    const sanitizedMeta = sanitizeLogValue(meta);
+    const safeMeta: Record<string, unknown> = sanitizedMeta !== null && typeof sanitizedMeta === 'object'
+      ? Object.fromEntries(Object.entries(sanitizedMeta))
+      : {};
     const safeMsg = redactSensitiveText(msg);
     if (level === 'error' || safeMeta.systemError === true) {
       recordSystemError(safeMsg, { ...safeMeta, correlationId: safeMeta.correlationId ?? logStore.getStore()?.correlationId });
@@ -313,7 +319,7 @@ export class Logger {
     pinoInstance[pinoLevel](safeMeta, safeMsg);
 
     const correlationId = logStore.getStore()?.correlationId;
-    const consoleTrace = level === 'error' ? safeMeta.stack : undefined;
+    const consoleTrace = level === 'error' && typeof safeMeta.stack === 'string' ? safeMeta.stack : undefined;
     printPretty(level, safeMsg, ctx, correlationId, consoleTrace);
   }
 }

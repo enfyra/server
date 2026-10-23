@@ -87,7 +87,7 @@ export class AuthHeaderCacheBuilder extends BaseCacheService<AuthHeaderConfig[]>
     );
   }
 
-  protected getLogCount(): string {
+  protected override getLogCount(): string {
     return `${this.cache.length} auth header configs`;
   }
 

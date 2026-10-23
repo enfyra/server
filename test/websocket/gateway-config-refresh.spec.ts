@@ -5,7 +5,10 @@ function createGateway(
   previousGateway: Record<string, unknown>,
   nextGateway: Record<string, unknown>,
 ) {
-  const namespace = { disconnectSockets: vi.fn() };
+  const namespace = {
+    disconnectSockets: vi.fn(),
+    sockets: new Map([['socket', { conn: { close: vi.fn() } }]]),
+  };
   const gateway = Object.create(
     DynamicWebSocketGateway.prototype,
   ) as DynamicWebSocketGateway & Record<string, any>;
@@ -18,6 +21,28 @@ function createGateway(
 }
 
 describe('DynamicWebSocketGateway gateway refresh', () => {
+  it('preserves unchanged sockets through the real activation refresh entrypoint', async () => {
+    const config = { path: '/usage', requireAuth: false, events: [] };
+    const { gateway, namespace } = createGateway(config, { ...config });
+    Object.assign(namespace, { removeAllListeners: vi.fn(), use: vi.fn(), on: vi.fn() });
+    await gateway.refreshGateways();
+    expect(namespace.disconnectSockets).not.toHaveBeenCalled();
+  });
+
+  it('does not append middleware when a removed namespace is enabled again', async () => {
+    const config = { path: '/usage', requireAuth: false, events: [] };
+    const { gateway, namespace } = createGateway(config, config);
+    const use = vi.fn();
+    Object.assign(namespace, { removeAllListeners: vi.fn(), use, on: vi.fn() });
+    gateway.registeredGateways.clear();
+    await gateway.registerGateways();
+    gateway.runtimeRegistryService.requireActiveData = () => [];
+    await gateway.refreshGateways();
+    gateway.runtimeRegistryService.requireActiveData = () => [config];
+    await gateway.refreshGateways();
+    expect(use).toHaveBeenCalledOnce();
+  });
+
   it('resolves connection-script IP from the trusted transport chain', async () => {
     const gateway = Object.create(DynamicWebSocketGateway.prototype) as any;
     const createWebsocketConnection = vi.fn(() => ({}));
@@ -146,7 +171,8 @@ describe('DynamicWebSocketGateway gateway refresh', () => {
 
     await gateway.registerGateways();
 
-    expect(namespace.disconnectSockets).toHaveBeenCalledWith(true);
+    expect(namespace.sockets.get('socket')!.conn.close).toHaveBeenCalledOnce();
+    expect(namespace.disconnectSockets).not.toHaveBeenCalled();
   });
 
   it('keeps current sockets connected when the effective gateway contract is unchanged', async () => {
@@ -196,6 +222,7 @@ describe('DynamicWebSocketGateway gateway refresh', () => {
 
     await gateway.registerGateways();
 
-    expect(namespace.disconnectSockets).toHaveBeenCalledWith(true);
+    expect(namespace.sockets.get('socket')!.conn.close).toHaveBeenCalledOnce();
+    expect(namespace.disconnectSockets).not.toHaveBeenCalled();
   });
 });

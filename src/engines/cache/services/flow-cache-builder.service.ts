@@ -190,17 +190,17 @@ export class FlowCacheBuilder extends BaseCacheService<FlowDefinition[]> {
     return data;
   }
 
-  protected async afterTransform(): Promise<void> {}
+  protected override async afterTransform(): Promise<void> {}
 
-  protected emitLoadedEvent(): void {
+  protected override emitLoadedEvent(): void {
     this.eventEmitter?.emit(CACHE_EVENTS.FLOW_LOADED);
   }
 
-  protected getLogCount(): string {
+  protected override getLogCount(): string {
     return `${this.cache.length} flows`;
   }
 
-  protected getCount(): number {
+  protected override getCount(): number {
     return this.cache.length;
   }
 }

@@ -1,9 +1,11 @@
 import { RuntimeSchemaContractCompilerService } from '../../src/modules/table-management';
 import { verifySchemaMutationContractHash } from '../../src/shared/utils/schema-mutation-contract.util';
+import type { PhysicalPlan } from '../../src/modules/table-management/types/runtime-schema-physical-plan.types';
 
 function createCompiler(input?: {
   dbType?: 'postgres' | 'mysql' | 'mongodb';
   tables?: Map<string, any>;
+  physicalPlan?: PhysicalPlan;
 }) {
   return new RuntimeSchemaContractCompilerService({
     databaseConfigService: {
@@ -13,7 +15,7 @@ function createCompiler(input?: {
       getMetadata: () => ({ tables: input?.tables ?? new Map() }),
     } as any,
     runtimeSchemaPhysicalPlannerService: {
-      plan: async () => null,
+      plan: async () => input?.physicalPlan ?? null,
     } as any,
   });
 }
@@ -92,6 +94,50 @@ describe('RuntimeSchemaContractCompilerService', () => {
         .flatMap((phase) => phase.nodes)
         .filter((node) => node.completesChange),
     ).toHaveLength(result.contract.changes.length);
+    expect(verifySchemaMutationContractHash(result.contract)).toBe(true);
+  });
+
+  it.each([
+    {
+      dbType: 'mysql' as const,
+      physicalPlan: {
+        backend: 'mysql' as const,
+        upStatements: ['ALTER TABLE post ADD slug varchar(255)'],
+        upBatch: 'ALTER TABLE post ADD slug varchar(255)',
+        downStatements: ['ALTER TABLE post DROP COLUMN slug'],
+        downBatch: 'ALTER TABLE post DROP COLUMN slug',
+        metadataUpdate: { column: 'slug' },
+        activeTableName: 'post',
+      },
+    },
+    {
+      dbType: 'mongodb' as const,
+      physicalPlan: {
+        backend: 'mongodb' as const,
+        upDiff: { addedFields: ['slug'] },
+        downDiff: { removedFields: ['slug'] },
+      },
+    },
+  ])('preserves $dbType physical payloads in the compiled command graph', async ({ dbType, physicalPlan }) => {
+    const result = await createCompiler({ dbType, physicalPlan }).compile({
+      operation: 'update',
+      tableName: 'post',
+      beforeMetadata: baseTable,
+      afterMetadata: {
+        ...baseTable,
+        columns: [...baseTable.columns, { name: 'slug', type: 'varchar', isNullable: true }],
+      },
+    });
+    const commands = result.contract.phases.flatMap(phase => phase.nodes.map(node => node.command));
+    const physical = commands.filter(command => command.kind === 'apply-physical-change');
+    expect(physical.length).toBeGreaterThan(0);
+    for (const command of physical) {
+      expect(command.change).toBeDefined();
+      expect(command.physicalPlan).toEqual(physicalPlan);
+    }
+    for (const command of commands.filter(command => command.kind !== 'apply-physical-change')) {
+      expect(command).not.toHaveProperty('physicalPlan');
+    }
     expect(verifySchemaMutationContractHash(result.contract)).toBe(true);
   });
 

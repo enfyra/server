@@ -15,15 +15,17 @@ import { parseQueryMiddleware } from '../middlewares/parse-query.middleware';
 import { fileUploadMiddleware } from '../middlewares/file-upload.middleware';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
+import type { NextFunction, RequestHandler, Response } from 'express';
+import type { RuntimeRequest } from '../types/request-context.types';
 
-export function pipelinePreRouting(cradle: Cradle, container: AwilixContainer<Cradle>) {
+export function pipelinePreRouting(cradle: Cradle, _container: AwilixContainer<Cradle>): RequestHandler[] {
   return [
     parseQueryMiddleware,
     // perf marker before routeDetect
-    ((req: any, _res: any, next: any) => {
+    (req: RuntimeRequest, _res: Response, next: NextFunction) => {
       req._perfRouteDetect = performance.now();
       next();
-    }) as any,
+    },
     routeDetectMiddleware(
       cradle.runtimeRegistryService,
       cradle.repoRegistryService,
@@ -32,16 +34,18 @@ export function pipelinePreRouting(cradle: Cradle, container: AwilixContainer<Cr
       cradle.flowService,
       cradle.dynamicContextFactory,
     ),
-    ((req: any, _res: any, next: any) => {
-      if (req._debug) req._debug.dur('mw_route_detect', req._perfRouteDetect);
+    (req: RuntimeRequest, _res: Response, next: NextFunction) => {
+      if (req._debug && req._perfRouteDetect !== undefined) {
+        req._debug.dur('mw_route_detect', req._perfRouteDetect);
+      }
       req._perfAuth = performance.now();
       next();
-    }) as any,
+    },
     notFoundDetectMiddleware,
   ];
 }
 
-export function pipelineGuardsAuth(cradle: Cradle) {
+export function pipelineGuardsAuth(cradle: Cradle): RequestHandler[] {
   return [
     preAuthMetadataGuard(
       cradle.guardCacheBuilder,
@@ -50,10 +54,12 @@ export function pipelineGuardsAuth(cradle: Cradle) {
       cradle.guardAlertService,
     ),
     authMiddleware(cradle.authenticationService),
-    ((req: any, _res: any, next: any) => {
-      if (req._debug) req._debug.dur('mw_auth', req._perfAuth);
+    (req: RuntimeRequest, _res: Response, next: NextFunction) => {
+      if (req._debug && req._perfAuth !== undefined) {
+        req._debug.dur('mw_auth', req._perfAuth);
+      }
       next();
-    }) as any,
+    },
     roleGuardMiddleware(cradle.policyService),
     postAuthMetadataGuard(
       cradle.guardCacheBuilder,

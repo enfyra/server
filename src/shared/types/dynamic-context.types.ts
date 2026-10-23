@@ -42,8 +42,14 @@ export interface DynamicTransaction {
 
 export type EnvSnapshot = Record<string, string | undefined>;
 
-export type DynamicRequestContext = Request & {
+export type DynamicRequestContext = Partial<Pick<
+  Request,
+  'method' | 'url' | 'query' | 'params' | 'hostname' | 'protocol' | 'path' | 'originalUrl'
+>> & {
+  headers?: Request['headers'] | { get(name: string): string | null };
+  ip?: string | null;
   rawBody?: string;
+  user?: unknown;
 };
 
 export type StreamChunkKind = 'chunk' | 'end' | 'error';
@@ -158,7 +164,8 @@ export interface TDynamicContext {
   $helpers: {
     $delivery?: DynamicDeliveryRecorder;
     run?: SharedHelperRunner['run'];
-    $jwt?: (payload: any, exp: string) => string;
+    $jwt?: (payload: string | Buffer | object, exp: string) => string;
+    jwt?: (payload: string | Buffer | object, exp: string) => string;
     $bcrypt?: {
       hash?: (plain: string) => Promise<string>;
       compare?: (p: string, h: string) => Promise<boolean>;
@@ -231,6 +238,7 @@ export interface TDynamicContext {
   $streams: DynamicStreams;
   $params?: any;
   $query?: any;
+  $args?: unknown;
   $env?: EnvSnapshot;
   $user?: any;
   $authSource?: 'pat' | 'jwt';

@@ -17,6 +17,17 @@ describe('database runtime logs', () => {
     expect(JSON.stringify(event)).not.toContain('private');
     expect(sanitizeRuntimeLog(detail)).toHaveProperty('self', '[Circular]');
   });
+  it('normalizes unknown metadata without treating malformed status or event data as typed values', () => {
+    recordSystemError('Failure', { statusCode: '500', data: null, sourceId: 42 });
+    recordSystemError('Failure', { statusCode: 503, data: { event: 'worker_failure' } });
+    const [malformed, valid] = peekRuntimeLogs();
+    expect(malformed.record.statusCode).toBeNull();
+    expect(malformed.record.code).toBe('SYSTEM_ERROR');
+    expect(malformed.record.sourceId).toBe('42');
+    expect(valid.record.statusCode).toBe(503);
+    expect(valid.record.code).toBe('worker_failure');
+    expect(sanitizeRuntimeLog(Object.assign(new Error('private failure'), { code: 403 }))).toHaveProperty('code', 403);
+  });
   it('bounds user entries and queue memory', () => {
     recordUserLog(Array.from({ length: 300 }, () => 'x'.repeat(9000)));
     const [event] = peekRuntimeLogs();

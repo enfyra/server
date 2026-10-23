@@ -4,9 +4,8 @@ import * as jwt from 'jsonwebtoken';
 import { getIoAbortSignal } from '@enfyra/kernel';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
-import type { TDynamicContext } from '../types';
-import type { BcryptService } from '../../domain/auth';
-import type { ApiTokenService } from '../../domain/auth';
+import type { DynamicRequestContext, TDynamicContext } from '../types/dynamic-context.types';
+import type { ApiTokenService, BcryptService } from '../../domain/auth';
 import type { RedisCacheService } from '../../engines/cache';
 import { createCryptoHelper, createFetchHelper } from '../helpers';
 import type { UploadFileHelper } from '../helpers/upload-file.helper';
@@ -346,7 +345,7 @@ export class DynamicContextFactory {
         path: req.path,
         originalUrl: req.originalUrl,
         rawBody: req.rawBody,
-      } as any,
+      },
       socket: this.websocketContextFactory.createGlobalProxy(),
       apiRequest: {
         method: req.method,
@@ -364,7 +363,7 @@ export class DynamicContextFactory {
   }
 
   createGraphql(options: {
-    request?: any;
+    request?: DynamicRequestContext;
     user?: any;
     body?: any;
     params?: any;
@@ -384,10 +383,10 @@ export class DynamicContextFactory {
       helpers: {
         $jwt: signJwt,
         jwt: signJwt,
-      } as any,
+      },
       socket: this.websocketContextFactory.createGlobalProxy(),
     });
-    (ctx as any).$args = options.args || {};
+    ctx.$args = options.args || {};
     return ctx;
   }
 
@@ -427,7 +426,7 @@ export class DynamicContextFactory {
     data?: any;
     user?: any;
     socket: TDynamicContext['$socket'];
-    headers?: any;
+    headers?: DynamicRequestContext['headers'];
     ip?: string | null;
     apiUrl?: string;
   }) {
@@ -442,7 +441,7 @@ export class DynamicContextFactory {
         ip: options.ip ?? null,
         headers: options.headers ?? {},
         user: options.user ?? null,
-      } as any,
+      },
       socket: options.socket,
       apiRequest: {
         method: options.method,
@@ -500,7 +499,7 @@ export class DynamicContextFactory {
     url: string;
     body?: any;
     user?: any;
-    headers?: any;
+    headers?: DynamicRequestContext['headers'];
     socket: TDynamicContext['$socket'];
     correlationId: string;
   }) {
@@ -529,7 +528,7 @@ export class DynamicContextFactory {
     url: string;
     body?: any;
     user?: any;
-    headers?: any;
+    headers?: DynamicRequestContext['headers'];
     correlationId: string;
   }) {
     const emitted: SocketEmitCapture = [];

@@ -11,7 +11,7 @@ export class WebsocketDefinitionProcessor extends BaseTableProcessor {
     this.queryBuilderService = deps.queryBuilderService;
   }
 
-  async transformRecords(records: any[], _context?: any): Promise<any[]> {
+  override async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
 
     const transformedRecords = await mapSequentially(
@@ -49,7 +49,7 @@ export class WebsocketDefinitionProcessor extends BaseTableProcessor {
     return { path: record.path };
   }
 
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     return [
       'path',
       'isEnabled',
@@ -63,7 +63,7 @@ export class WebsocketDefinitionProcessor extends BaseTableProcessor {
     ];
   }
 
-  protected getRecordIdentifier(record: any): string {
+  protected override getRecordIdentifier(record: any): string {
     return `[WebSocket Gateway] ${record.path}`;
   }
 }

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { logStore } from './log-store';
-import type { PendingRuntimeLog, RuntimeLogRecord, RuntimeLogTable } from './types/runtime-log.types';
+import type { PendingRuntimeLog, RuntimeLogMetadata, RuntimeLogRecord, RuntimeLogTable } from './types/runtime-log.types';
 
 const MAX_RECORD_BYTES = 65_536;
 const MAX_QUEUE_BYTES = 8 * 1024 * 1024;
@@ -17,7 +17,7 @@ export function sanitizeRuntimeLog(value: unknown): unknown {
   const seen = new WeakSet<object>();
   let nodes = 0;
   let characters = 16_000;
-  const visit = (item: any, depth: number): unknown => {
+  const visit = (item: unknown, depth: number): unknown => {
     if (++nodes > 2000 || depth > 8) return '[Truncated]';
     if (typeof item === 'string') {
       const text = item.slice(0, Math.max(0, Math.min(4096, characters)));
@@ -32,10 +32,10 @@ export function sanitizeRuntimeLog(value: unknown): unknown {
     if (typeof item !== 'object') return String(item);
     if (seen.has(item)) return '[Circular]';
     seen.add(item);
-    if (item instanceof Error) return visit({ name: item.name, message: item.message, stack: item.stack, code: (item as any).code }, depth + 1);
+    if (item instanceof Error) return visit({ name: item.name, message: item.message, stack: item.stack, code: 'code' in item ? item.code : undefined }, depth + 1);
     if (item instanceof Date) return item.toISOString();
-    if (Array.isArray(item)) return item.slice(0, 200).map((entry) => visit(entry, depth + 1));
-    return Object.fromEntries(Object.entries(item).slice(0, 100).map(([key, entry]) => [key, sensitive.test(key) ? '[REDACTED]' : visit(entry, depth + 1)]));
+    if (Array.isArray(item)) return item.slice(0, 200).map((entry: unknown) => visit(entry, depth + 1));
+    return Object.fromEntries(Object.entries(item).slice(0, 100).map(([key, entry]: [string, unknown]) => [key, sensitive.test(key) ? '[REDACTED]' : visit(entry, depth + 1)]));
   };
   try { return visit(value, 0); } catch { return '[Unserializable]'; }
 }
@@ -51,32 +51,33 @@ function enqueue(table: RuntimeLogTable, record: RuntimeLogRecord): void {
   queuedBytes += bytes;
 }
 
-function baseRecord(component: string, metadata: any = {}): RuntimeLogRecord {
+function baseRecord(component: string, metadata: RuntimeLogMetadata = {}): RuntimeLogRecord {
   return {
     eventId: randomUUID(), occurredAt: new Date().toISOString(),
     correlationId: metadata.correlationId == null ? logStore.getStore()?.correlationId ?? null : String(metadata.correlationId).slice(0, 255),
     instanceId, component: component.slice(0, 255),
     sourceKind: metadata.sourceKind == null ? null : String(metadata.sourceKind).slice(0, 255), sourceId: metadata.sourceId == null ? null : String(metadata.sourceId).slice(0, 255),
-    statusCode: Number.isInteger(metadata.statusCode) ? metadata.statusCode : null,
+    statusCode: typeof metadata.statusCode === 'number' && Number.isInteger(metadata.statusCode) ? metadata.statusCode : null,
   };
 }
 
-export function recordSystemError(message: string, metadata: any = {}): void {
-  const safe = sanitizeRuntimeLog(metadata) as any;
+export function recordSystemError(message: string, metadata: RuntimeLogMetadata = {}): void {
+  const safe = sanitizeRuntimeLog(metadata);
   const safeMessage = String(sanitizeRuntimeLog(message));
-  const code = String(metadata.code ?? metadata.errorCode ?? metadata.data?.event ?? 'SYSTEM_ERROR').slice(0, 255);
+  const event = metadata.data && typeof metadata.data === 'object' && 'event' in metadata.data ? metadata.data.event : undefined;
+  const code = String(metadata.code ?? metadata.errorCode ?? event ?? 'SYSTEM_ERROR').slice(0, 255);
   const component = String(metadata.context ?? metadata.component ?? 'System');
   const details = JSON.stringify(safe);
   enqueue('enfyra_system_error', {
     ...baseRecord(component, metadata), code, message: safeMessage,
     severity: metadata.fatal ? 'fatal' : 'error',
     fingerprint: createHash('sha256').update(component + ':' + code + ':' + safeMessage).digest('hex'),
-    stack: typeof safe.stack === 'string' ? safe.stack : null,
+    stack: safe && typeof safe === 'object' && 'stack' in safe && typeof safe.stack === 'string' ? safe.stack : null,
     details: Buffer.byteLength(details) > 24_000 ? { truncated: true, preview: Buffer.from(details).subarray(0, 20_000).toString('utf8') } : safe,
   });
 }
 
-export function recordUserLog(entries: unknown[], metadata: any = {}): void {
+export function recordUserLog(entries: unknown[], metadata: RuntimeLogMetadata = {}): void {
   if (!entries.length || capturedUserLogs.has(entries)) return;
   capturedUserLogs.add(entries);
   const selected: unknown[] = [];

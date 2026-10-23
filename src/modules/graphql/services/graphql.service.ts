@@ -1,7 +1,6 @@
 import {
   GraphQLSchema,
   GraphQLObjectType,
-  GraphQLFieldConfigMap,
   printSchema,
 } from 'graphql';
 import { createYoga } from 'graphql-yoga';
@@ -311,8 +310,8 @@ export class GraphqlService {
   }
 
   private async assembleAndRegisterSchema(): Promise<void> {
-    const queryFields: GraphQLFieldConfigMap<any, any> = {};
-    const mutationFields: GraphQLFieldConfigMap<any, any> = {};
+    const queryFields: Record<string, NonNullable<TableGraphQLDef['queryField']>> = {};
+    const mutationFields: TableGraphQLDef['mutationFields'] = {};
 
     for (const [tableName, def] of this.tableDefCache) {
       if (def.queryField) {

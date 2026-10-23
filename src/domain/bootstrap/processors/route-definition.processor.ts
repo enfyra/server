@@ -25,7 +25,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     super();
     this.queryBuilderService = deps.queryBuilderService;
   }
-  async transformRecords(records: any[], _context?: any): Promise<any[]> {
+  override async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const pkField = isMongoDB ? '_id' : 'id';
     const transformedRecords = await mapSequentially(
@@ -126,7 +126,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       .whereIn('name', methodNames);
     return methods.map((method: any) => method[pkField]).filter(Boolean);
   }
-  async afterUpsert(
+  override async afterUpsert(
     record: any,
     isNew: boolean,
     _context?: any,
@@ -137,7 +137,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     await this.ensureDefaultCrudHandlers(record, isMongoDB);
   }
 
-  protected prepareRecordForWrite(record: any, tableName: string): any {
+  protected override prepareRecordForWrite(record: any, tableName: string): any {
     if (tableName !== 'enfyra_route') {
       return record;
     }
@@ -583,7 +583,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
   getUniqueIdentifier(record: any): object {
     return { path: record.path };
   }
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     return [
       'path',
       'isEnabled',
@@ -597,7 +597,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       'availableMethods',
     ];
   }
-  protected getRecordIdentifier(record: any): string {
+  protected override getRecordIdentifier(record: any): string {
     return `[Route] ${record.path}`;
   }
 }

@@ -1,5 +1,6 @@
 import { acknowledgeRuntimeLog, peekRuntimeLogs, setRuntimeLogInstance, setRuntimeLogFlush } from '../../../shared/runtime-log-buffer';
 import type { Cradle } from '../../../wiring/cradle';
+import type { PersistedRuntimeLogRecord } from '../../../shared/types/runtime-log.types';
 import { getBootstrapLogMode } from '../../../shared/bootstrap-log-context';
 import { clearStartupProgressLine } from '../../../shared/startup-log';
 
@@ -43,7 +44,7 @@ export class RuntimeLogWriterService {
       const knex = mongo ? null : this.deps.knexService.getUnscopedWriteKnex();
       for (const item of peekRuntimeLogs()) {
         const now = new Date();
-        const row: any = { ...item.record, occurredAt: new Date(item.record.occurredAt), createdAt: now, updatedAt: now };
+        const row: PersistedRuntimeLogRecord = { ...item.record, occurredAt: new Date(item.record.occurredAt), createdAt: now, updatedAt: now };
         if (db) {
           if (!await db.listCollections({ name: item.table }, { nameOnly: true }).hasNext()) return;
           await db.collection(item.table).updateOne({ eventId: row.eventId }, { $setOnInsert: row }, { upsert: true, maxTimeMS: 2000 });
@@ -62,9 +63,9 @@ export class RuntimeLogWriterService {
             more ||= ids.length === 500;
             if (ids.length) await db.collection(table).deleteMany({ _id: { $in: ids.map((row) => row._id) } }, { maxTimeMS: 2000 });
           } else {
-            const ids = await knex!(table).where('occurredAt', '<', cutoff).select('id').limit(500).timeout(2000);
+            const ids = await knex!<{ id: string | number }>(table).where('occurredAt', '<', cutoff).select('id').limit(500).timeout(2000);
             more ||= ids.length === 500;
-            if (ids.length) await knex!(table).whereIn('id', ids.map((row: any) => row.id)).delete().timeout(2000);
+            if (ids.length) await knex!(table).whereIn('id', ids.map((row) => row.id)).delete().timeout(2000);
           }
         }
         this.lastCleanup = more ? 0 : Date.now();

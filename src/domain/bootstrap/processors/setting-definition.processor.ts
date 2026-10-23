@@ -2,7 +2,7 @@ import { BaseTableProcessor } from './base-table-processor';
 import { DatabaseConfigService } from '../../../shared/services';
 
 export class SettingDefinitionProcessor extends BaseTableProcessor {
-  async transformRecords(records: any[]): Promise<any[]> {
+  override async transformRecords(records: any[]): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     return records.map((record) => {
       const transformed = { ...record };
@@ -19,7 +19,7 @@ export class SettingDefinitionProcessor extends BaseTableProcessor {
   getUniqueIdentifier(_record: any): object {
     return {};
   }
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     return ['isInit', 'projectName', 'projectDescription', 'projectUrl'];
   }
 }

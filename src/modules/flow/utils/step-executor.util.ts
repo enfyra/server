@@ -1,19 +1,5 @@
-import { TDynamicContext } from '../../../shared/types';
-import { ExecutorEngineService } from '@enfyra/kernel';
 import { compileScriptSource } from '../../../shared/utils/script-code.util';
-
-export interface StepExecOptions {
-  type: string;
-  stepKey?: string;
-  sourceCode: string;
-  scriptLanguage: string;
-  compiledCode?: string | null;
-  timeout: number;
-  ctx: TDynamicContext;
-  executorEngineService: ExecutorEngineService;
-  shouldTransformCode?: boolean;
-  onCompiledCodeRepair?: (compiledCode: string) => void | Promise<void>;
-}
+import type { StepExecOptions } from '../types/flow-step-execution.types';
 
 export function getExecutableStepScript(step: {
   sourceCode?: string | null;
@@ -43,7 +29,7 @@ function describeConditionResult(value: unknown): string {
   }
 }
 
-export async function executeStepCore(opts: StepExecOptions): Promise<any> {
+export async function executeStepCore(opts: StepExecOptions): Promise<unknown> {
   const {
     type,
     stepKey,
@@ -71,10 +57,10 @@ export async function executeStepCore(opts: StepExecOptions): Promise<any> {
   const code =
     compiledCode ||
     (shouldTransformCode
-      ? compileScriptSource(sourceCode, scriptLanguage)
+      ? compileScriptSource(sourceCode, scriptLanguage) ?? sourceCode
       : sourceCode);
 
-  const result = await (executorEngineService.run as any)(code, ctx, timeout, {
+  const result = await executorEngineService.run(code, ctx, timeout, {
     sourceCode,
     scriptLanguage,
     onCompiledCodeRepair,
