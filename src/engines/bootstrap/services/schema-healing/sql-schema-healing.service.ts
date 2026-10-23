@@ -374,12 +374,17 @@ export class SqlSchemaHealingService {
     if (row.columnDefault === null || row.columnDefault === undefined) {
       return '';
     }
-    const raw = String(row.columnDefault);
+    const raw = String(row.columnDefault).trim();
+    if (raw.toUpperCase() === 'NULL') return '';
     // `CURRENT_TIMESTAMP` and its synonyms are expressions, not string literals.
     if (/^(CURRENT_TIMESTAMP|NOW\(\)|LOCALTIME|LOCALTIMESTAMP)/i.test(raw)) {
       return ` DEFAULT ${raw}`;
     }
-    return ` DEFAULT '${raw.replace(/'/g, "''")}'`;
+    const value =
+      raw.startsWith("'") && raw.endsWith("'")
+        ? raw.slice(1, -1).replace(/''/g, "'")
+        : raw;
+    return ` DEFAULT '${value.replace(/'/g, "''")}'`;
   }
 
   private parseStoredJson(value: unknown): unknown {
@@ -475,20 +480,24 @@ export class SqlSchemaHealingService {
         propertyName: rel.propertyName,
         targetTable: rel.targetTableName,
       });
-      await new SqlJunctionHealingService(this.queryBuilderService).converge({
-        ...target,
-        sourceTable: rel.sourceTableName,
-        targetTable: rel.targetTableName,
-        propertyName: rel.propertyName,
-        previousTableName: rel.junctionTableName,
-        previousSourceColumn: rel.junctionSourceColumn,
-        previousTargetColumn: rel.junctionTargetColumn,
-      }, () => this.ensureSqlJunctionPhysicalTable(knex, {
-        sourceTable: rel.sourceTableName,
-        targetTable: rel.targetTableName,
-        sourcePropertyName: rel.propertyName,
-        ...target,
-      }));
+      await new SqlJunctionHealingService(this.queryBuilderService).converge(
+        {
+          ...target,
+          sourceTable: rel.sourceTableName,
+          targetTable: rel.targetTableName,
+          propertyName: rel.propertyName,
+          previousTableName: rel.junctionTableName,
+          previousSourceColumn: rel.junctionSourceColumn,
+          previousTargetColumn: rel.junctionTargetColumn,
+        },
+        () =>
+          this.ensureSqlJunctionPhysicalTable(knex, {
+            sourceTable: rel.sourceTableName,
+            targetTable: rel.targetTableName,
+            sourcePropertyName: rel.propertyName,
+            ...target,
+          }),
+      );
 
       const owningUpdate = diffJunctionMetadata(rel, target);
       if (Object.keys(owningUpdate).length > 0) {

@@ -124,13 +124,13 @@ export async function getCurrentDatabaseSchema(
       }),
       foreignKeys: fkResult[0],
       uniques: indexResult[0]
-        .filter((row: any) => row.isNonUnique === 0)
+        .filter((row: any) => row.isNonUnique === 0 || row.isNonUnique === '0')
         .map((row: any) => ({
           name: row.indexName,
           columns: String(row.columns).split(','),
         })),
       indexes: indexResult[0]
-        .filter((row: any) => row.isNonUnique === 1)
+        .filter((row: any) => row.isNonUnique === 1 || row.isNonUnique === '1')
         .map((row: any) => ({
           name: row.indexName,
           columns: String(row.columns).split(','),
