@@ -231,6 +231,8 @@ export class CacheOrchestratorService implements LifecycleAware {
   ) => Promise<void>;
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private debounceDeadlineTimer: ReturnType<typeof setTimeout> | null = null;
+  private invalidationFlushInFlight = false;
   private debounceResolvers: Array<{
     table: string;
     resolve: () => void;
@@ -386,6 +388,10 @@ export class CacheOrchestratorService implements LifecycleAware {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
+    if (this.debounceDeadlineTimer) {
+      clearTimeout(this.debounceDeadlineTimer);
+      this.debounceDeadlineTimer = null;
+    }
     const resolvers = this.debounceResolvers.splice(0);
     resolvers.forEach((r) => r.resolve());
     this.pendingPayloads.clear();
@@ -399,23 +405,57 @@ export class CacheOrchestratorService implements LifecycleAware {
       this.debounceResolvers.push({ table: payload.table, resolve, reject });
       this.mergePayload(payload);
       if (this.debounceTimer) clearTimeout(this.debounceTimer);
-      this.debounceTimer = setTimeout(async () => {
-        this.debounceTimer = null;
-        const resolvers = this.debounceResolvers.splice(0);
-        const payloads = [...this.pendingPayloads.values()];
-        this.pendingPayloads.clear();
-        for (const merged of payloads) {
-          const waiting = resolvers.filter((entry) => entry.table === merged.table);
-          try {
-            await this.executeChain(merged, true);
-            waiting.forEach((entry) => entry.resolve());
-          } catch (error) {
-            this.logger.error('Invalidation chain failed:', error);
-            waiting.forEach((entry) => merged.critical ? entry.reject(error) : entry.resolve());
-          }
-        }
-      }, CACHE_ORCHESTRATOR_DEFAULTS.invalidationDebounceMs);
+      this.debounceTimer = setTimeout(
+        () => void this.flushInvalidations(),
+        CACHE_ORCHESTRATOR_DEFAULTS.invalidationDebounceMs,
+      );
+      if (!this.debounceDeadlineTimer) {
+        this.debounceDeadlineTimer = setTimeout(
+          () => void this.flushInvalidations(),
+          CACHE_ORCHESTRATOR_DEFAULTS.invalidationDebounceMaxWaitMs,
+        );
+      }
     });
+  }
+
+  private async flushInvalidations(): Promise<void> {
+    if (this.invalidationFlushInFlight) return;
+    this.invalidationFlushInFlight = true;
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    if (this.debounceDeadlineTimer) {
+      clearTimeout(this.debounceDeadlineTimer);
+      this.debounceDeadlineTimer = null;
+    }
+    const resolvers = this.debounceResolvers.splice(0);
+    const payloads = [...this.pendingPayloads.values()];
+    this.pendingPayloads.clear();
+    try {
+      for (const merged of payloads) {
+        const waiting = resolvers.filter(
+          (entry) => entry.table === merged.table,
+        );
+        try {
+          await this.executeChain(merged, true);
+          waiting.forEach((entry) => entry.resolve());
+        } catch (error) {
+          this.logger.error('Invalidation chain failed:', error);
+          waiting.forEach((entry) =>
+            merged.critical ? entry.reject(error) : entry.resolve(),
+          );
+        }
+      }
+    } finally {
+      this.invalidationFlushInFlight = false;
+    }
+    if (this.debounceResolvers.length > 0 && !this.debounceTimer) {
+      this.debounceTimer = setTimeout(
+        () => void this.flushInvalidations(),
+        CACHE_ORCHESTRATOR_DEFAULTS.invalidationDebounceMs,
+      );
+    }
   }
 
   private mergePayload(payload: TCacheInvalidationPayload): void {

@@ -13,6 +13,7 @@ import type {
 import { BadRequestException } from '../../../domain/exceptions';
 import { isCustomException } from '../../../domain/exceptions/custom-exceptions';
 import { classifyDynamicDatabaseError } from '../utils/database-error-classifier.util';
+import { summarizeMutationError } from '../utils/database-error-sanitizer.util';
 import { logMemory } from '../../../shared/utils/memory-log.util';
 import {
   DEFAULT_RECORD_VERSION,
@@ -238,14 +239,9 @@ export class DynamicMutationLifecycleService {
       if (isCustomException(error)) {
         throw error;
       }
-      if (error.errInfo) {
-        const errorMessage = error.errInfo?.details?.details
-          ? JSON.stringify(error.errInfo.details.details, null, 2)
-          : error.message || 'Document failed validation';
-        throw new BadRequestException(errorMessage);
-      }
       throw new BadRequestException(
-        error.message || 'Document failed validation',
+        summarizeMutationError(error, queryBuilderService.getDatabaseType())
+          .message,
       );
     }
   }
@@ -337,7 +333,7 @@ export class DynamicMutationLifecycleService {
         emit: () => runtime.emit('create', ids),
       });
     } catch (error: any) {
-      this.throwCreateError(error);
+      this.throwCreateError(error, queryBuilderService.getDatabaseType());
     }
   }
   async update(options: DynamicMutationUpdateOptions): Promise<unknown> {
@@ -538,7 +534,11 @@ export class DynamicMutationLifecycleService {
       if (isCustomException(error)) {
         throw error;
       }
-      throw new BadRequestException(error.message);
+      this.logger.error({ message: 'Dynamic mutation failed', tableName }, error);
+      throw new BadRequestException(
+        summarizeMutationError(error, queryBuilderService.getDatabaseType())
+          .message,
+      );
     }
   }
 
@@ -665,7 +665,7 @@ export class DynamicMutationLifecycleService {
         emit: () => runtime.emit('update', ids, body),
       });
     } catch (error: any) {
-      this.throwMutationError(error);
+      this.throwMutationError(error, queryBuilderService.getDatabaseType());
     }
   }
 
@@ -789,7 +789,11 @@ export class DynamicMutationLifecycleService {
       if (isCustomException(error)) {
         throw error;
       }
-      throw new BadRequestException(error.message);
+      this.logger.error({ message: 'Dynamic mutation failed', tableName }, error);
+      throw new BadRequestException(
+        summarizeMutationError(error, queryBuilderService.getDatabaseType())
+          .message,
+      );
     }
   }
 
@@ -877,7 +881,7 @@ export class DynamicMutationLifecycleService {
         emit: () => runtime.emit('delete', ids),
       });
     } catch (error: any) {
-      this.throwMutationError(error);
+      this.throwMutationError(error, queryBuilderService.getDatabaseType());
     }
   }
 
@@ -1010,25 +1014,19 @@ export class DynamicMutationLifecycleService {
     return ids;
   }
 
-  private throwCreateError(error: any): never {
+  private throwCreateError(error: any, backend: string): never {
     if (isCustomException(error)) {
       throw error;
     }
-    if (error.errInfo) {
-      const errorMessage = error.errInfo?.details?.details
-        ? JSON.stringify(error.errInfo.details.details, null, 2)
-        : error.message || 'Document failed validation';
-      throw new BadRequestException(errorMessage);
-    }
-    throw new BadRequestException(
-      error.message || 'Document failed validation',
-    );
+    this.logger.error({ message: 'Dynamic create failed' }, error);
+    throw new BadRequestException(summarizeMutationError(error, backend).message);
   }
 
-  private throwMutationError(error: any): never {
+  private throwMutationError(error: any, backend: string): never {
     if (isCustomException(error)) {
       throw error;
     }
-    throw new BadRequestException(error.message);
+    this.logger.error({ message: 'Dynamic mutation failed' }, error);
+    throw new BadRequestException(summarizeMutationError(error, backend).message);
   }
 }

@@ -125,13 +125,16 @@ export class FlowExecutionQueueService {
     this.worker = new Worker(
       SYSTEM_QUEUES.FLOW_EXECUTION,
       async (job: Job<FlowJobData>) => {
-        if (!this.runtimeMetricsCollectorService) {
-          return await this.process(job);
+        const result = this.runtimeMetricsCollectorService
+          ? await this.runtimeMetricsCollectorService.runWithQueryContext(
+              'flow',
+              () => this.process(job),
+            )
+          : await this.process(job);
+        if (result && typeof result === 'object' && result.success === false) {
+          throw new Error(result.error || 'Flow execution failed');
         }
-        return await this.runtimeMetricsCollectorService.runWithQueryContext(
-          'flow',
-          () => this.process(job),
-        );
+        return result;
       },
       {
         prefix: nodeName,

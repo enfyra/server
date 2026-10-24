@@ -8,6 +8,7 @@ import { GraphQLError } from 'graphql';
 import { Logger } from '../../../shared/logger';
 import { AppError } from '../../../shared/errors';
 import { buildErrorResponseTrace } from '../../../shared/utils/error-response-trace.util';
+import { sanitizeScriptErrorMessage } from '../../../modules/dynamic-api/utils/database-error-sanitizer.util';
 
 interface ErrorResponse {
   success: false;
@@ -27,6 +28,13 @@ interface ErrorResponse {
 
 const logger = new Logger('GlobalExceptionFilter');
 
+function isGraphqlRequest(req: Request): boolean {
+  const routePath = (req as any).route?.path;
+  if (typeof routePath === 'string') return routePath === '/graphql';
+  const pathname = (req.originalUrl || req.url || '').split('?')[0] ?? '';
+  return pathname === '/graphql' || pathname.endsWith('/graphql');
+}
+
 export function globalExceptionMiddleware(
   err: unknown,
   req: Request,
@@ -41,7 +49,7 @@ export function globalExceptionMiddleware(
   const { statusCode, errorCode, message, details } = getErrorDetails(err, req);
   logError(err, req, correlationId, statusCode);
 
-  if (req.url?.includes('/graphql')) {
+  if (isGraphqlRequest(req)) {
     if (typeof res.status === 'function') {
       res.status(statusCode).json({
         errors: [
@@ -152,7 +160,9 @@ function getErrorDetails(exception: unknown, request?: Request): {
     return {
       statusCode: 500,
       errorCode: 'INTERNAL_SERVER_ERROR',
-      message: exception.message || 'An unexpected error occurred',
+      message:
+        sanitizeScriptErrorMessage(exception.message) ||
+        'An unexpected error occurred',
       details: process.env.NODE_ENV === 'development' ? exception.stack : null,
     };
   }

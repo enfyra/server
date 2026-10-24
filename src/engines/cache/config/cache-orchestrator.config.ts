@@ -2,6 +2,7 @@ import type { CacheOrchestratorConfig } from '../types/cache-orchestrator-config
 
 export const CACHE_ORCHESTRATOR_DEFAULTS: CacheOrchestratorConfig = {
   invalidationDebounceMs: 50,
+  invalidationDebounceMaxWaitMs: 2000,
   minimumClientReloadStatusMs: 500,
   minimumFullReloadStatusMs: 200,
   fullReloadBuilderConcurrency: 3,

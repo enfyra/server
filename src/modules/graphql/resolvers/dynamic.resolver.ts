@@ -18,6 +18,7 @@ import {
 import type { GuardEvaluatorService } from '../../../engines/cache/services/guard-evaluator.service';
 import type { GuardAlertService } from '../../../engines/cache/services/guard-alert.service';
 import type { GuardEvalContext, GuardPosition } from '../../../engines/cache/types/guard.types';
+import type { MutationBodyValidationService } from '../../dynamic-api/services/mutation-body-validation.service';
 
 export class DynamicResolver {
   private readonly executorEngineService: Pick<RuntimeScriptExecutorService, 'run'>;
@@ -27,6 +28,7 @@ export class DynamicResolver {
   private readonly authenticationService: AuthenticationService;
   private readonly guardEvaluatorService: GuardEvaluatorService;
   private readonly guardAlertService: GuardAlertService;
+  private readonly mutationBodyValidationService: MutationBodyValidationService;
 
   constructor(deps: {
     executorEngineService: Pick<RuntimeScriptExecutorService, 'run'>;
@@ -36,6 +38,7 @@ export class DynamicResolver {
     authenticationService: AuthenticationService;
     guardEvaluatorService: GuardEvaluatorService;
     guardAlertService: GuardAlertService;
+    mutationBodyValidationService: MutationBodyValidationService;
   }) {
     this.executorEngineService = deps.executorEngineService;
     this.repoRegistryService = deps.repoRegistryService;
@@ -44,6 +47,7 @@ export class DynamicResolver {
     this.dynamicContextFactory = deps.dynamicContextFactory;
     this.guardEvaluatorService = deps.guardEvaluatorService;
     this.guardAlertService = deps.guardAlertService;
+    this.mutationBodyValidationService = deps.mutationBodyValidationService;
   }
 
   async dynamicResolver(
@@ -123,10 +127,24 @@ export class DynamicResolver {
         graphqlOperation,
         context,
       );
+      const mutationBody =
+        operation === 'delete'
+          ? {}
+          : (
+              await this.mutationBodyValidationService.validate({
+                tableName,
+                mode: operation === 'create' ? 'create' : 'update',
+                body: args.input || {},
+                user,
+                ...(args.id !== undefined && args.id !== null
+                  ? { recordId: args.id }
+                  : {}),
+              })
+            ).body;
       const handlerCtx = this.dynamicContextFactory.createGraphql({
         ...(context.request !== undefined ? { request: context.request } : {}),
         user: user ?? null,
-        body: args.input || {},
+        body: mutationBody,
         params: { id: args.id },
       });
       handlerCtx.$repos = this.repoRegistryService.createReposProxy(

@@ -105,6 +105,7 @@ import type {
   DynamicService,
   DynamicApiTableValidationService,
   GuardValidationService,
+  MutationBodyValidationService,
 } from '../modules/dynamic-api';
 import type { DynamicCancellationService } from '../modules/dynamic-api/services/dynamic-cancellation.service';
 import type {
@@ -312,6 +313,7 @@ export interface Cradle {
   mongoTableDeleteService: MongoTableDeleteService;
   mongoTableHandlerService: MongoTableHandlerService;
   tableValidationService: DynamicApiTableValidationService;
+  mutationBodyValidationService: MutationBodyValidationService;
   guardValidationService: GuardValidationService;
   tableManagementValidationService: TableManagementValidationService;
   mongoMetadataSnapshotService: MongoMetadataSnapshotService;

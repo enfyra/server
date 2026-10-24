@@ -1,6 +1,7 @@
 export const ENFYRA_ADMIN_WEBSOCKET_NAMESPACE = '/enfyra-admin';
 export const ENFYRA_ADMIN_ROOT_WEBSOCKET_ROOM = '$system:root-admin';
 export const DEFAULT_MAX_QUERY_DEPTH = 7;
+export const MAX_QUERY_DEPTH_CEILING = 64;
 export const DEFAULT_MAX_UPLOAD_FILE_SIZE_MB = 10;
 export const DEFAULT_MAX_REQUEST_BODY_SIZE_MB = 1;
 

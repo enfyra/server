@@ -59,6 +59,7 @@ export async function sanitizeFieldPermissionsResult(params: {
     for (const col of direct.columns || []) {
       const colName = col?.name;
       if (!colName || !(colName in out) || col.isPrimary === true) continue;
+      if (user?.isRootAdmin === true && col.isPublished !== false) continue;
       const decision = await decideFieldPermission(fieldPermissionPolicyReader, {
         user,
         tableName: currentTable,
@@ -73,17 +74,19 @@ export async function sanitizeFieldPermissionsResult(params: {
     for (const rel of direct.relations || []) {
       const relName = rel?.propertyName;
       if (!relName || !(relName in out)) continue;
-      const decision = await decideFieldPermission(fieldPermissionPolicyReader, {
-        user,
-        tableName: currentTable,
-        action,
-        subjectType: 'relation',
-        subjectName: relName,
-        record: node,
-      }, { defaultAllowed: rel.isPublished !== false });
-      if (!decision.allowed) {
-        delete out[relName];
-        continue;
+      if (!(user?.isRootAdmin === true && rel.isPublished !== false)) {
+        const decision = await decideFieldPermission(fieldPermissionPolicyReader, {
+          user,
+          tableName: currentTable,
+          action,
+          subjectType: 'relation',
+          subjectName: relName,
+          record: node,
+        }, { defaultAllowed: rel.isPublished !== false });
+        if (!decision.allowed) {
+          delete out[relName];
+          continue;
+        }
       }
       const targetTable = rel.targetTableName || rel.targetTable;
       if (targetTable) out[relName] = await walk(out[relName], targetTable, currentRequested?.deep?.[relName]);

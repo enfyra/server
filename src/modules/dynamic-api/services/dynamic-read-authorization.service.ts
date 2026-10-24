@@ -82,9 +82,10 @@ export class DynamicReadAuthorizationService {
     context: DynamicReadAuthorizationContext;
     enforceFieldPermission: boolean;
   }): Promise<void> {
-    if (!enforceFieldPermission || context.$user?.isRootAdmin === true) {
+    if (!enforceFieldPermission) {
       return;
     }
+    const isRoot = context.$user?.isRootAdmin === true;
 
     const checked = new Set<string>();
     const checkField = async (
@@ -102,6 +103,10 @@ export class DynamicReadAuthorizationService {
       const type = relation ? 'relation' : 'column';
       const key = JSON.stringify([currentTable, type, name]);
       if (!checked.has(key)) {
+        if (isRoot && (relation ?? column)?.isPublished !== false) {
+          checked.add(key);
+          return relation?.targetTableName ?? relation?.targetTable;
+        }
         const conditional = await this.getConditionalFieldsForField(
           currentTable,
           type,
@@ -206,9 +211,10 @@ export class DynamicReadAuthorizationService {
     deep: Record<string, ReadDeepEntry> | undefined;
     needsPostSql: boolean;
   }> {
-    if (!enforceFieldPermission || context.$user?.isRootAdmin === true) {
+    if (!enforceFieldPermission) {
       return { fields, deep, needsPostSql: false };
     }
+    const isRoot = context.$user?.isRootAdmin === true;
 
     const table = this.deps.runtimeRegistryService.lookupTableByName(tableName);
     const tableMetadata = isRecord(table) ? (table as ReadMetadataTable) : null;
@@ -250,6 +256,7 @@ export class DynamicReadAuthorizationService {
     for (const name of columnsToCheck) {
       const column = tableMetadata.columns?.find((item) => item.name === name);
       if (column?.isPrimary === true) continue;
+      if (isRoot && column?.isPublished !== false) continue;
       const conditionalFields = await this.getConditionalFieldsForField(
         tableName,
         'column',
@@ -277,6 +284,7 @@ export class DynamicReadAuthorizationService {
       const relation = tableMetadata.relations?.find(
         (item) => item.propertyName === name,
       );
+      if (isRoot && relation?.isPublished !== false) continue;
       const conditionalFields = await this.getConditionalFieldsForField(
         tableName,
         'relation',
@@ -425,8 +433,9 @@ export class DynamicReadAuthorizationService {
     context: DynamicReadAuthorizationContext,
     enforceFieldPermission: boolean,
   ): Promise<void> {
-    if (!enforceFieldPermission || context.$user?.isRootAdmin === true) return;
+    if (!enforceFieldPermission) return;
     if (!isRecord(aggregate)) return;
+    const isRoot = context.$user?.isRootAdmin === true;
     const metadata = this.deps.runtimeRegistryService.requireMetadata();
     const table = getTableMetadata(metadata, tableName);
     if (!table) return;
@@ -472,6 +481,7 @@ export class DynamicReadAuthorizationService {
     for (const field of fields) {
       const column = table.columns?.find((item) => item.name === field);
       if (!column) continue;
+      if (isRoot && column.isPublished !== false) continue;
       const conditional = await this.getConditionalFieldsForField(
         tableName,
         'column',

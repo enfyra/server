@@ -4,6 +4,7 @@ import {
   invalidateBodyValidationCache,
 } from '../../src/http/middlewares/body-validation.middleware';
 import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants';
+import { MutationBodyValidationService } from '../../src/modules/dynamic-api/services/mutation-body-validation.service';
 
 function makeMetadata(tableMeta: any) {
   const tables = new Map([[tableMeta.name, tableMeta]]);
@@ -49,6 +50,10 @@ function makeContainer(opts: {
       columnRuleCacheBuilder: ruleCache,
       queryBuilderService,
       runtimeRegistryService,
+      mutationBodyValidationService: new MutationBodyValidationService({
+        runtimeRegistryService,
+        queryBuilderService,
+      } as any),
       eventEmitter,
     },
   } as any;

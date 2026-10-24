@@ -6,6 +6,7 @@ import {
   DEFAULT_MAX_QUERY_DEPTH,
   DEFAULT_MAX_UPLOAD_FILE_SIZE_MB,
   DEFAULT_MAX_REQUEST_BODY_SIZE_MB,
+  MAX_QUERY_DEPTH_CEILING,
 } from '../../../shared/utils/constant';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 import type { SettingData } from '../types/cache-data.types';
@@ -42,7 +43,9 @@ export class SettingCacheService extends BaseCacheService<SettingData> {
 
   protected transformData(raw: any): SettingData {
     const maxQueryDepth =
-      typeof raw?.maxQueryDepth === 'number' && raw.maxQueryDepth > 0
+      typeof raw?.maxQueryDepth === 'number' &&
+      raw.maxQueryDepth > 0 &&
+      raw.maxQueryDepth <= MAX_QUERY_DEPTH_CEILING
         ? raw.maxQueryDepth
         : DEFAULT_MAX_QUERY_DEPTH;
     const maxUploadFileSize =

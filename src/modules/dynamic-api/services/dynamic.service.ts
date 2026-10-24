@@ -21,6 +21,7 @@ import { RuntimeScriptRepairService, type RuntimeScriptExecutorService } from '.
 import { recordUserLog } from '../../../shared/runtime-log-buffer';
 import { buildErrorResponseTrace } from '../../../shared/utils/error-response-trace.util';
 import type { DynamicCancellationService } from './dynamic-cancellation.service';
+import { sanitizeScriptErrorMessage } from '../utils/database-error-sanitizer.util';
 import {
   finishDynamicHttpFailure,
   getDynamicHttpFailure,
@@ -511,7 +512,7 @@ export class DynamicService {
         );
       }
       throw new ScriptExecutionException(
-        getErrorMessage(error),
+        sanitizeScriptErrorMessage(getErrorMessage(error)),
         routeData.handler,
         {
           method: req.method,

@@ -1,5 +1,7 @@
 export * from './services/dynamic.service';
 export * from './services/table-validation.service';
+export * from './services/mutation-body-validation.service';
+export * from './types/mutation-body-validation.types';
 export * from './services/guard-validation.service';
 export * from './services/dynamic-mutation-lifecycle.service';
 export * from './services/dynamic-mutation-authorization.service';
