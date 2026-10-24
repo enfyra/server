@@ -370,7 +370,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@enfyra/kernel@npm:^2.1.0":
+"@enfyra/kernel@npm:2.1.0":
   version: 2.1.0
   resolution: "@enfyra/kernel@npm:2.1.0"
   dependencies:
@@ -3169,7 +3169,7 @@ __metadata:
   dependencies:
     "@aws-sdk/client-s3": "npm:^3.1141.0"
     "@aws-sdk/lib-storage": "npm:^3.1141.0"
-    "@enfyra/kernel": "npm:^2.1.0"
+    "@enfyra/kernel": "npm:2.1.0"
     "@envelop/core": "npm:^5.6.1"
     "@envelop/depth-limit": "npm:^7.2.1"
     "@eslint/eslintrc": "npm:^3.3.7"
