@@ -10,25 +10,26 @@ import {
 } from '../../../shared/utils/schema-mutation-contract.util';
 import type {
   RuntimeSchemaCascadeWarning,
-  RuntimeSchemaCommandKind,
   RuntimeSchemaContractCompilation,
   RuntimeSchemaContractCompileInput,
   RuntimeSchemaLogicalChange,
   RuntimeSchemaMutationCommand,
-  RuntimeSchemaPhysicalPlanPayload,
   RuntimeSchemaRelationContract,
 } from '../types/runtime-schema-mutation.types';
 import { buildRuntimeSchemaChangePlan } from '../utils/runtime-schema-change-plan.util';
+import { stripOwningRelationIndexes, assertNoNewRedundantIndexes } from '../utils/schema-index-validation.util';
 import {
   normalizeRuntimePolicyMetadata,
+  findRuntimeSchemaConstraintConflicts,
   assertRuntimeNestedMetadataIdsOwned,
   normalizeRuntimeTableSchema,
   runtimeRelationDiffKey,
 } from '../utils/runtime-schema-normalization.util';
+import type { RuntimeSchemaPhysicalPlannerService } from './runtime-schema-physical-planner.service';
 import type {
-  RuntimeSchemaPhysicalPlannerService,
   PhysicalPlan,
-} from './runtime-schema-physical-planner.service';
+  RuntimeSchemaPhysicalPlanPayload,
+} from '../types/runtime-schema-physical-plan.types';
 
 export class RuntimeSchemaContractCompilerService {
   constructor(
@@ -47,9 +48,11 @@ export class RuntimeSchemaContractCompilerService {
       backend,
       mode: 'persisted',
     });
-    const targetInput =
+    const targetInput = this.withStrippedRelationIndexes(
       input.afterMetadata ??
-      (input.operation === 'create' ? input.data : undefined);
+        (input.operation === 'create' ? input.data : undefined),
+    );
+    assertNoNewRedundantIndexes(targetInput, input.beforeMetadata);
     assertRuntimeNestedMetadataIdsOwned(input.operation, input.beforeMetadata, targetInput);
     const executionTarget = normalizeRuntimeTableSchema(targetInput, {
       backend,
@@ -87,11 +90,20 @@ export class RuntimeSchemaContractCompilerService {
       before?.contract.relations ?? [],
       executionTarget?.contract.relations ?? [],
     );
+    const redundantSourceIndexes = findRuntimeSchemaConstraintConflicts(input.beforeMetadata)
+      .map(conflict => conflict.index);
+    const sourceIndexKeys = new Set((before?.contract.indexes as string[][] ?? []).map(index => JSON.stringify(index)));
+    const beforeForDiff = before && redundantSourceIndexes.length > 0
+      ? { ...before, contract: { ...before.contract, indexes: [
+        ...(before.contract.indexes as string[][]),
+        ...redundantSourceIndexes.filter(index => !sourceIndexKeys.has(JSON.stringify(index))),
+      ] } }
+      : before;
     const { changes, diff } = buildRuntimeSchemaChangePlan({
       operation: input.operation,
       tableName:
         after?.contract.name || before?.contract.name || input.tableName.trim(),
-      before,
+      before: beforeForDiff,
       after: executionTarget,
       owningSideInverseCascadeWarnings: warnings,
       policyMetadataChanged,
@@ -177,6 +189,16 @@ export class RuntimeSchemaContractCompilerService {
     throw new Error(`Unsupported schema mutation backend: ${dbType}`);
   }
 
+  // An owning relation always receives its own lookup index, so a caller-declared
+  // singleton index for that relation is dropped instead of persisted twice.
+  private withStrippedRelationIndexes(targetInput: unknown): unknown {
+    if (!targetInput || typeof targetInput !== 'object') return targetInput;
+    const target = targetInput as Record<string, unknown>;
+    const stripped = stripOwningRelationIndexes(target, target.indexes);
+    if (stripped === target.indexes) return targetInput;
+    return { ...target, indexes: stripped };
+  }
+
   private async collectCascadeWarnings(
     rawBefore: unknown,
     beforeRelations: readonly RuntimeSchemaRelationContract[],
@@ -254,43 +276,38 @@ function buildRuntimeCommandNodes(
   changes: readonly RuntimeSchemaLogicalChange[],
   physicalPlan: PhysicalPlan,
 ): UnphasedSchemaMutationExecutionNode<RuntimeSchemaMutationCommand>[] {
-  if (changes.length === 0) return [];
-  const firstChangeId = changes[0].id;
+  const firstChange = changes[0];
+  if (firstChange === undefined) return [];
+  const firstChangeId = firstChange.id;
   const nodes: UnphasedSchemaMutationExecutionNode<RuntimeSchemaMutationCommand>[] =
     [];
   const add = (
     id: string,
     changeId: string,
-    kind: RuntimeSchemaCommandKind,
+    command: RuntimeSchemaMutationCommand,
     dependsOn: readonly string[],
     completesChange: boolean,
-    change?: RuntimeSchemaLogicalChange,
-    physicalPlanPayload?: RuntimeSchemaPhysicalPlanPayload,
   ) => {
     nodes.push({
       id,
       changeId,
       dependsOn,
       completesChange,
-      command: {
-        kind,
-        ...(change ? { change } : {}),
-        ...(physicalPlanPayload ? { physicalPlan: physicalPlanPayload } : {}),
-      },
+      command,
     });
     return id;
   };
   const sourceNode = add(
     'runtime:attest-source',
     firstChangeId,
-    'attest-source',
+    { kind: 'attest-source' },
     [],
     false,
   );
   const captureNode = add(
     'runtime:capture-compensation',
     firstChangeId,
-    'capture-compensation',
+    { kind: 'capture-compensation' },
     [sourceNode],
     false,
   );
@@ -301,28 +318,30 @@ function buildRuntimeCommandNodes(
       ? physicalPlan.backend === 'mongodb'
         ? {
             backend: 'mongodb',
-            upDiff: (physicalPlan as any).upDiff,
-            downDiff: (physicalPlan as any).downDiff,
+            upDiff: physicalPlan.upDiff,
+            downDiff: physicalPlan.downDiff,
           }
         : {
             backend: physicalPlan.backend,
-            upStatements: (physicalPlan as any).upStatements,
-            upBatch: (physicalPlan as any).upBatch,
-            downStatements: (physicalPlan as any).downStatements,
-            downBatch: (physicalPlan as any).downBatch,
-            metadataUpdate: (physicalPlan as any).metadataUpdate ?? null,
-            activeTableName: (physicalPlan as any).activeTableName,
+            upStatements: physicalPlan.upStatements,
+            upBatch: physicalPlan.upBatch,
+            downStatements: physicalPlan.downStatements,
+            downBatch: physicalPlan.downBatch,
+            metadataUpdate: physicalPlan.metadataUpdate ?? null,
+            activeTableName: physicalPlan.activeTableName,
           }
       : undefined;
   for (const change of changes) {
     previousPhysical = add(
       `${change.id}:physical`,
       change.id,
-      'apply-physical-change',
+      {
+        kind: 'apply-physical-change',
+        change,
+        ...(planPayload ? { physicalPlan: planPayload } : {}),
+      },
       [previousPhysical],
       false,
-      change,
-      planPayload,
     );
     physicalByChange.set(change.id, previousPhysical);
   }
@@ -331,44 +350,43 @@ function buildRuntimeCommandNodes(
     previousMetadata = add(
       `${change.id}:metadata`,
       change.id,
-      'apply-metadata-change',
+      { kind: 'apply-metadata-change', change },
       [previousMetadata, physicalByChange.get(change.id)!],
       false,
-      change,
     );
   }
   const artifactsNode = add(
     'runtime:apply-artifacts',
     firstChangeId,
-    'apply-artifacts',
+    { kind: 'apply-artifacts' },
     [previousMetadata],
     false,
   );
   const attestNode = add(
     'runtime:attest-target',
     firstChangeId,
-    'attest-target',
+    { kind: 'attest-target' },
     [artifactsNode],
     false,
   );
   const stageCacheNode = add(
     'runtime:stage-cache',
     firstChangeId,
-    'stage-cache',
+    { kind: 'stage-cache' },
     [attestNode],
     false,
   );
   const commitNode = add(
     'runtime:commit-database',
     firstChangeId,
-    'commit-database',
+    { kind: 'commit-database' },
     [stageCacheNode],
     false,
   );
   const activateNode = add(
     'runtime:activate-runtime',
     firstChangeId,
-    'activate-runtime',
+    { kind: 'activate-runtime' },
     [commitNode],
     false,
   );
@@ -376,10 +394,9 @@ function buildRuntimeCommandNodes(
     add(
       `${change.id}:complete`,
       change.id,
-      'complete-change',
+      { kind: 'complete-change', change },
       [activateNode],
       true,
-      change,
     );
   }
   return nodes;

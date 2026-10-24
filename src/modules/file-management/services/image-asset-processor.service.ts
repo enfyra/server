@@ -68,6 +68,7 @@ export class ImageAssetProcessorService {
     req: any,
     res: Response,
     filename: string,
+    isPublic = false,
   ): Promise<void> {
     try {
       const query = req.routeData?.context?.$query || req.query;
@@ -158,7 +159,7 @@ export class ImageAssetProcessorService {
       res.setHeader('Content-Type', ImageFormatHelper.getMimeType(outFormat));
       res.setHeader('Content-Length', output.length);
       res.setHeader('Content-Disposition', `inline; filename="${outFilename}"`);
-      res.setHeader('Cache-Control', 'public, max-age=86400');
+      this.setCachePolicy(res, isPublic, 86400);
       res.end(output);
     } catch (error) {
       this.logger.error('HEIC image conversion error:', error);
@@ -173,6 +174,7 @@ export class ImageAssetProcessorService {
     res: Response,
     filename: string,
     storageConfigId?: number | string,
+    isPublic = false,
   ): Promise<void> {
     try {
       const query = req.routeData?.context?.$query || req.query;
@@ -283,6 +285,7 @@ export class ImageAssetProcessorService {
           contrast,
           saturation,
           grayscale,
+          isPublic,
         ));
       }
 
@@ -366,10 +369,7 @@ export class ImageAssetProcessorService {
           : `inline; filename="${outFilename}"`,
       );
 
-      if (cache && cache > 0)
-        res.setHeader('Cache-Control', `public, max-age=${cache}`);
-      else if (format) res.setHeader('Cache-Control', 'public, max-age=86400');
-      else res.setHeader('Cache-Control', 'public, max-age=31536000');
+      this.setCachePolicy(res, isPublic, cache && cache > 0 ? cache : format ? 86400 : 31536000);
 
       const sharpStream = fileStream.pipe(imageProcessor);
 
@@ -396,6 +396,10 @@ export class ImageAssetProcessorService {
     }
   }
 
+  private setCachePolicy(res: Response, isPublic: boolean, maxAge: number): void {
+    res.setHeader('Cache-Control', isPublic ? `public, max-age=${maxAge}` : 'private, no-store');
+  }
+
   private async streamImageFromCloud(
     filePath: string,
     storageConfigId: number | string,
@@ -419,6 +423,7 @@ export class ImageAssetProcessorService {
     contrast?: number,
     saturation?: number,
     grayscale?: boolean,
+    isPublic = false,
   ): Promise<void> {
     try {
       const cloudStream = await this.fileManagementService.getStreamFromStorage(
@@ -504,10 +509,7 @@ export class ImageAssetProcessorService {
           : `inline; filename="${outFilename}"`,
       );
 
-      if (cache && cache > 0)
-        res.setHeader('Cache-Control', `public, max-age=${cache}`);
-      else if (format) res.setHeader('Cache-Control', 'public, max-age=86400');
-      else res.setHeader('Cache-Control', 'public, max-age=31536000');
+      this.setCachePolicy(res, isPublic, cache && cache > 0 ? cache : format ? 86400 : 31536000);
 
       const sharpStream = cloudStream.pipe(imageProcessor);
 

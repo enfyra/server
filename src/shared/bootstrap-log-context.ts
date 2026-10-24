@@ -4,7 +4,7 @@ import type { BootstrapLogMode } from './types/startup.types';
 interface BootstrapLogScope {
   mode: BootstrapLogMode;
   active: boolean;
-  parent?: BootstrapLogScope;
+  parent: BootstrapLogScope | undefined;
 }
 
 const bootstrapLogStore = new AsyncLocalStorage<BootstrapLogScope>();

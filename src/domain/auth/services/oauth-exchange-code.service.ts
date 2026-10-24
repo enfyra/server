@@ -74,16 +74,20 @@ export class OAuthExchangeCodeService {
       throw new BadRequestException('OAuth exchange code is required');
     }
 
-    const payload = await this.cacheService.get<OAuthExchangeTokenPayload>(
-      this.codeKey(code),
-    );
+    const payload =
+      await this.cacheService.getAndDelete<OAuthExchangeTokenPayload>(
+        this.codeKey(code),
+      );
     if (!payload) {
       throw new BadRequestException(
         'OAuth exchange code is invalid or expired',
       );
     }
 
-    await this.deleteCode(code);
+    await Promise.all([
+      this.cacheService.deleteKey(this.pendingKey(code)),
+      this.redis.zrem(this.pendingIndexKey(), code),
+    ]);
     return payload;
   }
 

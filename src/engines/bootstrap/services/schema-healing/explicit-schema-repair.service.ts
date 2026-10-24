@@ -1,6 +1,11 @@
 import { QueryBuilderService } from '@enfyra/kernel';
 import { MetadataCacheService } from '../../../cache';
 import { DatabaseConfigService } from '../../../../shared/services';
+import { generateDropIndexSQL } from '../../../knex/utils/migration/sql-dialect';
+import { getCurrentDatabaseSchema } from '../../../knex/utils/provision/schema-comparison';
+import { resolveSqlPhysicalColumns } from '../../../knex/utils/sql-physical-schema-contract';
+import { buildMongoFullIndexSpecs } from '../../../mongo/utils/mongo-physical-schema-contract';
+import { withoutUniqueCoveredIndexes } from '../../utils/dynamic-index-mismatch.util';
 import { SystemCoreTableResolver } from '../system-core-table-resolver.service';
 
 export class ExplicitSchemaRepairService {
@@ -44,8 +49,6 @@ export class ExplicitSchemaRepairService {
 
       try {
         const fkToProperty = this.buildFkToPropertyMap(table);
-        if (fkToProperty.size === 0) continue;
-
         const originalUniques = this.parseGroups(
           table.uniques,
           table.name,
@@ -58,7 +61,11 @@ export class ExplicitSchemaRepairService {
         );
 
         const newUniques = this.normalizeGroups(originalUniques, fkToProperty);
-        const newIndexes = this.normalizeGroups(originalIndexes, fkToProperty);
+        const renamedIndexes = this.normalizeGroups(originalIndexes, fkToProperty);
+        const newIndexes = withoutUniqueCoveredIndexes({
+          uniques: newUniques,
+          indexes: renamedIndexes,
+        });
 
         const uniquesChanged =
           JSON.stringify(originalUniques) !== JSON.stringify(newUniques);
@@ -67,11 +74,25 @@ export class ExplicitSchemaRepairService {
 
         if (!uniquesChanged && !indexesChanged) continue;
 
+        const coveredIndexes = renamedIndexes.filter(
+          (index) =>
+            !newIndexes.some(
+              (kept) => JSON.stringify(kept) === JSON.stringify(index),
+            ),
+        );
+        await this.dropCoveredPhysicalIndexes(table, coveredIndexes);
+
         const idField = DatabaseConfigService.getPkField();
+        const metadataUpdate = this.queryBuilderService.isMongoDb()
+          ? { uniques: newUniques, indexes: newIndexes }
+          : {
+              uniques: JSON.stringify(newUniques),
+              indexes: JSON.stringify(newIndexes),
+            };
         await this.queryBuilderService.update(
           await this.systemCoreTableResolver.getTableName('table'),
           { where: [{ field: idField, operator: '=', value: table.id }] },
-          { uniques: newUniques, indexes: newIndexes },
+          metadataUpdate,
         );
         repaired++;
         this.log(
@@ -85,6 +106,74 @@ export class ExplicitSchemaRepairService {
     }
 
     return repaired;
+  }
+
+  private async dropCoveredPhysicalIndexes(
+    table: any,
+    removedIndexes: string[][],
+  ): Promise<void> {
+    if (removedIndexes.length === 0 || !table?.name) return;
+    const databaseType = this.queryBuilderService.getDatabaseType();
+    if (databaseType === 'mongodb') {
+      await this.dropCoveredMongoIndexes(table, removedIndexes);
+      return;
+    }
+    if (databaseType !== 'postgres' && databaseType !== 'mysql') return;
+
+    const knex = this.queryBuilderService.getKnex();
+    if (!(await knex.schema.hasTable(table.name))) return;
+    const current = await getCurrentDatabaseSchema(knex, table.name);
+    for (const index of removedIndexes) {
+      const physical = resolveSqlPhysicalColumns(index, table.relations || []);
+      if (physical.length === 0 || physical.includes('id')) continue;
+      const expected = [...physical, 'id'].map((column) => column.toLowerCase());
+      const matches = current.indexes.filter(
+        (candidate) =>
+          candidate.columns.length === expected.length &&
+          candidate.columns.every(
+            (column, position) => column.toLowerCase() === expected[position],
+          ),
+      );
+      for (const match of matches) {
+        await knex.raw(generateDropIndexSQL(table.name, match.name, databaseType));
+        this.log(
+          `Dropped covered physical index ${match.name} on '${table.name}'`,
+        );
+      }
+    }
+  }
+
+  private async dropCoveredMongoIndexes(
+    table: any,
+    removedIndexes: string[][],
+  ): Promise<void> {
+    const db = this.queryBuilderService.getMongoDb();
+    const collections = await db.listCollections({ name: table.name }).toArray();
+    if (collections.length === 0) return;
+    const specs = buildMongoFullIndexSpecs({
+      collectionName: table.name,
+      columns: (table.columns || []).map((column: any) => ({
+        ...column,
+        isUnique: false,
+      })),
+      uniques: [],
+      indexes: removedIndexes,
+      relations: table.relations || [],
+    }).filter((spec) =>
+      removedIndexes.some(
+        (index) => JSON.stringify(index) === JSON.stringify(spec.logicalFields),
+      ),
+    );
+    const collection = db.collection(table.name);
+    for (const spec of specs) {
+      try {
+        await collection.dropIndex(spec.name);
+        this.log(`Dropped covered physical index ${spec.name} on '${table.name}'`);
+      } catch (error: any) {
+        if (error?.code === 27) continue;
+        throw error;
+      }
+    }
   }
 
   private buildFkToPropertyMap(table: any): Map<string, string> {

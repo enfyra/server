@@ -26,7 +26,13 @@ function makeRepo(
     new RuntimeSchemaActivationGateService();
   const queryBuilderService = {
     getPkField: vi.fn(() => 'id'),
-    find: vi.fn().mockResolvedValue({ data: [], count: 0 }),
+    find: vi.fn(async (query: any) => {
+      const ids = query?.filter?.id?._in;
+      if (Array.isArray(ids)) {
+        return { data: ids.map((id) => ({ id })), count: ids.length };
+      }
+      return { data: [], count: 0 };
+    }),
     findOne: vi.fn().mockResolvedValue({ id: 42, name: 'x' }),
     create: vi.fn().mockResolvedValue({ id: 42 }),
     insert: vi.fn().mockResolvedValue({ id: 42 }),

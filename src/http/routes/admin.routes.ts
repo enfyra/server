@@ -10,6 +10,7 @@ import {
   assertScriptSourceContract,
   compileScriptSource,
 } from '../../shared/utils/script-code.util';
+import { revertCodeAudit } from '../../modules/dynamic-api/services/code-audit-revert.service';
 import type { TCacheInvalidationPayload } from '../../shared/types/cache.types';
 import type { FlowStepReorderInput } from '../../modules/flow/types/flow-step-reorder.types';
 
@@ -120,7 +121,9 @@ function normalizeMenuReorderUpdates(body: any): MenuReorderUpdate[] {
       );
     }
 
-    const hasParent = item !== null && typeof item === 'object' &&
+    const hasParent =
+      item !== null &&
+      typeof item === 'object' &&
       Object.prototype.hasOwnProperty.call(item, 'parent');
     const parent = hasParent ? item.parent : undefined;
     return {
@@ -128,7 +131,10 @@ function normalizeMenuReorderUpdates(body: any): MenuReorderUpdate[] {
       order,
       ...(parent === undefined
         ? {}
-        : { parent: parent == null || String(parent).trim() === '' ? null : parent }),
+        : {
+            parent:
+              parent == null || String(parent).trim() === '' ? null : parent,
+          }),
     };
   });
 }
@@ -345,9 +351,10 @@ export function registerAdminRoutes(
 
     const resolvedUpdates = updates.map((update) => {
       const existing = existingById.get(String(update.id));
-      const parent = update.parent === undefined
-        ? getRecordId(existing?.parent, pkField)
-        : update.parent;
+      const parent =
+        update.parent === undefined
+          ? getRecordId(existing?.parent, pkField)
+          : update.parent;
       return { ...update, parent };
     });
 
@@ -553,6 +560,29 @@ export function registerAdminRoutes(
     });
   });
 
+  app.post('/admin/code-audit/revert', async (req: any, res: Response) => {
+    const context = req.routeData?.context;
+    const body = context?.$body ?? req.body ?? {};
+    const auditId = body.auditId;
+    if (auditId === undefined || auditId === null || auditId === '') {
+      throw new BadRequestException('auditId is required');
+    }
+
+    const queryBuilderService =
+      req.scope?.cradle?.queryBuilderService ??
+      container.cradle.queryBuilderService;
+    const cradle = req.scope?.cradle ?? container.cradle;
+    const result = await revertCodeAudit({
+      context,
+      auditId,
+      version: body.version,
+      pkField: queryBuilderService.getPkField(),
+      routes: cradle.runtimeRegistryService.requireRoutes(),
+      policyService: cradle.policyService,
+    });
+    res.json({ success: true, data: result });
+  });
+
   app.post('/admin/reload', async (req: any, res: Response) => {
     const orchestrator = resolveOrchestrator(req, container);
     startReload(res, 'All cache', () => orchestrator.reloadAll());
@@ -619,7 +649,6 @@ async function runTest(body: any, cradle: any, currentUser: any = null) {
         flowId: body.flowId ?? body.flow?.id,
         flowName: body.flowName ?? body.flow?.name,
         type: body.type,
-        config: body.config,
         sourceCode: body.sourceCode,
         scriptLanguage: body.scriptLanguage,
         compiledCode: body.compiledCode,
@@ -731,7 +760,7 @@ async function runTest(body: any, cradle: any, currentUser: any = null) {
       cradle,
       currentUser,
       route: resolved.route,
-      mainTableName: tableName,
+      ...(tableName === undefined ? {} : { mainTableName: tableName }),
     });
     ctx.$repos = repoRegistryService.createReposProxy(ctx, tableName);
 

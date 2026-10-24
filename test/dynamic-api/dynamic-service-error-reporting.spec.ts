@@ -9,7 +9,8 @@ import { HttpException } from '../../src/domain/exceptions';
 import * as runtimeLogs from '../../src/shared/runtime-log-buffer';
 
 function createRequest(overrides: any = {}) {
-  return {
+  return Object.assign(new EventEmitter(), {
+    headers: {},
     method: 'GET',
     url: '/api/test',
     user: { id: 1 },
@@ -23,7 +24,7 @@ function createRequest(overrides: any = {}) {
       ...overrides.routeData,
     },
     ...overrides,
-  } as any;
+  }) as any;
 }
 
 describe('DynamicService error reporting', () => {
@@ -268,14 +269,17 @@ describe('DynamicService error reporting', () => {
         runBatch,
       },
       loggingService,
+      dynamicCancellationService: { run: vi.fn() },
     } as any);
 
     await expect(service.runHandler(request)).resolves.toBeUndefined();
     expect(runBatch).toHaveBeenCalledWith(
       request,
-      60_000,
+      expect.any(Number),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
+    expect(runBatch.mock.calls[0][1]).toBeGreaterThan(29000);
+    expect(runBatch.mock.calls[0][1]).toBeLessThanOrEqual(30000);
     expect(loggingService.error).not.toHaveBeenCalled();
   });
 });

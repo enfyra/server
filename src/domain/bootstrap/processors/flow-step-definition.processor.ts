@@ -1,6 +1,5 @@
 import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
-import { normalizeFlowStepScriptConfig } from '../../../shared/utils/script-code.util';
 import { mapSequentially } from '../utils/map-sequentially.util';
 
 export class FlowStepDefinitionProcessor extends BaseTableProcessor {
@@ -10,7 +9,7 @@ export class FlowStepDefinitionProcessor extends BaseTableProcessor {
     this.queryBuilderService = deps.queryBuilderService;
   }
 
-  async transformRecords(records: any[], _context?: any): Promise<any[]> {
+  override async transformRecords(records: any[], _context?: any): Promise<any[]> {
     return mapSequentially(records, async (record) => {
       const transformed = { ...record };
       if (transformed.isEnabled === undefined) transformed.isEnabled = true;
@@ -19,12 +18,6 @@ export class FlowStepDefinitionProcessor extends BaseTableProcessor {
       if (transformed.retryAttempts === undefined)
         transformed.retryAttempts = 0;
       if (transformed.timeout === undefined) transformed.timeout = 5000;
-
-      Object.assign(transformed, normalizeFlowStepScriptConfig(transformed));
-
-      if (transformed.config && typeof transformed.config === 'object') {
-        transformed.config = JSON.stringify(transformed.config);
-      }
 
       return this.autoTransformFkFields(
         transformed,
@@ -38,11 +31,11 @@ export class FlowStepDefinitionProcessor extends BaseTableProcessor {
     return this.autoGetUniqueIdentifier(record, 'enfyra_flow_step');
   }
 
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     return this.autoGetCompareFields('enfyra_flow_step');
   }
 
-  protected getRecordIdentifier(record: any): string {
+  protected override getRecordIdentifier(record: any): string {
     return `[FlowStep] ${record.key}`;
   }
 }

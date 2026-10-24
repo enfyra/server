@@ -23,8 +23,6 @@ import {
   logoutSchema,
 } from '../schemas/auth.schemas';
 
-type JwtExpiresIn = jwt.SignOptions['expiresIn'];
-
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private bcryptService: BcryptService;
@@ -201,7 +199,7 @@ export class AuthService {
       },
       this.envService.get('SECRET_KEY'),
       {
-        expiresIn: this.envService.get('ACCESS_TOKEN_EXP') as JwtExpiresIn,
+        expiresIn: this.envService.get('ACCESS_TOKEN_EXP') as StringValue,
       },
     );
     await this.seedUserCache(jwtUserId);
@@ -216,7 +214,7 @@ export class AuthService {
           ? this.envService.get('REFRESH_TOKEN_REMEMBER_EXP')
           : this.envService.get(
               'REFRESH_TOKEN_NO_REMEMBER_EXP',
-            )) as JwtExpiresIn,
+            )) as StringValue,
       },
     );
 
@@ -335,7 +333,7 @@ export class AuthService {
       },
       this.envService.get('SECRET_KEY'),
       {
-        expiresIn: this.envService.get('ACCESS_TOKEN_EXP') as JwtExpiresIn,
+        expiresIn: this.envService.get('ACCESS_TOKEN_EXP') as StringValue,
       },
     );
 
@@ -346,7 +344,7 @@ export class AuthService {
       { sessionId: sessionId, jti: randomUUID() },
       this.envService.get('SECRET_KEY'),
       {
-        expiresIn: this.envService.get(refreshTokenExp as any) as JwtExpiresIn,
+        expiresIn: this.envService.get(refreshTokenExp) as StringValue,
       },
     );
 

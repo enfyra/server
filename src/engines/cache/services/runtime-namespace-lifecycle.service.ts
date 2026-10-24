@@ -19,7 +19,7 @@ export class RuntimeNamespaceLifecycleService {
   private readonly keyTtlMs: number;
   private readonly leaseTtlMs: number;
   private readonly renewIntervalMs: number;
-  private renewTimer?: Timer;
+  private renewTimer: Timer | undefined;
   private running = false;
   private renewing = false;
 

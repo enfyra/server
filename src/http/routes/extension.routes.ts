@@ -13,13 +13,13 @@ export function registerExtensionRoutes(
       throw new BadRequestException('Code is required');
     }
 
-    const { buildExtensionWithVite } =
+    const { buildExtensionWithVite, sanitizeExtensionBuildName } =
       await import('../../modules/extension-definition/utils/compiler.util');
     const { isProbablyVueSFC, assertValidVueSFC, assertValidJsBundleSyntax } =
       await import('../../modules/extension-definition/utils/validation.util');
 
     const code = body.code;
-    const extensionId = body.id || body.name || `preview_${Date.now()}`;
+    const extensionId = sanitizeExtensionBuildName(String(body.extensionId || body.id || body.name || `preview_${Date.now()}`));
 
     if (isProbablyVueSFC(code)) {
       assertValidVueSFC(code);

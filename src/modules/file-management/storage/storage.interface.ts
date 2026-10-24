@@ -1,4 +1,5 @@
-import { Readable } from 'stream';
+import type { Readable } from 'stream';
+import type { StorageReadableStream } from '../types/storage-stream.types';
 
 export interface StorageConfig {
   id?: number | string;
@@ -55,7 +56,7 @@ export interface IStorageService {
     location: string,
     config: StorageConfig,
     options?: StorageStreamOptions,
-  ): Promise<Readable>;
+  ): Promise<StorageReadableStream>;
 
   /**
    * Get file buffer from storage

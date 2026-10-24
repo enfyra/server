@@ -163,7 +163,7 @@ export class TableRouteRouter {
       async normalizeUpdate(body) {
         await handlers.normalizeUserPassword(body);
       },
-      async afterUpdateReload(ctx) {
+      async afterUpdateCommit(ctx) {
         if (
           ctx.body &&
           (Object.prototype.hasOwnProperty.call(ctx.body, 'password') ||
@@ -172,7 +172,7 @@ export class TableRouteRouter {
           await handlers.postUserRevocation(ctx.id);
         }
       },
-      async afterDeleteReload(ctx) {
+      async afterDeleteCommit(ctx) {
         await handlers.postUserRevocation(ctx.id);
       },
     });
@@ -187,7 +187,7 @@ export class TableRouteRouter {
     });
     this.register('enfyra_flow', {
       kind: 'generic',
-      async afterDeleteWrite(ctx) {
+      async afterDeleteCommit(ctx) {
         await handlers.postFlowJobs(ctx.id, ctx.existing?.name ?? '');
       },
     });

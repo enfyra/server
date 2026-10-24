@@ -223,6 +223,11 @@ export class RuntimeSchemaTargetAttestorService {
     }
     const definition = this.toSqlPhysicalDefinition(state);
     const schema = parseSnapshotToSchema({ [state.name]: definition })[0];
+    if (schema === undefined) {
+      throw new Error(
+        `Runtime schema physical definition for ${state.name} is missing`,
+      );
+    }
     const current = await getCurrentDatabaseSchema(knex, state.name);
     const diff = compareSchemas(schema, current, knex.client.config.client);
     const remediableLegacyEnumColumns = allowSourceRemediation
@@ -375,9 +380,9 @@ export class RuntimeSchemaTargetAttestorService {
       return true;
     }
     return buildSqlUniqueContracts(state.name, state as any).some((unique) => {
-      if (unique.physicalColumns.length !== indexPrefix.length) return false;
-      return unique.physicalColumns.every(
-        (column, index) => column.toLowerCase() === indexPrefix[index],
+      if (unique.physicalColumns.length < indexPrefix.length) return false;
+      return indexPrefix.every(
+        (column, index) => unique.physicalColumns[index]?.toLowerCase() === column,
       );
     });
   }

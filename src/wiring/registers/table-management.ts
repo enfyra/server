@@ -3,6 +3,7 @@ import {
   DynamicRepositoryFactory,
   DynamicApiTableValidationService,
   GuardValidationService,
+  MutationBodyValidationService,
 } from '../../modules/dynamic-api';
 import {
   MongoMetadataSnapshotService,
@@ -31,6 +32,7 @@ export const tableManagementRegisters = {
   mongoTableDeleteService: asClass(MongoTableDeleteService).singleton(),
   mongoTableHandlerService: asClass(MongoTableHandlerService).singleton(),
   tableValidationService: asClass(DynamicApiTableValidationService).singleton(),
+  mutationBodyValidationService: asClass(MutationBodyValidationService).singleton(),
   guardValidationService: asClass(GuardValidationService).singleton(),
   tableManagementValidationService: asClass(TableManagementValidationService).singleton(),
   mongoMetadataSnapshotService: asClass(MongoMetadataSnapshotService).singleton(),

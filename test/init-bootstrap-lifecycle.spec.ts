@@ -9,7 +9,10 @@ function bootstrapContainer(overrides: Record<string, unknown> = {}) {
     });
   const container = {
     cradle: {
-      runtimeLogWriterService: { start: vi.fn(), assertReady: vi.fn(async () => {}) },
+      runtimeLogWriterService: {
+        start: vi.fn(),
+        assertReady: vi.fn(async () => {}),
+      },
       databaseConfigService: { getDbType: () => 'mongodb' },
       mongoService: { init: record('mongoService.init') },
       replicationManager: { init: record('replicationManager.init') },
@@ -28,20 +31,6 @@ function bootstrapContainer(overrides: Record<string, unknown> = {}) {
       provisionService: {
         waitForDatabase: record('provisionService.waitForDatabase'),
         recoverJournals: record('provisionService.recoverJournals'),
-      },
-      legacyStoreInventoryService: {
-        inventory: record('legacyStoreInventoryService.inventory'),
-      },
-      legacyAssessmentService: {
-        assess: vi.fn(() => {
-          calls.push('legacyAssessmentService.assess');
-          return {
-            backend: 'mongodb',
-            findings: [],
-            hasBlockingFindings: false,
-            assessedAt: new Date().toISOString(),
-          };
-        }),
       },
       firstRunInitializer: {
         isNeeded: vi.fn(async () => {
@@ -64,11 +53,15 @@ function runtimeContainer(bootstrapOverrides: Record<string, unknown> = {}) {
       markInterruptedReloadsFailed: vi.fn(async () => undefined),
     },
     cacheOrchestratorService: { init: vi.fn(async () => undefined) },
+    redisRuntimeCacheStore: { runWithPublication: async (work: () => Promise<void>) => work(), commitPublication: async () => {} },
     runtimeRegistryService: {
       init: vi.fn(async () => undefined),
       publishFromCache: vi.fn(async () => undefined),
     },
     metadataCacheService: { reload: vi.fn(async () => undefined) },
+    sharedHelperCacheService: cacheService(),
+    corsOriginCacheBuilder: cacheService(),
+    fileCleanupService: { init: vi.fn(async () => undefined) },
     repoRegistryService: {
       rebuildFromMetadata: vi.fn(async () => undefined),
     },
@@ -87,9 +80,6 @@ function runtimeContainer(bootstrapOverrides: Record<string, unknown> = {}) {
     folderTreeCacheService: cacheService(),
     guardCacheBuilder: cacheService(),
     gqlDefinitionCacheService: cacheService(),
-    bootstrapScriptService: {
-      onMetadataLoaded: vi.fn(async () => undefined),
-    },
     sqlFunctionService: { installExtensions: vi.fn(async () => undefined) },
     flowRuntimeService: { init: vi.fn(async () => undefined) },
     flowTriggerDispatcherService: { init: vi.fn(async () => undefined) },
@@ -130,8 +120,6 @@ describe('initBootstrap lifecycle', () => {
       'mongoSagaCoordinator.init',
       'provisionService.waitForDatabase',
       'provisionService.recoverJournals',
-      'legacyStoreInventoryService.inventory',
-      'legacyAssessmentService.assess',
       'firstRunInitializer.isNeeded',
       'firstRunInitializer.run',
     ]);
@@ -147,34 +135,6 @@ describe('initBootstrap lifecycle', () => {
 
     await initBootstrap(container);
 
-    expect(container.cradle.firstRunInitializer.run).not.toHaveBeenCalled();
-  });
-
-  it('aborts before firstRun when legacy assessment has blocking findings', async () => {
-    const { container } = bootstrapContainer({
-      legacyAssessmentService: {
-        assess: vi.fn(() => ({
-          backend: 'mongodb',
-          findings: [
-            {
-              coreKey: 'legacy.users',
-              outcome: 'blocked',
-              detail: 'legacy table conflicts',
-              blocking: true,
-            },
-          ],
-          hasBlockingFindings: true,
-          assessedAt: new Date().toISOString(),
-        })),
-      },
-    });
-
-    await expect(initBootstrap(container)).rejects.toThrow(
-      'Legacy system metadata assessment found blocking issues',
-    );
-    expect(
-      container.cradle.firstRunInitializer.isNeeded,
-    ).not.toHaveBeenCalled();
     expect(container.cradle.firstRunInitializer.run).not.toHaveBeenCalled();
   });
 
@@ -207,8 +167,6 @@ describe('initBootstrap lifecycle', () => {
       'mongoSagaCoordinator.init',
       'provisionService.waitForDatabase',
       'provisionService.recoverJournals',
-      'legacyStoreInventoryService.inventory',
-      'legacyAssessmentService.assess',
       'firstRunInitializer.isNeeded',
       'firstRunInitializer.run',
       'runtimeNamespaceLifecycleService.renewCurrentNamespaceKeys',
@@ -218,17 +176,24 @@ describe('initBootstrap lifecycle', () => {
   });
 });
 
-
-it('runs bootstrap scripts only after all runtime snapshots and SQL functions are ready', async () => {
+it('activates flows only after runtime snapshots and SQL functions are ready', async () => {
   const { container } = runtimeContainer();
   let snapshots = 0;
   let sqlReady = false;
-  container.cradle.runtimeRegistryService.publishFromCache.mockImplementation(async () => { snapshots++; });
-  container.cradle.sqlFunctionService.installExtensions.mockImplementation(async () => { sqlReady = true; });
-  container.cradle.bootstrapScriptService.onMetadataLoaded.mockImplementation(async () => {
-    expect(snapshots).toBe(14);
+  container.cradle.runtimeRegistryService.publishFromCache.mockImplementation(
+    async () => {
+      snapshots++;
+    },
+  );
+  container.cradle.sqlFunctionService.installExtensions.mockImplementation(
+    async () => {
+      sqlReady = true;
+    },
+  );
+  container.cradle.flowRuntimeService.init.mockImplementation(async () => {
+    expect(snapshots).toBe(17);
     expect(sqlReady).toBe(true);
   });
   await init(container);
-  expect(container.cradle.bootstrapScriptService.onMetadataLoaded).toHaveBeenCalledTimes(1);
+  expect(container.cradle.flowRuntimeService.init).toHaveBeenCalledTimes(1);
 });

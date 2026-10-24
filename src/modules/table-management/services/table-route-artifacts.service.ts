@@ -56,6 +56,29 @@ export async function ensureSqlTableRouteArtifacts(input: {
     );
   }
 
+  const configIdByMethod = new Map<number, number>();
+  for (const method of methods) {
+    await trx('enfyra_route_method_config').insert({
+      routeId: newRoute.id,
+      methodId: method.id,
+      available: true,
+      isPublic: false,
+      skipRoleGuard: false,
+      timeout: 30_000,
+      requestBodyType: 'none',
+      isSystem: false,
+    });
+    const config = await trx('enfyra_route_method_config')
+      .where({ routeId: newRoute.id, methodId: method.id })
+      .first();
+    if (config?.id == null) {
+      throw new Error(
+        `Route method configuration missing for ${tableName}:${method.name}`,
+      );
+    }
+    configIdByMethod.set(method.id, config.id);
+  }
+
   const httpMethods = methods.filter(
     (method: any) => DEFAULT_REST_HANDLER_LOGIC[method.name],
   );
@@ -64,6 +87,7 @@ export async function ensureSqlTableRouteArtifacts(input: {
     httpMethods.map((method: any) => ({
       routeId: newRoute.id,
       methodId: method.id,
+      routeMethodConfigId: configIdByMethod.get(method.id),
       sourceCode: DEFAULT_REST_HANDLER_LOGIC[method.name] || null,
       scriptLanguage: 'typescript',
       compiledCode: compileScriptSource(
@@ -125,11 +149,30 @@ export async function ensureMongoTableRouteArtifacts(input: {
   });
   const routeId = routeResult.insertedId;
 
+  const configIdByMethod = new Map<string, unknown>();
+  const now = new Date();
+  for (const method of methods) {
+    const result = await db.collection('enfyra_route_method_config').insertOne({
+      route: routeId,
+      method: method._id,
+      available: true,
+      isPublic: false,
+      skipRoleGuard: false,
+      timeout: 30_000,
+      requestBodyType: 'none',
+      isSystem: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+    configIdByMethod.set(String(method._id), result.insertedId);
+  }
+
   const handlers = methods
     .filter((method: any) => DEFAULT_REST_HANDLER_LOGIC[method.name])
     .map((method: any) => ({
       route: routeId,
       method: method._id,
+      routeMethodConfig: configIdByMethod.get(String(method._id)),
       sourceCode: DEFAULT_REST_HANDLER_LOGIC[method.name],
       scriptLanguage: 'typescript',
       compiledCode: compileScriptSource(

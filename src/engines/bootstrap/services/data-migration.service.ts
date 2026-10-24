@@ -10,6 +10,7 @@ import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/u
 import { isCanonicalTableRoutePath } from '../../../domain/bootstrap/utils/canonical-table-route.util';
 import { BootstrapDefinitionService } from './bootstrap-definition.service';
 import { toExactDataMigrationWhere } from '../../../domain/bootstrap/utils/data-migration-filter.util';
+import { deleteMongoMetadataRecords } from '../utils/delete-mongo-metadata-records.util';
 
 interface InitOld {
   [tableName: string]: any | any[];
@@ -175,11 +176,15 @@ export class DataMigrationService {
 
         let count = 0;
         if (DatabaseConfigService.instanceIsMongoDb()) {
-          const result = await this.queryBuilderService
-            .getMongoDb()
-            .collection(table)
-            .deleteMany(exactWhere);
-          count = result.deletedCount || 0;
+          const db = this.queryBuilderService.getMongoDb();
+          if (
+            ['enfyra_route', 'enfyra_menu', 'enfyra_graphql'].includes(table)
+          ) {
+            count = await deleteMongoMetadataRecords(db, table, exactWhere);
+          } else {
+            count = (await db.collection(table).deleteMany(exactWhere))
+              .deletedCount;
+          }
         } else {
           count = await this.queryBuilderService
             .getKnex()(table)
@@ -354,6 +359,27 @@ export class DataMigrationService {
       return table
         ? knex(tableName).where({ tableId: table.id }).first()
         : null;
+    }
+
+    if (tableName === 'enfyra_route_method_config') {
+      const routePath = conditions.find((condition: any) => condition.route)?.route?.path?._eq;
+      const methodName = conditions.find((condition: any) => condition.method)?.method?.name?._eq;
+      if (routePath && methodName) {
+        if (isMongoDB) {
+          const db = this.queryBuilderService.getMongoDb();
+          const route = await db.collection('enfyra_route').findOne({ path: routePath });
+          const method = await db.collection('enfyra_method').findOne({ name: methodName });
+          return route && method
+            ? db.collection(tableName).findOne({ route: route._id, method: method._id })
+            : null;
+        }
+        return this.queryBuilderService.getKnex()(`${tableName} as config`)
+          .join('enfyra_route as route', 'route.id', 'config.routeId')
+          .join('enfyra_method as method', 'method.id', 'config.methodId')
+          .select('config.*')
+          .where({ 'route.path': routePath, 'method.name': methodName })
+          .first();
+      }
     }
 
     if (tableName === 'enfyra_column' && relatedTableName && valueOf('name')) {

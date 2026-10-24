@@ -108,6 +108,7 @@ describe('RuntimeMetricsCollectorService', () => {
         ],
       }),
     );
+    expect(collector.snapshot().cache.recent[0]).not.toHaveProperty('instanceId');
   });
 
   it('stores cache reload history in Redis when available', async () => {

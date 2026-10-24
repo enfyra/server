@@ -1,31 +1,208 @@
 import type { Queue } from 'bullmq';
+import type { FileCleanupService } from '../modules/file-management/services/file-cleanup.service';
 import type { EventEmitter2 } from 'eventemitter2';
 import type { Request, Response } from 'express';
 import type Redis from 'ioredis';
 import type { ConfigService } from '../shared/interfaces/config-service.interface';
-import type { RequestWithRouteData, TDynamicContext } from '../shared/types/dynamic-context.types';
-import type { EnvService, DatabaseConfigService, InstanceService, DynamicContextFactory, RuntimeMetricsCollectorService, ClusterTelemetryService } from '../shared/services';
+import type {
+  RequestWithRouteData,
+  TDynamicContext,
+} from '../shared/types/dynamic-context.types';
+import type {
+  EnvService,
+  DatabaseConfigService,
+  InstanceService,
+  DynamicContextFactory,
+  RuntimeMetricsCollectorService,
+  ClusterTelemetryService,
+} from '../shared/services';
 import type { CommonService } from '../shared/common';
 import type { UploadFileHelper } from '../shared/helpers';
-import type { BcryptService, AuthService, ApiTokenService, PatVerifierService, JwtVerifierService, AuthenticationService, OAuthService, OAuthExchangeCodeService, SessionCleanupService, UserRevocationService } from '../domain/auth';
+import type {
+  BcryptService,
+  AuthService,
+  ApiTokenService,
+  PatVerifierService,
+  JwtVerifierService,
+  AuthenticationService,
+  OAuthService,
+  OAuthExchangeCodeService,
+  SessionCleanupService,
+  UserRevocationService,
+} from '../domain/auth';
 import type { LoggingService } from '../domain/exceptions';
-import type { PolicyService, SchemaMigrationValidatorService, SystemSafetyAuditorService } from '../domain/policy';
-import type { EnfyraKernel, QueryBuilderService, IsolatedExecutorService, ExecutorEngineService as KernelExecutorEngineService } from '@enfyra/kernel';
-import type { KnexService, KnexHookManagerService, MigrationJournalService, MySqlRuntimeWriteBarrierService, ReplicationManager, SchemaMigrationLockService, SqlPoolClusterCoordinatorService, SqlSchemaDiffService, SqlSchemaMigrationService } from '../engines/knex';
-import type { MongoMigrationJournalService, MongoPhysicalMigrationService, MongoSagaSnapshotService, MongoHookManagerService, MongoRelationManagerService, MongoSagaCoordinator, MongoSagaLockService, MongoSchemaDiffService, MongoSchemaMigrationLockService, MongoSchemaMigrationService, MongoService } from '../engines/mongo';
+import type {
+  PolicyService,
+  SchemaMigrationValidatorService,
+  SystemSafetyAuditorService,
+} from '../domain/policy';
+import type {
+  EnfyraKernel,
+  QueryBuilderService,
+  IsolatedExecutorService,
+  ExecutorEngineService as KernelExecutorEngineService,
+} from '@enfyra/kernel';
+import type {
+  KnexService,
+  KnexHookManagerService,
+  MigrationJournalService,
+  MySqlRuntimeWriteBarrierService,
+  ReplicationManager,
+  SchemaMigrationLockService,
+  SqlPoolClusterCoordinatorService,
+  SqlSchemaDiffService,
+  SqlSchemaMigrationService,
+} from '../engines/knex';
+import type {
+  MongoMigrationJournalService,
+  MongoPhysicalMigrationService,
+  MongoSagaSnapshotService,
+  MongoHookManagerService,
+  MongoRelationManagerService,
+  MongoSagaCoordinator,
+  MongoSagaLockService,
+  MongoSchemaDiffService,
+  MongoSchemaMigrationLockService,
+  MongoSchemaMigrationService,
+  MongoService,
+} from '../engines/mongo';
 import type { SqlFunctionService } from '../engines/sql';
-import type { AuthHeaderCacheBuilder, CacheOrchestratorService, FieldPermissionCacheBuilder, ColumnRuleCacheBuilder, FlowCacheBuilder, FolderTreeCacheService, GqlDefinitionCacheService, GuardAlertService, GuardCacheBuilder, GuardEvaluatorService, MetadataCacheService, OAuthConfigCacheBuilder, PackageCacheService, PackageCdnLoaderService, PackageRuntimeService, RateLimitService, RedisPubSubService, RedisRuntimeCacheStore, RedisCacheService, RepoRegistryService, RouteCacheService, RuntimeNamespaceLifecycleService, RuntimeRegistryService, RuntimeReloadAuditService, RuntimeScriptRepairService, SettingCacheService, StorageConfigCacheBuilder, WebsocketCacheBuilder } from '../engines/cache';
-import type { RuntimeScriptExecutorService } from '../engines/cache';
-import type { DynamicRepositoryFactory, DynamicService, DynamicApiTableValidationService, GuardValidationService } from '../modules/dynamic-api';
-import type { TableHandlerService, SqlTableCreateService, SqlTableUpdateService, SqlTableDeleteService, SqlTableHandlerService, MongoTableCreateService, MongoTableUpdateService, MongoTableDeleteService, MongoTableHandlerService, TableManagementValidationService, MongoMetadataSnapshotService, SqlTableMetadataBuilderService, SqlTableMetadataWriterService, RuntimeSchemaContractCompilerService, RuntimeSchemaPhysicalPlannerService, RuntimeMetadataSchemaRouterService, RuntimeSchemaExecutorService, RuntimeSchemaTargetAttestorService, RuntimeSchemaUnitOfWorkService, RuntimeSchemaJournalService, RuntimeSchemaActivationGateService } from '../modules/table-management';
-import type { FileManagementService, FileAssetsService, GCSStorageService, LocalStorageService, R2StorageService, S3StorageService, StorageFactoryService } from '../modules/file-management';
-import type { RuntimeLogWriterService, RuntimeMonitorService, RuntimeDbMetricsService, RuntimeProcessMetricsService, RuntimeQueueMetricsService, RedisAdminService } from '../modules/admin';
+import type {
+  AuthHeaderCacheBuilder,
+  CacheOrchestratorService,
+  FieldPermissionCacheBuilder,
+  ColumnRuleCacheBuilder,
+  FlowCacheBuilder,
+  FolderTreeCacheService,
+  GqlDefinitionCacheService,
+  GuardAlertService,
+  GuardCacheBuilder,
+  GuardEvaluatorService,
+  MetadataCacheService,
+  OAuthConfigCacheBuilder,
+  CorsOriginCacheBuilder,
+  PackageCacheService,
+  PackageCdnLoaderService,
+  PackageRuntimeService,
+  RateLimitService,
+  RedisPubSubService,
+  RedisRuntimeCacheStore,
+  RedisCacheService,
+  RepoRegistryService,
+  RouteCacheService,
+  RuntimeNamespaceLifecycleService,
+  RuntimeRegistryService,
+  RuntimeReloadAuditService,
+  RuntimeScriptExecutorService,
+  RuntimeScriptRepairService,
+  SettingCacheService,
+  SharedHelperCacheService,
+  StorageConfigCacheBuilder,
+  WebsocketCacheBuilder,
+} from '../engines/cache';
+import type {
+  DynamicRepositoryFactory,
+  DynamicService,
+  DynamicApiTableValidationService,
+  GuardValidationService,
+  MutationBodyValidationService,
+} from '../modules/dynamic-api';
+import type { DynamicCancellationService } from '../modules/dynamic-api/services/dynamic-cancellation.service';
+import type {
+  TableHandlerService,
+  SqlTableCreateService,
+  SqlTableUpdateService,
+  SqlTableDeleteService,
+  SqlTableHandlerService,
+  MongoTableCreateService,
+  MongoTableUpdateService,
+  MongoTableDeleteService,
+  MongoTableHandlerService,
+  TableManagementValidationService,
+  MongoMetadataSnapshotService,
+  SqlTableMetadataBuilderService,
+  SqlTableMetadataWriterService,
+  RuntimeSchemaContractCompilerService,
+  RuntimeSchemaPhysicalPlannerService,
+  RuntimeMetadataSchemaRouterService,
+  RuntimeSchemaExecutorService,
+  RuntimeSchemaTargetAttestorService,
+  RuntimeSchemaUnitOfWorkService,
+  RuntimeSchemaJournalService,
+  RuntimeSchemaActivationGateService,
+} from '../modules/table-management';
+import type {
+  FileManagementService,
+  FileAssetsService,
+  GCSStorageService,
+  LocalStorageService,
+  R2StorageService,
+  S3StorageService,
+  StorageFactoryService,
+} from '../modules/file-management';
+import type {
+  RuntimeLogWriterService,
+  RuntimeMonitorService,
+  RuntimeDbMetricsService,
+  RuntimeProcessMetricsService,
+  RuntimeQueueMetricsService,
+  RedisAdminService,
+} from '../modules/admin';
 import type { MeService } from '../modules/me';
 import type { GraphqlService, DynamicResolver } from '../modules/graphql';
-import type { FlowExecutionQueueService, FlowQueueMaintenanceService, FlowRuntimeService, FlowSchedulerService, FlowTriggerDispatcherService, FlowService } from '../modules/flow';
-import type { DynamicWebSocketGateway, BuiltInSocketRegistry, WebsocketEmitService, WebsocketContextFactory, WebsocketRuntimeService } from '../modules/websocket';
-import type { BootstrapScriptService, BootstrapScriptDefinitionProcessor, ExtensionDefinitionProcessor, FlowDefinitionProcessor, FlowExecutionDefinitionProcessor, FlowStepDefinitionProcessor, FolderDefinitionProcessor, GraphQLDefinitionProcessor, GraphQLOperationDefinitionProcessor, MenuDefinitionProcessor, MethodDefinitionProcessor, PostHookDefinitionProcessor, PreHookDefinitionProcessor, FieldPermissionDefinitionProcessor, RouteDefinitionProcessor, RouteHandlerDefinitionProcessor, RoutePermissionDefinitionProcessor, SettingDefinitionProcessor, UserDefinitionProcessor, WebsocketDefinitionProcessor, WebsocketEventDefinitionProcessor } from '../domain/bootstrap';
-import type { BootstrapDefinitionService, BootstrapUnitOfWorkService, DataMigrationService, DataProvisionService, FirstRunInitializer, MetadataMigrationService, MySqlBootstrapSnapshotService, MetadataProvisionMongoService, MetadataProvisionSqlService, MetadataProvisionService, ProvisionService, RouteMethodConfigBackfillService, SchemaHealingService, SnapshotTargetVerifierService, SystemCoreTableResolver, LegacyStoreInventoryService, LegacyAssessmentService } from '../engines/bootstrap';
+import type {
+  FlowExecutionQueueService,
+  FlowQueueMaintenanceService,
+  FlowRuntimeService,
+  FlowSchedulerService,
+  FlowTriggerDispatcherService,
+  FlowService,
+} from '../modules/flow';
+import type {
+  DynamicWebSocketGateway,
+  BuiltInSocketRegistry,
+  WebsocketEmitService,
+  WebsocketContextFactory,
+  WebsocketRuntimeService,
+} from '../modules/websocket';
+import type {
+  ExtensionDefinitionProcessor,
+  FlowDefinitionProcessor,
+  FlowExecutionDefinitionProcessor,
+  FlowStepDefinitionProcessor,
+  FolderDefinitionProcessor,
+  GraphQLDefinitionProcessor,
+  GraphQLOperationDefinitionProcessor,
+  MenuDefinitionProcessor,
+  MethodDefinitionProcessor,
+  PostHookDefinitionProcessor,
+  PreHookDefinitionProcessor,
+  FieldPermissionDefinitionProcessor,
+  RouteDefinitionProcessor,
+  RouteHandlerDefinitionProcessor,
+  RoutePermissionDefinitionProcessor,
+  SettingDefinitionProcessor,
+  UserDefinitionProcessor,
+  WebsocketDefinitionProcessor,
+  WebsocketEventDefinitionProcessor,
+} from '../domain/bootstrap';
+import type {
+  BootstrapDefinitionService,
+  BootstrapUnitOfWorkService,
+  DataMigrationService,
+  DataProvisionService,
+  FirstRunInitializer,
+  MetadataMigrationService,
+  MySqlBootstrapSnapshotService,
+  MetadataProvisionMongoService,
+  MetadataProvisionSqlService,
+  MetadataProvisionService,
+  ProvisionService,
+  RouteMethodConfigBackfillService,
+  SchemaHealingService,
+  SnapshotTargetVerifierService,
+  SystemCoreTableResolver,
+} from '../engines/bootstrap';
 
 export interface Cradle {
   envService: EnvService;
@@ -101,10 +278,12 @@ export interface Cradle {
   metadataCacheService: MetadataCacheService;
   routeCacheService: RouteCacheService;
   packageCacheService: PackageCacheService;
+  sharedHelperCacheService: SharedHelperCacheService;
   packageRuntimeService: PackageRuntimeService;
   storageConfigCacheBuilder: StorageConfigCacheBuilder;
   websocketCacheBuilder: WebsocketCacheBuilder;
   oauthConfigCacheBuilder: OAuthConfigCacheBuilder;
+  corsOriginCacheBuilder: CorsOriginCacheBuilder;
   rateLimitService: RateLimitService;
   folderTreeCacheService: FolderTreeCacheService;
   flowCacheBuilder: FlowCacheBuilder;
@@ -134,6 +313,7 @@ export interface Cradle {
   mongoTableDeleteService: MongoTableDeleteService;
   mongoTableHandlerService: MongoTableHandlerService;
   tableValidationService: DynamicApiTableValidationService;
+  mutationBodyValidationService: MutationBodyValidationService;
   guardValidationService: GuardValidationService;
   tableManagementValidationService: TableManagementValidationService;
   mongoMetadataSnapshotService: MongoMetadataSnapshotService;
@@ -141,7 +321,14 @@ export interface Cradle {
   sqlTableMetadataWriterService: SqlTableMetadataWriterService;
 
   dynamicService: DynamicService;
+  dynamicCancellationService: DynamicCancellationService;
 
+  fileCleanupService: FileCleanupService;
+  fileCleanupQueue: Queue;
+  flowQueue: Queue;
+  wsConnectionQueue: Queue;
+  wsEventQueue: Queue;
+  cleanupQueue: Queue;
   fileManagementService: FileManagementService;
   fileAssetsService: FileAssetsService;
   localStorageService: LocalStorageService;
@@ -179,8 +366,6 @@ export interface Cradle {
   firstRunInitializer: FirstRunInitializer;
   schemaHealingService: SchemaHealingService;
   systemCoreTableResolver: SystemCoreTableResolver;
-  legacyStoreInventoryService: LegacyStoreInventoryService;
-  legacyAssessmentService: LegacyAssessmentService;
   metadataProvisionService: MetadataProvisionService;
   metadataProvisionSqlService: MetadataProvisionSqlService;
   metadataProvisionMongoService: MetadataProvisionMongoService;
@@ -192,7 +377,6 @@ export interface Cradle {
   bootstrapDefinitionService: BootstrapDefinitionService;
   bootstrapUnitOfWorkService: BootstrapUnitOfWorkService;
   mySqlBootstrapSnapshotService: MySqlBootstrapSnapshotService;
-  bootstrapScriptService: BootstrapScriptService;
 
   userDefinitionProcessor: UserDefinitionProcessor;
   menuDefinitionProcessor: MenuDefinitionProcessor;
@@ -205,7 +389,6 @@ export interface Cradle {
   settingDefinitionProcessor: SettingDefinitionProcessor;
   extensionDefinitionProcessor: ExtensionDefinitionProcessor;
   folderDefinitionProcessor: FolderDefinitionProcessor;
-  bootstrapScriptDefinitionProcessor: BootstrapScriptDefinitionProcessor;
   routePermissionDefinitionProcessor: RoutePermissionDefinitionProcessor;
   websocketDefinitionProcessor: WebsocketDefinitionProcessor;
   websocketEventDefinitionProcessor: WebsocketEventDefinitionProcessor;

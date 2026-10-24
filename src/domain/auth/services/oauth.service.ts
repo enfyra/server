@@ -29,8 +29,6 @@ import type {
 } from '../types/oauth-lifecycle.types';
 import type { TDynamicContext } from '../../../shared/types';
 
-type JwtExpiresIn = jwt.SignOptions['expiresIn'];
-
 type OAuthUserResolution = {
   user: any;
   isNewUser: boolean;
@@ -44,7 +42,7 @@ export class OAuthService {
   private readonly executorEngineService: RuntimeScriptExecutorService;
   private readonly dynamicContextFactory: DynamicContextFactory;
   private readonly repoRegistryService: RepoRegistryService;
-  private readonly runtimeScriptRepairService?: RuntimeScriptRepairService;
+  private readonly runtimeScriptRepairService: RuntimeScriptRepairService | undefined;
 
   private readonly providerUrls: Record<
     OAuthProvider,
@@ -573,7 +571,7 @@ export class OAuthService {
       { id: userId, loginProvider },
       this.envService.get('SECRET_KEY'),
       {
-        expiresIn: this.envService.get('ACCESS_TOKEN_EXP') as JwtExpiresIn,
+        expiresIn: this.envService.get('ACCESS_TOKEN_EXP') as StringValue,
       },
     );
 
@@ -583,7 +581,7 @@ export class OAuthService {
       {
         expiresIn: this.envService.get(
           'REFRESH_TOKEN_REMEMBER_EXP',
-        ) as JwtExpiresIn,
+        ) as StringValue,
       },
     );
 

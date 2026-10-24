@@ -8,8 +8,8 @@ import {
 export class RuntimeDbMetricsService {
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly knexService: KnexService;
-  private readonly replicationManager?: ReplicationManager;
-  private readonly sqlPoolClusterCoordinatorService?: SqlPoolClusterCoordinatorService;
+  private readonly replicationManager: ReplicationManager | undefined;
+  private readonly sqlPoolClusterCoordinatorService: SqlPoolClusterCoordinatorService | undefined;
 
   constructor(deps: {
     databaseConfigService: DatabaseConfigService;

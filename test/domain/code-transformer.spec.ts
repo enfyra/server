@@ -173,6 +173,13 @@ describe('transformCode', () => {
     expect(() => assertScriptSourceContract('$ctx.$throw["404"]("missing");')).toThrow(
       '$throw exposes only .http(statusCode, message?) and .json(body, options?)',
     );
+    expect(() => assertScriptSourceContract('@THROW.http();')).toThrow(
+      '$throw.http accepts only statusCode and optional message',
+    );
+    expect(() => assertScriptSourceContract('@THROW.json();')).toThrow(
+      '$throw.json accepts only body and optional options',
+    );
+    expect(() => assertScriptSourceContract('@THROW.json({});')).not.toThrow();
     expect(() => assertScriptSourceContract('@THROW.http(502, "bad", { retry: true });')).toThrow(
       '$throw.http accepts only statusCode and optional message',
     );
@@ -184,6 +191,14 @@ describe('transformCode', () => {
     );
     expect(() => assertScriptSourceContract('const thrower = $ctx.$throw;')).toThrow(
       '$throw exposes only .http(statusCode, message?) and .json(body, options?)',
+    );
+  });
+
+  it('handles terminal macro tokens and regex ranges without reading past the source', () => {
+    expect(transformCode('@BODY')).toBe('$ctx.$body');
+    expect(transformCode('@THROW400   ')).toBe('@THROW400   ');
+    expect(transformCode('const pattern = /@BODY/; return @BODY;')).toBe(
+      'const pattern = /@BODY/; return $ctx.$body;',
     );
   });
 

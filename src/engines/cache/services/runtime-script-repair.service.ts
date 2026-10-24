@@ -2,7 +2,6 @@ import { QueryBuilderService } from '@enfyra/kernel';
 import { DatabaseConfigService } from '../../../shared/services';
 import {
   compileScriptSource,
-  normalizeFlowStepScriptConfig,
   normalizeScriptLanguage,
   normalizeScriptRecord,
   resolveExecutableScript,
@@ -47,12 +46,8 @@ export class RuntimeScriptRepairService {
 
   async repairFlowStepScriptRecord(step: any): Promise<void> {
     const idField = DatabaseConfigService.getPkField();
-    const hadLegacyScriptConfig =
-      typeof step.config === 'string' || this.hasLegacyScriptConfig(step);
-    const normalizedStep = normalizeFlowStepScriptConfig(step);
-    Object.assign(step, normalizedStep);
 
-    if (!step.sourceCode && !step.compiledCode && !hadLegacyScriptConfig) {
+    if (!step.sourceCode && !step.compiledCode) {
       return;
     }
 
@@ -60,15 +55,9 @@ export class RuntimeScriptRepairService {
     const result = resolveExecutableScript(step);
     step.compiledCode = result.compiledCode;
 
-    if (!result.shouldPersistCompiledCode && !hadLegacyScriptConfig) {
+    if (!result.shouldPersistCompiledCode) {
       return;
     }
-
-    const config = { ...(step.config || {}) };
-    delete config.sourceCode;
-    delete config.scriptLanguage;
-    delete config.compiledCode;
-    delete config.code;
 
     const id = step[idField];
     if (id == null) return;
@@ -76,20 +65,7 @@ export class RuntimeScriptRepairService {
       sourceCode: step.sourceCode ?? null,
       scriptLanguage: step.scriptLanguage ?? 'typescript',
       compiledCode: step.compiledCode ?? null,
-      config,
     });
-  }
-
-  private hasLegacyScriptConfig(step: any): boolean {
-    const config = step?.config;
-    return Boolean(
-      config &&
-      typeof config === 'object' &&
-      ('sourceCode' in config ||
-        'scriptLanguage' in config ||
-        'compiledCode' in config ||
-        'code' in config),
-    );
   }
 
   private async persistRecordPatch(

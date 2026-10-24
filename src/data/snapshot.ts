@@ -490,12 +490,7 @@ snapshot
     roles: rel
       .manyToMany('enfyra_role')
       .system()
-      .description("User's assigned roles for permissions")
-      .junction({
-        table: 'enfyra_user_roles',
-        source: 'userId',
-        target: 'roleId',
-      }),
+      .description("User's assigned roles for permissions"),
   })
   .uniques([['email']]);
 
@@ -558,6 +553,15 @@ snapshot
       .default(true)
       .description(
         'When enabled, the backend redirects back to the Enfyra Nuxt app /api/auth/set-cookies endpoint and lets Nitro set auth cookies before redirecting to the requested page.',
+      ),
+    version: col
+      .sqlType({ type: 'varchar' })
+      .mongoType({ type: 'string' })
+      .notNull()
+      .system()
+      .default('1.0.0')
+      .description(
+        'Revision of this record; an update must send a strictly greater version',
       ),
     sourceCode: col
       .sqlType({ type: 'code' })
@@ -718,7 +722,9 @@ snapshot
         'Enfyra version that last completed bootstrap; compared against package.json to scope upgrades',
       ),
   })
-  .relations({});
+  .relations({
+    defaultPage: rel.manyToOne('enfyra_menu').nullable().system().onDelete('RESTRICT').description('Page opened after login when no redirect is provided'),
+  });
 
 snapshot
   .table('enfyra_auth_header', {
@@ -1264,6 +1270,15 @@ snapshot
       .notNull()
       .system()
       .description('Primary key identifier'),
+    version: col
+      .sqlType({ type: 'varchar' })
+      .mongoType({ type: 'string' })
+      .notNull()
+      .system()
+      .default('1.0.0')
+      .description(
+        'Revision of this record; an update must send a strictly greater version',
+      ),
     sourceCode: col
       .sqlType({ type: 'code' })
       .mongoType({ type: 'code' })
@@ -1345,6 +1360,15 @@ snapshot
       .notNull()
       .system()
       .description('Descriptive name for the hook'),
+    version: col
+      .sqlType({ type: 'varchar' })
+      .mongoType({ type: 'string' })
+      .notNull()
+      .system()
+      .default('1.0.0')
+      .description(
+        'Revision of this record; an update must send a strictly greater version',
+      ),
     sourceCode: col
       .sqlType({ type: 'code' })
       .mongoType({ type: 'code' })
@@ -1441,6 +1465,15 @@ snapshot
       .notNull()
       .system()
       .description('Descriptive name for the hook'),
+    version: col
+      .sqlType({ type: 'varchar' })
+      .mongoType({ type: 'string' })
+      .notNull()
+      .system()
+      .default('1.0.0')
+      .description(
+        'Revision of this record; an update must send a strictly greater version',
+      ),
     sourceCode: col
       .sqlType({ type: 'code' })
       .mongoType({ type: 'code' })
@@ -2222,12 +2255,7 @@ snapshot
       .manyToMany('enfyra_user')
       .system()
       .nullable()
-      .description('Specific users who have this permission')
-      .junction({
-        table: 'j_8110450610b3',
-        source: 'enfyra_file_permissionId',
-        target: 'enfyra_userId',
-      }),
+      .description('Specific users who have this permission'),
   })
   .uniques([['file', 'role']]);
 
@@ -2340,97 +2368,6 @@ snapshot
       .nullable()
       .description('User who installed this package'),
   });
-
-snapshot
-  .table('enfyra_bootstrap_script', {
-    description:
-      'Stores custom scripts that run during application initialization',
-    system: true,
-  })
-  .columns({
-    id: col
-      .sqlType({ type: 'int' })
-      .mongoType({ type: 'objectId' })
-      .primary()
-      .generated()
-      .notNull()
-      .system()
-      .description('Primary key identifier'),
-    name: col
-      .sqlType({ type: 'varchar' })
-      .mongoType({ type: 'string' })
-      .notNull()
-      .system()
-      .description('Unique name identifier for the bootstrap script'),
-    description: col
-      .sqlType({ type: 'text' })
-      .mongoType({ type: 'string' })
-      .system()
-      .description('Description of what the script does'),
-    sourceCode: col
-      .sqlType({ type: 'code' })
-      .mongoType({ type: 'code' })
-      .notNull()
-      .system()
-      .description('Source code to execute'),
-    scriptLanguage: col
-      .sqlType({ type: 'enum', options: ['javascript', 'typescript'] })
-      .mongoType({ type: 'enum', options: ['javascript', 'typescript'] })
-      .notNull()
-      .system()
-      .default('typescript')
-      .description('Language used by sourceCode before server compilation'),
-    compiledCode: col
-      .sqlType({ type: 'code' })
-      .mongoType({ type: 'code' })
-      .generated()
-      .system()
-      .immutable()
-      .nullable()
-      .description('Server-compiled JavaScript code executed by the runtime'),
-    timeout: col
-      .sqlType({ type: 'int' })
-      .mongoType({ type: 'int' })
-      .system()
-      .nullable()
-      .description(
-        'Timeout in milliseconds for script execution. If not set, uses default system timeout.',
-      ),
-    priority: col
-      .sqlType({ type: 'int' })
-      .mongoType({ type: 'int' })
-      .notNull()
-      .system()
-      .default(0)
-      .description('Execution priority order (lower numbers execute first)'),
-    isEnabled: col
-      .sqlType({ type: 'boolean' })
-      .mongoType({ type: 'bool' })
-      .notNull()
-      .system()
-      .default(true)
-      .description('Whether the script is enabled for execution'),
-    isSystem: col
-      .sqlType({ type: 'boolean' })
-      .mongoType({ type: 'bool' })
-      .notNull()
-      .system()
-      .default(false)
-      .description('Whether this is a system-generated script'),
-  })
-  .relations({
-    createdBy: rel
-      .manyToOne('enfyra_user')
-      .system()
-      .nullable()
-      .description('User who created the script'),
-    updatedBy: rel
-      .manyToOne('enfyra_user')
-      .system()
-      .nullable()
-      .description('User who last updated the script'),
-  })
-  .uniques([['name']]);
 
 snapshot
   .table('enfyra_storage_config', {
@@ -2615,6 +2552,15 @@ snapshot
       .system()
       .default(true)
       .description('Whether authentication is required for connections'),
+    version: col
+      .sqlType({ type: 'varchar' })
+      .mongoType({ type: 'string' })
+      .notNull()
+      .system()
+      .default('1.0.0')
+      .description(
+        'Revision of this record; an update must send a strictly greater version',
+      ),
     sourceCode: col
       .sqlType({ type: 'code' })
       .mongoType({ type: 'code' })
@@ -2688,6 +2634,15 @@ snapshot
       .mongoType({ type: 'string' })
       .system()
       .description('Description of what the event does'),
+    version: col
+      .sqlType({ type: 'varchar' })
+      .mongoType({ type: 'string' })
+      .notNull()
+      .system()
+      .default('1.0.0')
+      .description(
+        'Revision of this record; an update must send a strictly greater version',
+      ),
     sourceCode: col
       .sqlType({ type: 'code' })
       .mongoType({ type: 'code' })
@@ -2728,6 +2683,28 @@ snapshot
       .description('Gateway this event belongs to'),
   })
   .uniques([['gateway', 'eventName']]);
+
+snapshot
+  .table('enfyra_helper', { description: 'Reusable named scripts with explicit params in the caller task', system: true })
+  .columns({
+    id: col.sqlType({ type: 'int' }).mongoType({ type: 'objectId' }).primary().generated().notNull().system().description('Primary key identifier'),
+    name: col.sqlType({ type: 'varchar' }).mongoType({ type: 'string' }).notNull().system().description('Unique lowercase helper name, at most 128 letters, digits or underscores'),
+    description: col.sqlType({ type: 'text' }).mongoType({ type: 'string' }).nullable().system().description('Helper purpose and params contract'),
+    isEnabled: col.sqlType({ type: 'boolean' }).mongoType({ type: 'bool' }).notNull().default(true).system().description('Whether callers may execute this helper'),
+    version: col
+      .sqlType({ type: 'varchar' })
+      .mongoType({ type: 'string' })
+      .notNull()
+      .system()
+      .default('1.0.0')
+      .description(
+        'Revision of this record; an update must send a strictly greater version',
+      ),
+    sourceCode: col.sqlType({ type: 'code' }).mongoType({ type: 'code' }).nullable().system().description('Script body receiving explicit @PARAMS and task capabilities'),
+    scriptLanguage: col.sqlType({ type: 'enum', options: ['javascript', 'typescript'] }).mongoType({ type: 'enum', options: ['javascript', 'typescript'] }).notNull().default('typescript').system().description('Source language before server compilation'),
+    compiledCode: col.sqlType({ type: 'code' }).mongoType({ type: 'code' }).generated().immutable().nullable().system().description('Server-compiled JavaScript executed by the runtime'),
+  })
+  .uniques([['name']]);
 
 snapshot
   .table('enfyra_flow', {
@@ -2908,45 +2885,20 @@ snapshot
       .default(0)
       .description('Execution order of the step within the flow'),
     type: col
-      .sqlType({
-        type: 'enum',
-        options: [
-          'script',
-          'condition',
-          'query',
-          'create',
-          'update',
-          'delete',
-          'http',
-          'trigger_flow',
-          'sleep',
-          'log',
-        ],
-      })
-      .mongoType({
-        type: 'enum',
-        options: [
-          'script',
-          'condition',
-          'query',
-          'create',
-          'update',
-          'delete',
-          'http',
-          'trigger_flow',
-          'sleep',
-          'log',
-        ],
-      })
+      .sqlType({ type: 'enum', options: ['script', 'condition'] })
+      .mongoType({ type: 'enum', options: ['script', 'condition'] })
       .notNull()
       .system()
       .description('Type of operation this step performs'),
-    config: col
-      .sqlType({ type: 'simple-json' })
-      .mongoType({ type: 'json' })
+    version: col
+      .sqlType({ type: 'varchar' })
+      .mongoType({ type: 'string' })
+      .notNull()
       .system()
-      .nullable()
-      .description('JSON config for the step (code, URL, table, filter, etc.)'),
+      .default('1.0.0')
+      .description(
+        'Revision of this record; an update must send a strictly greater version',
+      ),
     sourceCode: col
       .sqlType({ type: 'code' })
       .mongoType({ type: 'code' })
@@ -3794,5 +3746,102 @@ snapshot
     ['component', 'occurredAt'],
     ['sourceKind', 'sourceId', 'occurredAt'],
   ]);
+
+snapshot
+  .table('enfyra_audit', {
+    description:
+      'Append-only pre-image history for versioned dynamic code records, used to review and revert a revision',
+    system: true,
+  })
+  .columns({
+    id: col
+      .sqlType({ type: 'int' })
+      .mongoType({ type: 'objectId' })
+      .primary()
+      .generated()
+      .notNull()
+      .system()
+      .description('Primary key identifier'),
+    tableName: col
+      .sqlType({ type: 'varchar' })
+      .mongoType({ type: 'string' })
+      .notNull()
+      .system()
+      .updatable(false)
+      .description('Versioned table the audited record belongs to'),
+    recordId: col
+      .sqlType({ type: 'varchar' })
+      .mongoType({ type: 'string' })
+      .notNull()
+      .system()
+      .updatable(false)
+      .description('Identifier of the audited record, stored as text'),
+    action: col
+      .sqlType({
+        type: 'enum',
+        options: ['create', 'update', 'delete', 'revert'],
+      })
+      .mongoType({
+        type: 'enum',
+        options: ['create', 'update', 'delete', 'revert'],
+      })
+      .notNull()
+      .system()
+      .updatable(false)
+      .description('Mutation that produced this entry'),
+    fromVersion: col
+      .sqlType({ type: 'varchar' })
+      .mongoType({ type: 'string' })
+      .system()
+      .nullable()
+      .updatable(false)
+      .description('Version the record had before this mutation'),
+    toVersion: col
+      .sqlType({ type: 'varchar' })
+      .mongoType({ type: 'string' })
+      .system()
+      .nullable()
+      .updatable(false)
+      .description('Version the record has after this mutation'),
+    restoredFrom: col
+      .sqlType({ type: 'varchar' })
+      .mongoType({ type: 'string' })
+      .system()
+      .nullable()
+      .updatable(false)
+      .description('Version restored by a revert, when the action is revert'),
+    changedBySource: col
+      .sqlType({ type: 'varchar' })
+      .mongoType({ type: 'string' })
+      .system()
+      .nullable()
+      .updatable(false)
+      .description('Credential type used by the caller: pat or jwt'),
+    changedByEmail: col
+      .sqlType({ type: 'varchar' })
+      .mongoType({ type: 'string' })
+      .system()
+      .nullable()
+      .updatable(false)
+      .description('Caller email captured with the entry'),
+    previous: col
+      .sqlType({ type: 'simple-json' })
+      .mongoType({ type: 'json' })
+      .system()
+      .nullable()
+      .updatable(false)
+      .description(
+        'Pre-image of the record before this mutation; the current revision is never duplicated here',
+      ),
+  })
+  .relations({
+    changedBy: rel
+      .manyToOne('enfyra_user')
+      .system()
+      .nullable()
+      .onDelete('SET NULL')
+      .description('User who performed the mutation, when it had a caller'),
+  })
+  .indexes([['tableName', 'recordId', 'createdAt']]);
 
 export default snapshot.build();

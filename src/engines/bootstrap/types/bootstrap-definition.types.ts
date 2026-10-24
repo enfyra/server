@@ -97,21 +97,52 @@ export type BootstrapSchemaOperation =
       propertyName: string;
     });
 
-export type BootstrapSchemaCommandKind =
-  | 'modify-mongo-column-types'
-  | 'rename-core-table'
-  | 'rename-table'
-  | 'rename-physical-table'
-  | 'drop-physical-table'
-  | 'apply-physical-change'
-  | 'apply-metadata-change'
-  | 'cleanup-renamed-table';
-
-export interface BootstrapSchemaCommand {
-  backend: BootstrapSchemaExecutionPlan['database'];
-  kind: BootstrapSchemaCommandKind;
-  operation: BootstrapSchemaOperation;
+interface BootstrapSchemaCommandOperations {
+  'modify-mongo-column-types': Extract<
+    BootstrapSchemaOperation,
+    { kind: 'modify-mongo-column-types' }
+  >;
+  'rename-core-table': Extract<
+    BootstrapSchemaOperation,
+    { kind: 'rename-core-table' }
+  >;
+  'rename-table': Extract<BootstrapSchemaOperation, { kind: 'rename-table' }>;
+  'rename-physical-table': Extract<
+    BootstrapSchemaOperation,
+    { kind: 'rename-physical-table' }
+  >;
+  'drop-physical-table': Extract<
+    BootstrapSchemaOperation,
+    { kind: 'drop-physical-table' }
+  >;
+  'apply-physical-change': Extract<
+    BootstrapSchemaOperation,
+    {
+      kind:
+        | 'drop-table'
+        | 'modify-table'
+        | 'modify-column'
+        | 'remove-column'
+        | 'modify-relation'
+        | 'remove-relation';
+    }
+  >;
+  'apply-metadata-change': BootstrapSchemaCommandOperations['apply-physical-change'];
+  'cleanup-renamed-table': Extract<
+    BootstrapSchemaOperation,
+    { kind: 'rename-core-table' | 'rename-table' }
+  >;
 }
+
+export type BootstrapSchemaCommandKind = keyof BootstrapSchemaCommandOperations;
+
+export type BootstrapSchemaCommand = {
+  [TKind in BootstrapSchemaCommandKind]: {
+    backend: BootstrapSchemaExecutionPlan['database'];
+    kind: TKind;
+    operation: BootstrapSchemaCommandOperations[TKind];
+  };
+}[BootstrapSchemaCommandKind];
 
 export interface BootstrapSchemaExecutionNode {
   id: string;

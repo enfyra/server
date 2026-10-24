@@ -61,7 +61,7 @@ export function registerPackageRoutes(
       ...body,
       version: body.version || 'latest',
       description: body.description || '',
-      isSystem: body.isSystem || false,
+      isSystem: false,
       status: 'installing',
       lastError: null,
       ...(userId ? { installedBy: { id: userId } } : {}),

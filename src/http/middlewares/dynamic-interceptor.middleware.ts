@@ -1,8 +1,20 @@
 import { Response, NextFunction } from 'express';
-import { ExecutorEngineService } from '@enfyra/kernel';
-import { RuntimeScriptRepairService } from '../../engines/cache';
+import { attachDynamicDeliveryDiagnostics } from '../../modules/dynamic-api/utils/dynamic-delivery-diagnostics.util';
+import { RuntimeScriptRepairService, type RuntimeScriptExecutorService } from '../../engines/cache';
 import { getErrorMessage } from '../../shared/utils/error.util';
 import { HttpException } from '../../domain/exceptions';
+import type { DynamicCancellationService } from '../../modules/dynamic-api/services/dynamic-cancellation.service';
+import {
+  finishDynamicHttpFailure,
+  getDynamicHttpFailure,
+  isDynamicExecutionTimeout,
+  recordDynamicExecutionFailure,
+} from '../../modules/dynamic-api/utils/dynamic-http-failure.util';
+import {
+  beginDynamicRouteExecution,
+  completeDynamicRouteExecution,
+  runDynamicRouteBatch,
+} from '../../modules/dynamic-api/utils/dynamic-route-execution.util';
 import {
   attachStreamResponseHelper,
   persistDynamicScriptLogs,
@@ -25,8 +37,9 @@ function isErrorResponse(res: Response, data: any): boolean {
 }
 
 export function dynamicInterceptorBegin(
-  executorEngineService: ExecutorEngineService,
+  executorEngineService: RuntimeScriptExecutorService,
   runtimeScriptRepairService?: RuntimeScriptRepairService,
+  dynamicCancellationService?: DynamicCancellationService,
 ) {
   return async (req: any, res: Response, next: NextFunction) => {
     if (!req.routeData) {
@@ -36,6 +49,7 @@ export function dynamicInterceptorBegin(
       return next();
     }
 
+    beginDynamicRouteExecution(req, res, dynamicCancellationService);
     const appendLogs = (data: any) => {
       const logs = req.routeData?.context?.$share?.$logs;
       return logs?.length ? { ...data, logs } : data;
@@ -87,7 +101,8 @@ export function dynamicInterceptorBegin(
                   type: 'postHook',
                 } as any);
               }
-              await executorEngineService.runBatch(req);
+              await runDynamicRouteBatch(req, res, executorEngineService);
+              completeDynamicRouteExecution(req);
               req.routeData.__codeBlocks = [];
               const responseData =
                 req.routeData.context.$data !== undefined
@@ -96,7 +111,16 @@ export function dynamicInterceptorBegin(
               return appendLogs(responseData);
             })
             .then((responseData) => originalJson(responseData))
-            .catch(next);
+            .catch(async (error) => {
+              completeDynamicRouteExecution(req);
+              const failure = getDynamicHttpFailure(res);
+              if (failure) {
+                await dynamicCancellationService?.run(req, failure);
+                finishDynamicHttpFailure(res, failure);
+                return;
+              }
+              next(error);
+            });
           return res;
         }
 
@@ -106,6 +130,7 @@ export function dynamicInterceptorBegin(
 
     const preHooks = req.routeData?.preHooks;
     if (preHooks?.length) {
+      attachDynamicDeliveryDiagnostics(req, res);
       attachStreamResponseHelper(res);
       req.routeData.context.$res = res;
       for (const hook of preHooks) {
@@ -119,17 +144,8 @@ export function dynamicInterceptorBegin(
           type: 'preHook',
         } as any);
       }
-      const abortController = new AbortController();
-      const abortOnDisconnect = () => {
-        if (!res.writableEnded) abortController.abort();
-      };
-      req.once?.('aborted', abortOnDisconnect);
-      res.once?.('close', abortOnDisconnect);
-      if (req.aborted || res.destroyed) abortOnDisconnect();
       try {
-        const result = await executorEngineService.runBatch(req, undefined, {
-          signal: abortController.signal,
-        });
+        const result = await runDynamicRouteBatch(req, res, executorEngineService);
         req.routeData.__codeBlocks = [];
         if (req.routeData.context?.$body !== undefined) {
           req.body = req.routeData.context.$body;
@@ -138,13 +154,28 @@ export function dynamicInterceptorBegin(
           req.query = req.routeData.context.$query;
         }
         if ((res as any).__enfyraStreamStarted) {
+          completeDynamicRouteExecution(req);
           return;
         }
         if (result.shortCircuit) {
+          if (req.routeData.handler?.trim?.() || !req.routeData.postHooks?.length) {
+            completeDynamicRouteExecution(req);
+          }
           return res.json(appendLogs(result.value));
         }
       } catch (error) {
-        if ((error as { code?: string })?.code === 'ERR_EXECUTION_ABORTED') return;
+        completeDynamicRouteExecution(req);
+        const code = (error as { code?: string }).code;
+        let failure = getDynamicHttpFailure(res);
+        if (!failure && isDynamicExecutionTimeout(error)) {
+          failure = recordDynamicExecutionFailure(res, error);
+        }
+        if (failure) {
+          await dynamicCancellationService?.run(req, failure);
+          finishDynamicHttpFailure(res, failure);
+          return;
+        }
+        if (code === 'ERR_EXECUTION_ABORTED') return;
         const statusCode =
           error instanceof HttpException
             ? error.getStatus()
@@ -155,8 +186,6 @@ export function dynamicInterceptorBegin(
         if (await writeRawScriptErrorJson(error, res)) return;
         return next(error);
       } finally {
-        req.off?.('aborted', abortOnDisconnect);
-        res.off?.('close', abortOnDisconnect);
         delete req.routeData.context.$res;
       }
     }

@@ -1,10 +1,6 @@
 import { QueryBuilderService } from '@enfyra/kernel';
 import type { TableRenameDef } from '../../../../shared/types/schema-migration.types';
-import {
-  CORE_SYSTEM_TABLES,
-  LEGACY_CORE_SYSTEM_TABLES,
-  SYSTEM_TABLES,
-} from '../../../../shared/utils/system-tables.constants';
+import { SYSTEM_TABLES } from '../../../../shared/utils/system-tables.constants';
 
 export class MetadataOverlapIdentityService {
   private readonly queryBuilderService: QueryBuilderService;
@@ -31,16 +27,11 @@ export class MetadataOverlapIdentityService {
   ): string | null {
     const remapOwnerIds = options.remapOwnerIds !== false;
     const tableName = rename.to || rename.from;
-    if (tableName === SYSTEM_TABLES.table || tableName === 'table_definition') {
-      return row?.name
-        ? `table:${this.normalizeCoreTableName(row.name)}`
-        : null;
+    if (tableName === SYSTEM_TABLES.table) {
+      return row?.name ? `table:${row.name}` : null;
     }
 
-    if (
-      tableName === SYSTEM_TABLES.column ||
-      tableName === 'column_definition'
-    ) {
+    if (tableName === SYSTEM_TABLES.column) {
       const owner = remapOwnerIds
         ? this.remapCoreTableId(rename, row?.tableId ?? row?.table)
         : (row?.tableId ?? row?.table);
@@ -50,10 +41,7 @@ export class MetadataOverlapIdentityService {
         : null;
     }
 
-    if (
-      tableName === SYSTEM_TABLES.relation ||
-      tableName === 'relation_definition'
-    ) {
+    if (tableName === SYSTEM_TABLES.relation) {
       const owner = remapOwnerIds
         ? this.remapCoreTableId(rename, row?.sourceTableId ?? row?.sourceTable)
         : (row?.sourceTableId ?? row?.sourceTable);
@@ -68,22 +56,12 @@ export class MetadataOverlapIdentityService {
     return null;
   }
 
-  normalizeCoreTableName(tableName: string): string {
-    const entries = Object.entries(LEGACY_CORE_SYSTEM_TABLES) as Array<
-      [keyof typeof LEGACY_CORE_SYSTEM_TABLES, string]
-    >;
-    const matched = entries.find(([, legacyName]) => legacyName === tableName);
-    return matched ? CORE_SYSTEM_TABLES[matched[0]] : tableName;
-  }
-
   remapCoreTableId(rename: TableRenameDef, value: any): any {
     if (value === undefined || value === null) return value;
     const tableName = rename.to || rename.from;
     if (
       tableName !== SYSTEM_TABLES.column &&
-      tableName !== 'column_definition' &&
-      tableName !== SYSTEM_TABLES.relation &&
-      tableName !== 'relation_definition'
+      tableName !== SYSTEM_TABLES.relation
     ) {
       return value;
     }
@@ -101,7 +79,7 @@ export class MetadataOverlapIdentityService {
     options: { remapCoreOwnerIds?: boolean } = {},
   ): string | null {
     const logicalKey = this.getCoreMetadataRowKey(rename, row, {
-      remapOwnerIds: options.remapCoreOwnerIds,
+      remapOwnerIds: options.remapCoreOwnerIds !== false,
     });
     if (logicalKey) return logicalKey;
 
@@ -154,11 +132,7 @@ export class MetadataOverlapIdentityService {
     canonicalRow: any,
     columns: string[],
   ): boolean {
-    const legacy = this.projectCoreRowToColumns(
-      rename,
-      legacyRow,
-      columns,
-    );
+    const legacy = this.projectCoreRowToColumns(rename, legacyRow, columns);
     const canonical = this.projectCoreRowToColumns(
       rename,
       canonicalRow,
@@ -177,7 +151,9 @@ export class MetadataOverlapIdentityService {
       ) {
         return false;
       }
-      return JSON.stringify(legacy[column]) !== JSON.stringify(canonical[column]);
+      return (
+        JSON.stringify(legacy[column]) !== JSON.stringify(canonical[column])
+      );
     });
   }
 
@@ -222,25 +198,13 @@ export class MetadataOverlapIdentityService {
   ): any {
     const projected = this.projectRowToColumns(row, columns);
     const tableName = rename.to || rename.from;
-    if (
-      (tableName === SYSTEM_TABLES.table || tableName === 'table_definition') &&
-      typeof projected.name === 'string'
-    ) {
-      projected.name = this.normalizeCoreTableName(projected.name);
-    }
-    if (
-      tableName === SYSTEM_TABLES.column ||
-      tableName === 'column_definition'
-    ) {
+    if (tableName === SYSTEM_TABLES.column) {
       if (options.remapOwnerIds !== false && 'tableId' in projected)
         projected.tableId = this.remapCoreTableId(rename, projected.tableId);
       if (options.remapOwnerIds !== false && 'table' in projected)
         projected.table = this.remapCoreTableId(rename, projected.table);
     }
-    if (
-      tableName === SYSTEM_TABLES.relation ||
-      tableName === 'relation_definition'
-    ) {
+    if (tableName === SYSTEM_TABLES.relation) {
       if (options.remapOwnerIds !== false && 'sourceTableId' in projected) {
         projected.sourceTableId = this.remapCoreTableId(
           rename,
@@ -271,17 +235,12 @@ export class MetadataOverlapIdentityService {
 
   isCoreTableMetadataStore(rename: TableRenameDef): boolean {
     const tableName = rename.to || rename.from;
-    return (
-      tableName === SYSTEM_TABLES.table || tableName === 'table_definition'
-    );
+    return tableName === SYSTEM_TABLES.table;
   }
 
   isCoreRelationMetadataStore(rename: TableRenameDef): boolean {
     const tableName = rename.to || rename.from;
-    return (
-      tableName === SYSTEM_TABLES.relation ||
-      tableName === 'relation_definition'
-    );
+    return tableName === SYSTEM_TABLES.relation;
   }
 
   getRelationMappedByKey(rename: TableRenameDef, row: any): string | null {
@@ -310,9 +269,8 @@ export class MetadataOverlapIdentityService {
     if (!this.isCoreTableMetadataStore(rename) || !legacyRow?.name) return;
     const legacyId = legacyRow.id ?? legacyRow._id;
     if (legacyId === undefined || legacyId === null) return;
-    const normalizedName = this.normalizeCoreTableName(legacyRow.name);
     const canonicalRow = canonicalRows.find(
-      (row) => row?.name === normalizedName,
+      (row) => row?.name === legacyRow.name,
     );
     const canonicalId = canonicalRow?.id ?? canonicalRow?._id;
     if (canonicalId === undefined || canonicalId === null) return;

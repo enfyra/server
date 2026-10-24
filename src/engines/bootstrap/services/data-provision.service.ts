@@ -18,7 +18,6 @@ import {
   SettingDefinitionProcessor,
   ExtensionDefinitionProcessor,
   FolderDefinitionProcessor,
-  BootstrapScriptDefinitionProcessor,
   RoutePermissionDefinitionProcessor,
   WebsocketDefinitionProcessor,
   WebsocketEventDefinitionProcessor,
@@ -32,11 +31,14 @@ import {
 import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
 import { SYSTEM_TABLES } from '../../../shared/utils/system-tables.constants';
 import { BootstrapDefinitionService } from './bootstrap-definition.service';
+import { DashboardProvisionService } from './dashboard-provision.service';
+import type { MetadataCacheService } from '../../cache';
 
 export class DataProvisionService {
   private readonly logger = new Logger(DataProvisionService.name);
   private readonly processors = new Map<string, BaseTableProcessor>();
   private readonly queryBuilderService: QueryBuilderService;
+  private readonly metadataCacheService: MetadataCacheService;
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly bcryptService: BcryptService;
   private readonly userDefinitionProcessor: UserDefinitionProcessor;
@@ -50,7 +52,6 @@ export class DataProvisionService {
   private readonly settingDefinitionProcessor: SettingDefinitionProcessor;
   private readonly extensionDefinitionProcessor: ExtensionDefinitionProcessor;
   private readonly folderDefinitionProcessor: FolderDefinitionProcessor;
-  private readonly bootstrapScriptDefinitionProcessor: BootstrapScriptDefinitionProcessor;
   private readonly routePermissionDefinitionProcessor: RoutePermissionDefinitionProcessor;
   private readonly websocketDefinitionProcessor: WebsocketDefinitionProcessor;
   private readonly websocketEventDefinitionProcessor: WebsocketEventDefinitionProcessor;
@@ -64,6 +65,7 @@ export class DataProvisionService {
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
+    metadataCacheService: MetadataCacheService;
     databaseConfigService: DatabaseConfigService;
     bcryptService: BcryptService;
     userDefinitionProcessor: UserDefinitionProcessor;
@@ -77,7 +79,6 @@ export class DataProvisionService {
     settingDefinitionProcessor: SettingDefinitionProcessor;
     extensionDefinitionProcessor: ExtensionDefinitionProcessor;
     folderDefinitionProcessor: FolderDefinitionProcessor;
-    bootstrapScriptDefinitionProcessor: BootstrapScriptDefinitionProcessor;
     routePermissionDefinitionProcessor: RoutePermissionDefinitionProcessor;
     websocketDefinitionProcessor: WebsocketDefinitionProcessor;
     websocketEventDefinitionProcessor: WebsocketEventDefinitionProcessor;
@@ -89,6 +90,7 @@ export class DataProvisionService {
     bootstrapDefinitionService?: BootstrapDefinitionService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
+    this.metadataCacheService = deps.metadataCacheService;
     this.databaseConfigService = deps.databaseConfigService;
     this.bcryptService = deps.bcryptService;
     this.userDefinitionProcessor = deps.userDefinitionProcessor;
@@ -103,8 +105,6 @@ export class DataProvisionService {
     this.settingDefinitionProcessor = deps.settingDefinitionProcessor;
     this.extensionDefinitionProcessor = deps.extensionDefinitionProcessor;
     this.folderDefinitionProcessor = deps.folderDefinitionProcessor;
-    this.bootstrapScriptDefinitionProcessor =
-      deps.bootstrapScriptDefinitionProcessor;
     this.routePermissionDefinitionProcessor =
       deps.routePermissionDefinitionProcessor;
     this.websocketDefinitionProcessor = deps.websocketDefinitionProcessor;
@@ -149,10 +149,6 @@ export class DataProvisionService {
     );
     this.processors.set(SYSTEM_TABLES.folder, this.folderDefinitionProcessor);
     this.processors.set(
-      SYSTEM_TABLES.bootstrapScript,
-      this.bootstrapScriptDefinitionProcessor,
-    );
-    this.processors.set(
       SYSTEM_TABLES.routePermission,
       this.routePermissionDefinitionProcessor,
     );
@@ -194,6 +190,10 @@ export class DataProvisionService {
 
   async insertAllDefaultRecords(): Promise<void> {
     this.verbose('Starting default data upsert...');
+    const existingSettings = await this.queryBuilderService.find({
+      table: SYSTEM_TABLES.setting, fields: [this.queryBuilderService.getPkField()], limit: 1,
+    });
+    const freshInstall = !existingSettings.data?.length;
 
     let totalCreated = 0;
     let totalSkipped = 0;
@@ -246,7 +246,8 @@ export class DataProvisionService {
       this.verbose(`Processing '${tableName}'...`);
 
       try {
-        const records = Array.isArray(rawRecords) ? rawRecords : [rawRecords];
+        const records = (Array.isArray(rawRecords) ? rawRecords : [rawRecords])
+          .filter(record => freshInstall || tableName !== SYSTEM_TABLES.menu || record.path !== '/dashboard');
 
         const result =
           this.dbType === 'mongodb'
@@ -276,6 +277,13 @@ export class DataProvisionService {
         this.logger.debug(`Error: ${getErrorMessage(error)}`);
         throw error;
       }
+    }
+
+    if (freshInstall) {
+      await new DashboardProvisionService(
+        this.queryBuilderService,
+        this.metadataCacheService,
+      ).provision();
     }
 
     this.verbose(

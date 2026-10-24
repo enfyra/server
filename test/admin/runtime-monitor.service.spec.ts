@@ -29,12 +29,115 @@ function makeService(deps: Partial<any> = {}) {
 }
 
 describe('RuntimeMonitorService', () => {
-  it('emits runtime metrics only to root admin sockets', async () => {
+  it('reports actual errors without flagging slow queries or other performance thresholds', () => {
+    const service = makeService();
+    const metrics = {
+      instance: { eventLoopLagMs: 10000, heapUsedMb: 99, heapLimitMb: 100 },
+      executor: {
+        pool: { waitingTasks: 200, workers: [] }, maxHeapRatio: 0.99,
+        p99TaskMs: 10000, p99QueueWaitMs: 10000, rotationsTotal: 20,
+      },
+      queues: { flow: { waiting: 2000, failed: 0 }, websocket: { waiting: 2000, failed: 0 } },
+      db: { pool: { pending: 200 } },
+      app: { database: { totalSlow: 200 }, flows: { rows: [] } },
+    };
+    expect(Object.values((service as any).evaluateHealth(metrics))).toEqual(
+      Array.from({ length: 5 }, () => ({ severity: 'ok', messages: [] })),
+    );
+    metrics.app.database = { totalSlow: 200, totalErrors: 1, totalPoolAcquireTimeouts: 2 } as any;
+    const health = (service as any).evaluateHealth(metrics);
+    expect(health.database).toEqual({
+      severity: 'error', messages: ['2 DB pool acquire timeouts.', '1 DB query error.'],
+    });
+  });
+
+  it('samples each instance every two seconds without duplicating its timer', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const receivedAt: number[] = [];
+    const service = makeService({
+      dynamicWebSocketGateway: { emitToNamespaceRoom: vi.fn() },
+      runtimeProcessMetricsService: {
+        enable: vi.fn(),
+        resetAverages: vi.fn().mockResolvedValue(undefined),
+        resetEventLoop: vi.fn(),
+        onDestroy: vi.fn().mockResolvedValue(undefined),
+      },
+      runtimeMetricsCollectorService: {
+        onDestroy: vi.fn().mockResolvedValue(undefined),
+      },
+      clusterTelemetryService: {
+        publish: vi.fn(() => { receivedAt.push(Date.now()); }),
+        clearCurrentInstance: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+    vi.spyOn(service, 'getSnapshot').mockResolvedValue({ sampledAt: 'now' });
+    vi.spyOn(service, 'emitRedisOverview').mockResolvedValue();
+
+    try {
+      service.start();
+      service.start();
+      await vi.advanceTimersByTimeAsync(6000);
+
+      expect(receivedAt).toEqual([0, 2000, 4000, 6000]);
+    } finally {
+      await service.onDestroy();
+      vi.useRealTimers();
+    }
+  });
+
+  it('retains independent instance samples without broadcasting them to clients', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const receivedAt: number[] = [];
+    const services = ['a', 'b'].map((id) => {
+      const service = makeService({
+        dynamicWebSocketGateway: {
+          emitToNamespaceRoom: vi.fn(),
+        },
+        runtimeProcessMetricsService: {
+          enable: vi.fn(),
+          resetAverages: vi.fn().mockResolvedValue(undefined),
+          resetEventLoop: vi.fn(),
+          onDestroy: vi.fn().mockResolvedValue(undefined),
+        },
+        runtimeMetricsCollectorService: {
+          onDestroy: vi.fn().mockResolvedValue(undefined),
+        },
+        clusterTelemetryService: {
+          publish: vi.fn(() => { receivedAt.push(Date.now()); }),
+          clearCurrentInstance: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+      vi.spyOn(service, 'getSnapshot').mockResolvedValue({
+        sampledAt: 'now',
+        instance: { id },
+      } as any);
+      vi.spyOn(service, 'emitRedisOverview').mockResolvedValue();
+      return service;
+    });
+
+    try {
+      services[0].start();
+      await vi.advanceTimersByTimeAsync(1000);
+      services[1].start();
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(receivedAt).toEqual([0, 1000, 2000, 3000, 4000, 5000, 6000]);
+    } finally {
+      await Promise.all(services.map((service) => service.onDestroy()));
+      vi.useRealTimers();
+    }
+  });
+
+  it('publishes runtime snapshots to expiring cluster telemetry instead of sockets', async () => {
     const dynamicWebSocketGateway = {
       emitToNamespaceRoom: vi.fn(),
     };
+    const publish = vi.fn().mockResolvedValue(undefined);
     const service = makeService({
       dynamicWebSocketGateway,
+      clusterTelemetryService: { publish },
       runtimeProcessMetricsService: { resetEventLoop: vi.fn() },
     });
     vi.spyOn(service, 'getSnapshot').mockResolvedValue({ sampledAt: 'now' });
@@ -42,12 +145,27 @@ describe('RuntimeMonitorService', () => {
 
     await (service as any).emitSample();
 
-    expect(dynamicWebSocketGateway.emitToNamespaceRoom).toHaveBeenCalledWith(
-      '/enfyra-admin',
-      '$system:root-admin',
-      '$system:runtime:metrics',
+    expect(dynamicWebSocketGateway.emitToNamespaceRoom).not.toHaveBeenCalled();
+    expect(publish).toHaveBeenCalledWith(
+      'runtime-monitor:metrics',
       { sampledAt: 'now' },
+      { sampledAt: 'now', ttlMs: 10000 },
     );
+  });
+
+  it('returns every active instance in one cluster snapshot without collecting another sample', async () => {
+    const instances = [
+      { instanceId: 'a', payload: { instance: { id: 'a' } } },
+      { instanceId: 'b', payload: { instance: { id: 'b' } } },
+    ];
+    const readCluster = vi.fn().mockResolvedValue({ ttlMs: 10000, instances });
+    const service = makeService({ clusterTelemetryService: { readCluster } });
+    const getSnapshot = vi.spyOn(service, 'getSnapshot');
+    expect(await service.getClusterSnapshot()).toEqual({
+      intervalMs: 2000, instances: instances.map((item) => item.payload),
+    });
+    expect(readCluster).toHaveBeenCalledWith('runtime-monitor:metrics', { ttlMs: 10000 });
+    expect(getSnapshot).not.toHaveBeenCalled();
   });
 
   it('captures app telemetry through ClusterTelemetryService', async () => {

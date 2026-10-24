@@ -84,8 +84,8 @@ export abstract class BaseTableProcessor {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const uniques = getUniqueFields(tableName);
 
-    if (uniques.length > 0) {
-      const fields = uniques[0];
+    const fields = uniques[0];
+    if (fields !== undefined) {
       const where: any = {};
       for (const field of fields) {
         const relations = getManyToOneRelations(tableName);

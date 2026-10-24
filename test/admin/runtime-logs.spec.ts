@@ -17,6 +17,33 @@ describe('database runtime logs', () => {
     expect(JSON.stringify(event)).not.toContain('private');
     expect(sanitizeRuntimeLog(detail)).toHaveProperty('self', '[Circular]');
   });
+  it('normalizes unknown metadata without treating malformed status or event data as typed values', () => {
+    recordSystemError('Failure', { statusCode: '500', data: null, sourceId: 42 });
+    recordSystemError('Failure', { statusCode: 503, data: { event: 'worker_failure' } });
+    const [malformed, valid] = peekRuntimeLogs();
+    expect(malformed.record.statusCode).toBeNull();
+    expect(malformed.record.code).toBe('SYSTEM_ERROR');
+    expect(malformed.record.sourceId).toBe('42');
+    expect(valid.record.statusCode).toBe(503);
+    expect(valid.record.code).toBe('worker_failure');
+    expect(sanitizeRuntimeLog(Object.assign(new Error('private failure'), { code: 403 }))).toHaveProperty('code', 403);
+  });
+  it('acknowledges each buffered record once without losing byte accounting', () => {
+    recordSystemError('first');
+    recordSystemError('second');
+    const [first] = peekRuntimeLogs();
+    if (!first) throw new Error('Missing buffered record');
+    const initial = getRuntimeLogBufferStats();
+    acknowledgeRuntimeLog(first.record.eventId);
+    const acknowledged = getRuntimeLogBufferStats();
+    expect(acknowledged.pending).toBe(initial.pending - 1);
+    expect(acknowledged.bytes).toBe(initial.bytes - first.bytes);
+    acknowledgeRuntimeLog(first.record.eventId);
+    expect(getRuntimeLogBufferStats()).toEqual(acknowledged);
+    clear();
+    expect(getRuntimeLogBufferStats().bytes).toBe(0);
+  });
+
   it('bounds user entries and queue memory', () => {
     recordUserLog(Array.from({ length: 300 }, () => 'x'.repeat(9000)));
     const [event] = peekRuntimeLogs();
@@ -52,6 +79,55 @@ describe('database runtime logs', () => {
     await writer.flush(); expect(updateOne).not.toHaveBeenCalled(); expect(peekRuntimeLogs()).toHaveLength(1);
     await writer.flush(); expect(peekRuntimeLogs()).toHaveLength(0);
     expect(updateOne).toHaveBeenCalledWith(expect.objectContaining({ eventId: expect.any(String) }), expect.objectContaining({ $setOnInsert: expect.objectContaining({ entries: ['one'] }) }), { upsert: true, maxTimeMS: 2000 });
+  });
+
+  it('prunes enfyra_audit records older than 30 days alongside runtime log tables', async () => {
+    const deletedByTable: Record<string, Array<string | number>> = {};
+    const whereColumns: Record<string, string> = {};
+    const knex = Object.assign(
+      vi.fn((table: string) => ({
+        where: vi.fn((column: string) => {
+          whereColumns[table] = column;
+          return {
+            select: vi.fn(() => ({
+              limit: vi.fn(() => ({
+                timeout: vi.fn(async () =>
+                  table === 'enfyra_audit' ? [{ id: 77 }] : [],
+                ),
+              })),
+            })),
+          };
+        }),
+        whereIn: vi.fn((_column: string, ids: Array<string | number>) => ({
+          delete: vi.fn(() => ({
+            timeout: vi.fn(async () => {
+              deletedByTable[table] = ids;
+              return ids.length;
+            }),
+          })),
+        })),
+      })),
+      {
+        schema: {
+          hasTable: vi.fn(async () => true),
+        },
+      },
+    );
+    const writer = new RuntimeLogWriterService({
+      databaseConfigService: { isMongoDb: () => false },
+      knexService: { getUnscopedWriteKnex: () => knex },
+      mongoService: {},
+      instanceService: {},
+    } as any);
+
+    await writer.flush();
+
+    expect(whereColumns).toEqual({
+      enfyra_system_error: 'occurredAt',
+      enfyra_user_log: 'occurredAt',
+      enfyra_audit: 'createdAt',
+    });
+    expect(deletedByTable).toEqual({ enfyra_audit: [77] });
   });
 });
 

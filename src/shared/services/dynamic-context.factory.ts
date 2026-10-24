@@ -1,16 +1,19 @@
 import { recordUserLog } from '../runtime-log-buffer';
+import { recordDynamicDeliveryStage } from '../../modules/dynamic-api/utils/dynamic-delivery-diagnostics.util';
 import * as jwt from 'jsonwebtoken';
 import { getIoAbortSignal } from '@enfyra/kernel';
+import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
-import type { TDynamicContext } from '../types';
-import type { BcryptService } from '../../domain/auth';
-import type { ApiTokenService } from '../../domain/auth';
+import type { DynamicRequestContext, TDynamicContext } from '../types/dynamic-context.types';
+import type { ApiTokenService, BcryptService } from '../../domain/auth';
 import type { RedisCacheService } from '../../engines/cache';
 import { createCryptoHelper, createFetchHelper } from '../helpers';
 import type { UploadFileHelper } from '../helpers/upload-file.helper';
 import { autoSlug } from '../utils/auto-slug.helper';
 import { ScriptErrorFactory } from '../utils/script-error-factory';
-import { runWithDeferredDynamicTransactionEffects } from '../utils/dynamic-transaction-effects.util';
+import { bindDynamicTransactionEffects, runWithDeferredDynamicTransactionEffects } from '../utils/dynamic-transaction-effects.util';
+import { runWithDynamicTransactionScope } from '../utils/dynamic-transaction-scope.util';
+import type { DynamicTransactionScopeRunner } from '../types/dynamic-transaction.types';
 import type { EnvService } from './env.service';
 import type { DatabaseConfigService } from './database-config.service';
 import type { KnexService } from '../../engines/knex/knex.service';
@@ -20,7 +23,7 @@ import {
   type WebsocketContextFactory,
 } from '../../modules/websocket';
 
-type JwtExpiresIn = jwt.SignOptions['expiresIn'];
+type JwtExpiresIn = NonNullable<jwt.SignOptions['expiresIn']>;
 
 type DynamicContextOptions = {
   body?: any;
@@ -79,7 +82,9 @@ export class DynamicContextFactory {
     this.knexService = deps.knexService;
     this.mongoService = deps.mongoService;
     this.websocketContextFactory = deps.websocketContextFactory;
-    this.uploadFileHelper = deps.uploadFileHelper;
+    if (deps.uploadFileHelper !== undefined) {
+      this.uploadFileHelper = deps.uploadFileHelper;
+    }
   }
 
   createBase(options: DynamicContextOptions = {}): TDynamicContext {
@@ -100,12 +105,14 @@ export class DynamicContextFactory {
       $env: this.createEnvSnapshot(),
       $user: options.user ?? null,
       $repos: options.repos ?? {},
-      $req: options.req,
+      ...(options.req !== undefined ? { $req: options.req } : {}),
       $share: options.share ?? { $logs: [] },
-      $socket: options.socket,
-      $storage: options.storage,
-      $api: options.apiRequest ? { request: options.apiRequest } : undefined,
-      $uploadedFile: options.uploadedFile,
+      ...(options.socket !== undefined ? { $socket: options.socket } : {}),
+      ...(options.storage !== undefined ? { $storage: options.storage } : {}),
+      ...(options.apiRequest ? { $api: { request: options.apiRequest } } : {}),
+      ...(options.uploadedFile !== undefined
+        ? { $uploadedFile: options.uploadedFile }
+        : {}),
     };
 
     if (!ctx.$storage && this.uploadFileHelper) {
@@ -143,23 +150,23 @@ export class DynamicContextFactory {
 
         active = true;
         try {
+          let runInTransaction: DynamicTransactionScopeRunner = (work) => work();
           return await runWithDeferredDynamicTransactionEffects(
             ctx,
-            async () => {
+            () => this.runWithTransactionRepos(ctx, callback, runInTransaction),
+            async (attempt) => {
               if (this.databaseConfigService.isMongoDb()) {
-                const result = await this.mongoService.runInSaga((scope) =>
-                  this.runWithTransactionRepos(ctx, callback, (work) =>
-                    this.mongoService.runWithTransactionScope(scope, work),
-                  ),
-                );
+                const result = await this.mongoService.runInSaga((scope) => {
+                  runInTransaction = (work) => this.mongoService.runWithTransactionScope(scope, work);
+                  return attempt();
+                });
                 return result.data as T;
               }
 
-              return await this.knexService.transaction((trx) =>
-                this.runWithTransactionRepos(ctx, callback, (work) =>
-                  this.knexService.runWithTransaction(trx, work),
-                ),
-              );
+              return await this.knexService.transaction((trx) => {
+                runInTransaction = (work) => this.knexService.runWithTransaction(trx, work);
+                return attempt();
+              });
             },
           );
         } finally {
@@ -175,6 +182,8 @@ export class DynamicContextFactory {
     runInTransaction: <R>(work: () => Promise<R>) => Promise<R>,
   ): Promise<T> {
     const originalRepos = ctx.$repos;
+    const originalStorage = ctx.$storage;
+    const runWithEffects = bindDynamicTransactionEffects(ctx);
     const wrapped = new WeakMap<object, object>();
     const wrap = (target: any): any => {
       if (
@@ -190,7 +199,7 @@ export class DynamicContextFactory {
           const member = Reflect.get(value, property, receiver);
           if (typeof member === 'function') {
             return (...args: any[]) =>
-              runInTransaction(() => member.apply(value, args));
+              runInTransaction(() => runWithDynamicTransactionScope(ctx, () => runWithEffects(() => member.apply(value, args))));
           }
           return wrap(member);
         },
@@ -200,10 +209,13 @@ export class DynamicContextFactory {
     };
 
     ctx.$repos = wrap(originalRepos);
+    if (originalStorage !== undefined) ctx.$storage = wrap(originalStorage);
     try {
       return await this.runWithAbort(callback);
     } finally {
       ctx.$repos = originalRepos;
+      if (originalStorage === undefined) delete ctx.$storage;
+      else ctx.$storage = originalStorage;
     }
   }
 
@@ -233,8 +245,8 @@ export class DynamicContextFactory {
     });
   }
 
-  private createEnvSnapshot(): TDynamicContext['$env'] {
-    const out: TDynamicContext['$env'] = {};
+  private createEnvSnapshot(): NonNullable<TDynamicContext['$env']> {
+    const out: NonNullable<TDynamicContext['$env']> = {};
     for (const [key, value] of Object.entries(process.env)) {
       if (ENV_EXPOSE_DENY_KEYS.has(key)) continue;
       out[key] = value;
@@ -283,25 +295,24 @@ export class DynamicContextFactory {
   private createCacheFacade(
     cache: NonNullable<TDynamicContext['$cache']>,
   ): TDynamicContext['$cache'] {
-    return {
-      acquire: cache.acquire
-        ? (key, value, ttlMs) => cache.acquire!(key, value, ttlMs)
-        : undefined,
-      release: cache.release
-        ? (key, value) => cache.release!(key, value)
-        : undefined,
-      get: cache.get ? (key) => cache.get!(key) : undefined,
-      set: cache.set
-        ? (key, value, ttlMs) => cache.set!(key, value, ttlMs)
-        : undefined,
-      exists: cache.exists
-        ? (key, value) => cache.exists!(key, value)
-        : undefined,
-      deleteKey: cache.deleteKey ? (key) => cache.deleteKey!(key) : undefined,
-      setNoExpire: cache.setNoExpire
-        ? (key, value) => cache.setNoExpire!(key, value)
-        : undefined,
-    };
+    const { acquire, release, get, set, exists, deleteKey, setNoExpire } = cache;
+    const facade: TDynamicContext['$cache'] = {};
+    if (acquire) {
+      facade.acquire = (key, value, ttlMs) => acquire.call(cache, key, value, ttlMs);
+    }
+    if (release) {
+      facade.release = (key, value) => release.call(cache, key, value);
+    }
+    if (get) facade.get = (key) => get.call(cache, key);
+    if (set) {
+      facade.set = (key, value, ttlMs) => set.call(cache, key, value, ttlMs);
+    }
+    if (exists) facade.exists = (key, value) => exists.call(cache, key, value);
+    if (deleteKey) facade.deleteKey = (key) => deleteKey.call(cache, key);
+    if (setNoExpire) {
+      facade.setNoExpire = (key, value) => setNoExpire.call(cache, key, value);
+    }
+    return facade;
   }
 
   createHttp(req: any, options: { params: any; realClientIP: string }) {
@@ -309,6 +320,8 @@ export class DynamicContextFactory {
       body: req.routeData?.context?.$body || req.body || {},
       debug: req._debug || undefined,
       helpers: {
+        $delivery: (stage, fields) =>
+          recordDynamicDeliveryStage(req, stage, fields),
         $jwt: (payload: any, exp: string) =>
           jwt.sign(payload, this.envService.get('SECRET_KEY'), {
             expiresIn: exp as JwtExpiresIn,
@@ -336,12 +349,14 @@ export class DynamicContextFactory {
         path: req.path,
         originalUrl: req.originalUrl,
         rawBody: req.rawBody,
-      } as any,
+      },
       socket: this.websocketContextFactory.createGlobalProxy(),
       apiRequest: {
         method: req.method,
         url: req.url,
         timestamp: new Date().toISOString(),
+        executionId: randomUUID(),
+        deliveryDiagnostics: true,
         correlationId:
           (req.headers['x-correlation-id'] as string) ||
           this.generateCorrelationId(),
@@ -352,7 +367,7 @@ export class DynamicContextFactory {
   }
 
   createGraphql(options: {
-    request?: any;
+    request?: DynamicRequestContext;
     user?: any;
     body?: any;
     params?: any;
@@ -372,10 +387,10 @@ export class DynamicContextFactory {
       helpers: {
         $jwt: signJwt,
         jwt: signJwt,
-      } as any,
+      },
       socket: this.websocketContextFactory.createGlobalProxy(),
     });
-    (ctx as any).$args = options.args || {};
+    ctx.$args = options.args || {};
     return ctx;
   }
 
@@ -388,7 +403,7 @@ export class DynamicContextFactory {
     return this.createBase({
       body: options.payload || {},
       user: options.user ?? null,
-      share: options.share,
+      ...(options.share !== undefined ? { share: options.share } : {}),
       socket:
         options.socket ?? this.websocketContextFactory.createGlobalProxy(),
     });
@@ -403,7 +418,7 @@ export class DynamicContextFactory {
     return this.createFlow({
       payload: options.payload,
       user: options.user,
-      share: options.share,
+      ...(options.share !== undefined ? { share: options.share } : {}),
       socket: this.websocketContextFactory.createCaptureProxy(options.emitted),
     });
   }
@@ -415,7 +430,7 @@ export class DynamicContextFactory {
     data?: any;
     user?: any;
     socket: TDynamicContext['$socket'];
-    headers?: any;
+    headers?: DynamicRequestContext['headers'];
     ip?: string | null;
     apiUrl?: string;
   }) {
@@ -430,13 +445,13 @@ export class DynamicContextFactory {
         ip: options.ip ?? null,
         headers: options.headers ?? {},
         user: options.user ?? null,
-      } as any,
+      },
       socket: options.socket,
       apiRequest: {
         method: options.method,
         url: options.apiUrl ?? options.url,
         timestamp: new Date().toISOString(),
-        ip: options.ip ?? undefined,
+        ...(options.ip != null ? { ip: options.ip } : {}),
       },
     });
   }
@@ -488,7 +503,7 @@ export class DynamicContextFactory {
     url: string;
     body?: any;
     user?: any;
-    headers?: any;
+    headers?: DynamicRequestContext['headers'];
     socket: TDynamicContext['$socket'];
     correlationId: string;
   }) {
@@ -517,7 +532,7 @@ export class DynamicContextFactory {
     url: string;
     body?: any;
     user?: any;
-    headers?: any;
+    headers?: DynamicRequestContext['headers'];
     correlationId: string;
   }) {
     const emitted: SocketEmitCapture = [];

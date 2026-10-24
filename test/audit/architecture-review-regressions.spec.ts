@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Knex } from 'knex';
 import { MySqlBootstrapSnapshotService } from '../../src/engines/bootstrap/services/mysql-bootstrap-snapshot.service';
-import { MongoSchemaHealingService } from '../../src/engines/bootstrap/services/schema-healing/mongo-schema-healing.service';
 
 describe('architecture audit: durable MySQL restore contracts', () => {
   it('captures writable expression-default columns while excluding computed columns', async () => {
@@ -158,80 +157,4 @@ describe('architecture audit: durable MySQL restore contracts', () => {
     );
     expect(statements).toContain('SET FOREIGN_KEY_CHECKS = 1');
   });
-});
-
-describe('architecture audit: Mongo junction conflict preflight', () => {
-  it.each([false, true])(
-    'preserves a legacy collection when old/new edge values conflict (conflict=%s)',
-    async (conflicting) => {
-      const row = {
-        oldSource: 'user-A',
-        sourceId: conflicting ? 'user-B' : 'user-A',
-        oldTarget: 'role-A',
-        targetId: 'role-A',
-      };
-      const cursor = () => {
-        return {
-          async *[Symbol.asyncIterator]() {
-            yield row;
-          },
-        };
-      };
-      const drop = vi.fn(async () => true);
-      const upsert = vi.fn(async () => ({ upsertedCount: 1 }));
-      const source = {
-        find: cursor,
-        drop,
-      };
-      const target = {
-        updateOne: upsert,
-        updateMany: vi.fn(async () => ({ modifiedCount: 0 })),
-        createIndex: vi.fn(async () => 'index'),
-        find: () => ({
-          async *[Symbol.asyncIterator]() {},
-        }),
-      };
-      const db = {
-        listCollections: () => ({ toArray: async () => [{}] }),
-        collection: (name: string) =>
-          name === 'audit_legacy' ? source : target,
-      };
-      const service = new MongoSchemaHealingService({
-        log: () => undefined,
-      } as never);
-      const boundary = service as unknown as {
-        ensureMongoJunctionCollection(
-          db: unknown,
-          input: unknown,
-        ): Promise<void>;
-      };
-      const result = boundary.ensureMongoJunctionCollection(db, {
-        oldJunctionTableName: 'audit_legacy',
-        oldJunctionSourceColumn: 'oldSource',
-        oldJunctionTargetColumn: 'oldTarget',
-        junctionTableName: 'audit_canonical',
-        junctionSourceColumn: 'sourceId',
-        junctionTargetColumn: 'targetId',
-      });
-      if (conflicting) {
-        const error = await result.then(
-          () => null,
-          (value: unknown) => value,
-        );
-        expect({
-          rejected: error instanceof Error,
-          dropped: drop.mock.calls.length,
-          copied: upsert.mock.calls.length,
-        }).toEqual({
-          rejected: true,
-          dropped: 0,
-          copied: 0,
-        });
-      } else {
-        await result;
-        expect(upsert).toHaveBeenCalledOnce();
-        expect(drop).toHaveBeenCalledOnce();
-      }
-    },
-  );
 });

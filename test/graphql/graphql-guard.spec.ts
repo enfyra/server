@@ -87,6 +87,12 @@ function makeResolver(
     guardCacheBuilder,
     guardEvaluatorService,
     guardAlertService,
+    mutationBodyValidationService: {
+      validate: vi.fn(async ({ body }: { body: any }) => ({
+        body,
+        changed: false,
+      })),
+    },
   } as any);
 
   return {

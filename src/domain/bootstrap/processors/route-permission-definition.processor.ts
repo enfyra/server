@@ -10,7 +10,7 @@ export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
     this.queryBuilderService = deps.queryBuilderService;
   }
 
-  async transformRecords(records: any[], _context?: any): Promise<any[]> {
+  override async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = await mapSequentially(
       records,
@@ -41,7 +41,7 @@ export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
     return this.autoGetUniqueIdentifier(record, 'enfyra_route_permission');
   }
 
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     return ['isEnabled', 'isSystem'];
   }
 }

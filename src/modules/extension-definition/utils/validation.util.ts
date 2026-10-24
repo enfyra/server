@@ -1,3 +1,4 @@
+import { Script } from 'node:vm';
 import { BadRequestException } from '../../../domain/exceptions';
 
 const SFC_TAGS = ['template', 'script', 'style'] as const;
@@ -178,35 +179,12 @@ export function assertValidVueSFC(content: string): void {
 }
 
 export function assertValidJsBundleSyntax(code: string): void {
-  const brackets = { '(': 0, ')': 0, '{': 0, '}': 0, '[': 0, ']': 0 };
-
-  for (const char of code) {
-    if (char in brackets) {
-      brackets[char as keyof typeof brackets]++;
-    }
+  try {
+    new Script(code);
+  } catch {
+    throw new BadRequestException('Invalid classic-script JS bundle. Compile module source to a browser global or submit Vue SFC source.');
   }
-
-  if (
-    brackets['('] !== brackets[')'] ||
-    brackets['{'] !== brackets['}'] ||
-    brackets['['] !== brackets[']']
-  ) {
-    throw new BadRequestException('Invalid JS syntax: unbalanced brackets');
-  }
-
-  if (
-    !code.includes('export') &&
-    !code.includes('module.exports') &&
-    !code.includes('window.')
-  ) {
-    throw new BadRequestException(
-      'Invalid JS bundle: must have export statement or module.exports',
-    );
-  }
-
-  if (code.includes('function(') && !code.includes(')')) {
-    throw new BadRequestException(
-      'Invalid JS syntax: incomplete function declaration',
-    );
+  if (!/\b(?:window|globalThis)\s*(?:\.|\[)/.test(code)) {
+    throw new BadRequestException('A classic-script extension bundle must export a browser global. Submit Vue SFC source for compilation.');
   }
 }

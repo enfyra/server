@@ -218,6 +218,7 @@ describe('FileAssetAccessService', () => {
     expect(permissionQuery.fields).toEqual([
       '_id',
       'isEnabled',
+      'actions',
       'file._id',
       'role._id',
       'role.name',

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MeService } from '../../src/modules/me/services/me.service';
+import { PolicyService } from '../../src/domain/policy/policy.service';
 
 describe('MeService', () => {
   it('creates an enforced repo context for built-in /me reads without dynamic routeData', async () => {
@@ -94,7 +95,7 @@ describe('MeService', () => {
       } as any,
       policyService: policyService as any,
       runtimeRegistryService: {
-        getRoutes: vi.fn(() => [{ path: '/enfyra_user', routePermissions: [] }]),
+        getRoutes: vi.fn(() => [{ path: '/enfyra_user', methodConfigs: [{ available: true, method: 'PATCH', routePermissions: [] }] }]),
         requireTableMetadata: vi.fn(() => ({
           relations: [
             { propertyName: 'role' },
@@ -151,7 +152,7 @@ describe('MeService', () => {
         checkRequestAccess: vi.fn(() => ({ allow: true })),
       } as any,
       runtimeRegistryService: {
-        getRoutes: vi.fn(() => [{ path: '/enfyra_user', routePermissions: [] }]),
+        getRoutes: vi.fn(() => [{ path: '/enfyra_user', methodConfigs: [{ available: true, method: 'PATCH', routePermissions: [] }] }]),
         requireTableMetadata: vi.fn(),
       } as any,
     });
@@ -163,6 +164,21 @@ describe('MeService', () => {
       id: 'user-1',
       data: { fullName: 'Admin', role: { id: 1 } },
     });
+  });
+
+  it.each([true, false])('projects the available PATCH operation with enabled=%s for self-update relation authority', async enabled => {
+    const userRepo = { update: vi.fn(async (options: any) => options) };
+    const service = new MeService({
+      dynamicContextFactory: { createHttp: () => ({}) } as any,
+      repoRegistryService: { createReposProxy: () => ({ secure: { enfyra_user: userRepo } }) } as any,
+      policyService: new PolicyService({} as any),
+      runtimeRegistryService: {
+        getRoutes: () => [{ path: '/enfyra_user', methodConfigs: [{ available: enabled, method: { name: 'PATCH' }, routePermissions: [{ isEnabled: true, role: { id: 'manager' } }] }] }],
+        requireTableMetadata: () => ({ relations: [{ propertyName: 'roles' }] }),
+      } as any,
+    });
+    await service.update({ fullName: 'Self', roles: [{ id: 'member' }] }, { user: { id: 'user-1', roles: [{ id: 'manager' }] } } as any);
+    expect(userRepo.update).toHaveBeenCalledWith({ id: 'user-1', data: enabled ? { fullName: 'Self', roles: [{ id: 'member' }] } : { fullName: 'Self' } });
   });
 
   it('keeps user relations for a root administrator without route permission lookup', async () => {

@@ -74,8 +74,8 @@ export class SchemaHealingService {
       ? await this.mongoHealing.repairMongoRelationPhysicalMappings()
       : await this.sqlHealing.repairSqlRelationPhysicalMappings();
     const junctionContractRepairCount = isMongoDB
-      ? await this.mongoHealing.healMongoJunctionContracts(snapshot)
-      : await this.sqlHealing.healSqlJunctionContracts(snapshot);
+      ? await this.mongoHealing.healMongoJunctionContracts()
+      : await this.sqlHealing.healSqlJunctionContracts();
 
     if (relationPhysicalMappingRepairCount > 0) {
       this.logger.log(
@@ -105,6 +105,9 @@ export class SchemaHealingService {
     const sqlMetadataEnumRepairCount = isMongoDB
       ? 0
       : await this.sqlHealing.repairSqlMetadataEnumColumns();
+    const sqlJsonStorageRepairCount = isMongoDB
+      ? 0
+      : await this.sqlHealing.repairSqlJsonColumns();
     const sqlTemporalRepairCount = isMongoDB
       ? 0
       : await this.sqlHealing.repairSqlTemporalColumns(snapshot);
@@ -132,6 +135,11 @@ export class SchemaHealingService {
     if (sqlMetadataEnumRepairCount > 0) {
       this.logger.log(
         `Repaired SQL metadata-backed enum columns on ${sqlMetadataEnumRepairCount} column(s)`,
+      );
+    }
+    if (sqlJsonStorageRepairCount > 0) {
+      this.logger.log(
+        `Promoted SQL JSON columns to large-text storage on ${sqlJsonStorageRepairCount} column(s)`,
       );
     }
     if (sqlTemporalRepairCount > 0) {

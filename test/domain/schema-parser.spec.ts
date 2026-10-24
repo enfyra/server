@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { parseSnapshotToSchema } from '../../src/engines/knex/utils/provision/schema-parser';
+import { getKnexColumnType, parseSnapshotToSchema } from '../../src/engines/knex/utils/provision/schema-parser';
 
 describe('snapshot schema parser', () => {
+  it('maps semantic JSON to large-text SQL storage', () => {
+    expect(getKnexColumnType({ name: 'payload', type: 'simple-json' } as never)).toBe('longtext');
+  });
   it('does not mutate snapshot relations while generating inverse metadata', () => {
     const snapshot = {
       routes: {

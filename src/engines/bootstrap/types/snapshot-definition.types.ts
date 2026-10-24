@@ -45,9 +45,6 @@ export interface SnapshotRelationDefinition {
   foreignKeyColumn?: string;
   referencedColumn?: string;
   constraintName?: string;
-  junctionTableName?: string;
-  junctionSourceColumn?: string;
-  junctionTargetColumn?: string;
   metadata?: unknown;
 }
 
@@ -72,10 +69,4 @@ export interface SnapshotTableOptions {
   alias?: string;
   metadata?: unknown;
   validateBody?: boolean;
-}
-
-export interface SnapshotJunctionOptions {
-  table: string;
-  source: string;
-  target: string;
 }

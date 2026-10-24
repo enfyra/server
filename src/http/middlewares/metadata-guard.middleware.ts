@@ -1,4 +1,5 @@
-import { Response, NextFunction } from 'express';
+import type { Response, NextFunction } from 'express';
+import type { RuntimeRequest } from '../types/request-context.types';
 import { GuardBlockedException } from '../../domain/exceptions';
 import {
   GuardCacheBuilder,
@@ -33,7 +34,7 @@ function setRateLimitSnapshotHeaders(
 
 async function runMetadataGuards(
   position: GuardPosition,
-  req: any,
+  req: RuntimeRequest,
   res: Response,
   guardCacheBuilder: GuardCacheBuilder,
   runtimeRegistryService: RuntimeRegistryService,
@@ -117,7 +118,7 @@ export function preAuthMetadataGuard(
   guardEvaluatorService: GuardEvaluatorService,
   guardAlertService: GuardAlertService,
 ) {
-  return async (req: any, res: Response, next: NextFunction) => {
+  return async (req: RuntimeRequest, res: Response, next: NextFunction) => {
     try {
       await runMetadataGuards(
         'pre_auth',
@@ -141,7 +142,7 @@ export function postAuthMetadataGuard(
   guardEvaluatorService: GuardEvaluatorService,
   guardAlertService: GuardAlertService,
 ) {
-  return async (req: any, res: Response, next: NextFunction) => {
+  return async (req: RuntimeRequest, res: Response, next: NextFunction) => {
     try {
       await runMetadataGuards(
         'post_auth',

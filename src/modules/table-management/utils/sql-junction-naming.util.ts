@@ -1,15 +1,22 @@
-import { createHash } from 'crypto';
+import { getJunctionColumnNames, getJunctionTableName } from '@enfyra/kernel';
 
 export function getSqlJunctionPhysicalNames(input: {
   sourceTable: string;
   propertyName: string;
   targetTable: string;
 }) {
-  const seed = `${input.sourceTable}:${input.propertyName}:${input.targetTable}`;
-  const hash = createHash('sha1').update(seed).digest('hex').slice(0, 12);
+  const { sourceColumn, targetColumn } = getJunctionColumnNames(
+    input.sourceTable,
+    input.propertyName,
+    input.targetTable,
+  );
   return {
-    junctionTableName: `j_${hash}`,
-    junctionSourceColumn: 'sourceId',
-    junctionTargetColumn: 'targetId',
+    junctionTableName: getJunctionTableName(
+      input.sourceTable,
+      input.propertyName,
+      input.targetTable,
+    ),
+    junctionSourceColumn: sourceColumn,
+    junctionTargetColumn: targetColumn,
   };
 }

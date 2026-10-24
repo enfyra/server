@@ -9,7 +9,7 @@ describe('UserRevocationService session deletion scope', () => {
   it('publishes revocation when a full user form includes unchanged roles', async () => {
     const postUserRevocation = vi.fn(async () => undefined);
     const router = new TableRouteRouter({ postUserRevocation } as never);
-    await router.getStrategy('enfyra_user').afterUpdateReload!({
+    await router.getStrategy('enfyra_user').afterUpdateCommit!({
       tableName: 'enfyra_user',
       id: 'other-user',
       existing: { name: 'Before', roles: [{ id: 'role-1' }] },

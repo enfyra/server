@@ -2,6 +2,13 @@ import { FirstRunInitializer } from '../../src/engines/bootstrap/services/first-
 import { DatabaseConfigService } from '../../src/shared/services';
 import { getEnfyraVersion } from '../../src/shared/utils/enfyra-version.util';
 
+const offlineQueryBuilder = () => ({
+  getKnex: () => ({
+    schema: { hasTable: async () => false, hasColumn: async () => false },
+  }),
+  getMongoDb: () => null,
+});
+
 describe('FirstRunInitializer', () => {
   const originalLogDisableConsole = process.env.LOG_DISABLE_CONSOLE;
   const originalNoDeprecation = process.noDeprecation;
@@ -155,7 +162,7 @@ describe('FirstRunInitializer', () => {
     const initializer = new FirstRunInitializer({
       bootstrapUnitOfWorkService,
       commonService: { delay: jest.fn() },
-      queryBuilderService: {},
+      queryBuilderService: offlineQueryBuilder(),
       cacheService: {
         acquire: jest.fn(async () => true),
         renew: jest.fn(async () => true),
@@ -269,7 +276,7 @@ describe('FirstRunInitializer', () => {
     const initializer = new FirstRunInitializer({
       bootstrapUnitOfWorkService,
       commonService: { delay: jest.fn() },
-      queryBuilderService: {},
+      queryBuilderService: offlineQueryBuilder(),
       cacheService: {
         acquire,
         release: jest.fn(async () => undefined),
@@ -302,7 +309,7 @@ describe('FirstRunInitializer', () => {
     const initializer = new FirstRunInitializer({
       bootstrapUnitOfWorkService,
       commonService: { delay: jest.fn() },
-      queryBuilderService: {},
+      queryBuilderService: offlineQueryBuilder(),
       cacheService: {
         acquire: jest.fn(async () => false),
         release: jest.fn(async () => undefined),
@@ -334,7 +341,7 @@ describe('FirstRunInitializer', () => {
     const initializer = new FirstRunInitializer({
       bootstrapUnitOfWorkService,
       commonService: { delay: jest.fn(async () => undefined) },
-      queryBuilderService: {},
+      queryBuilderService: offlineQueryBuilder(),
       cacheService: {},
       instanceService: {},
       metadataCacheService: {},
@@ -361,7 +368,7 @@ describe('FirstRunInitializer', () => {
     const initializer = new FirstRunInitializer({
       bootstrapUnitOfWorkService,
       commonService: { delay: jest.fn() },
-      queryBuilderService: {},
+      queryBuilderService: offlineQueryBuilder(),
       cacheService: {
         acquire: jest.fn(async () => true),
         renew: jest.fn(async () => true),
@@ -425,7 +432,7 @@ describe('FirstRunInitializer', () => {
     const initializer = new FirstRunInitializer({
       bootstrapUnitOfWorkService,
       commonService: { delay: jest.fn() },
-      queryBuilderService: {},
+      queryBuilderService: offlineQueryBuilder(),
       cacheService: {
         acquire: jest.fn(async () => true),
         renew: jest.fn(async () => false),

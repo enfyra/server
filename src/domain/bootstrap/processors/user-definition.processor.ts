@@ -20,7 +20,7 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
     this.queryBuilderService = deps.queryBuilderService;
   }
 
-  async transformRecords(records: any[], _context?: any): Promise<any[]> {
+  override async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = await mapSequentially(
       records,
@@ -49,7 +49,7 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
     return transformedRecords;
   }
 
-  async processWithQueryBuilder(
+  override async processWithQueryBuilder(
     records: any[],
     queryBuilder: any,
     tableName: string,
@@ -121,7 +121,7 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
     return { created: createdCount, skipped: skippedCount };
   }
 
-  async processSql(
+  override async processSql(
     _records: any[],
     knex: Knex,
     tableName: string,
@@ -162,7 +162,7 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
     return { created: 1, skipped: 0 };
   }
 
-  async processMongo(
+  override async processMongo(
     _records: any[],
     db: Db,
     collectionName: string,
@@ -202,7 +202,7 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
     return { email: record.email };
   }
 
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     return ['email', 'isRootAdmin', 'isSystem'];
   }
 

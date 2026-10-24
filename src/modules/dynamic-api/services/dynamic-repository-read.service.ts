@@ -1,7 +1,4 @@
-import {
-  QueryBuilderService,
-  validateDeepOptions,
-} from '@enfyra/kernel';
+import { QueryBuilderService, validateDeepOptions } from '@enfyra/kernel';
 import { BadRequestException } from '../../../domain/exceptions';
 import type { TDynamicContext } from '../../../shared/types';
 import {
@@ -25,7 +22,9 @@ function normalizeRequestedFields(
     return trimmed === '' ? undefined : fields;
   }
   if (Array.isArray(fields)) {
-    const values = fields.filter((field) => typeof field === 'string' && field.trim() !== '');
+    const values = fields.filter(
+      (field) => typeof field === 'string' && field.trim() !== '',
+    );
     return values.length === 0 ? undefined : values;
   }
   return fields;
@@ -43,18 +42,25 @@ export class DynamicRepositoryReadService {
     },
   ) {}
 
-  async find(options: DynamicReadOptions = {}) {
+  async find(options: DynamicReadOptions = {}, forUpdate = false) {
     const { context, runtimeRegistryService, tableName } = this.deps;
     runtimeRegistryService.lookupTableByName(tableName);
+    const filter = options.filter ?? context.$query?.filter ?? {};
+    const sort =
+      options.sort ||
+      context.$query?.sort ||
+      this.deps.queryBuilderService.getPkField();
     await this.deps.readAuthorizationService.assertQueryAllowed({
       tableName,
-      context,
+      context: { ...context, $query: { filter, sort } },
       enforceFieldPermission: this.deps.enforceFieldPermission,
     });
 
-    const rawFields = options.fields || context.$query?.fields;
+    const rawFields = normalizeRequestedFields(
+      options.fields || context.$query?.fields,
+    );
     const rawDeep =
-      'deep' in options ? options.deep ?? {} : context.$query?.deep ?? {};
+      'deep' in options ? (options.deep ?? {}) : (context.$query?.deep ?? {});
     const metadata = runtimeRegistryService.requireMetadata();
     const projection = normalizeDynamicReadProjection({
       tableName,
@@ -73,18 +79,18 @@ export class DynamicRepositoryReadService {
       );
     }
 
-    const prepared = await this.deps.readAuthorizationService.stripDeniedFields({
-      tableName,
-      fields: projection.fields,
-      deep: projectedDeep,
-      context,
-      enforceFieldPermission: this.deps.enforceFieldPermission,
-    });
+    const prepared = await this.deps.readAuthorizationService.stripDeniedFields(
+      {
+        tableName,
+        fields: projection.fields,
+        deep: projectedDeep,
+        context,
+        enforceFieldPermission: this.deps.enforceFieldPermission,
+      },
+    );
     const debugMode =
-      context.$query?.debugMode === 'true' || context.$query?.debugMode === true;
-    const filter = options.filter ?? context.$query?.filter ?? {};
-    const sort =
-      options.sort || context.$query?.sort || this.deps.queryBuilderService.getPkField();
+      context.$query?.debugMode === 'true' ||
+      context.$query?.debugMode === true;
     await this.deps.readAuthorizationService.assertEncryptedQueryFieldsAllowed(
       tableName,
       filter,
@@ -93,16 +99,17 @@ export class DynamicRepositoryReadService {
     );
     const result = await this.deps.queryBuilderService.find({
       table: tableName,
-      fields: normalizeRequestedFields(prepared.fields),
+      ...(prepared.fields !== undefined ? { fields: prepared.fields } : {}),
       filter,
-      page: context.$query?.page || 1,
+      page: options.page ?? context.$query?.page ?? 1,
       limit: 'limit' in options ? options.limit : (context.$query?.limit ?? 10),
-      meta: options.meta || context.$query?.meta,
+      meta: forUpdate ? [] : options.meta || context.$query?.meta,
       sort,
       deep: prepared.deep || {},
       debugMode,
       debugTrace: context.$debug || undefined,
       maxQueryDepth: runtimeRegistryService.getMaxQueryDepth(),
+      ...(forUpdate ? { forUpdate: true } : {}),
     });
     if (!prepared.needsPostSql) return result;
 
@@ -116,6 +123,8 @@ export class DynamicRepositoryReadService {
       requested: buildRequestedShapeFromQuery({
         fields: projection.fields,
         deep: projectedDeep,
+        tableName,
+        metadata,
       }),
     });
     return { ...result, data };
@@ -124,20 +133,34 @@ export class DynamicRepositoryReadService {
   async aggregate(aggregate: unknown): Promise<any> {
     const { context, runtimeRegistryService, tableName } = this.deps;
     runtimeRegistryService.lookupTableByName(tableName);
-    await this.deps.readAuthorizationService.assertQueryAllowed({
-      tableName,
-      context,
-      enforceFieldPermission: this.deps.enforceFieldPermission,
-    });
-    const metadata = runtimeRegistryService.requireMetadata();
+    runtimeRegistryService.requireMetadata();
     const filter =
-      aggregate && typeof aggregate === 'object' && !Array.isArray(aggregate) && 'filter' in aggregate
+      aggregate &&
+      typeof aggregate === 'object' &&
+      !Array.isArray(aggregate) &&
+      'filter' in aggregate
         ? (aggregate as Record<string, unknown>).filter
         : undefined;
     const sort =
-      aggregate && typeof aggregate === 'object' && !Array.isArray(aggregate) && 'sort' in aggregate
+      aggregate &&
+      typeof aggregate === 'object' &&
+      !Array.isArray(aggregate) &&
+      'sort' in aggregate
         ? (aggregate as Record<string, unknown>).sort
         : undefined;
+    const sortTokens = Array.isArray(sort)
+      ? sort
+          .map(
+            (item: any) =>
+              `${item.direction === 'desc' ? '-' : ''}${item.field}`,
+          )
+          .join(',')
+      : undefined;
+    await this.deps.readAuthorizationService.assertQueryAllowed({
+      tableName,
+      context: { ...context, $query: { filter, sort: sortTokens } },
+      enforceFieldPermission: this.deps.enforceFieldPermission,
+    });
     await this.deps.readAuthorizationService.assertAggregateFieldsAllowed(
       tableName,
       aggregate,
@@ -147,16 +170,15 @@ export class DynamicRepositoryReadService {
     await this.deps.readAuthorizationService.assertEncryptedQueryFieldsAllowed(
       tableName,
       filter,
-      Array.isArray(sort)
-        ? sort.map((item: any) => `${item.direction === 'desc' ? '-' : ''}${item.field}`).join(',')
-        : undefined,
+      sortTokens,
       {},
     );
     const result = await this.deps.queryBuilderService.aggregate({
       table: tableName,
       aggregate: aggregate as any,
       debugMode:
-        context.$query?.debugMode === 'true' || context.$query?.debugMode === true,
+        context.$query?.debugMode === 'true' ||
+        context.$query?.debugMode === true,
       debugTrace: context.$debug || undefined,
     });
     if (!this.deps.enforceFieldPermission) return result;
@@ -194,7 +216,9 @@ export class DynamicRepositoryReadService {
       throw new BadRequestException('exists requires a non-empty filter');
     }
     if (this.containsUndefined(filter)) {
-      throw new BadRequestException('exists filter cannot contain undefined values');
+      throw new BadRequestException(
+        'exists filter cannot contain undefined values',
+      );
     }
     if (!this.hasNonEmptyFilter(filter)) {
       throw new BadRequestException('exists requires a non-empty filter');
@@ -220,15 +244,22 @@ export class DynamicRepositoryReadService {
 
   private hasNonEmptyFilter(value: unknown): boolean {
     if (value === undefined || value === null) return false;
-    if (Array.isArray(value)) return value.some((item) => this.hasNonEmptyFilter(item));
+    if (Array.isArray(value))
+      return value.some((item) => this.hasNonEmptyFilter(item));
     if (!this.isPlainObject(value)) return true;
     const keys = Object.keys(value);
-    return keys.length > 0 && keys.some((key) => this.hasNonEmptyFilter(value[key]));
+    return (
+      keys.length > 0 && keys.some((key) => this.hasNonEmptyFilter(value[key]))
+    );
   }
 
   private containsUndefined(value: unknown): boolean {
     if (value === undefined) return true;
-    if (Array.isArray(value)) return value.some((item) => this.containsUndefined(item));
-    return this.isPlainObject(value) && Object.values(value).some((item) => this.containsUndefined(item));
+    if (Array.isArray(value))
+      return value.some((item) => this.containsUndefined(item));
+    return (
+      this.isPlainObject(value) &&
+      Object.values(value).some((item) => this.containsUndefined(item))
+    );
   }
 }

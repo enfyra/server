@@ -72,6 +72,26 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
     });
   }
 
+  it('omits unavailable rollback and statistics fields when transaction acquisition fails', async () => {
+    const failure = new Error('transaction acquisition failed');
+    const callback = jest.fn();
+    const lockService = { beginTransaction: jest.fn().mockRejectedValue(failure) };
+    const service = new MongoSagaCoordinator({
+      mongoService: {} as MongoService,
+      lockService: lockService as unknown as MongoSagaLockService,
+      snapshotService: {} as MongoSagaSnapshotService,
+      instanceService: new InstanceService(),
+    });
+
+    const result = await service.execute(callback);
+
+    expect(lockService.beginTransaction).toHaveBeenCalledWith({});
+    expect(callback).not.toHaveBeenCalled();
+    expect(result).toEqual({ success: false, error: failure, txId: 'unknown' });
+    expect(result).not.toHaveProperty('rollbackResult');
+    expect(result).not.toHaveProperty('stats');
+  });
+
   it('waits and reacquires the recovery barrier during boot', async () => {
     await createModule();
     acquire.mockResolvedValueOnce(false).mockResolvedValueOnce(true);

@@ -52,8 +52,7 @@ export function matchRouteIndexEntry(
     order: number;
   } | null = null;
 
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
+  for (const [i, entry] of entries.entries()) {
     if (!entry.methods.includes(method)) continue;
     for (const candidate of getRouteCandidatePaths(entry, method)) {
       const match = matchRoutePattern(candidate, normalizedPath);
@@ -87,7 +86,7 @@ export function getRouteMethods(route: any): string[] {
 }
 
 export function isRouteMethodAvailable(route: any, method: string): boolean {
-  return getRouteMethods(route).includes(method);
+  return route?.isEnabled !== false && getRouteMethods(route).includes(method);
 }
 
 export function getRouteCandidatePaths(route: any, method: string): string[] {
@@ -115,8 +114,7 @@ export function matchRoutePattern(
   const pathSegments = splitRoutePath(path);
   const params: Record<string, string> = {};
 
-  for (let i = 0; i < patternSegments.length; i++) {
-    const patternSegment = patternSegments[i];
+  for (const [i, patternSegment] of patternSegments.entries()) {
     const pathSegment = pathSegments[i];
     if (patternSegment === '*' || patternSegment.startsWith('*')) {
       params.splat = pathSegments.slice(i).join('/');
@@ -132,7 +130,7 @@ export function matchRoutePattern(
       }
       continue;
     }
-    if (patternSegment !== pathSegment) return null;
+    if (patternSegment.toLowerCase() !== pathSegment.toLowerCase()) return null;
   }
 
   return patternSegments.length === pathSegments.length ? params : null;

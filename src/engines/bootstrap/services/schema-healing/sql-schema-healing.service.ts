@@ -16,11 +16,10 @@ import {
   postgresTemporalUsingExpression,
 } from '../../../knex/utils/provision/postgres-temporal.util';
 import type { SchemaHealingSnapshot } from '../../types/schema-healing.types';
-import {
-  diffJunctionMetadata,
-  getTargetJunctionContract,
-} from '../../utils/schema-healing-junction.util';
+import { diffJunctionMetadata } from '../../utils/schema-healing-junction.util';
+import { getSqlJunctionPhysicalNames } from '../../../../modules/table-management/utils/sql-junction-naming.util';
 import { SystemCoreTableResolver } from '../system-core-table-resolver.service';
+import { SqlJunctionHealingService } from './sql-junction-healing.service';
 
 export class SqlSchemaHealingService {
   private readonly queryBuilderService: QueryBuilderService;
@@ -137,6 +136,81 @@ export class SqlSchemaHealingService {
             isNullable: this.toBoolean(metadata.isNullable),
             defaultValue: this.parseStoredJson(metadata.defaultValue),
           },
+        },
+      });
+    }
+
+    for (const repair of repairs) {
+      await applySqlColumnModifications(
+        knex,
+        repair.tableName,
+        [repair.modification],
+        String(knex.client.config.client),
+      );
+    }
+
+    return repairs.length;
+  }
+
+  /**
+   * Carries every metadata-declared `simple-json` column onto the engine's
+   * large-text storage. Enfyra has one JSON storage shape per SQL backend:
+   * `LONGTEXT` on MySQL, where a `TEXT` column silently caps a payload at 64 KiB,
+   * and `TEXT` on PostgreSQL, where a legacy native `json`/`jsonb` column is not
+   * part of the contract. MongoDB stores native JSON and never reaches this path.
+   * The scan reads metadata rather than the snapshot so user-created tables are
+   * carried forward too, and it is idempotent because a column already at the
+   * target type is skipped.
+   */
+  async repairSqlJsonColumns(): Promise<number> {
+    const knex = this.queryBuilderService.getKnex();
+    if (!knex?.schema?.hasTable) return 0;
+    const dbType = this.queryBuilderService.getDatabaseType?.();
+    if (dbType !== 'mysql' && dbType !== 'postgres') return 0;
+    const targetType = dbType === 'mysql' ? 'longtext' : 'text';
+
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    if (!(await knex.schema.hasTable(coreNames.table))) return 0;
+    if (!(await knex.schema.hasTable(coreNames.column))) return 0;
+
+    const jsonColumns = await knex(`${coreNames.column} as column_def`)
+      .join(
+        `${coreNames.table} as table_def`,
+        'table_def.id',
+        'column_def.tableId',
+      )
+      .where('column_def.type', 'simple-json')
+      .select({
+        tableName: 'table_def.name',
+        columnName: 'column_def.name',
+      });
+    const repairs: Array<{ tableName: string; modification: ColumnModifyDef }> =
+      [];
+
+    for (const metadata of jsonColumns) {
+      const tableName = String(metadata.tableName ?? '');
+      const columnName = String(metadata.columnName ?? '');
+      if (!tableName || !columnName) continue;
+      if (!(await knex.schema.hasTable(tableName))) continue;
+      if (!(await knex.schema.hasColumn(tableName, columnName))) continue;
+
+      const current = await getCurrentDatabaseSchema(knex, tableName);
+      const physical = current.columns.find(
+        (column) => column.name === columnName,
+      );
+      if (!physical) continue;
+      if (String(physical.type ?? '').toLowerCase() === targetType) continue;
+
+      repairs.push({
+        tableName,
+        modification: {
+          from: {
+            name: columnName,
+            type: physical.type,
+            isNullable: physical.isNullable,
+            defaultValue: physical.defaultValue,
+          },
+          to: { name: columnName, type: 'simple-json' },
         },
       });
     }
@@ -300,12 +374,17 @@ export class SqlSchemaHealingService {
     if (row.columnDefault === null || row.columnDefault === undefined) {
       return '';
     }
-    const raw = String(row.columnDefault);
+    const raw = String(row.columnDefault).trim();
+    if (raw.toUpperCase() === 'NULL') return '';
     // `CURRENT_TIMESTAMP` and its synonyms are expressions, not string literals.
     if (/^(CURRENT_TIMESTAMP|NOW\(\)|LOCALTIME|LOCALTIMESTAMP)/i.test(raw)) {
       return ` DEFAULT ${raw}`;
     }
-    return ` DEFAULT '${raw.replace(/'/g, "''")}'`;
+    const value =
+      raw.startsWith("'") && raw.endsWith("'")
+        ? raw.slice(1, -1).replace(/''/g, "'")
+        : raw;
+    return ` DEFAULT '${value.replace(/'/g, "''")}'`;
   }
 
   private parseStoredJson(value: unknown): unknown {
@@ -361,9 +440,7 @@ export class SqlSchemaHealingService {
     return repaired;
   }
 
-  async healSqlJunctionContracts(
-    snapshot: SchemaHealingSnapshot,
-  ): Promise<number> {
+  async healSqlJunctionContracts(): Promise<number> {
     const knex = this.queryBuilderService.getKnex();
     const coreNames = await this.systemCoreTableResolver.getNames();
     const rows = await knex(`${coreNames.relation} as r`)
@@ -398,23 +475,29 @@ export class SqlSchemaHealingService {
         continue;
       }
 
-      const target = getTargetJunctionContract(snapshot, {
+      const target = getSqlJunctionPhysicalNames({
         sourceTable: rel.sourceTableName,
         propertyName: rel.propertyName,
         targetTable: rel.targetTableName,
       });
-      const oldJunctionTableName = rel.junctionTableName || null;
-      await this.ensureSqlJunctionPhysicalTable(knex, {
-        oldJunctionTableName,
-        oldJunctionSourceColumn: rel.junctionSourceColumn || null,
-        oldJunctionTargetColumn: rel.junctionTargetColumn || null,
-        sourceTable: rel.sourceTableName,
-        targetTable: rel.targetTableName,
-        sourcePropertyName: rel.propertyName,
-        junctionTableName: target.junctionTableName,
-        junctionSourceColumn: target.junctionSourceColumn,
-        junctionTargetColumn: target.junctionTargetColumn,
-      });
+      await new SqlJunctionHealingService(this.queryBuilderService).converge(
+        {
+          ...target,
+          sourceTable: rel.sourceTableName,
+          targetTable: rel.targetTableName,
+          propertyName: rel.propertyName,
+          previousTableName: rel.junctionTableName,
+          previousSourceColumn: rel.junctionSourceColumn,
+          previousTargetColumn: rel.junctionTargetColumn,
+        },
+        () =>
+          this.ensureSqlJunctionPhysicalTable(knex, {
+            sourceTable: rel.sourceTableName,
+            targetTable: rel.targetTableName,
+            sourcePropertyName: rel.propertyName,
+            ...target,
+          }),
+      );
 
       const owningUpdate = diffJunctionMetadata(rel, target);
       if (Object.keys(owningUpdate).length > 0) {
@@ -445,9 +528,6 @@ export class SqlSchemaHealingService {
   private async ensureSqlJunctionPhysicalTable(
     knex: Knex,
     input: {
-      oldJunctionTableName: string | null;
-      oldJunctionSourceColumn: string | null;
-      oldJunctionTargetColumn: string | null;
       sourceTable: string;
       targetTable: string;
       sourcePropertyName: string;
@@ -456,50 +536,7 @@ export class SqlSchemaHealingService {
       junctionTargetColumn: string;
     },
   ): Promise<void> {
-    const legacyCandidates = this.getSqlLegacyJunctionCandidates(input);
-    let standardExists = await knex.schema.hasTable(input.junctionTableName);
-    let renamedLegacyTableName: string | null = null;
-
-    if (!standardExists) {
-      for (const candidate of legacyCandidates) {
-        if (!(await knex.schema.hasTable(candidate.tableName))) continue;
-
-        await knex.schema.renameTable(
-          candidate.tableName,
-          input.junctionTableName,
-        );
-        this.log(
-          `Renamed junction table '${candidate.tableName}' to '${input.junctionTableName}'`,
-        );
-        await this.ensureSqlJunctionColumns(knex, {
-          junctionTableName: input.junctionTableName,
-          junctionSourceColumn: input.junctionSourceColumn,
-          junctionTargetColumn: input.junctionTargetColumn,
-          oldJunctionSourceColumn: candidate.sourceColumn,
-          oldJunctionTargetColumn: candidate.targetColumn,
-        });
-        standardExists = true;
-        renamedLegacyTableName = candidate.tableName;
-        break;
-      }
-    }
-
-    if (standardExists) {
-      if (!renamedLegacyTableName) {
-        await this.ensureSqlJunctionColumns(knex, input);
-      }
-      for (const candidate of legacyCandidates) {
-        if (candidate.tableName === renamedLegacyTableName) continue;
-        if (!(await knex.schema.hasTable(candidate.tableName))) continue;
-        await this.mergeAndDropSqlLegacyJunctionTable(knex, {
-          ...input,
-          legacyTableName: candidate.tableName,
-          legacySourceColumn: candidate.sourceColumn,
-          legacyTargetColumn: candidate.targetColumn,
-        });
-      }
-      return;
-    }
+    if (await knex.schema.hasTable(input.junctionTableName)) return;
 
     const sourceExists = await knex.schema.hasTable(input.sourceTable);
     const targetExists = await knex.schema.hasTable(input.targetTable);
@@ -556,190 +593,6 @@ export class SqlSchemaHealingService {
       );
     });
     this.log(`Created missing junction table '${junction.tableName}'`);
-  }
-
-  private getSqlLegacyJunctionCandidates(input: {
-    oldJunctionTableName: string | null;
-    oldJunctionSourceColumn: string | null;
-    oldJunctionTargetColumn: string | null;
-    sourceTable: string;
-    targetTable: string;
-    sourcePropertyName: string;
-    junctionTableName: string;
-  }): Array<{
-    tableName: string;
-    sourceColumn: string | null;
-    targetColumn: string | null;
-  }> {
-    const candidates = [
-      {
-        tableName: input.oldJunctionTableName,
-        sourceColumn: input.oldJunctionSourceColumn,
-        targetColumn: input.oldJunctionTargetColumn,
-      },
-      {
-        tableName: `${input.sourceTable}_${input.sourcePropertyName}_${input.targetTable}`,
-        sourceColumn: `${input.sourceTable}Id`,
-        targetColumn: `${input.targetTable}Id`,
-      },
-    ];
-    const seen = new Set<string>();
-    return candidates.filter(
-      (
-        candidate,
-      ): candidate is {
-        tableName: string;
-        sourceColumn: string | null;
-        targetColumn: string | null;
-      } => {
-        if (
-          !candidate.tableName ||
-          candidate.tableName === input.junctionTableName ||
-          seen.has(candidate.tableName)
-        ) {
-          return false;
-        }
-        seen.add(candidate.tableName);
-        return true;
-      },
-    );
-  }
-
-  private async mergeAndDropSqlLegacyJunctionTable(
-    knex: Knex,
-    input: {
-      junctionTableName: string;
-      junctionSourceColumn: string;
-      junctionTargetColumn: string;
-      legacyTableName: string;
-      legacySourceColumn: string | null;
-      legacyTargetColumn: string | null;
-      sourceTable: string;
-      targetTable: string;
-    },
-  ): Promise<void> {
-    const legacyColumns = await this.resolveSqlLegacyJunctionColumns(
-      knex,
-      input,
-    );
-    const rows = await knex(input.legacyTableName).select(
-      legacyColumns.sourceColumn,
-      legacyColumns.targetColumn,
-    );
-    const values = rows.map((row: any) => ({
-      [input.junctionSourceColumn]:
-        row[input.junctionSourceColumn] ?? row[legacyColumns.sourceColumn],
-      [input.junctionTargetColumn]:
-        row[input.junctionTargetColumn] ?? row[legacyColumns.targetColumn],
-    }));
-    const unmappable = values.filter(
-      (row: any) =>
-        row[input.junctionSourceColumn] == null ||
-        row[input.junctionTargetColumn] == null,
-    );
-    if (unmappable.length > 0) {
-      throw new Error(
-        `Junction healing blocked: ${unmappable.length} unmappable row(s) in '${input.legacyTableName}'. ` +
-          `Legacy table will NOT be dropped until all source rows are mappable.`,
-      );
-    }
-    if (values.length > 0) {
-      await knex(input.junctionTableName)
-        .insert(values)
-        .onConflict([input.junctionSourceColumn, input.junctionTargetColumn])
-        .ignore();
-    }
-    if (typeof knex.schema.dropTableIfExists === 'function') {
-      await knex.schema.dropTableIfExists(input.legacyTableName);
-    } else {
-      await knex.schema.dropTable(input.legacyTableName);
-    }
-    this.log(
-      `Merged and removed legacy junction table '${input.legacyTableName}' into '${input.junctionTableName}'`,
-    );
-  }
-
-  private async resolveSqlLegacyJunctionColumns(
-    knex: Knex,
-    input: {
-      legacyTableName: string;
-      legacySourceColumn: string | null;
-      legacyTargetColumn: string | null;
-      junctionSourceColumn: string;
-      junctionTargetColumn: string;
-      sourceTable: string;
-      targetTable: string;
-    },
-  ): Promise<{ sourceColumn: string; targetColumn: string }> {
-    const columnInfo = await knex(input.legacyTableName).columnInfo();
-    const available = new Set(Object.keys(columnInfo || {}));
-    const sourceCandidates = [
-      input.legacySourceColumn,
-      `${input.sourceTable}Id`,
-      input.junctionSourceColumn,
-      'sourceId',
-    ].filter((column): column is string => Boolean(column));
-    const targetCandidates = [
-      input.legacyTargetColumn,
-      `${input.targetTable}Id`,
-      input.junctionTargetColumn,
-      'targetId',
-    ].filter((column): column is string => Boolean(column));
-    const sourceColumn = sourceCandidates.find((column) =>
-      available.has(column),
-    );
-    const targetColumn = targetCandidates.find(
-      (column) => available.has(column) && column !== sourceColumn,
-    );
-    if (!sourceColumn || !targetColumn) {
-      throw new Error(
-        `Junction healing blocked: cannot map legacy columns in '${input.legacyTableName}' to ` +
-          `${input.junctionSourceColumn}/${input.junctionTargetColumn}.`,
-      );
-    }
-    return { sourceColumn, targetColumn };
-  }
-
-  private async ensureSqlJunctionColumns(
-    knex: Knex,
-    input: {
-      junctionTableName: string;
-      junctionSourceColumn: string;
-      junctionTargetColumn: string;
-      oldJunctionSourceColumn: string | null;
-      oldJunctionTargetColumn: string | null;
-    },
-  ): Promise<void> {
-    await this.renameSqlJunctionColumnIfNeeded(
-      knex,
-      input.junctionTableName,
-      input.oldJunctionSourceColumn,
-      input.junctionSourceColumn,
-    );
-    await this.renameSqlJunctionColumnIfNeeded(
-      knex,
-      input.junctionTableName,
-      input.oldJunctionTargetColumn,
-      input.junctionTargetColumn,
-    );
-  }
-
-  private async renameSqlJunctionColumnIfNeeded(
-    knex: Knex,
-    tableName: string,
-    oldColumn: string | null,
-    newColumn: string,
-  ): Promise<void> {
-    if (!oldColumn || oldColumn === newColumn) return;
-    const oldExists = await knex.schema.hasColumn(tableName, oldColumn);
-    const newExists = await knex.schema.hasColumn(tableName, newColumn);
-    if (!oldExists || newExists) return;
-    await knex.schema.alterTable(tableName, (table) => {
-      table.renameColumn(oldColumn, newColumn);
-    });
-    this.log(
-      `Renamed junction column '${tableName}.${oldColumn}' to '${newColumn}'`,
-    );
   }
 
   private addSqlJunctionColumn(

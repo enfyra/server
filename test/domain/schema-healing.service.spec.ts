@@ -3,6 +3,8 @@ import { SchemaHealingService } from '../../src/engines/bootstrap';
 import { SystemMetadataHealingService } from '../../src/engines/bootstrap/services/schema-healing/system-metadata-healing.service';
 import { DatabaseConfigService } from '../../src/shared/services';
 import { getSqlJunctionPhysicalNames } from '../../src/modules/table-management/utils/sql-junction-naming.util';
+import { SqlJunctionHealingService } from '../../src/engines/bootstrap/services/schema-healing/sql-junction-healing.service';
+import { MongoJunctionHealingService } from '../../src/engines/bootstrap/services/schema-healing/mongo-junction-healing.service';
 
 function makeTable(
   overrides: Partial<{
@@ -41,6 +43,7 @@ function makeQb(findImpl: (args: any) => any, updateMock: any) {
   return {
     find: vi.fn(findImpl as any),
     update: updateMock,
+    isMongoDb: vi.fn().mockReturnValue(false),
     getDatabaseType: vi.fn().mockReturnValue('postgres'),
     getKnex: vi.fn().mockReturnValue(knex),
     getMongoDb: vi.fn().mockReturnValue({
@@ -99,6 +102,7 @@ function makeSystemMetadataHealing(qb: any) {
 
 describe('SchemaHealingService.runIfNeeded', () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     DatabaseConfigService.overrideForTesting?.('postgres');
   });
 
@@ -148,7 +152,7 @@ describe('SchemaHealingService.runIfNeeded', () => {
     expect(repairedTables).toEqual([43]);
   });
 
-  it('normalizes fkColumn to propertyName in uniques and indexes', async () => {
+  it('normalizes fkColumn to propertyName and stores SQL metadata as JSON text', async () => {
     const update = vi.fn().mockResolvedValue(undefined);
     const qb = makeQb(() => ({ data: [] }), update);
     const cache = makeCache([
@@ -171,9 +175,115 @@ describe('SchemaHealingService.runIfNeeded', () => {
     const tableUpdate = update.mock.calls[0];
     expect(tableUpdate[0]).toBe('enfyra_table');
     expect(tableUpdate[2]).toEqual({
-      uniques: [['author', 'slug']],
-      indexes: [['author'], ['post']],
+      uniques: '[["author","slug"]]',
+      indexes: '[["post"]]',
     });
+  });
+
+  it('keeps Mongo metadata groups as native arrays', async () => {
+    const update = vi.fn().mockResolvedValue(undefined);
+    const qb = makeQb(() => ({ data: [] }), update);
+    qb.isMongoDb.mockReturnValue(true);
+    const cache = makeCache([
+      makeTable({
+        id: 42,
+        name: 'comment',
+        uniques: [['authorId', 'slug']],
+        indexes: [['authorId']],
+        relations: [{ propertyName: 'author', foreignKeyColumn: 'authorId' }],
+      }),
+    ]);
+
+    await makeService(qb, cache).runExplicitRepairs();
+
+    expect(update).toHaveBeenCalledWith(
+      'enfyra_table',
+      { where: [{ field: 'id', operator: '=', value: 42 }] },
+      { uniques: [['author', 'slug']], indexes: [] },
+    );
+  });
+
+  it('removes a dynamic index covered by a unique and drops its physical index', async () => {
+    const update = vi.fn().mockResolvedValue(undefined);
+    const qb = makeQb(() => ({ data: [] }), update);
+    const knex = qb.getKnex();
+    knex.client = { config: { client: 'pg' } };
+    knex.schema.hasTable.mockImplementation(
+      async (name: string) =>
+        name === 'discount_user' || name === 'oauth_account',
+    );
+    knex.raw.mockImplementation(async (sql: string) => {
+      if (String(sql).includes('pg_index')) {
+        return {
+          rows: [
+            {
+              index_name: 'discount_user_user_id_id_idx',
+              is_unique: false,
+              columns: '{userId,id}',
+            },
+          ],
+        };
+      }
+      return { rows: [], 0: [] };
+    });
+    const cache = makeCache([
+      makeTable({
+        id: 191,
+        name: 'discount_user',
+        uniques: [['user', 'discount']],
+        indexes: [['user'], ['discount'], ['createdAt']],
+        relations: [
+          {
+            propertyName: 'user',
+            foreignKeyColumn: 'userId',
+            type: 'many-to-one',
+          },
+          {
+            propertyName: 'discount',
+            foreignKeyColumn: 'discountId',
+            type: 'many-to-one',
+          },
+        ],
+      }),
+      makeTable({
+        id: 51,
+        name: 'oauth_account',
+        uniques: [['provider', 'providerUserId']],
+        indexes: [['userId']],
+        relations: [
+          {
+            propertyName: 'user',
+            foreignKeyColumn: 'userId',
+            type: 'many-to-one',
+          },
+        ],
+      }),
+    ]);
+
+    await makeService(qb, cache).runIfNeeded();
+
+    expect(update).toHaveBeenCalledWith(
+      'enfyra_table',
+      { where: [{ field: 'id', operator: '=', value: 191 }] },
+      {
+        uniques: '[["user","discount"]]',
+        indexes: '[["discount"],["createdAt"]]',
+      },
+    );
+    expect(update).toHaveBeenCalledWith(
+      'enfyra_table',
+      { where: [{ field: 'id', operator: '=', value: 51 }] },
+      {
+        uniques: '[["provider","providerUserId"]]',
+        indexes: '[["user"]]',
+      },
+    );
+    const dropped = knex.raw.mock.calls
+      .map((call: unknown[]) => String(call[0]))
+      .filter((sql: string) => /drop index/i.test(sql));
+    expect(dropped).toEqual([
+      expect.stringContaining('discount_user_user_id_id_idx'),
+    ]);
   });
 
   it('repairs Mongo primary key column metadata', async () => {
@@ -530,10 +640,13 @@ describe('SchemaHealingService.runIfNeeded', () => {
     const tableUpdate = update.mock.calls.find(
       (c: any) => c[0] === 'enfyra_table',
     );
-    expect(tableUpdate![2].uniques).toEqual([['author']]);
+    expect(tableUpdate![2].uniques).toBe('[["author"]]');
   });
 
-  it('heals SQL M2M junction metadata to the physical contract', async () => {
+  it.each(['success', 'conflict'])('publishes SQL M2M metadata only after physical convergence: %s', async scenario => {
+    const converge = vi.spyOn(SqlJunctionHealingService.prototype, 'converge');
+    if (scenario === 'conflict') converge.mockRejectedValue(new Error('Junction healing blocked: conflicting identities'));
+    else converge.mockResolvedValue(undefined);
     const update = vi.fn().mockResolvedValue(undefined);
     const relationUpdate = vi.fn().mockResolvedValue(undefined);
     const relationTable = vi.fn(() => ({ update: relationUpdate }));
@@ -600,13 +713,15 @@ describe('SchemaHealingService.runIfNeeded', () => {
     } as any;
     const svc = makeService(qb, makeCache([]));
 
+    if (scenario === 'conflict') {
+      await expect(svc.runIfNeeded()).rejects.toThrow(/conflicting identities/);
+      expect(relationUpdate).not.toHaveBeenCalled();
+      return;
+    }
     await svc.runIfNeeded();
 
-    expect(knex.schema.renameTable).toHaveBeenCalledWith(
-      'test_students_students',
-      expect.stringMatching(/^j_[a-f0-9]{12}$/),
-    );
-    expect(knex.schema.alterTable).toHaveBeenCalledTimes(2);
+    expect(converge).toHaveBeenCalledWith(expect.objectContaining({ previousTableName: 'test_students_students', previousSourceColumn: 'testId', previousTargetColumn: 'studentsId' }), expect.any(Function));
+    expect(converge.mock.invocationCallOrder[0]).toBeLessThan(relationUpdate.mock.invocationCallOrder[0]);
     expect(relationUpdate).toHaveBeenCalledTimes(2);
     expect(relationUpdate.mock.calls[0][0]).toEqual({
       junctionTableName: expect.stringMatching(/^j_[a-f0-9]{12}$/),
@@ -620,7 +735,10 @@ describe('SchemaHealingService.runIfNeeded', () => {
     });
   });
 
-  it('heals Mongo M2M junction collection and field names to the physical contract', async () => {
+  it.each(['success', 'conflict'])('publishes Mongo M2M metadata only after physical convergence: %s', async scenario => {
+    const converge = vi.spyOn(MongoJunctionHealingService.prototype, 'converge');
+    if (scenario === 'conflict') converge.mockRejectedValue(new Error('Junction healing blocked: conflicting identities'));
+    else converge.mockResolvedValue(undefined);
     DatabaseConfigService.overrideForTesting?.('mongodb');
     const junction = getSqlJunctionPhysicalNames({
       sourceTable: 'test',
@@ -708,17 +826,15 @@ describe('SchemaHealingService.runIfNeeded', () => {
     } as any;
     const svc = makeService(qb, makeCache([]));
 
+    if (scenario === 'conflict') {
+      await expect(svc.runIfNeeded()).rejects.toThrow(/conflicting identities/);
+      expect(updateOne).not.toHaveBeenCalled();
+      return;
+    }
     await svc.runIfNeeded();
 
-    expect(rename).toHaveBeenCalledWith(junction.junctionTableName);
-    expect(updateMany).toHaveBeenCalledWith(
-      { testId: { $exists: true }, sourceId: { $exists: false } },
-      { $rename: { testId: 'sourceId' } },
-    );
-    expect(updateMany).toHaveBeenCalledWith(
-      { studentsId: { $exists: true }, targetId: { $exists: false } },
-      { $rename: { studentsId: 'targetId' } },
-    );
+    expect(converge).toHaveBeenCalledWith(db, expect.objectContaining({ previousTableName: 'bad_junction', junctionTableName: junction.junctionTableName }));
+    expect(converge.mock.invocationCallOrder[0]).toBeLessThan(updateOne.mock.invocationCallOrder[0]);
     expect(updateOne).toHaveBeenCalledTimes(2);
     expect(updateOne.mock.calls[0][1].$set).toEqual({
       junctionTableName: junction.junctionTableName,

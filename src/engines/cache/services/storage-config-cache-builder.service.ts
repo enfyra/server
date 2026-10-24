@@ -74,7 +74,7 @@ export class StorageConfigCacheBuilder extends BaseCacheService<
     return configsMap;
   }
 
-  protected getLogCount(): string {
+  protected override getLogCount(): string {
     return `${this.cache.size} storage configs`;
   }
 }

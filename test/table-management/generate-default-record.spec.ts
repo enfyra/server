@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { generateDefaultValue } from '../../src/modules/table-management/utils/generate-default-record';
+import { ensureMongoSingleRecord } from '../../src/modules/table-management/services/table-post-migration.service';
 
 function column(type: string, extras: Record<string, any> = {}) {
   return { name: 'value', type, isNullable: false, ...extras };
@@ -15,9 +16,20 @@ describe('generateDefaultValue for required columns', () => {
     },
   );
 
-  it('keeps a required date column date-only and a datetime column full ISO', () => {
-    expect(generateDefaultValue(column('date'))).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  it('preserves the instant for every required temporal column', () => {
+    expect(generateDefaultValue(column('date'))).toMatch(/T/);
     expect(generateDefaultValue(column('datetime'))).toMatch(/T/);
+  });
+
+  it('uses canonical enum option arrays for required defaults', () => {
+    expect(generateDefaultValue(column('enum', { options: ['draft', 'active'] }))).toBe('draft');
+  });
+
+  it('materializes Mongo singleton temporal defaults as BSON dates', async () => {
+    let inserted: any;
+    await ensureMongoSingleRecord({ mongoService: { getDb: () => ({ collection: () => ({ countDocuments: async () => 0, insertOne: async (record: any) => { inserted = record; } }) }) } as any, tableName: 'settings', columns: [column('date'), { ...column('timestamp', { defaultValue: 'now' }), name: 'startedAt' }] });
+    expect(inserted.value).toBeInstanceOf(Date);
+    expect(inserted.startedAt).toBeInstanceOf(Date);
   });
 
   it('returns null for a nullable column regardless of type', () => {

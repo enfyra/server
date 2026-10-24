@@ -1,19 +1,20 @@
 {
   "name": "enfyra-server",
-  "version": "2.3.1-patch-1",
+  "version": "2.3.3",
   "description": "Dynamic backend platform that auto-generates REST and GraphQL APIs from database schemas",
   "author": "dothinh115 <dothinh115@gmail.com>",
   "license": "Elastic-2.0",
   "packageManager": "yarn@4.17.0+sha512.c2957de2f9025ab14d63b24d0d8be1f1655810e22c341042c27f7ecd017b180ec12db73d69ac366d71b304ef9f069349ce462de96f04f8f1da317f4f762c95ae",
   "engines": {
-    "node": ">=24 <25",
+    "node": ">=24.22.1 <25 || >=26.12.1 <27",
     "yarn": ">=4.17 <5"
   },
   "volta": {
-    "node": "24.9.0"
+    "node": "26.12.1"
   },
   "scripts": {
     "check:node": "node scripts/check-node-version.js",
+    "test:node": "node --test --test-concurrency=1 scripts/test-node-version.js",
     "ci:architecture": "node scripts/check-architecture-guard.mjs",
     "ci:large-files": "node scripts/report-large-files.mjs",
     "preinstall": "node scripts/check-node-version.js",
@@ -37,7 +38,8 @@
     "bench:m2m-pg": "NODE_OPTIONS=\"--no-node-snapshot\" node scripts/benchmark-m2m-dataloader-pg.mjs",
     "test": "node scripts/test-prompt.js",
     "test:all": "NODE_OPTIONS=\"--no-node-snapshot${NODE_OPTIONS:+ $NODE_OPTIONS}\" vitest run",
-    "typecheck": "tsc --noEmit --pretty false",
+    "typecheck": "tsc --noEmit --pretty false && yarn typecheck:contracts",
+    "typecheck:contracts": "tsc --project tsconfig.type-tests.json --pretty false",
     "test:watch": "NODE_OPTIONS=\"--no-node-snapshot${NODE_OPTIONS:+ $NODE_OPTIONS}\" vitest",
     "test:ui": "NODE_OPTIONS=\"--no-node-snapshot${NODE_OPTIONS:+ $NODE_OPTIONS}\" vitest --ui",
     "test:e2e:cache-load": "node test/cache-load.e2e.js",
@@ -45,12 +47,15 @@
     "test:e2e:flow-engine": "node test/flow-engine.e2e.js",
     "test:e2e:query-builder": "node test/query-builder.e2e.js",
     "test:e2e:compiled-code-db": "tsx test/compiled-code-db.e2e.ts",
+    "test:e2e:fresh-install-matrix": "tsx test/e2e/fresh-install-matrix.e2e.ts",
     "test:e2e:bootstrap-boot-race": "tsx test/e2e/bootstrap-boot-race.e2e.ts",
     "test:e2e:user-cache-lock-lifecycle": "tsx test/e2e/user-cache-lock-lifecycle.e2e.ts",
     "test:e2e:bullmq-lifecycle-ownership": "tsx test/e2e/bullmq-lifecycle-ownership.e2e.ts",
     "test:e2e:mysql-bootstrap-snapshot-fault": "tsx test/e2e/mysql-bootstrap-snapshot-fault.e2e.ts",
     "test:e2e:snapshot-migration-matrix": "tsx test/e2e/snapshot-migration-database-matrix.e2e.ts",
     "test:e2e:snapshot-migration-integrity": "tsx test/e2e/snapshot-migration-integrity-matrix.e2e.ts",
+    "test:e2e:code-history": "tsx test/e2e/code-history.e2e.ts",
+    "test:e2e:storage-contract": "tsx test/e2e/storage-contract-matrix.e2e.ts",
     "test:e2e:bootstrap-randomized-matrix": "bash scripts/e2e-bootstrap-randomized-matrix.sh",
     "test:e2e:route-method-config-matrix": "tsx test/e2e/route-method-config-matrix.e2e.ts",
     "test:e2e:realtime-chat-load": "tsx test/realtime-chat-app.e2e.ts",
@@ -60,7 +65,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1141.0",
     "@aws-sdk/lib-storage": "^3.1141.0",
-    "@enfyra/kernel": "2.0.17",
+    "@enfyra/kernel": "2.1.0",
     "@envelop/core": "^5.6.1",
     "@envelop/depth-limit": "^7.2.1",
     "@google-cloud/storage": "^8.2.0",
@@ -70,7 +75,6 @@
     "awilix": "^13.0.5",
     "bcryptjs": "^3.0.3",
     "bullmq": "^6.3.9",
-    "cors": "^2.8.6",
     "cron-parser": "^5.10.1",
     "dotenv": "^18.0.4",
     "eventemitter2": "^6.4.9",
@@ -104,7 +108,6 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.7",
-    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.2.0",

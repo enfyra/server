@@ -8,7 +8,7 @@ import { bootstrapVerboseLog } from '../utils/bootstrap-logging.util';
 import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';
 import { SystemCoreTableResolver } from './system-core-table-resolver.service';
 class TableDefinitionProcessor extends BaseTableProcessor {
-  async transformRecords(records: any[]): Promise<any[]> {
+  override async transformRecords(records: any[]): Promise<any[]> {
     const now = new Date();
     return records.map((record) => ({
       ...record,
@@ -19,7 +19,7 @@ class TableDefinitionProcessor extends BaseTableProcessor {
   getUniqueIdentifier(record: any): object {
     return { name: record.name };
   }
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     return ['isSystem', 'alias', 'description', 'uniques', 'indexes'];
   }
 }
@@ -29,7 +29,7 @@ class ColumnDefinitionProcessor extends BaseTableProcessor {
     super();
     this.tableFieldName = tableFieldName;
   }
-  async transformRecords(records: any[]): Promise<any[]> {
+  override async transformRecords(records: any[]): Promise<any[]> {
     const now = new Date();
     return records.map((record) => ({
       ...record,
@@ -43,7 +43,7 @@ class ColumnDefinitionProcessor extends BaseTableProcessor {
       name: record.name,
     };
   }
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     return [
       'type',
       'isPrimary',
@@ -66,7 +66,7 @@ class RelationDefinitionProcessor extends BaseTableProcessor {
     super();
     this.sourceTableFieldName = sourceTableFieldName;
   }
-  async transformRecords(records: any[]): Promise<any[]> {
+  override async transformRecords(records: any[]): Promise<any[]> {
     const now = new Date();
     return records.map((record) => ({
       ...record,
@@ -80,7 +80,7 @@ class RelationDefinitionProcessor extends BaseTableProcessor {
       propertyName: record.propertyName,
     };
   }
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     return ['type', 'isNullable', 'isSystem', 'description'];
   }
 }

@@ -50,31 +50,32 @@ export function resolveCdnImportSpecifier(
 }
 
 export function isNativeCdnImport(specifier: string): boolean {
-  return specifier.split('?')[0].endsWith('.node');
+  const [packagePath = ''] = specifier.split('?');
+  return packagePath.endsWith('.node');
 }
 
 export function parseCdnPackageSpecifier(
   specifier: string,
 ): ParsedCdnPackageSpecifier | null {
   if (!specifier.startsWith('/')) return null;
-  const [packagePath, query = ''] = specifier.split('?');
-  const parts = packagePath.split('/').filter(Boolean);
-  if (parts.length === 0) return null;
+  const [packagePath = '', query = ''] = specifier.split('?');
+  const [firstPart, secondPart] = packagePath.split('/').filter(Boolean);
+  if (!firstPart) return null;
 
   let name: string;
   let version: string | null = null;
-  if (parts[0].startsWith('@')) {
-    if (!parts[1]) return null;
-    const versionIndex = parts[1].lastIndexOf('@');
+  if (firstPart.startsWith('@')) {
+    if (!secondPart) return null;
+    const versionIndex = secondPart.lastIndexOf('@');
     name =
       versionIndex > 0
-        ? `${parts[0]}/${parts[1].slice(0, versionIndex)}`
-        : `${parts[0]}/${parts[1]}`;
-    version = versionIndex > 0 ? parts[1].slice(versionIndex + 1) : null;
+        ? `${firstPart}/${secondPart.slice(0, versionIndex)}`
+        : `${firstPart}/${secondPart}`;
+    version = versionIndex > 0 ? secondPart.slice(versionIndex + 1) : null;
   } else {
-    const versionIndex = parts[0].lastIndexOf('@');
-    name = versionIndex > 0 ? parts[0].slice(0, versionIndex) : parts[0];
-    version = versionIndex > 0 ? parts[0].slice(versionIndex + 1) : null;
+    const versionIndex = firstPart.lastIndexOf('@');
+    name = versionIndex > 0 ? firstPart.slice(0, versionIndex) : firstPart;
+    version = versionIndex > 0 ? firstPart.slice(versionIndex + 1) : null;
   }
 
   return { name, version, packagePath, query };

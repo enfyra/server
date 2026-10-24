@@ -235,9 +235,20 @@ describe('validateDeepOptions', () => {
   });
 
   test.each([
+    { limit: 0 },
     { limit: -1 },
-    { limit: 1.5 },
+    { limit: '0' },
+    { limit: '-1' },
     { limit: '5' },
+  ])('accepts deep limit %#', (entry) => {
+    expect(() =>
+      validateDeepOptions('posts', { comments: entry }, metadata),
+    ).not.toThrow();
+  });
+
+  test.each([
+    { limit: 1.5 },
+    { limit: '' },
     { page: 0, limit: 5 },
     { page: 1.5, limit: 5 },
     { page: '2', limit: 5 },

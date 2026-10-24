@@ -28,7 +28,7 @@ import {
   buildMongoWritableFieldSet,
   getMongoStoredRelationField,
 } from '../utils/mongo-physical-schema-contract';
-import { DatabaseException } from '../../../domain/exceptions';
+import { BadRequestException, DatabaseException } from '../../../domain/exceptions';
 import type { MongoHookContext } from '../types/mongo-hook.types';
 import { isGeneratedScriptPersistenceField } from '../../../shared/utils/script-persistence-contract.util';
 import {
@@ -58,7 +58,7 @@ export class MongoService {
   private readonly mongoRelationManagerService: MongoRelationManagerService;
   private readonly mongoHookManagerService: MongoHookManagerService;
   private readonly lazyRef: Cradle;
-  private readonly sagaTraceFile?: string;
+  private readonly sagaTraceFile: string | undefined;
 
   private readonly policyContext = new AsyncLocalStorage<{
     check: (
@@ -436,7 +436,7 @@ export class MongoService {
 
   getDb(): Db {
     const db = this.getRawDb();
-    if (!this.scopedDbAccessAls.getStore() || !this.isInSaga()) return db;
+    if (!this.nativeTxBundleAls.getStore() && (!this.scopedDbAccessAls.getStore() || !this.isInSaga())) return db;
     if (this.scopedDb) return this.scopedDb;
 
     const mongoService = this;
@@ -494,6 +494,23 @@ export class MongoService {
     return this.appTxSessionAls.getStore()?.txId;
   }
 
+  async runWithLockedRecord<T>(
+    _table: string,
+    _id: string | number,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    if (!this.nativeMultiDocSupported || this.appTxSessionAls.getStore()) {
+      throw new BadRequestException('updateLocked requires native MongoDB transactions; standalone and application saga scopes are unsupported');
+    }
+    if (getIoAbortSignal()?.aborted) throw new Error('Operation aborted');
+    if (this.nativeTxBundleAls.getStore()) return this.scopedDbAccessAls.run(true, callback);
+    const result = await this.runInSaga(callback, {
+      nativeTransactionTimeoutMs: 30000,
+      scopeRawDbAccess: true,
+    });
+    return result.data as T;
+  }
+
   async runInSaga<T>(
     fn: (scope: MongoTransactionScope) => Promise<T>,
     options?: {
@@ -501,6 +518,7 @@ export class MongoService {
       forceApplicationTransaction?: boolean;
       scopeRawDbAccess?: boolean;
       sagaOptions?: ISagaOptions;
+      nativeTransactionTimeoutMs?: number;
     },
   ): Promise<{
     success: boolean;
@@ -526,6 +544,8 @@ export class MongoService {
               fn({ kind: 'native', bundle }),
             ),
           );
+        }, options?.nativeTransactionTimeoutMs === undefined ? undefined : {
+          timeoutMS: options.nativeTransactionTimeoutMs,
         });
         return { success: true, data: dataOut as T, txId: logicalTxId };
       } catch (error) {
@@ -562,14 +582,7 @@ export class MongoService {
         { txId: execResult.txId },
       );
     }
-    return {
-      success: execResult.success,
-      data: execResult.data,
-      error: execResult.error,
-      txId: execResult.txId,
-      rollbackResult: execResult.rollbackResult,
-      stats: execResult.stats,
-    };
+    return execResult;
   }
 
   private runWithScopedDbAccess<T>(
@@ -957,11 +970,17 @@ export class MongoService {
 
     const entries = processedRows.map((row, index) => {
       const insertedId = row._id;
-      rowContexts[index].insertedId = insertedId;
+      const context = rowContexts[index];
+      if (context === undefined) {
+        throw new Error(
+          `Missing insert hook context for ${collectionName} row ${index}`,
+        );
+      }
+      context.insertedId = insertedId;
       return {
         insertedId,
         data: row,
-        context: rowContexts[index],
+        context,
       };
     });
 
@@ -1462,7 +1481,7 @@ export class MongoService {
 
   private extractDbName(uri: string): string {
     const match = uri.match(/\/([^/?]+)(\?|$)/);
-    return match ? match[1] : 'enfyra';
+    return match?.[1] ?? 'enfyra';
   }
 }
 
@@ -1668,8 +1687,8 @@ export class SagaCollection<_T extends Document = Document> {
       },
       toArray: () =>
         getTx().find(collName, filter, {
-          skip: skipVal || undefined,
-          limit: limitVal,
+          ...(skipVal ? { skip: skipVal } : {}),
+          ...(limitVal === undefined ? {} : { limit: limitVal }),
           sort: sortVal,
           projection: projectionVal,
         }),

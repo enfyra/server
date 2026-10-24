@@ -123,9 +123,10 @@ export class KnexEntityManager {
         prepared.map((item) => item.data),
       );
       const firstId = Array.isArray(result) ? result[0] : result;
-      recordIds = prepared.map(
-        (item, index) => item.data?.id ?? firstId + index,
-      );
+      recordIds = prepared.map((item, index) => {
+        if (item.data?.id != null) return item.data.id;
+        return firstId === undefined ? Number.NaN : firstId + index;
+      });
     }
     const sqlInsertMs = Date.now() - sqlInsertStarted;
 
@@ -154,13 +155,11 @@ export class KnexEntityManager {
         afterHookDurations[hookIndex] += Date.now() - hookStarted;
       }
     }
-    for (let index = 0; index < prepared.length; index++) {
+    for (const [index, item] of prepared.entries()) {
       const recordId =
-        recordIds[index] ||
-        prepared[index].data?.id ||
-        prepared[index].original?.id;
+        recordIds[index] || item.data?.id || item.original?.id;
       if (this.cascadeContextMap) {
-        this.cascadeContextMap.set(tableName, prepared[index].relationData || {});
+        this.cascadeContextMap.set(tableName, item.relationData || {});
       }
       for (let hookIndex = 0; hookIndex < this.hooks.afterInsert.length; hookIndex++) {
         const hook = this.hooks.afterInsert[hookIndex];

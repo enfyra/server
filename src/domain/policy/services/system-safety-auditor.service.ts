@@ -4,6 +4,7 @@ import { SchemaMigrationValidatorService } from './schema-migration-validator.se
 import { RuntimeRegistryService } from '../../../engines/cache';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { normalizeMongoDocument } from '../../../engines/mongo/utils/normalize-mongo-document.util';
+import { DefaultPagePolicyService } from './default-page-policy.service';
 import {
   assertGraphqlPermissionScope,
   assertNoPublicPermissionOverlap,
@@ -31,6 +32,12 @@ export class SystemSafetyAuditorService {
 
   async assertSystemSafe(ctx: any) {
     const { operation, tableName, data, existing, currentUser } = ctx;
+    if (tableName === 'enfyra_audit' && operation !== 'delete') {
+      throw new Error('Code history is read-only');
+    }
+    await new DefaultPagePolicyService(this.queryBuilderService).assertSafe(
+      tableName, operation, data ?? {}, existing ?? null,
+    );
     let fullExisting = existing;
     await this.assertGraphqlMetadataSafe({
       operation,
@@ -171,6 +178,13 @@ export class SystemSafetyAuditorService {
     }
 
     if (tableName === 'enfyra_user') {
+      if (
+        operation === 'create' &&
+        data?.isRootAdmin === true &&
+        currentUser?.isRootAdmin !== true
+      ) {
+        throw new Error('Cannot create a Root Admin user');
+      }
       const isRoot = fullExisting?.isRootAdmin;
       if (operation === 'delete' && isRoot)
         throw new Error('Cannot delete Root Admin user');

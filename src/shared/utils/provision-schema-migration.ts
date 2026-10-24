@@ -26,7 +26,6 @@ import {
   postgresTemporalPhysicalType,
   postgresTemporalUsingExpression,
 } from '../../engines/knex/utils/provision/postgres-temporal.util';
-import { getLegacyScriptTargetColumn } from '../../engines/bootstrap/utils/metadata-migration.util';
 
 /**
  * Apply SQL schema migrations (physical database)
@@ -231,9 +230,6 @@ async function applySqlTableMigration(
 
   // Handle column removals
   if (migration.columnsToRemove && migration.columnsToRemove.length > 0) {
-    for (const columnName of migration.columnsToRemove) {
-      await preserveSqlLegacyScriptColumn(knex, tableName, columnName);
-    }
     await applySqlColumnRemovals(knex, tableName, migration.columnsToRemove);
   }
 
@@ -488,30 +484,6 @@ async function insertSqlJunctionRowsIgnoringDuplicates(
     `${insert} ${identifiers[0]} (${identifiers[1]}, ${identifiers[2]}) VALUES ${placeholders}${conflict}`,
     bindings,
   );
-}
-
-async function migrateMongoUserRoleToRolesJunction(
-  db: Db,
-  users: ReturnType<Db['collection']>,
-): Promise<void> {
-  const junction = db.collection('enfyra_user_roles');
-  await junction.createIndex(
-    { userId: 1, roleId: 1 },
-    { unique: true, name: 'enfyra_user_roles_src_tgt_uq' },
-  );
-
-  const cursor = users.find({ role: { $exists: true, $ne: null } });
-  for await (const user of cursor) {
-    const roles = Array.isArray(user.role) ? user.role : [user.role];
-    for (const roleId of roles) {
-      if (roleId === undefined || roleId === null) continue;
-      await junction.updateOne(
-        { userId: user._id, roleId },
-        { $setOnInsert: { userId: user._id, roleId } },
-        { upsert: true },
-      );
-    }
-  }
 }
 
 async function getPrimaryKeyType(
@@ -1150,48 +1122,6 @@ export async function applySqlColumnModifications(
       await applyMySqlColumnContract(knex, tableName, newName, mod);
     }
   }
-}
-
-/**
- * Carries a legacy script column onto its replacement before the legacy column is
- * dropped. The replacement wins where both hold a value, so a conflicting legacy
- * value is discarded; the count is logged so an operator can recover it.
- */
-async function preserveSqlLegacyScriptColumn(
-  knex: Knex,
-  tableName: string,
-  columnName: string,
-): Promise<void> {
-  const targetColumn = getLegacyScriptTargetColumn(tableName, columnName);
-  if (!targetColumn) return;
-
-  const [hasSource, hasTarget] = await Promise.all([
-    knex.schema.hasColumn(tableName, columnName),
-    knex.schema.hasColumn(tableName, targetColumn),
-  ]);
-  if (!hasSource || !hasTarget) return;
-
-  const conflicting = await knex(tableName)
-    .whereNotNull(columnName)
-    .whereNot(columnName, '')
-    .whereNotNull(targetColumn)
-    .whereNot(targetColumn, '')
-    .whereNot(targetColumn, knex.ref(columnName))
-    .count<{ count: string | number }[]>({ count: '*' });
-  if (Number(conflicting[0]?.count ?? 0) > 0) {
-    console.warn(
-      `  ⚠️  ${tableName}.${columnName} conflicts with ${targetColumn} in ${Number(
-        conflicting[0]?.count ?? 0,
-      )} row(s); ${targetColumn} is kept`,
-    );
-  }
-
-  await knex(tableName)
-    .whereNotNull(columnName)
-    .where((builder) => {
-      builder.whereNull(targetColumn).orWhere(targetColumn, '');
-    })
-    .update({ [targetColumn]: knex.ref(columnName) });
 }
 
 /**
@@ -1927,27 +1857,6 @@ async function cleanupMongoRemovedRelation(
   );
 }
 
-async function preserveMongoLegacyScriptField(
-  db: Db,
-  collectionName: string,
-  fieldName: string,
-): Promise<void> {
-  const targetField = getLegacyScriptTargetColumn(collectionName, fieldName);
-  if (!targetField) return;
-
-  await db.collection(collectionName).updateMany(
-    {
-      [fieldName]: { $exists: true, $ne: null },
-      $or: [
-        { [targetField]: { $exists: false } },
-        { [targetField]: null },
-        { [targetField]: '' },
-      ],
-    },
-    [{ $set: { [targetField]: `$${fieldName}` } }] as any,
-  );
-}
-
 /**
  * Apply MongoDB collection migration
  */
@@ -1970,7 +1879,6 @@ async function applyMongoCollectionMigration(
   }
 
   console.log(`🔄 Migrating collection: ${collectionName}`);
-  const collection = db.collection(collectionName);
 
   // Handle column modifications (field rename)
   if (migration.columnsToModify && migration.columnsToModify.length > 0) {
@@ -2003,7 +1911,6 @@ async function applyMongoCollectionMigration(
   if (migration.columnsToRemove && migration.columnsToRemove.length > 0) {
     for (const fieldName of migration.columnsToRemove) {
       if (preservedFields.has(fieldName)) continue;
-      await preserveMongoLegacyScriptField(db, collectionName, fieldName);
       await unsetMongoPhysicalField(db, collectionName, fieldName);
       console.log(`  ❌ Removed field: ${fieldName}`);
     }
@@ -2040,37 +1947,6 @@ async function applyMongoCollectionMigration(
     const toRemove = migration.relationsToRemove.filter(
       (field) => !preservedFields.has(field),
     );
-    if (collectionName === 'enfyra_user' && toRemove.includes('role')) {
-      await migrateMongoUserRoleToRolesJunction(db, collection);
-    }
-    if (
-      collectionName === 'enfyra_file_permission' &&
-      toRemove.includes('allowedUsers')
-    ) {
-      const cursor = collection.find({
-        allowedUsers: { $exists: true, $not: { $type: 'array' } },
-      });
-      let count = 0;
-      for await (const doc of cursor) {
-        await collection.updateOne(
-          { _id: doc._id },
-          {
-            $set: {
-              allowedUsers: Array.isArray(doc.allowedUsers)
-                ? doc.allowedUsers
-                : [doc.allowedUsers],
-            },
-          },
-        );
-        count++;
-      }
-      if (count > 0) {
-        console.log(
-          `  📦 Converted allowedUsers to array (${count} documents)`,
-        );
-      }
-      toRemove.splice(toRemove.indexOf('allowedUsers'), 1);
-    }
     for (const relName of toRemove) {
       await cleanupMongoRemovedRelation(db, collectionName, relName);
     }

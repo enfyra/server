@@ -169,6 +169,9 @@ export class ReplicationManager implements LifecycleAware {
           if (field.type === 'DATE') {
             return field.string();
           }
+          if (field.type === 'LONGLONG') {
+            return field.string();
+          }
           if (field.type === 'TINY' && field.length === 1) {
             const val = field.string();
             return val === null ? null : val === '1';
@@ -180,12 +183,14 @@ export class ReplicationManager implements LifecycleAware {
       pool: {
         min: poolMinSize,
         max: poolMaxSize,
-        afterCreate: isPostgres
-          ? undefined
-          : (
-              connection: any,
-              done: (error: unknown, connection?: any) => void,
-            ) => applyMySqlSessionTimeZone(connection, done),
+        ...(isPostgres
+          ? {}
+          : {
+              afterCreate: (
+                connection: any,
+                done: (error: unknown, connection?: any) => void,
+              ) => applyMySqlSessionTimeZone(connection, done),
+            }),
       },
       acquireConnectionTimeout: SQL_ACQUIRE_TIMEOUT_MS,
       debug: false,
@@ -299,6 +304,7 @@ export class ReplicationManager implements LifecycleAware {
         return this.masterKnex;
       }
       const selectedNode = healthyReplicas[replicaIndex];
+      if (!selectedNode) return this.masterKnex;
       selectedNode.connectionCount++;
       return selectedNode.knex;
     }
@@ -306,6 +312,7 @@ export class ReplicationManager implements LifecycleAware {
       healthyReplicas[this.currentReplicaIndex % healthyReplicas.length];
     this.currentReplicaIndex =
       (this.currentReplicaIndex + 1) % healthyReplicas.length;
+    if (!selectedNode) return this.masterKnex;
     selectedNode.connectionCount++;
     return selectedNode.knex;
   }

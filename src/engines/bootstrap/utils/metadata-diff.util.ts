@@ -5,7 +5,6 @@ import type {
   TableModifyDef,
   TableRenameDef,
 } from '../../../shared/types/schema-migration.types';
-import { getScriptLegacyField } from '../../../shared/utils/script-code.util';
 import {
   COLUMN_FIELDS,
   RELATION_UPDATE_FIELDS,
@@ -71,11 +70,4 @@ export function buildColumnMetadataUpdate(mod: ColumnModifyDef): any {
 
 export function buildRelationMetadataUpdate(mod: RelationModifyDef): any {
   return pickDefined(mod.to, RELATION_UPDATE_FIELDS);
-}
-
-export function getLegacyScriptTargetColumn(
-  tableName: string,
-  colName: string,
-): string | null {
-  return getScriptLegacyField(tableName) === colName ? 'sourceCode' : null;
 }

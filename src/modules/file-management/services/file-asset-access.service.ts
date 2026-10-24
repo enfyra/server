@@ -26,7 +26,7 @@ const ASSET_CACHE_PRESSURE_CLEAR_INTERVAL_MS = Math.max(
 export class FileAssetAccessService {
   private readonly logger = new Logger(FileAssetAccessService.name);
   private readonly queryBuilderService: QueryBuilderService;
-  private readonly eventEmitter?: EventEmitter2;
+  private readonly eventEmitter: EventEmitter2 | undefined;
   private readonly fileCache = new Map<string, any>();
   private readonly permissionsByFileCache = new Map<
     string,
@@ -186,6 +186,7 @@ export class FileAssetAccessService {
       fields: [
         idField,
         'isEnabled',
+        'actions',
         `file.${idField}`,
         `role.${idField}`,
         'role.name',

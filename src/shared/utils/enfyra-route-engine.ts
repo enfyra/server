@@ -45,15 +45,14 @@ export class EnfyraRouteEngine {
       );
     }
 
-    if (!this.roots.has(method)) {
-      this.roots.set(method, this.createNode(NodeType.STATIC, ''));
+    let node = this.roots.get(method);
+    if (!node) {
+      node = this.createNode(NodeType.STATIC, '');
+      this.roots.set(method, node);
     }
-
-    let node = this.roots.get(method)!;
     this.routeCount++;
 
-    for (let i = 0; i < segments.length; i++) {
-      const segment = segments[i];
+    for (const [i, segment] of segments.entries()) {
       const isLast = i === segments.length - 1;
 
       if (segment === '*' || segment.startsWith('*')) {
@@ -72,10 +71,12 @@ export class EnfyraRouteEngine {
         }
         node = node.paramChild;
       } else {
-        if (!node.children.has(segment)) {
-          node.children.set(segment, this.createNode(NodeType.STATIC, segment));
+        let child = node.children.get(segment);
+        if (!child) {
+          child = this.createNode(NodeType.STATIC, segment);
+          node.children.set(segment, child);
         }
-        node = node.children.get(segment)!;
+        node = child;
       }
 
       if (isLast) {
@@ -135,6 +136,7 @@ export class EnfyraRouteEngine {
     }
 
     const segment = segments[index];
+    if (segment === undefined) return null;
 
     const staticChild = node.children.get(segment);
     if (staticChild) {
@@ -142,15 +144,16 @@ export class EnfyraRouteEngine {
       if (result) return result;
     }
 
-    if (node.paramChild) {
+    const paramName = node.paramChild?.paramName;
+    if (node.paramChild && paramName !== undefined) {
       try {
-        params[node.paramChild.paramName!] = decodeURIComponent(segment);
+        params[paramName] = decodeURIComponent(segment);
       } catch {
-        params[node.paramChild.paramName!] = segment;
+        params[paramName] = segment;
       }
       const result = this.search(node.paramChild, segments, index + 1, params);
       if (result) return result;
-      delete params[node.paramChild.paramName!];
+      delete params[paramName];
     }
 
     if (node.wildcardChild) {
@@ -176,7 +179,7 @@ export class EnfyraRouteEngine {
     return {
       type,
       path,
-      paramName,
+      ...(paramName !== undefined ? { paramName } : {}),
       children: new Map(),
       paramChild: null,
       wildcardChild: null,

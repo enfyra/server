@@ -89,22 +89,13 @@ export const standingDataCorrections = {
     {
       _unique: { path: { _eq: '/settings/admin/logs' } },
       description: 'Trace system errors and user script logs',
+      path: '/settings/logs',
       permission: {
         or: [
           { route: '/enfyra_system_error', methods: ['GET'] },
           { route: '/enfyra_user_log', methods: ['GET'] },
         ],
       },
-    },
-    {
-      _unique: {
-        path: {
-          _eq: '/dashboard',
-        },
-      },
-      isPublic: true,
-      type: 'Menu',
-      isSystem: true,
     },
     {
       _unique: {
@@ -157,6 +148,26 @@ export const standingDataCorrections = {
     {
       _unique: {
         path: {
+          _eq: '/settings/menus',
+        },
+      },
+      isPublic: false,
+      permission: {
+        or: [
+          {
+            route: '/enfyra_menu',
+            methods: ['GET'],
+          },
+          {
+            route: '/enfyra_extension',
+            methods: ['GET'],
+          },
+        ],
+      },
+    },
+    {
+      _unique: {
+        path: {
           _eq: '/settings',
         },
       },
@@ -173,10 +184,6 @@ export const standingDataCorrections = {
           },
           {
             route: '/enfyra_extension',
-            methods: ['GET'],
-          },
-          {
-            route: '/enfyra_bootstrap_script',
             methods: ['GET'],
           },
           {
@@ -777,6 +784,14 @@ export const standingDataCorrections = {
       availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
     },
     {
+      _unique: { path: { _eq: '/enfyra_audit' } },
+      availableMethods: ['GET', 'DELETE'],
+    },
+    {
+      _unique: { path: { _eq: '/admin/code-audit/revert' } },
+      availableMethods: ['POST'],
+    },
+    {
       _unique: {
         path: {
           _eq: '/enfyra_menu',
@@ -803,14 +818,6 @@ export const standingDataCorrections = {
         },
       },
       publicMethods: [],
-    },
-    {
-      _unique: {
-        path: {
-          _eq: '/enfyra_bootstrap_script',
-        },
-      },
-      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
     },
     {
       _unique: {
@@ -1058,6 +1065,17 @@ export const standingDataCorrections = {
       isSystem: true,
     },
   ],
+  enfyra_route_method_config: [
+    {
+      _unique: {
+        _and: [
+          { route: { path: { _eq: '/enfyra_audit' } } },
+          { method: { name: { _eq: 'DELETE' } } },
+        ],
+      },
+      available: true,
+    },
+  ],
   enfyra_table: [
     {
       _unique: {
@@ -1198,6 +1216,24 @@ const dataMigrations: VersionedDataMigration[] = [
     fromVersion: '2.3.0',
     toVersion: '2.3.1',
     data: {},
+  },
+  {
+    fromVersion: '2.3.1',
+    toVersion: '2.3.2',
+    data: {
+      enfyra_menu: [{ _unique: { path: { _eq: '/dashboard' } }, isSystem: false }],
+    },
+  },
+  {
+    fromVersion: '2.3.2',
+    toVersion: '2.3.3',
+    data: {
+      _deletedRecords: [
+        { table: 'enfyra_route', filter: { path: { _eq: '/enfyra_bootstrap_script' } } },
+        { table: 'enfyra_menu', filter: { path: { _eq: '/settings/bootstrap' } } },
+        { table: 'enfyra_menu', filter: { path: { _eq: '/settings/extensions' } } },
+      ],
+    },
   },
 ];
 

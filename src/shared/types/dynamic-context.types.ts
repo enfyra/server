@@ -3,6 +3,8 @@ import type { UploadedFileInfo } from './file-management.types';
 import type { UploadedFileFields } from './multipart-upload.types';
 import type { CryptoHelper } from '../helpers/crypto.helper';
 import type { FetchHelper } from '../helpers/fetch.helper';
+import type { SharedHelperRunner } from './shared-helper.types';
+import type { DynamicDeliveryRecorder } from './dynamic-delivery.types';
 import type {
   DynamicPatCreateInput,
   DynamicPatCreateResult,
@@ -40,8 +42,14 @@ export interface DynamicTransaction {
 
 export type EnvSnapshot = Record<string, string | undefined>;
 
-export type DynamicRequestContext = Request & {
+export type DynamicRequestContext = Partial<Pick<
+  Request,
+  'method' | 'url' | 'query' | 'params' | 'hostname' | 'protocol' | 'path' | 'originalUrl'
+>> & {
+  headers?: Request['headers'] | { get(name: string): string | null };
+  ip?: string | null;
   rawBody?: string;
+  user?: unknown;
 };
 
 export type StreamChunkKind = 'chunk' | 'end' | 'error';
@@ -154,7 +162,10 @@ export interface TDynamicContext {
   $statusCode?: number;
   $logs?: (...args: any[]) => void;
   $helpers: {
-    $jwt?: (payload: any, exp: string) => string;
+    $delivery?: DynamicDeliveryRecorder;
+    run?: SharedHelperRunner['run'];
+    $jwt?: (payload: string | Buffer | object, exp: string) => string;
+    jwt?: (payload: string | Buffer | object, exp: string) => string;
     $bcrypt?: {
       hash?: (plain: string) => Promise<string>;
       compare?: (p: string, h: string) => Promise<boolean>;
@@ -227,8 +238,14 @@ export interface TDynamicContext {
   $streams: DynamicStreams;
   $params?: any;
   $query?: any;
+  $args?: unknown;
   $env?: EnvSnapshot;
   $user?: any;
+  $authSource?: 'pat' | 'jwt' | undefined;
+  $codeAudit?: {
+    action?: 'revert';
+    restoredFrom?: string | null;
+  };
   $repos: Record<string, any>;
   $req?: DynamicRequestContext;
   $res?: DynamicResponse;
@@ -241,6 +258,8 @@ export interface TDynamicContext {
       url?: string;
       timestamp?: string;
       correlationId?: string;
+      executionId?: string;
+      deliveryDiagnostics?: boolean;
       userAgent?: string;
       ip?: string;
     };

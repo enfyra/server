@@ -585,19 +585,6 @@ const defaultData = {
       ]
     },
     {
-      "path": "/enfyra_bootstrap_script",
-      "mainTable": "enfyra_bootstrap_script",
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:play",
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
       "path": "/enfyra_storage_config",
       "mainTable": "enfyra_storage_config",
       "isEnabled": true,
@@ -649,6 +636,16 @@ const defaultData = {
       "isSystem": true,
       "icon": "lucide:list-ordered",
       "description": "Reorder authentication header mappings in one operation",
+      "availableMethods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/admin/code-audit/revert",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:history",
+      "description": "Restore a versioned code record from an audit entry as a new version",
       "availableMethods": [
         "POST"
       ]
@@ -837,6 +834,14 @@ const defaultData = {
       ]
     },
     {
+      "path": "/enfyra_helper",
+      "mainTable": "enfyra_helper",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:code",
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
       "path": "/enfyra_flow",
       "mainTable": "enfyra_flow",
       "isEnabled": true,
@@ -935,6 +940,17 @@ const defaultData = {
       ]
     },
     {
+      "path": "/enfyra_audit",
+      "mainTable": "enfyra_audit",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:history",
+      "availableMethods": [
+        "GET",
+        "DELETE"
+      ]
+    },
+    {
       "path": "/enfyra_guard",
       "mainTable": "enfyra_guard",
       "isEnabled": true,
@@ -1026,7 +1042,7 @@ const defaultData = {
       "path": "/dashboard",
       "isEnabled": true,
       "isPublic": true,
-      "isSystem": true,
+      "isSystem": false,
       "description": "Main dashboard",
       "order": 1,
       "permission": {
@@ -1097,12 +1113,6 @@ const defaultData = {
           },
           {
             "route": "/enfyra_extension",
-            "methods": [
-              "GET"
-            ]
-          },
-          {
-            "route": "/enfyra_bootstrap_script",
             "methods": [
               "GET"
             ]
@@ -1216,23 +1226,7 @@ const defaultData = {
             "methods": [
               "GET"
             ]
-          }
-        ]
-      }
-    },
-    {
-      "type": "Menu",
-      "label": "Extensions",
-      "icon": "heroicons:puzzle-piece",
-      "path": "/settings/extensions",
-      "isEnabled": true,
-      "isPublic": false,
-      "isSystem": true,
-      "description": "Extension management",
-      "order": 4,
-      "parent": "Settings",
-      "permission": {
-        "or": [
+          },
           {
             "route": "/enfyra_extension",
             "methods": [
@@ -1354,6 +1348,19 @@ const defaultData = {
     },
     {
       "type": "Menu",
+      "label": "Helpers",
+      "icon": "lucide:code",
+      "path": "/settings/helpers",
+      "isEnabled": true,
+      "isPublic": false,
+      "isSystem": true,
+      "description": "Create, edit and test reusable helper scripts",
+      "order": 11,
+      "parent": "Settings",
+      "permission": { "route": "/enfyra_helper", "methods": ["GET"] }
+    },
+    {
+      "type": "Menu",
       "label": "Flows",
       "icon": "lucide:workflow",
       "path": "/settings/flows",
@@ -1367,28 +1374,6 @@ const defaultData = {
         "or": [
           {
             "route": "/enfyra_flow",
-            "methods": [
-              "GET"
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "type": "Menu",
-      "label": "Bootstrap Scripts",
-      "icon": "heroicons:play",
-      "path": "/settings/bootstrap",
-      "isEnabled": true,
-      "isPublic": false,
-      "isSystem": true,
-      "description": "Bootstrap script management",
-      "order": 11,
-      "parent": "Settings",
-      "permission": {
-        "or": [
-          {
-            "route": "/enfyra_bootstrap_script",
             "methods": [
               "GET"
             ]
@@ -1422,7 +1407,7 @@ const defaultData = {
       "type": "Menu",
       "label": "Server Logs",
       "icon": "lucide:file-text",
-      "path": "/settings/admin/logs",
+      "path": "/settings/logs",
       "isEnabled": true,
       "isPublic": false,
       "isSystem": true,
@@ -1437,6 +1422,23 @@ const defaultData = {
               "GET"
             ]
           }
+        ]
+      }
+    },
+    {
+      "type": "Menu",
+      "label": "Audit",
+      "icon": "lucide:history",
+      "path": "/settings/audit",
+      "isEnabled": true,
+      "isPublic": false,
+      "isSystem": true,
+      "description": "Audit code changes and restore an earlier revision as a new version",
+      "order": 14,
+      "parent": "Settings",
+      "permission": {
+        "and": [
+          { "route": "/enfyra_audit", "methods": ["GET"] }
         ]
       }
     },

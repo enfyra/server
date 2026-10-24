@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { AsyncResource } from 'node:async_hooks';
+import { describe, expect, it, vi } from 'vitest';
 import { ObjectId } from 'mongodb';
 import {
   BaseCacheService,
@@ -11,6 +12,18 @@ class MemoryRedis {
   data = new Map<string, string | Buffer>();
   expiries = new Map<string, number>();
   scanPatterns: string[] = [];
+  hashes = new Map<string, Map<string, Buffer>>();
+
+  async hset(key: string, field: string, value: Buffer) {
+    const hash = this.hashes.get(key) ?? new Map<string, Buffer>();
+    hash.set(field, value);
+    this.hashes.set(key, hash);
+    return 1;
+  }
+
+  async hgetBuffer(key: string, field: string) { return this.hashes.get(key)?.get(field) ?? null; }
+  async hgetallBuffer(key: string) { return Object.fromEntries(this.hashes.get(key) ?? []); }
+  async pexpire(key: string, ttl: number) { this.expiries.set(key, ttl); return 1; }
 
   async get(key: string) {
     const value = this.data.get(key);
@@ -34,12 +47,33 @@ class MemoryRedis {
     return 'OK';
   }
 
-  async eval(_script: string, _keyCount: number, key: string, value: string) {
-    if (this.data.get(key) === value) {
-      this.data.delete(key);
+  async eval(script: string, keyCount: number, ...args: any[]) {
+    const keys = args.slice(0, keyCount);
+    const values = args.slice(keyCount);
+    if (this.data.get(keys[0]) !== values[0]) return 0;
+    if (script.includes("redis.call('hset'")) {
+      const count = values[2];
+      const auxiliaryCount = values[3];
+      for (const key of keys.slice(2 + count + auxiliaryCount)) {
+        this.hashes.get(keys[1])?.delete(`aux:${key}`);
+        await this.del(key);
+      }
+      for (let index = 0; index < count; index++) {
+        await this.hset(keys[1], values[4 + index * 2], values[5 + index * 2]);
+        await this.set(keys[2 + index], values[5 + index * 2], 'PX', values[1]);
+      }
+      for (let index = 0; index < auxiliaryCount; index++) {
+        const key = keys[2 + count + index];
+        const value = values[4 + count * 2 + index];
+        await this.hset(keys[1], `aux:${key}`, value);
+        await this.set(key, value, 'PX', values[1]);
+      }
+      await this.pexpire(keys[1], values[1]);
       return 1;
     }
-    return 0;
+    if (script.includes("redis.call('pexpire'")) return this.pexpire(keys[0], Number(values[1]));
+    this.data.delete(keys[0]);
+    return 1;
   }
 
   async scan(_cursor: string, _match: string, pattern: string) {
@@ -116,6 +150,199 @@ class SharedTestCache extends BaseCacheService<Map<string, Set<string>>> {
 }
 
 describe('Redis runtime cache mode', () => {
+  it.each([false, true])('expires inherited publication reads and writes after settlement (failed=%s)', async (failed) => {
+    const redis = new MemoryRedis();
+    const store = createStore(redis);
+    const peer = createStore(redis);
+    let inherited: AsyncResource | undefined;
+    try {
+      await store.setAux('route', 'route:old', { revision: 'old' });
+      const publication = store.runWithPublication(async () => {
+        inherited = new AsyncResource('runtime-cache-publication-test');
+        await store.setSnapshot('route', { revision: 'candidate' });
+        await store.deleteAuxByPrefix('route', 'route:');
+        await store.setAux('route', 'route:candidate', { revision: 'candidate' });
+        if (failed) throw new Error('candidate failed');
+      });
+      if (failed) {
+        await expect(publication).rejects.toThrow('candidate failed');
+      } else {
+        await publication;
+      }
+      await peer.runWithPublication(async () => {
+        await peer.setSnapshot('route', { revision: 'latest' });
+        await peer.setAux('route', 'route:old', { revision: 'latest' });
+        await peer.setAux('route', 'route:candidate', { revision: 'latest' });
+      });
+      await inherited!.runInAsyncScope(async () => {
+        expect((await store.getSnapshot<{ revision: string }>('route'))?.data.revision).toBe('latest');
+        expect(await store.getAux('route', 'route:old')).toEqual({ revision: 'latest' });
+        expect(await store.getAux('route', 'route:candidate')).toEqual({ revision: 'latest' });
+        await store.commitPublication();
+        await store.setSnapshot('route', { revision: 'patched' });
+        await store.setAux('route', 'route:patched', { revision: 'patched' });
+        await store.deleteAuxByPrefix('route', 'route:candidate');
+      });
+      expect((await peer.getSnapshot<{ revision: string }>('route'))?.data.revision).toBe('patched');
+      expect(await peer.getAux('route', 'route:patched')).toEqual({ revision: 'patched' });
+      expect(await peer.getAux('route', 'route:candidate')).toBeNull();
+    } finally {
+      inherited?.emitDestroy();
+    }
+  });
+
+  it.each([false, true])('expires inherited committed reads after replay settlement (failed=%s)', async (failed) => {
+    const redis = new MemoryRedis();
+    const store = createStore(redis);
+    const peer = createStore(redis);
+    let inherited: AsyncResource | undefined;
+    try {
+      await peer.runWithPublication(async () => {
+        await peer.setSnapshot('route', { revision: 'old' });
+        await peer.setAux('route', 'index', { revision: 'old' });
+      });
+      const replay = store.runWithCommittedSnapshots(async () => {
+        inherited = new AsyncResource('runtime-cache-replay-test');
+        expect((await store.getSnapshot<{ revision: string }>('route'))?.data.revision).toBe('old');
+        if (failed) throw new Error('replay failed');
+      });
+      if (failed) {
+        await expect(replay).rejects.toThrow('replay failed');
+      } else {
+        await replay;
+      }
+      await peer.runWithPublication(async () => {
+        await peer.setSnapshot('route', { revision: 'latest' });
+        await peer.setAux('route', 'index', { revision: 'latest' });
+      });
+      await inherited!.runInAsyncScope(async () => {
+        expect((await store.getSnapshot<{ revision: string }>('route'))?.data.revision).toBe('latest');
+        expect(await store.getAux('route', 'index')).toEqual({ revision: 'latest' });
+        await store.runWithCommittedSnapshots(async () => {
+          expect((await store.getSnapshot<{ revision: string }>('route'))?.data.revision).toBe('latest');
+        });
+        await store.runWithPublication(async () => {
+          await store.setSnapshot('route', { revision: 'patched' });
+          await store.setAux('route', 'index', { revision: 'patched' });
+        });
+        await store.setSnapshot('route', { revision: 'patched' });
+        await store.setAux('route', 'index', { revision: 'patched' });
+        await store.deleteAuxByPrefix('route', 'route:removed');
+      });
+      expect((await peer.getSnapshot<{ revision: string }>('route'))?.data.revision).toBe('patched');
+      expect(await peer.getAux('route', 'index')).toEqual({ revision: 'patched' });
+    } finally {
+      inherited?.emitDestroy();
+    }
+  });
+
+  it('rejects publication during an active committed replay instead of running a producer without ownership', async () => {
+    const store = createStore();
+    const producer = vi.fn(async () => {});
+    await store.runWithCommittedSnapshots(async () => {
+      await expect(store.runWithPublication(producer)).rejects.toThrow('committed snapshot replay');
+      await expect(store.setSnapshot('route', {})).rejects.toThrow('committed snapshot replay');
+      await expect(store.setAux('route', 'index', {})).rejects.toThrow('committed snapshot replay');
+      await expect(store.deleteAuxByPrefix('route', 'route:')).rejects.toThrow('committed snapshot replay');
+      expect(producer).not.toHaveBeenCalled();
+    });
+  });
+
+  it('keeps nested producers in one publication and rejects writes after an explicit commit', async () => {
+    const store = createStore();
+    const acquire = vi.spyOn(store, 'acquireRefreshLockWithWait');
+    await store.runWithPublication(async () => {
+      await store.runWithPublication(() => store.setSnapshot('route', { revision: 'committed' }));
+      await store.commitPublication();
+      await expect(store.runWithPublication(() => store.setSnapshot('route', { revision: 'late' }))).rejects.toThrow('already committed');
+      await expect(store.setAux('route', 'route:late', {})).rejects.toThrow('already committed');
+      await expect(store.deleteAuxByPrefix('route', 'route:')).rejects.toThrow('already committed');
+    });
+    expect(acquire).toHaveBeenCalledExactlyOnceWith('publication');
+    expect((await store.getSnapshot<{ revision: string }>('route'))?.data.revision).toBe('committed');
+    expect(await store.getAux('route', 'route:late')).toBeNull();
+  });
+
+  it('rebuilds after lock contention instead of acknowledging an existing stale snapshot', async () => {
+    const store = createStore();
+    const cache = new SharedTestCache(store);
+    await cache.reload();
+    const acquire = vi.spyOn(store, 'acquireRefreshLock').mockResolvedValueOnce(null);
+    await cache.reload();
+    expect(cache.loadCalls).toBe(2);
+    expect(acquire).toHaveBeenCalled();
+  });
+
+  it('does not expose staged snapshots when a reload chain fails', async () => {
+    const store = createStore();
+    await store.setSnapshot('metadata', { revision: 'old' });
+    await expect((store as any).runWithPublication(async () => {
+      await store.setSnapshot('metadata', { revision: 'candidate' });
+      expect((await store.getSnapshot<any>('metadata'))?.data.revision).toBe('candidate');
+      throw new Error('route build failed');
+    })).rejects.toThrow('route build failed');
+    expect((await store.getSnapshot<any>('metadata'))?.data.revision).toBe('old');
+  });
+
+  it('pins a complete committed snapshot set during receiver replay', async () => {
+    const redis = new MemoryRedis();
+    const writer = createStore(redis);
+    const receiver = createStore(redis);
+    await writer.setSnapshot('metadata', { revision: 'old' });
+    await writer.setSnapshot('route', { revision: 'old' });
+    await (writer as any).runWithPublication(async () => {
+      await writer.setSnapshot('metadata', { revision: 'first' });
+      await writer.setSnapshot('route', { revision: 'first' });
+    });
+    await (receiver as any).runWithCommittedSnapshots(async () => {
+      expect((await receiver.getSnapshot<any>('metadata'))?.data.revision).toBe('first');
+      await (writer as any).runWithPublication(async () => {
+        await writer.setSnapshot('metadata', { revision: 'second' });
+        await writer.setSnapshot('route', { revision: 'second' });
+      });
+      expect((await receiver.getSnapshot<any>('route'))?.data.revision).toBe('first');
+    });
+    expect((await receiver.getSnapshot<any>('route'))?.data.revision).toBe('second');
+  });
+
+  it('keeps committed auxiliary routes when a candidate publication fails', async () => {
+    const redis = new MemoryRedis();
+    const writer = createStore(redis);
+    const reader = createStore(redis);
+    await writer.runWithPublication(async () => {
+      await writer.setSnapshot('route', { revision: 'old' });
+      await writer.setAux('route', 'route:old', { revision: 'old' });
+    });
+    await expect(writer.runWithPublication(async () => {
+      await writer.deleteAuxByPrefix('route', 'route:');
+      expect(await writer.getAux('route', 'route:old')).toBeNull();
+      expect(await reader.getAux('route', 'route:old')).toEqual({ revision: 'old' });
+      throw new Error('candidate failed');
+    })).rejects.toThrow('candidate failed');
+    expect(await reader.getAux('route', 'route:old')).toEqual({ revision: 'old' });
+    await writer.runWithPublication(async () => {
+      await writer.deleteAuxByPrefix('route', 'route:');
+      await writer.setAux('route', 'route:new', { revision: 'new' });
+    });
+    expect(await reader.getAux('route', 'route:old')).toBeNull();
+    expect(await reader.getAux('route', 'route:new')).toEqual({ revision: 'new' });
+  });
+
+  it('pins auxiliary data with snapshots and keeps an empty pinned set immutable', async () => {
+    const redis = new MemoryRedis();
+    const writer = createStore(redis);
+    const reader = createStore(redis);
+    await reader.runWithCommittedSnapshots(async () => {
+      await writer.setSnapshot('route', { revision: 'first' });
+      expect(await reader.getSnapshot('route')).toBeNull();
+    });
+    await writer.runWithPublication(() => writer.setAux('route', 'index', { revision: 'first' }));
+    await reader.runWithCommittedSnapshots(async () => {
+      await writer.runWithPublication(() => writer.setAux('route', 'index', { revision: 'second' }));
+      expect(await reader.getAux('route', 'index')).toEqual({ revision: 'first' });
+    });
+  });
+
   it('persists cache snapshots in Redis and does not expose local raw cache', async () => {
     const redis = new MemoryRedis();
     const store = createStore(redis);

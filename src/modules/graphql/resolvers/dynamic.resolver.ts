@@ -1,14 +1,13 @@
 import { BadRequestException } from '../../../domain/exceptions';
-import {
-  AuthenticationService,
-  type AuthenticatedRequest,
-} from '../../../domain/auth';
+import type { AuthenticationService } from '../../../domain/auth';
 import { throwGqlError } from '../utils/throw-error';
 import { convertFieldNodesToFieldPicker } from '../utils/field-string-converter';
-import { GraphQLError } from 'graphql';
+import { GraphQLError, type GraphQLResolveInfo } from 'graphql';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { DynamicContextFactory } from '../../../shared/services';
-import { ExecutorEngineService } from '@enfyra/kernel';
+import type { RuntimeScriptExecutorService } from '../../../engines/cache/services/runtime-script-executor.service';
+import type { GraphqlMutationArguments, GraphqlQueryArguments, GraphqlResolverContext } from '../types/graphql-resolver.types';
+import type { TAuthenticatedUser } from '../../../shared/types/authenticated-user.types';
 import { RepoRegistryService } from '../../../engines/cache';
 import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
@@ -18,26 +17,28 @@ import {
 } from '../utils/graphql-access.util';
 import type { GuardEvaluatorService } from '../../../engines/cache/services/guard-evaluator.service';
 import type { GuardAlertService } from '../../../engines/cache/services/guard-alert.service';
-import type { GuardEvalContext } from '../../../engines/cache/types/guard.types';
-import type { GuardPosition } from '../../../engines/cache/types/guard.types';
+import type { GuardEvalContext, GuardPosition } from '../../../engines/cache/types/guard.types';
+import type { MutationBodyValidationService } from '../../dynamic-api/services/mutation-body-validation.service';
 
 export class DynamicResolver {
-  private readonly executorEngineService: ExecutorEngineService;
+  private readonly executorEngineService: Pick<RuntimeScriptExecutorService, 'run'>;
   private readonly repoRegistryService: RepoRegistryService;
   private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly dynamicContextFactory: DynamicContextFactory;
   private readonly authenticationService: AuthenticationService;
   private readonly guardEvaluatorService: GuardEvaluatorService;
   private readonly guardAlertService: GuardAlertService;
+  private readonly mutationBodyValidationService: MutationBodyValidationService;
 
   constructor(deps: {
-    executorEngineService: ExecutorEngineService;
+    executorEngineService: Pick<RuntimeScriptExecutorService, 'run'>;
     repoRegistryService: RepoRegistryService;
     runtimeRegistryService: RuntimeRegistryService;
     dynamicContextFactory: DynamicContextFactory;
     authenticationService: AuthenticationService;
     guardEvaluatorService: GuardEvaluatorService;
     guardAlertService: GuardAlertService;
+    mutationBodyValidationService: MutationBodyValidationService;
   }) {
     this.executorEngineService = deps.executorEngineService;
     this.repoRegistryService = deps.repoRegistryService;
@@ -46,35 +47,30 @@ export class DynamicResolver {
     this.dynamicContextFactory = deps.dynamicContextFactory;
     this.guardEvaluatorService = deps.guardEvaluatorService;
     this.guardAlertService = deps.guardAlertService;
+    this.mutationBodyValidationService = deps.mutationBodyValidationService;
   }
 
   async dynamicResolver(
     tableName: string,
-    args: {
-      filter: any;
-      page: number;
-      limit: number;
-      meta: 'filterCount' | 'totalCount' | '*';
-      sort: string | string[];
-    },
-    context: any,
-    info: any,
+    args: GraphqlQueryArguments,
+    context: GraphqlResolverContext,
+    info: GraphQLResolveInfo,
   ) {
     const { mainTable, user } = await this.middleware(
       tableName,
       'QUERY',
       context,
     );
-    const selections = info.fieldNodes?.[0]?.selectionSet?.selections || [];
-    const fullFieldPicker = convertFieldNodesToFieldPicker(selections);
+    const selections = (info.fieldNodes ?? []).flatMap((node) => node.selectionSet?.selections ?? []);
+    const fullFieldPicker = convertFieldNodesToFieldPicker(selections, [], info.fragments, info.variableValues);
     const fieldPicker = fullFieldPicker
       .filter((f) => f.startsWith('data.'))
       .map((f) => f.replace(/^data\./, ''));
     const metaPicker = fullFieldPicker
       .filter((f) => f.startsWith('meta.'))
       .map((f) => f.replace(/^meta\./, ''));
-    const handlerCtx: any = this.dynamicContextFactory.createGraphql({
-      request: context.request,
+    const handlerCtx = this.dynamicContextFactory.createGraphql({
+      ...(context.request !== undefined ? { request: context.request } : {}),
       user: user ?? null,
       body: {},
       params: {},
@@ -83,7 +79,7 @@ export class DynamicResolver {
         filter: args.filter,
         page: args.page,
         limit: args.limit,
-        meta: metaPicker.join(',') as any,
+        meta: metaPicker.join(','),
         sort: args.sort,
       },
       query: {
@@ -91,7 +87,7 @@ export class DynamicResolver {
         filter: args.filter,
         page: args.page,
         limit: args.limit,
-        meta: metaPicker.join(',') as any,
+        meta: metaPicker.join(','),
         sort: args.sort,
       },
     });
@@ -114,27 +110,41 @@ export class DynamicResolver {
 
   async dynamicMutationResolver(
     mutationName: string,
-    args: any,
-    context: any,
-    _info: any,
+    args: GraphqlMutationArguments,
+    context: GraphqlResolverContext,
+    _info: GraphQLResolveInfo,
   ) {
     try {
       const match = mutationName.match(/^(create|update|delete)_(.+)$/);
-      if (!match) {
+      const operation = match?.[1];
+      const tableName = match?.[2];
+      if (!operation || !tableName) {
         throw new BadRequestException(`Invalid mutation name: ${mutationName}`);
       }
-      const operation = match[1];
-      const tableName = match[2];
-      const graphqlOperation = operation.toUpperCase() as GraphqlOperationName;
+      const graphqlOperation = operation === 'create' ? 'CREATE' : operation === 'update' ? 'UPDATE' : 'DELETE';
       const { user } = await this.middleware(
         tableName,
         graphqlOperation,
         context,
       );
-      const handlerCtx: any = this.dynamicContextFactory.createGraphql({
-        request: context.request,
+      const mutationBody =
+        operation === 'delete'
+          ? {}
+          : (
+              await this.mutationBodyValidationService.validate({
+                tableName,
+                mode: operation === 'create' ? 'create' : 'update',
+                body: args.input || {},
+                user,
+                ...(args.id !== undefined && args.id !== null
+                  ? { recordId: args.id }
+                  : {}),
+              })
+            ).body;
+      const handlerCtx = this.dynamicContextFactory.createGraphql({
+        ...(context.request !== undefined ? { request: context.request } : {}),
         user: user ?? null,
-        body: args.input || {},
+        body: mutationBody,
         params: { id: args.id },
       });
       handlerCtx.$repos = this.repoRegistryService.createReposProxy(
@@ -155,12 +165,12 @@ export class DynamicResolver {
         default:
           throw new BadRequestException(`Unsupported operation: ${operation}`);
       }
-      const result = await this.executorEngineService.run(
+      const result: unknown = await this.executorEngineService.run(
         defaultHandler,
         handlerCtx,
         30000,
       );
-      if (result && result.data && Array.isArray(result.data)) {
+      if (result && typeof result === 'object' && 'data' in result && Array.isArray(result.data)) {
         return this.sanitizeResult(result.data[0], tableName);
       }
       return this.sanitizeResult(result, tableName);
@@ -173,7 +183,7 @@ export class DynamicResolver {
   private async middleware(
     mainTableName: string,
     operation: GraphqlOperationName,
-    context: any,
+    context: GraphqlResolverContext,
   ) {
     if (!mainTableName) {
       throwGqlError('400', 'Missing table name');
@@ -207,7 +217,7 @@ export class DynamicResolver {
       null,
     );
 
-    const requestAuth = context.auth as AuthenticatedRequest | null | undefined;
+    const requestAuth = context.auth;
     const user = requestAuth?.user ?? (await this.authenticate(context));
     const resolvedUser =
       user ?? (isPublic ? null : this.throwAuthenticationRequired());
@@ -248,13 +258,13 @@ export class DynamicResolver {
     position: GuardPosition,
     mainTableName: string,
     operation: GraphqlOperationName,
-    context: any,
-    user: any,
+    context: GraphqlResolverContext,
+    user: TAuthenticatedUser | null,
   ): Promise<void> {
     const guards = this.runtimeRegistryService.getGuardsForGraphql(
       position,
       mainTableName,
-      operation as any,
+      operation,
     );
     if (guards.length === 0) return;
 
@@ -301,7 +311,7 @@ export class DynamicResolver {
           guardName: guard.name,
         });
 
-        const extensions: Record<string, any> = {
+        const extensions: Record<string, unknown> = {
           code: reject.errorCode,
           statusCode: reject.statusCode,
           details: reject.details,
@@ -315,28 +325,29 @@ export class DynamicResolver {
   }
 
   private throwAuthenticationRequired(): never {
-    return throwGqlError('401', 'Authentication required') as never;
+    return throwGqlError('401', 'Authentication required');
   }
 
-  private async authenticate(context: any) {
-    const requestAuth = context.auth as AuthenticatedRequest | null | undefined;
+  private async authenticate(context: GraphqlResolverContext) {
+    const requestAuth = context.auth;
     if (requestAuth) return requestAuth.user;
 
     try {
+      const headers = context.request?.headers;
       const authenticated = await this.authenticationService.authenticate({
-        headers: context.request?.headers,
+        ...(headers !== undefined ? { headers } : {}),
         allowAnonymous: false,
       });
       return authenticated?.user ?? null;
-    } catch (error: any) {
-      if (error?.statusCode === 401) {
+    } catch (error) {
+      if (error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 401) {
         throwGqlError('401', 'Unauthorized');
       }
       throw error;
     }
   }
 
-  private sanitizeResult(result: any, _tableName?: string): any {
+  private sanitizeResult(result: unknown, _tableName?: string): unknown {
     return result;
   }
 }

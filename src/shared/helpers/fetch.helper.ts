@@ -18,7 +18,7 @@ export type FetchHelper = (
   },
 ) => Promise<any>;
 
-function isPrivateIp(ip: string): boolean {
+export function isPrivateIp(ip: string): boolean {
   if (!ip) return true;
   const v = isIP(ip);
   if (v === 4) {
@@ -29,6 +29,7 @@ function isPrivateIp(ip: string): boolean {
     )
       return true;
     const [a, b] = parts;
+    if (a === undefined || b === undefined) return true;
     if (a === 10) return true;
     if (a === 127) return true;
     if (a === 0) return true;
@@ -40,9 +41,13 @@ function isPrivateIp(ip: string): boolean {
   }
   if (v === 6) {
     const normalized = ip.toLowerCase();
-    if (normalized === '::1') return true;
+    const mapped = normalized.match(
+      /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/,
+    );
+    if (mapped?.[1]) return isPrivateIp(mapped[1]);
+    if (normalized === '::1' || normalized === '::') return true;
     if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
-    if (normalized.startsWith('fe80:')) return true;
+    if (/^fe[89a-f]/.test(normalized)) return true;
     return false;
   }
   return true;
@@ -90,6 +95,43 @@ async function assertNetworkAllowed(url: URL, allowPrivateIp?: boolean) {
       throw new Error('Private IP targets are not allowed');
     }
   }
+}
+
+async function readBodyWithLimit(
+  res: any,
+  maxBytes: number,
+): Promise<ArrayBuffer> {
+  const body = res.body;
+  if (!body || typeof body.getReader !== 'function') {
+    return await res.arrayBuffer();
+  }
+
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = value as Uint8Array;
+      total += chunk.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error(`Response too large (>${maxBytes} bytes)`);
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    reader.releaseLock?.();
+  }
+
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return merged.buffer;
 }
 
 export function createFetchHelper(defaults?: {
@@ -183,10 +225,7 @@ export function createFetchHelper(defaults?: {
         throw new Error(`Response too large (${contentLength} bytes)`);
       }
 
-      const ab = await res.arrayBuffer();
-      if (ab.byteLength > maxBytes) {
-        throw new Error(`Response too large (${ab.byteLength} bytes)`);
-      }
+      const ab = await readBodyWithLimit(res, maxBytes);
       totalBytes += ab.byteLength;
       if (totalBytes > maxTotalBytes) {
         throw new Error(

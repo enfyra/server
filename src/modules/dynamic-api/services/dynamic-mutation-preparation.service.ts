@@ -1,8 +1,6 @@
 import { BadRequestException } from '../../../domain/exceptions';
 import {
   assertScriptSourceContract,
-  getScriptLegacyField,
-  normalizeFlowStepScriptConfig,
   normalizeScriptPatch,
   normalizeScriptRecord,
 } from '../../../shared/utils/script-code.util';
@@ -16,17 +14,18 @@ type MutableTableMetadata = {
   columns?: MutableColumnMetadata[];
 };
 
+const FLOW_STEP_TYPES = new Set(['script', 'condition']);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 export class DynamicMutationPreparationService {
   private assertScriptSource(
-    tableName: string,
+    _tableName: string,
     body: Record<string, unknown>,
   ): void {
-    const legacyField = getScriptLegacyField(tableName);
-    const sourceCode = body.sourceCode ?? (legacyField ? body[legacyField] : undefined);
+    const sourceCode = body.sourceCode;
     if (typeof sourceCode === 'string' && sourceCode !== '') {
       assertScriptSourceContract(sourceCode);
     }
@@ -56,12 +55,21 @@ export class DynamicMutationPreparationService {
 
   normalizeFlowStep(body: Record<string, unknown>) {
     try {
-      const config = isRecord(body.config) ? body.config : {};
-      const sourceCode = body.sourceCode ?? config.sourceCode ?? config.code;
+      if (body.type !== undefined && !FLOW_STEP_TYPES.has(String(body.type))) {
+        throw new Error(
+          'Flow steps are script-only: type must be script or condition.',
+        );
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'config')) {
+        throw new Error(
+          'Flow steps have no config column. Send type plus sourceCode and scriptLanguage.',
+        );
+      }
+      const sourceCode = body.sourceCode;
       if (typeof sourceCode === 'string' && sourceCode !== '') {
         assertScriptSourceContract(sourceCode);
       }
-      return normalizeFlowStepScriptConfig(body);
+      return normalizeScriptRecord('enfyra_flow_step', body);
     } catch (error) {
       throw this.toScriptBadRequest(error);
     }

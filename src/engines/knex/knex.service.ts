@@ -1,6 +1,8 @@
 import { Logger } from '../../shared/logger';
 import { knex, type Knex } from 'knex';
 import { AsyncLocalStorage } from 'async_hooks';
+import { getIoAbortSignal } from '@enfyra/kernel';
+import { BadRequestException } from '../../domain/exceptions';
 import type { Cradle } from '../../container';
 import {
   ExtendedKnex,
@@ -52,7 +54,7 @@ export class KnexService implements LifecycleAware {
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly envService: EnvService;
   private readonly knexHookManagerService: KnexHookManagerService;
-  private readonly replicationManager?: ReplicationManager;
+  private readonly replicationManager: ReplicationManager | undefined;
   private readonly lazyRef: Cradle;
 
   constructor(deps: {
@@ -118,7 +120,9 @@ export class KnexService implements LifecycleAware {
           user: parsed.user,
           password: parsed.password,
           database: parsed.database,
-          filename: parsed.filename,
+          ...(parsed.filename === undefined
+            ? {}
+            : { filename: parsed.filename }),
         };
       } else {
         connectionConfig = {
@@ -161,6 +165,9 @@ export class KnexService implements LifecycleAware {
             if (field.type === 'DATE') {
               return field.string();
             }
+            if (field.type === 'LONGLONG') {
+              return field.string();
+            }
             if (field.type === 'TINY' && field.length === 1) {
               const val = field.string();
               return val === null ? null : val === '1';
@@ -172,12 +179,14 @@ export class KnexService implements LifecycleAware {
         pool: {
           min: poolConfig.min,
           max: poolConfig.max,
-          afterCreate: isPostgres
-            ? undefined
-            : (
-                connection: any,
-                done: (error: unknown, connection?: any) => void,
-              ) => applyMySqlSessionTimeZone(connection, done),
+          ...(isPostgres
+            ? {}
+            : {
+                afterCreate: (
+                  connection: any,
+                  done: (error: unknown, connection?: any) => void,
+                ) => applyMySqlSessionTimeZone(connection, done),
+              }),
         },
         acquireConnectionTimeout: SQL_ACQUIRE_TIMEOUT_MS,
         debug: false,
@@ -540,6 +549,37 @@ export class KnexService implements LifecycleAware {
     );
   }
 
+  async runWithLockedRecord<T>(
+    table: string,
+    id: string | number,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    const run = async (trx: Knex.Transaction): Promise<T> => {
+      const signal = getIoAbortSignal();
+      if (signal?.aborted) throw new Error('Operation aborted');
+      const onAbort = () => {
+        if (!trx.isCompleted()) void trx.rollback().catch(() => {});
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+      try {
+        const row = await trx(table)
+          .where('id', id)
+          .forUpdate()
+          .first()
+          .timeout(30000, { cancel: true });
+        if (!row)
+          throw new BadRequestException('updateLocked record not found');
+        if (signal?.aborted) throw new Error('Operation aborted');
+        return await callback();
+      } finally {
+        signal?.removeEventListener('abort', onAbort);
+      }
+    };
+    const active = this.knexContext.getStore();
+    if (active && 'commit' in active) return run(active as Knex.Transaction);
+    return this.transaction(run);
+  }
+
   async transaction(
     callback: (trx: Knex.Transaction) => Promise<any>,
   ): Promise<any> {
@@ -817,12 +857,15 @@ export class KnexService implements LifecycleAware {
         const relation = tableMetadata.relations.find(
           (r: any) => r.propertyName === relationName,
         );
-        if (relation && relation.targetTable) {
-          return relation.targetTable;
+        const targetTableName =
+          relation?.targetTableName || relation?.targetTable;
+        if (targetTableName) {
+          return targetTableName;
         }
       }
 
-      const tableDef = await this.knexInstance('enfyra_table')
+      const connection = this.getActiveKnex();
+      const tableDef = await connection('enfyra_table')
         .where('name', parentTableName)
         .first();
 
@@ -830,7 +873,7 @@ export class KnexService implements LifecycleAware {
         return null;
       }
 
-      const relationDef = await this.knexInstance('enfyra_relation')
+      const relationDef = await connection('enfyra_relation')
         .where('sourceTableId', tableDef.id)
         .where('propertyName', relationName)
         .first();
@@ -839,7 +882,7 @@ export class KnexService implements LifecycleAware {
         return null;
       }
 
-      const targetTableDef = await this.knexInstance('enfyra_table')
+      const targetTableDef = await connection('enfyra_table')
         .where('id', relationDef.targetTableId)
         .first();
 
@@ -849,6 +892,7 @@ export class KnexService implements LifecycleAware {
 
       return targetTableDef.name;
     } catch (error) {
+      if (this.knexContext.getStore()) throw error;
       this.logger.warn(
         `[getTargetTableNameFromRelation] Failed to resolve relation '${relationName}' from '${parentTableName}'`,
       );

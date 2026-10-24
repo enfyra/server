@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
-import {
+import type {
   IStorageService,
   StorageConfig,
   StorageStreamOptions,
@@ -74,7 +74,7 @@ export class LocalStorageService implements IStorageService {
     const stream = fs.createReadStream(absolutePath, options?.range);
     try {
       const stats = await fs.promises.stat(absolutePath);
-      (stream as any).contentLength = stats.size;
+      Object.assign(stream, { contentLength: stats.size });
     } catch (error) {}
     return stream;
   }

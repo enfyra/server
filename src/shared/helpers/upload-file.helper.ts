@@ -56,10 +56,7 @@ export class UploadFileHelper {
           const sortedKeys = numericKeys
             .map((k) => parseInt(k, 10))
             .sort((a, b) => a - b);
-          const arr = new Array(sortedKeys.length);
-          for (let i = 0; i < sortedKeys.length; i++) {
-            arr[i] = buffer[sortedKeys[i].toString()];
-          }
+          const arr = sortedKeys.map((key) => buffer[key.toString()]);
           return Buffer.from(arr);
         } else {
           throw new Error(

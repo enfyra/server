@@ -9,7 +9,7 @@ export class GenericTableProcessor extends BaseTableProcessor {
     this.tableName = deps.tableName;
   }
 
-  async transformRecords(records: any[]): Promise<any[]> {
+  override async transformRecords(records: any[]): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
 
     return records.map((record) => {
@@ -97,7 +97,7 @@ export class GenericTableProcessor extends BaseTableProcessor {
       : identifiers[0] || { id: record.id };
   }
 
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     const fieldMap: Record<string, string[]> = {
       enfyra_role: ['name', 'description'],
       enfyra_setting: ['projectName', 'projectDescription', 'projectUrl'],

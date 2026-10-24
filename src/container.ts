@@ -31,6 +31,11 @@ import {
   bootstrapProcessorRegisters,
 } from './wiring/registers/bootstrap';
 import type { RequestWithRouteData } from './shared/types/dynamic-context.types';
+import type {
+  CradleRegistrations,
+  RequestCradleKey,
+  RootCradleRegistrations,
+} from './wiring/types/registration.types';
 
 export type { Cradle } from './wiring/cradle';
 
@@ -56,7 +61,7 @@ export function buildContainer(): AwilixContainer<import('./wiring/cradle').Crad
     ...websocketRegisters,
     ...bootstrapInfraRegisters,
     ...bootstrapProcessorRegisters,
-  });
+  } satisfies RootCradleRegistrations);
 
   return container;
 }
@@ -75,6 +80,6 @@ export function buildRequestScope(
     $params: asValue(req.params ?? {}),
     $user: asValue(null),
     $ctx: asValue(null),
-  });
+  } satisfies CradleRegistrations<RequestCradleKey>);
   return scope;
 }

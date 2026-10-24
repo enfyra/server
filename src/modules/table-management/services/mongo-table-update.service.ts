@@ -16,6 +16,7 @@ import { getRelationMappedByProperty } from '../utils/relation-target-id.util';
 import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
 import { getRemovedMongoStoredFields } from '../../../engines/mongo/utils/mongo-physical-schema-contract';
 import { normalizeTableConstraints } from '../utils/table-constraints.util';
+import { assertNoNewRedundantIndexes } from '../utils/schema-index-validation.util';
 import { MongoTableHandlerService } from './mongo-table-handler-base.service';
 import {
   ensureMongoSingleRecord,
@@ -228,6 +229,7 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
               }
             }
           }
+          assertNoNewRedundantIndexes({ ...oldMetadata, ...body }, oldMetadata);
           const allowedConstraintFields = this.getAllowedConstraintFields(body);
           const requestedUniques =
             body.uniques ?? exists.uniques ?? oldMetadata?.uniques;
@@ -236,7 +238,9 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
             indexes: body.indexes,
             columns: body.columns || [],
             renames: this.getConstraintFieldRenames(oldMetadata, body),
-            allowedFields: allowedConstraintFields ?? undefined,
+            ...(allowedConstraintFields == null
+              ? {}
+              : { allowedFields: allowedConstraintFields }),
           });
           const bodyUniques = constraints.uniques;
           const bodyIndexes =

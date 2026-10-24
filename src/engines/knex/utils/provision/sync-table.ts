@@ -693,10 +693,6 @@ export async function applyRelationMigrations(
               .references(foreignKey.targetColumn)
               .inTable(foreignKey.targetTable);
             fk.onDelete(foreignKey.onDelete).onUpdate(foreignKey.onUpdate);
-            table.index(
-              [fkColumn, 'id'],
-              getShortSqlIdentifier('idx', tableName, fkColumn),
-            );
           });
         } catch (error) {
           rethrowPostgresTransactionError(knex, error);
@@ -729,15 +725,16 @@ export async function applyIndexAndUniqueMigrations(
         contract.physicalColumns.length === columns.length &&
         contract.physicalColumns.every(
           (column, position) =>
-            column.toLowerCase() === columns[position].toLowerCase(),
+            column.toLowerCase() === columns[position]?.toLowerCase(),
         ),
     );
-    if (matches.length !== 1) {
+    const [match] = matches;
+    if (matches.length !== 1 || match === undefined) {
       throw new Error(
         `Expected exactly one ${kind} contract for ${tableName}(${columns.join(', ')})`,
       );
     }
-    return matches[0].name;
+    return match.name;
   };
   const normalizeCols = (cols: string[] | string): string[] => {
     if (Array.isArray(cols)) return cols;

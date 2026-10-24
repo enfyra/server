@@ -69,6 +69,28 @@ describe('SagaCollection (app-level saga)', () => {
     expect(rawColl.bulkWrite).not.toHaveBeenCalled();
   });
 
+  it('omits unset cursor pagination while preserving explicit limits', async () => {
+    const c = new SagaCollection('items', mongo);
+
+    await c.find({ active: true }).toArray();
+    expect(txApi.find).toHaveBeenLastCalledWith('items', { active: true }, {
+      sort: undefined,
+      projection: undefined,
+    });
+    for (const [, , defaults] of txApi.find.mock.calls) {
+      expect(defaults).not.toHaveProperty('skip');
+      expect(defaults).not.toHaveProperty('limit');
+    }
+
+    await c.find({ active: true }).skip(2).limit(0).toArray();
+    expect(txApi.find).toHaveBeenLastCalledWith('items', { active: true }, {
+      skip: 2,
+      limit: 0,
+      sort: undefined,
+      projection: undefined,
+    });
+  });
+
   it('insertOne routes through saga session', async () => {
     txApi.insertOne.mockResolvedValue({ _id: new ObjectId(), id: 'x' });
     const c = new SagaCollection('items', mongo);

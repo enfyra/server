@@ -3,6 +3,7 @@ import type {
   VersionedSchemaMigration,
 } from '../../../shared/types/schema-migration.types';
 import type {
+  BootstrapSchemaCommand,
   BootstrapSchemaExecutionPlan,
   BootstrapSchemaOperation,
 } from '../types';
@@ -205,20 +206,19 @@ function compileExecutionPhases(
 ): BootstrapSchemaExecutionPlan['phases'] {
   const nodes: UnphasedBootstrapSchemaExecutionNode[] = [];
   const addNode = (
-    operation: BootstrapSchemaOperation,
-    commandKind: UnphasedBootstrapSchemaExecutionNode['command']['kind'],
+    command: BootstrapSchemaCommand,
     dependsOn: readonly string[],
     checkpoint: UnphasedBootstrapSchemaExecutionNode['checkpoint'],
     completesChange: boolean,
   ): string => {
-    const id = `${operation.id}:command:${commandKind}`;
+    const id = `${command.operation.id}:command:${command.kind}`;
     nodes.push({
       id,
-      changeId: operation.id,
+      changeId: command.operation.id,
       dependsOn: [...dependsOn],
       checkpoint,
       completesChange,
-      command: { backend, kind: commandKind, operation },
+      command,
     });
     return id;
   };
@@ -227,15 +227,14 @@ function compileExecutionPhases(
   for (const operation of operations) {
     if (operation.kind !== 'rename-core-table') continue;
     renameBarrier = [
-      addNode(operation, 'rename-core-table', renameBarrier, 'core', false),
+      addNode({ backend, kind: 'rename-core-table', operation }, renameBarrier, 'core', false),
     ];
   }
   for (const operation of operations) {
     if (operation.kind !== 'modify-mongo-column-types') continue;
     renameBarrier = [
       addNode(
-        operation,
-        'modify-mongo-column-types',
+        { backend, kind: 'modify-mongo-column-types', operation },
         renameBarrier,
         'core',
         true,
@@ -245,7 +244,7 @@ function compileExecutionPhases(
   for (const operation of operations) {
     if (operation.kind !== 'rename-table') continue;
     renameBarrier = [
-      addNode(operation, 'rename-table', renameBarrier, 'remaining', false),
+      addNode({ backend, kind: 'rename-table', operation }, renameBarrier, 'remaining', false),
     ];
   }
 
@@ -254,8 +253,7 @@ function compileExecutionPhases(
     if (operation.kind === 'rename-physical-table') {
       physicalDirectNodeIds.push(
         addNode(
-          operation,
-          'rename-physical-table',
+          { backend, kind: 'rename-physical-table', operation },
           renameBarrier,
           'remaining',
           true,
@@ -264,8 +262,7 @@ function compileExecutionPhases(
     } else if (operation.kind === 'drop-physical-table') {
       physicalDirectNodeIds.push(
         addNode(
-          operation,
-          'drop-physical-table',
+          { backend, kind: 'drop-physical-table', operation },
           renameBarrier,
           'remaining',
           true,
@@ -279,8 +276,7 @@ function compileExecutionPhases(
     if (operation.kind !== 'drop-table') continue;
     physicalTableDropNodeIds.push(
       addNode(
-        operation,
-        'apply-physical-change',
+        { backend, kind: 'apply-physical-change', operation },
         [...renameBarrier, ...physicalDirectNodeIds],
         'remaining',
         false,
@@ -306,8 +302,7 @@ function compileExecutionPhases(
       !hasColumnMetadataChanges(operation.modification) &&
       operation.modification.to.type !== undefined;
     const nodeId = addNode(
-      operation,
-      'apply-physical-change',
+      { backend, kind: 'apply-physical-change', operation },
       [
         ...renameBarrier,
         ...physicalDirectNodeIds,
@@ -331,8 +326,7 @@ function compileExecutionPhases(
     if (operation.kind !== 'drop-table') continue;
     metadataTableDropNodeIds.push(
       addNode(
-        operation,
-        'apply-metadata-change',
+        { backend, kind: 'apply-metadata-change', operation },
         physicalBarrier,
         'remaining',
         true,
@@ -360,8 +354,7 @@ function compileExecutionPhases(
     }
     const previous = previousMetadataByTable.get(operation.tableName);
     const nodeId = addNode(
-      operation,
-      'apply-metadata-change',
+      { backend, kind: 'apply-metadata-change', operation },
       [
         ...physicalBarrier,
         ...metadataTableDropNodeIds,
@@ -382,8 +375,7 @@ function compileExecutionPhases(
     ) {
       cleanupBarrier = [
         addNode(
-          operation,
-          'cleanup-renamed-table',
+          { backend, kind: 'cleanup-renamed-table', operation },
           cleanupBarrier,
           'remaining',
           true,

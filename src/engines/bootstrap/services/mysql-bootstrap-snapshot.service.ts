@@ -275,8 +275,7 @@ export class MySqlBootstrapSnapshotService {
       snapshotTableCount: tableNames.length,
       updatedAt: new Date(),
     });
-    for (let ordinal = 0; ordinal < tableNames.length; ordinal++) {
-      const tableName = tableNames[ordinal];
+    for (const [ordinal, tableName] of tableNames.entries()) {
       const createSql = await this.readCreateTableSql(knex, tableName);
       const columns = await this.readWritableColumns(knex, tableName);
       const rowCount = await this.readTableRowCount(knex, tableName);

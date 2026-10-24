@@ -91,6 +91,16 @@ describe('RuntimeSchemaUnitOfWorkService', () => {
     expect(harness.mySqlBootstrapSnapshotService.run).not.toHaveBeenCalled();
   });
 
+  it('passes the active saga identity without adding absent SQL context properties', async () => {
+    const mongo = createHarness('mongodb');
+    await expect(mongo.service.run(async context => context, {
+      mutationId: 'runtime-schema:mongo-context',
+    } as any)).resolves.toEqual({ sagaSessionId: 'tx-runtime-schema-test' });
+
+    const postgres = createHarness('postgres');
+    await expect(postgres.service.run(async context => context)).resolves.toEqual({});
+  });
+
   it('rejects a MongoDB runtime UOW without its immutable contract', async () => {
     const harness = createHarness('mongodb');
     await expect(harness.service.run(async () => 'ok')).rejects.toThrow(

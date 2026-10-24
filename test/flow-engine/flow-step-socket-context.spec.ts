@@ -91,13 +91,11 @@ describe('flow step socket context', () => {
             key: 'notify',
             stepOrder: 1,
             type: 'script',
-            config: {
-              code: `
+            sourceCode: `
                 $ctx.$socket.emitToUser(7, 'order:paid', { id: 42 });
                 $ctx.$socket.emitToRoom('/admin', 'admins', 'order:paid', { id: 42 });
                 return { roomSize: await $ctx.$socket.roomSize('admins') };
               `,
-            },
             timeout: 5000,
             onError: 'stop',
             isEnabled: true,
@@ -135,12 +133,10 @@ describe('flow step socket context', () => {
 
     const result = await service.testStep({
       type: 'script',
-      config: {
-        code: transformCode(`
+      sourceCode: transformCode(`
           @SOCKET.emitToUser(7, 'flow:test', { ok: true });
           return 'sent';
         `),
-      },
     });
 
     expect(result.success).toBe(true);
@@ -163,12 +159,10 @@ describe('flow step socket context', () => {
 
     const result = await service.testStep({
       type: 'script',
-      config: {
-        code: `
+      sourceCode: `
           console.log('visible-log', { ok: true });
           return 'done';
         `,
-      },
     });
 
     expect(result.success).toBe(true);
@@ -193,7 +187,8 @@ describe('flow step socket context', () => {
 
     const result = await service.testStep({
       type: 'script',
-      config: { sourceCode: 'return true;', scriptLanguage: 'typescript' },
+      sourceCode: 'return true;',
+      scriptLanguage: 'typescript',
     });
 
     expect(result.success).toBe(true);
@@ -257,11 +252,9 @@ describe('flow step socket context', () => {
             id: 11,
             key: 'get_mail_config',
             stepOrder: 1,
-            type: 'condition',
-            config: {
-              sourceCode: "return { mailUser: 'sender@test.com' };",
-              scriptLanguage: 'typescript',
-            },
+            type: 'script',
+            sourceCode: "return { mailUser: 'sender@test.com' };",
+            scriptLanguage: 'typescript',
             timeout: 5000,
             onError: 'stop',
             retryAttempts: 0,
@@ -270,18 +263,14 @@ describe('flow step socket context', () => {
           {
             id: 12,
             key: 'send_mail',
-            stepOrder: 1,
+            stepOrder: 2,
             type: 'script',
-            config: {
-              sourceCode: 'return @FLOW_LAST;',
-              scriptLanguage: 'typescript',
-            },
+            sourceCode: 'return @FLOW_LAST;',
+            scriptLanguage: 'typescript',
             timeout: 5000,
             onError: 'stop',
             retryAttempts: 0,
             isEnabled: true,
-            parentId: 11,
-            branch: 'true',
           },
         ],
       },
@@ -300,10 +289,8 @@ describe('flow step socket context', () => {
       id: 12,
       type: 'script',
       key: 'send_mail',
-      config: {
-        sourceCode: 'return @FLOW_LAST;',
-        scriptLanguage: 'typescript',
-      },
+      sourceCode: 'return @FLOW_LAST;',
+      scriptLanguage: 'typescript',
     });
 
     expect(result.success).toBe(true);

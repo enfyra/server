@@ -241,7 +241,10 @@ export function buildRuntimeSchemaChangePlan(input: {
     ['unique', before.contract.uniques, after.contract.uniques],
     ['index', before.contract.indexes, after.contract.indexes],
   ] as const;
-  const constraintChanges: Record<string, string[]> = {
+  const constraintChanges: Record<
+    'removedUniques' | 'addedUniques' | 'removedIndexes' | 'addedIndexes',
+    string[]
+  > = {
     removedUniques: [],
     addedUniques: [],
     removedIndexes: [],
@@ -252,9 +255,10 @@ export function buildRuntimeSchemaChangePlan(input: {
     const afterKeys = jsonArrayKeys(afterValue);
     const removed = beforeKeys.filter((key) => !afterKeys.includes(key));
     const added = afterKeys.filter((key) => !beforeKeys.includes(key));
-    const suffix = kind === 'unique' ? 'Uniques' : 'Indexes';
-    constraintChanges[`removed${suffix}`] = removed;
-    constraintChanges[`added${suffix}`] = added;
+    const removedKey = kind === 'unique' ? 'removedUniques' : 'removedIndexes';
+    const addedKey = kind === 'unique' ? 'addedUniques' : 'addedIndexes';
+    constraintChanges[removedKey] = removed;
+    constraintChanges[addedKey] = added;
     for (const key of removed) {
       addChange(
         kind === 'unique' ? 'remove-unique' : 'remove-index',

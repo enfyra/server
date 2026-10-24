@@ -15,7 +15,7 @@ export class FieldPermissionDefinitionProcessor extends BaseTableProcessor {
     this.queryBuilderService = deps.queryBuilderService;
   }
 
-  async transformRecords(records: any[], _context?: any): Promise<any[]> {
+  override async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const out: any[] = [];
 
@@ -122,7 +122,7 @@ export class FieldPermissionDefinitionProcessor extends BaseTableProcessor {
     return where;
   }
 
-  async processWithQueryBuilder(
+  override async processWithQueryBuilder(
     records: any[],
     queryBuilder: any,
     tableName: string,
@@ -255,11 +255,11 @@ export class FieldPermissionDefinitionProcessor extends BaseTableProcessor {
     return queryBuilder.getMongoDb().collection(tableName).findOne(filter);
   }
 
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     return ['action', 'effect', 'isEnabled', 'description', 'condition'];
   }
 
-  protected detectRecordChanges(newRecord: any, existingRecord: any): boolean {
+  protected override detectRecordChanges(newRecord: any, existingRecord: any): boolean {
     for (const field of this.getCompareFields()) {
       if (this.isBooleanField(field)) {
         if (this.isEquivalentBoolean(newRecord[field], existingRecord[field])) {
@@ -296,7 +296,7 @@ export class FieldPermissionDefinitionProcessor extends BaseTableProcessor {
     return value;
   }
 
-  protected getRecordIdentifier(record: any): string {
+  protected override getRecordIdentifier(record: any): string {
     const parts = [`[FieldPerm]`];
     if (record.description) parts.push(record.description);
     parts.push(`action=${record.action ?? '?'}`);

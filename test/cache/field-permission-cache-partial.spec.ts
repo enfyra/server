@@ -110,6 +110,85 @@ function makeService(rows: any[], metadata = makeMetadata(rows)) {
 }
 
 describe('FieldPermissionCacheBuilder — partial reload', () => {
+  it.each(['full', 'partial'])(
+    'hydrates the complete allowed-user scope on %s reload',
+    async (mode) => {
+      const users = Array.from({ length: 11 }, (_, index) => ({
+        id: `user-${index}`,
+      }));
+      const rows = [
+        makeRow({ role: null, allowedUsers: users, effect: 'deny' }),
+      ];
+      const { svc, qb, registry } = makeService(rows);
+      qb.find.mockImplementation(async (args: any) => ({
+        data: rows.map((row) => ({
+          ...row,
+          allowedUsers:
+            args.deep?.allowedUsers?.limit === -1 ? users : users.slice(0, 10),
+        })),
+      }));
+      await svc.reload(false);
+      if (mode === 'partial')
+        await svc.partialReload(
+          {
+            table: 'enfyra_field_permission',
+            action: 'reload',
+            timestamp: 0,
+            scope: 'partial',
+            ids: [1],
+          },
+          false,
+        );
+      expect(qb.find).toHaveBeenLastCalledWith(
+        expect.objectContaining({ deep: { allowedUsers: { limit: -1 } } }),
+      );
+      await expect(
+        decideFieldPermission(registry, {
+          user: users[10],
+          tableName: 'post',
+          action: 'read',
+          subjectType: 'column',
+          subjectName: 'name',
+        }),
+      ).resolves.toMatchObject({ allowed: false });
+    },
+  );
+
+  it('rebuilds prepared conditional denies after a partial metadata update', async () => {
+    const condition = { owner: { _eq: 7 } };
+    const rows = [makeRow({ role: null, effect: 'deny', condition })];
+    const { svc, registry } = makeService(rows);
+    const context = {
+      user: { id: 7 },
+      tableName: 'post',
+      action: 'read' as const,
+      subjectType: 'column' as const,
+      subjectName: 'name',
+      record: { owner: 7 },
+    };
+    await svc.reload(false);
+    expect((await decideFieldPermission(registry, context)).allowed).toBe(false);
+    condition.owner._eq = 8;
+    expect((await decideFieldPermission(registry, context)).allowed).toBe(false);
+    await svc.partialReload(
+      {
+        table: 'enfyra_field_permission',
+        action: 'reload',
+        timestamp: 0,
+        scope: 'partial',
+        ids: [1],
+      },
+      false,
+    );
+    expect((await decideFieldPermission(registry, context)).allowed).toBe(true);
+    expect(
+      (await decideFieldPermission(registry, {
+        ...context,
+        record: { owner: 8 },
+      })).allowed,
+    ).toBe(false);
+  });
+
   it('supportsPartialReload returns true', () => {
     const { svc } = makeService([]);
     expect(svc.supportsPartialReload()).toBe(true);
@@ -126,21 +205,25 @@ describe('FieldPermissionCacheBuilder — partial reload', () => {
     const { svc, registry } = makeService(data);
     await svc.reload(false);
 
-    await expect(decideFieldPermission(registry, {
-      user: { id: 99, roles: [{ id: 10 }] },
-      tableName: 'post',
-      action: 'read',
-      subjectType: 'column',
-      subjectName: 'name',
-    })).resolves.toMatchObject({ allowed: false });
+    await expect(
+      decideFieldPermission(registry, {
+        user: { id: 99, roles: [{ id: 10 }] },
+        tableName: 'post',
+        action: 'read',
+        subjectType: 'column',
+        subjectName: 'name',
+      }),
+    ).resolves.toMatchObject({ allowed: false });
 
-    await expect(decideFieldPermission(registry, {
-      user: { id: 20, roles: [{ id: 11 }] },
-      tableName: 'post',
-      action: 'read',
-      subjectType: 'column',
-      subjectName: 'name',
-    })).resolves.toMatchObject({ allowed: false });
+    await expect(
+      decideFieldPermission(registry, {
+        user: { id: 20, roles: [{ id: 11 }] },
+        tableName: 'post',
+        action: 'read',
+        subjectType: 'column',
+        subjectName: 'name',
+      }),
+    ).resolves.toMatchObject({ allowed: false });
   });
 
   it('partialReload inserts new rule, indexes column into allow Set', async () => {

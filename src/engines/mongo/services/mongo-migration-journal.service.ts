@@ -20,8 +20,8 @@ export type MongoMigrationOperation = 'create' | 'update' | 'delete';
 export class MongoMigrationJournalService {
   private readonly logger = new Logger(MongoMigrationJournalService.name);
   private readonly mongoService: MongoService;
-  private readonly cacheService?: RedisCacheService;
-  private readonly instanceService?: InstanceService;
+  private readonly cacheService: RedisCacheService | undefined;
+  private readonly instanceService: InstanceService | undefined;
   private readonly collectionName = 'enfyra_schema_migration';
 
   constructor(deps: {

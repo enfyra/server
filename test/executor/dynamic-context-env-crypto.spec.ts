@@ -127,6 +127,15 @@ describe('dynamic context env and crypto helpers', () => {
       expect(result.privateKey).toContain('BEGIN RSA PRIVATE KEY');
       expect(result.publicKey).toMatch(/^ssh-rsa /);
       expect(result.publicKey).toContain(' test-host');
+      const publicBlob = Buffer.from(String(result.publicKey).split(' ')[1] ?? '', 'base64');
+      const algorithmLength = publicBlob.readUInt32BE(0);
+      const exponentLengthOffset = 4 + algorithmLength;
+      const exponentLength = publicBlob.readUInt32BE(exponentLengthOffset);
+      const modulusLengthOffset = exponentLengthOffset + 4 + exponentLength;
+      const modulusOffset = modulusLengthOffset + 4;
+      expect(publicBlob.readUInt32BE(modulusLengthOffset)).toBe(513);
+      expect(publicBlob.readUInt8(modulusOffset)).toBe(0);
+      expect(publicBlob.readUInt8(modulusOffset + 1) & 0x80).toBe(0x80);
       expect(result.sshError).toContain('Helper not found');
     } finally {
       service.onDestroy();

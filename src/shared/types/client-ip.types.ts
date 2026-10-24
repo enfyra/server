@@ -6,7 +6,7 @@ export interface ForwardedClientContext {
 
 export interface ClientIpRequest {
   headers?: Record<string, unknown>;
-  ip?: string;
-  connection?: { remoteAddress?: string };
-  socket?: { remoteAddress?: string };
+  ip?: string | undefined;
+  connection?: { remoteAddress?: string | undefined };
+  socket?: { remoteAddress?: string | undefined };
 }

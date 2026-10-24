@@ -56,8 +56,9 @@ function forwardedEntries(headers: Record<string, unknown>): unknown[] {
           .split(';')
           .map((part) => part.trim())
           .filter((part) => /^for=/i.test(part));
-        if (matches.length !== 1) return null;
-        const value = matches[0].slice(4).trim();
+        const [match] = matches;
+        if (matches.length !== 1 || match === undefined) return null;
+        const value = match.slice(4).trim();
         return value.startsWith('"') && value.endsWith('"')
           ? value.slice(1, -1)
           : value;

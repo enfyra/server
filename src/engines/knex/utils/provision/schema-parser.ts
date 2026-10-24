@@ -1,5 +1,5 @@
-import { getJunctionTableName, getForeignKeyColumnName } from '@enfyra/kernel';
-import {
+import { getSqlJunctionPhysicalNames } from '../../../../modules/table-management/utils/sql-junction-naming.util';
+import type {
   ColumnDef,
   TableDef,
   JunctionTableDef,
@@ -98,41 +98,35 @@ export function parseSnapshotToSchema(
 
     if (definition.relations) {
       for (const relation of definition.relations) {
-        if ((relation as any)._isInverseGenerated) {
+        if ((relation as any)._isInverseGenerated || (relation as any).mappedBy || (relation as any).mappedById) {
           continue;
         }
 
         if (relation.type === 'many-to-many') {
-          const junctionTableName = getJunctionTableName(
-            tableName,
-            relation.propertyName,
-            relation.targetTable,
-          );
-
-          const reverseJunctionName = getJunctionTableName(
-            relation.targetTable,
-            relation.inversePropertyName || 'inverse',
-            tableName,
-          );
-
-          if (
-            createdJunctionNames.has(junctionTableName) ||
-            createdJunctionNames.has(reverseJunctionName)
-          ) {
-            continue;
-          }
+          const junction = getSqlJunctionPhysicalNames({
+            sourceTable: tableName,
+            propertyName: relation.propertyName,
+            targetTable: relation.targetTable,
+          });
+          if (createdJunctionNames.has(junction.junctionTableName)) continue;
 
           junctionTables.push({
-            tableName: junctionTableName,
+            tableName: junction.junctionTableName,
             sourceTable: tableName,
             targetTable: relation.targetTable,
-            sourceColumn: getForeignKeyColumnName(tableName),
-            targetColumn: getForeignKeyColumnName(relation.targetTable),
+            sourceColumn: junction.junctionSourceColumn,
+            targetColumn: junction.junctionTargetColumn,
             sourcePropertyName: relation.propertyName,
           });
 
-          createdJunctionNames.add(junctionTableName);
-          createdJunctionNames.add(reverseJunctionName);
+          createdJunctionNames.add(junction.junctionTableName);
+          if (relation.inversePropertyName) {
+            createdJunctionNames.add(getSqlJunctionPhysicalNames({
+              sourceTable: relation.targetTable,
+              propertyName: relation.inversePropertyName,
+              targetTable: tableName,
+            }).junctionTableName);
+          }
         }
       }
     }
@@ -161,7 +155,7 @@ export function getKnexColumnType(columnDef: ColumnDef): string {
     date: 'timestamp',
     datetime: 'datetime',
     timestamp: 'timestamp',
-    'simple-json': 'text',
+    'simple-json': 'longtext',
     richtext: 'text',
     code: 'longtext',
     'array-select': 'text',

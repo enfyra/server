@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import './load-env';
 import { z } from 'zod';
 import { getEnfyraVersion } from './shared/utils/enfyra-version.util';
 
@@ -74,8 +74,8 @@ const EnvSchema = z.object({
   ACCESS_TOKEN_EXP: z.string().optional().default('15m'),
   REFRESH_TOKEN_NO_REMEMBER_EXP: z.string().optional().default('1d'),
   REFRESH_TOKEN_REMEMBER_EXP: z.string().optional().default('7d'),
-  ADMIN_EMAIL: z.string(),
-  ADMIN_PASSWORD: z.string().min(1),
+  ADMIN_EMAIL: z.string().optional(),
+  ADMIN_PASSWORD: z.string().optional(),
   NODE_ENV: z
     .enum(['development', 'production', 'test'])
     .default('development'),

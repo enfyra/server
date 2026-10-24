@@ -6,7 +6,7 @@ import {
 } from '../../../modules/graphql/utils/graphql-access.util';
 
 export class GraphQLOperationDefinitionProcessor extends BaseTableProcessor {
-  async transformRecords(records: any[]): Promise<any[]> {
+  override async transformRecords(records: any[]): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
 
     return records.map((record, index) => {
@@ -40,7 +40,7 @@ export class GraphQLOperationDefinitionProcessor extends BaseTableProcessor {
     return { name: normalizeGraphqlOperation(record.name) };
   }
 
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     return ['name', 'label', 'description', 'order', 'isSystem'];
   }
 }

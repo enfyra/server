@@ -1,32 +1,4 @@
-import { getSqlJunctionPhysicalNames } from '../../../modules/table-management/utils/sql-junction-naming.util';
-import type {
-  JunctionPhysicalMetadata,
-  SchemaHealingSnapshot,
-} from '../types/schema-healing.types';
-
-export function getTargetJunctionContract(
-  snapshot: SchemaHealingSnapshot,
-  input: {
-    sourceTable: string;
-    propertyName: string;
-    targetTable: string;
-  },
-): JunctionPhysicalMetadata {
-  const standard = getSqlJunctionPhysicalNames(input);
-  const relation = snapshot?.[input.sourceTable]?.relations?.find(
-    (entry: any) =>
-      entry.propertyName === input.propertyName &&
-      entry.targetTable === input.targetTable,
-  );
-  return {
-    junctionTableName:
-      relation?.junctionTableName || standard.junctionTableName,
-    junctionSourceColumn:
-      relation?.junctionSourceColumn || standard.junctionSourceColumn,
-    junctionTargetColumn:
-      relation?.junctionTargetColumn || standard.junctionTargetColumn,
-  };
-}
+import type { JunctionPhysicalMetadata } from '../types/schema-healing.types';
 
 export function diffJunctionMetadata(
   relation: any,
