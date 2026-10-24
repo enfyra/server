@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  CODE_AUDIT_RETENTION_DAYS,
+  CODE_AUDIT_RETENTION_MS,
   CodeAuditService,
   projectCodeAuditPreImage,
 } from '../../src/modules/dynamic-api/services/code-audit.service';
@@ -185,5 +187,99 @@ describe('CodeAuditService', () => {
         toVersion: '1.0.0',
       }),
     ).rejects.toThrow('audit table missing');
+  });
+
+  it('prunes SQL audit entries older than 30 days when recording a new entry', async () => {
+    expect(CODE_AUDIT_RETENTION_DAYS).toBe(30);
+    const inserted: any[] = [];
+    const whereCalls: Array<{ column: string; operator: string; cutoff: Date }> =
+      [];
+    const deletedIds: Array<string | number> = [];
+
+    const knex = vi.fn(() => ({
+      insert: vi.fn(async (row: Record<string, any>) => {
+        inserted.push(row);
+      }),
+      where: vi.fn((column: string, operator: string, cutoff: Date) => {
+        whereCalls.push({ column, operator, cutoff });
+        return {
+          select: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              timeout: vi.fn(async () => [{ id: 10 }, { id: 11 }]),
+            })),
+          })),
+        };
+      }),
+      whereIn: vi.fn((_column: string, ids: Array<string | number>) => ({
+        delete: vi.fn(() => ({
+          timeout: vi.fn(async () => {
+            deletedIds.push(...ids);
+            return ids.length;
+          }),
+        })),
+      })),
+    })) as any;
+
+    const service = new CodeAuditService({
+      queryBuilderService: {
+        isMongoDb: () => false,
+        getKnex: () => knex,
+      } as any,
+    });
+
+    const before = Date.now();
+    await service.record({
+      tableName: SYSTEM_TABLES.routeHandler,
+      recordId: 99,
+      action: 'update',
+      fromVersion: '1.0.0',
+      toVersion: '1.0.1',
+    });
+    const after = Date.now();
+
+    expect(inserted).toHaveLength(1);
+    expect(whereCalls).toHaveLength(1);
+    expect(whereCalls[0]?.column).toBe('createdAt');
+    expect(whereCalls[0]?.operator).toBe('<');
+    expect(whereCalls[0]?.cutoff.getTime()).toBeGreaterThanOrEqual(
+      before - CODE_AUDIT_RETENTION_MS,
+    );
+    expect(whereCalls[0]?.cutoff.getTime()).toBeLessThanOrEqual(
+      after - CODE_AUDIT_RETENTION_MS,
+    );
+    expect(deletedIds).toEqual([10, 11]);
+  });
+
+  it('prunes MongoDB audit entries older than 30 days in bounded batches', async () => {
+    const expiredIds = [{ _id: 'old-1' }, { _id: 'old-2' }];
+    const insertOne = vi.fn().mockResolvedValue({ acknowledged: true });
+    const find = vi.fn(() => ({
+      limit: vi.fn(() => ({
+        toArray: vi.fn(async () => expiredIds),
+      })),
+    }));
+    const deleteMany = vi.fn().mockResolvedValue({ deletedCount: 2 });
+
+    const service = new CodeAuditService({
+      queryBuilderService: {
+        isMongoDb: () => true,
+        getMongoDb: () => ({
+          collection: () => ({ insertOne, find, deleteMany }),
+        }),
+      } as any,
+    });
+
+    const now = new Date('2026-10-24T12:00:00.000Z');
+    const deleted = await service.pruneExpired(now);
+
+    expect(deleted).toBe(2);
+    expect(find).toHaveBeenCalledWith(
+      { createdAt: { $lt: new Date(now.getTime() - CODE_AUDIT_RETENTION_MS) } },
+      { projection: { _id: 1 }, maxTimeMS: 2000 },
+    );
+    expect(deleteMany).toHaveBeenCalledWith(
+      { _id: { $in: ['old-1', 'old-2'] } },
+      { maxTimeMS: 2000 },
+    );
   });
 });

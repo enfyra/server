@@ -3,8 +3,14 @@ import type { Cradle } from '../../../wiring/cradle';
 import type { PersistedRuntimeLogRecord } from '../../../shared/types/runtime-log.types';
 import { getBootstrapLogMode } from '../../../shared/bootstrap-log-context';
 import { clearStartupProgressLine } from '../../../shared/startup-log';
+import { SYSTEM_TABLES } from '../../../shared/utils/system-tables.constants';
 
 const TABLES = ['enfyra_system_error', 'enfyra_user_log'] as const;
+const RETENTION_TARGETS = [
+  { table: 'enfyra_system_error', column: 'occurredAt', optional: false },
+  { table: 'enfyra_user_log', column: 'occurredAt', optional: false },
+  { table: SYSTEM_TABLES.codeAudit, column: 'createdAt', optional: true },
+] as const;
 
 export class RuntimeLogWriterService {
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -57,15 +63,21 @@ export class RuntimeLogWriterService {
       if (Date.now() - this.lastCleanup > 3600_000) {
         const cutoff = new Date(Date.now() - 30 * 86400_000);
         let more = false;
-        for (const table of TABLES) {
-          if (db) {
-            const ids = await db.collection(table).find({ occurredAt: { $lt: cutoff } }, { projection: { _id: 1 }, maxTimeMS: 2000 }).limit(500).toArray();
-            more ||= ids.length === 500;
-            if (ids.length) await db.collection(table).deleteMany({ _id: { $in: ids.map((row) => row._id) } }, { maxTimeMS: 2000 });
-          } else {
-            const ids = await knex!<{ id: string | number }>(table).where('occurredAt', '<', cutoff).select('id').limit(500).timeout(2000);
-            more ||= ids.length === 500;
-            if (ids.length) await knex!(table).whereIn('id', ids.map((row) => row.id)).delete().timeout(2000);
+        for (const target of RETENTION_TARGETS) {
+          try {
+            if (db) {
+              if (target.optional && !await db.listCollections({ name: target.table }, { nameOnly: true }).hasNext()) continue;
+              const ids = await db.collection(target.table).find({ [target.column]: { $lt: cutoff } }, { projection: { _id: 1 }, maxTimeMS: 2000 }).limit(500).toArray();
+              more ||= ids.length === 500;
+              if (ids.length) await db.collection(target.table).deleteMany({ _id: { $in: ids.map((row) => row._id) } }, { maxTimeMS: 2000 });
+            } else {
+              if (target.optional && !await knex!.schema?.hasTable?.(target.table)) continue;
+              const ids = await knex!<{ id: string | number }>(target.table).where(target.column, '<', cutoff).select('id').limit(500).timeout(2000);
+              more ||= ids.length === 500;
+              if (ids.length) await knex!(target.table).whereIn('id', ids.map((row) => row.id)).delete().timeout(2000);
+            }
+          } catch (error) {
+            if (!target.optional) throw error;
           }
         }
         this.lastCleanup = more ? 0 : Date.now();

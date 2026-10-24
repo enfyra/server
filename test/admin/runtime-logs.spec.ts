@@ -80,6 +80,55 @@ describe('database runtime logs', () => {
     await writer.flush(); expect(peekRuntimeLogs()).toHaveLength(0);
     expect(updateOne).toHaveBeenCalledWith(expect.objectContaining({ eventId: expect.any(String) }), expect.objectContaining({ $setOnInsert: expect.objectContaining({ entries: ['one'] }) }), { upsert: true, maxTimeMS: 2000 });
   });
+
+  it('prunes enfyra_audit records older than 30 days alongside runtime log tables', async () => {
+    const deletedByTable: Record<string, Array<string | number>> = {};
+    const whereColumns: Record<string, string> = {};
+    const knex = Object.assign(
+      vi.fn((table: string) => ({
+        where: vi.fn((column: string) => {
+          whereColumns[table] = column;
+          return {
+            select: vi.fn(() => ({
+              limit: vi.fn(() => ({
+                timeout: vi.fn(async () =>
+                  table === 'enfyra_audit' ? [{ id: 77 }] : [],
+                ),
+              })),
+            })),
+          };
+        }),
+        whereIn: vi.fn((_column: string, ids: Array<string | number>) => ({
+          delete: vi.fn(() => ({
+            timeout: vi.fn(async () => {
+              deletedByTable[table] = ids;
+              return ids.length;
+            }),
+          })),
+        })),
+      })),
+      {
+        schema: {
+          hasTable: vi.fn(async () => true),
+        },
+      },
+    );
+    const writer = new RuntimeLogWriterService({
+      databaseConfigService: { isMongoDb: () => false },
+      knexService: { getUnscopedWriteKnex: () => knex },
+      mongoService: {},
+      instanceService: {},
+    } as any);
+
+    await writer.flush();
+
+    expect(whereColumns).toEqual({
+      enfyra_system_error: 'occurredAt',
+      enfyra_user_log: 'occurredAt',
+      enfyra_audit: 'createdAt',
+    });
+    expect(deletedByTable).toEqual({ enfyra_audit: [77] });
+  });
 });
 
 it('keeps unavailable DB logging silent during quiet boot and reports after boot', async () => {

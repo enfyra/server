@@ -12,6 +12,10 @@ import type {
 } from '../types/code-audit.types';
 
 const TABLE_NAME = SYSTEM_TABLES.codeAudit;
+export const CODE_AUDIT_RETENTION_DAYS = 30;
+export const CODE_AUDIT_RETENTION_MS =
+  CODE_AUDIT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+const CODE_AUDIT_PRUNE_BATCH_SIZE = 500;
 
 const PRE_IMAGE_EXCLUDED_FIELDS = new Set([
   'id',
@@ -78,16 +82,15 @@ export class CodeAuditService {
             ...row,
             changedBy: this.toMongoRelationValue(input.caller),
           });
-        return;
+      } else {
+        await this.queryBuilderService
+          .getKnex()(TABLE_NAME)
+          .insert({
+            ...row,
+            changedById: input.caller?.id ?? null,
+            previous: row.previous ? JSON.stringify(row.previous) : null,
+          });
       }
-
-      await this.queryBuilderService
-        .getKnex()(TABLE_NAME)
-        .insert({
-          ...row,
-          changedById: input.caller?.id ?? null,
-          previous: row.previous ? JSON.stringify(row.previous) : null,
-        });
     } catch (error) {
       this.logger.error(
         {
@@ -100,6 +103,78 @@ export class CodeAuditService {
         getErrorMessage(error),
       );
       throw error;
+    }
+
+    await this.pruneExpired(now);
+  }
+
+  async pruneExpired(now = new Date()): Promise<number> {
+    const cutoff = new Date(now.getTime() - CODE_AUDIT_RETENTION_MS);
+    try {
+      if (this.queryBuilderService.isMongoDb()) {
+        const collection = this.queryBuilderService
+          .getMongoDb()
+          .collection(TABLE_NAME);
+        if (typeof collection?.find === 'function') {
+          const cursor = collection.find(
+            { createdAt: { $lt: cutoff } },
+            { projection: { _id: 1 }, maxTimeMS: 2000 },
+          );
+          const ids =
+            typeof cursor?.limit === 'function'
+              ? await cursor.limit(CODE_AUDIT_PRUNE_BATCH_SIZE).toArray()
+              : await cursor.toArray();
+          if (!Array.isArray(ids) || ids.length === 0) return 0;
+          const result = await collection.deleteMany(
+            { _id: { $in: ids.map((item) => item._id) } },
+            { maxTimeMS: 2000 },
+          );
+          return result?.deletedCount ?? ids.length;
+        }
+        if (typeof collection?.deleteMany === 'function') {
+          const result = await collection.deleteMany({
+            createdAt: { $lt: cutoff },
+          });
+          return result?.deletedCount ?? 0;
+        }
+        return 0;
+      }
+
+      const knex = this.queryBuilderService.getKnex();
+      const query = knex(TABLE_NAME);
+      if (typeof query?.where !== 'function') return 0;
+      const expired = query.where('createdAt', '<', cutoff);
+      if (typeof expired?.select === 'function') {
+        let selectQuery = expired
+          .select('id')
+          .limit(CODE_AUDIT_PRUNE_BATCH_SIZE);
+        if (typeof selectQuery?.timeout === 'function') {
+          selectQuery = selectQuery.timeout(2000);
+        }
+        const ids: Array<{ id: string | number }> = await selectQuery;
+        if (!Array.isArray(ids) || ids.length === 0) return 0;
+        let deleteQuery = knex(TABLE_NAME)
+          .whereIn(
+            'id',
+            ids.map((item) => item.id),
+          )
+          .delete();
+        if (typeof deleteQuery?.timeout === 'function') {
+          deleteQuery = deleteQuery.timeout(2000);
+        }
+        const deleted = await deleteQuery;
+        return typeof deleted === 'number' ? deleted : ids.length;
+      }
+      if (typeof expired?.delete === 'function') {
+        const deleted = await expired.delete();
+        return typeof deleted === 'number' ? deleted : 0;
+      }
+      return 0;
+    } catch (error) {
+      this.logger.warn(
+        `Failed to prune expired code audit entries: ${getErrorMessage(error)}`,
+      );
+      return 0;
     }
   }
 
