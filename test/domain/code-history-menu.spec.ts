@@ -36,12 +36,28 @@ describe('Audit navigation', () => {
     }]);
   });
 
-  it('keeps every Settings menu directly under /settings', () => {
+  it('keeps every Settings menu directly under /settings and merges Extensions into Menu', () => {
     const nested = defaultData.enfyra_menu.filter(
       (item: any) =>
         typeof item.path === 'string' && item.path.startsWith('/settings/admin'),
     );
     expect(nested).toEqual([]);
+    expect(
+      defaultData.enfyra_menu.some((item: any) => item.path === '/settings/extensions'),
+    ).toBe(false);
+    const menusMenu = defaultData.enfyra_menu.find(
+      (item: any) => item.path === '/settings/menus',
+    );
+    expect(menusMenu).toMatchObject({
+      label: 'Menu',
+      parent: 'Settings',
+      permission: {
+        or: [
+          { route: '/enfyra_menu', methods: ['GET'] },
+          { route: '/enfyra_extension', methods: ['GET'] },
+        ],
+      },
+    });
   });
 
   it('corrects legacy /settings/admin menu paths on upgrade', () => {

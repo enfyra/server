@@ -1226,23 +1226,7 @@ const defaultData = {
             "methods": [
               "GET"
             ]
-          }
-        ]
-      }
-    },
-    {
-      "type": "Menu",
-      "label": "Extensions",
-      "icon": "heroicons:puzzle-piece",
-      "path": "/settings/extensions",
-      "isEnabled": true,
-      "isPublic": false,
-      "isSystem": true,
-      "description": "Extension management",
-      "order": 4,
-      "parent": "Settings",
-      "permission": {
-        "or": [
+          },
           {
             "route": "/enfyra_extension",
             "methods": [

@@ -148,6 +148,26 @@ export const standingDataCorrections = {
     {
       _unique: {
         path: {
+          _eq: '/settings/menus',
+        },
+      },
+      isPublic: false,
+      permission: {
+        or: [
+          {
+            route: '/enfyra_menu',
+            methods: ['GET'],
+          },
+          {
+            route: '/enfyra_extension',
+            methods: ['GET'],
+          },
+        ],
+      },
+    },
+    {
+      _unique: {
+        path: {
           _eq: '/settings',
         },
       },
@@ -1211,6 +1231,7 @@ const dataMigrations: VersionedDataMigration[] = [
       _deletedRecords: [
         { table: 'enfyra_route', filter: { path: { _eq: '/enfyra_bootstrap_script' } } },
         { table: 'enfyra_menu', filter: { path: { _eq: '/settings/bootstrap' } } },
+        { table: 'enfyra_menu', filter: { path: { _eq: '/settings/extensions' } } },
       ],
     },
   },

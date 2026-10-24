@@ -105,6 +105,10 @@ describe('custom startup script removal', () => {
           table: 'enfyra_menu',
           filter: { path: { _eq: '/settings/bootstrap' } },
         },
+        {
+          table: 'enfyra_menu',
+          filter: { path: { _eq: '/settings/extensions' } },
+        },
       ]);
       const plan = compileMetadataMigrationExecutionPlan(definition.migration, {
         mode: 'upgrade',
