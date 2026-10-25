@@ -160,7 +160,7 @@ export abstract class BaseTableProcessor {
         if (existingRecord) {
           const hasChanges = this.detectRecordChanges(record, existingRecord);
           const idField = this.resolveRecordIdField(existingRecord);
-          if (hasChanges) {
+          if (hasChanges && context?.updateExisting !== false) {
             const existingId = existingRecord[idField];
             const writeRecord = this.prepareRecordForWrite(record, tableName);
             if (Object.keys(writeRecord).length > 0) {
@@ -264,7 +264,7 @@ export abstract class BaseTableProcessor {
         }
         if (existingRecord) {
           const hasChanges = this.detectRecordChanges(record, existingRecord);
-          if (hasChanges) {
+          if (hasChanges && context?.updateExisting !== false) {
             await this.updateRecordKnex(
               existingRecord.id,
               record,

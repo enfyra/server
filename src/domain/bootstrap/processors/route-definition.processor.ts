@@ -129,8 +129,9 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
   override async afterUpsert(
     record: any,
     isNew: boolean,
-    _context?: any,
+    context?: any,
   ): Promise<void> {
+    if (!isNew && context?.updateExisting !== true) return;
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     await this.syncRouteMethodRelations(record, isMongoDB);
     if (!isNew) return;

@@ -11,44 +11,6 @@ import {
  * upgrade, so they are idempotent by construction.
  */
 export const standingDataCorrections = {
-  enfyra_method: [
-    {
-      _unique: {
-        name: {
-          _eq: 'GET',
-        },
-      },
-      buttonColor: '#dbeafe',
-      textColor: '#1d4ed8',
-    },
-    {
-      _unique: {
-        name: {
-          _eq: 'POST',
-        },
-      },
-      buttonColor: '#dcfce7',
-      textColor: '#15803d',
-    },
-    {
-      _unique: {
-        name: {
-          _eq: 'PATCH',
-        },
-      },
-      buttonColor: '#fef3c7',
-      textColor: '#b45309',
-    },
-    {
-      _unique: {
-        name: {
-          _eq: 'DELETE',
-        },
-      },
-      buttonColor: '#fee2e2',
-      textColor: '#b91c1c',
-    },
-  ],
   enfyra_field_permission: [
     {
       _unique: {
@@ -100,235 +62,11 @@ export const standingDataCorrections = {
     {
       _unique: {
         path: {
-          _eq: '/data',
-        },
-      },
-      isPublic: false,
-      permission: {
-        route: '/enfyra_route',
-        methods: ['GET'],
-      },
-    },
-    {
-      _unique: {
-        path: {
-          _eq: '/storage',
-        },
-      },
-      isPublic: false,
-      permission: {
-        or: [
-          {
-            route: '/enfyra_file',
-            methods: ['GET'],
-          },
-          {
-            route: '/enfyra_storage_config',
-            methods: ['GET'],
-          },
-        ],
-      },
-    },
-    {
-      _unique: {
-        path: {
-          _eq: '/storage/config',
-        },
-      },
-      isPublic: false,
-      permission: {
-        or: [
-          {
-            route: '/enfyra_storage_config',
-            methods: ['GET'],
-          },
-        ],
-      },
-    },
-    {
-      _unique: {
-        path: {
-          _eq: '/settings/menus',
-        },
-      },
-      isPublic: false,
-      permission: {
-        or: [
-          {
-            route: '/enfyra_menu',
-            methods: ['GET'],
-          },
-          {
-            route: '/enfyra_extension',
-            methods: ['GET'],
-          },
-        ],
-      },
-    },
-    {
-      _unique: {
-        path: {
-          _eq: '/settings',
-        },
-      },
-      isPublic: false,
-      permission: {
-        or: [
-          {
-            route: '/enfyra_setting',
-            methods: ['GET'],
-          },
-          {
-            route: '/enfyra_menu',
-            methods: ['GET'],
-          },
-          {
-            route: '/enfyra_extension',
-            methods: ['GET'],
-          },
-          {
-            route: '/enfyra_user',
-            methods: ['GET'],
-          },
-          {
-            route: '/enfyra_role',
-            methods: ['GET'],
-          },
-          {
-            route: '/enfyra_websocket',
-            methods: ['GET'],
-          },
-          {
-            route: '/enfyra_oauth_config',
-            methods: ['GET'],
-          },
-          {
-            route: '/enfyra_oauth_account',
-            methods: ['GET'],
-          },
-          {
-            route: '/enfyra_system_error',
-            methods: ['GET'],
-          },
-          {
-            route: '/enfyra_route',
-            methods: ['GET'],
-          },
-          {
-            route: '/enfyra_flow',
-            methods: ['GET'],
-          },
-          {
-            route: '/enfyra_guard',
-            methods: ['GET'],
-          },
-          {
-            route: '/enfyra_method',
-            methods: ['GET'],
-          },
-          {
-            route: '/enfyra_auth_header',
-            methods: ['GET'],
-          },
-        ],
-      },
-    },
-    {
-      _unique: {
-        path: {
-          _eq: '/packages/install',
-        },
-      },
-      isPublic: false,
-      permission: {
-        route: '/enfyra_package',
-        methods: ['GET'],
-      },
-    },
-    {
-      _unique: {
-        path: {
-          _eq: '/packages/app',
-        },
-      },
-      isPublic: false,
-      permission: {
-        route: '/enfyra_package',
-        methods: ['GET'],
-      },
-    },
-    {
-      _unique: {
-        path: {
-          _eq: '/packages/backend',
-        },
-      },
-      isPublic: false,
-      permission: {
-        route: '/enfyra_package',
-        methods: ['GET'],
-      },
-    },
-    {
-      _unique: {
-        path: {
-          _eq: '/settings/api-tester',
-        },
-      },
-      isPublic: false,
-      permission: {
-        or: [
-          {
-            route: '/enfyra_route',
-            methods: ['GET'],
-          },
-        ],
-      },
-    },
-    {
-      _unique: {
-        path: {
           _eq: '/settings/admin/runtime',
         },
       },
       isPublic: false,
       path: '/settings/runtime',
-    },
-    {
-      _unique: {
-        path: {
-          _eq: '/settings/auth-headers',
-        },
-      },
-      type: 'Menu',
-      label: 'Authentication Headers',
-      icon: 'lucide:key-round',
-      isEnabled: true,
-      isPublic: false,
-      isSystem: true,
-      description:
-        'Configure accepted authentication header keys and their priority',
-      order: 12,
-      permission: {
-        or: [
-          {
-            route: '/enfyra_auth_header',
-            methods: ['GET'],
-          },
-        ],
-      },
-    },
-  ],
-  enfyra_post_hook: [
-    {
-      _unique: {
-        name: {
-          _eq: 'Default response',
-        },
-      },
-      sourceCode:
-        "@DATA = { statusCode: @STATUS, ...@DATA, message: 'Success'}",
-      scriptLanguage: 'typescript',
     },
   ],
   enfyra_route: [
@@ -346,9 +84,7 @@ export const standingDataCorrections = {
           _eq: '/enfyra_auth_header',
         },
       },
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:key-round',
       availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
     },
     {
@@ -357,9 +93,7 @@ export const standingDataCorrections = {
           _eq: '/enfyra_menu_permission',
         },
       },
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:menu',
       availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
     },
     {
@@ -368,9 +102,7 @@ export const standingDataCorrections = {
           _eq: '/admin/reload',
         },
       },
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:refresh-cw',
       availableMethods: ['POST'],
     },
     {
@@ -379,9 +111,7 @@ export const standingDataCorrections = {
           _eq: '/admin/reload/metadata',
         },
       },
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:refresh-cw',
       availableMethods: ['POST'],
     },
     {
@@ -390,9 +120,7 @@ export const standingDataCorrections = {
           _eq: '/admin/reload/routes',
         },
       },
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:refresh-cw',
       availableMethods: ['POST'],
     },
     {
@@ -401,9 +129,7 @@ export const standingDataCorrections = {
           _eq: '/admin/reload/graphql',
         },
       },
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:refresh-cw',
       availableMethods: ['POST'],
     },
     {
@@ -412,9 +138,7 @@ export const standingDataCorrections = {
           _eq: '/admin/reload/guards',
         },
       },
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:refresh-cw',
       availableMethods: ['POST'],
     },
     {
@@ -423,9 +147,7 @@ export const standingDataCorrections = {
           _eq: '/admin/script/validate',
         },
       },
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:code-2',
       availableMethods: ['POST'],
     },
     {
@@ -434,9 +156,7 @@ export const standingDataCorrections = {
           _eq: '/admin/menu/reorder',
         },
       },
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:list-ordered',
       availableMethods: ['POST'],
     },
     {
@@ -445,9 +165,7 @@ export const standingDataCorrections = {
           _eq: '/admin/auth-header/reorder',
         },
       },
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:list-ordered',
       availableMethods: ['POST'],
     },
     {
@@ -456,9 +174,7 @@ export const standingDataCorrections = {
           _eq: '/admin/test/run',
         },
       },
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:flask-conical',
       availableMethods: ['POST'],
     },
     {
@@ -467,9 +183,7 @@ export const standingDataCorrections = {
           _eq: '/admin/flow/trigger/:id',
         },
       },
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:play',
       availableMethods: ['POST'],
     },
     {
@@ -478,9 +192,7 @@ export const standingDataCorrections = {
           _eq: '/admin/redis/overview',
         },
       },
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:database-zap',
       availableMethods: ['GET'],
     },
     {
@@ -489,9 +201,7 @@ export const standingDataCorrections = {
           _eq: '/admin/redis/keys',
         },
       },
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:key-round',
       availableMethods: ['GET'],
     },
     {
@@ -500,9 +210,7 @@ export const standingDataCorrections = {
           _eq: '/admin/redis/key',
         },
       },
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:key-round',
       availableMethods: ['GET', 'POST', 'DELETE'],
     },
     {
@@ -511,9 +219,7 @@ export const standingDataCorrections = {
           _eq: '/admin/redis/key/ttl',
         },
       },
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:timer',
       availableMethods: ['PATCH'],
     },
     {
@@ -613,9 +319,7 @@ export const standingDataCorrections = {
           _eq: '/auth/providers',
         },
       },
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:route',
       publicMethods: ['GET'],
       availableMethods: ['GET'],
     },
@@ -662,7 +366,6 @@ export const standingDataCorrections = {
           _eq: '/metadata',
         },
       },
-      description: 'Get database and Enfyra runtime metadata context',
       publicMethods: [],
       skipRoleGuardMethods: ['GET'],
       availableMethods: ['GET'],
@@ -940,9 +643,7 @@ export const standingDataCorrections = {
         },
       },
       mainTable: 'enfyra_graphql_operation',
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:braces',
       availableMethods: ['GET'],
     },
     {
@@ -952,9 +653,7 @@ export const standingDataCorrections = {
         },
       },
       mainTable: 'enfyra_graphql_permission',
-      isEnabled: true,
       isSystem: true,
-      icon: 'lucide:shield-check',
       availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
     },
   ],
@@ -1005,63 +704,6 @@ export const standingDataCorrections = {
       label: 'Delete',
       description: 'Delete records through GraphQL mutations',
       order: 30,
-      isSystem: true,
-    },
-  ],
-  enfyra_graphql: [
-    {
-      _unique: {
-        table: {
-          name: {
-            _eq: 'enfyra_table',
-          },
-        },
-      },
-      isEnabled: true,
-      isSystem: true,
-    },
-    {
-      _unique: {
-        table: {
-          name: {
-            _eq: 'enfyra_user',
-          },
-        },
-      },
-      isEnabled: true,
-      isSystem: true,
-    },
-    {
-      _unique: {
-        table: {
-          name: {
-            _eq: 'enfyra_role',
-          },
-        },
-      },
-      isEnabled: true,
-      isSystem: true,
-    },
-    {
-      _unique: {
-        table: {
-          name: {
-            _eq: 'enfyra_setting',
-          },
-        },
-      },
-      isEnabled: true,
-      isSystem: true,
-    },
-    {
-      _unique: {
-        table: {
-          name: {
-            _eq: 'enfyra_folder',
-          },
-        },
-      },
-      isEnabled: true,
       isSystem: true,
     },
   ],

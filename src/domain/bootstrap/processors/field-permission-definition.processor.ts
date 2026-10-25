@@ -147,7 +147,7 @@ export class FieldPermissionDefinitionProcessor extends BaseTableProcessor {
 
         if (existingRecord) {
           const hasChanges = this.detectRecordChanges(record, existingRecord);
-          if (hasChanges) {
+          if (hasChanges && context?.updateExisting !== false) {
             await queryBuilder.update(
               tableName,
               existingRecord[idField],

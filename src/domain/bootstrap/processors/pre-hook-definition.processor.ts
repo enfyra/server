@@ -115,9 +115,10 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
   }
   override async afterUpsert(
     record: any,
-    _isNew: boolean,
-    _context?: any,
+    isNew: boolean,
+    context?: any,
   ): Promise<void> {
+    if (!isNew && context?.updateExisting !== true) return;
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     if (isMongoDB) {
       await this.syncMongoHookMethodRelation(record, 'enfyra_pre_hook');

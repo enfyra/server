@@ -20,6 +20,6 @@ export class SettingDefinitionProcessor extends BaseTableProcessor {
     return {};
   }
   protected override getCompareFields(): string[] {
-    return ['isInit', 'projectName', 'projectDescription', 'projectUrl'];
+    return [];
   }
 }

@@ -100,7 +100,7 @@ export class GenericTableProcessor extends BaseTableProcessor {
   protected override getCompareFields(): string[] {
     const fieldMap: Record<string, string[]> = {
       enfyra_role: ['name', 'description'],
-      enfyra_setting: ['projectName', 'projectDescription', 'projectUrl'],
+      enfyra_setting: [],
       enfyra_route_permission: ['isEnabled'],
       enfyra_route_handler: [
         'description',

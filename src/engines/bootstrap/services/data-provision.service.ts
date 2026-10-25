@@ -247,7 +247,17 @@ export class DataProvisionService {
 
       try {
         const records = (Array.isArray(rawRecords) ? rawRecords : [rawRecords])
-          .filter(record => freshInstall || tableName !== SYSTEM_TABLES.menu || record.path !== '/dashboard');
+          .filter(
+            (record) =>
+              freshInstall ||
+              (record.isSystem !== false &&
+                (tableName !== SYSTEM_TABLES.menu ||
+                  record.path !== '/dashboard')),
+          );
+        if (records.length === 0) {
+          this.verbose(`Table '${tableName}' has no records to seed, skipping.`);
+          continue;
+        }
 
         const result =
           this.dbType === 'mongodb'
@@ -255,13 +265,13 @@ export class DataProvisionService {
                 records,
                 this.queryBuilderService.getConnection(),
                 tableName,
-                {},
+                { updateExisting: false },
               )
             : await processor.processSql(
                 records,
                 this.queryBuilderService.getConnection(),
                 tableName,
-                { dbType: this.dbType },
+                { dbType: this.dbType, updateExisting: false },
               );
 
         totalCreated += result.created;
@@ -310,7 +320,7 @@ export class DataProvisionService {
       records,
       this.queryBuilderService,
       tableName,
-      {},
+      { updateExisting: false },
     );
   }
 
