@@ -332,29 +332,32 @@ export function findRuntimeSchemaConstraintConflicts(
 ): RuntimeSchemaConstraintConflict[] {
   if (!metadata || typeof metadata !== 'object') return [];
   const value = metadata as Record<string, unknown>;
-  const uniqueGroups = parseTableConstraintGroups(value.uniques).map(
-    getTableConstraintFields,
-  );
+  const uniqueGroups = normalizeTableConstraints({
+    uniques: value.uniques,
+    columns: Array.isArray(value.columns) ? value.columns : [],
+  }).uniques.map(getTableConstraintFields);
+  for (const relation of Array.isArray(value.relations) ? value.relations : []) {
+    if (relation.type === 'one-to-one' && !relation.mappedBy && !relation.mappedById && relation.propertyName) {
+      uniqueGroups.push([relation.propertyName]);
+    }
+  }
   if (uniqueGroups.length === 0) return [];
+  const aliases = new Map<string, string>();
+  for (const relation of Array.isArray(value.relations) ? value.relations : []) {
+    if (relation.foreignKeyColumn && relation.propertyName) {
+      aliases.set(relation.foreignKeyColumn, relation.propertyName);
+    }
+  }
+  const logicalFields = (fields: string[]) => fields.map(field => aliases.get(field) ?? field);
   return parseTableConstraintGroups(value.indexes)
     .map(getTableConstraintFields)
-    .filter(
-      (index) =>
-        !uniqueGroups.some(
-          (unique) =>
-            unique.length === index.length &&
-            unique.every(
-              (field, indexPosition) => field === index[indexPosition],
-            ),
-        ),
-    )
     .map((index) => {
+      const logicalIndex = logicalFields(index);
       const uniqueConstraints = uniqueGroups
-        .map((fields) => ({
-          fields,
-          matchingFields: index.filter((field) => fields.includes(field)),
-        }))
-        .filter(({ matchingFields }) => matchingFields.length > 0);
+        .filter(fields => fields.length >= index.length && logicalIndex.every(
+          (field, position) => logicalFields(fields)[position] === field,
+        ))
+        .map((fields) => ({ fields, matchingFields: index }));
       return {
         index,
         uniqueFields: [

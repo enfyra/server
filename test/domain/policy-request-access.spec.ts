@@ -1,14 +1,75 @@
+import { ObjectId } from 'mongodb';
 import { PolicyService } from '../../src/domain/policy';
 
 describe('PolicyService.checkRequestAccess', () => {
-  const policy = new PolicyService({} as any, {} as any);
+  const policy = new PolicyService({} as any);
 
-  it('allows public methods without user', () => {
+  it.each([null, false, 'permission', [], { role: { id: { nested: true } } }])(
+    'denies malformed permission metadata %j',
+    (permission: unknown) => {
+      const decision = policy.checkRequestAccess({
+        method: 'GET',
+        user: { id: 'user-1', roles: [{ id: 'role-1' }] },
+        routeData: { routePermissions: [permission] },
+      });
+      expect(decision).toMatchObject({ allow: false, statusCode: 403 });
+    },
+  );
+
+  it('does not call methods from malformed allowedUsers metadata', () => {
+    let called = false;
+    const decision = policy.checkRequestAccess({
+      method: 'GET',
+      user: { id: 'user-1', roles: [] },
+      routeData: {
+        routePermissions: [{
+          allowedUsers: { some: () => { called = true; return true; } },
+        }],
+      },
+    });
+    expect(called).toBe(false);
+    expect(decision).toMatchObject({ allow: false, statusCode: 403 });
+  });
+
+  it('matches SQL allowed-user identities across string and numeric projections', () => {
+    const decision = policy.checkRequestAccess({
+      method: 'GET',
+      user: { id: 42, roles: [] },
+      routeData: { routePermissions: [{ allowedUsers: [{ id: '42' }] }] },
+    });
+    expect(decision.allow).toBe(true);
+  });
+
+  it('matches persisted Mongo ObjectId user and role identities', () => {
+    const userId = new ObjectId();
+    const roleId = new ObjectId();
+    expect(policy.checkRequestAccess({
+      method: 'GET',
+      user: { _id: userId, roles: [{ _id: roleId }] },
+      routeData: { routePermissions: [{ role: { _id: roleId } }] },
+    }).allow).toBe(true);
+    expect(policy.checkRequestAccess({
+      method: 'GET',
+      user: { _id: userId, roles: [] },
+      routeData: { routePermissions: [{ allowedUsers: [{ _id: userId }] }] },
+    }).allow).toBe(true);
+  });
+
+  it('allows a public method config without user', () => {
     const d = policy.checkRequestAccess({
       method: 'GET',
-      routeData: { publicMethods: [{ name: 'GET' }] },
+      routeData: { routeMethodConfig: { isPublic: true } },
     });
     expect(d.allow).toBe(true);
+  });
+
+  it('returns 401 for a non-public method config without user', () => {
+    const d = policy.checkRequestAccess({
+      method: 'GET',
+      routeData: { routeMethodConfig: { isPublic: false } },
+    });
+    expect(d.allow).toBe(false);
+    expect(d.statusCode).toBe(401);
   });
 
   it('returns 401 when no user and route not published', () => {
@@ -60,6 +121,18 @@ describe('PolicyService.checkRequestAccess', () => {
       },
     });
     expect(d.allow).toBe(false);
+  });
+
+  it.each([
+    { isEnabled: false, role: { id: 5 } },
+    { isEnabled: false, allowedUsers: [{ id: 1 }] },
+  ])('does not grant an explicitly disabled permission %j', permission => {
+    const decision = policy.checkRequestAccess({
+      method: 'GET',
+      user: { id: 1, roles: [{ id: 5 }] },
+      routeData: { routePermissions: [permission] },
+    });
+    expect(decision.allow).toBe(false);
   });
 
   it('matches role by numeric id', () => {
@@ -152,7 +225,9 @@ describe('PolicyService.checkRequestAccess', () => {
     expect(d.allow).toBe(true);
   });
 
-  it('rejects when method does not match', () => {
+  it('treats the resolved method config permissions as the whole decision', () => {
+    // route-detect resolves the method config for req.method before policy runs,
+    // so every permission row already belongs to the called method.
     const d = policy.checkRequestAccess({
       method: 'DELETE',
       user: { id: 1, roles: [{ id: 5 }] },
@@ -160,51 +235,50 @@ describe('PolicyService.checkRequestAccess', () => {
         routePermissions: [{ methods: [{ name: 'GET' }], role: { id: 5 } }],
       },
     });
-    expect(d.allow).toBe(false);
-    expect(d.statusCode).toBe(403);
+    expect(d.allow).toBe(true);
   });
 
-  it('allows skipRoleGuardMethods when user authenticated but no routePermissions match', () => {
+  it('allows a skipRoleGuard method config for an authenticated user without route permissions', () => {
     const d = policy.checkRequestAccess({
       method: 'GET',
       user: { id: 1, roles: [{ id: 5 }] },
       routeData: {
-        skipRoleGuardMethods: [{ name: 'GET' }],
+        routeMethodConfig: { skipRoleGuard: true },
         routePermissions: [],
       },
     });
     expect(d.allow).toBe(true);
   });
 
-  it('allows skipRoleGuardMethods when user has no role at all', () => {
+  it('allows a skipRoleGuard method config when the user has no role at all', () => {
     const d = policy.checkRequestAccess({
       method: 'PATCH',
       user: { id: 1 },
       routeData: {
-        skipRoleGuardMethods: [{ name: 'PATCH' }],
+        routeMethodConfig: { skipRoleGuard: true },
       },
     });
     expect(d.allow).toBe(true);
   });
 
-  it('still returns 401 when route is in skipRoleGuardMethods but no user', () => {
+  it('still returns 401 for a skipRoleGuard method config without user', () => {
     const d = policy.checkRequestAccess({
       method: 'GET',
       routeData: {
-        skipRoleGuardMethods: [{ name: 'GET' }],
+        routeMethodConfig: { skipRoleGuard: true },
       },
     });
     expect(d.allow).toBe(false);
     expect(d.statusCode).toBe(401);
   });
 
-  it('does not bypass role check when method is not in skipRoleGuardMethods', () => {
+  it('does not bypass the role check when the method config does not skip the guard', () => {
     const d = policy.checkRequestAccess({
       method: 'DELETE',
       user: { id: 1, roles: [{ id: 5 }] },
       routeData: {
-        skipRoleGuardMethods: [{ name: 'GET' }],
-        routePermissions: [{ methods: [{ name: 'GET' }], role: { id: 5 } }],
+        routeMethodConfig: { skipRoleGuard: false },
+        routePermissions: [{ methods: [{ name: 'DELETE' }], role: { id: 9 } }],
       },
     });
     expect(d.allow).toBe(false);

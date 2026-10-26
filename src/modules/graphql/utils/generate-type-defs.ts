@@ -14,18 +14,20 @@ import {
   GraphQLInputType,
   GraphQLScalarType,
   Kind,
+  type ValueNode,
 } from 'graphql';
 import { DatabaseConfigService } from '../../../shared/services';
+import type { TableGraphQLDef } from '../types/graphql-schema.types';
 
-export const GraphQLJSON = new GraphQLScalarType({
+export const GraphQLJSON = new GraphQLScalarType<unknown, unknown>({
   name: 'JSON',
   description: 'Arbitrary JSON value',
-  serialize: (value: any) => value,
-  parseValue: (value: any) => value,
-  parseLiteral: (ast: any) => parseLiteralJSON(ast),
+  serialize: (value) => value,
+  parseValue: (value) => value,
+  parseLiteral: (ast) => parseLiteralJSON(ast),
 });
 
-function parseLiteralJSON(ast: any): any {
+function parseLiteralJSON(ast: ValueNode): unknown {
   switch (ast.kind) {
     case Kind.STRING:
       return ast.value;
@@ -40,7 +42,7 @@ function parseLiteralJSON(ast: any): any {
     case Kind.LIST:
       return ast.values.map(parseLiteralJSON);
     case Kind.OBJECT: {
-      const obj: Record<string, any> = {};
+      const obj: Record<string, unknown> = {};
       for (const field of ast.fields) {
         obj[field.name.value] = parseLiteralJSON(field.value);
       }
@@ -51,7 +53,8 @@ function parseLiteralJSON(ast: any): any {
   }
 }
 
-function mapColumnTypeToGraphQLType(type: string): GraphQLScalarType {
+function mapColumnTypeToGraphQLType(type: string): GraphQLScalarType | GraphQLList<typeof GraphQLString> {
+  if (type === 'array-select') return new GraphQLList(GraphQLString);
   const map: Record<string, GraphQLScalarType> = {
     int: GraphQLInt,
     integer: GraphQLInt,
@@ -95,16 +98,6 @@ export const MetaResultType = new GraphQLObjectType({
   },
 });
 
-export interface TableGraphQLDef {
-  type: GraphQLObjectType;
-  resultType: GraphQLObjectType;
-  inputType: GraphQLInputObjectType | null;
-  updateInputType: GraphQLInputObjectType | null;
-  queryField: { type: GraphQLOutputType; args: Record<string, any> } | null;
-  mutationFields: Record<string, any>;
-  referencedStubs: Set<string>;
-}
-
 export function buildTableGraphQLDef(
   table: any,
   queryableTableNames: Set<string>,
@@ -135,8 +128,6 @@ export function buildTableGraphQLDef(
     let finalType: GraphQLOutputType;
     if (column.isPrimary && (baseType === GraphQLID || isMongoId)) {
       finalType = new GraphQLNonNull(GraphQLID);
-    } else if (!column.isNullable) {
-      finalType = new GraphQLNonNull(baseType);
     } else {
       finalType = baseType;
     }
@@ -161,9 +152,7 @@ export function buildTableGraphQLDef(
 
       typeFields[relName] = {
         type: isArray
-          ? new GraphQLNonNull(
-              new GraphQLList(new GraphQLNonNull(GraphQLString)),
-            )
+          ? new GraphQLList(new GraphQLNonNull(GraphQLString))
           : GraphQLString,
         extensions: { __lazyTarget: targetType, __isArray: isArray },
       };
@@ -190,9 +179,7 @@ export function buildTableGraphQLDef(
           if (targetGqlType) {
             resolved[key] = {
               type: ext.__isArray
-                ? new GraphQLNonNull(
-                    new GraphQLList(new GraphQLNonNull(targetGqlType)),
-                  )
+                ? new GraphQLList(new GraphQLNonNull(targetGqlType))
                 : targetGqlType,
             };
           } else {
@@ -217,9 +204,7 @@ export function buildTableGraphQLDef(
   });
 
   const inputFields: GraphQLInputFieldConfigMap = {};
-  const updateInputFields: GraphQLInputFieldConfigMap = {
-    id: { type: new GraphQLNonNull(GraphQLID) },
-  };
+  const updateInputFields: GraphQLInputFieldConfigMap = {};
   let hasInputFields = false;
 
   for (const column of table.columns || []) {
@@ -274,7 +259,7 @@ export function buildTableGraphQLDef(
     fields: updateInputFields,
   });
 
-  const queryField = {
+  const queryField: NonNullable<TableGraphQLDef['queryField']> = {
     type: new GraphQLNonNull(resultType),
     args: {
       filter: { type: GraphQLJSON },
@@ -284,7 +269,7 @@ export function buildTableGraphQLDef(
     },
   };
 
-  const mutationFields: Record<string, any> = {
+  const mutationFields: TableGraphQLDef['mutationFields'] = {
     [`create_${table.name}`]: {
       type: new GraphQLNonNull(type),
       args: { input: { type: new GraphQLNonNull(inputType) } },
@@ -293,7 +278,7 @@ export function buildTableGraphQLDef(
       type: new GraphQLNonNull(type),
       args: {
         id: { type: new GraphQLNonNull(GraphQLID) },
-        input: { type: new GraphQLNonNull(inputType) },
+        input: { type: new GraphQLNonNull(updateInputType) },
       },
     },
     [`delete_${table.name}`]: {

@@ -19,6 +19,22 @@ describe('RateLimitService', () => {
     );
   });
 
+  it('preserves the status fallback when pipeline replies are incomplete', async () => {
+    const pipeline = {
+      zremrangebyscore: vi.fn(() => pipeline),
+      zcard: vi.fn(() => pipeline),
+      zrange: vi.fn(() => pipeline),
+      pexpire: vi.fn(() => pipeline),
+      exec: vi.fn(async () => [[null, 0]]),
+    };
+    const service = new RateLimitService({
+      redis: { pipeline: () => pipeline } as any,
+      envService: { get: () => 'app-a' } as any,
+    });
+    expect(await service.status('route:/orders', { maxRequests: 5, perSeconds: 60 })).toEqual(expect.objectContaining({ allowed: true, remaining: 5, retryAfter: 0, limit: 5, window: 60 }));
+    expect(pipeline.pexpire).toHaveBeenCalledWith('app-a:rl:route:/orders', 60000);
+  });
+
   it('repairs lifecycle TTL when reading rate-limit status', async () => {
     const operations: Array<{ name: string; args: any[] }> = [];
     const pipeline = {
@@ -50,11 +66,12 @@ describe('RateLimitService', () => {
       envService: { get: () => 'app-a' } as any,
     });
 
-    await service.status('route:/orders', {
+    const status = await service.status('route:/orders', {
       maxRequests: 5,
       perSeconds: 60,
     });
 
+    expect(status).toEqual(expect.objectContaining({ allowed: true, remaining: 4, retryAfter: 0 }));
     expect(pipeline.pexpire).toHaveBeenCalledWith(
       'app-a:rl:route:/orders',
       60000,

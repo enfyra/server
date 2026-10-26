@@ -24,15 +24,16 @@ export function isIpInRange(ip: string, pattern: string): boolean {
   const normalized = normalizeIpAddress(ip);
   if (!normalized) return false;
   const parts = pattern.trim().split('/');
-  const range = normalizeIpAddress(parts[0]);
-  if (!range || parts.length > 2) return false;
+  const [rangeText, bitsText] = parts;
+  const range = normalizeIpAddress(rangeText);
+  if (!range || rangeText === undefined || parts.length > 2) return false;
   if (parts.length === 1) return normalized === range;
-  if (!/^\d{1,3}$/.test(parts[1])) return false;
-  let bits = Number(parts[1]);
+  if (bitsText === undefined || !/^\d{1,3}$/.test(bitsText)) return false;
+  let bits = Number(bitsText);
   const address = ipaddr.process(normalized);
   const network = ipaddr.process(range);
   if (address.kind() !== network.kind()) return false;
-  if (parts[0].includes(':') && network.kind() === 'ipv4' && bits >= 96)
+  if (rangeText.includes(':') && network.kind() === 'ipv4' && bits >= 96)
     bits -= 96;
   if (bits > (network.kind() === 'ipv4' ? 32 : 128)) return false;
   return address.match(network, bits);

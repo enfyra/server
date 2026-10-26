@@ -1,5 +1,5 @@
 import { Logger } from '../../../shared/logger';
-import { Server, Socket } from 'socket.io';
+import { Server, Socket, type Namespace } from 'socket.io';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 import { createAdapter } from '@socket.io/redis-adapter';
@@ -24,11 +24,12 @@ import {
   withUserRequestContext,
 } from '../../../shared/utils/load-user-with-role.util';
 import type { Cradle } from '../../../container';
+import type { TUserIdentity } from '../../../shared/types/authenticated-user.types';
 
 interface SocketData extends Socket {
   data: {
     user?: any;
-    userId?: number | string;
+    userId?: TUserIdentity;
     gateway?: any;
   };
 }
@@ -50,6 +51,7 @@ export class DynamicWebSocketGateway {
   private readonly roomFanoutParallelChunks: number;
   private readonly roomFanoutBackpressureThreshold: number;
   private registeredGateways = new Set<string>();
+  private namespaceBindings?: WeakSet<Namespace>;
   private gatewayConfigsByPath = new Map<string, any>();
   private roomFanoutQueues = new Map<string, RoomFanoutJob[]>();
   private activeRoomFanoutQueues = new Set<string>();
@@ -172,7 +174,6 @@ export class DynamicWebSocketGateway {
         if (!newPaths.has(path)) {
           const namespace = this.server.of(path);
           namespace.disconnectSockets();
-          namespace.removeAllListeners();
           this.registeredGateways.delete(path);
         }
       }
@@ -185,7 +186,9 @@ export class DynamicWebSocketGateway {
               gateway,
             )
           ) {
-            this.server.of(gateway.path).disconnectSockets(true);
+            for (const socket of this.server.of(gateway.path).sockets.values()) {
+              socket.conn.close();
+            }
           }
           continue;
         }
@@ -195,6 +198,7 @@ export class DynamicWebSocketGateway {
       this.logger.log(`Registered ${gateways.length} websocket gateways`);
     } catch (error) {
       this.logger.error('Failed to register websocket gateways:', error);
+      throw error;
     }
   }
 
@@ -233,6 +237,9 @@ export class DynamicWebSocketGateway {
 
   private setupNamespace(path: string) {
     const namespace = this.server.of(path);
+    this.namespaceBindings ??= new WeakSet<Namespace>();
+    if (this.namespaceBindings.has(namespace)) return;
+    this.namespaceBindings.add(namespace);
     namespace.use(async (socket: SocketData, next) => {
       const gateway = this.gatewayConfigsByPath.get(path);
       if (!gateway) {
@@ -500,13 +507,15 @@ export class DynamicWebSocketGateway {
       {
         sourceCode,
         scriptLanguage: gatewayData.scriptLanguage ?? 'typescript',
-        onCompiledCodeRepair: scriptRecord
-          ? () =>
-              this.lazyRef.runtimeScriptRepairService?.repairScriptRecord(
-                'enfyra_websocket',
-                scriptRecord,
-              )
-          : undefined,
+        ...(scriptRecord
+          ? {
+              onCompiledCodeRepair: () =>
+                this.lazyRef.runtimeScriptRepairService?.repairScriptRecord(
+                  'enfyra_websocket',
+                  scriptRecord,
+                ),
+            }
+          : {}),
       },
     );
   }
@@ -560,13 +569,15 @@ export class DynamicWebSocketGateway {
         {
           sourceCode: sourceCode ?? script,
           scriptLanguage: scriptLanguage ?? 'typescript',
-          onCompiledCodeRepair: scriptRecord
-            ? () =>
-                this.lazyRef.runtimeScriptRepairService?.repairScriptRecord(
-                  'enfyra_websocket_event',
-                  scriptRecord,
-                )
-            : undefined,
+          ...(scriptRecord
+            ? {
+                onCompiledCodeRepair: () =>
+                  this.lazyRef.runtimeScriptRepairService?.repairScriptRecord(
+                    'enfyra_websocket_event',
+                    scriptRecord,
+                  ),
+              }
+            : {}),
         },
       );
       ctx.$socket?.reply?.('ws:result', {
@@ -652,6 +663,28 @@ export class DynamicWebSocketGateway {
         })
         .catch(() => {});
     }
+
+    socket.on(
+      '$system:runtime:metrics:get',
+      async (_payload: unknown, ack: unknown) => {
+        try {
+          const user = await this.loadSocketUser(socket);
+          if (!user?.isRootAdmin) throw new Error('Root admin access required');
+          if (typeof ack !== 'function') return;
+          const data = await this.lazyRef.runtimeMonitorService.getClusterSnapshot();
+          ack({ success: true, data });
+        } catch (error) {
+          if (typeof ack === 'function') {
+            ack({
+              success: false,
+              error: {
+                message: getErrorMessage(error) || 'Runtime metrics request failed',
+              },
+            });
+          }
+        }
+      },
+    );
 
     socket.on('$system:redis:overview:get', async (_payload: any, ack: any) => {
       await this.ackRedisAdmin(socket, ack, () =>
@@ -739,19 +772,6 @@ export class DynamicWebSocketGateway {
 
   async reloadGateways() {
     this.logger.log('Reloading websocket gateways...');
-    const keepAdminNamespace = this.registeredGateways.has(
-      ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
-    );
-    for (const path of this.registeredGateways) {
-      if (path === ENFYRA_ADMIN_WEBSOCKET_NAMESPACE) continue;
-      const namespace = this.server.of(path);
-      namespace.disconnectSockets();
-      namespace.removeAllListeners();
-    }
-    this.registeredGateways.clear();
-    if (keepAdminNamespace) {
-      this.registeredGateways.add(ENFYRA_ADMIN_WEBSOCKET_NAMESPACE);
-    }
     await this.registerGateways();
     this.logger.log(
       `Gateways reloaded. Total registered: ${this.registeredGateways.size}`,
@@ -866,7 +886,7 @@ export class DynamicWebSocketGateway {
           done = resolve;
         })
       : Promise.resolve();
-    const job = { path, room, event, data, done };
+    const job = { path, room, event, data, ...(done ? { done } : {}) };
     if (queue) {
       queue.push(job);
     } else {

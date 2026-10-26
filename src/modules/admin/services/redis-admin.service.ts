@@ -5,7 +5,6 @@ import { RedisCacheService } from '../../../engines/cache';
 import { AuthorizationException } from '../../../domain/exceptions';
 import type { RuntimeNamespaceLifecycleService } from '../../../engines/cache/services/runtime-namespace-lifecycle.service';
 import {
-  BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
   MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
   PROVISION_LOCK_KEY,
   SAGA_ORPHAN_RECOVERY_LOCK_KEY,
@@ -56,7 +55,7 @@ export class RedisAdminService {
   private readonly userCacheLimitBytes: number;
   private readonly userCacheMaxValueBytes: number;
   private readonly userCacheService: RedisCacheService;
-  private readonly runtimeNamespaceLifecycleService?: RuntimeNamespaceLifecycleService;
+  private readonly runtimeNamespaceLifecycleService: RuntimeNamespaceLifecycleService | undefined;
 
   constructor(deps: {
     redis: Redis;
@@ -106,17 +105,19 @@ export class RedisAdminService {
 
     for (const summary of currentSummaries) {
       const group = this.groupKey(summary);
-      const current = groups.get(group.name) ?? {
+      const current: RedisAdminOverview['groups'][number] = groups.get(group.name) ?? {
         ...group,
         count: 0,
         memoryBytes: 0,
         system: summary.isSystem,
-        systemKind: summary.systemKind,
+        ...(summary.systemKind !== undefined ? { systemKind: summary.systemKind } : {}),
       };
       current.count += 1;
       current.memoryBytes += summary.memoryBytes ?? 0;
       current.system = current.system || summary.isSystem;
-      current.systemKind = current.systemKind ?? summary.systemKind;
+      if (current.systemKind === undefined && summary.systemKind !== undefined) {
+        current.systemKind = summary.systemKind;
+      }
       groups.set(group.name, current);
     }
 
@@ -128,7 +129,9 @@ export class RedisAdminService {
       scanned: keys.scanned,
       scanComplete: keys.complete,
       userCache: await this.getUserCacheQuota(),
-      groups: [...groups.values()].sort((a, b) => b.count - a.count),
+      groups: [...groups.values()].sort(
+        (a, b) => b.count - a.count || a.name.localeCompare(b.name),
+      ),
       topKeys: browserSummaries
         .filter((item) => item.memoryBytes != null)
         .sort((a, b) => (b.memoryBytes ?? 0) - (a.memoryBytes ?? 0))
@@ -413,7 +416,7 @@ export class RedisAdminService {
       type,
       ttlSeconds,
       ttlMilliseconds,
-      size,
+      ...(size !== undefined ? { size } : {}),
       memoryBytes,
       ...this.markSystemKey(key),
     };
@@ -560,7 +563,12 @@ export class RedisAdminService {
         i < rows.length && Object.keys(value).length < limit;
         i += 2
       ) {
-        value[rows[i]] = rows[i + 1];
+        const field = rows[i];
+        const entry = rows[i + 1];
+        if (field === undefined || entry === undefined) {
+          throw new Error('Redis hash scan returned an incomplete field/value pair');
+        }
+        value[field] = entry;
       }
     } while (cursor !== '0' && Object.keys(value).length < limit);
     const size = await this.redis.hlen(key);
@@ -652,13 +660,11 @@ export class RedisAdminService {
   private parseServerInfo(info: string): RedisServerHealth {
     const parsed = this.parseInfoSection(info);
     return {
-      usedMemoryBytes: parsed.used_memory
-        ? Number(parsed.used_memory)
-        : undefined,
-      maxMemoryBytes: parsed.maxmemory ? Number(parsed.maxmemory) : undefined,
-      memFragmentationRatio: parsed.mem_fragmentation_ratio
-        ? Number(parsed.mem_fragmentation_ratio)
-        : undefined,
+      ...(parsed.used_memory ? { usedMemoryBytes: Number(parsed.used_memory) } : {}),
+      ...(parsed.maxmemory ? { maxMemoryBytes: Number(parsed.maxmemory) } : {}),
+      ...(parsed.mem_fragmentation_ratio
+        ? { memFragmentationRatio: Number(parsed.mem_fragmentation_ratio) }
+        : {}),
     };
   }
 
@@ -739,25 +745,26 @@ export class RedisAdminService {
     scope: RedisAdminNamespaceScope;
   } {
     if (summary.namespaceScope === 'current') {
+      const systemKind = this.categoryKind(summary.systemKind);
       return {
-        name: summary.systemKind
-          ? this.systemKindLabel(summary.systemKind)
+        name: systemKind
+          ? this.systemKindLabel(systemKind)
           : 'current namespace',
-        systemKind: summary.systemKind,
+        ...(systemKind !== undefined ? { systemKind } : {}),
         scope: summary.namespaceScope,
       };
     }
     if (summary.reason) {
       return {
         name: summary.reason,
-        systemKind: summary.systemKind,
-        namespace: summary.namespace,
+        ...(summary.systemKind !== undefined ? { systemKind: summary.systemKind } : {}),
+        ...(summary.namespace !== undefined ? { namespace: summary.namespace } : {}),
         scope: summary.namespaceScope,
       };
     }
     return {
       name: summary.namespace ?? 'global',
-      namespace: summary.namespace,
+      ...(summary.namespace !== undefined ? { namespace: summary.namespace } : {}),
       scope: summary.namespaceScope,
     };
   }
@@ -780,7 +787,13 @@ export class RedisAdminService {
     if (this.isTransientKey(key)) return false;
     if (!filter || filter === 'all') return true;
     if (filter === 'custom') return !key.isSystem && !key.systemKind;
-    return key.systemKind === filter;
+    return this.categoryKind(key.systemKind) === filter;
+  }
+
+  private categoryKind(
+    kind?: RedisAdminSystemKind,
+  ): RedisAdminSystemKind | undefined {
+    return kind === 'user_cache_lock' ? 'user_cache' : kind;
   }
 
   private isTransientKey(key: RedisAdminKeySummary): boolean {
@@ -844,7 +857,6 @@ export class RedisAdminService {
   private parseNamespace(key: string): string | undefined {
     if (
       [
-        BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
         PROVISION_LOCK_KEY,
         SAGA_ORPHAN_RECOVERY_LOCK_KEY,
         MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
@@ -917,7 +929,6 @@ export class RedisAdminService {
 
   private isSystemLockKey(key: string): boolean {
     const lockKeys = [
-      BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
       PROVISION_LOCK_KEY,
       SAGA_ORPHAN_RECOVERY_LOCK_KEY,
       MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
@@ -957,7 +968,6 @@ export class RedisAdminService {
       key.startsWith(`${this.nodeName}:`) ||
       key.startsWith('coord:sql:pool:') ||
       [
-        BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
         PROVISION_LOCK_KEY,
         SAGA_ORPHAN_RECOVERY_LOCK_KEY,
         MONGO_MIGRATION_SAGA_RECOVERY_LOCK_KEY,
@@ -972,9 +982,8 @@ export class RedisAdminService {
       case 'runtime_cache':
         return 'runtime cache';
       case 'user_cache':
-        return 'user cache';
       case 'user_cache_lock':
-        return 'user cache lock';
+        return 'user cache';
       case 'bullmq':
         return 'BullMQ';
       case 'socket_io':
@@ -1020,7 +1029,7 @@ export class RedisAdminService {
     const parts = key.split(':');
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
-      if (!Object.values(SYSTEM_QUEUES).includes(part as any)) continue;
+      if (part === undefined || !Object.values(SYSTEM_QUEUES).includes(part as any)) continue;
       const nodeName = parts.slice(0, i).filter(Boolean).join(':');
       return {
         nodeName: nodeName || 'default',

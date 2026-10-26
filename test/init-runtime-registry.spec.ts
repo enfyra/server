@@ -28,7 +28,10 @@ describe('init runtime registry publish', () => {
 
     await init({
       cradle: {
-        runtimeLogWriterService: { start: vi.fn(), assertReady: vi.fn(async () => {}) },
+        runtimeLogWriterService: {
+          start: vi.fn(),
+          assertReady: vi.fn(async () => {}),
+        },
         eventEmitter,
         databaseConfigService: { getDbType: () => 'mongodb' },
         mongoService: { init: vi.fn(async () => undefined) },
@@ -47,21 +50,6 @@ describe('init runtime registry publish', () => {
           waitForDatabase: vi.fn(async () => undefined),
           recoverJournals: vi.fn(async () => undefined),
         },
-        legacyStoreInventoryService: {
-          inventory: vi.fn(async () => ({
-            backend: 'postgresql',
-            entries: [],
-            capturedAt: new Date().toISOString(),
-          })),
-        },
-        legacyAssessmentService: {
-          assess: vi.fn(() => ({
-            backend: 'postgresql',
-            findings: [],
-            hasBlockingFindings: false,
-            assessedAt: new Date().toISOString(),
-          })),
-        },
         firstRunInitializer: {
           isNeeded: vi.fn(async () => false),
           run: vi.fn(async () => undefined),
@@ -70,9 +58,12 @@ describe('init runtime registry publish', () => {
           markInterruptedReloadsFailed: vi.fn(async () => undefined),
         },
         cacheOrchestratorService: { init: vi.fn(async () => undefined) },
+        redisRuntimeCacheStore: { runWithPublication: async (work: () => Promise<void>) => work(), commitPublication: async () => {} },
         runtimeRegistryService,
         metadataCacheService,
-        repoRegistryService: {
+        sharedHelperCacheService: cacheService([]),
+        corsOriginCacheBuilder: cacheService([]),
+        fileCleanupService: { init: vi.fn(async () => undefined) },        repoRegistryService: {
           rebuildFromMetadata: vi.fn(async () => undefined),
         },
         websocketRuntimeService: { init: vi.fn(() => undefined) },
@@ -90,9 +81,6 @@ describe('init runtime registry publish', () => {
         folderTreeCacheService: cacheService([]),
         guardCacheBuilder: cacheService([]),
         gqlDefinitionCacheService: cacheService([]),
-        bootstrapScriptService: {
-          onMetadataLoaded: vi.fn(async () => undefined),
-        },
         sqlFunctionService: {
           installExtensions: vi.fn(async () => undefined),
         },

@@ -3,6 +3,7 @@ import type {
   SchemaMutationContract,
   SchemaMutationLogicalChange,
 } from '../../../shared/types/schema-mutation-contract.types';
+import type { RuntimeSchemaPhysicalPlanPayload } from './runtime-schema-physical-plan.types';
 
 export type RuntimeSchemaOperation = 'create' | 'update' | 'delete';
 
@@ -152,23 +153,25 @@ export type RuntimeSchemaCommandKind =
   | 'activate-runtime'
   | 'complete-change';
 
-export interface RuntimeSchemaPhysicalPlanPayload {
-  backend: 'postgresql' | 'mysql' | 'mongodb';
-  upStatements?: readonly string[];
-  upBatch?: string;
-  downStatements?: readonly string[];
-  downBatch?: string;
-  upDiff?: unknown;
-  downDiff?: unknown;
-  metadataUpdate?: unknown;
-  activeTableName?: string;
-}
-
-export interface RuntimeSchemaMutationCommand {
-  kind: RuntimeSchemaCommandKind;
-  change?: RuntimeSchemaLogicalChange;
-  physicalPlan?: RuntimeSchemaPhysicalPlanPayload;
-}
+export type RuntimeSchemaMutationCommand =
+  | {
+      kind: 'apply-physical-change';
+      change: RuntimeSchemaLogicalChange;
+      physicalPlan?: RuntimeSchemaPhysicalPlanPayload;
+    }
+  | {
+      kind: 'apply-metadata-change' | 'complete-change';
+      change: RuntimeSchemaLogicalChange;
+      physicalPlan?: never;
+    }
+  | {
+      kind: Exclude<
+        RuntimeSchemaCommandKind,
+        'apply-physical-change' | 'apply-metadata-change' | 'complete-change'
+      >;
+      change?: never;
+      physicalPlan?: never;
+    };
 
 export type RuntimeSchemaMutationContract = SchemaMutationContract<
   RuntimeSchemaContractContext,

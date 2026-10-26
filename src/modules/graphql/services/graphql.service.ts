@@ -1,7 +1,6 @@
 import {
   GraphQLSchema,
   GraphQLObjectType,
-  GraphQLFieldConfigMap,
   printSchema,
 } from 'graphql';
 import { createYoga } from 'graphql-yoga';
@@ -10,11 +9,11 @@ import { Logger } from '../../../shared/logger';
 import { EventEmitter2 } from 'eventemitter2';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { DynamicResolver } from '../resolvers/dynamic.resolver';
+import type { TableGraphQLDef } from '../types/graphql-schema.types';
 import {
   buildTableGraphQLDef,
   buildStubType,
   MetaResultType,
-  TableGraphQLDef,
   GraphQLJSON,
 } from '../utils/generate-type-defs';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
@@ -311,8 +310,8 @@ export class GraphqlService {
   }
 
   private async assembleAndRegisterSchema(): Promise<void> {
-    const queryFields: GraphQLFieldConfigMap<any, any> = {};
-    const mutationFields: GraphQLFieldConfigMap<any, any> = {};
+    const queryFields: Record<string, NonNullable<TableGraphQLDef['queryField']>> = {};
+    const mutationFields: TableGraphQLDef['mutationFields'] = {};
 
     for (const [tableName, def] of this.tableDefCache) {
       if (def.queryField) {
@@ -414,7 +413,7 @@ export class GraphqlService {
   getStatus(): GraphqlRuntimeStatus {
     return {
       schemaReady: !!this.schema,
-      lastReload: this.lastReload ? { ...this.lastReload } : undefined,
+      ...(this.lastReload ? { lastReload: { ...this.lastReload } } : {}),
     };
   }
 

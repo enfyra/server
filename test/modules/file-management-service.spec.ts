@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Readable } from 'stream';
 import { FileManagementService } from '../../src/modules/file-management/services/file-management.service';
+import { DynamicMutationLifecycleService } from '../../src/modules/dynamic-api/services/dynamic-mutation-lifecycle.service';
+import { markMutationPersistence } from '../../src/shared/utils/mutation-outcome.util';
+import { runWithDeferredDynamicTransactionEffects } from '../../src/shared/utils/dynamic-transaction-effects.util';
+import type { TDynamicContext } from '../../src/shared/types';
 
 function makeMp4Buffer() {
   return Buffer.concat([
@@ -46,6 +50,7 @@ function makeService(overrides: Record<string, any> = {}) {
     storageFactoryService: {
       getStorageServiceByConfig: vi.fn(() => storageService),
     } as any,
+    fileCleanupService: { enqueue: async (location: string, config: string) => storageService.delete(location, runtimeRegistryService.getStorageConfigById(config)) } as any,
   });
 
   return { service, storageService, runtimeRegistryService };
@@ -178,6 +183,7 @@ describe('FileManagementService file replacement', () => {
     const { service, storageService } = makeService();
     const fileRepo = {
       update: vi.fn(async () => {
+        markMutationPersistence('not_persisted');
         throw new Error('db failed');
       }),
     };
@@ -212,6 +218,40 @@ describe('FileManagementService file replacement', () => {
       'uploads/old.txt',
       expect.anything(),
     );
+  });
+
+  it.each(['upload', 'replace'])('keeps the committed blob after a %s post-write result failure', async operation => {
+    const { service, storageService } = makeService();
+    const lifecycle = new DynamicMutationLifecycleService();
+    const mutate = async () => lifecycle.run({ context: { tableName: 'enfyra_file', id: 1, body: {}, existing: null }, persist: async () => ({}), buildResult: () => { throw new Error('result read failed'); }, reload: async () => {} });
+    const repository = { create: mutate, update: mutate };
+    const file = { filename: 'new.txt', mimetype: 'text/plain', stream: Readable.from('new'), size: 3 };
+    const action = operation === 'upload' ? service.uploadFileAndCreateRecord(file, { storageConfig: 's3' }, repository) : service.replaceFileAndUpdateRecord(repository, '1', { location: 'uploads/old.txt', storageConfig: 's3' }, file);
+    await expect(action).rejects.toThrow('result read failed');
+    expect(storageService.delete).not.toHaveBeenCalled();
+  });
+
+  it('retains a newly uploaded blob when persistence outcome is unknown', async () => {
+    const { service, storageService } = makeService();
+    const lifecycle = new DynamicMutationLifecycleService();
+    await expect(service.uploadFileAndCreateRecord({ filename: 'new.txt', mimetype: 'text/plain', stream: Readable.from('new'), size: 3 }, { storageConfig: 's3' }, { create: () => lifecycle.run({ context: { tableName: 'enfyra_file', id: 1, body: {}, existing: null }, persist: async () => { throw new Error('write acknowledgement lost'); }, buildResult: () => ({}), reload: async () => {} }) })).rejects.toThrow('write acknowledgement lost');
+    expect(storageService.delete).not.toHaveBeenCalled();
+  });
+
+  it('does not delete bytes when repository deletion is denied', async () => {
+    const { service, storageService } = makeService();
+    await expect(service.deleteFileAndRecord({ delete: async () => { throw new Error('denied'); } }, 1, { location: 'uploads/old.txt', storageConfig: 's3' })).rejects.toThrow('denied');
+    expect(storageService.delete).not.toHaveBeenCalled();
+  });
+
+  it('keeps the old blob when an outer metadata transaction rolls back after replacement', async () => {
+    const { service, storageService } = makeService();
+    const ctx = {} as TDynamicContext;
+    await expect(runWithDeferredDynamicTransactionEffects(ctx, async () => {
+      await service.replaceFileAndUpdateRecord({ update: async () => ({}) }, 1, { location: 'uploads/old.txt', storageConfig: 's3' }, { filename: 'new.txt', mimetype: 'text/plain', stream: Readable.from('new'), size: 3 });
+      throw new Error('rollback');
+    })).rejects.toThrow('rollback');
+    expect(storageService.delete).not.toHaveBeenCalledWith('uploads/old.txt', expect.anything());
   });
 
   it('rejects storageConfig changes when no replacement blob is provided', async () => {

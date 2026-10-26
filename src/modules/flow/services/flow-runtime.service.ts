@@ -1,7 +1,5 @@
-import {
-  FlowSchedulerService,
-  type FlowScheduleReconcileState,
-} from './flow-scheduler.service';
+import { FlowSchedulerService } from './flow-scheduler.service';
+import type { FlowScheduleReconcileState } from '../types/flow-schedule.types';
 import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,

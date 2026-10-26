@@ -162,7 +162,7 @@ describe('cold-start cache dependencies', () => {
 
   it('uses freshly normalized flow code without compiling it twice', async () => {
     const resolve = jest.spyOn(scriptCode, 'resolveExecutableScript');
-    const normalize = jest.spyOn(scriptCode, 'normalizeFlowStepScriptConfig');
+    const normalize = jest.spyOn(scriptCode, 'normalizeFlowStepScript');
     try {
       const builder = new FlowCacheBuilder({
         eventEmitter: new EventEmitter2(),
@@ -191,9 +191,6 @@ describe('cold-start cache dependencies', () => {
       expect(normalize).toHaveBeenCalledTimes(1);
       expect(resolve).not.toHaveBeenCalled();
       expect(result[0].steps[0].compiledCode).toContain('const value =');
-      expect(result[0].steps[0].config.code).toBe(
-        result[0].steps[0].compiledCode,
-      );
     } finally {
       resolve.mockRestore();
       normalize.mockRestore();

@@ -1,6 +1,7 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { Logger } from '../../../shared/logger';
 import { getErrorMessage } from '../../../shared/utils/error.util';
+import { prepareFieldPermissionCondition } from '../../../shared/utils/field-permission-condition.util';
 import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
@@ -19,8 +20,10 @@ import type {
 } from '../types/guard.types';
 import type { GraphqlOperationName } from '../../../shared/types/graphql.types';
 import type { OAuthConfig } from './oauth-config-cache-builder.service';
+import type { CorsOriginPolicy } from './cors-origin-cache-builder.service';
 import type { AuthHeaderConfig } from '../../../domain/auth/types/auth.types';
 import type { FlowDefinition } from '../../../shared/types/flow.types';
+import type { SharedHelperDefinition } from '../../../shared/types/shared-helper.types';
 import type {
   TCompiledFieldPolicy,
   TFieldPermissionAction,
@@ -49,7 +52,7 @@ export interface RuntimeCacheViewSource {
 
 export class RuntimeRegistryService {
   private readonly logger = new Logger(RuntimeRegistryService.name);
-  private readonly eventEmitter?: EventEmitter2;
+  private readonly eventEmitter: EventEmitter2 | undefined;
   private readonly entries = new Map<
     RuntimeCacheIdentifier,
     RuntimeRegistryEntry
@@ -100,6 +103,14 @@ export class RuntimeRegistryService {
         throw new Error(`Cache ${identifier} did not return active data`);
       }
       const snapshotData = this.cloneRuntimeData(data);
+      if (identifier === CACHE_IDENTIFIERS.FIELD_PERMISSION) {
+        const policies = snapshotData as Map<string, TCompiledFieldPolicy>;
+        for (const policy of policies.values()) {
+          for (const rule of policy.rules) {
+            prepareFieldPermissionCondition(rule.condition);
+          }
+        }
+      }
       this.logger.verbose(
         `runtime-cache phase=staged id=${identifier} version=${nextVersion} shape=${summarizeCacheValue(snapshotData)}`,
       );
@@ -383,6 +394,10 @@ export class RuntimeRegistryService {
     );
   }
 
+  getCorsOriginPolicy(): CorsOriginPolicy | undefined {
+    return this.getActiveData<CorsOriginPolicy>(CACHE_IDENTIFIERS.CORS_ORIGIN);
+  }
+
   getFlows(): FlowDefinition[] {
     return this.requireActiveData<FlowDefinition[]>(CACHE_IDENTIFIERS.FLOW);
   }
@@ -451,7 +466,9 @@ export class RuntimeRegistryService {
       Array.isArray(user?.roles)
         ? user.roles
             .map((role: any) => this.toIdString(role))
-            .filter((roleId: string | null): roleId is string => roleId !== null)
+            .filter(
+              (roleId: string | null): roleId is string => roleId !== null,
+            )
         : [],
     );
 
@@ -469,6 +486,12 @@ export class RuntimeRegistryService {
     }
 
     return policies;
+  }
+
+  getSharedHelpers(): SharedHelperDefinition[] {
+    return this.requireActiveData<SharedHelperDefinition[]>(
+      CACHE_IDENTIFIERS.HELPER,
+    );
   }
 
   getPackages(): string[] {

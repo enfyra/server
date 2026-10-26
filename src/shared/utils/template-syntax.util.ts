@@ -106,13 +106,11 @@ export function transformTemplateSyntax(
   let regularExpressionIndex = 0;
 
   while (pos < len) {
-    while (
-      regularExpressionIndex < regularExpressionRanges.length &&
-      regularExpressionRanges[regularExpressionIndex].end <= pos
-    ) {
+    let regularExpression = regularExpressionRanges[regularExpressionIndex];
+    while (regularExpression && regularExpression.end <= pos) {
       regularExpressionIndex++;
+      regularExpression = regularExpressionRanges[regularExpressionIndex];
     }
-    const regularExpression = regularExpressionRanges[regularExpressionIndex];
     if (
       state === CODE &&
       regularExpression &&
@@ -154,7 +152,7 @@ export function transformTemplateSyntax(
           pos++;
 
           while (pos < len) {
-            const c = code[pos];
+            const c = code.charAt(pos);
             if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c === '_') {
               pos++;
             } else {
@@ -165,7 +163,7 @@ export function transformTemplateSyntax(
           const identifier = code.substring(start, pos);
           const throwStatus = THROW_ALIAS_STATUS.get(identifier);
           let callStart = pos;
-          while (callStart < len && /\s/.test(code[callStart])) callStart++;
+          while (callStart < len && /\s/.test(code.charAt(callStart))) callStart++;
           if (throwStatus && code[callStart] === '(') {
             result += throwAliasMode === 'validation'
               ? `$ctx.$throwAlias(${throwStatus}`

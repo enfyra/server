@@ -1,4 +1,8 @@
-export type { TCacheInvalidationPayload } from '../types/cache.types';
+export type {
+  TCacheInvalidationPayload,
+  TableMutationPayload,
+  RouteExecutedPayload,
+} from '../types/cache.types';
 import { SYSTEM_TABLES } from './system-tables.constants';
 
 export const CACHE_EVENTS = {
@@ -25,21 +29,6 @@ export const DATA_EVENTS = {
   ROUTE_EXECUTED: 'data:route:executed',
 } as const;
 
-export interface TableMutationPayload {
-  table: string;
-  action: 'create' | 'update' | 'delete';
-  ids?: (string | number)[];
-  data?: any;
-  userId?: string | number | null;
-}
-
-export interface RouteExecutedPayload {
-  routePath: string;
-  method: string;
-  userId?: string | number | null;
-  result?: any;
-}
-
 export const CACHE_IDENTIFIERS = {
   METADATA: 'metadata',
   ROUTE: 'route',
@@ -47,8 +36,9 @@ export const CACHE_IDENTIFIERS = {
   STORAGE: 'storage',
   WEBSOCKET: 'websocket',
   PACKAGE: 'package',
-  BOOTSTRAP: 'bootstrap',
+  HELPER: 'helper',
   OAUTH_CONFIG: 'oauth-config',
+  CORS_ORIGIN: 'cors-origin',
   AUTH_HEADER: 'auth-header',
   FOLDER_TREE: 'folder-tree',
   FLOW: 'flow',

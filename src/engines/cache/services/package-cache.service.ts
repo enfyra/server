@@ -46,7 +46,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     return packages;
   }
 
-  protected getLogCount(): string {
+  protected override getLogCount(): string {
     return `${this.cache.length} packages`;
   }
 

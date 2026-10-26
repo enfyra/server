@@ -146,6 +146,21 @@ export class MongoSchemaDiffService {
       newMetadata.relations || [],
     );
 
+    const legacyIndexes = (oldMetadata.indexes || []).filter((index: string[]) =>
+      Array.isArray(index) && (oldMetadata.uniques || []).some((unique: string[]) =>
+        Array.isArray(unique) && unique.length >= index.length && index.every((field, position) => unique[position] === field),
+      ),
+    );
+    if (legacyIndexes.length > 0) {
+      const legacySpecs = this.buildFullIndexSpecs(
+        oldMetadata.name,
+        (oldMetadata.columns || []).map((column: any) => ({ ...column, isUnique: false })),
+        [], legacyIndexes, oldMetadata.relations || [],
+      );
+      oldSpecs.push(...legacySpecs.filter(spec => legacyIndexes.some((index: string[]) =>
+        JSON.stringify(index) === JSON.stringify(spec.logicalFields),
+      )));
+    }
     const oldIndexNames = new Map(oldSpecs.map((s) => [s.name, s]));
     const newIndexNames = new Map(newSpecs.map((s) => [s.name, s]));
 

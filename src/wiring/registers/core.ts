@@ -42,6 +42,9 @@ export const coreRegisters = {
   wsEventQueue: asFunction(() => createRuntimeQueue(SYSTEM_QUEUES.WS_EVENT))
     .singleton()
     .disposer((queue: Queue) => closeRuntimeQueue(queue)),
+  fileCleanupQueue: asFunction(() => createRuntimeQueue(SYSTEM_QUEUES.FILE_CLEANUP))
+    .singleton()
+    .disposer((queue: Queue) => closeRuntimeQueue(queue)),
   cleanupQueue: asFunction(() => createRuntimeQueue(SYSTEM_QUEUES.SESSION_CLEANUP))
     .singleton()
     .disposer((queue: Queue) => closeRuntimeQueue(queue)),

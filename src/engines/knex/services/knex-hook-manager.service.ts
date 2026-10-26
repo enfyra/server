@@ -55,7 +55,7 @@ export class KnexHookManagerService {
   private fieldStripper!: FieldStripper;
   private relationTransformer!: RelationTransformer;
   private readonly runtimeRegistryService: RuntimeRegistryService;
-  private readonly replicationManager?: ReplicationManager;
+  private readonly replicationManager: ReplicationManager | undefined;
 
   constructor(deps: {
     runtimeRegistryService: RuntimeRegistryService;

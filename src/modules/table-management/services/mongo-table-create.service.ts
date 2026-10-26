@@ -143,6 +143,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
             {
               name: body.name,
               isSystem: body.isSystem,
+              validateBody: body.validateBody ?? true,
               ...(body.isSingleRecord && { isSingleRecord: true }),
               alias: body.alias,
               description: body.description,

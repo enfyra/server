@@ -1,3 +1,4 @@
+import { emptySharedHelperRegistry } from '../helpers/shared-helper-registry';
 import {
   executeBatch,
   executeSingle,
@@ -76,6 +77,7 @@ async function singleWithSource(
 
 function createIsolatedExecutorService() {
   return new IsolatedExecutorService({
+    tuning: { maxConcurrentWorkers: 1, isolateMemoryLimitMb: 64, isolatesPerWorker: 2 },
     packageCacheService: {
       getPackages: async () => [],
     } as any,
@@ -90,7 +92,7 @@ function createRuntimeScriptExecutorService() {
   const kernelExecutorEngineService = new ExecutorEngineService({
     isolatedExecutorService,
   });
-  const service = new RuntimeScriptExecutorService({
+  const service = new RuntimeScriptExecutorService({ runtimeRegistryService: emptySharedHelperRegistry(),
     kernelExecutorEngineService,
   });
   return { isolatedExecutorService, service };
@@ -318,7 +320,7 @@ describe('Runtime error line location in error response', () => {
         throw failure;
       },
     };
-    const service = new RuntimeScriptExecutorService({
+    const service = new RuntimeScriptExecutorService({ runtimeRegistryService: emptySharedHelperRegistry(),
       kernelExecutorEngineService:
         kernelExecutorEngineService as unknown as ExecutorEngineService,
     });

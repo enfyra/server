@@ -124,13 +124,13 @@ export async function getCurrentDatabaseSchema(
       }),
       foreignKeys: fkResult[0],
       uniques: indexResult[0]
-        .filter((row: any) => row.isNonUnique === 0)
+        .filter((row: any) => row.isNonUnique === 0 || row.isNonUnique === '0')
         .map((row: any) => ({
           name: row.indexName,
           columns: String(row.columns).split(','),
         })),
       indexes: indexResult[0]
-        .filter((row: any) => row.isNonUnique === 1)
+        .filter((row: any) => row.isNonUnique === 1 || row.isNonUnique === '1')
         .map((row: any) => ({
           name: row.indexName,
           columns: String(row.columns).split(','),
@@ -415,7 +415,7 @@ export function compareSchemas(
       (g) => normalizeGroup(g) === key,
     );
     if (!existsInSnapshot) {
-      diff.uniquesToRemove.push({ columns: info.columns, name: info.name });
+      diff.uniquesToRemove.push(info);
     }
   }
   for (const group of snapshotIndexGroups) {
@@ -434,9 +434,9 @@ export function compareSchemas(
     if (!existsInSnapshot) {
       const isFkBackingIndex =
         info.columns.length === 1 &&
-        fkColumnSet.has(info.columns[0].toLowerCase());
+        info.columns.some((column) => fkColumnSet.has(column.toLowerCase()));
       if (isFkBackingIndex) continue;
-      diff.indexesToRemove.push({ columns: info.columns, name: info.name });
+      diff.indexesToRemove.push(info);
     }
   }
   return diff;
@@ -477,7 +477,10 @@ function isDefaultEquivalent(
     sqlFunctions.includes(snapshotDefault.toLowerCase())
   ) {
     if (typeof currentDefault === 'string') {
-      const normalized = currentDefault.toLowerCase().replace(/[()]/g, '');
+      const normalized = currentDefault
+        .toLowerCase()
+        .replace(/^(now|current_timestamp)\s*\(\s*[0-6]?\s*\)$/, '$1')
+        .replace(/[()]/g, '');
       if (sqlFunctions.includes(normalized)) return true;
     }
     return false;

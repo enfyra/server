@@ -3,16 +3,13 @@ import { Job, Queue, Worker } from 'bullmq';
 import { appendFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
-import {
-  ExecutorEngineService,
-  type IsolatedExecutorService,
-} from '@enfyra/kernel';
-import { RepoRegistryService } from '../../../engines/cache';
+import { QueryBuilderService, type IsolatedExecutorService } from '@enfyra/kernel';
+import type { FlowStepExecutor } from '../interfaces/flow-step-executor.interface';
+import { RepoRegistryService, type RuntimeScriptRepairService } from '../../../engines/cache';
 import {
   getErrorMessage,
   getErrorStack,
 } from '../../../shared/utils/error.util';
-import { QueryBuilderService } from '@enfyra/kernel';
 import { WebsocketEmitService } from '../../websocket';
 import { TDynamicContext } from '../../../shared/types';
 import {
@@ -22,7 +19,7 @@ import {
 } from '../../../shared/types/flow.types';
 import {
   executeStepCore,
-  getExecutableStepConfig,
+  getExecutableStepScript,
 } from '../utils/step-executor.util';
 import {
   DynamicContextFactory,
@@ -37,7 +34,6 @@ import type {
   FlowProgressSnapshot,
 } from '../types/flow-execution-history.types';
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
-import type { RuntimeScriptRepairService } from '../../../engines/cache';
 
 const MAX_FLOW_DEPTH = 10;
 const MAX_STEP_TIMEOUT = 300000;
@@ -55,7 +51,7 @@ type FlowWorkerConcurrencyTuning = {
 
 export class FlowExecutionQueueService {
   private readonly logger = new Logger(FlowExecutionQueueService.name);
-  private readonly executorEngineService: ExecutorEngineService;
+  private readonly executorEngineService: FlowStepExecutor;
   private readonly repoRegistryService: RepoRegistryService;
   private readonly runtimeRegistryService: RuntimeRegistryService;
   private readonly queryBuilderService: QueryBuilderService;
@@ -67,7 +63,7 @@ export class FlowExecutionQueueService {
   private readonly runtimeScriptRepairService?: RuntimeScriptRepairService;
   private readonly flowQueue: Queue;
   private readonly flowExecutionHistoryService: FlowExecutionHistoryService;
-  private readonly traceFile?: string;
+  private readonly traceFile: string | undefined;
   private readonly flowWorkerEventLoopDelay = monitorEventLoopDelay({
     resolution: 20,
   });
@@ -78,7 +74,7 @@ export class FlowExecutionQueueService {
   private idleTuneTicks = 0;
 
   constructor(deps: {
-    executorEngineService: ExecutorEngineService;
+    executorEngineService: FlowStepExecutor;
     repoRegistryService: RepoRegistryService;
     runtimeRegistryService: RuntimeRegistryService;
     queryBuilderService: QueryBuilderService;
@@ -98,8 +94,12 @@ export class FlowExecutionQueueService {
     this.dynamicContextFactory = deps.dynamicContextFactory;
     this.envService = deps.envService;
     this.isolatedExecutorService = deps.isolatedExecutorService;
-    this.runtimeMetricsCollectorService = deps.runtimeMetricsCollectorService;
-    this.runtimeScriptRepairService = deps.runtimeScriptRepairService;
+    if (deps.runtimeMetricsCollectorService !== undefined) {
+      this.runtimeMetricsCollectorService = deps.runtimeMetricsCollectorService;
+    }
+    if (deps.runtimeScriptRepairService !== undefined) {
+      this.runtimeScriptRepairService = deps.runtimeScriptRepairService;
+    }
     this.flowQueue = deps.flowQueue;
     this.flowExecutionHistoryService = new FlowExecutionHistoryService({
       queryBuilderService: this.queryBuilderService,
@@ -125,13 +125,16 @@ export class FlowExecutionQueueService {
     this.worker = new Worker(
       SYSTEM_QUEUES.FLOW_EXECUTION,
       async (job: Job<FlowJobData>) => {
-        if (!this.runtimeMetricsCollectorService) {
-          return await this.process(job);
+        const result = this.runtimeMetricsCollectorService
+          ? await this.runtimeMetricsCollectorService.runWithQueryContext(
+              'flow',
+              () => this.process(job),
+            )
+          : await this.process(job);
+        if (result && typeof result === 'object' && result.success === false) {
+          throw new Error(result.error || 'Flow execution failed');
         }
-        return await this.runtimeMetricsCollectorService.runWithQueryContext(
-          'flow',
-          () => this.process(job),
-        );
+        return result;
       },
       {
         prefix: nodeName,
@@ -301,11 +304,11 @@ export class FlowExecutionQueueService {
   async onDestroy() {
     if (this.worker) {
       await this.worker.close();
-      this.worker = undefined;
+      delete this.worker;
     }
     if (this.tuneInterval) {
       clearInterval(this.tuneInterval);
-      this.tuneInterval = undefined;
+      delete this.tuneInterval;
     }
     this.flowWorkerEventLoopDelay.disable();
   }
@@ -334,9 +337,9 @@ export class FlowExecutionQueueService {
     }
 
     const resolveStarted = Date.now();
-    const flow = flowName
-      ? this.getFlowByName(flowName)
-      : this.getFlowById(flowId);
+    const flow = flowId != null && flowId !== ''
+      ? this.getFlowById(flowId)
+      : this.getFlowByName(flowName);
     const resolveFlowMs = Date.now() - resolveStarted;
 
     if (!flow) {
@@ -638,8 +641,17 @@ export class FlowExecutionQueueService {
           (s as any).branch === branch,
       );
 
+    const configuredBudget = Number(flow.timeout);
+    const deadline = Number.isFinite(configuredBudget) && configuredBudget > 0 ? performance.now() + configuredBudget : null;
+    const remainingBudget = () => {
+      if (deadline === null) return undefined;
+      const remaining = Math.ceil(deadline - performance.now());
+      if (remaining <= 0) throw new Error(`Flow "${flow.name}" timed out`);
+      return remaining;
+    };
     const runStep = async (step: FlowStep): Promise<void> => {
       if (!step.isEnabled) return;
+      remainingBudget();
 
       flowContext.$meta.currentStep = step.key;
       const stepStart = Date.now();
@@ -654,17 +666,23 @@ export class FlowExecutionQueueService {
         stepStartedProgress,
       );
 
-      try {
-        const executeStepStarted = Date.now();
-        const result = await this.executeStep(
-          step,
-          ctx,
-          (flow as any).timeout,
-          visitedFlowIds,
-        );
-        const executeStepMs = Date.now() - executeStepStarted;
+      let completed = false;
+      const complete = async (result: any, retries?: number) => {
+        remainingBudget();
+        completed = true;
         flowContext[step.key] = result;
         flowContext.$last = result;
+        const entry: any = { key: step.key, type: step.type, duration: Date.now() - stepStart, ...(retries ? { retries } : {}) };
+        if (step.type === 'condition') entry.branch = result ? 'true' : 'false';
+        completedSteps.push(entry);
+        if (step.type === 'condition') {
+          for (const child of getChildren(step.id, entry.branch)) await runStep(child);
+        }
+      };
+      try {
+        const executeStepStarted = Date.now();
+        const result = await this.executeStep(step, ctx, (flow as any).timeout, remainingBudget());
+        const executeStepMs = Date.now() - executeStepStarted;
         this.trace('flow_step', {
           jobId: job.id,
           executionId,
@@ -678,24 +696,7 @@ export class FlowExecutionQueueService {
           totalMs: Date.now() - stepStart,
         });
 
-        const entry: any = {
-          key: step.key,
-          type: step.type,
-          duration: Date.now() - stepStart,
-        };
-
-        if (step.type === 'condition') {
-          const branchValue = !!result ? 'true' : 'false';
-          entry.branch = branchValue;
-          completedSteps.push(entry);
-
-          const branchSteps = getChildren((step as any).id, branchValue);
-          for (const child of branchSteps) {
-            await runStep(child);
-          }
-        } else {
-          completedSteps.push(entry);
-        }
+        await complete(result);
 
         job
           .updateProgress({
@@ -704,11 +705,15 @@ export class FlowExecutionQueueService {
             totalSteps: allSteps.length,
           })
           .catch(() => {});
-        await this.flowExecutionHistoryService.updateProgress(flow, executionHistoryId, {
-          completedSteps,
-          currentStep: step.key,
-          totalSteps: allSteps.length,
-        });
+        await this.flowExecutionHistoryService.updateProgress(
+          flow,
+          executionHistoryId,
+          {
+            completedSteps,
+            currentStep: step.key,
+            totalSteps: allSteps.length,
+          },
+        );
         this.runtimeMetricsCollectorService?.recordFlowStep({
           flowId: flow.id,
           flowName: flow.name,
@@ -716,6 +721,7 @@ export class FlowExecutionQueueService {
           durationMs: Date.now() - stepStart,
         });
       } catch (error: any) {
+        if (completed) throw error;
         this.trace('flow_step', {
           jobId: job.id,
           executionId,
@@ -750,35 +756,30 @@ export class FlowExecutionQueueService {
           durationMs: Date.now() - stepStart,
           failed: true,
         });
+        remainingBudget();
         if (step.onError === 'retry' && (step as any).retryAttempts > 0) {
           const retryAttempts = (step as any).retryAttempts as number;
           let retrySuccess = false;
           for (let i = 0; i < retryAttempts; i++) {
             try {
-              const backoffMs = Math.min(1000 * Math.pow(2, i), 30000);
+              const backoffMs = Math.min(1000 * Math.pow(2, i), 30000, remainingBudget() ?? Infinity);
               await new Promise((r) => setTimeout(r, backoffMs));
-              const result = await this.executeStep(
-                step,
-                ctx,
-                (flow as any).timeout,
-                visitedFlowIds,
+              const result = await this.executeStep(step, ctx, (flow as any).timeout, remainingBudget());
+              await complete(result, i + 1);
+              await this.flowExecutionHistoryService.updateProgress(
+                flow,
+                executionHistoryId,
+                {
+                  completedSteps,
+                  currentStep: step.key,
+                  totalSteps: allSteps.length,
+                },
               );
-              flowContext[step.key] = result;
-              flowContext.$last = result;
-              completedSteps.push({
-                key: step.key,
-                type: step.type,
-                duration: Date.now() - stepStart,
-                retries: i + 1,
-              });
-              await this.flowExecutionHistoryService.updateProgress(flow, executionHistoryId, {
-                completedSteps,
-                currentStep: step.key,
-                totalSteps: allSteps.length,
-              });
               retrySuccess = true;
               break;
             } catch (retryErr: any) {
+              if (completed) throw retryErr;
+              remainingBudget();
               if (i === retryAttempts - 1) {
                 this.logger.warn(
                   `Step "${step.key}" failed after ${retryAttempts} retries: ${retryErr.message}`,
@@ -800,11 +801,15 @@ export class FlowExecutionQueueService {
             error: getErrorMessage(error),
             duration: Date.now() - stepStart,
           });
-          await this.flowExecutionHistoryService.updateProgress(flow, executionHistoryId, {
-            completedSteps,
-            currentStep: step.key,
-            totalSteps: allSteps.length,
-          });
+          await this.flowExecutionHistoryService.updateProgress(
+            flow,
+            executionHistoryId,
+            {
+              completedSteps,
+              currentStep: step.key,
+              totalSteps: allSteps.length,
+            },
+          );
           return;
         } else {
           throw error;
@@ -842,51 +847,16 @@ export class FlowExecutionQueueService {
     step: FlowStep,
     ctx: TDynamicContext,
     flowTimeout: number,
-    visitedFlowIds: (number | string)[] = [],
-  ): Promise<any> {
-    const raw = (step as any).timeout || flowTimeout || 5000;
-    const timeout = Math.min(Math.max(raw, 1), MAX_STEP_TIMEOUT);
-    const config = getExecutableStepConfig(step);
-
-    if (step.type === 'trigger_flow') {
-      const targetFlow =
-        this.getFlowById((config as any).flowId) ||
-        this.getFlowByName((config as any).flowName);
-      if (!targetFlow)
-        throw new Error(
-          `Target flow ${(config as any).flowId || (config as any).flowName} not found`,
-        );
-      const childPayload =
-        (config as any).payload || (ctx as any).$flow?.$last || {};
-      const currentDepth = (ctx as any).$flow?.$meta?.depth || 0;
-      await this.flowQueue.add(
-        `flow:${targetFlow.name}`,
-        {
-          flowId: targetFlow.id,
-          flowName: targetFlow.name,
-          payload: childPayload,
-          depth: currentDepth + 1,
-          visitedFlowIds,
-          sourceFlowId: (ctx as any).$flow?.$meta?.flowId,
-          sourceFlowName: (ctx as any).$flow?.$meta?.flowName,
-          sourceStepKey: step.key,
-        },
-        {
-          attempts: 1,
-          removeOnComplete: { count: 200, age: 3600 * 24 },
-          removeOnFail: { count: 500, age: 3600 * 24 * 7 },
-        },
-      );
-      return {
-        triggered: true,
-        flowId: targetFlow.id,
-        flowName: targetFlow.name,
-      };
-    }
+    remainingMs?: number,
+  ): Promise<unknown> {
+    const raw = step.timeout || flowTimeout || 5000;
+    const timeout = Math.min(Math.max(raw, 1), MAX_STEP_TIMEOUT, remainingMs ?? Infinity);
+    const script = getExecutableStepScript(step);
 
     return executeStepCore({
       type: step.type,
-      config,
+      stepKey: step.key,
+      ...script,
       timeout,
       ctx,
       executorEngineService: this.executorEngineService,

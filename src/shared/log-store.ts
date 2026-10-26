@@ -20,7 +20,7 @@ export function mergeLogContext(ctx: Record<string, any>): void {
 export function clearLogContext(): void {
   const s = logStore.getStore();
   if (s) {
-    s.correlationId = undefined;
+    delete s.correlationId;
     s.context = {};
   }
 }

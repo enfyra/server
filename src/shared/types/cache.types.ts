@@ -1,3 +1,18 @@
+export interface TableMutationPayload {
+  table: string;
+  action: 'create' | 'update' | 'delete';
+  ids?: (string | number)[];
+  data?: unknown;
+  userId?: string | number | null;
+}
+
+export interface RouteExecutedPayload {
+  routePath: string;
+  method: string;
+  userId?: string | number | null;
+  result?: unknown;
+}
+
 export interface TCacheInvalidationPayload {
   table: string;
   action: 'reload';

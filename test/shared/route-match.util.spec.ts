@@ -2,9 +2,18 @@ import { describe, expect, it } from 'vitest';
 import {
   matchRouteInRoutes,
   matchRouteIndexEntry,
+  matchRoutePattern,
 } from '../../src/shared/utils/route-match.util';
 
 describe('route-match util', () => {
+  it('preserves wildcard, missing-segment and malformed-escape matching', () => {
+    expect(matchRoutePattern('/files/*', '/files')).toEqual({ splat: '' });
+    expect(matchRoutePattern('/files/*', '/files/a/b')).toEqual({ splat: 'a/b' });
+    expect(matchRoutePattern('/files/:id', '/files')).toBeNull();
+    expect(matchRoutePattern('/files/:id', '/files/%ZZ')).toEqual({ id: '%ZZ' });
+    expect(matchRouteIndexEntry([], 'GET', '/files')).toBeNull();
+  });
+
   it('matches static routes before parameter routes with the same method', () => {
     const match = matchRouteInRoutes(
       [
@@ -62,6 +71,16 @@ describe('route-match util', () => {
     );
 
     expect(postMatch?.route.path).toBe('/posts');
+  });
+
+  it('matches literal casing like Express while preserving parameter case', () => {
+    const match = matchRouteInRoutes([{ path: '/Files/:id', methodConfigs: [{ available: true, method: 'GET' }] }], 'GET', '/FILES/AbC/');
+    expect(match?.route.path).toBe('/Files/:id');
+    expect(match?.params).toEqual({ id: 'AbC' });
+  });
+
+  it('does not bind a disabled route', () => {
+    expect(matchRouteInRoutes([{ path: '/files', isEnabled: false, methodConfigs: [{ available: true, method: 'GET' }] }], 'GET', '/files')).toBeNull();
   });
 
   it('uses index order as the tie breaker for Redis route index entries', () => {

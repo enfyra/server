@@ -1,6 +1,7 @@
 import ts from 'typescript';
 import { transformTemplateSyntax } from './template-syntax.util';
-import { SCRIPT_TABLE_LEGACY_FIELDS } from './script-table-contract.constants';
+import { SCRIPT_TABLE_NAME_SET } from './script-table-contract.constants';
+import { assertSharedHelperName } from './shared-helper-name.util';
 
 type ScriptLanguage = 'javascript' | 'typescript';
 
@@ -22,29 +23,13 @@ interface ScriptContractRepairResult extends ExecutableScriptResult {
   scriptLanguage: ScriptLanguage;
 }
 
-export function getScriptLegacyField(tableName: string): string | undefined {
-  return scriptContractService.getLegacyField(tableName);
-}
-
 export function normalizeScriptLanguage(value: unknown): ScriptLanguage {
   return scriptContractService.normalizeLanguage(value);
 }
 
 class ScriptContractService {
-  getLegacyField(tableName: string): string | undefined {
-    return Object.prototype.hasOwnProperty.call(
-      SCRIPT_TABLE_LEGACY_FIELDS,
-      tableName,
-    )
-      ? SCRIPT_TABLE_LEGACY_FIELDS[tableName]
-      : undefined;
-  }
-
   isScriptTable(tableName: string): boolean {
-    return Object.prototype.hasOwnProperty.call(
-      SCRIPT_TABLE_LEGACY_FIELDS,
-      tableName,
-    );
+    return SCRIPT_TABLE_NAME_SET.has(tableName);
   }
 
   normalizeLanguage(value: unknown): ScriptLanguage {
@@ -87,17 +72,8 @@ class ScriptContractService {
       return record;
     }
 
+    if (tableName === 'enfyra_helper') assertSharedHelperName(record.name);
     const normalized = { ...record };
-    const legacyField = this.getLegacyField(tableName);
-    if (
-      legacyField &&
-      (normalized.sourceCode === undefined ||
-        normalized.sourceCode === null ||
-        normalized.sourceCode === '') &&
-      normalized[legacyField] !== undefined
-    ) {
-      normalized.sourceCode = normalized[legacyField];
-    }
 
     normalized.scriptLanguage = this.normalizeLanguage(
       normalized.scriptLanguage,
@@ -106,9 +82,12 @@ class ScriptContractService {
       normalized.sourceCode,
       normalized.scriptLanguage,
     );
-
-    if (legacyField && legacyField in normalized) {
-      delete normalized[legacyField];
+    if (
+      tableName === 'enfyra_helper' &&
+      normalized.isEnabled !== false &&
+      !normalized.compiledCode
+    ) {
+      throw new Error('Enabled helper requires executable sourceCode');
     }
 
     return normalized;
@@ -123,20 +102,33 @@ class ScriptContractService {
       return patch;
     }
 
-    const legacyField = this.getLegacyField(tableName);
-    const hasCanonicalSource = Object.prototype.hasOwnProperty.call(
+    if (
+      tableName === 'enfyra_helper' &&
+      Object.prototype.hasOwnProperty.call(patch, 'name')
+    )
+      assertSharedHelperName(patch.name);
+    const touchesSource = Object.prototype.hasOwnProperty.call(
       patch,
       'sourceCode',
     );
-    const hasLegacySource = legacyField
-      ? Object.prototype.hasOwnProperty.call(patch, legacyField)
-      : false;
-    const touchesSource = hasCanonicalSource || hasLegacySource;
     const touchesLanguage = Object.prototype.hasOwnProperty.call(
       patch,
       'scriptLanguage',
     );
     const normalized: ScriptFields = { ...patch };
+
+    if (
+      tableName === 'enfyra_helper' &&
+      (patch.isEnabled ?? existing?.isEnabled) !== false
+    ) {
+      const source = touchesSource ? patch.sourceCode : existing?.sourceCode;
+      if (
+        (touchesSource || patch.isEnabled === true) &&
+        (source == null || source === '')
+      ) {
+        throw new Error('Enabled helper requires executable sourceCode');
+      }
+    }
 
     if (!touchesSource && !touchesLanguage) {
       delete normalized.compiledCode;
@@ -149,15 +141,10 @@ class ScriptContractService {
     }
 
     let sourceCode: string | null | undefined;
-    if (hasCanonicalSource) {
+    if (touchesSource) {
       sourceCode = patch.sourceCode;
-    } else if (hasLegacySource && legacyField) {
-      sourceCode = patch[legacyField];
     } else {
       sourceCode = existing?.sourceCode;
-      if (sourceCode === undefined && legacyField && existing) {
-        sourceCode = existing[legacyField];
-      }
     }
     const scriptLanguage = touchesLanguage
       ? patch.scriptLanguage
@@ -172,15 +159,27 @@ class ScriptContractService {
       normalized.scriptLanguage,
     );
 
-    if (legacyField && legacyField in normalized) {
-      delete normalized[legacyField];
-    }
-
     return normalized;
   }
 
   getExecutableScript(record: ScriptFields): string | null {
     return this.resolveExecutableScript(record).code;
+  }
+
+  normalizeFlowStepScript(record: any): any {
+    if (!record || typeof record !== 'object') return record;
+    if (record.type !== 'script' && record.type !== 'condition') return record;
+
+    const normalized = { ...record };
+    normalized.sourceCode = normalized.sourceCode ?? null;
+    normalized.scriptLanguage = this.normalizeLanguage(
+      normalized.scriptLanguage,
+    );
+    normalized.compiledCode = this.compileSource(
+      normalized.sourceCode,
+      normalized.scriptLanguage,
+    );
+    return normalized;
   }
 
   resolveExecutableScript(record: ScriptFields): ExecutableScriptResult {
@@ -204,26 +203,6 @@ class ScriptContractService {
       };
     }
 
-    const legacyCode = Object.values(SCRIPT_TABLE_LEGACY_FIELDS)
-      .filter((fieldName) => fieldName !== '')
-      .map((fieldName) =>
-        Object.prototype.hasOwnProperty.call(record, fieldName)
-          ? record[fieldName]
-          : undefined,
-      )
-      .find((value) => typeof value === 'string' && value !== '');
-    if (typeof legacyCode === 'string') {
-      const compiledCode = this.compileSource(
-        legacyCode,
-        record.scriptLanguage,
-      );
-      return {
-        code: compiledCode,
-        compiledCode,
-        shouldPersistCompiledCode: compiledCode !== record.compiledCode,
-      };
-    }
-
     if (
       typeof record.compiledCode === 'string' &&
       record.compiledCode !== '' &&
@@ -237,50 +216,6 @@ class ScriptContractService {
     }
 
     return { code: null, compiledCode: null, shouldPersistCompiledCode: false };
-  }
-
-  normalizeFlowStepScriptConfig(record: any): any {
-    if (!record || typeof record !== 'object') return record;
-    const type = record.type;
-    if (type !== 'script' && type !== 'condition') return record;
-
-    const normalized = { ...record };
-    let config = record.config;
-    if (typeof config === 'string') {
-      try {
-        config = JSON.parse(config);
-      } catch {
-        return record;
-      }
-    }
-    const configObject = config && typeof config === 'object' ? config : {};
-
-    normalized.sourceCode =
-      normalized.sourceCode ??
-      configObject.sourceCode ??
-      configObject.code ??
-      null;
-    normalized.scriptLanguage = this.normalizeLanguage(
-      normalized.scriptLanguage ?? configObject.scriptLanguage,
-    );
-    normalized.compiledCode = this.compileSource(
-      normalized.sourceCode,
-      normalized.scriptLanguage,
-    );
-
-    const normalizedConfig = { ...configObject };
-    delete normalizedConfig.sourceCode;
-    delete normalizedConfig.scriptLanguage;
-    delete normalizedConfig.compiledCode;
-    delete normalizedConfig.code;
-
-    return {
-      ...normalized,
-      config:
-        typeof record.config === 'string'
-          ? JSON.stringify(normalizedConfig)
-          : normalizedConfig,
-    };
   }
 
   repairContract(record: ScriptFields): ScriptContractRepairResult {
@@ -308,29 +243,29 @@ class ScriptContractService {
 
     const isThrowRoot = (node: ts.Node): boolean => {
       if (
-        ts.isPropertyAccessExpression(node)
-        && ts.isIdentifier(node.expression)
-        && node.expression.text === '$ctx'
-        && node.name.text === '$throw'
+        ts.isPropertyAccessExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === '$ctx' &&
+        node.name.text === '$throw'
       ) {
         return true;
       }
       return (
-        ts.isElementAccessExpression(node)
-        && ts.isIdentifier(node.expression)
-        && node.expression.text === '$ctx'
-        && ts.isStringLiteral(node.argumentExpression)
-        && node.argumentExpression.text === '$throw'
+        ts.isElementAccessExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === '$ctx' &&
+        ts.isStringLiteral(node.argumentExpression) &&
+        node.argumentExpression.text === '$throw'
       );
     };
 
     const visit = (node: ts.Node): void => {
       if (
-        ts.isCallExpression(node)
-        && ts.isPropertyAccessExpression(node.expression)
-        && ts.isIdentifier(node.expression.expression)
-        && node.expression.expression.text === '$ctx'
-        && node.expression.name.text === '$throwAlias'
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        ts.isIdentifier(node.expression.expression) &&
+        node.expression.expression.text === '$ctx' &&
+        node.expression.name.text === '$throwAlias'
       ) {
         if (node.arguments.length !== 2) {
           throw new Error('@THROW status aliases require exactly one message');
@@ -341,20 +276,21 @@ class ScriptContractService {
         const methodAccess = node.parent;
         const call = methodAccess?.parent;
         if (
-          !ts.isPropertyAccessExpression(node)
-          || !ts.isPropertyAccessExpression(methodAccess)
-          || methodAccess.expression !== node
-          || !['http', 'json'].includes(methodAccess.name.text)
-          || methodAccess.questionDotToken
-          || !ts.isCallExpression(call)
-          || call.expression !== methodAccess
-          || call.questionDotToken
+          !ts.isPropertyAccessExpression(node) ||
+          !ts.isPropertyAccessExpression(methodAccess) ||
+          methodAccess.expression !== node ||
+          !['http', 'json'].includes(methodAccess.name.text) ||
+          methodAccess.questionDotToken ||
+          !ts.isCallExpression(call) ||
+          call.expression !== methodAccess ||
+          call.questionDotToken
         ) {
           throw new Error(
             '$throw exposes only .http(statusCode, message?) and .json(body, options?)',
           );
         }
-        if (call.arguments.length < 1 || call.arguments.length > 2) {
+        const body = call.arguments[0];
+        if (body === undefined || call.arguments.length > 2) {
           throw new Error(
             methodAccess.name.text === 'http'
               ? '$throw.http accepts only statusCode and optional message'
@@ -362,23 +298,23 @@ class ScriptContractService {
           );
         }
         if (methodAccess.name.text === 'json') {
-          const body = call.arguments[0];
           if (
-            ts.isArrayLiteralExpression(body)
-            || ts.isStringLiteral(body)
-            || ts.isNumericLiteral(body)
-            || body.kind === ts.SyntaxKind.TrueKeyword
-            || body.kind === ts.SyntaxKind.FalseKeyword
-            || body.kind === ts.SyntaxKind.NullKeyword
+            ts.isArrayLiteralExpression(body) ||
+            ts.isStringLiteral(body) ||
+            ts.isNumericLiteral(body) ||
+            body.kind === ts.SyntaxKind.TrueKeyword ||
+            body.kind === ts.SyntaxKind.FalseKeyword ||
+            body.kind === ts.SyntaxKind.NullKeyword
           ) {
             throw new Error('$throw.json body must be a JSON object');
           }
           if (ts.isObjectLiteralExpression(body)) {
             const propertyName = (property: ts.ObjectLiteralElementLike) => {
               if (
-                (ts.isPropertyAssignment(property)
-                  || ts.isShorthandPropertyAssignment(property))
-                && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))
+                (ts.isPropertyAssignment(property) ||
+                  ts.isShorthandPropertyAssignment(property)) &&
+                (ts.isIdentifier(property.name) ||
+                  ts.isStringLiteral(property.name))
               ) {
                 return property.name.text;
               }
@@ -398,18 +334,18 @@ class ScriptContractService {
             if (errorProperty && ts.isPropertyAssignment(errorProperty)) {
               const errorValue = errorProperty.initializer;
               if (
-                ts.isArrayLiteralExpression(errorValue)
-                || ts.isStringLiteral(errorValue)
-                || ts.isNumericLiteral(errorValue)
-                || errorValue.kind === ts.SyntaxKind.TrueKeyword
-                || errorValue.kind === ts.SyntaxKind.FalseKeyword
-                || errorValue.kind === ts.SyntaxKind.NullKeyword
+                ts.isArrayLiteralExpression(errorValue) ||
+                ts.isStringLiteral(errorValue) ||
+                ts.isNumericLiteral(errorValue) ||
+                errorValue.kind === ts.SyntaxKind.TrueKeyword ||
+                errorValue.kind === ts.SyntaxKind.FalseKeyword ||
+                errorValue.kind === ts.SyntaxKind.NullKeyword
               ) {
                 throw new Error('$throw.json body.error must be a JSON object');
               }
               if (
-                ts.isObjectLiteralExpression(errorValue)
-                && errorValue.properties.some(
+                ts.isObjectLiteralExpression(errorValue) &&
+                errorValue.properties.some(
                   (property) => propertyName(property) === 'statusCode',
                 )
               ) {
@@ -507,6 +443,6 @@ export function resolveExecutableScript(
   return scriptContractService.resolveExecutableScript(record);
 }
 
-export function normalizeFlowStepScriptConfig(record: any): any {
-  return scriptContractService.normalizeFlowStepScriptConfig(record);
+export function normalizeFlowStepScript(record: any): any {
+  return scriptContractService.normalizeFlowStepScript(record);
 }

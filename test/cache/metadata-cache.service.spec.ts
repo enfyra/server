@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ObjectId } from 'mongodb';
 import { MetadataCacheService } from '../../src/engines/cache';
 import { DatabaseConfigService } from '../../src/shared/services';
@@ -324,6 +324,23 @@ describe('MetadataCacheService', () => {
       foreignKeyColumn: 'teacherId',
       referencedColumn: 'id',
     });
+  });
+
+  it('preserves hydrated Mongo inverse relations during repeated unrelated partial reloads', async () => {
+    DatabaseConfigService.overrideForTesting('mongodb');
+    const service = new MetadataCacheService({ databaseConfigService: { getDbType: () => 'mongodb' }, lazyRef: {} } as any);
+    const owner = { _id: 'owner', sourceTable: 'a', targetTable: 'b', propertyName: 'parent', type: 'many-to-one', mappedBy: null, mappedByRelationId: null };
+    const inverse = { _id: 'inverse', sourceTable: 'b', targetTable: 'a', propertyName: 'children', type: 'one-to-many', mappedBy: 'parent', mappedByRelationId: 'owner' };
+    const tables = [{ _id: 'a', name: 'a', columns: [], relations: [owner] }, { _id: 'b', name: 'b', columns: [], relations: [inverse] }, { _id: 'c', name: 'c', columns: [], relations: [] }];
+    (service as any).inMemoryCache = { tables: new Map(tables.map(table => [table.name, table])), tablesList: tables, version: 1, timestamp: new Date() };
+    vi.spyOn(service as any, 'loadTablesByIds').mockImplementation(async () => [{ _id: 'c', name: 'c', columns: [], relations: [] }]);
+    vi.spyOn(service as any, 'loadColumnsByTableIds').mockResolvedValue([]);
+    vi.spyOn(service as any, 'loadRelationsBySourceTableIds').mockResolvedValue([]);
+    for (let i = 0; i < 2; i++) {
+      await service.partialReload({ table: 'enfyra_table', action: 'reload', scope: 'partial', ids: ['c'], timestamp: Date.now() });
+      expect((await service.getMetadata()).tables.get('b')?.relations[0]).toMatchObject({ mappedBy: 'parent', mappedByRelationId: 'owner' });
+      expect(inverse).toMatchObject({ mappedBy: 'parent', mappedByRelationId: 'owner' });
+    }
   });
 
   it('normalizes Mongo column identities so runtime lookups can key on strings', async () => {

@@ -91,6 +91,25 @@ describe('Logger — basic string messages', () => {
     }
   });
 
+  it('uses info priority when LOG_LEVEL is unrecognized', () => {
+    const previousLevel = process.env.LOG_LEVEL;
+    const previousStartupVerbose = process.env.STARTUP_VERBOSE;
+    process.env.LOG_LEVEL = 'unrecognized';
+    delete process.env.STARTUP_VERBOSE;
+    try {
+      const logger = new Logger();
+      logger.log('visible');
+      logger.debug('hidden');
+      logger.verbose('hidden');
+      expect(cap.calls.map((call) => call.msg)).toEqual(['visible']);
+    } finally {
+      if (previousLevel === undefined) delete process.env.LOG_LEVEL;
+      else process.env.LOG_LEVEL = previousLevel;
+      if (previousStartupVerbose === undefined) delete process.env.STARTUP_VERBOSE;
+      else process.env.STARTUP_VERBOSE = previousStartupVerbose;
+    }
+  });
+
   it('numbers, booleans, null are stringified', () => {
     const logger = new Logger('X');
     logger.log(42);

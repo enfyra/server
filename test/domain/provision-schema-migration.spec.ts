@@ -198,7 +198,7 @@ function makeSqlKnex(input: {
 }
 
 describe('provision schema migration physical cleanup', () => {
-  it('reapplies the MySQL physical code contract for a same-type declaration', async () => {
+  it.each(['code', 'simple-json'])('reapplies the MySQL physical %s contract for a same-type declaration', async (type) => {
     const raw = vi.fn(async () => [
       [
         {

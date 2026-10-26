@@ -222,8 +222,12 @@ export class MongoSagaLockService {
       instanceId: this.instanceId,
       pid: process.pid,
       fenceEpoch: 1,
-      purpose: correlation?.purpose,
-      mutationId: correlation?.mutationId,
+      ...(correlation?.purpose === undefined
+        ? {}
+        : { purpose: correlation.purpose }),
+      ...(correlation?.mutationId === undefined
+        ? {}
+        : { mutationId: correlation.mutationId }),
     });
 
     this.logger.debug(`[${txId}] Transaction started`);

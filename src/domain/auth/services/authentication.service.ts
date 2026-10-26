@@ -21,8 +21,8 @@ export class AuthenticationService {
   private readonly queryBuilder: IQueryBuilder;
   private readonly patVerifierService: PatVerifierService;
   private readonly jwtVerifierService: JwtVerifierService;
-  private readonly runtimeRegistryService?: RuntimeRegistryService;
-  private readonly cacheService?: ICache;
+  private readonly runtimeRegistryService: RuntimeRegistryService | undefined;
+  private readonly cacheService: ICache | undefined;
   private authHeaderConfigSource: readonly AuthHeaderConfig[] | null = null;
   private authHeaderConfigs: readonly AuthHeaderConfig[] = [];
   private configuredHeaderKeys = new Set<string>();

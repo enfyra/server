@@ -5,7 +5,7 @@ type DetectedFileSignature = {
   mimetype: string;
 };
 
-const SIGNATURES: DetectedFileSignature[] = [
+const SIGNATURES = [
   { extension: 'png', mimetype: 'image/png' },
   { extension: 'jpg', mimetype: 'image/jpeg' },
   { extension: 'gif', mimetype: 'image/gif' },
@@ -17,7 +17,7 @@ const SIGNATURES: DetectedFileSignature[] = [
   { extension: 'mp4', mimetype: 'video/mp4' },
   { extension: 'mov', mimetype: 'video/quicktime' },
   { extension: 'webm', mimetype: 'video/webm' },
-];
+] as const satisfies readonly DetectedFileSignature[];
 
 export class FileSignatureHelper {
   static detect(buffer: Buffer): DetectedFileSignature | null {

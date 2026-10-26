@@ -106,7 +106,7 @@ function generateRollbackSQL(statement: string, dbType: string): string | null {
   const addColumnMatch = stmt.match(
     /ALTER\s+TABLE\s+([^\s]+)\s+ADD\s+COLUMN\s+([^\s]+)/i,
   );
-  if (addColumnMatch) {
+  if (addColumnMatch?.[1] !== undefined && addColumnMatch[2] !== undefined) {
     const tableName = addColumnMatch[1].replace(/[`"]/g, '');
     const columnName = addColumnMatch[2].replace(/[`"]/g, '');
     return `ALTER TABLE ${qt(tableName)} DROP COLUMN ${qt(columnName)}`;
@@ -120,7 +120,7 @@ function generateRollbackSQL(statement: string, dbType: string): string | null {
   const addFkMatch = stmt.match(
     /ALTER\s+TABLE\s+([^\s]+)\s+ADD\s+CONSTRAINT\s+([^\s]+)\s+FOREIGN\s+KEY/i,
   );
-  if (addFkMatch) {
+  if (addFkMatch?.[1] !== undefined && addFkMatch[2] !== undefined) {
     const tableName = addFkMatch[1].replace(/[`"]/g, '');
     const constraintName = addFkMatch[2].replace(/[`"]/g, '');
     return `ALTER TABLE ${qt(tableName)} DROP CONSTRAINT ${qt(constraintName)}`;
@@ -134,7 +134,7 @@ function generateRollbackSQL(statement: string, dbType: string): string | null {
   const addUniqueMatch = stmt.match(
     /ALTER\s+TABLE\s+([^\s]+)\s+ADD\s+CONSTRAINT\s+([^\s]+)\s+UNIQUE/i,
   );
-  if (addUniqueMatch) {
+  if (addUniqueMatch?.[1] !== undefined && addUniqueMatch[2] !== undefined) {
     const tableName = addUniqueMatch[1].replace(/[`"]/g, '');
     const constraintName = addUniqueMatch[2].replace(/[`"]/g, '');
     return `ALTER TABLE ${qt(tableName)} DROP CONSTRAINT ${qt(constraintName)}`;
@@ -142,7 +142,7 @@ function generateRollbackSQL(statement: string, dbType: string): string | null {
   const createIndexMatch = stmt.match(
     /CREATE\s+(?:UNIQUE\s+)?INDEX\s+([^\s]+)\s+ON\s+([^\s]+)/i,
   );
-  if (createIndexMatch) {
+  if (createIndexMatch?.[1] !== undefined && createIndexMatch[2] !== undefined) {
     const indexName = createIndexMatch[1].replace(/[`"]/g, '');
     const tableName = createIndexMatch[2].replace(/[`"]/g, '');
     return `DROP INDEX ${qt(indexName)} ON ${qt(tableName)}`;
@@ -154,7 +154,7 @@ function generateRollbackSQL(statement: string, dbType: string): string | null {
   const renameTableMatch = stmt.match(
     /ALTER\s+TABLE\s+([^\s]+)\s+RENAME\s+TO\s+([^\s]+)/i,
   );
-  if (renameTableMatch) {
+  if (renameTableMatch?.[1] !== undefined && renameTableMatch[2] !== undefined) {
     const oldName = renameTableMatch[1].replace(/[`"]/g, '');
     const newName = renameTableMatch[2].replace(/[`"]/g, '');
     return `ALTER TABLE ${qt(newName)} RENAME TO ${qt(oldName)}`;
@@ -162,7 +162,11 @@ function generateRollbackSQL(statement: string, dbType: string): string | null {
   const renameColumnMatch = stmt.match(
     /ALTER\s+TABLE\s+([^\s]+)\s+RENAME\s+COLUMN\s+([^\s]+)\s+TO\s+([^\s]+)/i,
   );
-  if (renameColumnMatch) {
+  if (
+    renameColumnMatch?.[1] !== undefined &&
+    renameColumnMatch[2] !== undefined &&
+    renameColumnMatch[3] !== undefined
+  ) {
     const tableName = renameColumnMatch[1].replace(/[`"]/g, '');
     const oldName = renameColumnMatch[2].replace(/[`"]/g, '');
     const newName = renameColumnMatch[3].replace(/[`"]/g, '');
@@ -758,8 +762,7 @@ export async function executeBatchSQL(
     const rollbackStatements: string[] = [];
     const ddlTimeoutSec = 30;
     try {
-      for (let i = 0; i < statements.length; i++) {
-        const statement = statements[i];
+      for (const [i, statement] of statements.entries()) {
         logger.log(
           `  [${i + 1}/${statements.length}] Executing: ${statement.substring(0, 80)}${statement.length > 80 ? '...' : ''}`,
         );
@@ -812,8 +815,7 @@ export async function executeBatchSQL(
                 `Auto-rolling back ${rollbackStatements.length} statement(s) via journal ${journal.uuid}...`,
               );
               try {
-                for (let ri = rollbackStatements.length - 1; ri >= 0; ri--) {
-                  const rbStmt = rollbackStatements[ri];
+                for (const rbStmt of rollbackStatements.slice().reverse()) {
                   try {
                     await knex.raw(rbStmt);
                     logger.log(`  Rollback OK: ${rbStmt.substring(0, 80)}`);

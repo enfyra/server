@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { TColumnRule } from '../../engines/cache';
+import { isExactInt64 } from './int64.util';
 
 const AUTO_MANAGED_COLUMNS = new Set(['id', '_id', 'createdAt', 'updatedAt']);
 
@@ -99,11 +100,11 @@ function buildColumnZod(
   let s: z.ZodType;
   switch (col.type) {
     case 'int':
-    case 'bigint':
       s = z.number().int();
       break;
+    case 'bigint':
     case 'long':
-      s = z.union([z.number().int(), z.string().regex(/^-?\d+$/)]);
+      s = z.union([z.number(), z.string()]).refine(isExactInt64, 'Expected an exact signed 64-bit integer');
       break;
     case 'float':
     case 'double':

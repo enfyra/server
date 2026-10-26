@@ -13,14 +13,12 @@ import {
   phaseRedisAndNamespace,
   phaseSaga,
   phaseProvisionGate,
-  phaseLegacyAssessment,
   phaseFirstRun,
   phaseReloadRepair,
   phaseCoreCaches,
   phaseRuntimeSideEffects,
   phaseParallelCacheReload,
   phasePublishActivatedSnapshots,
-  phaseBootstrapScripts,
   phaseFlowAndGraphql,
   phaseDeferredParallel,
   phaseReady,
@@ -38,7 +36,6 @@ function bootstrapSteps(c: Cradle): StartupStep[] {
     { label: 'connecting Redis', run: () => phaseRedisAndNamespace(c) },
     { label: 'recovering transactions', run: () => phaseSaga(c) },
     { label: 'checking provision state', run: () => phaseProvisionGate(c) },
-    { label: 'assessing metadata', run: () => phaseLegacyAssessment(c) },
     { label: 'initializing schema', run: () => phaseFirstRun(c) },
   ];
 }
@@ -55,23 +52,15 @@ export async function init(
       run: () => c.runtimeLogWriterService.assertReady(),
     },
     { label: 'repairing interrupted reloads', run: () => phaseReloadRepair(c) },
-    { label: 'loading metadata', run: () => phaseCoreCaches(c) },
     {
-      label: 'initializing runtime services',
-      run: () => phaseRuntimeSideEffects(c),
-    },
-    { label: 'loading runtime caches', run: () => phaseParallelCacheReload(c) },
-    {
-      label: 'activating caches',
-      run: () => phasePublishActivatedSnapshots(c),
-    },
-    {
-      label: 'executing bootstrap scripts',
-      run: () => phaseBootstrapScripts(c),
-    },
-    {
-      label: 'initializing flows and GraphQL',
-      run: () => phaseFlowAndGraphql(c),
+      label: 'loading and activating runtime caches',
+      run: () => c.redisRuntimeCacheStore.runWithPublication(async () => {
+        await phaseCoreCaches(c);
+        await phaseRuntimeSideEffects(c);
+        await phaseParallelCacheReload(c);
+        await phasePublishActivatedSnapshots(c);
+        await phaseFlowAndGraphql(c);
+      }),
     },
     {
       label: 'initializing background services',

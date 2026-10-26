@@ -43,7 +43,12 @@ export abstract class BaseCacheService<T> {
     });
   }
 
-  async reload(_publish = true): Promise<void> {
+  async reload(publish = true): Promise<void> {
+    if (this.usesSharedRuntimeCache()) return this.redisRuntimeCacheStore!.runWithPublication(() => this.reloadLocal(publish));
+    return this.reloadLocal(publish);
+  }
+
+  private async reloadLocal(_publish: boolean): Promise<void> {
     if (this.isLoading && this.loadingPromise) {
       return this.loadingPromise;
     }
@@ -100,10 +105,12 @@ export abstract class BaseCacheService<T> {
     return this.loadingPromise;
   }
 
-  async partialReload(
-    payload: TCacheInvalidationPayload,
-    _publish = true,
-  ): Promise<void> {
+  async partialReload(payload: TCacheInvalidationPayload, publish = true): Promise<void> {
+    if (this.usesSharedRuntimeCache()) return this.redisRuntimeCacheStore!.runWithPublication(() => this.partialReloadLocal(payload, publish));
+    return this.partialReloadLocal(payload, publish);
+  }
+
+  private async partialReloadLocal(payload: TCacheInvalidationPayload, _publish: boolean): Promise<void> {
     if (this.isLoading && this.loadingPromise) {
       await this.loadingPromise;
       return;
@@ -340,24 +347,10 @@ export abstract class BaseCacheService<T> {
       return this.transformData(rawData);
     }
 
-    const lockValue = await this.redisRuntimeCacheStore!.acquireRefreshLock(
+    const lockValue = await this.redisRuntimeCacheStore!.acquireRefreshLockWithWait(
       this.config.cacheIdentifier,
     );
-    if (!lockValue) {
-      if (this.cacheLoaded) {
-        const snapshot =
-          await this.redisRuntimeCacheStore!.waitForSnapshot<T>(
-            this.config.cacheIdentifier,
-          );
-        if (snapshot) {
-          return snapshot.data;
-        }
-      } else {
-        this.logger.warn(
-          'Cold start: refresh lock unavailable but cache not yet loaded, forcing DB read',
-        );
-      }
-    }
+    if (!lockValue) throw new Error(`${this.config.cacheName} shared cache refresh lock timed out`);
 
     try {
       await this.beforeLoad();

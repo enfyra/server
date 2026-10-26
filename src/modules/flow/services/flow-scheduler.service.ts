@@ -8,6 +8,7 @@ import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants'
 import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
 
 import type { FlowDefinition } from '../../../shared/types/flow.types';
+import type { FlowScheduleReconcileState } from '../types/flow-schedule.types';
 
 const FLOW_SCHEDULER_RECONCILE_LOCK_KEY =
   'scheduler-registration:flow-schedules';
@@ -30,25 +31,12 @@ type DesiredFlowSchedule = {
   timezone?: string;
 };
 
-export type FlowScheduleReconcileStatus =
-  | 'idle'
-  | 'running'
-  | 'ok'
-  | 'degraded';
-
-export interface FlowScheduleReconcileState {
-  status: FlowScheduleReconcileStatus;
-  startedAt?: string;
-  completedAt?: string;
-  error?: string;
-  registeredCount?: number;
-}
-
 export class FlowSchedulerService {
   private readonly logger = new Logger(FlowSchedulerService.name);
   private registeredSchedulers = new Set<string>();
   private initialized = false;
   private rebuildPromise: Promise<void> | null = null;
+  private rebuildRequested = false;
   private lastReconcileState: FlowScheduleReconcileState = {
     status: 'idle',
   };
@@ -83,8 +71,14 @@ export class FlowSchedulerService {
   }
 
   private async rebuildSchedules(): Promise<void> {
+    this.rebuildRequested = true;
     if (this.rebuildPromise) return this.rebuildPromise;
-    this.rebuildPromise = this.rebuildSchedulesInternal();
+    this.rebuildPromise = (async () => {
+      do {
+        this.rebuildRequested = false;
+        await this.rebuildSchedulesInternal();
+      } while (this.rebuildRequested);
+    })();
     try {
       await this.rebuildPromise;
     } finally {
@@ -98,24 +92,48 @@ export class FlowSchedulerService {
 
     try {
       const lockValue = randomUUID();
-      const lockAcquired = await this.cacheService.acquire(
-        FLOW_SCHEDULER_RECONCILE_LOCK_KEY,
-        lockValue,
-        FLOW_SCHEDULER_RECONCILE_LOCK_TTL_MS,
-      );
-      if (!lockAcquired) {
-        this.logger.log(
-          'Skipped flow schedule reconciliation; another instance is reconciling schedules',
-        );
-        this.lastReconcileState = {
-          status: 'ok',
-          startedAt,
-          completedAt: new Date().toISOString(),
-          registeredCount: this.registeredSchedulers.size,
-        };
-        return;
+      const deadline = Date.now() + FLOW_SCHEDULER_RECONCILE_LOCK_TTL_MS;
+      while (
+        !(await this.cacheService.acquire(
+          FLOW_SCHEDULER_RECONCILE_LOCK_KEY,
+          lockValue,
+          FLOW_SCHEDULER_RECONCILE_LOCK_TTL_MS,
+        ))
+      ) {
+        if (Date.now() >= deadline)
+          throw new Error('Flow schedule reconciliation lock timed out');
+        await new Promise((resolve) => setTimeout(resolve, 50));
       }
 
+      let leaseError: unknown;
+      let renewal: Promise<void> | undefined;
+      const renewLease = () => {
+        renewal ??= this.cacheService
+          .renew(
+            FLOW_SCHEDULER_RECONCILE_LOCK_KEY,
+            lockValue,
+            FLOW_SCHEDULER_RECONCILE_LOCK_TTL_MS,
+          )
+          .then((owned) => {
+            if (!owned)
+              leaseError = new Error('Flow schedule reconciliation lease lost');
+          })
+          .catch((error) => {
+            leaseError = error;
+          })
+          .finally(() => {
+            renewal = undefined;
+          });
+        return renewal;
+      };
+      const assertLease = async () => {
+        if (!leaseError) await renewLease();
+        if (leaseError) throw leaseError;
+      };
+      const heartbeat = setInterval(() => {
+        void renewLease();
+      }, FLOW_SCHEDULER_RECONCILE_LOCK_TTL_MS / 3);
+      heartbeat.unref();
       try {
         const flows = this.runtimeRegistryService.requireActiveData<
           FlowDefinition[]
@@ -125,9 +143,11 @@ export class FlowSchedulerService {
           desiredSchedules.map(({ schedulerId }) => schedulerId),
         );
         const existingSchedulers = await this.resolveExistingSchedulers();
+        await assertLease();
 
         for (const schedulerId of existingSchedulers.keys()) {
           if (desiredSchedulerIds.has(schedulerId)) continue;
+          await assertLease();
           try {
             await this.flowQueue.removeJobScheduler(schedulerId);
           } catch (err) {
@@ -151,18 +171,23 @@ export class FlowSchedulerService {
             continue;
           }
 
+          await assertLease();
           try {
             await this.upsertSchedule(schedule);
           } catch (error) {
-            if (
-              await this.isVerifiedDuplicateSchedulerError(error, schedule)
-            ) {
+            await assertLease();
+            if (await this.isVerifiedDuplicateSchedulerError(error, schedule)) {
               this.logger.warn(
                 `Scheduler ${schedule.schedulerId} was concurrently registered; continuing`,
               );
             } else if (
-              await this.removeOrphanedSchedulerIteration(error, schedule)
+              await this.removeOrphanedSchedulerIteration(
+                error,
+                schedule,
+                assertLease,
+              )
             ) {
+              await assertLease();
               await this.upsertSchedule(schedule);
               this.logger.warn(
                 `Removed orphaned iteration and recreated scheduler ${schedule.schedulerId}`,
@@ -175,6 +200,7 @@ export class FlowSchedulerService {
           registered++;
         }
 
+        await assertLease();
         if (registered > 0) {
           this.logger.log(`Registered ${registered} scheduled flows`);
         }
@@ -185,6 +211,8 @@ export class FlowSchedulerService {
           registeredCount: registered,
         };
       } finally {
+        clearInterval(heartbeat);
+        await renewal;
         await this.cacheService.release(
           FLOW_SCHEDULER_RECONCILE_LOCK_KEY,
           lockValue,
@@ -297,6 +325,7 @@ export class FlowSchedulerService {
   private async removeOrphanedSchedulerIteration(
     error: unknown,
     schedule: DesiredFlowSchedule,
+    assertLease: () => Promise<void>,
   ): Promise<boolean> {
     if (!getErrorMessage(error).includes(SCHEDULER_ITERATION_EXISTS_ERROR)) {
       return false;
@@ -309,14 +338,20 @@ export class FlowSchedulerService {
     );
     if (orphanedJobs.length === 0) return false;
 
-    await Promise.all(orphanedJobs.map((job) => job.remove()));
+    for (const job of orphanedJobs) {
+      await assertLease();
+      await job.remove();
+    }
     return true;
   }
 
   private async upsertSchedule(schedule: DesiredFlowSchedule): Promise<void> {
     await this.flowQueue.upsertJobScheduler(
       schedule.schedulerId,
-      { pattern: schedule.cron, tz: schedule.timezone },
+      {
+        pattern: schedule.cron,
+        ...(schedule.timezone !== undefined ? { tz: schedule.timezone } : {}),
+      },
       {
         name: `flow:${schedule.flow.name}`,
         data: {

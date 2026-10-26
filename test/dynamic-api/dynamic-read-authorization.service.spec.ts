@@ -88,6 +88,29 @@ describe('DynamicReadAuthorizationService', () => {
     );
   });
 
+  it('checks denied dotted filter and aggregate-sort paths through relations', async () => {
+    const runtimeRegistryService = {
+      lookupTableByName: (tableName: string) => tableName === 'articles'
+        ? { columns: [], relations: [{ propertyName: 'author', targetTableName: 'authors' }] }
+        : { columns: [{ name: 'internalStatus', isPublished: false }], relations: [] },
+      getFieldPermissionPoliciesFor: () => [],
+    };
+    const service = new DynamicReadAuthorizationService({
+      runtimeRegistryService: runtimeRegistryService as RuntimeRegistryService,
+    });
+
+    for (const query of [
+      { filter: { 'author.internalStatus': { _eq: 'draft' } } },
+      { sort: '_max(author.internalStatus)' },
+    ]) {
+      await expect(service.assertQueryAllowed({
+        tableName: 'articles',
+        context: { $user: { id: 'reader' }, $query: query },
+        enforceFieldPermission: true,
+      })).rejects.toThrow("filter column 'internalStatus' on table 'authors'");
+    }
+  });
+
   it('removes an unpublished projection field when no read policy allows it', async () => {
     const runtimeRegistryService = {
       lookupTableByName: () => ({

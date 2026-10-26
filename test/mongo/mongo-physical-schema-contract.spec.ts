@@ -76,9 +76,12 @@ describe('Mongo physical schema contract', () => {
         propertyName: 'parent',
         type: 'many-to-one',
         storedField: 'parent',
-        targetTable: undefined,
       },
     ]);
+
+    for (const contract of contracts) {
+      expect(contract).not.toHaveProperty('targetTable');
+    }
 
     expect(
       Array.from(

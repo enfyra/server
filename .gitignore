@@ -72,7 +72,8 @@ AGENTS.md
 .codex/
 docs/
 .internal/
-.yarn/
+.yarn/*
+!.yarn/patches/
 .zcode/
 .claude/
 scripts/e2e-parallel.sh

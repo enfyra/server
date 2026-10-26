@@ -20,7 +20,16 @@ function makeRepo(
 ) {
   const queryBuilderService = {
     getPkField: vi.fn(() => 'id'),
-    find: vi.fn().mockResolvedValue({ data: [], count: 0 }),
+    find: vi.fn(async (query: any) => {
+      const ids = query?.filter?.id?._in;
+      if (Array.isArray(ids)) {
+        return {
+          data: ids.map((id) => ({ id, name: 'My Flow' })),
+          count: ids.length,
+        };
+      }
+      return { data: [], count: 0 };
+    }),
     findOne: vi.fn().mockResolvedValue({ id: 42, name: 'x' }),
     insert: vi.fn().mockResolvedValue({ id: 42 }),
     update: vi.fn().mockResolvedValue(undefined),

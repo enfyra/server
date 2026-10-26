@@ -63,7 +63,7 @@ function rsaPublicKeyToOpenSsh(publicKey: any, comment?: string): string {
   };
   const e = decodeBase64Url(jwk.e);
   const n = decodeBase64Url(jwk.n);
-  const nValue = n[0] & 0x80 ? Buffer.concat([Buffer.from([0]), n]) : n;
+  const nValue = (n[0] ?? 0) & 0x80 ? Buffer.concat([Buffer.from([0]), n]) : n;
   const body = Buffer.concat([sshString('ssh-rsa'), sshString(e), sshString(nValue)]);
   const suffix = comment ? ` ${comment}` : '';
   return `ssh-rsa ${body.toString('base64')}${suffix}`;

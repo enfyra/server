@@ -40,6 +40,11 @@ function createRuntime(options?: {
 }
 
 describe('PackageRuntimeService', () => {
+  it('omits preload history until a preload has started', () => {
+    const { service } = createRuntime();
+    expect(service.getStatus()).not.toHaveProperty('lastPreload');
+  });
+
   it('preloads installed packages before system ready and defers recovery packages', async () => {
     const { eventEmitter, packageCdnLoaderService, service } = createRuntime({
       packages: [

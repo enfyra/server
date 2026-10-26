@@ -22,17 +22,13 @@ import {
   CACHE_IDENTIFIERS,
 } from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
+import type { RouteCacheData as RouteData } from '../types/route-cache.types';
 
 const ROUTE_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.ROUTE,
   colorCode: '\x1b[31m',
   cacheName: 'RouteCache',
 };
-
-interface RouteData {
-  routes: any[];
-  methods: string[];
-}
 
 interface RouteMatchResult {
   route: any;
@@ -164,13 +160,20 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     this.cache = { routes: [], methods: [] };
   }
 
-  supportsPartialReload(): boolean {
+  override supportsPartialReload(): boolean {
     return true;
   }
 
-  protected async applyPartialUpdate(
+  protected override async applyPartialUpdate(
     payload: TCacheInvalidationPayload,
   ): Promise<void> {
+    if (!this.cache.methodDefinitions || !this.cache.globalPreHooks || !this.cache.globalPostHooks) {
+      await this.reloadFromPartial();
+      return;
+    }
+    this.setMethodCache(this.cache.methodDefinitions);
+    this.globalPreHooks = this.cache.globalPreHooks;
+    this.globalPostHooks = this.cache.globalPostHooks;
     const affectedTableNames = new Set<string>(payload.affectedTables || []);
 
     if (payload.table === 'enfyra_table' && payload.ids?.length) {
@@ -243,16 +246,11 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     }
 
     if (['enfyra_pre_hook', 'enfyra_post_hook'].includes(payload.table)) {
+      const routeIds = payload.ids?.length
+        ? await this.resolveAffectedRouteIds(payload.table, payload.ids)
+        : [];
       await this.reloadGlobalHooksAndMerge();
-      if (payload.ids?.length) {
-        const routeIds = await this.resolveAffectedRouteIds(
-          payload.table,
-          payload.ids,
-        );
-        if (routeIds.length > 0) {
-          await this.reloadSpecificRoutes(routeIds);
-        }
-      }
+      if (routeIds.length > 0) await this.reloadSpecificRoutes(routeIds);
       return;
     }
 
@@ -416,6 +414,8 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       this.hydrateAndTransformHooks('enfyra_post_hook', newGlobalPostHooks),
     ]);
 
+    this.cache.globalPreHooks = this.globalPreHooks;
+    this.cache.globalPostHooks = this.globalPostHooks;
     for (const route of this.cache.routes) {
       this.mergeHooks(
         route,
@@ -423,6 +423,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
         this.globalPostHooks,
         isMongoDB,
       );
+      this.finalizeRouteMethodConfigs(route);
     }
 
     if (!this.usesSharedRuntimeCache()) {
@@ -474,7 +475,13 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       }),
     );
 
-    return { routes, methods: this.allMethods };
+    return {
+      routes,
+      methods: this.allMethods,
+      methodDefinitions: methodsResult.data,
+      globalPreHooks,
+      globalPostHooks,
+    };
   }
 
   private async loadGlobalHooks(tableName: string): Promise<any[]> {
@@ -750,25 +757,25 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     return data;
   }
 
-  protected async afterTransform(data: RouteData): Promise<void> {
+  protected override async afterTransform(data: RouteData): Promise<void> {
     if (!this.usesSharedRuntimeCache()) {
       this.buildRouteEngine(data.routes);
     }
   }
 
-  protected async afterSharedCachePersist(data: RouteData): Promise<void> {
+  protected override async afterSharedCachePersist(data: RouteData): Promise<void> {
     await this.persistRedisRouteLookup(data.routes);
   }
 
-  protected emitLoadedEvent(): void {
+  protected override emitLoadedEvent(): void {
     this.eventEmitter?.emit(CACHE_EVENTS.ROUTE_LOADED);
   }
 
-  protected getLogCount(): string {
+  protected override getLogCount(): string {
     return `${this.cache?.routes?.length ?? 0} routes, ${this.cache?.methods?.length ?? 0} methods`;
   }
 
-  protected getCount(): number {
+  protected override getCount(): number {
     return this.cache?.routes?.length ?? 0;
   }
 

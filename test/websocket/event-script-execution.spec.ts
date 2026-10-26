@@ -42,6 +42,12 @@ describe('DynamicWebSocketGateway event script execution — real socket E2E', (
   let ioServer: Server;
   let port: number;
   let client: ClientSocket;
+  let gateway: DynamicWebSocketGateway;
+  let gateways: any[];
+  const authenticate = vi.fn(async () => ({
+    user: { id: 'socket-user', isRootAdmin: false },
+    payload: { id: 'socket-user' },
+  }));
   const executorRun = vi.fn(async (script: string, ctx: any) => {
     if (script.includes('profile:accepted')) {
       ctx.$socket.reply('profile:accepted', {
@@ -57,24 +63,23 @@ describe('DynamicWebSocketGateway event script execution — real socket E2E', (
     httpServer = createServer();
     ioServer = new Server(httpServer, { cors: { origin: '*' } });
 
-    const gateway = new DynamicWebSocketGateway({
-      runtimeRegistryService: {
-        requireActiveData: () => [
+    gateways = [
+      {
+        path: namespace,
+        requireAuth: false,
+        events: [
           {
-            path: namespace,
-            requireAuth: false,
-            events: [
-              {
-                eventName: 'profile:update',
-                handlerScript:
-                  'return await $ctx.$socket.reply("profile:accepted", { id: $ctx.$data.userId, name: $ctx.$data.displayName });',
-              },
-              {
-                eventName: 'legacy-config:ignored',
-              },
-            ],
+            eventName: 'profile:update',
+            handlerScript:
+              'return await $ctx.$socket.reply("profile:accepted", { id: $ctx.$data.userId, name: $ctx.$data.displayName });',
           },
+          { eventName: 'legacy-config:ignored' },
         ],
+      },
+    ];
+    gateway = new DynamicWebSocketGateway({
+      runtimeRegistryService: {
+        requireActiveData: () => gateways,
       } as any,
       builtInSocketRegistry: {
         getConnectionScript: () => null,
@@ -99,6 +104,7 @@ describe('DynamicWebSocketGateway event script execution — real socket E2E', (
       executorEngineService: { run: executorRun },
       repoRegistryService: { createReposProxy: () => ({}) },
       flowService: { trigger: vi.fn() },
+      authenticationService: { authenticate },
     };
 
     (gateway as any).server = ioServer;
@@ -165,6 +171,93 @@ describe('DynamicWebSocketGateway event script execution — real socket E2E', (
         scriptLanguage: 'typescript',
       }),
     );
+  });
+
+  it('keeps an unchanged client connected when another gateway contract changes', async () => {
+    const otherPath = `${namespace}-other`;
+    const otherGateway = {
+      path: otherPath,
+      requireAuth: false,
+      events: [],
+      sourceCode: 'return 1;',
+    };
+    gateways = [...gateways, otherGateway];
+    await gateway.refreshGateways();
+    const other = ioClient(`http://localhost:${port}${otherPath}`, {
+      transports: ['websocket'],
+      forceNew: true,
+      reconnectionDelay: 10,
+      reconnectionDelayMax: 20,
+    });
+    const disconnected = vi.fn();
+    client.on('disconnect', disconnected);
+    try {
+      await waitConnected(other);
+      const otherDisconnected = new Promise<void>((resolve) =>
+        other.once('disconnect', () => resolve()),
+      );
+      gateways = gateways.map((entry) =>
+        entry.path === otherPath
+          ? { ...entry, sourceCode: 'return 2;' }
+          : entry,
+      );
+      await gateway.refreshGateways();
+      await otherDisconnected;
+      await waitConnected(other);
+      expect(other.connected).toBe(true);
+      for (let index = 0; index < 3; index++) await gateway.refreshGateways();
+      expect(client.connected).toBe(true);
+      expect(disconnected).not.toHaveBeenCalled();
+      expect(
+        await emitWithAck(client, 'legacy-config:ignored', {}),
+      ).toMatchObject({ error: { code: 'NO_HANDLER' } });
+    } finally {
+      other.disconnect();
+      client.off('disconnect', disconnected);
+      gateways = gateways.filter((entry) => entry.path !== otherPath);
+      await gateway.refreshGateways();
+    }
+  });
+
+  it('authenticates once per handshake after refresh and disable/re-enable cycles', async () => {
+    const authPath = `${namespace}-auth`;
+    const authGateway = { path: authPath, requireAuth: true, events: [] };
+    let authenticatedClient: ClientSocket | undefined;
+    try {
+      for (let index = 0; index < 3; index++) {
+        gateways = [...gateways, authGateway];
+        await gateway.refreshGateways();
+        gateways = gateways.filter((entry) => entry.path !== authPath);
+        await gateway.refreshGateways();
+      }
+      gateways = [...gateways, authGateway];
+      await gateway.refreshGateways();
+      authenticate.mockClear();
+      authenticatedClient = ioClient(`http://localhost:${port}${authPath}`, {
+        transports: ['websocket'],
+        forceNew: true,
+        reconnection: false,
+      });
+      await waitConnected(authenticatedClient);
+      expect(authenticate).toHaveBeenCalledOnce();
+      authenticatedClient.disconnect();
+      authenticate.mockClear();
+      authenticate.mockRejectedValueOnce(new Error('revoked credential'));
+      authenticatedClient = ioClient(`http://localhost:${port}${authPath}`, {
+        transports: ['websocket'],
+        forceNew: true,
+        reconnection: false,
+      });
+      await expect(waitConnected(authenticatedClient)).rejects.toThrow(
+        'Invalid authentication token',
+      );
+      expect(authenticate).toHaveBeenCalledOnce();
+      expect(authenticatedClient.connected).toBe(false);
+    } finally {
+      authenticatedClient?.disconnect();
+      gateways = gateways.filter((entry) => entry.path !== authPath);
+      await gateway.refreshGateways();
+    }
   });
 
   it('rejects events without handler scripts', async () => {

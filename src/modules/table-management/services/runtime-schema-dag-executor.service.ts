@@ -74,7 +74,7 @@ export class RuntimeSchemaDagExecutor {
 
         const context: RuntimeSchemaCommandAdapterContext = {
           contract,
-          command: node.command as RuntimeSchemaMutationCommand,
+          command: node.command,
           nodeId: node.id,
           outputs,
         };

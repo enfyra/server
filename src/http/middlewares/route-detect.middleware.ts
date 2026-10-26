@@ -5,6 +5,7 @@ import { FlowService } from '../../modules/flow';
 import { resolveClientIpFromRequest } from '../../shared/utils/client-ip.util';
 import { DynamicContextFactory } from '../../shared/services';
 import { matchRouteInRoutes } from '../../shared/utils/route-match.util';
+import { resolveRouteOperation } from '../../shared/utils/route-operation.util';
 import type { RuntimeRegistryService } from '../../engines/cache/services/runtime-registry.service';
 
 export function routeDetectMiddleware(
@@ -24,19 +25,8 @@ export function routeDetectMiddleware(
       path,
     );
 
-    const findRouteMethodConfig = (route: any) => {
-      if (!Array.isArray(route?.methodConfigs)) return null;
-      return (
-        route.methodConfigs.find(
-          (config: any) =>
-            config?.available === true &&
-            (config.method?.name ?? config.method) === method,
-        ) ?? null
-      );
-    };
-
     if (matchedRoute) {
-      const routeMethodConfig = findRouteMethodConfig(matchedRoute.route);
+      const routeMethodConfig = resolveRouteOperation(matchedRoute.route, method)?.routeMethodConfig;
       if (!routeMethodConfig) return next();
       const realClientIP = resolveClientIpFromRequest(req);
       const context = dynamicContextFactory.createHttp(req, {

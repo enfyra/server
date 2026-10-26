@@ -333,16 +333,16 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
     }
   }
 
-  protected emitLoadedEvent(): void {
+  protected override emitLoadedEvent(): void {
     this.eventEmitter?.emit(CACHE_EVENTS.GUARD_LOADED);
   }
 
-  protected getLogCount(): string {
+  protected override getLogCount(): string {
     const total = this.countAll();
     return `${total} guards`;
   }
 
-  protected getCount(): number {
+  protected override getCount(): number {
     return this.countAll();
   }
 

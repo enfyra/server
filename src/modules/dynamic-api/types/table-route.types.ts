@@ -19,6 +19,8 @@ export interface TableRouteStrategy {
   afterUpdateWrite?(ctx: MutationContext): Promise<void> | void;
   beforeDelete?(ctx: MutationContext): Promise<void> | void;
   afterDeleteWrite?(ctx: MutationContext): Promise<void> | void;
+  afterDeleteCommit?(ctx: MutationContext): Promise<void> | void;
+  afterUpdateCommit?(ctx: MutationContext): Promise<void> | void;
   requiresCriticalReload?: boolean;
   afterUpdateReload?(ctx: MutationContext): Promise<void> | void;
   afterDeleteReload?(ctx: MutationContext): Promise<void> | void;

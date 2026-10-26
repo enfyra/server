@@ -1,7 +1,7 @@
 import { BaseTableProcessor } from './base-table-processor';
 
 export class FlowDefinitionProcessor extends BaseTableProcessor {
-  async transformRecords(records: any[]): Promise<any[]> {
+  override async transformRecords(records: any[]): Promise<any[]> {
     return records.map((record) => {
       const transformed = { ...record, isSystem: true };
       if (transformed.isEnabled === undefined) transformed.isEnabled = true;
@@ -15,7 +15,7 @@ export class FlowDefinitionProcessor extends BaseTableProcessor {
     return { name: record.name };
   }
 
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     return [
       'name',
       'description',
@@ -25,7 +25,7 @@ export class FlowDefinitionProcessor extends BaseTableProcessor {
     ];
   }
 
-  protected getRecordIdentifier(record: any): string {
+  protected override getRecordIdentifier(record: any): string {
     return `[Flow] ${record.name}`;
   }
 }

@@ -1,6 +1,6 @@
 import Redis from 'ioredis';
 import { EnvService } from '../../../shared/services';
-import { IRedisPubSub } from '../../../domain/shared/interfaces/redis-pubsub.interface';
+import type { IRedisPubSub } from '../../../domain/shared/interfaces/redis-pubsub.interface';
 
 export class RedisPubSubService implements IRedisPubSub {
   public pub!: Redis;
@@ -124,7 +124,7 @@ export class RedisPubSubService implements IRedisPubSub {
     return true;
   }
 
-  async publish(channel: string, payload: any) {
+  async publish(channel: string, payload: unknown) {
     try {
       const decoratedChannel = this.decorateChannel(channel);
       const message =

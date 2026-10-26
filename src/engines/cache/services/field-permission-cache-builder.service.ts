@@ -92,7 +92,8 @@ export class FieldPermissionCacheBuilder extends BaseCacheService<
         table: 'enfyra_field_permission',
         fields: FIELD_PERMISSION_CACHE_FIELDS,
         filter: { isEnabled: { _eq: true } },
-        limit: 100000,
+        deep: { allowedUsers: { limit: -1 } },
+        limit: -1,
       }),
       this.metadataCacheService.getMetadata(),
     ]);
@@ -113,11 +114,11 @@ export class FieldPermissionCacheBuilder extends BaseCacheService<
     return map;
   }
 
-  supportsPartialReload(): boolean {
+  override supportsPartialReload(): boolean {
     return true;
   }
 
-  async partialReload(
+  override async partialReload(
     payload: TCacheInvalidationPayload,
     publish = true,
   ): Promise<void> {
@@ -128,7 +129,7 @@ export class FieldPermissionCacheBuilder extends BaseCacheService<
     await super.partialReload(payload, publish);
   }
 
-  protected async applyPartialUpdate(
+  protected override async applyPartialUpdate(
     payload: TCacheInvalidationPayload,
   ): Promise<void> {
     if (!this.cache) {
@@ -141,6 +142,7 @@ export class FieldPermissionCacheBuilder extends BaseCacheService<
       table: 'enfyra_field_permission',
       fields: FIELD_PERMISSION_CACHE_FIELDS,
       filter: { id: { _in: ids } },
+      deep: { allowedUsers: { limit: -1 } },
       limit: ids.length,
     });
     const rows: any[] = result?.data ?? [];
@@ -338,11 +340,11 @@ export class FieldPermissionCacheBuilder extends BaseCacheService<
     }
   }
 
-  protected getLogCount(): string {
+  protected override getLogCount(): string {
     return `${this.cache?.size ?? 0} buckets`;
   }
 
-  async ensureLoaded(): Promise<void> {
+  override async ensureLoaded(): Promise<void> {
     await super.ensureLoaded();
   }
 }

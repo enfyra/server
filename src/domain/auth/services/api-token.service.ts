@@ -23,7 +23,7 @@ export class ApiTokenService {
   private readonly queryBuilder: IQueryBuilder;
   private readonly envService: EnvService;
   private readonly patVerifierService: PatVerifierService;
-  private readonly cacheService?: ICache;
+  private readonly cacheService: ICache | undefined;
 
   constructor(deps: {
     queryBuilderService: IQueryBuilder;

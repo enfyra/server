@@ -22,10 +22,14 @@ export class DynamicSchemaActivationService {
     const mutationId = mutation.mutationId;
     if (!mutationId) {
       await this.reload({
-        ids: opts.ids,
-        affectedTables: mutation.affectedTables,
+        ...(opts.ids !== undefined ? { ids: opts.ids } : {}),
+        ...(mutation.affectedTables !== undefined
+          ? { affectedTables: mutation.affectedTables }
+          : {}),
         critical: true,
-        tableRenames: mutation.tableRenames,
+        ...(mutation.tableRenames !== undefined
+          ? { tableRenames: mutation.tableRenames }
+          : {}),
       });
       return;
     }
@@ -35,10 +39,14 @@ export class DynamicSchemaActivationService {
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         await this.reload({
-          ids: opts.ids,
-          affectedTables: mutation.affectedTables,
+          ...(opts.ids !== undefined ? { ids: opts.ids } : {}),
+          ...(mutation.affectedTables !== undefined
+            ? { affectedTables: mutation.affectedTables }
+            : {}),
           critical: true,
-          tableRenames: mutation.tableRenames,
+          ...(mutation.tableRenames !== undefined
+            ? { tableRenames: mutation.tableRenames }
+            : {}),
         });
         await this.runtimeMetadataSchemaRouterService.markActivated(mutationId);
         this.runtimeSchemaActivationGateService?.complete(mutationId);
@@ -70,10 +78,14 @@ export class DynamicSchemaActivationService {
       action: 'reload',
       timestamp: Date.now(),
       scope: opts?.ids?.length ? 'partial' : 'full',
-      ids: opts?.ids,
-      affectedTables: opts?.affectedTables,
-      critical: opts?.critical,
-      tableRenames: opts?.tableRenames,
+      ...(opts?.ids !== undefined ? { ids: opts.ids } : {}),
+      ...(opts?.affectedTables !== undefined
+        ? { affectedTables: opts.affectedTables }
+        : {}),
+      ...(opts?.critical !== undefined ? { critical: opts.critical } : {}),
+      ...(opts?.tableRenames !== undefined
+        ? { tableRenames: opts.tableRenames }
+        : {}),
     };
     if (typeof this.eventEmitter.emitAsync === 'function') {
       await this.eventEmitter.emitAsync(CACHE_EVENTS.INVALIDATE, payload);

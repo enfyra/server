@@ -10,7 +10,7 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
     super();
     this.queryBuilderService = deps.queryBuilderService;
   }
-  async transformRecords(records: any[], _context?: any): Promise<any[]> {
+  override async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = await mapSequentially(
       records,
@@ -74,7 +74,7 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
       method: record.method || record.methodId,
     };
   }
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     return [
       'name',
       'sourceCode',
@@ -84,7 +84,7 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
       'isEnabled',
     ];
   }
-  protected getRecordIdentifier(record: any): string {
+  protected override getRecordIdentifier(record: any): string {
     return `[RouteHandler] ${record.name}`;
   }
 }

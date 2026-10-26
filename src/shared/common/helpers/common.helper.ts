@@ -100,7 +100,9 @@ export function parseRouteParams(routePath: string): string[] {
   const params: string[] = [];
   let execResult: RegExpExecArray | null;
   while ((execResult = paramRegex.exec(routePath)) !== null) {
-    const paramName = execResult[1].replace('?', '');
+    const match = execResult[1];
+    if (match === undefined) continue;
+    const paramName = match.replace('?', '');
     if (!params.includes(paramName)) {
       params.push(paramName);
     }

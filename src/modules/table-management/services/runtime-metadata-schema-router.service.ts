@@ -17,6 +17,7 @@ import type { RuntimeSchemaContractCompilerService } from './runtime-schema-cont
 import type { RuntimeSchemaExecutorService } from './runtime-schema-executor.service';
 import { getSqlJunctionPhysicalNames } from '../utils/sql-junction-naming.util';
 import { normalizeTableConstraints } from '../utils/table-constraints.util';
+import { stripOwningRelationIndexes, assertNoNewRedundantIndexes } from '../utils/schema-index-validation.util';
 import { normalizeRuntimeTableSchema } from '../utils/runtime-schema-normalization.util';
 import { RUNTIME_SCHEMA_METADATA_READ_DEEP } from '../utils/runtime-schema-metadata-read.util';
 import type { TableManagementValidationService } from './table-validation.service';
@@ -77,7 +78,7 @@ export class RuntimeMetadataSchemaRouterService {
       contract,
       ownerTableId,
       body,
-      context: input.context,
+      ...(input.context === undefined ? {} : { context: input.context }),
     });
     if (execResult.preview) {
       return { preview: execResult.preview, ownerTableId };
@@ -101,7 +102,9 @@ export class RuntimeMetadataSchemaRouterService {
       recordId: this.getRecordId(created),
       ownerTableId,
       affectedTables: execResult.affectedTables as string[],
-      tableRenames: execResult.tableRenames,
+      ...(execResult.tableRenames === undefined
+        ? {}
+        : { tableRenames: execResult.tableRenames }),
       mutationId: execResult.mutationId,
     };
   }
@@ -176,7 +179,7 @@ export class RuntimeMetadataSchemaRouterService {
       contract,
       ownerTableId,
       body,
-      context: input.context,
+      ...(input.context === undefined ? {} : { context: input.context }),
     });
     if (execResult.preview) {
       return {
@@ -189,7 +192,9 @@ export class RuntimeMetadataSchemaRouterService {
       recordId: input.recordId,
       ownerTableId,
       affectedTables: execResult.affectedTables as string[],
-      tableRenames: execResult.tableRenames,
+      ...(execResult.tableRenames === undefined
+        ? {}
+        : { tableRenames: execResult.tableRenames }),
       mutationId: execResult.mutationId,
     };
   }
@@ -241,7 +246,7 @@ export class RuntimeMetadataSchemaRouterService {
       contract,
       ownerTableId,
       body,
-      context: input.context,
+      ...(input.context === undefined ? {} : { context: input.context }),
     });
     if (execResult.preview) {
       return {
@@ -254,7 +259,9 @@ export class RuntimeMetadataSchemaRouterService {
       recordId: input.recordId,
       ownerTableId,
       affectedTables: execResult.affectedTables as string[],
-      tableRenames: execResult.tableRenames,
+      ...(execResult.tableRenames === undefined
+        ? {}
+        : { tableRenames: execResult.tableRenames }),
       mutationId: execResult.mutationId,
     };
   }
@@ -266,7 +273,11 @@ export class RuntimeMetadataSchemaRouterService {
   async createTable(
     input: RuntimeTableMutationInput,
   ): Promise<RuntimeMetadataSchemaMutationResult> {
-    const body = this.normalizeCompleteTableConstraints(input.body!);
+    assertNoNewRedundantIndexes(input.body);
+    const body = this.normalizeCompleteTableConstraints({
+      ...input.body!,
+      indexes: stripOwningRelationIndexes(input.body, input.body?.indexes) as any,
+    });
     this.validateSchemaBody(body);
     const resolvedBody = await this.resolveRelationTargetNames(body);
     this.assertNotReservedTableName(String(resolvedBody.name));
@@ -293,15 +304,19 @@ export class RuntimeMetadataSchemaRouterService {
     const execResult = await this.deps.runtimeSchemaExecutorService.execute({
       contract,
       body: resolvedBody,
-      context: input.context,
+      ...(input.context === undefined ? {} : { context: input.context }),
     });
     if (execResult.preview) {
       return { preview: execResult.preview };
     }
     return {
-      recordId: execResult.recordId,
+      ...(execResult.recordId === undefined
+        ? {}
+        : { recordId: execResult.recordId }),
       affectedTables: execResult.affectedTables as string[],
-      tableRenames: execResult.tableRenames,
+      ...(execResult.tableRenames === undefined
+        ? {}
+        : { tableRenames: execResult.tableRenames }),
       mutationId: execResult.mutationId,
     };
   }
@@ -367,7 +382,7 @@ export class RuntimeMetadataSchemaRouterService {
       contract,
       ownerTableId: tableId,
       body: target,
-      context: input.context,
+      ...(input.context === undefined ? {} : { context: input.context }),
     });
     if (execResult.preview) {
       return { preview: execResult.preview };
@@ -376,7 +391,9 @@ export class RuntimeMetadataSchemaRouterService {
       recordId: execResult.recordId ?? tableId,
       ownerTableId: tableId,
       affectedTables: execResult.affectedTables as string[],
-      tableRenames: execResult.tableRenames,
+      ...(execResult.tableRenames === undefined
+        ? {}
+        : { tableRenames: execResult.tableRenames }),
       mutationId: execResult.mutationId,
     };
   }
@@ -429,7 +446,7 @@ export class RuntimeMetadataSchemaRouterService {
     const execResult = await this.deps.runtimeSchemaExecutorService.execute({
       contract,
       tableId,
-      context: input.context,
+      ...(input.context === undefined ? {} : { context: input.context }),
     });
     if (execResult.preview) {
       return { preview: execResult.preview };
@@ -438,7 +455,9 @@ export class RuntimeMetadataSchemaRouterService {
       recordId: tableId,
       ownerTableId: tableId,
       affectedTables: execResult.affectedTables as string[],
-      tableRenames: execResult.tableRenames,
+      ...(execResult.tableRenames === undefined
+        ? {}
+        : { tableRenames: execResult.tableRenames }),
       mutationId: execResult.mutationId,
     };
   }
@@ -524,6 +543,10 @@ export class RuntimeMetadataSchemaRouterService {
         return rel;
       });
     }
+    assertNoNewRedundantIndexes(target, existing);
+    if (Array.isArray(body.indexes)) {
+      target.indexes = stripOwningRelationIndexes(target, body.indexes);
+    }
     return this.normalizeCompleteTableConstraints(target, fieldRenames);
   }
 
@@ -596,7 +619,7 @@ export class RuntimeMetadataSchemaRouterService {
         uniques: constraints.uniques,
         indexes: constraints.indexes,
       },
-      { backend, mode: 'persisted' },
+      { ...(backend === undefined ? {} : { backend }), mode: 'persisted' },
     );
     return {
       ...body,

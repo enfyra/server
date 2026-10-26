@@ -1,9 +1,10 @@
 import { Logger } from '../../../shared/logger';
+import { getStorageErrorMessage } from '../utils/storage-error.util';
 import { BadRequestException } from '../../../domain/exceptions';
 import { Storage } from '@google-cloud/storage';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
-import {
+import type {
   IStorageService,
   StorageConfig,
   StorageStreamOptions,
@@ -44,9 +45,9 @@ export class GCSStorageService implements IStorageService {
       return {
         location: relativePath,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       const cloudError =
-        error.message || error.code || error.name || 'Unknown error';
+        getStorageErrorMessage(error, true);
       const errorMessage = `Failed to upload to GCS: ${cloudError}`;
       this.logger.error(errorMessage, error);
       throw new BadRequestException(errorMessage);
@@ -68,9 +69,9 @@ export class GCSStorageService implements IStorageService {
       const file = bucket.file(location);
 
       await file.delete({ ignoreNotFound: true });
-    } catch (error: any) {
+    } catch (error: unknown) {
       const cloudError =
-        error.message || error.code || error.name || 'Unknown error';
+        getStorageErrorMessage(error, true);
       const errorMessage = `Failed to delete from GCS: ${cloudError}`;
       this.logger.error(errorMessage, error);
       throw new BadRequestException(errorMessage);
@@ -103,9 +104,9 @@ export class GCSStorageService implements IStorageService {
       const stream = file.createReadStream(options?.range);
 
       return stream;
-    } catch (error: any) {
+    } catch (error: unknown) {
       const cloudError =
-        error.message || error.code || error.name || 'Unknown error';
+        getStorageErrorMessage(error, true);
       const errorMessage = `Failed to stream from GCS: ${cloudError}`;
       this.logger.error(errorMessage, error);
       throw new BadRequestException(errorMessage);
@@ -134,9 +135,9 @@ export class GCSStorageService implements IStorageService {
       const [buffer] = await file.download();
 
       return buffer;
-    } catch (error: any) {
+    } catch (error: unknown) {
       const cloudError =
-        error.message || error.code || error.name || 'Unknown error';
+        getStorageErrorMessage(error, true);
       const errorMessage = `Failed to download from GCS: ${cloudError}`;
       this.logger.error(errorMessage, error);
       throw new BadRequestException(errorMessage);

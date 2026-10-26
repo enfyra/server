@@ -1,3 +1,5 @@
+import type { TAuthenticatedUser } from '../../../shared/types/authenticated-user.types';
+
 export const ENFYRA_PAT_HEADER = 'x-enfyra-pat';
 
 export type AuthHeaderCredentialType = 'pat' | 'jwt';
@@ -58,7 +60,7 @@ export type AuthenticationInput = {
 export type AuthenticatedRequest = {
   source: AuthSource;
   payload: AuthTokenPayload;
-  user: Record<string, any>;
+  user: TAuthenticatedUser;
 };
 
 export type PatVerificationResult = {

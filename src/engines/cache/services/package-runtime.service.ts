@@ -110,7 +110,7 @@ export class PackageRuntimeService {
       systemReady: this.systemReady,
       preloadRunning: this.preloadRunning,
       preloadRequested: this.preloadRequested,
-      lastPreload: this.lastPreload ? { ...this.lastPreload } : undefined,
+      ...(this.lastPreload ? { lastPreload: { ...this.lastPreload } } : {}),
     };
   }
 

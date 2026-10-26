@@ -265,6 +265,18 @@ function validateSnapshotTables(snapshot: Record<string, any>) {
   const issues: BootstrapValidationIssue[] = [];
   for (const [tableName, table] of Object.entries(snapshot)) {
     if (tableName.startsWith('_')) continue;
+    for (const relation of table?.relations ?? []) {
+      for (const field of ['junctionTableName', 'junctionSourceColumn', 'junctionTargetColumn']) {
+        if (!Object.prototype.hasOwnProperty.call(relation, field)) continue;
+        issues.push({
+          file: 'snapshot.ts',
+          table: tableName,
+          path: relation.propertyName,
+          field,
+          message: `Junction mappings are system-generated; snapshot relations must not define ${field}.`,
+        });
+      }
+    }
     const columns = Array.isArray(table?.columns) ? table.columns : [];
     for (const column of columns) {
       if (column?.name !== 'createdAt' && column?.name !== 'updatedAt') {

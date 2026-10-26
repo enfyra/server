@@ -1,5 +1,6 @@
 import { asClass } from 'awilix';
 import { DynamicService } from '../../modules/dynamic-api';
+import { DynamicCancellationService } from '../../modules/dynamic-api/services/dynamic-cancellation.service';
 import {
   FileManagementService,
   FileAssetsService,
@@ -9,6 +10,7 @@ import {
   S3StorageService,
   StorageFactoryService,
 } from '../../modules/file-management';
+import { FileCleanupService } from '../../modules/file-management/services/file-cleanup.service';
 import { UploadFileHelper } from '../../shared/helpers';
 import {
   RuntimeLogWriterService,
@@ -38,9 +40,11 @@ import {
 
 export const dynamicRegisters = {
   dynamicService: asClass(DynamicService).singleton(),
+  dynamicCancellationService: asClass(DynamicCancellationService).singleton(),
 } as const;
 
 export const storageRegisters = {
+  fileCleanupService: asClass(FileCleanupService).singleton().disposer(service => service.onDestroy()),
   fileManagementService: asClass(FileManagementService).singleton(),
   fileAssetsService: asClass(FileAssetsService).singleton(),
   localStorageService: asClass(LocalStorageService).singleton(),

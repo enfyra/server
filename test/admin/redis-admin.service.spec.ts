@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { RedisAdminService } from '../../src/modules/admin';
 
 class FakePipeline {
@@ -302,12 +302,27 @@ describe('RedisAdminService', () => {
       expect.objectContaining({
         name: 'current namespace',
         system: false,
-        systemKind: undefined,
       }),
     );
+    expect(overview.groups[0]).not.toHaveProperty('systemKind');
     expect(overview.topKeys[0]).toEqual(
       expect.objectContaining({ key: 'user:key', modifiable: true }),
     );
+  });
+
+  it('reads empty hash field values without inventing missing entries', async () => {
+    const { redis, service } = makeService();
+    redis.values.set('app-a:custom:hash', { type: 'hash', value: { empty: '', filled: 'value' }, ttl: -1 });
+    expect((await service.getKey('custom:hash')).value).toEqual({ empty: '', filled: 'value' });
+  });
+
+  it('rejects incomplete Redis hash pairs rather than returning a partial value', async () => {
+    const { redis, service } = makeService();
+    redis.values.set('app-a:custom:hash', { type: 'hash', value: { field: 'value' }, ttl: -1 });
+    const scan = vi.spyOn(redis, 'hscan').mockResolvedValue(['0', ['field']]);
+    try {
+      await expect(service.getKey('custom:hash')).rejects.toThrow('Redis hash scan returned an incomplete field/value pair');
+    } finally { scan.mockRestore(); }
   });
 
   it('does not warn for high Redis fragmentation on tiny datasets', async () => {
@@ -512,12 +527,34 @@ describe('RedisAdminService', () => {
         isSystem: true,
         modifiable: false,
         systemKind: 'user_cache_lock',
+        reason: '$cache distributed lock',
       }),
     );
     await expect(service.deleteKey('user_cache_lock:renewal')).rejects.toMatchObject({
       statusCode: 403,
       errorCode: 'AUTHORIZATION_ERROR',
     });
+  });
+
+  it('groups user-cache locks with user cache instead of a separate category', async () => {
+    const { redis, service } = makeService();
+    redis.setSync('app-a:user_cache:report:daily', 'value');
+    redis.setSync('app-a:user_cache_lock:quota-renewal:24', 'owner-token');
+
+    const overview = await service.getOverview();
+    const listed = await service.listKeys({ filter: 'user_cache' });
+
+    expect(overview.groups).toEqual([
+      expect.objectContaining({
+        name: 'user cache',
+        systemKind: 'user_cache',
+        count: 2,
+      }),
+    ]);
+    expect(listed.keys.map((item) => item.key).sort()).toEqual([
+      'report:daily',
+      'user_cache_lock:quota-renewal:24',
+    ]);
   });
 
   it('marks system keys and blocks mutation', async () => {

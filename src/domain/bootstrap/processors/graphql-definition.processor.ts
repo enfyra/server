@@ -11,7 +11,7 @@ export class GraphQLDefinitionProcessor extends BaseTableProcessor {
     this.queryBuilderService = deps.queryBuilderService;
   }
 
-  async transformRecords(records: any[], _context?: any): Promise<any[]> {
+  override async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
 
     const transformedRecords = await mapSequentially(
@@ -77,11 +77,11 @@ export class GraphQLDefinitionProcessor extends BaseTableProcessor {
     return this.autoGetUniqueIdentifier(record, 'enfyra_graphql');
   }
 
-  protected getCompareFields(): string[] {
+  protected override getCompareFields(): string[] {
     return ['table', 'isEnabled', 'description', 'metadata'];
   }
 
-  protected getRecordIdentifier(record: any): string {
+  protected override getRecordIdentifier(record: any): string {
     return `[GqlDefinition] ${record.table || record.tableId}`;
   }
 }

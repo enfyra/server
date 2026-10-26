@@ -890,6 +890,18 @@ describe('C2: Executor must verify contract inputs', () => {
     expect(tableHandlerService.updateTable).not.toHaveBeenCalled();
   });
 
+  it('executes removal of redundant index metadata instead of treating canonical equality as a no-op', async () => {
+    const after = { ...baseBefore, uniques: [['user', 'discount']], indexes: [['createdAt'], ['updatedAt']] };
+    const before = { ...after, indexes: [...after.indexes, ['user']] };
+    const contract = await compileRealContract({ beforeMetadata: before, afterMetadata: after });
+    const { executor, tableHandlerService } = makeExecutor({
+      queryBuilderService: { findOne: vi.fn().mockResolvedValueOnce(before).mockResolvedValue(after) },
+    });
+    await executor.execute({ contract, ownerTableId: 42, body: after as any });
+    expect(contract.context.diff.removedIndexes).toContain('["user"]');
+    expect(tableHandlerService.updateTable).toHaveBeenCalledOnce();
+  });
+
   it('executes policy-only changes through the table metadata writer', async () => {
     const before = {
       ...baseBefore,

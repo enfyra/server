@@ -5,7 +5,6 @@
  * Route mounting order and pipeline order are still defined here explicitly.
  */
 import express from 'express';
-import cors from 'cors';
 import qs from 'qs';
 import type { AwilixContainer } from 'awilix';
 import type { NextFunction, Response } from 'express';
@@ -13,6 +12,7 @@ import { buildRequestScope, type Cradle } from './container';
 import { globalExceptionMiddleware } from './domain/exceptions';
 
 import { bodyParserMiddleware } from './http/middlewares/body-parser.middleware';
+import { corsOriginMiddleware } from './http/middlewares/cors-origin.middleware';
 import {
   pipelinePreRouting,
   pipelineGuardsAuth,
@@ -35,14 +35,8 @@ import { registerDynamicRoutes } from './http/routes/dynamic.routes';
 import { registerReadinessRoute } from './http/routes/readiness.routes';
 import { DebugTrace } from './shared/utils/debug-trace.util';
 import { resolveClientIpFromRequest } from './shared/utils/client-ip.util';
-import type { RequestWithRouteData } from './shared/types/dynamic-context.types';
-
-type RuntimeRequest = RequestWithRouteData & {
-  auth?: unknown;
-  scope?: AwilixContainer<Cradle>;
-  _perfStart?: number;
-  _debug?: DebugTrace;
-};
+import type { RuntimeRequest } from './http/types/request-context.types';
+import { createNativeRouteRegistrar } from './http/utils/native-route-binding.util';
 
 export function disposeRequestScopeOnResponse(
   req: RuntimeRequest,
@@ -75,7 +69,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>, isStartupCom
   });
 
   // ── Foundation ────────────────────────────────────────────────────
-  app.use(cors({ origin: true, credentials: true }));
+  app.use(corsOriginMiddleware(c.runtimeRegistryService));
   app.use(bodyParserMiddleware(c.runtimeRegistryService));
 
   // ── Request scope + debug trace ──────────────────────────────────
@@ -132,17 +126,18 @@ export function buildExpressApp(container: AwilixContainer<Cradle>, isStartupCom
   for (const mw of pipelineRequestHandling(c, container)) app.use(mw);
 
   // ── Built-in routes ───────────────────────────────────────────────
-  registerAuthRoutes(app, container);
-  registerOAuthRoutes(app, container);
-  registerAdminRoutes(app, container);
-  registerMetadataRoutes(app, container);
-  registerExtensionRoutes(app, container);
-  registerAssetsRoutes(app, container);
-  registerFileRoutes(app, container);
-  registerFolderRoutes(app, container);
-  registerGraphqlSchemaRoutes(app, container);
-  registerPackageRoutes(app, container);
-  registerMeRoutes(app, container);
+  const nativeRoutes = createNativeRouteRegistrar(app);
+  registerAuthRoutes(nativeRoutes, container);
+  registerOAuthRoutes(nativeRoutes, container);
+  registerAdminRoutes(nativeRoutes, container);
+  registerMetadataRoutes(nativeRoutes, container);
+  registerExtensionRoutes(nativeRoutes, container);
+  registerAssetsRoutes(nativeRoutes, container);
+  registerFileRoutes(nativeRoutes, container);
+  registerFolderRoutes(nativeRoutes, container);
+  registerGraphqlSchemaRoutes(nativeRoutes, container);
+  registerPackageRoutes(nativeRoutes, container);
+  registerMeRoutes(nativeRoutes, container);
 
   // ── GraphQL ───────────────────────────────────────────────────────
   c.graphqlService.getYogaApp();

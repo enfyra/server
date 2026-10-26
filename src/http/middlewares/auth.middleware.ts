@@ -1,24 +1,28 @@
-import type { NextFunction, Request, Response } from 'express';
-import {
-  type AuthenticationService,
-  type AuthenticatedRequest,
+import type { NextFunction, Response } from 'express';
+import type {
+  AuthenticationService,
+  AuthenticatedRequest,
 } from '../../domain/auth';
+import type { RuntimeRequest } from '../types/request-context.types';
 
-function isPublicRequest(req: Request): boolean {
-  return (req as any).routeData?.routeMethodConfig?.isPublic === true;
+function isPublicRequest(req: RuntimeRequest): boolean {
+  return req.routeData?.routeMethodConfig?.isPublic === true;
 }
 
-function setAnonymousUser(req: Request): void {
-  (req as any).user = null;
-  (req as any).auth = null;
-  const routeData = (req as any).routeData;
-  if (routeData) routeData.context.$user = null;
+function setAnonymousUser(req: RuntimeRequest): void {
+  req.user = null;
+  req.auth = null;
+  const routeData = req.routeData;
+  if (routeData) {
+    routeData.context.$user = null;
+    routeData.context.$authSource = undefined;
+  }
 }
 
 export function authMiddleware(
   authenticationService: Pick<AuthenticationService, 'authenticate'>,
 ) {
-  return async (req: Request, _res: Response, next: NextFunction) => {
+  return async (req: RuntimeRequest, _res: Response, next: NextFunction) => {
     try {
       const authenticated = await authenticationService.authenticate({
         headers: req.headers,
@@ -40,11 +44,14 @@ export function authMiddleware(
 }
 
 function applyAuthenticatedUser(
-  req: Request,
+  req: RuntimeRequest,
   authenticated: AuthenticatedRequest,
 ): void {
-  (req as any).user = authenticated.user;
-  (req as any).auth = authenticated;
-  const routeData = (req as any).routeData;
-  if (routeData) routeData.context.$user = authenticated.user;
+  req.user = authenticated.user;
+  req.auth = authenticated;
+  const routeData = req.routeData;
+  if (routeData) {
+    routeData.context.$user = authenticated.user;
+    routeData.context.$authSource = authenticated.source;
+  }
 }

@@ -25,6 +25,11 @@ function createHarness() {
     deleteKey: vi.fn(async (key: string) => {
       store.delete(key);
     }),
+    getAndDelete: vi.fn(async (key: string) => {
+      const value = store.get(key) ?? null;
+      store.delete(key);
+      return value;
+    }),
   };
   const queryBuilderService = {
     delete: vi.fn(async () => undefined),
@@ -92,11 +97,29 @@ describe('OAuthExchangeCodeService', () => {
     const exchanged = await service.exchange(code);
 
     expect(exchanged).toEqual(payload);
-    expect(cacheService.deleteKey).toHaveBeenCalledWith(
+    expect(cacheService.getAndDelete).toHaveBeenCalledWith(
       `auth:oauth-exchange:code:${code}`,
     );
     expect(cacheService.deleteKey).toHaveBeenCalledWith(
       `auth:oauth-exchange:pending:${code}`,
+    );
+  });
+
+  it('rejects a second exchange of the same code', async () => {
+    const { service } = createHarness();
+    const code = await service.createCodeForTokens({
+      accessToken: 'access',
+      refreshToken: 'refresh',
+      expTime: 123,
+      loginProvider: 'google',
+      sessionId: 'session-1',
+    });
+
+    await expect(service.exchange(code)).resolves.toMatchObject({
+      accessToken: 'access',
+    });
+    await expect(service.exchange(code)).rejects.toThrow(
+      /invalid or expired/,
     );
   });
 

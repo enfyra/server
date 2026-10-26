@@ -212,8 +212,14 @@ export class MongoSagaSnapshotService {
     });
 
     const result = await this.getSnapshotCollection().insertMany(snapshots);
-    for (let i = 0; i < snapshots.length; i++) {
-      snapshots[i]._id = result.insertedIds[i];
+    for (const [index, snapshot] of snapshots.entries()) {
+      const insertedId = result.insertedIds[index];
+      if (insertedId === undefined) {
+        throw new Error(
+          `Missing inserted ID for saga snapshot ${snapshot.snapshotId}`,
+        );
+      }
+      snapshot._id = insertedId;
     }
     return snapshots;
   }
@@ -331,6 +337,7 @@ export class MongoSagaSnapshotService {
     for (const [, docSnapshots] of snapshotsByDocKey) {
       const ordered = docSnapshots.sort((a, b) => a.seq - b.seq);
       const first = ordered[0];
+      if (first === undefined) continue;
       if (!batchableByCollection.has(first.collection)) {
         batchableByCollection.set(first.collection, {
           deleteIds: [],
@@ -404,8 +411,7 @@ export class MongoSagaSnapshotService {
                 (error as any)?.writeErrors ?? [];
               if (writeErrors.length > 0) {
                 const failedIndexes = new Set(writeErrors.map((w) => w.index));
-                for (let i = 0; i < group.restoreOps.length; i++) {
-                  const op = group.restoreOps[i];
+                for (const [i, op] of group.restoreOps.entries()) {
                   const specificError =
                     writeErrors.find((w) => w.index === i)?.errmsg ??
                     getErrorMessage(error);

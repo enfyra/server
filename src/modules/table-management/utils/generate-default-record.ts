@@ -69,8 +69,6 @@ export function generateDefaultValue(column: {
       return false;
 
     case 'date':
-      return new Date().toISOString().split('T')[0];
-
     case 'datetime':
     case 'timestamp':
       return new Date().toISOString();
@@ -78,16 +76,10 @@ export function generateDefaultValue(column: {
     case 'uuid':
       return uuidv4();
 
-    case 'enum':
-      // Try to get first option from options
-      if (
-        options?.values &&
-        Array.isArray(options.values) &&
-        options.values.length > 0
-      ) {
-        return options.values[0];
-      }
-      return null;
+    case 'enum': {
+      const values = Array.isArray(options) ? options : options?.values;
+      return Array.isArray(values) && values.length > 0 ? values[0] : null;
+    }
 
     case 'simple-json':
     case 'object':

@@ -19,6 +19,10 @@ describe('Mongo 64-bit integer boundary', () => {
     expect(coerceMongoLongWriteValue(1.5)).toBe(1.5);
   });
 
+  it.each(['9223372036854775808', '-9223372036854775809'])('never wraps an out-of-range integer %s', value => {
+    expect(() => coerceMongoLongWriteValue(value)).toThrow(/64-bit/);
+  });
+
   it('reads a BSON Long back as a decimal string that survives JSON', () => {
     const value = Long.fromString('9223372036854775807');
     expect(normalizeBsonLongs({ filesize: value })).toEqual({
@@ -33,6 +37,17 @@ describe('Mongo 64-bit integer boundary', () => {
     ).toEqual({
       nested: { id: '9007199254740993' },
       list: ['9007199254740993'],
+    });
+  });
+
+  it('normalizes serialized ObjectId bytes in numeric rather than lexicographic key order', () => {
+    const buffer = Object.fromEntries(
+      Array.from({ length: 12 }, (_, index) => [String(index), index]),
+    );
+
+    expect(normalizeMongoDocument({ buffer })).toBe('000102030405060708090a0b');
+    expect(normalizeMongoDocument({ nested: { buffer } })).toEqual({
+      nested: '000102030405060708090a0b',
     });
   });
 

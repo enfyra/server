@@ -69,11 +69,12 @@ export class AuthHeaderCacheBuilder extends BaseCacheService<AuthHeaderConfig[]>
 
     for (const systemConfig of SYSTEM_AUTH_HEADER_CONFIGS) {
       const persisted = persistedSystemConfigs.get(this.keyFor(systemConfig));
+      const description = persisted?.description ?? systemConfig.description;
       configs.push({
         ...systemConfig,
         id: persisted?.id ?? systemConfig.id,
         priority: persisted?.priority ?? systemConfig.priority,
-        description: persisted?.description ?? systemConfig.description,
+        ...(description !== undefined ? { description } : {}),
       });
     }
 
@@ -87,7 +88,7 @@ export class AuthHeaderCacheBuilder extends BaseCacheService<AuthHeaderConfig[]>
     );
   }
 
-  protected getLogCount(): string {
+  protected override getLogCount(): string {
     return `${this.cache.length} auth header configs`;
   }
 

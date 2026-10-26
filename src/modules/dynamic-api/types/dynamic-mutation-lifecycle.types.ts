@@ -28,6 +28,7 @@ export interface DynamicMutationReloadOptions {
 }
 
 export interface DynamicMutationRuntime {
+  readLocked?: boolean;
   find(options: DynamicReadOptions): Promise<DynamicMutationReadResult>;
   getIdField(): string;
   reload(options?: DynamicMutationReloadOptions): Promise<void>;
@@ -116,6 +117,8 @@ export interface DynamicMutationDeleteManyOptions extends DynamicMutationOperati
 
 export interface DynamicMutationLifecycleOptions<TPersisted, TResult> {
   context: MutationContext;
+  dynamicContext?: TDynamicContext;
+  afterCommit?: (context: MutationContext) => Promise<void> | void;
   persist: () => Promise<TPersisted>;
   afterWrite?: (
     context: MutationContext,

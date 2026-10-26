@@ -4,6 +4,8 @@ import type { QueryBuilderService } from '@enfyra/kernel';
 import { generateDefaultRecord } from '../utils/generate-default-record';
 import { buildSqlJunctionTableContractFromRelation } from '../../../engines/knex/utils/sql-physical-schema-contract';
 import { getPrimaryKeyTypeForTable } from '../../../engines/knex/utils/migration/pk-type.util';
+import { coerceMongoLongWriteValue } from '../../../engines/mongo/utils/mongo-long-write.util';
+import { ValidationException } from '../../../domain/exceptions';
 
 export async function ensureSqlSingleRecord(input: {
   knex: Knex;
@@ -15,7 +17,19 @@ export async function ensureSqlSingleRecord(input: {
   const recordCount = await knex(tableName).count('* as count').first();
   const count = Number(recordCount?.count || 0);
   if (count === 0) {
-    await knex(tableName).insert(generateDefaultRecord(columns || []));
+    const record = generateDefaultRecord(columns || []);
+    for (const column of columns ?? []) {
+      const value = record[column.name];
+      if (typeof value === 'string' && ['date', 'datetime', 'timestamp'].includes(column.type)) {
+        if (/^(?:now(?:\(\))?|current_timestamp(?:\([0-6]?\))?|current_date|current_time)$/i.test(value)) delete record[column.name];
+        else {
+          const instant = new Date(value);
+          if (Number.isNaN(instant.getTime())) throw new ValidationException(`Invalid temporal default for '${column.name}'`);
+          record[column.name] = instant;
+        }
+      }
+    }
+    await knex(tableName).insert(record);
     return;
   }
   if (!collapseExtraRows || count <= 1) return;
@@ -128,7 +142,19 @@ export async function ensureMongoSingleRecord(input: {
   const db = mongoService.getDb();
   const count = await db.collection(tableName).countDocuments();
   if (count === 0) {
-    await db.collection(tableName).insertOne(generateDefaultRecord(columns || []));
+    const record = generateDefaultRecord(columns || []);
+    for (const column of columns ?? []) {
+      const value = record[column.name];
+      if (value == null) continue;
+      if (['date', 'datetime', 'timestamp'].includes(column.type)) {
+        const instant = typeof value === 'string' && /^(?:now(?:\(\))?|current_timestamp(?:\([0-6]?\))?|current_date|current_time)$/i.test(value) ? new Date() : new Date(value);
+        if (Number.isNaN(instant.getTime())) throw new ValidationException(`Invalid temporal default for '${column.name}'`);
+        record[column.name] = instant;
+      } else if (column.type === 'long' || column.type === 'bigint') {
+        record[column.name] = coerceMongoLongWriteValue(value);
+      }
+    }
+    await db.collection(tableName).insertOne(record);
     return;
   }
   if (!collapseExtraRows || count <= 1) return;

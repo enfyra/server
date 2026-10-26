@@ -48,6 +48,36 @@ describe('EnfyraRouteEngine', () => {
     expect(engine.find('GET', 'api/test')?.route).toBe(h);
   });
 
+  it('falls through failed static and parameter branches without leaking captures', () => {
+    const engine = new EnfyraRouteEngine();
+    engine.insert('GET', '/files/fixed/end', { id: 'static' });
+    engine.insert('GET', '/files/:name/end', { id: 'param' });
+    engine.insert('GET', '/files/*', { id: 'wildcard' });
+
+    expect(engine.find('GET', '/files/fixed/other')).toEqual({
+      route: { id: 'wildcard' },
+      params: { splat: 'fixed/other' },
+    });
+    expect(engine.find('GET', '/files/fixed/end')).toEqual({
+      route: { id: 'static' },
+      params: {},
+    });
+    expect(engine.find('GET', '/files/other/end')).toEqual({
+      route: { id: 'param' },
+      params: { name: 'other' },
+    });
+  });
+
+  it('preserves empty parameter names and malformed URI fallback', () => {
+    const engine = new EnfyraRouteEngine();
+    engine.insert('GET', '/items/:', { id: 'empty-name' });
+
+    expect(engine.find('GET', '/items/%E0%A4%A')).toEqual({
+      route: { id: 'empty-name' },
+      params: { '': '%E0%A4%A' },
+    });
+  });
+
   it('getStats reflects inserts', () => {
     const engine = new EnfyraRouteEngine(false);
     engine.insert('GET', '/a', {});

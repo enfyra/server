@@ -10,23 +10,11 @@ import {
 } from '../../../engines/knex/utils/migration/sql-diff-generator';
 import type { SchemaMutationBackend } from '../../../shared/types/schema-mutation-contract.types';
 
-export interface PhysicalPlanSql {
-  backend: 'postgresql' | 'mysql';
-  upStatements: readonly string[];
-  upBatch: string;
-  downStatements: readonly string[];
-  downBatch: string;
-  metadataUpdate: unknown;
-  activeTableName: string;
-}
-
-export interface PhysicalPlanMongo {
-  backend: 'mongodb';
-  upDiff: unknown;
-  downDiff: unknown;
-}
-
-export type PhysicalPlan = PhysicalPlanSql | PhysicalPlanMongo | null;
+import type {
+  PhysicalPlan,
+  PhysicalPlanMongo,
+  PhysicalPlanSql,
+} from '../types/runtime-schema-physical-plan.types';
 
 export class RuntimeSchemaPhysicalPlannerService {
   constructor(

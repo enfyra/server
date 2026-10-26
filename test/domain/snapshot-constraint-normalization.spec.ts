@@ -138,6 +138,7 @@ describe('metadata migration auto-index guard', () => {
         getSnapshot: () => snapshot,
         getDataTargetSnapshot: () => snapshot,
         getMigration: () => null,
+        getApplicableSchemaSteps: () => [],
       } as any,
     });
 

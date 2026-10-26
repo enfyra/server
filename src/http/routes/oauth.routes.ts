@@ -4,6 +4,10 @@ import type { Cradle } from '../../container';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { BadRequestException } from '../../domain/exceptions';
 import type { OAuthConfig } from '../../engines/cache/services/oauth-config-cache-builder.service';
+import {
+  createOAuthRedirectValidator,
+  parseOAuthRedirectUrl,
+} from '../../domain/auth/utils/oauth-redirect.util';
 
 type OAuthStatePayload = {
   redirect: string;
@@ -64,7 +68,7 @@ export function registerOAuthRoutes(
       throw new BadRequestException('Redirect URL is required');
     }
 
-    validateRedirectUrl(redirectUrl, provider);
+    parseOAuthRedirectUrl(redirectUrl);
     if (cookieBridgePrefixValue !== undefined) {
       cookieBridgePrefix = normalizeCookieBridgePrefix(cookieBridgePrefixValue);
     }
@@ -76,10 +80,23 @@ export function registerOAuthRoutes(
       );
     }
 
+    const queryBuilder =
+      req.scope?.cradle?.queryBuilderService ??
+      container.cradle.queryBuilderService;
+    const validateRedirect = await createOAuthRedirectValidator(queryBuilder, [
+      parseOAuthRedirectUrl(config.redirectUri).origin,
+    ]);
+    const validatedRedirect = validateRedirect(redirectUrl);
+    if (!config.autoSetCookies) {
+      validateRedirect(
+        getValidatedAppCallbackUrl(config.appCallbackUrl).toString(),
+      );
+    }
+
     const payload = JSON.stringify({
-      redirect: redirectUrl,
-      cookieBridgePrefix: cookieBridgePrefix ?? undefined,
-      clientState,
+      redirect: validatedRedirect,
+      ...(cookieBridgePrefix === undefined ? {} : { cookieBridgePrefix }),
+      ...(clientState === undefined ? {} : { clientState }),
       ts: Date.now(),
     } satisfies OAuthStatePayload);
     const sig = signState(payload, configService);
@@ -124,6 +141,19 @@ export function registerOAuthRoutes(
       throw new BadRequestException('Invalid or expired state parameter');
     }
 
+    const queryBuilder =
+      req.scope?.cradle?.queryBuilderService ??
+      container.cradle.queryBuilderService;
+    const validateRedirect = await createOAuthRedirectValidator(queryBuilder, [
+      parseOAuthRedirectUrl(config.redirectUri).origin,
+    ]);
+    statePayload.redirect = validateRedirect(statePayload.redirect);
+    const callbackUrl =
+      error && !config.autoSetCookies
+        ? getFallbackCallbackUrl(statePayload, config)
+        : getSuccessCallbackUrl(statePayload, config);
+    validateRedirect(callbackUrl.toString());
+
     if (error) {
       const safeRedirect = getSafeRedirectUrl(
         statePayload,
@@ -141,7 +171,6 @@ export function registerOAuthRoutes(
       const tokens = await oauthService.handleCallback(provider as any, code);
       const exchangeCode =
         await oauthExchangeCodeService.createCodeForTokens(tokens);
-      const callbackUrl = getSuccessCallbackUrl(statePayload, config);
       callbackUrl.searchParams.set('code', exchangeCode);
       callbackUrl.searchParams.set('redirect', statePayload.redirect);
       if (statePayload.clientState !== undefined) {
@@ -193,7 +222,7 @@ function parseStatePayload(
       return null;
     }
 
-    validateRedirectUrl(parsed.redirect, 'state');
+    parseOAuthRedirectUrl(parsed.redirect);
     const cookieBridgePrefix =
       parsed.cookieBridgePrefix === undefined
         ? undefined
@@ -202,24 +231,12 @@ function parseStatePayload(
 
     return {
       redirect: parsed.redirect,
-      cookieBridgePrefix,
-      clientState,
+      ...(cookieBridgePrefix === undefined ? {} : { cookieBridgePrefix }),
+      ...(clientState === undefined ? {} : { clientState }),
       ts: parsed.ts || 0,
     };
   } catch {
     return null;
-  }
-}
-
-function validateRedirectUrl(url: string, _provider: string): void {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new BadRequestException('Invalid redirect URL protocol');
-    }
-  } catch (e) {
-    if (e instanceof BadRequestException) throw e;
-    throw new BadRequestException('Invalid redirect URL');
   }
 }
 
@@ -238,7 +255,10 @@ function normalizeCookieBridgePrefix(prefix: unknown): string {
 
 function normalizeClientState(value: unknown): string | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== 'string' || value.length > MAX_OAUTH_CLIENT_STATE_LENGTH) {
+  if (
+    typeof value !== 'string' ||
+    value.length > MAX_OAUTH_CLIENT_STATE_LENGTH
+  ) {
     throw new BadRequestException(
       'OAuth state must be a string no longer than 4096 characters',
     );

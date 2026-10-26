@@ -11,17 +11,15 @@ import type {
 import type {
   RuntimeSchemaExecutionResult,
   RuntimeSchemaJournalStage,
-  RuntimeSchemaCommandAdapter,
   RuntimeSchemaCommandAdapterContext,
 } from '../types/runtime-schema-executor.types';
-import { verifySchemaMutationContractHash } from '../../../shared/utils/schema-mutation-contract.util';
+import { hashCanonical, verifySchemaMutationContractHash } from '../../../shared/utils/schema-mutation-contract.util';
 import {
   normalizeRuntimePolicyMetadata,
   normalizeRuntimeTableSchema,
 } from '../utils/runtime-schema-normalization.util';
 import { formatRuntimeSchemaContractDiff } from '../utils/runtime-schema-contract-diff.util';
 import { RUNTIME_SCHEMA_METADATA_READ_DEEP } from '../utils/runtime-schema-metadata-read.util';
-import { hashCanonical } from '../../../shared/utils/schema-mutation-contract.util';
 import type { QueryBuilderService } from '@enfyra/kernel';
 import type { RuntimeSchemaTargetAttestorService } from './runtime-schema-target-attestor.service';
 import { RuntimeSchemaDagExecutor } from './runtime-schema-dag-executor.service';
@@ -82,16 +80,18 @@ export class RuntimeSchemaExecutorService {
     try {
       result = await this.unitOfWork.run(async (unitOfWorkContext = {}) => {
         stage('executing');
-        await this.journal.advanceStage(mutationId, 'executing', {
-          sagaSessionId: unitOfWorkContext.sagaSessionId,
-        });
+        const sagaContext =
+          unitOfWorkContext.sagaSessionId === undefined
+            ? {}
+            : { sagaSessionId: unitOfWorkContext.sagaSessionId };
+        await this.journal.advanceStage(mutationId, 'executing', sagaContext);
 
         const dagResult = await dag.executePhases(contract, contract.phases, {
           stopBeforeNodeKind: 'commit-database',
           onNodeCompleted: async (nodeId, completedIds) => {
             await this.journal.advanceStage(mutationId, 'executing', {
               completedNodeIds: [...completedIds],
-              sagaSessionId: unitOfWorkContext.sagaSessionId,
+              ...sagaContext,
             });
           },
         });

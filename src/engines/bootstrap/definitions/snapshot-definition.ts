@@ -1,6 +1,5 @@
 import type {
   SnapshotColumnDefinition,
-  SnapshotJunctionOptions,
   SnapshotOnDelete,
   SnapshotRelationDefinition,
   SnapshotRelationType,
@@ -172,13 +171,6 @@ export class SnapshotRelationBuilder {
 
   constraint(name: string): this {
     this.definition.constraintName = name;
-    return this;
-  }
-
-  junction(options: SnapshotJunctionOptions): this {
-    this.definition.junctionTableName = options.table;
-    this.definition.junctionSourceColumn = options.source;
-    this.definition.junctionTargetColumn = options.target;
     return this;
   }
 

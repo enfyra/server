@@ -50,7 +50,7 @@ export class MongoSagaCoordinator {
   private readonly lockService: MongoSagaLockService;
   private readonly snapshotService: MongoSagaSnapshotService;
   private readonly instanceService: InstanceService;
-  private readonly cacheService?: RedisCacheService;
+  private readonly cacheService: RedisCacheService | undefined;
 
   constructor(deps: {
     mongoService: MongoService;
@@ -345,8 +345,8 @@ export class MongoSagaCoordinator {
 
     try {
       txId = await this.lockService.beginTransaction({
-        purpose: opts.purpose,
-        mutationId: opts.mutationId,
+        ...(opts.purpose === undefined ? {} : { purpose: opts.purpose }),
+        ...(opts.mutationId === undefined ? {} : { mutationId: opts.mutationId }),
       });
 
       context = {
@@ -454,15 +454,16 @@ export class MongoSagaCoordinator {
         success: false,
         error: error instanceof Error ? error : new Error(String(error)),
         txId: txId || 'unknown',
-        rollbackResult,
-        stats:
-          txId && context
-            ? {
+        ...(rollbackResult === undefined ? {} : { rollbackResult }),
+        ...(txId && context
+          ? {
+              stats: {
                 durationMs: duration,
                 operationsCount: context.snapshots.length,
                 locksAcquired: context.lockedResources.size,
-              }
-            : undefined,
+              },
+            }
+          : {}),
       };
     }
   }

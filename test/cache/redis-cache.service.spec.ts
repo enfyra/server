@@ -199,4 +199,23 @@ describe('RedisCacheService — system policy', () => {
       900000,
     );
   });
+
+  it('reads and removes a one-time value in a single server round-trip', async () => {
+    const redis = {
+      getdel: vi.fn(async () => JSON.stringify({ ok: true })),
+    };
+    const service = makeSystemCache(redis, 'app-a');
+
+    await expect(service.getAndDelete('auth:oauth-exchange:code:abc')).resolves.toEqual({ ok: true });
+    expect(redis.getdel).toHaveBeenCalledWith('app-a:auth:oauth-exchange:code:abc');
+  });
+
+  it('returns null when the one-time value is already gone', async () => {
+    const redis = {
+      getdel: vi.fn(async () => null),
+    };
+    const service = makeSystemCache(redis, 'app-a');
+
+    await expect(service.getAndDelete('auth:oauth-exchange:code:abc')).resolves.toBeNull();
+  });
 });

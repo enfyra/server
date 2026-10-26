@@ -16,6 +16,7 @@ import {
   relationTargetTableMapKey,
 } from '../utils/relation-target-id.util';
 import { normalizeTableConstraints } from '../utils/table-constraints.util';
+import { assertNoNewRedundantIndexes } from '../utils/schema-index-validation.util';
 import { SqlTableHandlerService } from './sql-table-handler-base.service';
 import {
   ensureSqlM2mJunctionTables,
@@ -160,6 +161,7 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
       if (!exists) {
         throw new ResourceNotFoundException('enfyra_table', String(id));
       }
+      assertNoNewRedundantIndexes({ ...exists, ...body }, exists);
       const hasColumnUniqueIntent = (body.columns || []).some(
         (column) => column.isUnique !== undefined,
       );

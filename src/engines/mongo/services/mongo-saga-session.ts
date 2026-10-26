@@ -702,9 +702,13 @@ export class MongoSagaSession {
           upsertedCount: 0,
         };
       }
-      const inserted = await this.insertOne(collectionName, replacement, {
-        skipLogging: options.skipLogging,
-      });
+      const inserted = await this.insertOne(
+        collectionName,
+        replacement,
+        options.skipLogging === undefined
+          ? {}
+          : { skipLogging: options.skipLogging },
+      );
       return {
         acknowledged: true,
         matchedCount: 0,
@@ -961,9 +965,11 @@ export class MongoSagaSession {
       return [];
     }
 
-    const objectIds = updates.map((u) =>
-      typeof u.id === 'string' ? new ObjectId(u.id) : u.id,
-    );
+    const normalizedUpdates = updates.map((update) => ({
+      id: typeof update.id === 'string' ? new ObjectId(update.id) : update.id,
+      data: update.data,
+    }));
+    const objectIds = normalizedUpdates.map((update) => update.id);
     const lockResources = objectIds.map((id) => ({
       type: collectionName,
       id: id.toString(),
@@ -995,15 +1001,15 @@ export class MongoSagaSession {
     const snapshots: ISagaSnapshot[] = [];
 
     if (!options?.skipLogging) {
-      for (let i = 0; i < updates.length; i++) {
-        const oldDoc = oldDocMap.get(objectIds[i].toString()) || null;
+      for (const update of normalizedUpdates) {
+        const oldDoc = oldDocMap.get(update.id.toString()) || null;
         const entry = await this.snapshotService.createSnapshot(
           this.txId,
           'update',
           collectionName,
-          objectIds[i],
+          update.id,
           oldDoc,
-          updates[i].data,
+          update.data,
         );
         snapshots.push(entry);
         this.trackSnapshot(entry);
@@ -1012,9 +1018,9 @@ export class MongoSagaSession {
 
     try {
       await this.lockService.assertTransactionOwnership(this.txId);
-      const bulkOps = updates.map((update, index) => ({
+      const bulkOps = normalizedUpdates.map((update) => ({
         updateOne: {
-          filter: { _id: objectIds[index] },
+          filter: { _id: update.id },
           update: { $set: update.data },
         },
       }));

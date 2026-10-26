@@ -60,7 +60,7 @@ export class DynamicRepositoryFactory {
     return new DynamicRepository({
       tableName,
       context,
-      enforceFieldPermission,
+      ...(enforceFieldPermission !== undefined ? { enforceFieldPermission } : {}),
       runtimeMetadataSchemaRouterService:
         this.runtimeMetadataSchemaRouterService,
       queryBuilderService: this.queryBuilderService,

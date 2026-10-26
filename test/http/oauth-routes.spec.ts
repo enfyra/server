@@ -34,7 +34,16 @@ function createHarness() {
   const configService = {
     get: vi.fn(() => 'test-secret'),
   };
+  const queryBuilderService = {
+    find: vi.fn(async () => ({
+      data: [
+        { value: 'https://demo.enfyra.io', isEnabled: true },
+        { value: 'https://chat.example.com', isEnabled: true },
+      ],
+    })),
+  };
   const cradle = {
+    queryBuilderService,
     oauthService,
     oauthExchangeCodeService,
     runtimeRegistryService,
@@ -63,6 +72,22 @@ function getStateFromLocation(location: string) {
 }
 
 describe('OAuth routes', () => {
+  it('omits absent optional fields from signed state', async () => {
+    const { get } = createHarness();
+    const start = await get(
+      '/auth/:provider',
+      { provider: 'google' },
+      { redirect: 'https://demo.enfyra.io/chat' },
+    );
+    const state = getStateFromLocation(start.location);
+    const envelope = JSON.parse(Buffer.from(state, 'base64url').toString('utf8'));
+    const payload = JSON.parse(envelope.p);
+
+    expect(payload.redirect).toBe('https://demo.enfyra.io/chat');
+    expect(Object.hasOwn(payload, 'cookieBridgePrefix')).toBe(false);
+    expect(Object.hasOwn(payload, 'clientState')).toBe(false);
+  });
+
   it('defaults auto cookie callback to /api/auth/set-cookies on the redirect origin', async () => {
     const { get } = createHarness();
     const start = await get(
