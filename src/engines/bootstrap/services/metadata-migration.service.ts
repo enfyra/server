@@ -211,6 +211,12 @@ export class MetadataMigrationService {
     const isMongoDB = this.queryBuilderService.isMongoDb();
     const operation = command.operation;
     switch (command.kind) {
+      case 'modify-sql-column-types':
+        if (operation.kind !== 'modify-sql-column-types' || isMongoDB) {
+          throw new Error(`Invalid command payload for ${command.kind}.`);
+        }
+        await this.modifySqlColumnTypes(operation.mappings);
+        return;
       case 'modify-mongo-column-types':
         if (operation.kind !== 'modify-mongo-column-types' || !isMongoDB) {
           throw new Error(`Invalid command payload for ${command.kind}.`);
@@ -282,6 +288,37 @@ export class MetadataMigrationService {
           [operation.rename],
           isMongoDB,
         );
+    }
+  }
+
+  private async modifySqlColumnTypes(mappings: Array<{ from: string; to: string }>): Promise<void> {
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    const knex = this.queryBuilderService.getKnex();
+    const client = String(knex.client.config.client ?? '').toLowerCase();
+    let enumLabels: Set<string> | undefined;
+    if (client.includes('pg')) {
+      const type = await knex.raw(`
+        SELECT t.typname AS name, t.typtype AS kind
+        FROM pg_attribute a
+        JOIN pg_class c ON c.oid = a.attrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_type t ON t.oid = a.atttypid
+        WHERE n.nspname = current_schema() AND c.relname = ? AND a.attname = 'type'
+      `, [coreNames.column]);
+      const current = type.rows[0];
+      if (current?.kind === 'e') {
+        const labels = await knex.raw('SELECT enumlabel FROM pg_enum WHERE enumtypid = ?::regtype ORDER BY enumsortorder', [current.name]);
+        enumLabels = new Set<string>(labels.rows.map((row: { enumlabel: string }) => row.enumlabel));
+        for (const mapping of mappings) {
+          if (enumLabels.has(mapping.from) && !enumLabels.has(mapping.to)) {
+            throw new Error(`Column type enum cannot represent ${mapping.to}`);
+          }
+        }
+      }
+    }
+    for (const mapping of mappings) {
+      if (enumLabels && !enumLabels.has(mapping.from)) continue;
+      await knex(coreNames.column).where('type', mapping.from).update({ type: mapping.to });
     }
   }
 

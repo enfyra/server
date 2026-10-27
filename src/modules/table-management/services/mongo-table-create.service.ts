@@ -253,7 +253,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                 const targetName =
                   typeof rel.targetTable === 'string'
                     ? rel.targetTable
-                    : rel.targetTable?.name;
+                    : rel.targetTableName ?? rel.targetTable?.name;
                 const relationData: any = {
                   propertyName: rel.propertyName,
                   type: rel.type,
@@ -369,7 +369,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                     const invTargetName =
                       typeof rel.targetTable === 'string'
                         ? rel.targetTable
-                        : rel.targetTable?.name;
+                        : rel.targetTableName ?? rel.targetTable?.name;
                     if (invTargetName) {
                       const junction = getSqlJunctionPhysicalNames({
                         sourceTable: body.name,
@@ -396,7 +396,7 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                   const targetName =
                     typeof rel.targetTable === 'string'
                       ? rel.targetTable
-                      : rel.targetTable?.name;
+                      : rel.targetTableName ?? rel.targetTable?.name;
                   if (targetName) affectedTableNames.add(targetName);
                   this.logger.log(
                     `Auto-created inverse relation '${rel.inversePropertyName}'`,

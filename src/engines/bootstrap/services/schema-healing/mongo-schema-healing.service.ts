@@ -12,10 +12,7 @@ import type { SchemaHealingSnapshot } from '../../types/schema-healing.types';
 import { diffJunctionMetadata } from '../../utils/schema-healing-junction.util';
 import { getSqlJunctionPhysicalNames } from '../../../../modules/table-management/utils/sql-junction-naming.util';
 import { getErrorMessage } from '../../../../shared/utils/error.util';
-import {
-  coerceTemporalWriteValue,
-  isTemporalColumnType,
-} from '../../../../shared/utils/temporal-write.util';
+import { coerceTemporalWriteValue } from '../../../../shared/utils/temporal-write.util';
 import { Logger } from '../../../../shared/logger';
 import { SystemCoreTableResolver } from '../system-core-table-resolver.service';
 import { MongoJunctionHealingService } from './mongo-junction-healing.service';
@@ -236,7 +233,7 @@ export class MongoSchemaHealingService {
 
       for (const column of columns) {
         const fieldName = String(column?.name ?? '');
-        if (!fieldName || !isTemporalColumnType(column?.type)) continue;
+        if (!fieldName || column?.type !== 'datetime') continue;
 
         const coerced = await this.coerceMongoTemporalField(
           db,

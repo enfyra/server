@@ -877,6 +877,17 @@ const dataMigrations: VersionedDataMigration[] = [
       ],
     },
   },
+  {
+    fromVersion: '2.3.3',
+    toVersion: '2.4.0',
+    data: {
+      enfyra_column: [{
+        _unique: { _and: [{ table: { name: { _eq: 'enfyra_column' } } }, { name: { _eq: 'type' } }] },
+        sqlType: { type: 'enum', options: [...ENFYRA_COLUMN_TYPE_OPTIONS] },
+        mongoType: { type: 'enum', options: [...MONGO_COLUMN_TYPE_OPTIONS] },
+      }],
+    },
+  },
 ];
 
 export default dataMigrations;

@@ -58,8 +58,9 @@ async function boot(
         NODE_NAME: namespace,
         INSTANCE_ID: `${namespace}-boot`,
         NODE_ENV: 'test',
-        NODE_OPTIONS: '--no-node-snapshot',
+        NODE_OPTIONS: `--no-node-snapshot${process.env.ENFYRA_TEST_KERNEL_DIR ? ` --require ${join(import.meta.dirname, 'fixtures/kernel-test-artifact.cjs')}` : ''}`,
         DOTENV_CONFIG_PATH: '/dev/null',
+        TEMPORAL_RUNTIME_PROBES: process.env.TEMPORAL_RUNTIME_PROBES === '1' && expectedRuns === 1 ? '1' : '0',
         ADMIN_EMAIL: 'fresh-matrix@localhost.test',
         ADMIN_PASSWORD:
           process.env.ADMIN_PASSWORD || randomBytes(24).toString('hex'),
@@ -122,6 +123,12 @@ async function boot(
     };
     assert.equal(result.bootstrapRuns, expectedRuns);
     assert.equal(result.dashboardLinked, true);
+    if (process.env.TEMPORAL_RUNTIME_PROBES === '1' && expectedRuns === 1) {
+      const temporal = redacted.match(/TEMPORAL_RUNTIME_RESULT (\{[^\n]+\})/);
+      assert.ok(temporal, `${backend} missing temporal runtime attestation; see ${logPath}`);
+      assert.equal(JSON.parse(temporal[1]).passed, true);
+      console.log('PASS', backend, temporal[0]);
+    }
   } finally {
     clearTimeout(timeout);
     stop();

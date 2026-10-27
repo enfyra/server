@@ -43,7 +43,9 @@ export function addColumnToTable(
       column = table.boolean(col.name);
       break;
     case 'datetime':
-      column = table.dateTime(col.name);
+      column = dbType === 'postgres' || dbType === 'pg'
+        ? table.timestamp(col.name, { useTz: true })
+        : table.dateTime(col.name, { precision: 3 });
       break;
     case 'timestamp':
       column = table.timestamp(col.name);

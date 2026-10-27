@@ -118,7 +118,7 @@ function getMongoIndexFilterType(columnType?: string): string | null {
     real: 'double',
     boolean: 'bool',
     bool: 'bool',
-    date: 'date',
+    date: 'string',
     datetime: 'date',
     timestamp: 'date',
     object: 'object',

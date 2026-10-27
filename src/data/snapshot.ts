@@ -1565,8 +1565,8 @@ snapshot
       .system()
       .description('Unique session identifier'),
     expiredAt: col
-      .sqlType({ type: 'date' })
-      .mongoType({ type: 'date' })
+      .sqlType({ type: 'datetime' })
+      .mongoType({ type: 'datetime' })
       .notNull()
       .system()
       .default('now')
@@ -1641,14 +1641,14 @@ snapshot
       .system()
       .description('Safe final token characters for display'),
     expiresAt: col
-      .sqlType({ type: 'date' })
-      .mongoType({ type: 'date' })
+      .sqlType({ type: 'datetime' })
+      .mongoType({ type: 'datetime' })
       .system()
       .nullable()
       .description('When the API token expires; null means never expires'),
     lastUsedAt: col
-      .sqlType({ type: 'date' })
-      .mongoType({ type: 'date' })
+      .sqlType({ type: 'datetime' })
+      .mongoType({ type: 'datetime' })
       .system()
       .nullable()
       .description('When the API token was last exchanged for an access token'),
@@ -1732,13 +1732,13 @@ snapshot
       .nullable()
       .description('Error details if migration failed'),
     startedAt: col
-      .sqlType({ type: 'date' })
-      .mongoType({ type: 'date' })
+      .sqlType({ type: 'datetime' })
+      .mongoType({ type: 'datetime' })
       .system()
       .description('When migration started executing'),
     completedAt: col
-      .sqlType({ type: 'date' })
-      .mongoType({ type: 'date' })
+      .sqlType({ type: 'datetime' })
+      .mongoType({ type: 'datetime' })
       .system()
       .nullable()
       .description('When migration completed or was rolled back'),
@@ -3027,14 +3027,14 @@ snapshot
       .nullable()
       .description('Error details if execution failed'),
     startedAt: col
-      .sqlType({ type: 'date' })
-      .mongoType({ type: 'date' })
+      .sqlType({ type: 'datetime' })
+      .mongoType({ type: 'datetime' })
       .system()
       .nullable()
       .description('When the execution started'),
     completedAt: col
-      .sqlType({ type: 'date' })
-      .mongoType({ type: 'date' })
+      .sqlType({ type: 'datetime' })
+      .mongoType({ type: 'datetime' })
       .system()
       .nullable()
       .description('When the execution completed'),
@@ -3528,14 +3528,14 @@ snapshot
       .nullable()
       .description('Terminal failure reason'),
     startedAt: col
-      .sqlType({ type: 'date' })
-      .mongoType({ type: 'date' })
+      .sqlType({ type: 'datetime' })
+      .mongoType({ type: 'datetime' })
       .notNull()
       .system()
       .description('When reload processing started'),
     completedAt: col
-      .sqlType({ type: 'date' })
-      .mongoType({ type: 'date' })
+      .sqlType({ type: 'datetime' })
+      .mongoType({ type: 'datetime' })
       .system()
       .nullable()
       .description('When reload reached activated or failed terminal status'),
@@ -3570,7 +3570,7 @@ snapshot
       .updatable(false),
     occurredAt: col
       .sqlType({ type: 'datetime' })
-      .mongoType({ type: 'date' })
+      .mongoType({ type: 'datetime' })
       .notNull()
       .system()
       .updatable(false),
@@ -3679,7 +3679,7 @@ snapshot
       .updatable(false),
     occurredAt: col
       .sqlType({ type: 'datetime' })
-      .mongoType({ type: 'date' })
+      .mongoType({ type: 'datetime' })
       .notNull()
       .system()
       .updatable(false),

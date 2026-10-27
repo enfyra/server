@@ -80,6 +80,15 @@ function compileOperations(
     operations.push(Object.freeze(operation));
   };
 
+  if (database !== 'mongodb' && (migration?.sqlColumnTypesToModify?.length ?? 0) > 0) {
+    add({
+      id: 'schema:modify-sql-column-types',
+      label: 'modify SQL column type metadata',
+      kind: 'modify-sql-column-types',
+      mappings: migration!.sqlColumnTypesToModify!.map((mapping) => ({ ...mapping })),
+    });
+  }
+
   if (
     database === 'mongodb' &&
     (migration?.mongoColumnTypesToModify?.length ?? 0) > 0
@@ -231,15 +240,11 @@ function compileExecutionPhases(
     ];
   }
   for (const operation of operations) {
-    if (operation.kind !== 'modify-mongo-column-types') continue;
-    renameBarrier = [
-      addNode(
-        { backend, kind: 'modify-mongo-column-types', operation },
-        renameBarrier,
-        'core',
-        true,
-      ),
-    ];
+    if (operation.kind === 'modify-mongo-column-types') {
+      renameBarrier = [addNode({ backend, kind: 'modify-mongo-column-types', operation }, renameBarrier, 'core', true)];
+    } else if (operation.kind === 'modify-sql-column-types') {
+      renameBarrier = [addNode({ backend, kind: 'modify-sql-column-types', operation }, renameBarrier, 'core', true)];
+    }
   }
   for (const operation of operations) {
     if (operation.kind !== 'rename-table') continue;

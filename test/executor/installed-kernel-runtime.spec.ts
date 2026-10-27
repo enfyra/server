@@ -17,9 +17,8 @@ describe('installed Kernel native runtime', () => {
     const server = JSON.parse(
       readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
     );
-    expect(server.dependencies['@enfyra/kernel']).toBe(
-      'patch:@enfyra/kernel@npm%3A2.0.25#~/.yarn/patches/@enfyra-kernel-npm-2.0.25-a0a542b5c4.patch',
-    );
+    const declaredVersion = server.dependencies['@enfyra/kernel'];
+    expect(declaredVersion).toMatch(/^\d+\.\d+\.\d+$/);
     expect(server.dependencies['isolated-vm']).toBeUndefined();
     const kernelRoot = path.dirname(
       path.dirname(require.resolve('@enfyra/kernel')),
@@ -30,7 +29,7 @@ describe('installed Kernel native runtime', () => {
     const kernel = JSON.parse(
       readFileSync(path.join(kernelRoot, 'package.json'), 'utf8'),
     );
-    expect(kernel.version).toBe('2.0.25');
+    expect(kernel.version).toBe(declaredVersion);
     expect(kernel.dependencies['isolated-vm']).toBe(
       'npm:@enfyra/isolated-vm@7.0.7',
     );

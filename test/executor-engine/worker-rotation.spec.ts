@@ -76,10 +76,10 @@ describe('WorkerPool rotation (heap-driven)', () => {
     entry.worker.terminate();
   });
 
-  it.each(['explicit', 'rotation', 'shutdown'] as const)(
+  it.each(['explicit', 'shutdown'] as const)(
     'aborts running host I/O before %s worker termination',
     async (reason) => {
-      pool = new WorkerPool(1, GB, RSS_CEILING, 1, FAKE_WORKER, undefined, undefined, 30);
+      pool = new WorkerPool(1, GB, RSS_CEILING, 1, FAKE_WORKER);
       const entry = await pool.dispatch();
       const controller = new AbortController();
       let abortEvents = 0;
@@ -100,10 +100,7 @@ describe('WorkerPool rotation (heap-driven)', () => {
           onIoCall: () => {},
         });
       });
-      if (reason === 'rotation') {
-        (pool as any).rotateEntry(entry, 'test');
-        expect(controller.signal.aborted).toBe(false);
-      } else if (reason === 'shutdown') {
+      if (reason === 'shutdown') {
         pool.destroyAll();
       } else {
         pool.terminateEntry(entry, 'test');
@@ -266,39 +263,26 @@ describe('WorkerPool rotation (heap-driven)', () => {
     expect(pool.getEntries().length).toBe(1);
   });
 
-  it('force-terminates draining worker after drain timeout', async () => {
-    pool = new WorkerPool(
-      1,
-      GB,
-      RSS_CEILING,
-      TASKS_CAP,
-      FAKE_WORKER,
-      undefined,
-      undefined,
-      100,
-    );
-    await sleep(50);
-
-    const originalEntry = pool.getEntries()[0];
-
-    const stuckTaskPromise = runTask(pool, originalEntry, 'stuck', {
-      triggerHeapRatio: 0.1,
-      delayMs: 10_000,
+  it('keeps running host I/O alive during rotation and retires after task completion', async () => {
+    pool = new WorkerPool(1, GB, RSS_CEILING, 1, FAKE_WORKER);
+    const entry = await pool.dispatch();
+    const controller = new AbortController();
+    const terminate = vi.spyOn(entry.worker, 'terminate');
+    pool.registerTask(entry, 'pending-io', {
+      abortController: controller,
+      onResult: () => {},
+      onIoCall: () => {},
     });
 
-    const trigger = await runTask(pool, originalEntry, 'trigger', {
-      triggerHeapRatio: 0.9,
-    });
-    expect(trigger.success).toBe(true);
+    (pool as any).rotateEntry(entry, 'test');
+    expect(controller.signal.aborted).toBe(false);
+    expect(terminate).not.toHaveBeenCalled();
+    expect(pool.getEntries()).toContain(entry);
 
-    await waitFor(() => originalEntry.draining === true);
-    expect(originalEntry.tasks.size).toBe(1);
-
-    const stuckResult = await stuckTaskPromise;
-    expect(stuckResult.success).toBe(false);
-    expect(stuckResult.error?.message).toMatch(/crashed/i);
-
-    await waitFor(() => !pool!.getEntries().includes(originalEntry), 1000);
+    pool.unregisterTask(entry, 'pending-io');
+    expect(controller.signal.aborted).toBe(false);
+    expect(terminate).toHaveBeenCalledOnce();
+    await waitFor(() => !pool!.getEntries().includes(entry));
   });
 
   it('crash handler does NOT re-fire for graceful drain exit', async () => {

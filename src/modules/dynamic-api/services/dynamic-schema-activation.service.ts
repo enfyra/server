@@ -4,6 +4,7 @@ import type { TCacheInvalidationPayload } from '../../../shared/types/cache.type
 import type { RuntimeMetadataSchemaMutationResult } from '../../table-management/types/runtime-metadata-schema-router.types';
 import { EventEmitter2 } from 'eventemitter2';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
+import { ServiceUnavailableException } from '../../../domain/exceptions/custom-exceptions';
 
 export class DynamicSchemaActivationService {
   constructor(
@@ -60,10 +61,8 @@ export class DynamicSchemaActivationService {
     }
 
     this.runtimeSchemaActivationGateService?.fail(mutationId, lastError);
-    const message =
-      lastError instanceof Error ? lastError.message : String(lastError);
-    throw new Error(
-      `Schema mutation committed but cache activation failed; instance fenced: ${message}`,
+    throw new ServiceUnavailableException(
+      'schema mutation committed but cache activation failed; instance fenced',
     );
   }
 

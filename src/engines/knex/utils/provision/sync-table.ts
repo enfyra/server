@@ -100,6 +100,8 @@ export function applyAlterColumnType(
       return table.integer(columnName).alter();
     case 'string':
       return table.string(columnName, 255).alter();
+    case 'date':
+      return table.date(columnName).alter();
     default:
       throw new Error(
         `ALTER COLUMN to type "${knexType}" is not supported for column "${columnName}" on table "${tableName}". Drop and recreate the column instead, or extend sync-table.ts to handle this type.`,
@@ -156,7 +158,12 @@ export async function applyColumnMigrations(
                 : table.timestamp(col.name);
             break;
           case 'datetime':
-            column = table.datetime(col.name);
+            column = dbType === 'mysql2'
+              ? table.datetime(col.name, { precision: 3 })
+              : table.timestamp(col.name, { useTz: true });
+            break;
+          case 'date':
+            column = table.date(col.name);
             break;
           case 'float':
             column = table.float(col.name);
@@ -328,8 +335,9 @@ export async function applyColumnMigrations(
           // components and the session reads in UTC. DATETIME is the physical target
           // because it stores that wall clock verbatim, which keeps the value
           // independent of the session zone and avoids the 2038 ceiling.
-          timestamp: 'DATETIME',
-          datetime: 'DATETIME',
+          timestamp: 'DATETIME(3)',
+          datetime: 'DATETIME(3)',
+          date: 'DATE',
           json: 'LONGTEXT',
           float: 'FLOAT',
         };

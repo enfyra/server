@@ -33,6 +33,7 @@ export interface TCreateRelationBody {
   _id?: any;
   description?: string;
   targetTable: TRelationIdRef;
+  targetTableName?: string;
   type: 'one-to-one' | 'one-to-many' | 'many-to-one' | 'many-to-many';
   propertyName: string;
   mappedBy?: string;

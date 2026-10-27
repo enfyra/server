@@ -77,12 +77,14 @@ function makeAppContainer(dispose = vi.fn()) {
     route: { path },
     availableMethods: [{ name: path === '/webhook' ? 'POST' : 'GET' }],
     publicMethods: [{ name: path === '/webhook' ? 'POST' : 'GET' }],
+    methodConfigs: [{ available: true, isPublic: true, method: { name: path === '/webhook' ? 'POST' : 'GET' } }],
     handlers: [],
     preHooks: [],
     postHooks: [],
   }));
   const cradle: any = {
     runtimeRegistryService: {
+      getCorsOriginPolicy: () => undefined,
       getMaxRequestBodySizeBytes: () => 1024 * 1024,
       getMaxUploadFileSizeBytes: () => 1024 * 1024,
       requireRoutes: () => routes,

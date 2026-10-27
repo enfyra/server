@@ -14,6 +14,7 @@ import {
   MONGO_VALIDATION_LEVEL,
 } from '../../src/engines/mongo/utils/mongo-validation-schema.util';
 import { MONGO_COLUMN_TYPE_MIGRATIONS } from '../../src/shared/utils/column-type.util';
+import { MONGO_COLUMN_TYPE_OPTIONS } from '../../src/shared/types/column-type.types';
 import { getEnfyraVersion } from '../../src/shared/utils/enfyra-version.util';
 
 type SqlDatabase = 'postgres' | 'mysql';
@@ -150,7 +151,7 @@ async function stopServer(child: ChildProcess): Promise<void> {
 async function clearProvisionLock(nodeName: string): Promise<void> {
   const redis = new Redis(redisUri(), { maxRetriesPerRequest: 1 });
   try {
-    await redis.del(`${nodeName}:${PROVISION_LOCK_KEY}`, PROVISION_LOCK_KEY);
+    await redis.del(`${nodeName}:${PROVISION_LOCK_KEY}`);
   } finally {
     await redis.quit();
   }
@@ -413,6 +414,82 @@ async function downgradeRecordedVersion(
   });
 }
 
+async function runSqlTemporalUpgrade(database: SqlDatabase, port: number): Promise<void> {
+  const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
+  const databaseName = `enfyra_temporal_upgrade_${suffix}`;
+  const admin = createKnex(database);
+  const nodeName = `temporal-upgrade-${database}-${suffix}`;
+  const options = {
+    adminPassword: `e2e-${randomUUID()}`,
+    nodeName,
+    secretKey: `temporal-upgrade-${randomUUID()}`,
+  };
+  let target: Knex | null = null;
+  let server: ChildProcess | null = null;
+  let created = false;
+  try {
+    await admin.raw('CREATE DATABASE ??', [databaseName]);
+    created = true;
+    target = createKnex(database, databaseName);
+    const uri = buildDatabaseUri(database === 'postgres' ? 'postgresql' : 'mysql', sqlConnection(database, databaseName));
+    await clearProvisionLock(nodeName);
+    server = await bootServer(uri, port, options);
+    await stopServer(server);
+    server = null;
+
+    const user = await target('enfyra_user').first('id');
+    assert.ok(user?.id);
+    const sessionId = randomUUID();
+    const expectedInstant = database === 'postgres'
+      ? '2099-04-05 06:07:08.123456'
+      : '2099-04-05 06:07:08.123';
+    await target('enfyra_session').insert({ id: sessionId, userId: user.id, expiredAt: expectedInstant });
+    const readInstant = async (): Promise<string> => {
+      const result = await target!.raw(
+        database === 'postgres'
+          ? `SELECT to_char("expiredAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') AS value FROM enfyra_session WHERE id = ?`
+          : `SELECT DATE_FORMAT(expiredAt, '%Y-%m-%d %H:%i:%s.%f') AS value FROM enfyra_session WHERE id = ?`,
+        [sessionId],
+      );
+      return (database === 'postgres' ? result.rows[0] : result[0][0]).value;
+    };
+    const beforeInstant = await readInstant();
+    assert.equal(beforeInstant, database === 'postgres' ? expectedInstant : `${expectedInstant}000`);
+
+    const table = await target('enfyra_table').where({ name: 'enfyra_session' }).first('id');
+    assert.ok(table?.id);
+    const column = await target('enfyra_column').where({ tableId: table.id, name: 'expiredAt' }).first('id');
+    assert.ok(column?.id);
+    await target('enfyra_column').where({ id: column.id }).update({ type: 'date' });
+    const typeOwner = await target('enfyra_table').where({ name: 'enfyra_column' }).first('id');
+    const typeColumn = await target('enfyra_column').where({ tableId: typeOwner.id, name: 'type' }).first('id', 'options');
+    const currentOptions = typeof typeColumn.options === 'string' ? JSON.parse(typeColumn.options) : typeColumn.options;
+    const legacyOptions = [...currentOptions];
+    legacyOptions.splice(legacyOptions.indexOf('datetime') + 1, 0, 'timestamp');
+    await target('enfyra_column').where({ id: typeColumn.id }).update({ options: JSON.stringify(legacyOptions) });
+    await downgradeRecordedVersion(target, '2.3.3');
+
+    server = await bootServer(uri, port, options);
+    await stopServer(server);
+    server = null;
+    const migrated = await target('enfyra_column').where({ id: column.id }).first('type');
+    assert.equal(migrated.type, 'datetime');
+    assert.equal(await readInstant(), beforeInstant);
+    const updated = await target('enfyra_column').where({ id: typeColumn.id }).first('options');
+    const optionsAfter = typeof updated.options === 'string' ? JSON.parse(updated.options) : updated.options;
+    assert.ok(!optionsAfter.includes('timestamp'));
+    const setting = await target('enfyra_setting').first('enfyraVersion', 'isInit');
+    assert.equal(setting.enfyraVersion, getEnfyraVersion());
+    assert.ok(setting.isInit);
+    console.log(`${database} 2.3.3 temporal metadata upgrade passed`);
+  } finally {
+    if (server) await stopServer(server);
+    if (target) await target.destroy();
+    if (created) await admin.raw(database === 'postgres' ? 'DROP DATABASE ?? WITH (FORCE)' : 'DROP DATABASE ??', [databaseName]);
+    await admin.destroy();
+  }
+}
+
 async function getSqlCodeStorageType(
   database: SqlDatabase,
   target: Knex,
@@ -591,7 +668,7 @@ async function getMongoColumnMetadata(
 }
 
 async function assertMongoFreshNativeTarget(db: Db): Promise<void> {
-  const legacyTypes = MONGO_COLUMN_TYPE_MIGRATIONS.map(({ from }) => from);
+  const legacyTypes = MONGO_COLUMN_TYPE_MIGRATIONS.map(({ from }) => from).filter((type) => !MONGO_COLUMN_TYPE_OPTIONS.includes(type));
   assert.equal(
     await db.collection('enfyra_column').countDocuments({
       type: { $in: legacyTypes },
@@ -606,7 +683,7 @@ async function assertMongoFreshNativeTarget(db: Db): Promise<void> {
     'string',
     'bool',
     'long',
-    'date',
+    'datetime',
     'json',
     'objectId',
     'code',
@@ -802,7 +879,7 @@ async function createLegacyMongoFixture(
       validationAction: 'warn',
     });
 
-    const legacyTypes = MONGO_COLUMN_TYPE_MIGRATIONS.map(({ from }) => from);
+    const legacyTypes = MONGO_COLUMN_TYPE_MIGRATIONS.map(({ from }) => from).filter((type) => !MONGO_COLUMN_TYPE_OPTIONS.includes(type));
     assert.equal(
       (await db.collection('enfyra_column').countDocuments({
         type: { $in: legacyTypes },
@@ -838,7 +915,7 @@ async function assertMongoNativeUpgradeTarget(
   db: Db,
   fixture: MongoLegacyFixture,
 ): Promise<void> {
-  const legacyTypes = MONGO_COLUMN_TYPE_MIGRATIONS.map(({ from }) => from);
+  const legacyTypes = MONGO_COLUMN_TYPE_MIGRATIONS.map(({ from }) => from).filter((type) => !MONGO_COLUMN_TYPE_OPTIONS.includes(type));
   assert.equal(
     await db.collection('enfyra_column').countDocuments({
       type: { $in: legacyTypes },
@@ -853,7 +930,7 @@ async function assertMongoNativeUpgradeTarget(
     ['legacyBoolean', 'bool'],
     ['legacyLong', 'long'],
     ['legacyDouble', 'double'],
-    ['legacyDate', 'date'],
+    ['legacyDate', 'datetime'],
     ['legacyObject', 'json'],
     ['semanticCode', 'code'],
     ['nativeArray', 'array'],
@@ -939,6 +1016,59 @@ async function assertMongoNativeUpgradeTarget(
   assert.equal(Long.isLong(legacyRoundTrip?.legacyLong), true);
   assert.equal(legacyRoundTrip?.legacyLong.toString(), '9223372036854775807');
   assert.equal(legacyRoundTrip?.semanticCode.length > 64 * 1024, true);
+}
+
+async function runMongoTemporalUpgrade(port: number): Promise<void> {
+  const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
+  const databaseName = `enfyra_temporal_upgrade_${suffix}`;
+  const uri = buildDatabaseUri('mongodb', {
+    host: process.env.MATRIX_MONGO_HOST || '127.0.0.1',
+    port: Number(process.env.MATRIX_MONGO_PORT || 27017),
+    user: required('MATRIX_MONGO_USER'),
+    password: required('MATRIX_MONGO_PASSWORD'),
+    database: databaseName,
+  }, process.env.MATRIX_MONGO_AUTH_DATABASE || 'admin');
+  const client = new MongoClient(uri);
+  const nodeName = `temporal-upgrade-mongodb-${suffix}`;
+  const options = { adminPassword: `e2e-${randomUUID()}`, nodeName, secretKey: `temporal-upgrade-${randomUUID()}` };
+  let server: ChildProcess | null = null;
+  try {
+    await client.connect();
+    await clearProvisionLock(nodeName);
+    server = await bootServer(uri, port, options);
+    await stopServer(server);
+    server = null;
+    const db = client.db(databaseName);
+    const column = await getMongoColumnMetadata(db, 'enfyra_session', 'expiredAt');
+    const typeColumn = await getMongoColumnMetadata(db, 'enfyra_column', 'type');
+    const user = await db.collection('enfyra_user').findOne({});
+    assert.ok(user?._id);
+    const sampleId = new ObjectId();
+    const expectedInstant = new Date('2099-04-05T06:07:08.123Z');
+    await db.collection('enfyra_session').insertOne({ _id: sampleId, user: user._id, expiredAt: expectedInstant });
+    const sample = await db.collection('enfyra_session').findOne({ _id: sampleId });
+    assert.ok(sample?.expiredAt instanceof Date);
+    assert.equal(sample.expiredAt.getTime(), expectedInstant.getTime());
+    await db.collection('enfyra_column').updateOne({ _id: column._id }, { $set: { type: 'date' } });
+    await db.collection('enfyra_column').updateOne({ _id: typeColumn._id }, { $set: { options: MONGO_COLUMN_TYPE_OPTIONS.filter((type) => type !== 'datetime') } });
+    await db.collection('enfyra_setting').updateOne({}, { $set: { enfyraVersion: '2.3.3', isInit: true } });
+    server = await bootServer(uri, port, options);
+    await stopServer(server);
+    server = null;
+    assert.equal((await db.collection('enfyra_column').findOne({ _id: column._id }))?.type, 'datetime');
+    assert.ok((await db.collection('enfyra_column').findOne({ _id: typeColumn._id }))?.options.includes('datetime'));
+    const after = await db.collection('enfyra_session').findOne({ _id: sampleId });
+    assert.ok(after?.expiredAt instanceof Date);
+    assert.equal(after.expiredAt.getTime(), expectedInstant.getTime());
+    const setting = await db.collection('enfyra_setting').findOne({});
+    assert.equal(setting?.enfyraVersion, getEnfyraVersion());
+    assert.equal(setting?.isInit, true);
+    console.log('mongodb 2.3.3 temporal metadata upgrade passed');
+  } finally {
+    if (server) await stopServer(server);
+    await client.db(databaseName).dropDatabase();
+    await client.close();
+  }
 }
 
 async function runMongoUpgrade(port: number): Promise<void> {
@@ -1080,6 +1210,13 @@ async function main(): Promise<void> {
     throw new Error(
       `Unsupported MATRIX_DATABASES value: ${unknown.join(', ')}`,
     );
+  }
+
+  if (process.env.MATRIX_TEMPORAL_ONLY === '1') {
+    if (selected.has('postgres')) await runSqlTemporalUpgrade('postgres', 18141);
+    if (selected.has('mysql')) await runSqlTemporalUpgrade('mysql', 18142);
+    if (selected.has('mongodb')) await runMongoTemporalUpgrade(18143);
+    return;
   }
 
   if (selected.has('postgres')) {

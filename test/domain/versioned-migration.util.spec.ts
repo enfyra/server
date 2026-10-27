@@ -64,6 +64,32 @@ describe('versioned schema migration merge', () => {
     });
   });
 
+  it('composes historical type mappings without duplicate sources or identity changes', () => {
+    const result = resolveSchemaMigration(versions(
+      { tables: [], mongoColumnTypesToModify: [{ from: 'timestamp', to: 'date' }, { from: 'datetime', to: 'date' }] },
+      { tables: [], mongoColumnTypesToModify: [{ from: 'date', to: 'datetime' }, { from: 'timestamp', to: 'datetime' }] },
+    ), '2.2.19-patch-1');
+    expect(result.migration?.mongoColumnTypesToModify).toEqual([
+      { from: 'timestamp', to: 'datetime' },
+      { from: 'date', to: 'datetime' },
+    ]);
+  });
+
+  it('preserves independent column changes when composing later steps', () => {
+    const column = (from: Record<string, unknown>, to: Record<string, unknown>) => ({
+      _unique: { name: { _eq: 'example' } },
+      columnsToModify: [{ from: { name: 'value', ...from }, to: { name: 'value', ...to } }],
+    });
+    const result = resolveSchemaMigration(versions(
+      { tables: [column({ type: 'text' }, { type: 'varchar' })] },
+      { tables: [column({ description: 'old' }, { description: 'new' })] },
+    ), '2.2.19-patch-1');
+    expect(result.migration?.tables[0].columnsToModify).toEqual([{
+      from: { name: 'value', type: 'text', description: 'old' },
+      to: { name: 'value', type: 'varchar', description: 'new' },
+    }]);
+  });
+
   it('refuses a repeated table field rather than dropping the intermediate change', () => {
     const steps = versions(
       { tables: [table({ uniques: [['a']] }, { uniques: [['b']] })] },

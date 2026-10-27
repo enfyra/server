@@ -15,6 +15,10 @@ function makeAlterTableStub() {
       calls.push({ method: 'string', args: [name, len] });
       return columnBuilder;
     }),
+    date: vi.fn().mockImplementation((name: string) => {
+      calls.push({ method: 'date', args: [name] });
+      return columnBuilder;
+    }),
   } as any;
   return { table, calls, columnBuilder };
 }
@@ -32,6 +36,13 @@ describe('applyAlterColumnType', () => {
     const { table, calls, columnBuilder } = makeAlterTableStub();
     applyAlterColumnType(table, 'string', 'name', 'users');
     expect(calls).toEqual([{ method: 'string', args: ['name', 255] }]);
+    expect(columnBuilder.alter).toHaveBeenCalledTimes(1);
+  });
+
+  it('alters a calendar date as SQL DATE', () => {
+    const { table, calls, columnBuilder } = makeAlterTableStub();
+    applyAlterColumnType(table, 'date', 'businessDay', 'events');
+    expect(calls).toEqual([{ method: 'date', args: ['businessDay'] }]);
     expect(columnBuilder.alter).toHaveBeenCalledTimes(1);
   });
 

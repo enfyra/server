@@ -83,7 +83,9 @@ export function buildTableSchema(
               : table.timestamp(col.name);
           break;
         case 'datetime':
-          column = table.datetime(col.name);
+          column = dbType === 'mysql2'
+            ? table.datetime(col.name, { precision: 3 })
+            : table.timestamp(col.name, { useTz: true });
           break;
         case 'date':
           column = table.date(col.name);

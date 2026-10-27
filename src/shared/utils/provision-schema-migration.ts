@@ -1019,9 +1019,14 @@ async function applyMySqlColumnContract(
   const nullable = hasOwn(mod.to, 'isNullable')
     ? mod.to.isNullable !== false
     : current.IS_NULLABLE === 'YES';
+  const catalogDefault = current.COLUMN_DEFAULT;
   const targetDefault = hasOwn(mod.to, 'defaultValue')
     ? mod.to.defaultValue
-    : current.COLUMN_DEFAULT;
+    : typeof catalogDefault === 'string' && catalogDefault.toUpperCase() === 'NULL'
+      ? null
+      : typeof catalogDefault === 'string' && catalogDefault.startsWith("'") && catalogDefault.endsWith("'")
+        ? catalogDefault.slice(1, -1).replace(/''/g, "'")
+        : catalogDefault;
   const defaultClause =
     targetDefault === null ||
     targetDefault === undefined ||

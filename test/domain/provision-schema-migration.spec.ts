@@ -198,6 +198,13 @@ function makeSqlKnex(input: {
 }
 
 describe('provision schema migration physical cleanup', () => {
+  it('preserves MariaDB SQL NULL when altering a nullable column', async () => {
+    const raw = vi.fn(async () => [[{ COLUMN_TYPE: 'int(10) unsigned', IS_NULLABLE: 'YES', COLUMN_DEFAULT: 'NULL', EXTRA: '' }]]);
+    const knex = { client: { config: { client: 'mysql2' } }, raw, schema: { hasColumn: vi.fn(async () => true) } } as any;
+    await applySqlColumnModifications(knex, 'example', [{ from: { name: 'ownerId', isNullable: false }, to: { name: 'ownerId', isNullable: true } }], 'mysql2');
+    expect(raw).toHaveBeenLastCalledWith('ALTER TABLE ?? MODIFY COLUMN ?? int(10) unsigned NULL', ['example', 'ownerId']);
+  });
+
   it.each(['code', 'simple-json'])('reapplies the MySQL physical %s contract for a same-type declaration', async (type) => {
     const raw = vi.fn(async () => [
       [
