@@ -593,6 +593,11 @@ export class RuntimeSchemaTargetAttestorService {
     if (removed.length === 0) return;
     const db = this.deps.queryBuilderService.getMongoDb();
     const collection = db.collection(target.name);
+    const approxDocs =
+      typeof collection.estimatedDocumentCount === 'function'
+        ? await collection.estimatedDocumentCount()
+        : 0;
+    if (approxDocs > 50_000) return;
     if (removed.length > 1) {
       const anyRemaining = await collection.findOne(
         {

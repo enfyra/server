@@ -1616,6 +1616,10 @@ export class NativeSessionCollection<T extends Document = Document> {
     });
   }
 
+  estimatedDocumentCount(options?: any) {
+    return this.base.estimatedDocumentCount(options);
+  }
+
   listIndexes(options?: any) {
     return this.base.listIndexes({ ...options, session: this.session });
   }
@@ -1710,6 +1714,13 @@ export class SagaCollection<_T extends Document = Document> {
 
   countDocuments(filter?: any) {
     return this.session().countDocuments(this.name, filter || {});
+  }
+
+  estimatedDocumentCount(options?: any) {
+    return this.mongo
+      .getRawDb()
+      .collection(this.name)
+      .estimatedDocumentCount(options);
   }
 
   async insertOne(doc: any, options?: any) {

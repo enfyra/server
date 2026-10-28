@@ -31,8 +31,61 @@ function getEnumOptions(column: any): string[] {
   return options;
 }
 
+function escapeSqlLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
 function buildPostgresEnumValuesSql(options: readonly string[]): string {
-  return options.map((option) => `'${option.replace(/'/g, "''")}'`).join(', ');
+  return options.map((option) => `'${escapeSqlLiteral(option)}'`).join(', ');
+}
+
+function isOrderPreservingEnumExpansion(
+  currentValues: readonly string[],
+  nextValues: readonly string[],
+): boolean {
+  if (currentValues.length === 0 || nextValues.length < currentValues.length) {
+    return false;
+  }
+  let cursor = 0;
+  for (const value of nextValues) {
+    if (value === currentValues[cursor]) {
+      cursor += 1;
+      if (cursor === currentValues.length) {
+        return true;
+      }
+    }
+  }
+  return cursor === currentValues.length;
+}
+
+function buildPostgresEnumAddValueStatements(
+  typeName: string,
+  currentValues: readonly string[],
+  nextValues: readonly string[],
+): string[] {
+  const quotedType = quoteIdentifier(typeName, 'postgres');
+  const known = [...currentValues];
+  const statements: string[] = [];
+  for (let i = 0; i < nextValues.length; i += 1) {
+    const value = nextValues[i]!;
+    if (known.includes(value)) continue;
+    const escapedValue = escapeSqlLiteral(value);
+    if (i === 0) {
+      const firstKnown = escapeSqlLiteral(known[0]!);
+      statements.push(
+        `ALTER TYPE ${quotedType} ADD VALUE IF NOT EXISTS '${escapedValue}' BEFORE '${firstKnown}'`,
+      );
+      known.unshift(value);
+    } else {
+      const prevValue = escapeSqlLiteral(nextValues[i - 1]!);
+      statements.push(
+        `ALTER TYPE ${quotedType} ADD VALUE IF NOT EXISTS '${escapedValue}' AFTER '${prevValue}'`,
+      );
+      const prevIndex = known.indexOf(nextValues[i - 1]!);
+      known.splice(prevIndex + 1, 0, value);
+    }
+  }
+  return statements;
 }
 
 export function buildPostgresEnumColumnDefinition(
@@ -138,13 +191,19 @@ export async function planPostgresEnumUpdate(
       `Column ${sourceTableName}.${sourceColumnName} does not exist`,
     );
   }
+  const isNativeEnumSuperset =
+    current.dataType === 'USER-DEFINED' &&
+    current.enumValues.length > 0 &&
+    current.enumValues.every((value) => options.includes(value));
+
   if (
-    await hasSqlValuesOutsideEnumOptions(
+    !isNativeEnumSuperset &&
+    (await hasSqlValuesOutsideEnumOptions(
       knex,
       sourceTableName,
       sourceColumnName,
       options,
-    )
+    ))
   ) {
     throw new Error(
       `Cannot update ${tableName}.${newColumn.name} enum: unsupported persisted values`,
@@ -159,50 +218,65 @@ export async function planPostgresEnumUpdate(
     JSON.stringify(current.enumValues) === JSON.stringify(options);
   const table = quoteIdentifier(tableName, 'postgres');
   const column = quoteIdentifier(newColumn.name, 'postgres');
+  const typeName = getPostgresEnumTypeName(tableName, newColumn.name);
+  const oldDefault = oldColumn?.defaultValue ?? null;
+  const newDefault = newColumn?.defaultValue ?? null;
+  const canExpandInPlace =
+    current.dataType === 'USER-DEFINED' &&
+    current.udtName === typeName &&
+    isOrderPreservingEnumExpansion(current.enumValues, options) &&
+    (newDefault === null || current.enumValues.includes(String(newDefault)));
   const statements: string[] = [];
 
   if (optionsChanged || !physicalMatches) {
-    if (current.defaultValue !== null) {
+    if (canExpandInPlace) {
       statements.push(
-        `ALTER TABLE ${table} ALTER COLUMN ${column} DROP DEFAULT`,
+        ...buildPostgresEnumAddValueStatements(
+          typeName,
+          current.enumValues,
+          options,
+        ),
       );
-    }
-    const checkConstraints = await findPostgresColumnCheckConstraintNames(
-      knex,
-      sourceTableName,
-      sourceColumnName,
-    );
-    for (const constraintName of checkConstraints) {
+    } else {
+      if (current.defaultValue !== null) {
+        statements.push(
+          `ALTER TABLE ${table} ALTER COLUMN ${column} DROP DEFAULT`,
+        );
+      }
+      const checkConstraints = await findPostgresColumnCheckConstraintNames(
+        knex,
+        sourceTableName,
+        sourceColumnName,
+      );
+      for (const constraintName of checkConstraints) {
+        statements.push(
+          `ALTER TABLE ${table} DROP CONSTRAINT IF EXISTS ${quoteIdentifier(constraintName, 'postgres')}`,
+        );
+      }
       statements.push(
-        `ALTER TABLE ${table} DROP CONSTRAINT IF EXISTS ${quoteIdentifier(constraintName, 'postgres')}`,
+        `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE text USING ${column}::text`,
       );
-    }
-    statements.push(
-      `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE text USING ${column}::text`,
-    );
 
-    const typeName = getPostgresEnumTypeName(tableName, newColumn.name);
-    if (
-      current.dataType === 'USER-DEFINED' &&
-      current.udtName &&
-      current.udtName !== typeName
-    ) {
+      if (
+        current.dataType === 'USER-DEFINED' &&
+        current.udtName &&
+        current.udtName !== typeName
+      ) {
+        statements.push(
+          `DROP TYPE IF EXISTS ${quoteIdentifier(current.udtName, 'postgres')}`,
+        );
+      }
       statements.push(
-        `DROP TYPE IF EXISTS ${quoteIdentifier(current.udtName, 'postgres')}`,
+        `DROP TYPE IF EXISTS ${quoteIdentifier(typeName, 'postgres')}`,
+        `CREATE TYPE ${quoteIdentifier(typeName, 'postgres')} AS ENUM (${buildPostgresEnumValuesSql(options)})`,
+        `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${quoteIdentifier(typeName, 'postgres')} USING ${column}::text::${quoteIdentifier(typeName, 'postgres')}`,
       );
     }
-    statements.push(
-      `DROP TYPE IF EXISTS ${quoteIdentifier(typeName, 'postgres')}`,
-      `CREATE TYPE ${quoteIdentifier(typeName, 'postgres')} AS ENUM (${buildPostgresEnumValuesSql(options)})`,
-      `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${quoteIdentifier(typeName, 'postgres')} USING ${column}::text::${quoteIdentifier(typeName, 'postgres')}`,
-    );
   }
 
   const definition = buildPostgresEnumColumnDefinition(tableName, newColumn);
   const defaultMatch = definition.match(/\s+DEFAULT\s+(.+)$/i);
-  const oldDefault = oldColumn?.defaultValue ?? null;
-  const newDefault = newColumn?.defaultValue ?? null;
-  if ((optionsChanged || !physicalMatches) && newDefault !== null) {
+  if ((optionsChanged || !physicalMatches) && !canExpandInPlace && newDefault !== null) {
     if (!defaultMatch?.[1]) {
       throw new Error(
         `Enum column ${tableName}.${newColumn.name} has an invalid default`,
@@ -212,8 +286,7 @@ export async function planPostgresEnumUpdate(
       `ALTER TABLE ${table} ALTER COLUMN ${column} SET DEFAULT ${defaultMatch[1]}`,
     );
   } else if (
-    !optionsChanged &&
-    physicalMatches &&
+    (canExpandInPlace || (!optionsChanged && physicalMatches)) &&
     JSON.stringify(oldDefault) !== JSON.stringify(newDefault)
   ) {
     if (newDefault !== null && !defaultMatch?.[1]) {

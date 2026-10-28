@@ -366,36 +366,82 @@ export class MySqlBootstrapSnapshotService {
 
     const sourceTableName = ctx.source?.name;
     if (ctx.operation === 'delete' && sourceTableName) {
-      candidates.add(sourceTableName);
+      const approxRows = await this.readEstimatedTableRows(
+        knex,
+        sourceTableName,
+      );
+      if (approxRows <= 50_000) {
+        candidates.add(sourceTableName);
+      }
     } else if (
       isUpdate &&
       sourceTableName &&
       allTables.has(sourceTableName)
     ) {
-      if (ctx.diff.changedColumns.length > 0) {
-        candidates.add(sourceTableName);
-      } else if (ctx.diff.removedColumns.length > 0) {
-        const existingCols = new Set(await this.readWritableColumns(knex, sourceTableName));
-        const removedCols = ctx.diff.removedColumns.filter((col) =>
-          existingCols.has(col),
+      const beforeCols = new Map(
+        (ctx.source?.columns ?? []).map((col) => [col.name, col]),
+      );
+      const afterCols = new Map(
+        (ctx.target?.columns ?? []).map((col) => [col.name, col]),
+      );
+      const hasColumnTypeChange = ctx.diff.changedColumns.some((colName) => {
+        const beforeCol = beforeCols.get(colName);
+        const afterCol = afterCols.get(colName);
+        return Boolean(
+          beforeCol && afterCol && beforeCol.type !== afterCol.type,
         );
-        if (removedCols.length > 0) {
-          const whereClause = removedCols
-            .map(() => '?? IS NOT NULL')
-            .join(' OR ');
-          const result = await knex.raw(
-            `SELECT 1 AS hasData FROM ?? WHERE ${whereClause} LIMIT 1`,
-            [sourceTableName, ...removedCols],
-          );
-          const rows = Array.isArray(result) ? result[0] : result.rows;
-          if ((rows ?? []).length > 0) {
+      });
+
+      if (hasColumnTypeChange || ctx.diff.removedColumns.length > 0) {
+        const approxRows = await this.readEstimatedTableRows(
+          knex,
+          sourceTableName,
+        );
+        if (approxRows <= 50_000) {
+          if (hasColumnTypeChange) {
             candidates.add(sourceTableName);
+          } else {
+            const existingCols = new Set(
+              await this.readWritableColumns(knex, sourceTableName),
+            );
+            const removedCols = ctx.diff.removedColumns.filter((col) =>
+              existingCols.has(col),
+            );
+            if (removedCols.length > 0) {
+              const whereClause = removedCols
+                .map(() => '?? IS NOT NULL')
+                .join(' OR ');
+              const result = await knex.raw(
+                `SELECT 1 AS hasData FROM ?? WHERE ${whereClause} LIMIT 1`,
+                [sourceTableName, ...removedCols],
+              );
+              const rows = Array.isArray(result) ? result[0] : result.rows;
+              if ((rows ?? []).length > 0) {
+                candidates.add(sourceTableName);
+              }
+            }
           }
         }
       }
     }
 
     return [...candidates].filter((name) => allTables.has(name)).sort();
+  }
+
+  private async readEstimatedTableRows(
+    knex: Knex,
+    tableName: string,
+  ): Promise<number> {
+    const result = await knex.raw(
+      `SELECT TABLE_ROWS AS tableRows
+       FROM information_schema.TABLES
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = ?
+       LIMIT 1`,
+      [tableName],
+    );
+    const rows = Array.isArray(result) ? result[0] : result.rows;
+    return Number(rows?.[0]?.tableRows ?? rows?.[0]?.TABLE_ROWS ?? 0);
   }
 
   private async compensateRuntimePhysicalChanges(

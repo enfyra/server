@@ -310,6 +310,7 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
             stepLog(`STEP 11 PG: running DDL inside metadata transaction...`);
             await trx.raw(`SET LOCAL lock_timeout = '5s'`);
             await trx.raw(`SET LOCAL statement_timeout = '90s'`);
+            await trx.raw(`SET LOCAL maintenance_work_mem = '512MB'`);
             const pendingUpdate: any =
               await this.schemaMigrationService.updateTable(
                 exists.name,

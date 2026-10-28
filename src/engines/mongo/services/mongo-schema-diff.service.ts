@@ -358,8 +358,17 @@ export class MongoSchemaDiffService {
         oldColumn.name !== newColumn.name
           ? oldColumn.name
           : newColumn?.name;
+      const isEnumExpansion =
+        oldColumn?.type === 'enum' &&
+        Array.isArray(oldColumn.options) &&
+        oldColumn.options.length > 0 &&
+        Array.isArray(newColumn?.options) &&
+        oldColumn.options.every((option: string) =>
+          newColumn.options.includes(option),
+        );
       if (
         newColumn?.type === 'enum' &&
+        !isEnumExpansion &&
         checkFieldName &&
         Array.isArray(newColumn.options)
       ) {
@@ -403,16 +412,24 @@ export class MongoSchemaDiffService {
       }
     }
 
+    const rawDb =
+      typeof (this.mongoService as any).getRawDb === 'function'
+        ? this.mongoService.getRawDb()
+        : db;
     for (const newColumn of diff.columns.create) {
       if (!newColumn?.name || newColumn.isPrimary || newColumn.isGenerated) {
         continue;
       }
-      const coll = db.collection(activeCollectionName);
+      const coll = rawDb.collection(activeCollectionName);
+      const approxDocs =
+        typeof coll.estimatedDocumentCount === 'function'
+          ? await coll.estimatedDocumentCount()
+          : 0;
       if (
         newColumn.defaultValue !== null &&
         newColumn.defaultValue !== undefined
       ) {
-        if (typeof coll.updateMany === 'function') {
+        if (approxDocs <= 50_000 && typeof coll.updateMany === 'function') {
           await coll.updateMany(
             { [newColumn.name]: { $exists: false } },
             { $set: { [newColumn.name]: newColumn.defaultValue } },
