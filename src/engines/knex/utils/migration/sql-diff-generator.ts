@@ -471,10 +471,6 @@ export async function generateSQLFromDiff(
   const processedUpdates = new Set<string>();
   for (const update of ensureArray(columnDiff.update)) {
     const colName = update.newColumn.name;
-    if (renamedColumns.has(colName)) {
-      logger.log(`  Skipping MODIFY for ${colName} - column was renamed`);
-      continue;
-    }
     if (processedUpdates.has(colName)) {
       logger.log(`  Skipping duplicate MODIFY for ${colName}`);
       continue;
@@ -487,6 +483,7 @@ export async function generateSQLFromDiff(
           activeTableName,
           update.oldColumn,
           update.newColumn,
+          tableName,
         )),
       );
       continue;
@@ -501,8 +498,8 @@ export async function generateSQLFromDiff(
       dbType === 'postgres'
         ? await getPhysicalColumnType(
             knex,
-            activeTableName,
-            update.newColumn.name,
+            tableName,
+            update.oldColumn?.name || update.newColumn.name,
           )
         : undefined,
     );

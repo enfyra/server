@@ -128,8 +128,7 @@ async function bootLifecycle(
       `${backend} boot exceeded 180 seconds; see ${logPath}`,
     );
     if (code !== 0) {
-      const failure =
-        redacted.match(/Error: ([^\n]+)/)?.[1] || redacted.slice(-1500);
+      const failure = redacted.slice(-1500);
       throw new Error(`${backend} boot failed: ${failure}; see ${logPath}`);
     }
     const marker = redacted.match(/LIFECYCLE_BOOT_RESULT (\{[^\n]+\})/);
@@ -331,7 +330,7 @@ async function verifyBackendLifecycle(
       'Phase 2: Version upgrade, user-column preservation & physical schema healing converged',
     );
 
-    // Phase 3: Stable boot + Full Runtime Auto-Migration Matrix (6 checks)
+    // Phase 3: Stable boot + Full Runtime Auto-Migration Matrix (8 checks)
     const phase3 = await bootLifecycle(
       backend,
       uri.href,
@@ -341,7 +340,7 @@ async function verifyBackendLifecycle(
       true,
       join(directory, `${backend}-phase3-runtime-migration.log`),
     );
-    assert.equal(phase3.runtimeChecks.length, 6);
+    assert.equal(phase3.runtimeChecks.length, 8);
     console.log(
       'PASS',
       backend,

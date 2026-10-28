@@ -21,9 +21,11 @@ export class DynamicSchemaActivationService {
     opts: { ids?: (string | number)[] },
   ): Promise<void> {
     const mutationId = mutation.mutationId;
+    const reloadIds =
+      mutation.ownerTableId != null ? [mutation.ownerTableId] : opts.ids;
     if (!mutationId) {
       await this.reload({
-        ...(opts.ids !== undefined ? { ids: opts.ids } : {}),
+        ...(reloadIds !== undefined ? { ids: reloadIds } : {}),
         ...(mutation.affectedTables !== undefined
           ? { affectedTables: mutation.affectedTables }
           : {}),
@@ -43,7 +45,7 @@ export class DynamicSchemaActivationService {
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         await this.reload({
-          ...(opts.ids !== undefined ? { ids: opts.ids } : {}),
+          ...(reloadIds !== undefined ? { ids: reloadIds } : {}),
           ...(mutation.affectedTables !== undefined
             ? { affectedTables: mutation.affectedTables }
             : {}),

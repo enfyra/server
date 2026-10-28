@@ -216,8 +216,11 @@ export class MongoSchemaMigrationService {
     );
     for (const [relId, newRel] of newRelMap) {
       const oldRel = oldRelMap.get(relId);
-      if (oldRel && oldRel.propertyName !== newRel.propertyName) {
-        propertyNameRenames.set(oldRel.propertyName, newRel.propertyName);
+      if (!oldRel) continue;
+      const oldField = oldRel.foreignKeyColumn || oldRel.propertyName;
+      const newField = newRel.foreignKeyColumn || newRel.propertyName;
+      if (oldField && newField && oldField !== newField) {
+        propertyNameRenames.set(oldField, newField);
       }
     }
     if (columnRenames.size > 0 || propertyNameRenames.size > 0) {
@@ -253,8 +256,9 @@ export class MongoSchemaMigrationService {
         if (col?.name) knownFields.add(col.name);
       }
       for (const rel of newMetadata.relations || []) {
-        if (rel?.propertyName && !rel?.mappedBy && !rel?.mappedById) {
-          knownFields.add(rel.propertyName);
+        if (!rel?.mappedBy && !rel?.mappedById) {
+          if (rel?.propertyName) knownFields.add(rel.propertyName);
+          if (rel?.foreignKeyColumn) knownFields.add(rel.foreignKeyColumn);
         }
       }
       updatedUniques = (updatedUniques || []).filter(

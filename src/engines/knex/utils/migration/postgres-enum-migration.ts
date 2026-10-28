@@ -124,21 +124,25 @@ export async function planPostgresEnumUpdate(
   tableName: string,
   oldColumn: any,
   newColumn: any,
+  sourceTableName: string = tableName,
 ): Promise<string[]> {
   const options = getEnumOptions(newColumn);
+  const sourceColumnName = oldColumn?.name || newColumn.name;
   const current = await readPostgresEnumColumnState(
     knex,
-    tableName,
-    newColumn.name,
+    sourceTableName,
+    sourceColumnName,
   );
   if (!current) {
-    throw new Error(`Column ${tableName}.${newColumn.name} does not exist`);
+    throw new Error(
+      `Column ${sourceTableName}.${sourceColumnName} does not exist`,
+    );
   }
   if (
     await hasSqlValuesOutsideEnumOptions(
       knex,
-      tableName,
-      newColumn.name,
+      sourceTableName,
+      sourceColumnName,
       options,
     )
   ) {
@@ -165,8 +169,8 @@ export async function planPostgresEnumUpdate(
     }
     const checkConstraints = await findPostgresColumnCheckConstraintNames(
       knex,
-      tableName,
-      newColumn.name,
+      sourceTableName,
+      sourceColumnName,
     );
     for (const constraintName of checkConstraints) {
       statements.push(

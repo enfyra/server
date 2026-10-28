@@ -176,7 +176,12 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     this.globalPostHooks = this.cache.globalPostHooks;
     const affectedTableNames = new Set<string>(payload.affectedTables || []);
 
-    if (payload.table === 'enfyra_table' && payload.ids?.length) {
+    if (
+      ['enfyra_table', 'enfyra_column', 'enfyra_relation'].includes(
+        payload.table,
+      ) &&
+      payload.ids?.length
+    ) {
       const isMongoDB = this.queryBuilderService.isMongoDb();
       const idField = DatabaseConfigService.getPkField();
       const filter = isMongoDB

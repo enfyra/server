@@ -159,7 +159,8 @@ export class SqlSchemaDiffService {
             newName: newCol.name,
             column: newCol,
           });
-        } else if (this.hasColumnChanged(oldCol, newCol)) {
+        }
+        if (this.hasColumnChanged(oldCol, newCol)) {
           diff.columns.update.push({
             oldColumn: oldCol,
             newColumn: newCol,

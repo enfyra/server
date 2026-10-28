@@ -114,7 +114,8 @@ export class MongoSchemaDiffService {
             newName: newCol.name,
             column: newCol,
           });
-        } else if (this.hasMongoColumnChanged(oldCol, newCol)) {
+        }
+        if (this.hasMongoColumnChanged(oldCol, newCol)) {
           result.update.push({ oldColumn: oldCol, newColumn: newCol });
         }
       }
@@ -350,15 +351,21 @@ export class MongoSchemaDiffService {
       }
     }
 
-    for (const { newColumn } of diff.columns.update) {
+    for (const { oldColumn, newColumn } of diff.columns.update) {
+      const checkFieldName =
+        oldColumn?.name &&
+        newColumn?.name &&
+        oldColumn.name !== newColumn.name
+          ? oldColumn.name
+          : newColumn?.name;
       if (
         newColumn?.type === 'enum' &&
-        newColumn?.name &&
+        checkFieldName &&
         Array.isArray(newColumn.options)
       ) {
         const invalidDoc = await db.collection(activeCollectionName).findOne(
           {
-            [newColumn.name]: {
+            [checkFieldName]: {
               $exists: true,
               $nin: [...newColumn.options, null],
             },
@@ -368,6 +375,65 @@ export class MongoSchemaDiffService {
         if (invalidDoc) {
           throw new Error(
             `Cannot update ${activeCollectionName}.${newColumn.name} enum: unsupported persisted values`,
+          );
+        }
+      }
+      if (
+        oldColumn?.isNullable !== false &&
+        newColumn?.isNullable === false &&
+        checkFieldName
+      ) {
+        const coll = db.collection(activeCollectionName);
+        if (typeof coll.findOne === 'function') {
+          const nullDoc = await coll.findOne(
+            {
+              $or: [
+                { [checkFieldName]: null },
+                { [checkFieldName]: { $exists: false } },
+              ],
+            },
+            { projection: { _id: 1 } },
+          );
+          if (nullDoc) {
+            throw new Error(
+              `Cannot update ${activeCollectionName}.${newColumn.name} to NOT NULL: column contains null values`,
+            );
+          }
+        }
+      }
+    }
+
+    for (const newColumn of diff.columns.create) {
+      if (!newColumn?.name || newColumn.isPrimary || newColumn.isGenerated) {
+        continue;
+      }
+      const coll = db.collection(activeCollectionName);
+      if (
+        newColumn.defaultValue !== null &&
+        newColumn.defaultValue !== undefined
+      ) {
+        if (typeof coll.updateMany === 'function') {
+          await coll.updateMany(
+            { [newColumn.name]: { $exists: false } },
+            { $set: { [newColumn.name]: newColumn.defaultValue } },
+          );
+        }
+      } else if (
+        newColumn.isNullable === false &&
+        typeof coll.findOne === 'function'
+      ) {
+        const missingDoc = await coll.findOne(
+          {
+            $or: [
+              { [newColumn.name]: null },
+              { [newColumn.name]: { $exists: false } },
+            ],
+          },
+          { projection: { _id: 1 } },
+        );
+        if (missingDoc) {
+          throw new Error(
+            `Cannot add NOT NULL column ${activeCollectionName}.${newColumn.name} without default value to non-empty collection`,
           );
         }
       }

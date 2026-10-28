@@ -152,6 +152,13 @@ export class RuntimeMetadataSchemaRouterService {
       previousChild.name !== list[index].name
     ) {
       fieldRenames.set(previousChild.name, list[index].name);
+    } else if (
+      input.tableName === 'enfyra_relation' &&
+      previousChild.propertyName &&
+      list[index].propertyName &&
+      previousChild.propertyName !== list[index].propertyName
+    ) {
+      fieldRenames.set(previousChild.propertyName, list[index].propertyName);
     }
     body = this.normalizeCompleteTableConstraints(body, fieldRenames);
     this.validateSchemaBody(body);
@@ -228,6 +235,7 @@ export class RuntimeMetadataSchemaRouterService {
     }
     if (input.tableName === 'enfyra_column') body.columns = next;
     else body.relations = next;
+    body = this.normalizeCompleteTableConstraints(body);
     body = await this.resolveRelationTargetNames(body);
     const { contract, requiredConfirmHash } =
       await this.deps.runtimeSchemaContractCompilerService.compile({
@@ -605,7 +613,10 @@ export class RuntimeMetadataSchemaRouterService {
       'updatedAt',
       ...(body.columns || []).map((column: any) => column.name).filter(Boolean),
       ...(body.relations || [])
-        .map((relation: any) => relation.propertyName)
+        .flatMap((relation: any) => [
+          relation.propertyName,
+          relation.foreignKeyColumn,
+        ])
         .filter(Boolean),
     ]);
     const constraints = normalizeTableConstraints({
@@ -615,6 +626,10 @@ export class RuntimeMetadataSchemaRouterService {
       renames: fieldRenames,
       allowedFields: allowedConstraintFields,
     });
+    const strippedIndexes = stripOwningRelationIndexes(
+      body,
+      constraints.indexes,
+    );
     const databaseType = this.deps.databaseConfigService.getDbType();
     const backend =
       databaseType === 'postgres'
@@ -626,14 +641,14 @@ export class RuntimeMetadataSchemaRouterService {
       {
         ...body,
         uniques: constraints.uniques,
-        indexes: constraints.indexes,
+        indexes: strippedIndexes,
       },
       { ...(backend === undefined ? {} : { backend }), mode: 'persisted' },
     );
     return {
       ...body,
       uniques: (normalized?.contract.uniques ?? constraints.uniques) as any,
-      indexes: (normalized?.contract.indexes ?? constraints.indexes) as any,
+      indexes: (normalized?.contract.indexes ?? strippedIndexes) as any,
     };
   }
 

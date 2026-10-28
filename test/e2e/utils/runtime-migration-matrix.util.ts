@@ -488,6 +488,257 @@ export async function verifyRuntimeMigrationMatrix(c: Cradle): Promise<string[]>
     assert.equal(finalRows[1].ext_ref, 'DUP-CODE');
     checks.push('runtime-simultaneous-multi-column-rename-and-multi-column-drop');
 
+    // -------------------------------------------------------------------------
+    // Scenario 6: Nullability Tightening (isNullable: true -> false)
+    // Reject & Rollback When NULL Rows Exist, Succeed After Backfill
+    // -------------------------------------------------------------------------
+    {
+      const body = await loadTableBody(ordersTableId);
+      body.columns.push({
+        name: 'notes',
+        type: textType,
+        isNullable: true,
+      });
+      await applyConfirmedTableUpdate(ordersTableId, body);
+    }
+
+    // Tightening 'notes' to NOT NULL while ORD-1 and ORD-2 have NULL must reject and roll back
+    await assert.rejects(async () => {
+      const body = await loadTableBody(ordersTableId);
+      const notesCol = body.columns.find((col: any) => col.name === 'notes');
+      assert.ok(notesCol);
+      notesCol.isNullable = false;
+      await applyConfirmedTableUpdate(ordersTableId, body);
+    });
+    assert.equal(
+      c.runtimeRegistryService
+        .lookupTableByName(ordersTable)
+        ?.columns?.find((col: any) => col.name === 'notes')?.isNullable,
+      true,
+      'Expected notes column to remain nullable after rejected NOT NULL migration',
+    );
+
+    // Backfill non-null values on ORD-1 and ORD-2, then tighten 'notes' to NOT NULL
+    await ordersRepo().update({
+      id: seedOrder1[pk],
+      data: { notes: 'order-1-verified' },
+    });
+    await ordersRepo().update({
+      id: seedOrder2[pk],
+      data: { notes: 'order-2-verified' },
+    });
+    {
+      const body = await loadTableBody(ordersTableId);
+      const notesCol = body.columns.find((col: any) => col.name === 'notes');
+      assert.ok(notesCol);
+      notesCol.isNullable = false;
+      await applyConfirmedTableUpdate(ordersTableId, body);
+    }
+    assert.equal(
+      c.runtimeRegistryService
+        .lookupTableByName(ordersTable)
+        ?.columns?.find((col: any) => col.name === 'notes')?.isNullable,
+      false,
+    );
+    await assert.rejects(async () => {
+      await ordersRepo().create({
+        data: {
+          code: 'ORD-NULL-NOTES',
+          amount: 10,
+          tier: 'free',
+          notes: null,
+        },
+      });
+    });
+    checks.push(
+      'runtime-nullability-tighten-reject-on-null-and-succeed-after-backfill',
+    );
+
+    // -------------------------------------------------------------------------
+    // Scenario 7: Direct Child-Table Schema CRUD (enfyra_column & enfyra_relation)
+    // + Simultaneous Column Rename & Modification (name + defaultValue + isNullable)
+    // -------------------------------------------------------------------------
+    const colRepo = (ctx: TDynamicContext = rootContext) =>
+      c.dynamicRepositoryFactory.create('enfyra_column', ctx);
+    const relRepo = (ctx: TDynamicContext = rootContext) =>
+      c.dynamicRepositoryFactory.create('enfyra_relation', ctx);
+
+    async function createConfirmedChild(
+      repoFn: (ctx?: TDynamicContext) => any,
+      data: Record<string, any>,
+    ) {
+      const first = await repoFn().create({ data });
+      const preview = first.data?.[0];
+      if (!preview?._preview) return first;
+      const confirmHash = preview.requiredConfirmHash || preview.confirmHash;
+      assert.ok(confirmHash, 'Expected confirmHash on child create preview');
+      return repoFn({
+        ...rootContext,
+        $query: { schemaConfirmHash: confirmHash },
+      }).create({ data });
+    }
+
+    const createdColRes = await createConfirmedChild(colRepo, {
+      table: ordersTableId,
+      name: 'discount_pct',
+      type: 'int',
+      isNullable: true,
+      defaultValue: 0,
+    });
+    const discountColId =
+      createdColRes.data?.[0]?.[pk] ?? createdColRes.data?.[0]?.id;
+    assert.ok(discountColId, 'Expected created discount_pct column id');
+
+    await ordersRepo().update({
+      id: seedOrder1[pk],
+      data: { discount_pct: 5 },
+    });
+    await ordersRepo().update({
+      id: seedOrder2[pk],
+      data: { discount_pct: 10 },
+    });
+
+    // Simultaneously rename discount_pct -> rebate_pct AND change defaultValue (0 -> 15) + isNullable (true -> false)
+    {
+      const first = await colRepo().update({
+        id: discountColId,
+        data: {
+          name: 'rebate_pct',
+          type: 'int',
+          isNullable: false,
+          defaultValue: 15,
+        },
+      });
+      const preview = first.data?.[0];
+      if (preview?._preview) {
+        const confirmHash = preview.requiredConfirmHash || preview.confirmHash;
+        await colRepo({
+          ...rootContext,
+          $query: { schemaConfirmHash: confirmHash },
+        }).update({
+          id: discountColId,
+          data: {
+            name: 'rebate_pct',
+            type: 'int',
+            isNullable: false,
+            defaultValue: 15,
+          },
+        });
+      }
+    }
+
+    const order3 = (
+      await ordersRepo().create({
+        data: {
+          code: 'ORD-3',
+          amount: 300,
+          tier: 'pro',
+          notes: 'order-3-note',
+        },
+      })
+    ).data[0];
+    const order3Loaded = (
+      await ordersRepo().find({
+        filter: { [pk]: { _eq: order3[pk] } },
+        fields: [pk, 'code', 'rebate_pct'],
+      })
+    ).data[0];
+    assert.equal(Number(order3Loaded.rebate_pct), 15);
+
+    // Delete rebate_pct via enfyra_column.delete (preview + confirm gate)
+    {
+      const delPreviewRes = await colRepo().delete({ id: discountColId });
+      const delPreview = delPreviewRes.data?.[0];
+      assert.ok(
+        delPreview?._preview,
+        'Expected destructive preview on enfyra_column.delete',
+      );
+      const confirmHash =
+        delPreview.requiredConfirmHash || delPreview.confirmHash;
+      await colRepo({
+        ...rootContext,
+        $query: { schemaConfirmHash: confirmHash },
+      }).delete({ id: discountColId });
+    }
+    assert.equal(
+      Boolean(
+        c.runtimeRegistryService
+          .lookupTableByName(ordersTable)
+          ?.columns?.some((col: any) => col.name === 'rebate_pct'),
+      ),
+      false,
+    );
+
+    // Direct enfyra_relation.create & enfyra_relation.delete (preview + confirm gate)
+    const createdRelRes = await createConfirmedChild(relRepo, {
+      sourceTable: ordersTableId,
+      propertyName: 'secondaryClient',
+      type: 'many-to-one',
+      targetTable: isMongo ? { _id: customersTableId } : customersTableId,
+      isNullable: true,
+      onDelete: 'SET NULL',
+    });
+    const secondaryRelId =
+      createdRelRes.data?.[0]?.[pk] ?? createdRelRes.data?.[0]?.id;
+    assert.ok(secondaryRelId, 'Expected created secondaryClient relation id');
+    assert.ok(
+      c.runtimeRegistryService
+        .lookupTableByName(ordersTable)
+        ?.relations?.some((r: any) => r.propertyName === 'secondaryClient'),
+    );
+    // Rename secondaryClient -> backupClient via enfyra_relation.update
+    {
+      const first = await relRepo().update({
+        id: secondaryRelId,
+        data: {
+          propertyName: 'backupClient',
+        },
+      });
+      const preview = first.data?.[0];
+      if (preview?._preview) {
+        const confirmHash = preview.requiredConfirmHash || preview.confirmHash;
+        await relRepo({
+          ...rootContext,
+          $query: { schemaConfirmHash: confirmHash },
+        }).update({
+          id: secondaryRelId,
+          data: {
+            propertyName: 'backupClient',
+          },
+        });
+      }
+    }
+    assert.ok(
+      c.runtimeRegistryService
+        .lookupTableByName(ordersTable)
+        ?.relations?.some((r: any) => r.propertyName === 'backupClient'),
+    );
+    {
+      const relDelPreviewRes = await relRepo().delete({ id: secondaryRelId });
+      const relDelPreview = relDelPreviewRes.data?.[0];
+      assert.ok(
+        relDelPreview?._preview,
+        'Expected destructive preview on enfyra_relation.delete',
+      );
+      const confirmHash =
+        relDelPreview.requiredConfirmHash || relDelPreview.confirmHash;
+      await relRepo({
+        ...rootContext,
+        $query: { schemaConfirmHash: confirmHash },
+      }).delete({ id: secondaryRelId });
+    }
+    assert.equal(
+      Boolean(
+        c.runtimeRegistryService
+          .lookupTableByName(ordersTable)
+          ?.relations?.some((r: any) => r.propertyName === 'backupClient'),
+      ),
+      false,
+    );
+    checks.push(
+      'runtime-direct-child-crud-and-simultaneous-column-rename-modify',
+    );
+
     return checks;
   } finally {
     await deleteTableConfirmed(ordersTableId).catch(() => {});
