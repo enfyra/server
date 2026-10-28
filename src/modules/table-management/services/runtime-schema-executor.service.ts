@@ -143,6 +143,7 @@ export class RuntimeSchemaExecutorService {
       outputs: new Map(),
       affectedTables,
       recordId: (result as any).recordId,
+      policyMetadataChanged: contract.context.diff.policyMetadataChanged,
       tableRenames: (result as any).tableRenames,
     };
   }

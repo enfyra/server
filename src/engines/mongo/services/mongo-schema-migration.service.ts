@@ -221,8 +221,14 @@ export class MongoSchemaMigrationService {
       }
     }
     if (columnRenames.size > 0 || propertyNameRenames.size > 0) {
+      const baseUniques = Array.isArray(newMetadata.uniques)
+        ? newMetadata.uniques
+        : oldMetadata.uniques || [];
+      const baseIndexes = Array.isArray(newMetadata.indexes)
+        ? newMetadata.indexes
+        : oldMetadata.indexes || [];
       let updatedUniques = this.schemaDiffService.updateConstraintColumns(
-        oldMetadata.uniques || [],
+        baseUniques,
         columnRenames,
       );
       updatedUniques = this.schemaDiffService.updateConstraintColumns(
@@ -230,12 +236,38 @@ export class MongoSchemaMigrationService {
         propertyNameRenames,
       );
       let updatedIndexes = this.schemaDiffService.updateConstraintColumns(
-        oldMetadata.indexes || [],
+        baseIndexes,
         columnRenames,
       );
       updatedIndexes = this.schemaDiffService.updateConstraintColumns(
         updatedIndexes,
         propertyNameRenames,
+      );
+      const knownFields = new Set<string>([
+        '_id',
+        'id',
+        'createdAt',
+        'updatedAt',
+      ]);
+      for (const col of newMetadata.columns || []) {
+        if (col?.name) knownFields.add(col.name);
+      }
+      for (const rel of newMetadata.relations || []) {
+        if (rel?.propertyName && !rel?.mappedBy && !rel?.mappedById) {
+          knownFields.add(rel.propertyName);
+        }
+      }
+      updatedUniques = (updatedUniques || []).filter(
+        (group: any) =>
+          Array.isArray(group) &&
+          group.length > 0 &&
+          group.every((field: string) => knownFields.has(field)),
+      );
+      updatedIndexes = (updatedIndexes || []).filter(
+        (group: any) =>
+          Array.isArray(group) &&
+          group.length > 0 &&
+          group.every((field: string) => knownFields.has(field)),
       );
       const metadataUpdate: any = {};
       if (

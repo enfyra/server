@@ -206,10 +206,24 @@ export class MongoPhysicalMigrationService {
         { $rename: { [rename.oldName]: rename.newName } },
       );
     }
-    for (const field of validRemovedFields) {
+    if (validRemovedFields.length === 1) {
+      const field = validRemovedFields[0]!;
       await collection.updateMany(
         { [field]: { $exists: true } },
         { $unset: { [field]: '' } },
+      );
+    } else if (validRemovedFields.length > 1) {
+      await collection.updateMany(
+        {
+          $or: validRemovedFields.map((field) => ({
+            [field]: { $exists: true },
+          })),
+        },
+        {
+          $unset: Object.fromEntries(
+            validRemovedFields.map((field) => [field, '']),
+          ),
+        },
       );
     }
 

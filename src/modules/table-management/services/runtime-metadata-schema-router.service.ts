@@ -102,6 +102,9 @@ export class RuntimeMetadataSchemaRouterService {
       recordId: this.getRecordId(created),
       ownerTableId,
       affectedTables: execResult.affectedTables as string[],
+      ...(execResult.policyMetadataChanged === undefined
+        ? {}
+        : { policyMetadataChanged: execResult.policyMetadataChanged }),
       ...(execResult.tableRenames === undefined
         ? {}
         : { tableRenames: execResult.tableRenames }),
@@ -192,6 +195,9 @@ export class RuntimeMetadataSchemaRouterService {
       recordId: input.recordId,
       ownerTableId,
       affectedTables: execResult.affectedTables as string[],
+      ...(execResult.policyMetadataChanged === undefined
+        ? {}
+        : { policyMetadataChanged: execResult.policyMetadataChanged }),
       ...(execResult.tableRenames === undefined
         ? {}
         : { tableRenames: execResult.tableRenames }),
@@ -391,6 +397,9 @@ export class RuntimeMetadataSchemaRouterService {
       recordId: execResult.recordId ?? tableId,
       ownerTableId: tableId,
       affectedTables: execResult.affectedTables as string[],
+      ...(execResult.policyMetadataChanged === undefined
+        ? {}
+        : { policyMetadataChanged: execResult.policyMetadataChanged }),
       ...(execResult.tableRenames === undefined
         ? {}
         : { tableRenames: execResult.tableRenames }),

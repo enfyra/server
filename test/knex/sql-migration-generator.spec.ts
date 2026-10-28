@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Knex } from 'knex';
-import { executeBatchSQL } from '../../src/engines/knex/utils/migration/sql-diff-generator';
+import {
+  executeBatchSQL,
+  generateSQLFromDiff,
+} from '../../src/engines/knex/utils/migration/sql-diff-generator';
+import { SqlSchemaDiffService } from '../../src/engines/knex/services/sql-schema-diff.service';
 import {
   generateColumnDefinition,
   generateModifyColumnSQL,
@@ -171,5 +175,90 @@ describe('SQL migration column generator', () => {
         'mysql',
       ),
     ).toBe('FLOAT');
+  });
+
+  it('emits temporal auto-index exactly once when adding a datetime column via SqlSchemaDiffService', async () => {
+    const diffService = new SqlSchemaDiffService({
+      knexService: { getKnex: () => ({} as any) } as any,
+      metadataCacheService: {} as any,
+      queryBuilderService: {} as any,
+    });
+    const oldMeta = {
+      name: 'events',
+      columns: [{ id: 1, name: 'id', type: 'int', isPrimary: true }],
+      relations: [],
+      uniques: [],
+      indexes: [],
+    };
+    const newMeta = {
+      name: 'events',
+      columns: [
+        { id: 1, name: 'id', type: 'int', isPrimary: true },
+        { id: 2, name: 'reviewed_at', type: 'datetime', isNullable: true },
+      ],
+      relations: [],
+      uniques: [],
+      indexes: [],
+    };
+    const diff = await diffService.generateSchemaDiff(oldMeta, newMeta);
+    const statements = await generateSQLFromDiff(
+      { schema: { hasColumn: async () => true } } as unknown as Knex,
+      'events',
+      diff,
+      'postgres',
+    );
+    const createIndexStatements = statements.filter((s) =>
+      s.toUpperCase().startsWith('CREATE INDEX'),
+    );
+    expect(createIndexStatements).toHaveLength(1);
+    expect(createIndexStatements[0]).toContain('("reviewed_at", "id")');
+  });
+
+  it('does not crash or emit a redundant index when adding a unique datetime column', async () => {
+    const diffService = new SqlSchemaDiffService({
+      knexService: { getKnex: () => ({} as any) } as any,
+      metadataCacheService: {} as any,
+      queryBuilderService: {} as any,
+    });
+    const oldMeta = {
+      name: 'events',
+      columns: [{ id: 1, name: 'id', type: 'int', isPrimary: true }],
+      relations: [],
+      uniques: [],
+      indexes: [],
+    };
+    const newMeta = {
+      name: 'events',
+      columns: [
+        { id: 1, name: 'id', type: 'int', isPrimary: true },
+        {
+          id: 2,
+          name: 'unique_event_at',
+          type: 'datetime',
+          isNullable: true,
+          isUnique: true,
+        },
+      ],
+      relations: [],
+      uniques: [['unique_event_at']],
+      indexes: [],
+    };
+    const diff = await diffService.generateSchemaDiff(oldMeta, newMeta);
+    const statements = await generateSQLFromDiff(
+      { schema: { hasColumn: async () => true } } as unknown as Knex,
+      'events',
+      diff,
+      'postgres',
+    );
+    const createIndexStatements = statements.filter((s) =>
+      s.toUpperCase().startsWith('CREATE INDEX'),
+    );
+    expect(createIndexStatements).toHaveLength(0);
+    expect(
+      statements.some(
+        (s) =>
+          s.includes('UNIQUE') && s.includes('"unique_event_at"'),
+      ),
+    ).toBe(true);
   });
 });

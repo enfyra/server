@@ -28,6 +28,9 @@ export class DynamicSchemaActivationService {
           ? { affectedTables: mutation.affectedTables }
           : {}),
         critical: true,
+        ...(mutation.policyMetadataChanged !== undefined
+          ? { policyMetadataChanged: mutation.policyMetadataChanged }
+          : {}),
         ...(mutation.tableRenames !== undefined
           ? { tableRenames: mutation.tableRenames }
           : {}),
@@ -45,6 +48,9 @@ export class DynamicSchemaActivationService {
             ? { affectedTables: mutation.affectedTables }
             : {}),
           critical: true,
+          ...(mutation.policyMetadataChanged !== undefined
+            ? { policyMetadataChanged: mutation.policyMetadataChanged }
+            : {}),
           ...(mutation.tableRenames !== undefined
             ? { tableRenames: mutation.tableRenames }
             : {}),
@@ -70,6 +76,7 @@ export class DynamicSchemaActivationService {
     ids?: (string | number)[];
     affectedTables?: string[];
     tableRenames?: TCacheInvalidationPayload['tableRenames'];
+    policyMetadataChanged?: boolean;
     critical?: boolean;
   }) {
     const payload: TCacheInvalidationPayload = {
@@ -82,6 +89,9 @@ export class DynamicSchemaActivationService {
         ? { affectedTables: opts.affectedTables }
         : {}),
       ...(opts?.critical !== undefined ? { critical: opts.critical } : {}),
+      ...(opts?.policyMetadataChanged !== undefined
+        ? { policyMetadataChanged: opts.policyMetadataChanged }
+        : {}),
       ...(opts?.tableRenames !== undefined
         ? { tableRenames: opts.tableRenames }
         : {}),

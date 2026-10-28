@@ -250,10 +250,20 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                   if (owningRels.length > 0)
                     resolvedMappedBy = owningRels[0]._id;
                 }
-                const targetName =
+                let targetName =
                   typeof rel.targetTable === 'string'
                     ? rel.targetTable
                     : rel.targetTableName ?? rel.targetTable?.name;
+                if (!targetName && targetTableObjectId) {
+                  const targetRec = await this.queryBuilderService.findOne({
+                    table: 'enfyra_table',
+                    where: { _id: targetTableObjectId },
+                  });
+                  targetName = targetRec?.name;
+                }
+                if (targetName) {
+                  affectedTableNames.add(targetName);
+                }
                 const relationData: any = {
                   propertyName: rel.propertyName,
                   type: rel.type,
@@ -352,6 +362,8 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                     type: inverseType,
                     sourceTable: targetTableObjectId,
                     targetTable: tableId,
+                    sourceTableName: targetName,
+                    targetTableName: body.name,
                     mappedBy: relId,
                     isNullable: rel.isNullable ?? true,
                     isSystem: false,
@@ -367,9 +379,10 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                   }
                   if (rel.type === 'many-to-many') {
                     const invTargetName =
-                      typeof rel.targetTable === 'string'
+                      targetName ||
+                      (typeof rel.targetTable === 'string'
                         ? rel.targetTable
-                        : rel.targetTableName ?? rel.targetTable?.name;
+                        : rel.targetTableName ?? rel.targetTable?.name);
                     if (invTargetName) {
                       const junction = getSqlJunctionPhysicalNames({
                         sourceTable: body.name,
@@ -393,10 +406,6 @@ export class MongoTableCreateService extends MongoTableHandlerService {
                       ? new ObjectId(inverseRecord._id)
                       : inverseRecord._id;
                   insertedRelationIds.push(inverseId);
-                  const targetName =
-                    typeof rel.targetTable === 'string'
-                      ? rel.targetTable
-                      : rel.targetTableName ?? rel.targetTable?.name;
                   if (targetName) affectedTableNames.add(targetName);
                   this.logger.log(
                     `Auto-created inverse relation '${rel.inversePropertyName}'`,

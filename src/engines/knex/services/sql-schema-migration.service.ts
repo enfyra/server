@@ -662,7 +662,9 @@ export class SqlSchemaMigrationService {
           journalContext,
         );
       }
-      await this.compareMetadataWithActualSchema(activeTableName, newMetadata);
+      if (!precompiled) {
+        await this.compareMetadataWithActualSchema(activeTableName, newMetadata);
+      }
 
       return {
         pendingMetadataUpdate: { tableName: activeTableName, diff: schemaDiff },

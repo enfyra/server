@@ -568,9 +568,14 @@ export class RuntimeRegistryService {
 
   lookupTableById(tableId: number | string): any | null {
     return (
-      this.getMetadata()?.tablesList.find(
-        (table) => table.id === tableId || table.id === Number(tableId),
-      ) ?? null
+      this.getMetadata()?.tablesList.find((table) => {
+        const recordId = table.id ?? table._id;
+        return (
+          recordId === tableId ||
+          String(recordId) === String(tableId) ||
+          recordId === Number(tableId)
+        );
+      }) ?? null
     );
   }
 

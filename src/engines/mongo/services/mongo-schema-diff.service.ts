@@ -67,22 +67,31 @@ export class MongoSchemaDiffService {
       update: [] as { oldColumn: any; newColumn: any }[],
     };
 
+    const getColId = (c: any): string | null => {
+      const raw = c?.id ?? c?._id;
+      return raw != null ? String(raw) : null;
+    };
     const oldColMap = new Map(
-      oldColumns.filter((c) => c.id != null).map((c) => [c.id, c]),
+      oldColumns
+        .map((c) => [getColId(c), c] as const)
+        .filter((entry): entry is [string, any] => entry[0] !== null),
     );
     const newColMap = new Map(
-      newColumns.filter((c) => c.id != null).map((c) => [c.id, c]),
+      newColumns
+        .map((c) => [getColId(c), c] as const)
+        .filter((entry): entry is [string, any] => entry[0] !== null),
     );
     const oldColNameMap = new Map(oldColumns.map((c) => [c.name, c]));
 
     for (const newCol of newColumns) {
-      if (newCol.id == null) {
+      const newColId = getColId(newCol);
+      if (newColId === null) {
         if (!oldColNameMap.has(newCol.name)) {
           result.create.push(newCol);
         }
         continue;
       }
-      const oldCol = oldColMap.get(newCol.id);
+      const oldCol = oldColMap.get(newColId);
       if (!oldCol) {
         if (oldColNameMap.has(newCol.name)) continue;
         result.create.push(newCol);
@@ -90,8 +99,9 @@ export class MongoSchemaDiffService {
     }
 
     for (const oldCol of oldColumns) {
-      if (oldCol.id == null) continue;
-      const newCol = newColMap.get(oldCol.id);
+      const oldColId = getColId(oldCol);
+      if (oldColId === null) continue;
+      const newCol = newColMap.get(oldColId);
       if (!newCol) {
         if (['id', 'createdAt', 'updatedAt', '_id'].includes(oldCol.name)) {
         } else {
@@ -119,7 +129,8 @@ export class MongoSchemaDiffService {
       oldCol.isNullable !== newCol.isNullable ||
       oldCol.isGenerated !== newCol.isGenerated ||
       JSON.stringify(oldCol.defaultValue) !==
-        JSON.stringify(newCol.defaultValue)
+        JSON.stringify(newCol.defaultValue) ||
+      JSON.stringify(oldCol.options) !== JSON.stringify(newCol.options)
     );
   }
 
@@ -335,6 +346,29 @@ export class MongoSchemaDiffService {
           } else {
             throw new Error(`Failed to drop index ${indexName}: ${error.message}`);
           }
+        }
+      }
+    }
+
+    for (const { newColumn } of diff.columns.update) {
+      if (
+        newColumn?.type === 'enum' &&
+        newColumn?.name &&
+        Array.isArray(newColumn.options)
+      ) {
+        const invalidDoc = await db.collection(activeCollectionName).findOne(
+          {
+            [newColumn.name]: {
+              $exists: true,
+              $nin: [...newColumn.options, null],
+            },
+          },
+          { projection: { _id: 1 } },
+        );
+        if (invalidDoc) {
+          throw new Error(
+            `Cannot update ${activeCollectionName}.${newColumn.name} enum: unsupported persisted values`,
+          );
         }
       }
     }

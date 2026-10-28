@@ -282,6 +282,10 @@ export class SchemaMigrationValidatorService {
 
 function getClientHash(requestContext: any): string {
   const query = requestContext?.$query;
-  const value = query?.schemaConfirmHash ?? query?.schema_confirm_hash;
+  const value =
+    query?.schemaConfirmHash ??
+    query?.schema_confirm_hash ??
+    query?.confirmHash ??
+    query?.confirm_hash;
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }

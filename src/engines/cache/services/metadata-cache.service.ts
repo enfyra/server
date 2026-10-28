@@ -474,11 +474,14 @@ export class MetadataCacheService implements IMetadataCache {
         );
         const targetTableName = tableIdToName.get(targetTableIdValue);
 
+        const normalizedRel = isMongoDB
+          ? (normalizeMongoDocument({ ...rel }) as any)
+          : { ...rel };
         const relationMetadata: any = {
-          ...rel,
-          metadata: normalizeJsonFieldValue(rel.metadata),
+          ...normalizedRel,
+          metadata: normalizeJsonFieldValue(normalizedRel.metadata),
           sourceTableName: table.name,
-          targetTableName: targetTableName || rel.targetTableName,
+          targetTableName: targetTableName || normalizedRel.targetTableName,
         };
 
         if (rel.type === 'one-to-many') {
@@ -611,7 +614,9 @@ export class MetadataCacheService implements IMetadataCache {
         }
       }
 
-      const tableData: any = { ...table };
+      const tableData: any = isMongoDB
+        ? (normalizeMongoDocument({ ...table }) as any)
+        : { ...table };
       tableData.metadata = normalizeJsonFieldValue(tableData.metadata);
       for (const key in tableData) {
         if (tableData[key] !== undefined && tableData[key] !== null) {
@@ -835,9 +840,14 @@ export class MetadataCacheService implements IMetadataCache {
   async lookupTableById(tableId: number | string): Promise<any | null> {
     const metadata = await this.getMetadata();
     return (
-      metadata.tablesList.find(
-        (t) => t.id === tableId || t.id === Number(tableId),
-      ) || null
+      metadata.tablesList.find((t) => {
+        const recordId = t.id ?? t._id;
+        return (
+          recordId === tableId ||
+          String(recordId) === String(tableId) ||
+          recordId === Number(tableId)
+        );
+      }) || null
     );
   }
 

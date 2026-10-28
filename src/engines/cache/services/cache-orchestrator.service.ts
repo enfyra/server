@@ -405,6 +405,11 @@ export class CacheOrchestratorService implements LifecycleAware {
       this.debounceResolvers.push({ table: payload.table, resolve, reject });
       this.mergePayload(payload);
       if (this.debounceTimer) clearTimeout(this.debounceTimer);
+      if (payload.critical) {
+        this.debounceTimer = null;
+        queueMicrotask(() => void this.flushInvalidations());
+        return;
+      }
       this.debounceTimer = setTimeout(
         () => void this.flushInvalidations(),
         CACHE_ORCHESTRATOR_DEFAULTS.invalidationDebounceMs,
@@ -467,6 +472,16 @@ export class CacheOrchestratorService implements LifecycleAware {
     if (!pending.critical && payload.critical !== undefined) {
       pending.critical = payload.critical;
     }
+    if (pending.policyMetadataChanged !== true) {
+      if (payload.policyMetadataChanged === true) {
+        pending.policyMetadataChanged = true;
+      } else if (
+        pending.policyMetadataChanged === undefined &&
+        payload.policyMetadataChanged === false
+      ) {
+        pending.policyMetadataChanged = false;
+      }
+    }
     pending.timestamp = Math.max(pending.timestamp, payload.timestamp);
     const tables = new Set([...(pending.affectedTables ?? []), ...(payload.affectedTables ?? [])]);
     if (tables.size) pending.affectedTables = [...tables];
@@ -486,14 +501,36 @@ export class CacheOrchestratorService implements LifecycleAware {
     payload: TCacheInvalidationPayload,
     publish: boolean,
   ): Promise<void> {
-    const chain = RELOAD_CHAINS[payload.table];
-    if (!chain) {
+    const baseChain = RELOAD_CHAINS[payload.table];
+    if (!baseChain) {
       this.logger.debug(`No reload chain for table: ${payload.table}`);
       return;
     }
 
     const sharedRuntimeCache = this.usesSharedRuntimeCache();
     const sharedReplay = !publish && sharedRuntimeCache;
+    const canSkipPolicyAndGuardSteps =
+      !sharedReplay &&
+      (payload.table === SYSTEM_TABLES.table ||
+        payload.table === SYSTEM_TABLES.column ||
+        payload.table === SYSTEM_TABLES.relation) &&
+      payload.scope === 'partial' &&
+      payload.policyMetadataChanged === false &&
+      !payload.tableRenames?.length &&
+      this.runtimeRegistryService?.getEntry(CACHE_IDENTIFIERS.FIELD_PERMISSION)
+        ?.status === 'activated' &&
+      this.runtimeRegistryService?.getEntry(CACHE_IDENTIFIERS.COLUMN_RULE)
+        ?.status === 'activated' &&
+      this.runtimeRegistryService?.getEntry(CACHE_IDENTIFIERS.GUARD)?.status ===
+        'activated';
+    const chain = canSkipPolicyAndGuardSteps
+      ? baseChain.filter(
+          (step) =>
+            step !== 'fieldPermission' &&
+            step !== 'column-rule' &&
+            step !== 'guard',
+        )
+      : baseChain;
 
     if (publish && !sharedRuntimeCache) {
       await this.publishSignal(payload);
@@ -669,17 +706,6 @@ export class CacheOrchestratorService implements LifecycleAware {
         });
         throw error;
       } finally {
-        if (
-          !reloadFailed &&
-          elapsed < CACHE_ORCHESTRATOR_DEFAULTS.minimumClientReloadStatusMs
-        ) {
-          await new Promise((r) =>
-            setTimeout(
-              r,
-              CACHE_ORCHESTRATOR_DEFAULTS.minimumClientReloadStatusMs - elapsed,
-            ),
-          );
-        }
         this.notifyClients(
           reloadFailed ? 'failed' : 'done',
           flow,
