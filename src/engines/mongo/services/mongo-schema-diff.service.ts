@@ -421,21 +421,11 @@ export class MongoSchemaDiffService {
         continue;
       }
       const coll = rawDb.collection(activeCollectionName);
-      const approxDocs =
-        typeof coll.estimatedDocumentCount === 'function'
-          ? await coll.estimatedDocumentCount()
-          : 0;
-      if (
+      const hasDefaultValue =
         newColumn.defaultValue !== null &&
-        newColumn.defaultValue !== undefined
-      ) {
-        if (approxDocs <= 50_000 && typeof coll.updateMany === 'function') {
-          await coll.updateMany(
-            { [newColumn.name]: { $exists: false } },
-            { $set: { [newColumn.name]: newColumn.defaultValue } },
-          );
-        }
-      } else if (
+        newColumn.defaultValue !== undefined;
+      if (
+        !hasDefaultValue &&
         newColumn.isNullable === false &&
         typeof coll.findOne === 'function'
       ) {
