@@ -22,16 +22,9 @@ export interface CorsOriginDecision {
  *
  * - No Origin header: not a browser cross-origin request, allowed without CORS.
  * - Allow-list not loaded yet: denied, so a cold cache never grants access.
- * - Allow-list loaded and empty: allowed without CORS. This is the unconfigured
- *   default, where the app is reached through its own origin, so no browser
- *   needs a grant; a cross-origin browser still cannot read the response.
+ * - Allow-list loaded and empty: grant public CORS without credentials.
  * - Allow-list loaded with entries: only an exact entry is allowed, and that
- *   entry is the value granted.
- *
- * `corsOrigin` is the only value ever written to `Access-Control-Allow-Origin`,
- * and it is an allow-list entry, never the request header. With credentials
- * enabled, echoing an unlisted request Origin would let any site read
- * authenticated responses.
+ *   entry is the value granted with credentials.
  *
  * State-changing methods from a denied origin are rejected with 403 so the
  * control holds even when the caller ignores CORS. Safe methods keep serving
@@ -43,7 +36,7 @@ export function decideCorsOrigin(
 ): CorsOriginDecision {
   if (!origin) return { allowed: true };
   if (!policy?.loaded) return { allowed: false };
-  if (policy.origins.length === 0) return { allowed: true };
+  if (policy.origins.length === 0) return { allowed: true, corsOrigin: '*' };
   const corsOrigin = policy.origins.find((candidate) => candidate === origin);
   return corsOrigin === undefined
     ? { allowed: false }
@@ -75,7 +68,9 @@ export function corsOriginMiddleware(
 
     if (decision.corsOrigin !== undefined) {
       res.setHeader('Access-Control-Allow-Origin', decision.corsOrigin);
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      if (decision.corsOrigin !== '*') {
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+      }
       res.setHeader('Vary', 'Origin');
     }
 

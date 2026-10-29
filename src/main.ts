@@ -98,7 +98,7 @@ async function main() {
                     origin,
                     container.cradle.runtimeRegistryService.getCorsOriginPolicy(),
                   );
-                  callback(null, decision.corsOrigin ?? false);
+                  callback(null, decision.corsOrigin === '*' ? false : decision.corsOrigin ?? false);
                 },
                 credentials: true,
               },
