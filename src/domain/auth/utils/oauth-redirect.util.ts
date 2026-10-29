@@ -41,9 +41,7 @@ export async function createOAuthRedirectValidator(
     allowedOrigins = [];
   }
 
-  const origins = new Set(
-    allowedOrigins.length > 0 ? allowedOrigins : appOrigins,
-  );
+  const origins = new Set([...appOrigins, ...allowedOrigins]);
   return (value) => {
     const parsed = parseOAuthRedirectUrl(value);
     if (!origins.has(parsed.origin)) {

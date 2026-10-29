@@ -114,6 +114,21 @@ describe('ESV OAuth redirect origin policy', () => {
     );
   });
 
+  it('keeps the configured app origin usable for initiation, callback and cookie finalization with an external allowlist', async () => {
+    const h = createHarness();
+    h.find.mockResolvedValue({ data: [{ value: 'https://client.example.test' }] });
+    const start = await h.get('/auth/:provider', { redirect: 'https://app.example.test/settings' });
+    const callback = await h.get('/auth/:provider/callback', {
+      code: 'provider-code', state: new URL(start.location).searchParams.get('state'),
+    });
+    expect(new URL(callback.location).origin).toBe('https://app.example.test');
+    const finalized = await h.get('/auth/set-cookies', {
+      code: 'exchange-code', redirect: 'https://app.example.test/settings',
+    });
+    expect(finalized.location).toBe('https://app.example.test/settings');
+    expect(h.exchange).toHaveBeenCalledWith('exchange-code');
+  });
+
   it('allows an exact enabled origin in a nonempty allowlist', async () => {
     const h = createHarness();
     h.find.mockResolvedValue({
@@ -137,7 +152,9 @@ describe('ESV OAuth redirect origin policy', () => {
     'https://client.example.test.evil.test/return',
     'http://client.example.test/return',
     'https://client.example.test:8443/return',
-    'https://app.example.test/return',
+    'http://app.example.test/return',
+    'https://app.example.test:8443/return',
+    'https://app.example.test.evil.test/return',
   ])(
     'rejects a redirect outside the nonempty allowlist: %s',
     async (redirect) => {
