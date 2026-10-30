@@ -13,7 +13,11 @@ import {
   getSqlRelationTargetTable,
   resolveSqlRelationOnDelete,
 } from '../sql-physical-schema-contract';
-import { addSqlEnumColumn, getPostgresEnumTypeName } from '../sql-enum.util';
+import {
+  addSqlEnumColumn,
+  ensureSqlEnumTypes,
+  getPostgresEnumTypeName,
+} from '../sql-enum.util';
 import {
   POSTGRES_TEMPORAL_PHYSICAL_TYPE,
   postgresTemporalPhysicalType,
@@ -122,6 +126,7 @@ export async function applyColumnMigrations(
     for (const col of diff.columnsToAdd) {
       console.log(`    + ${col.name} (${col.type})`);
     }
+    await ensureSqlEnumTypes(knex, tableName, diff.columnsToAdd, dbType);
     await knex.schema.alterTable(tableName, (table) => {
       for (const col of diff.columnsToAdd) {
         let column: Knex.ColumnBuilder;
@@ -890,6 +895,12 @@ async function syncRelationOnDeleteChanges(
     'onDelete',
   );
   if (!hasOnDeleteColumn) {
+    await ensureSqlEnumTypes(
+      knex,
+      'enfyra_relation',
+      [{ name: 'onDelete', type: 'enum', options: ['CASCADE', 'RESTRICT', 'SET NULL'] }],
+      dbType,
+    );
     await knex.schema.alterTable('enfyra_relation', (table) => {
       addSqlEnumColumn(
         table,

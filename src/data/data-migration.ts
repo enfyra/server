@@ -49,6 +49,14 @@ export const standingDataCorrections = {
   ],
   enfyra_menu: [
     {
+      _unique: { path: { _eq: '/settings/oauth' } },
+      permission: { or: [
+        { route: '/enfyra_oauth_config', methods: ['GET'] },
+        { route: '/enfyra_oauth_account', methods: ['GET'] },
+        { route: '/enfyra_auth_origin', methods: ['GET'] },
+      ] },
+    },
+    {
       _unique: { path: { _eq: '/settings/admin/logs' } },
       description: 'Trace system errors and user script logs',
       path: '/settings/logs',
@@ -70,6 +78,12 @@ export const standingDataCorrections = {
     },
   ],
   enfyra_route: [
+    {
+      _unique: { path: { _eq: '/enfyra_auth_origin' } },
+      isSystem: true,
+      publicMethods: ['GET'],
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
     {
       _unique: {
         path: {

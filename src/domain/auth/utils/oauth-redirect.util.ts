@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException } from '../../exceptions';
 import type { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
+import { normalizeAuthOrigin } from './auth-origin.util';
 
 export function parseOAuthRedirectUrl(value: unknown): URL {
   if (typeof value !== 'string' || value.length === 0) {
@@ -27,16 +28,17 @@ export async function createOAuthRedirectValidator(
   let allowedOrigins: string[] = [];
   try {
     const { data } = await queryBuilder.find({
-      table: 'enfyra_cors_origin',
+      table: 'enfyra_auth_origin',
       fields: ['value', 'isEnabled'],
       limit: 0,
     });
-    allowedOrigins = data
-      .filter(
-        (row) => row?.isEnabled !== false && typeof row?.value === 'string',
-      )
-      .map((row) => row.value.trim())
-      .filter((origin) => origin.length > 0);
+    if (!Array.isArray(data)) throw new Error('Invalid auth origin list');
+    for (const row of data) {
+      if (row?.isEnabled === false) continue;
+      const origin = normalizeAuthOrigin(row?.value);
+      if (!origin) throw new Error('Invalid auth origin');
+      allowedOrigins.push(origin);
+    }
   } catch {
     allowedOrigins = [];
   }

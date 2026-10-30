@@ -108,7 +108,7 @@ describe('ESV OAuth redirect origin policy', () => {
     });
     expect(h.find).toHaveBeenCalledWith(
       expect.objectContaining({
-        table: 'enfyra_cors_origin',
+        table: 'enfyra_auth_origin',
         fields: ['value', 'isEnabled'],
       }),
     );

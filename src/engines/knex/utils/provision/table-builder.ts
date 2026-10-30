@@ -9,7 +9,7 @@ import {
   buildSqlUniqueContracts,
 } from '../sql-physical-schema-contract';
 import { supportsSqlColumnDefault } from '../migration/sql-generator';
-import { addSqlEnumColumn } from '../sql-enum.util';
+import { addSqlEnumColumn, ensureSqlEnumTypes } from '../sql-enum.util';
 
 export function buildTableSchema(
   table: Knex.CreateTableBuilder,
@@ -194,6 +194,7 @@ export async function createTable(
 
   console.log(`📝 Creating table: ${tableName}`);
 
+  await ensureSqlEnumTypes(knex, tableName, schema.definition.columns, dbType);
   await knex.schema.createTable(tableName, (table) => {
     buildTableSchema(table, schema, dbType, schemas, knex);
   });

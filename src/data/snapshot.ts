@@ -831,6 +831,20 @@ snapshot
   .uniques([['value']]);
 
 snapshot
+  .table('enfyra_auth_origin', {
+    description: 'Trusted application origins for authentication return URLs, independent of API CORS',
+    system: true,
+  })
+  .columns({
+    id: col.sqlType({ type: 'int' }).mongoType({ type: 'objectId' }).primary().generated().notNull().system().description('Primary key identifier'),
+    value: col.sqlType({ type: 'varchar' }).mongoType({ type: 'string' }).notNull().system().description('Exact trusted HTTP or HTTPS origin'),
+    isEnabled: col.sqlType({ type: 'boolean' }).mongoType({ type: 'bool' }).notNull().system().default(true).description('Whether authentication may return to this origin'),
+    description: col.sqlType({ type: 'text' }).mongoType({ type: 'string' }).system().nullable().description('Optional note for this trusted application'),
+  })
+  .relations({})
+  .uniques([['value']]);
+
+snapshot
   .table('enfyra_route', {
     description: 'Defines API routes/endpoints for the application',
     system: true,

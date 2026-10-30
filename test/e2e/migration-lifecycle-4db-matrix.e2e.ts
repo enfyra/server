@@ -28,22 +28,10 @@ function selectedBackends(): Backend[] {
   return [...new Set(selected)] as Backend[];
 }
 
-function defaultBackendUri(backend: Backend): string {
-  switch (backend) {
-    case 'postgres':
-      return 'postgres://root:1234@127.0.0.1:5432/postgres';
-    case 'mysql':
-      return 'mysql://root:1234@127.0.0.1:3306/mysql';
-    case 'mariadb':
-      return 'mysql://root:2300e284e8b097913cdc8ef2f188763addae4c4d1d97509bb2dc96113ef8e6dc@127.0.0.1:3307/mysql';
-    case 'mongodb':
-      return 'mongodb://enfyra_admin:enfyra_password_123@127.0.0.1:27017/admin?authSource=admin';
-  }
-}
-
 function localUri(backend: Backend): URL {
   const variable = `MATRIX_${backend.toUpperCase()}_URI`;
-  const value = process.env[variable] || defaultBackendUri(backend);
+  const value = process.env[variable];
+  assert.ok(value, `${variable} is required`);
   const uri = new URL(value);
   assert.ok(
     ['127.0.0.1', 'localhost'].includes(uri.hostname),
@@ -330,7 +318,7 @@ async function verifyBackendLifecycle(
       'Phase 2: Version upgrade, user-column preservation & physical schema healing converged',
     );
 
-    // Phase 3: Stable boot + Full Runtime Auto-Migration Matrix (8 checks)
+    // Phase 3: Stable boot + runtime schema lifecycle and rollback matrix
     const phase3 = await bootLifecycle(
       backend,
       uri.href,
@@ -340,12 +328,16 @@ async function verifyBackendLifecycle(
       true,
       join(directory, `${backend}-phase3-runtime-migration.log`),
     );
-    assert.equal(phase3.runtimeChecks.length, 8);
+    assert.equal(phase3.runtimeChecks.length, 14);
+    assert.equal(new Set(phase3.runtimeChecks).size, 14);
     console.log(
       'PASS',
       backend,
       `Phase 3: Runtime auto-migration matrix passed (${phase3.runtimeChecks.join(', ')})`,
     );
+    const stable = await bootLifecycle(backend, uri.href, redisUri, namespace, 0, false, join(directory, `${backend}-phase4-post-mutation-stable.log`));
+    assert.equal(stable.bootstrapRuns, 0);
+    console.log('PASS', backend, 'Phase 4: Stable boot after schema mutation cycles');
   } finally {
     try {
       await cleanNamespace(redis, namespace);
@@ -375,11 +367,12 @@ async function main() {
   console.log('LIFECYCLE_LOG_DIR', directory);
   let succeeded = false;
   try {
-    for (const backend of selectedBackends()) {
+    const backends = selectedBackends();
+    for (const backend of backends) {
       await verifyBackendLifecycle(backend, directory, redisUri);
     }
     succeeded = true;
-    console.log('ALL_4DB_MIGRATION_LIFECYCLE_PASSED');
+    console.log('MIGRATION_LIFECYCLE_RESULT', JSON.stringify({ backends, passed: true, directory }));
   } finally {
     if (succeeded && process.env.KEEP_LIFECYCLE_LOGS !== '1') {
       await rm(directory, { recursive: true, force: true });

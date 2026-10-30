@@ -5,6 +5,7 @@ import { RuntimeRegistryService } from '../../../engines/cache';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { normalizeMongoDocument } from '../../../engines/mongo/utils/normalize-mongo-document.util';
 import { DefaultPagePolicyService } from './default-page-policy.service';
+import { normalizeAuthOrigin } from '../../auth/utils/auth-origin.util';
 import {
   assertGraphqlPermissionScope,
   assertNoPublicPermissionOverlap,
@@ -262,6 +263,14 @@ export class SystemSafetyAuditorService {
             }
           }
         }
+      }
+    }
+
+    if (tableName === 'enfyra_auth_origin' && operation !== 'delete') {
+      const value = operation === 'update' && !('value' in (data ?? {})) ? fullExisting?.value : data?.value;
+      const origin = normalizeAuthOrigin(value);
+      if (!origin || origin !== value) {
+        throw new Error('Auth origin must be a normalized HTTP or HTTPS origin without credentials, path, query or fragment');
       }
     }
 

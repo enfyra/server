@@ -135,42 +135,7 @@ async function readPostgresEnumColumnState(
   };
 }
 
-export async function planPostgresEnumTypeCreation(
-  knex: Knex,
-  tableName: string,
-  column: any,
-): Promise<{ typeName: string; statements: string[] }> {
-  const options = getEnumOptions(column);
-  const typeName = getPostgresEnumTypeName(tableName, column.name);
-  const result = await knex.raw(
-    `SELECT array_agg(enum_values.enumlabel::text ORDER BY enum_values.enumsortorder) AS values
-       FROM pg_type types
-       JOIN pg_namespace namespace ON namespace.oid = types.typnamespace
-       LEFT JOIN pg_enum enum_values ON enum_values.enumtypid = types.oid
-      WHERE namespace.nspname = current_schema()
-        AND types.typname = ?
-      GROUP BY types.oid`,
-    [typeName],
-  );
-  const existing = result.rows?.[0];
-  if (existing) {
-    const existingValues = Array.isArray(existing.values)
-      ? existing.values.map(String)
-      : [];
-    if (JSON.stringify(existingValues) !== JSON.stringify(options)) {
-      throw new Error(
-        `PostgreSQL enum type ${typeName} already exists with incompatible options`,
-      );
-    }
-    return { typeName, statements: [] };
-  }
-  return {
-    typeName,
-    statements: [
-      `CREATE TYPE ${quoteIdentifier(typeName, 'postgres')} AS ENUM (${buildPostgresEnumValuesSql(options)})`,
-    ],
-  };
-}
+export { planPostgresEnumTypeCreation } from '../sql-enum.util';
 
 export async function planPostgresEnumUpdate(
   knex: Knex,

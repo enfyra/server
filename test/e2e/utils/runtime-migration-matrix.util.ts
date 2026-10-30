@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import type { Cradle } from '../../../src/container';
 import type { TDynamicContext } from '../../../src/shared/types';
+import { verifySchemaMutationCycles } from './schema-mutation-cycles.util';
 
 export async function verifyRuntimeMigrationMatrix(c: Cradle): Promise<string[]> {
   assert.equal(process.env.NODE_ENV, 'test');
@@ -739,6 +740,7 @@ export async function verifyRuntimeMigrationMatrix(c: Cradle): Promise<string[]>
       'runtime-direct-child-crud-and-simultaneous-column-rename-modify',
     );
 
+    checks.push(...await verifySchemaMutationCycles(c, { loadTableBody, applyConfirmedTableUpdate, deleteTableConfirmed }));
     return checks;
   } finally {
     await deleteTableConfirmed(ordersTableId).catch(() => {});

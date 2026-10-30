@@ -171,6 +171,15 @@ const defaultData = {
       ]
     },
     {
+      "path": "/enfyra_auth_origin",
+      "mainTable": "enfyra_auth_origin",
+      "isEnabled": true,
+      "isSystem": true,
+      "icon": "lucide:shield-check",
+      "publicMethods": ["GET"],
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
       "path": "/enfyra_cors_origin",
       "mainTable": "enfyra_cors_origin",
       "isEnabled": true,
@@ -1530,7 +1539,7 @@ const defaultData = {
       "isEnabled": true,
       "isPublic": false,
       "isSystem": true,
-      "description": "OAuth provider configuration and linked accounts",
+      "description": "OAuth provider configuration, linked accounts and trusted auth origins",
       "order": 11,
       "parent": "Settings",
       "permission": {
@@ -1546,6 +1555,10 @@ const defaultData = {
             "methods": [
               "GET"
             ]
+          },
+          {
+            "route": "/enfyra_auth_origin",
+            "methods": ["GET"]
           }
         ]
       }
@@ -1593,6 +1606,19 @@ const defaultData = {
           }
         ]
       }
+    },
+    {
+      "type": "Menu",
+      "label": "Auth Origins",
+      "icon": "lucide:shield-check",
+      "path": "/settings/oauth/origins",
+      "isEnabled": true,
+      "isPublic": false,
+      "isSystem": true,
+      "description": "Trusted application origins for authentication redirects",
+      "order": 3,
+      "parent": "OAuth",
+      "permission": { "or": [{ "route": "/enfyra_auth_origin", "methods": ["GET"] }] }
     },
     {
       "type": "Dropdown Menu",

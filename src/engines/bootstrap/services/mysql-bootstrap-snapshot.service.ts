@@ -176,13 +176,6 @@ export class MySqlBootstrapSnapshotService {
           errorMessage: getErrorMessage(error).slice(0, 4000),
           updatedAt: new Date(),
         });
-      if (isScopedRuntime && context.runtimeContract) {
-        await this.compensateRuntimePhysicalChanges(
-          knex,
-          txId,
-          context.runtimeContract,
-        );
-      }
       await this.restore(knex, txId, connection);
       if (error && typeof error === 'object') {
         (error as any).mysqlSnapshotRestored = true;
@@ -268,6 +261,11 @@ export class MySqlBootstrapSnapshotService {
         if (error?.code !== 'ER_DUP_FIELDNAME') throw error;
       }
     }
+    if (!(await knex.schema.hasColumn(TRANSACTION_TABLE, 'runtimeCreatedTablesJson'))) {
+      await knex.schema.alterTable(TRANSACTION_TABLE, table => {
+        table.text('runtimeCreatedTablesJson', 'longtext').nullable();
+      });
+    }
     if (!(await knex.schema.hasColumn(SNAPSHOT_TABLE, 'rowCount'))) {
       try {
         await knex.schema.alterTable(SNAPSHOT_TABLE, (table) => {
@@ -287,8 +285,23 @@ export class MySqlBootstrapSnapshotService {
     const tableNames = context.runtimeContract?.context
       ? await this.resolveRuntimeScopedTables(knex, context.runtimeContract)
       : await this.listApplicationTables(knex);
+    let runtimeCreatedTablesJson: string | null = null;
+    if (context.runtimeContract?.context) {
+      const existingTables = new Set(await this.listApplicationTables(knex));
+      const target = context.runtimeContract.context.target;
+      const candidates = [
+        target?.name,
+        ...(target?.relations ?? []).map(relation => relation.junctionTableName),
+      ];
+      runtimeCreatedTablesJson = JSON.stringify([
+        ...new Set(candidates.filter(
+          (name): name is string => typeof name === 'string' && name.length > 0 && !existingTables.has(name),
+        )),
+      ].sort());
+    }
     await knex(TRANSACTION_TABLE).where({ txId }).update({
       snapshotTableCount: tableNames.length,
+      runtimeCreatedTablesJson,
       updatedAt: new Date(),
     });
     for (const [ordinal, tableName] of tableNames.entries()) {
@@ -338,6 +351,29 @@ export class MySqlBootstrapSnapshotService {
       'enfyra_migration_journal',
     ]);
     const ctx = contract.context;
+    const physicalOwners = new Set<string>();
+    for (const table of [ctx.source, ctx.target]) {
+      if (table?.name) {
+        candidates.add(table.name);
+        physicalOwners.add(table.name);
+      }
+      for (const relation of table?.relations ?? []) {
+        if (relation.junctionTableName) candidates.add(relation.junctionTableName);
+        if (relation.targetTableName) candidates.add(relation.targetTableName);
+      }
+    }
+    if (physicalOwners.size > 0) {
+      const names = [...physicalOwners];
+      const [incoming] = await knex.raw(
+        `SELECT DISTINCT TABLE_NAME AS tableName
+           FROM information_schema.KEY_COLUMN_USAGE
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND REFERENCED_TABLE_SCHEMA = DATABASE()
+            AND REFERENCED_TABLE_NAME IN (${names.map(() => '?').join(', ')})`,
+        names,
+      );
+      for (const row of incoming) candidates.add(String(row.tableName));
+    }
     const isUpdate = ctx.operation === 'update';
     const tableRenamed =
       Boolean(ctx.source?.name && ctx.target?.name) &&
@@ -361,48 +397,6 @@ export class MySqlBootstrapSnapshotService {
     return [...candidates].filter((name) => allTables.has(name)).sort();
   }
 
-  private async compensateRuntimePhysicalChanges(
-    knex: Knex,
-    txId: string,
-    contract: NonNullable<MySqlBootstrapSnapshotContext['runtimeContract']>,
-  ): Promise<void> {
-    const entries = (await knex(SNAPSHOT_TABLE)
-      .where({ txId })
-      .select('tableName')) as Array<{ tableName: string }>;
-    const backedUpTables = new Set(entries.map((entry) => entry.tableName));
-    const ctx = contract.context;
-
-    if (ctx.operation === 'create') {
-      for (const rel of ctx.target?.relations ?? []) {
-        if (rel.junctionTableName && !backedUpTables.has(rel.junctionTableName)) {
-          await knex.schema.dropTableIfExists(rel.junctionTableName).catch(() => {});
-        }
-      }
-      if (ctx.target?.name && !backedUpTables.has(ctx.target.name)) {
-        await knex.schema.dropTableIfExists(ctx.target.name).catch(() => {});
-      }
-      return;
-    }
-
-    const sourceName = ctx.source?.name;
-    if (sourceName && backedUpTables.has(sourceName)) {
-      return;
-    }
-
-    for (const phase of contract.phases ?? []) {
-      for (const node of phase.nodes ?? []) {
-        const plan = node.command?.physicalPlan;
-        if (plan && plan.backend !== 'mongodb') {
-          for (const stmt of plan.downStatements ?? []) {
-            if (stmt && stmt.trim()) {
-              await knex.raw(stmt).catch(() => {});
-            }
-          }
-        }
-      }
-    }
-  }
-
   private async restore(
     knex: Knex,
     txId: string,
@@ -420,7 +414,7 @@ export class MySqlBootstrapSnapshotService {
     const escapeId = (value: string) => activeConnection.escapeId(value);
     let foreignKeyChecksDisabled = false;
     try {
-      await this.assertSnapshotRestorable(
+      const runtimeCreatedTables = await this.assertSnapshotRestorable(
         activeConnection,
         txId,
         entries,
@@ -429,7 +423,7 @@ export class MySqlBootstrapSnapshotService {
       );
       const isScopedRuntime = txId.startsWith('runtime-');
       const currentTables = isScopedRuntime
-        ? entries.map((entry) => entry.tableName)
+        ? [...new Set([...entries.map((entry) => entry.tableName), ...runtimeCreatedTables])]
         : await this.listApplicationTablesOnConnection(activeConnection);
 
       await query('SET FOREIGN_KEY_CHECKS = 0');
@@ -602,9 +596,9 @@ export class MySqlBootstrapSnapshotService {
     entries: BootstrapSnapshotEntry[],
     query: (sql: string, bindings?: any[]) => Promise<any>,
     escapeId: (value: string) => string,
-  ): Promise<void> {
+  ): Promise<string[]> {
     const [transactionRows] = await query(
-      `SELECT snapshotTableCount FROM ${escapeId(TRANSACTION_TABLE)} WHERE txId = ? LIMIT 1`,
+      `SELECT snapshotTableCount, runtimeCreatedTablesJson FROM ${escapeId(TRANSACTION_TABLE)} WHERE txId = ? LIMIT 1`,
       [txId],
     );
     const expectedTableCount = Number(
@@ -622,6 +616,20 @@ export class MySqlBootstrapSnapshotService {
       );
     }
 
+    let runtimeCreatedTables: string[] = [];
+    if (txId.startsWith('runtime-')) {
+      const raw = transactionRows?.[0]?.runtimeCreatedTablesJson;
+      let parsed: unknown;
+      try {
+        parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      } catch {
+        throw new Error(`MySQL runtime snapshot '${txId}' has invalid created-table metadata`);
+      }
+      if (!Array.isArray(parsed) || parsed.some(name => typeof name !== 'string' || !/^[a-z0-9_]+$/.test(name) || name.startsWith('system_') || entries.some(entry => entry.tableName === name))) {
+        throw new Error(`MySQL runtime snapshot '${txId}' has invalid created-table metadata`);
+      }
+      runtimeCreatedTables = parsed;
+    }
     for (const entry of entries) {
       let columns: unknown;
       try {
@@ -687,6 +695,7 @@ export class MySqlBootstrapSnapshotService {
         );
       }
     }
+    return runtimeCreatedTables;
   }
 
   private getBackupTableName(
