@@ -1,4 +1,7 @@
-import { InsertOptions } from '../../../shared/types/query-builder.types';
+import type {
+  InsertOptions,
+  QueryFindOptions,
+} from '../../../shared/types/query-builder.types';
 
 export interface IQueryBuilder {
   find(options: {
@@ -9,12 +12,16 @@ export interface IQueryBuilder {
     limit?: number;
     page?: number;
   }): Promise<{ data: any[] }>;
-  aggregate(options: { table: string; aggregate: Record<string, unknown> }): Promise<{ data: any[] }>;
+  aggregate(options: {
+    table: string;
+    aggregate: Record<string, unknown>;
+  }): Promise<{ data: any[] }>;
   findOne(options: {
     table: string;
     where?: any;
     filter?: any;
     fields?: string[];
+    deep?: QueryFindOptions['deep'];
   }): Promise<any>;
   insert(table: string, data: any): Promise<any>;
   insertMany(table: string, rows: Record<string, any>[]): Promise<any[]>;

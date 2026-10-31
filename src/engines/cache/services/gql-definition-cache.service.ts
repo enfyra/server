@@ -61,7 +61,14 @@ export class GqlDefinitionCacheService extends BaseCacheService<
       const result = await this.queryBuilderService.find({
         table: 'enfyra_graphql',
         fields: GRAPHQL_DEFINITION_CACHE_FIELDS,
-        limit: 10000,
+        deep: {
+          publicOperations: { limit: -1 },
+          permissions: {
+            limit: -1,
+            deep: { allowedUsers: { limit: -1 }, operations: { limit: -1 } },
+          },
+        },
+        limit: -1,
       });
       return result?.data ?? [];
     } catch {
@@ -80,9 +87,8 @@ export class GqlDefinitionCacheService extends BaseCacheService<
       const publicOperations = normalizeGraphqlOperationList(
         row.publicOperations,
       );
-      const permissions = (Array.isArray(row.permissions)
-        ? row.permissions
-        : []
+      const permissions = (
+        Array.isArray(row.permissions) ? row.permissions : []
       ).map((permission: any) => {
         assertGraphqlPermissionScope({
           role: permission.role,
@@ -90,7 +96,9 @@ export class GqlDefinitionCacheService extends BaseCacheService<
         });
         const operations = normalizeGraphqlOperationList(permission.operations);
         if (operations.length === 0) {
-          throw new Error('GraphQL permission must grant at least one operation');
+          throw new Error(
+            'GraphQL permission must grant at least one operation',
+          );
         }
         assertNoPublicPermissionOverlap({
           publicOperations,

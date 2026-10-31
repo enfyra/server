@@ -1,6 +1,7 @@
 import { ObjectId } from 'mongodb';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseConfigService } from '../../src/shared/services';
+import { PolicyService } from '../../src/domain/policy';
 import {
   clearLocalUserCacheForTesting,
   loadCachedUserWithRoles,
@@ -69,6 +70,7 @@ describe('loadUserWithRoles', () => {
       table: 'enfyra_user',
       where: { _id: userId },
       fields: ['*', 'roles.*'],
+      deep: { roles: { limit: -1 } },
     });
     expect(findOne).toHaveBeenNthCalledWith(2, {
       table: 'enfyra_role',
@@ -130,6 +132,7 @@ describe('loadUserWithRoles', () => {
       table: 'enfyra_user',
       where: { id: userId },
       fields: ['*', 'roles.*'],
+      deep: { roles: { limit: -1 } },
     });
     expect(findOne).toHaveBeenNthCalledWith(2, {
       table: 'enfyra_role',
@@ -164,6 +167,62 @@ describe('loadUserWithRoles', () => {
     });
     expect(result?.roles).toEqual([role]);
   });
+
+  it.each(['postgres', 'mongodb'] as const)(
+    'refreshes every assigned role in the %s user cache',
+    async (backend) => {
+      DatabaseConfigService.overrideForTesting(backend);
+      const mongo = backend === 'mongodb';
+      const idField = mongo ? '_id' : 'id';
+      const id = mongo
+        ? new ObjectId()
+        : '6dcaf98d-07a0-4d7e-88ad-87dd1e3b113d';
+      let roles = Array.from({ length: 12 }, (_, index) => ({
+        [idField]: mongo ? new ObjectId() : index + 1,
+        name: `role-${index}`,
+      }));
+      const lastRole = roles[11];
+      const findOne = vi.fn(async ({ table, where, deep }: any) => {
+        if (table === 'enfyra_user')
+          return {
+            [idField]: id,
+            roles: deep?.roles?.limit === -1 ? [...roles] : roles.slice(0, 10),
+          };
+        return (
+          roles.find(
+            (role) => String(role[idField]) === String(where[idField]),
+          ) ?? null
+        );
+      });
+      const qb = { isMongoDb: () => mongo, findOne } as any;
+      const cache = makeAuthorizationCache('initial');
+      const policy = new PolicyService({} as any);
+      const routeData = {
+        routePermissions: [{ isEnabled: true, role: lastRole }],
+      };
+      const loaded = await loadCachedUserWithRoles(qb, cache, id);
+      expect(loaded.roles).toHaveLength(12);
+      expect(
+        policy.checkRequestAccess({ method: 'GET', user: loaded, routeData })
+          .allow,
+      ).toBe(true);
+      expect(
+        policy.checkRequestAccess({
+          method: 'GET',
+          user: { id: 'outsider', roles: [] },
+          routeData,
+        }).allow,
+      ).toBe(false);
+      roles = roles.slice(0, 11);
+      cache.setRevision('after-role-removal');
+      const refreshed = await loadCachedUserWithRoles(qb, cache, id);
+      expect(refreshed.roles).toHaveLength(11);
+      expect(
+        policy.checkRequestAccess({ method: 'GET', user: refreshed, routeData })
+          .allow,
+      ).toBe(false);
+    },
+  );
 
   it('returns local cached users without querying the database', async () => {
     DatabaseConfigService.overrideForTesting('postgres');

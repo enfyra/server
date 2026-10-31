@@ -124,6 +124,28 @@ const ROUTE_CACHE_ROUTE_FIELDS = [
   'availableMethods',
 ];
 
+const ROUTE_CACHE_ROUTE_DEEP = {
+  methodConfigs: {
+    limit: -1,
+    deep: {
+      routePermissions: { limit: -1, deep: { allowedUsers: { limit: -1 } } },
+      preHooks: { limit: -1 },
+      postHooks: { limit: -1 },
+      fileFields: { limit: -1 },
+    },
+  },
+  handlers: { limit: -1 },
+  routePermissions: {
+    limit: -1,
+    deep: { methods: { limit: -1 }, allowedUsers: { limit: -1 } },
+  },
+  preHooks: { limit: -1, deep: { methods: { limit: -1 } } },
+  postHooks: { limit: -1, deep: { methods: { limit: -1 } } },
+  publicMethods: { limit: -1 },
+  skipRoleGuardMethods: { limit: -1 },
+  availableMethods: { limit: -1 },
+};
+
 const ROUTE_CACHE_HOOK_FIELDS = [
   'id',
   'name',
@@ -167,7 +189,11 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   protected override async applyPartialUpdate(
     payload: TCacheInvalidationPayload,
   ): Promise<void> {
-    if (!this.cache.methodDefinitions || !this.cache.globalPreHooks || !this.cache.globalPostHooks) {
+    if (
+      !this.cache.methodDefinitions ||
+      !this.cache.globalPreHooks ||
+      !this.cache.globalPostHooks
+    ) {
       await this.reloadFromPartial();
       return;
     }
@@ -295,6 +321,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
         _and: [{ isEnabled: { _eq: true } }, { [idField]: { _in: routeIds } }],
       },
       fields: ROUTE_CACHE_ROUTE_FIELDS,
+      deep: ROUTE_CACHE_ROUTE_DEEP,
     });
 
     const updatedRoutes = result.data;
@@ -453,6 +480,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
         table: 'enfyra_route',
         filter: { isEnabled: { _eq: true } },
         fields: ROUTE_CACHE_ROUTE_FIELDS,
+        deep: ROUTE_CACHE_ROUTE_DEEP,
       }),
       this.loadGlobalHooks('enfyra_pre_hook'),
       this.loadGlobalHooks('enfyra_post_hook'),
@@ -496,6 +524,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
         _and: [{ isEnabled: { _eq: true } }, { isGlobal: { _eq: true } }],
       },
       fields: ROUTE_CACHE_HOOK_FIELDS,
+      deep: { methods: { limit: -1 } },
       sort: ['priority'],
     });
 
@@ -768,7 +797,9 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     }
   }
 
-  protected override async afterSharedCachePersist(data: RouteData): Promise<void> {
+  protected override async afterSharedCachePersist(
+    data: RouteData,
+  ): Promise<void> {
     await this.persistRedisRouteLookup(data.routes);
   }
 

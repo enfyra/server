@@ -231,7 +231,7 @@ export class WebsocketCacheBuilder extends BaseCacheService<
           },
         ],
       },
-      limit: Math.max(gatewayIds.length * 100, 100),
+      limit: -1,
     });
 
     for (const event of eventResult?.data ?? []) {

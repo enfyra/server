@@ -73,12 +73,18 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
           'excludeRoutes.id',
           'excludeRoutes.path',
         ],
+        deep: {
+          methods: { limit: -1 },
+          routeMethodConfigs: { limit: -1 },
+          excludeRoutes: { limit: -1 },
+        },
         sort: ['priority'],
       }),
       this.queryBuilderService.find({
         table: 'enfyra_guard_rule',
         filter: { isEnabled: { _eq: true } },
         fields: ['*', 'guard', 'users.id', 'users._id'],
+        deep: { users: { limit: -1 } },
         sort: ['priority'],
       }),
     ]);
@@ -136,7 +142,9 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
             ? guard.routeMethodConfigs.map((config: any) => config?.method)
             : guard.methods;
       const methods = Array.isArray(configuredMethods)
-        ? configuredMethods.map((method: any) => method?.name ?? method).filter(Boolean)
+        ? configuredMethods
+            .map((method: any) => method?.name ?? method)
+            .filter(Boolean)
         : [];
       const methodIds = Array.isArray(configuredMethods)
         ? (configuredMethods
@@ -151,7 +159,9 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
         .filter((id: number | null): id is number => id != null);
       const excludeRoutePaths = excludeRoutes
         .map((r: any) => r?.path)
-        .filter((path: any): path is string => typeof path === 'string' && !!path);
+        .filter(
+          (path: any): path is string => typeof path === 'string' && !!path,
+        );
 
       nodeMap.set(id, {
         id,
