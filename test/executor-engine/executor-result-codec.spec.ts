@@ -4,6 +4,7 @@ function createExecutor() {
   return new IsolatedExecutorService({
     packageCacheService: { getPackages: async () => [] },
     packageCdnLoaderService: { getPackageSources: () => [] },
+    tuning: { maxConcurrentWorkers: 1, isolateMemoryLimitMb: 64, isolatesPerWorker: 1 },
   });
 }
 
@@ -27,10 +28,10 @@ describe('executor result codec', () => {
     } finally { executor.onDestroy(); }
   });
 
-  it('preserves an own __proto__ field in a pre-hook short-circuit value', async () => {
+  it('preserves an own __proto__ field passed from pre-hook share to handler', async () => {
     const executor = createExecutor();
     try {
-      const { value: result } = await executor.runBatch([{ type: 'preHook', code: `return JSON.parse('{"__proto__":{"flag":true},"value":1}');` }], context(), 5_000);
+      const { value: result } = await executor.runBatch([{ type: 'preHook', code: `$ctx.$share.value = JSON.parse('{"__proto__":{"flag":true},"value":1}'); return "skip";` }, { type: 'handler', code: 'return $ctx.$share.value;' }], context(), 5_000);
       expect(Object.prototype.hasOwnProperty.call(result, '__proto__')).toBe(true);
       expect(result.__proto__).toEqual({ flag: true });
       expect(Object.getPrototypeOf(result)).toBe(Object.prototype);

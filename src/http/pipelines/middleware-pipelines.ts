@@ -10,13 +10,14 @@ import { authMiddleware } from '../middlewares/auth.middleware';
 import { roleGuardMiddleware } from '../middlewares/role-guard.middleware';
 import { requestLoggingBegin, requestLoggingEnd } from '../middlewares/request-logging.middleware';
 import { bodyValidationMiddleware } from '../middlewares/body-validation.middleware';
-import { dynamicInterceptorBegin, dynamicInterceptorEnd } from '../middlewares/dynamic-interceptor.middleware';
+import { dynamicInterceptorEnd } from '../middlewares/dynamic-interceptor.middleware';
 import { parseQueryMiddleware } from '../middlewares/parse-query.middleware';
 import { fileUploadMiddleware } from '../middlewares/file-upload.middleware';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 import type { NextFunction, RequestHandler, Response } from 'express';
 import type { RuntimeRequest } from '../types/request-context.types';
+import { beginDynamicRouteExecution } from '../../modules/dynamic-api/utils/dynamic-route-execution.util';
 
 export function pipelinePreRouting(cradle: Cradle, _container: AwilixContainer<Cradle>): RequestHandler[] {
   return [
@@ -75,7 +76,12 @@ export function pipelineRequestHandling(cradle: Cradle, container: AwilixContain
     fileUploadMiddleware(cradle.runtimeRegistryService, cradle.dynamicWebSocketGateway),
     requestLoggingBegin,
     bodyValidationMiddleware(container),
-    dynamicInterceptorBegin(cradle.executorEngineService, cradle.runtimeScriptRepairService, cradle.dynamicCancellationService),
+    (req: RuntimeRequest, res: Response, next: NextFunction) => {
+      if (req.routeData && !(req.method === 'POST' && req.path === '/admin/test/run')) {
+        beginDynamicRouteExecution(req, res, cradle.dynamicCancellationService);
+      }
+      next();
+    },
   ];
 }
 

@@ -20,13 +20,13 @@ const requireNativeOperationBinding: RequestHandler = (request, _response, next)
   next(bound ? undefined : new NotFoundException());
 };
 
-export function createNativeRouteRegistrar(app: Express): Express {
+export function createNativeRouteRegistrar(app: Express, beforeNative?: RequestHandler): Express {
   const methods = new Set(['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'all']);
   return new Proxy(app, {
     get(target, property, receiver) {
       const value: unknown = Reflect.get(target, property, receiver);
       if (typeof property !== 'string' || !methods.has(property) || typeof value !== 'function') return value;
-      return (path: string, ...handlers: RequestHandler[]) => Reflect.apply(value, target, [path, requireNativeOperationBinding, ...handlers]);
+      return (path: string, ...handlers: RequestHandler[]) => Reflect.apply(value, target, [path, requireNativeOperationBinding, ...(beforeNative ? [beforeNative] : []), ...handlers]);
     },
   });
 }

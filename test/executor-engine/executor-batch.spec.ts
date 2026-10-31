@@ -128,16 +128,17 @@ describe('Batch execution: correctness', () => {
     expect(r.value).toEqual(['first', 'second', 'third']);
   });
 
-  it('pre-hook short-circuit: return value skips handler and post-hooks', async () => {
+  it.each(['undefined', 'null', 'false', '0', '"skip"', '{ ignored: true }', '1n', '() => 7'])('pre-hook return %s continues through the remaining hooks and handler', async (value) => {
     const r = await batch([
-      { code: 'return { blocked: true };', type: 'preHook' },
-      { code: '$ctx.$body.shouldNotRun = true;', type: 'preHook' },
+      { code: `return ${value}; $ctx.$body.unreachable = true;`, type: 'preHook' },
+      { code: '$ctx.$body.nextHook = true;', type: 'preHook' },
       { code: 'return { fromHandler: true };', type: 'handler' },
-      { code: 'return { fromPostHook: true };', type: 'postHook' },
+      { code: 'return { ...$ctx.$data, fromPostHook: true };', type: 'postHook' },
     ]);
-    expect(r.shortCircuit).toBe(true);
-    expect(r.value).toEqual({ blocked: true });
-    expect(r.ctxChanges.$body.shouldNotRun).toBeUndefined();
+    expect(r.shortCircuit).not.toBe(true);
+    expect(r.value).toEqual({ fromHandler: true, fromPostHook: true });
+    expect(r.ctxChanges.$body.nextHook).toBe(true);
+    expect(r.ctxChanges.$body.unreachable).toBeUndefined();
   });
 
   it('pre-hook without return does not short-circuit', async () => {

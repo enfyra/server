@@ -17,6 +17,7 @@ afterEach(async () => {
 
 function makeService(modulePath?: string, packageName = 'sse-package') {
   return new IsolatedExecutorService({
+    tuning: { maxConcurrentWorkers: 1, isolateMemoryLimitMb: 64, isolatesPerWorker: 1 },
     packageCacheService: {
       getPackages: async () => [packageName],
     } as any,
@@ -603,7 +604,7 @@ describe('stream observer callback', () => {
     await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('Test server did not bind to a TCP port');
-    const service = makeService(undefined, 'undici');
+    const service = makeService(require.resolve('undici'), 'undici');
     const received: Buffer[] = [];
     const ctx: any = {
       $body: {},

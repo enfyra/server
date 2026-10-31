@@ -108,7 +108,7 @@ describe('one dynamic route execution budget', () => {
     );
   });
 
-  it('keeps native post-hooks inside the budget after a pre-hook short circuit', async () => {
+  it('keeps native error post-hooks inside the budget after a pre-hook throw', async () => {
     const { req, res, json } = fixture();
     responses.push(res);
     req.routeData.handler = '';
@@ -118,11 +118,14 @@ describe('one dynamic route execution budget', () => {
       runBatch: vi.fn(async (_req, timeout) => {
         budgets.push(timeout);
         await sleep(60);
-        return { value: { ok: true }, shortCircuit: budgets.length === 1 };
+        if (budgets.length === 1) throw Object.assign(new Error('denied'), { statusCode: 403 });
+        return { value: undefined, shortCircuit: false };
       }),
     };
-    await dynamicInterceptorBegin(executor as any)(req, res as any, vi.fn());
-    await vi.waitFor(() => expect(json).toHaveBeenCalledWith({ ok: true }));
+    const next = vi.fn();
+    await dynamicInterceptorBegin(executor as any)(req, res as any, next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
+    expect(json).not.toHaveBeenCalled();
     expect(budgets).toHaveLength(2);
     expect(budgets[1]).toBeLessThan(160);
   });
