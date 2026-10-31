@@ -16,7 +16,6 @@ import { SettingCacheService } from './setting-cache.service';
 import { StorageConfigCacheBuilder } from './storage-config-cache-builder.service';
 import { OAuthConfigCacheBuilder } from './oauth-config-cache-builder.service';
 import { CorsOriginCacheBuilder } from './cors-origin-cache-builder.service';
-import { AuthHeaderCacheBuilder } from './auth-header-cache-builder.service';
 import { FolderTreeCacheService } from './folder-tree-cache.service';
 import { FieldPermissionCacheBuilder } from './field-permission-cache-builder.service';
 import { ColumnRuleCacheBuilder } from './column-rule-cache-builder.service';
@@ -54,7 +53,6 @@ const FLOW_PRIORITY = [
   'route',
   'fieldPermission',
   'setting',
-  'authHeader',
   'guard',
   'flow',
   'websocket',
@@ -80,7 +78,6 @@ type ReloadStepName =
   | 'package'
   | 'helper'
   | 'setting'
-  | 'authHeader'
   | 'storage'
   | 'oauth'
   | 'corsOrigin'
@@ -175,7 +172,6 @@ export const RELOAD_CHAINS: Record<string, ReloadStepName[]> = {
   [SYSTEM_TABLES.columnRule]: ['column-rule'],
 
   [SYSTEM_TABLES.setting]: ['setting', 'settingGraphql'],
-  [SYSTEM_TABLES.authHeader]: ['authHeader'],
   [SYSTEM_TABLES.storageConfig]: ['storage'],
   [SYSTEM_TABLES.oauthConfig]: ['oauth'],
   [SYSTEM_TABLES.corsOrigin]: ['corsOrigin'],
@@ -208,7 +204,6 @@ export class CacheOrchestratorService implements LifecycleAware {
   private readonly packageCacheService: PackageCacheService;
   private readonly sharedHelperCacheService: SharedHelperCacheService;
   private readonly settingCacheService: SettingCacheService;
-  private readonly authHeaderCacheBuilder: AuthHeaderCacheBuilder;
   private readonly storageConfigCacheBuilder: StorageConfigCacheBuilder;
   private readonly oauthConfigCacheBuilder: OAuthConfigCacheBuilder;
   private readonly corsOriginCacheBuilder: CorsOriginCacheBuilder;
@@ -261,7 +256,6 @@ export class CacheOrchestratorService implements LifecycleAware {
     packageCacheService: PackageCacheService;
     sharedHelperCacheService: SharedHelperCacheService;
     settingCacheService: SettingCacheService;
-    authHeaderCacheBuilder: AuthHeaderCacheBuilder;
     storageConfigCacheBuilder: StorageConfigCacheBuilder;
     oauthConfigCacheBuilder: OAuthConfigCacheBuilder;
     corsOriginCacheBuilder: CorsOriginCacheBuilder;
@@ -288,7 +282,6 @@ export class CacheOrchestratorService implements LifecycleAware {
     this.packageCacheService = deps.packageCacheService;
     this.sharedHelperCacheService = deps.sharedHelperCacheService;
     this.settingCacheService = deps.settingCacheService;
-    this.authHeaderCacheBuilder = deps.authHeaderCacheBuilder;
     this.storageConfigCacheBuilder = deps.storageConfigCacheBuilder;
     this.oauthConfigCacheBuilder = deps.oauthConfigCacheBuilder;
     this.corsOriginCacheBuilder = deps.corsOriginCacheBuilder;
@@ -325,12 +318,6 @@ export class CacheOrchestratorService implements LifecycleAware {
         ),
       setting: (p, options) =>
         this.reloadSimple(this.settingCacheService, p, options?.sharedReplay),
-      authHeader: (p, options) =>
-        this.reloadSimple(
-          this.authHeaderCacheBuilder,
-          p,
-          options?.sharedReplay,
-        ),
       storage: (p, options) =>
         this.reloadSimple(
           this.storageConfigCacheBuilder,
@@ -934,12 +921,6 @@ export class CacheOrchestratorService implements LifecycleAware {
           service: this
             .settingCacheService as unknown as RuntimeCacheViewSource,
         };
-      case 'authHeader':
-        return {
-          identifier: CACHE_IDENTIFIERS.AUTH_HEADER,
-          service: this
-            .authHeaderCacheBuilder as unknown as RuntimeCacheViewSource,
-        };
       case 'storage':
         return {
           identifier: CACHE_IDENTIFIERS.STORAGE,
@@ -1289,7 +1270,6 @@ export class CacheOrchestratorService implements LifecycleAware {
         'websocket',
         'package',
         'setting',
-        'authHeader',
         'storage',
         'oauth',
         'corsOrigin',
@@ -1389,13 +1369,6 @@ export class CacheOrchestratorService implements LifecycleAware {
               sharedReplay
                 ? this.settingCacheService.syncFromSharedCache()
                 : this.settingCacheService.reload(false),
-          },
-          {
-            name: 'authHeader',
-            run: () =>
-              sharedReplay
-                ? this.authHeaderCacheBuilder.syncFromSharedCache()
-                : this.authHeaderCacheBuilder.reload(false),
           },
           {
             name: 'storage',

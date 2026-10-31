@@ -92,11 +92,11 @@ describe('custom startup script removal', () => {
         databaseConfigService: { getDbType: () => database } as any,
       });
       const definition = service.resolveForVersion('2.3.2');
-      expect(definition.migration?.tablesToDrop).toEqual([retiredTable]);
+      expect(definition.migration?.tablesToDrop).toEqual([retiredTable, 'enfyra_auth_header']);
       expect(
         service.getApplicableSchemaSteps().map((step) => step.toVersion),
-      ).toEqual(['2.3.3', '2.4.0']);
-      expect(definition.dataMigration._deletedRecords).toEqual([
+      ).toEqual(['2.3.3', '2.4.0', '2.4.1']);
+      expect(definition.dataMigration._deletedRecords).toEqual(expect.arrayContaining([
         {
           table: 'enfyra_route',
           filter: { path: { _eq: `/${retiredTable}` } },
@@ -109,7 +109,7 @@ describe('custom startup script removal', () => {
           table: 'enfyra_menu',
           filter: { path: { _eq: '/settings/extensions' } },
         },
-      ]);
+      ]));
       const plan = compileMetadataMigrationExecutionPlan(definition.migration, {
         mode: 'upgrade',
         database,
@@ -124,7 +124,7 @@ describe('custom startup script removal', () => {
         }),
       );
       expect(JSON.parse(readFileSync('package.json', 'utf8')).version).toBe(
-        '2.4.0',
+        '2.4.1',
       );
     },
   );

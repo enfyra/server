@@ -33,7 +33,6 @@ function createOrchestrator(overrides: Record<string, any> = {}) {
     packageCacheService: cacheMock() as any,
     sharedHelperCacheService: cacheMock() as any,
     settingCacheService: cacheMock() as any,
-    authHeaderCacheBuilder: cacheMock() as any,
     storageConfigCacheBuilder: cacheMock() as any,
     oauthConfigCacheBuilder: cacheMock() as any,
     corsOriginCacheBuilder: cacheMock() as any,
@@ -227,12 +226,12 @@ describe('CacheOrchestratorService reload notifications', () => {
 
   it('keeps independent invalidation origins and completes both chains', async () => {
     const settingReload = vi.fn(async () => undefined);
-    const authReload = vi.fn(async () => undefined);
-    const { orchestrator } = createOrchestrator({ settingCacheService: cacheMock({ reload: settingReload }), authHeaderCacheBuilder: cacheMock({ reload: authReload }) });
+    const corsReload = vi.fn(async () => undefined);
+    const { orchestrator } = createOrchestrator({ settingCacheService: cacheMock({ reload: settingReload }), corsOriginCacheBuilder: cacheMock({ reload: corsReload }) });
     try {
-      await Promise.all(['enfyra_setting', 'enfyra_auth_header'].map(table => (orchestrator as any).handleInvalidation({ table, scope: 'full', action: 'update', timestamp: Date.now(), critical: true })));
+      await Promise.all(['enfyra_setting', 'enfyra_cors_origin'].map(table => (orchestrator as any).handleInvalidation({ table, scope: 'full', action: 'update', timestamp: Date.now(), critical: true })));
       expect(settingReload).toHaveBeenCalledOnce();
-      expect(authReload).toHaveBeenCalledOnce();
+      expect(corsReload).toHaveBeenCalledOnce();
     } finally { orchestrator.onDestroy(); }
   });
 
@@ -243,20 +242,19 @@ describe('CacheOrchestratorService reload notifications', () => {
       metadataCacheService: cacheMock({ syncFromSharedCache: async () => {} }),
       sharedHelperCacheService: cacheMock({ syncFromSharedCache: async () => {} }),
     });
-    const builders = ['routeCacheService', 'guardCacheBuilder', 'flowCacheBuilder', 'websocketCacheBuilder', 'packageCacheService', 'settingCacheService', 'authHeaderCacheBuilder', 'storageConfigCacheBuilder', 'oauthConfigCacheBuilder', 'corsOriginCacheBuilder', 'folderTreeCacheService', 'fieldPermissionCacheBuilder', 'columnRuleCacheBuilder', 'gqlDefinitionCacheService'];
+    const builders = ['routeCacheService', 'guardCacheBuilder', 'flowCacheBuilder', 'websocketCacheBuilder', 'packageCacheService', 'settingCacheService', 'storageConfigCacheBuilder', 'oauthConfigCacheBuilder', 'corsOriginCacheBuilder', 'folderTreeCacheService', 'fieldPermissionCacheBuilder', 'columnRuleCacheBuilder', 'gqlDefinitionCacheService'];
     for (const name of builders) (orchestrator as any)[name].syncFromSharedCache = async () => {};
     await (orchestrator as any).reloadAllLocal(false, sharedReplay);
-    expect(published).toContain(CACHE_IDENTIFIERS.AUTH_HEADER);
     expect(published).toContain(CACHE_IDENTIFIERS.CORS_ORIGIN);
   });
 
   it('does not let one failed origin acknowledge or discard a different origin', async () => {
-    const authReload = vi.fn(async () => {});
-    const { orchestrator } = createOrchestrator({ settingCacheService: cacheMock({ reload: async () => { throw new Error('setting failed'); } }), authHeaderCacheBuilder: cacheMock({ reload: authReload }) });
+    const corsReload = vi.fn(async () => {});
+    const { orchestrator } = createOrchestrator({ settingCacheService: cacheMock({ reload: async () => { throw new Error('setting failed'); } }), corsOriginCacheBuilder: cacheMock({ reload: corsReload }) });
     try {
-      const results = await Promise.allSettled(['enfyra_setting', 'enfyra_auth_header'].map(table => (orchestrator as any).handleInvalidation({ table, scope: 'full', action: 'update', timestamp: Date.now(), critical: true })));
+      const results = await Promise.allSettled(['enfyra_setting', 'enfyra_cors_origin'].map(table => (orchestrator as any).handleInvalidation({ table, scope: 'full', action: 'update', timestamp: Date.now(), critical: true })));
       expect(results.map(result => result.status)).toEqual(['rejected', 'fulfilled']);
-      expect(authReload).toHaveBeenCalledOnce();
+      expect(corsReload).toHaveBeenCalledOnce();
     } finally { orchestrator.onDestroy(); }
   });
 
@@ -916,7 +914,6 @@ describe('CacheOrchestratorService reload notifications', () => {
         websocketCacheBuilder: trackedCache('websocket') as any,
         packageCacheService: trackedCache('package') as any,
         settingCacheService: trackedCache('setting') as any,
-        authHeaderCacheBuilder: trackedCache('authHeader') as any,
         storageConfigCacheBuilder: trackedCache('storage') as any,
         oauthConfigCacheBuilder: trackedCache('oauth') as any,
         corsOriginCacheBuilder: trackedCache('corsOrigin') as any,
@@ -943,7 +940,6 @@ describe('CacheOrchestratorService reload notifications', () => {
         [
           'metadata',
           'helper',
-          'authHeader',
           'columnRule',
           'corsOrigin',
           'fieldPermission',

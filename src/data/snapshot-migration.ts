@@ -524,6 +524,11 @@ const snapshotMigrations: VersionedSchemaMigration[] = [
       }],
     },
   },
+  {
+    fromVersion: '2.4.0',
+    toVersion: '2.4.1',
+    schema: { tables: [], tablesToDrop: ['enfyra_auth_header'] },
+  },
 ];
 
 export default snapshotMigrations;

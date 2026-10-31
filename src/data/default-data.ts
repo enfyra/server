@@ -10,26 +10,6 @@ const defaultData = {
     "projectName": "Enfyra CMS",
     "projectDescription": "Description for Enfyra CMS"
   },
-  "enfyra_auth_header": [
-    {
-      "headerKey": "x-enfyra-pat",
-      "credentialType": "pat",
-      "scheme": "raw",
-      "priority": 0,
-      "isEnabled": true,
-      "isSystem": true,
-      "description": "Built-in Enfyra personal access token header"
-    },
-    {
-      "headerKey": "authorization",
-      "credentialType": "jwt",
-      "scheme": "bearer",
-      "priority": 1,
-      "isEnabled": true,
-      "isSystem": true,
-      "description": "Built-in Bearer access token header"
-    }
-  ],
   "enfyra_method": [
     {
       "buttonColor": "#dbeafe",
@@ -150,19 +130,6 @@ const defaultData = {
       "skipRoleGuardMethods": [
         "GET"
       ],
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
-    },
-    {
-      "path": "/enfyra_auth_header",
-      "mainTable": "enfyra_auth_header",
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:key-round",
       "availableMethods": [
         "GET",
         "POST",
@@ -635,16 +602,6 @@ const defaultData = {
       "isSystem": true,
       "icon": "lucide:list-ordered",
       "description": "Reorder menu records in one operation",
-      "availableMethods": [
-        "POST"
-      ]
-    },
-    {
-      "path": "/admin/auth-header/reorder",
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:list-ordered",
-      "description": "Reorder authentication header mappings in one operation",
       "availableMethods": [
         "POST"
       ]
@@ -1185,12 +1142,6 @@ const defaultData = {
             "methods": [
               "GET"
             ]
-          },
-          {
-            "route": "/enfyra_auth_header",
-            "methods": [
-              "GET"
-            ]
           }
         ]
       }
@@ -1383,28 +1334,6 @@ const defaultData = {
         "or": [
           {
             "route": "/enfyra_flow",
-            "methods": [
-              "GET"
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "type": "Menu",
-      "label": "Authentication Headers",
-      "icon": "lucide:key-round",
-      "path": "/settings/auth-headers",
-      "isEnabled": true,
-      "isPublic": false,
-      "isSystem": true,
-      "description": "Configure accepted authentication header keys and their priority",
-      "order": 12,
-      "parent": "Settings",
-      "permission": {
-        "or": [
-          {
-            "route": "/enfyra_auth_header",
             "methods": [
               "GET"
             ]

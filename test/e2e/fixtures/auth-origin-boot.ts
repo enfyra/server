@@ -73,8 +73,10 @@ async function main() {
     const dashboard = await query.findOne({ table: 'enfyra_menu', filter: { path: { _eq: '/dashboard' } }, fields: [pk] });
     const linked = await query.findOne({ table: 'enfyra_setting', fields: [`defaultPage.${pk}`] });
     assert.equal(String(linked.defaultPage?.[pk] ?? linked.defaultPage), String(dashboard[pk]));
-    const native = await query.find({ table: 'enfyra_auth_header', fields: [pk], limit: -1 });
-    assert.equal(native.data.length, 2);
+    const removedHeaderMetadata = await query.findOne({ table: 'enfyra_table', filter: { name: { _eq: 'enfyra_auth_header' } }, fields: [pk] });
+    assert.equal(removedHeaderMetadata, null);
+    if (query.isMongoDb()) assert.equal((await query.getMongoDb().listCollections({ name: 'enfyra_auth_header' }).toArray()).length, 0);
+    else assert.equal(await query.getKnex().schema.hasTable('enfyra_auth_header'), false);
     console.log('AUTH_ORIGIN_BOOT_RESULT ' + JSON.stringify({ legacy, bootstrapRuns, version: setting.enfyraVersion, passed: true }));
     console.log('STORAGE_BOOT_RESULT ' + JSON.stringify({ bootstrapRuns, version: setting.enfyraVersion, dashboardLinked: true }));
   } finally {

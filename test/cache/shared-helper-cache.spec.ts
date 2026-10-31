@@ -268,7 +268,6 @@ describe('metadata shared helpers', () => {
       'fieldPermissionCacheBuilder',
       'columnRuleCacheBuilder',
       'settingCacheService',
-      'authHeaderCacheBuilder',
       'storageConfigCacheBuilder',
       'oauthConfigCacheBuilder',
       'corsOriginCacheBuilder',

@@ -257,7 +257,7 @@ describe('BootstrapDefinitionService', () => {
       (table) => table._unique.name._eq === 'enfyra_column',
     )?.columnsToModify?.find((column) => column.from.name === 'type');
 
-    expect(steps.map((step) => step.toVersion)).toEqual(['2.3.0', '2.3.1', '2.3.2', '2.3.3', '2.4.0']);
+    expect(steps.map((step) => step.toVersion)).toEqual(['2.3.0', '2.3.1', '2.3.2', '2.3.3', '2.4.0', '2.4.1']);
     expect(steps.find(step => step.toVersion === '2.3.3')?.schema.tables?.find(table => table._unique.name._eq === 'enfyra_flow_step')).toMatchObject({ columnsToRemove: ['config'] });
     expect(typeChange?.from.type).toBe('varchar');
     expect(typeChange?.to.type).toBe('enum');

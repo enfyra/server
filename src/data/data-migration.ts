@@ -95,15 +95,6 @@ export const standingDataCorrections = {
     {
       _unique: {
         path: {
-          _eq: '/enfyra_auth_header',
-        },
-      },
-      isSystem: true,
-      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
-    },
-    {
-      _unique: {
-        path: {
           _eq: '/enfyra_menu_permission',
         },
       },
@@ -168,15 +159,6 @@ export const standingDataCorrections = {
       _unique: {
         path: {
           _eq: '/admin/menu/reorder',
-        },
-      },
-      isSystem: true,
-      availableMethods: ['POST'],
-    },
-    {
-      _unique: {
-        path: {
-          _eq: '/admin/auth-header/reorder',
         },
       },
       isSystem: true,
@@ -900,6 +882,17 @@ const dataMigrations: VersionedDataMigration[] = [
         sqlType: { type: 'enum', options: [...ENFYRA_COLUMN_TYPE_OPTIONS] },
         mongoType: { type: 'enum', options: [...MONGO_COLUMN_TYPE_OPTIONS] },
       }],
+    },
+  },
+  {
+    fromVersion: '2.4.0',
+    toVersion: '2.4.1',
+    data: {
+      _deletedRecords: [
+        { table: 'enfyra_route', filter: { path: { _eq: '/enfyra_auth_header' } } },
+        { table: 'enfyra_route', filter: { path: { _eq: '/admin/auth-header/reorder' } } },
+        { table: 'enfyra_menu', filter: { path: { _eq: '/settings/auth-headers' } } },
+      ],
     },
   },
 ];
