@@ -26,6 +26,7 @@ function makeRepo(
     new RuntimeSchemaActivationGateService();
   const queryBuilderService = {
     getPkField: vi.fn(() => 'id'),
+    getDatabaseType: vi.fn(() => 'postgres'),
     find: vi.fn(async (query: any) => {
       const ids = query?.filter?.id?._in;
       if (Array.isArray(ids)) {
@@ -164,7 +165,11 @@ describe('DynamicRepository schema router delegation', () => {
 
     await expect(
       repo.create({ data: { name: 'slug', type: 'varchar', table: 10 } }),
-    ).rejects.toThrow(/instance fenced/i);
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: 'SERVICE_UNAVAILABLE',
+      message: expect.stringMatching(/mutation committed.*instance fenced/i),
+    });
 
     expect((repo as any).schemaActivationService.reload).toHaveBeenCalledTimes(
       3,

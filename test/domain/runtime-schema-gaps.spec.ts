@@ -5,6 +5,7 @@ import { RuntimeSchemaJournalService } from '../../src/modules/table-management/
 import { normalizeRuntimeTableSchema } from '../../src/modules/table-management/utils/runtime-schema-normalization.util';
 import { hashCanonical } from '../../src/shared/utils/schema-mutation-contract.util';
 import { SqlSchemaDiffService } from '../../src/engines/knex/services/sql-schema-diff.service';
+import { MongoSchemaDiffService } from '../../src/engines/mongo/services/mongo-schema-diff.service';
 import { RuntimeSchemaTargetAttestorService } from '../../src/modules/table-management/services/runtime-schema-target-attestor.service';
 
 const baseBefore = {
@@ -545,6 +546,117 @@ describe('SQL schema diff identity normalization', () => {
     (service as any).analyzeConstraintChanges(oldMetadata, oldMetadata, diff);
 
     expect(diff.constraints.indexes.delete).toEqual([['paymentOrderId', 'id']]);
+  });
+
+  it('filters dropped-column indexes out of metadataUpdate when renaming and dropping columns simultaneously', () => {
+    const service = new SqlSchemaDiffService({
+      knexService: {} as any,
+      metadataCacheService: {} as any,
+      queryBuilderService: {} as any,
+    });
+    const diff: any = {
+      columns: {
+        create: [],
+        update: [],
+        delete: ['ship_day', 'reviewed_at'],
+        rename: [
+          { from: 'region', to: 'geo_region', column: { name: 'geo_region' } },
+          {
+            from: 'external_code',
+            to: 'ext_ref',
+            column: { name: 'ext_ref' },
+          },
+        ],
+      },
+      constraints: {
+        uniques: { create: [], update: [], delete: [] },
+        indexes: { create: [], update: [], delete: [] },
+      },
+    };
+    const oldMetadata = {
+      name: 'orders',
+      columns: [
+        { name: 'id', type: 'int', isPrimary: true },
+        { name: 'ship_day', type: 'date' },
+        { name: 'reviewed_at', type: 'datetime' },
+        { name: 'region', type: 'varchar' },
+        { name: 'external_code', type: 'varchar' },
+        { name: 'tier', type: 'enum' },
+      ],
+      relations: [],
+      uniques: [['region', 'external_code']],
+      indexes: [
+        ['createdAt'],
+        ['reviewed_at'],
+        ['ship_day'],
+        ['tier', 'region'],
+        ['updatedAt'],
+      ],
+    };
+    const newMetadata = {
+      name: 'orders',
+      columns: [
+        { name: 'id', type: 'int', isPrimary: true },
+        { name: 'geo_region', type: 'varchar' },
+        { name: 'ext_ref', type: 'varchar' },
+        { name: 'tier', type: 'enum' },
+      ],
+      relations: [],
+      uniques: [['geo_region', 'ext_ref']],
+      indexes: [['createdAt'], ['tier', 'geo_region'], ['updatedAt']],
+    };
+
+    (service as any).analyzeConstraintChanges(oldMetadata, newMetadata, diff);
+
+    expect(diff.metadataUpdate).toEqual({
+      uniques: [['geo_region', 'ext_ref']],
+      indexes: [['createdAt'], ['tier', 'geo_region'], ['updatedAt']],
+    });
+  });
+
+  it('detects Mongo _id-keyed enum option narrowing and rejects violating documents', async () => {
+    const findOne = vi
+      .fn()
+      .mockResolvedValue({ _id: '1', tier: 'enterprise' });
+    const service = new MongoSchemaDiffService({
+      mongoService: {
+        getDb: () => ({
+          collection: () => ({ findOne }),
+        }),
+      } as any,
+      queryBuilderService: {} as any,
+    });
+    const diff = service.generateMongoSchemaDiff(
+      {
+        name: 'orders',
+        columns: [
+          {
+            _id: '507f1f77bcf86cd799439011',
+            name: 'tier',
+            type: 'enum',
+            options: ['free', 'pro', 'enterprise'],
+          },
+        ],
+        relations: [],
+      },
+      {
+        name: 'orders',
+        columns: [
+          {
+            _id: '507f1f77bcf86cd799439011',
+            name: 'tier',
+            type: 'enum',
+            options: ['free', 'pro'],
+          },
+        ],
+        relations: [],
+      },
+    );
+
+    expect(diff.columns.update).toHaveLength(1);
+    await expect(
+      service.executeMongoSchemaDiff('orders', diff),
+    ).rejects.toThrow(/Cannot update orders\.tier enum: unsupported persisted values/i);
   });
 });
 

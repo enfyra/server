@@ -13,7 +13,11 @@ import {
   getSqlRelationTargetTable,
   resolveSqlRelationOnDelete,
 } from '../sql-physical-schema-contract';
-import { addSqlEnumColumn, getPostgresEnumTypeName } from '../sql-enum.util';
+import {
+  addSqlEnumColumn,
+  ensureSqlEnumTypes,
+  getPostgresEnumTypeName,
+} from '../sql-enum.util';
 import {
   POSTGRES_TEMPORAL_PHYSICAL_TYPE,
   postgresTemporalPhysicalType,
@@ -100,6 +104,8 @@ export function applyAlterColumnType(
       return table.integer(columnName).alter();
     case 'string':
       return table.string(columnName, 255).alter();
+    case 'date':
+      return table.date(columnName).alter();
     default:
       throw new Error(
         `ALTER COLUMN to type "${knexType}" is not supported for column "${columnName}" on table "${tableName}". Drop and recreate the column instead, or extend sync-table.ts to handle this type.`,
@@ -120,6 +126,7 @@ export async function applyColumnMigrations(
     for (const col of diff.columnsToAdd) {
       console.log(`    + ${col.name} (${col.type})`);
     }
+    await ensureSqlEnumTypes(knex, tableName, diff.columnsToAdd, dbType);
     await knex.schema.alterTable(tableName, (table) => {
       for (const col of diff.columnsToAdd) {
         let column: Knex.ColumnBuilder;
@@ -156,7 +163,12 @@ export async function applyColumnMigrations(
                 : table.timestamp(col.name);
             break;
           case 'datetime':
-            column = table.datetime(col.name);
+            column = dbType === 'mysql2'
+              ? table.datetime(col.name, { precision: 3 })
+              : table.timestamp(col.name, { useTz: true });
+            break;
+          case 'date':
+            column = table.date(col.name);
             break;
           case 'float':
             column = table.float(col.name);
@@ -328,8 +340,9 @@ export async function applyColumnMigrations(
           // components and the session reads in UTC. DATETIME is the physical target
           // because it stores that wall clock verbatim, which keeps the value
           // independent of the session zone and avoids the 2038 ceiling.
-          timestamp: 'DATETIME',
-          datetime: 'DATETIME',
+          timestamp: 'DATETIME(3)',
+          datetime: 'DATETIME(3)',
+          date: 'DATE',
           json: 'LONGTEXT',
           float: 'FLOAT',
         };
@@ -882,6 +895,12 @@ async function syncRelationOnDeleteChanges(
     'onDelete',
   );
   if (!hasOnDeleteColumn) {
+    await ensureSqlEnumTypes(
+      knex,
+      'enfyra_relation',
+      [{ name: 'onDelete', type: 'enum', options: ['CASCADE', 'RESTRICT', 'SET NULL'] }],
+      dbType,
+    );
     await knex.schema.alterTable('enfyra_relation', (table) => {
       addSqlEnumColumn(
         table,

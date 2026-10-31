@@ -15,33 +15,20 @@ import {
   parseMySqlUtcTemporal,
 } from '../../src/engines/knex/utils/sql-temporal-contract.util';
 
-describe('every logical temporal type resolves to an instant-bearing column', () => {
-  // `date` is a historical name, not a calendar day: its columns are expiry and
-  // lifecycle stamps, and `enfyra_session.expiredAt` defaults to `now`. Storing one
-  // in a physical DATE would truncate it to midnight.
-  it('maps datetime, timestamp and date to TIMESTAMPTZ on postgres', () => {
-    for (const type of ['datetime', 'timestamp', 'date']) {
-      expect(generateColumnDefinition({ name: 'c', type }, 'postgres')).toBe(
-        'TIMESTAMPTZ',
-      );
-    }
+describe('calendar date and UTC datetime physical types', () => {
+  it('maps date and datetime separately on PostgreSQL', () => {
+    expect(generateColumnDefinition({ name: 'c', type: 'date' }, 'postgres')).toBe('DATE');
+    expect(generateColumnDefinition({ name: 'c', type: 'datetime' }, 'postgres')).toBe('TIMESTAMPTZ');
   });
 
-  it('maps every logical temporal type to DATETIME on mysql', () => {
-    // MySQL has no zone-bearing column type, so the aware contract comes from the
-    // connection instead. DATETIME stores the UTC wall clock verbatim and has no
-    // 2038 ceiling.
-    for (const type of ['datetime', 'timestamp', 'date']) {
-      expect(generateColumnDefinition({ name: 'c', type }, 'mysql')).toBe(
-        'DATETIME',
-      );
-    }
+  it('maps date and datetime separately on MySQL', () => {
+    expect(generateColumnDefinition({ name: 'c', type: 'date' }, 'mysql')).toBe('DATE');
+    expect(generateColumnDefinition({ name: 'c', type: 'datetime' }, 'mysql')).toBe('DATETIME(3)');
   });
 
-  it('normalizes every logical temporal type to a knex timestamp', () => {
-    expect(getKnexColumnType({ type: 'date' } as any)).toBe('timestamp');
+  it('preserves the distinct logical types through schema parsing', () => {
+    expect(getKnexColumnType({ type: 'date' } as any)).toBe('date');
     expect(getKnexColumnType({ type: 'datetime' } as any)).toBe('datetime');
-    expect(getKnexColumnType({ type: 'timestamp' } as any)).toBe('timestamp');
   });
 });
 
@@ -95,9 +82,7 @@ describe('temporal conversion expressions anchor the stored value to UTC', () =>
     expect(postgresTemporalPhysicalType('timestamp')).toBe(
       POSTGRES_TEMPORAL_PHYSICAL_TYPE,
     );
-    expect(postgresTemporalPhysicalType('date')).toBe(
-      POSTGRES_TEMPORAL_PHYSICAL_TYPE,
-    );
+    expect(postgresTemporalPhysicalType('date')).toBeNull();
     expect(postgresTemporalPhysicalType('timestamptz')).toBe(
       POSTGRES_TEMPORAL_PHYSICAL_TYPE,
     );

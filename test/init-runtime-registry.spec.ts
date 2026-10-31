@@ -72,7 +72,6 @@ describe('init runtime registry publish', () => {
         fieldPermissionCacheBuilder: cacheService([]),
         columnRuleCacheBuilder: cacheService([]),
         settingCacheService: cacheService([]),
-        authHeaderCacheBuilder: cacheService([]),
         storageConfigCacheBuilder: cacheService([]),
         oauthConfigCacheBuilder: cacheService([]),
         websocketCacheBuilder: cacheService([]),

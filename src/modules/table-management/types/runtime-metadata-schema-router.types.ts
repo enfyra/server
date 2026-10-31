@@ -9,6 +9,7 @@ export interface RuntimeMetadataSchemaMutationResult {
   ownerTableId?: string | number;
   affectedTables?: string[];
   mutationId?: string;
+  policyMetadataChanged?: boolean;
   tableRenames?: Array<{ id: string | number; oldName: string; newName: string }>;
 }
 

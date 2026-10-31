@@ -48,7 +48,7 @@ const BSON_TYPE_MAP: Record<string, MongoBsonType> = {
   real: 'double',
   boolean: 'bool',
   bool: 'bool',
-  date: 'date',
+  date: 'string',
   datetime: 'date',
   timestamp: 'date',
   object: 'object',

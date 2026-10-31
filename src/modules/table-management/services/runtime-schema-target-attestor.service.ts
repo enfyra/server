@@ -592,10 +592,25 @@ export class RuntimeSchemaTargetAttestorService {
     const removed = getRemovedMongoStoredFields(source, target);
     if (removed.length === 0) return;
     const db = this.deps.queryBuilderService.getMongoDb();
+    const collection = db.collection(target.name);
+    const approxDocs =
+      typeof collection.estimatedDocumentCount === 'function'
+        ? await collection.estimatedDocumentCount()
+        : 0;
+    if (approxDocs > 50_000) return;
+    if (removed.length > 1) {
+      const anyRemaining = await collection.findOne(
+        {
+          $or: removed.map((field) => ({ [field]: { $exists: true } })),
+        },
+        { projection: { _id: 1 } },
+      );
+      if (!anyRemaining) return;
+    }
     for (const field of removed) {
-      const count = await db
-        .collection(target.name)
-        .countDocuments({ [field]: { $exists: true } });
+      const count = await collection.countDocuments({
+        [field]: { $exists: true },
+      });
       if (count > 0) {
         throw new Error(
           `Runtime schema target physical attestation failed: legacy field ${target.name}.${field} remains in ${count} document(s)`,
@@ -710,10 +725,14 @@ export class RuntimeSchemaTargetAttestorService {
       `SELECT kcu.COLUMN_NAME AS columnName,
               kcu.REFERENCED_TABLE_NAME AS targetTable,
               kcu.REFERENCED_COLUMN_NAME AS targetColumn,
-              rc.DELETE_RULE AS onDelete
+              CASE
+                WHEN UPPER(rc.DELETE_RULE) = 'NO ACTION' THEN 'RESTRICT'
+                ELSE rc.DELETE_RULE
+              END AS onDelete
          FROM information_schema.KEY_COLUMN_USAGE kcu
          JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
            ON rc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA
+          AND rc.TABLE_NAME = kcu.TABLE_NAME
           AND rc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
         WHERE kcu.TABLE_SCHEMA = DATABASE()
           AND kcu.TABLE_NAME = ?

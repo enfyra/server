@@ -44,6 +44,41 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
     return undefined;
   }
 
+  private isMongoRecordUnchanged(
+    existing: Record<string, any> | null | undefined,
+    nextData: Record<string, any>,
+  ): boolean {
+    if (!existing || typeof existing !== 'object') return false;
+    const keys = Object.keys(nextData);
+    if (!keys.some((key) => key !== '_id' && existing[key] !== undefined)) {
+      return false;
+    }
+    return keys.every((key) => {
+      const expected = nextData[key];
+      const current = existing[key];
+      if (
+        key === 'table' ||
+        key === 'sourceTable' ||
+        key === 'targetTable' ||
+        key === 'mappedBy'
+      ) {
+        return String(current ?? '') === String(expected ?? '');
+      }
+      if (expected === undefined) {
+        return current === undefined || current === null;
+      }
+      if (
+        typeof expected === 'object' ||
+        typeof current === 'object'
+      ) {
+        return (
+          JSON.stringify(current ?? null) === JSON.stringify(expected ?? null)
+        );
+      }
+      return current === expected;
+    });
+  }
+
   async updateTable(
     id: any,
     body: TCreateTableBody,
@@ -281,22 +316,45 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
               queryId,
             );
           stepLog(`STEP 6b snapshot captured (+${lap()}ms)`);
+          const skipUnchangedPolicyMetadata =
+            (context as any)?.$schemaContract?.contract?.context?.diff
+              ?.policyMetadataChanged === false;
           const updateData: any = {};
-          if ('name' in body) updateData.name = body.name;
-          if ('alias' in body) updateData.alias = body.alias;
-          if ('description' in body) updateData.description = body.description;
+          if ('name' in body && body.name !== exists.name)
+            updateData.name = body.name;
+          if ('alias' in body && body.alias !== exists.alias)
+            updateData.alias = body.alias;
+          if ('description' in body && body.description !== exists.description)
+            updateData.description = body.description;
           if (
             'uniques' in body ||
             (body.columns || []).some(
               (column: any) => column.isUnique !== undefined,
             )
           ) {
-            updateData.uniques = bodyUniques;
+            if (
+              JSON.stringify(exists.uniques ?? []) !==
+              JSON.stringify(bodyUniques ?? [])
+            ) {
+              updateData.uniques = bodyUniques;
+            }
           }
-          if ('indexes' in body) updateData.indexes = bodyIndexes;
-          if ('isSingleRecord' in body)
+          if (
+            'indexes' in body &&
+            JSON.stringify(exists.indexes ?? []) !==
+              JSON.stringify(bodyIndexes ?? [])
+          ) {
+            updateData.indexes = bodyIndexes;
+          }
+          if (
+            'isSingleRecord' in body &&
+            body.isSingleRecord !== exists.isSingleRecord
+          )
             updateData.isSingleRecord = body.isSingleRecord;
-          if ('validateBody' in body)
+          if (
+            'validateBody' in body &&
+            body.validateBody !== exists.validateBody
+          )
             updateData.validateBody = body.validateBody;
           if (Object.keys(updateData).length > 0) {
             this.assertNotAborted();
@@ -400,11 +458,16 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
               let colObjectId;
               if (col._id || col.id) {
                 const colId = col._id || col.id;
-                await this.queryBuilderService.update(
-                  'enfyra_column',
-                  colId,
-                  columnData,
+                const existingCol = existingColumns.find(
+                  (c: any) => String(c._id ?? c.id) === String(colId),
                 );
+                if (!this.isMongoRecordUnchanged(existingCol, columnData)) {
+                  await this.queryBuilderService.update(
+                    'enfyra_column',
+                    colId,
+                    columnData,
+                  );
+                }
                 colObjectId =
                   typeof colId === 'string' ? new ObjectId(colId) : colId;
               } else {
@@ -418,16 +481,30 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
                     : inserted._id;
               }
               columnIds.push(colObjectId);
-              await this.writeNestedRulesMongo({
-                rules: (col as any).rules,
-                subjectFk: 'column',
-                subjectFkValue: colObjectId,
-              });
-              await this.writeNestedFieldPermissionsMongo({
-                permissions: (col as any).fieldPermissions,
-                subjectFk: 'column',
-                subjectFkValue: colObjectId,
-              });
+              if (
+                !skipUnchangedPolicyMetadata ||
+                (!(col._id || col.id) &&
+                  Array.isArray((col as any).rules) &&
+                  (col as any).rules.length > 0)
+              ) {
+                await this.writeNestedRulesMongo({
+                  rules: (col as any).rules,
+                  subjectFk: 'column',
+                  subjectFkValue: colObjectId,
+                });
+              }
+              if (
+                !skipUnchangedPolicyMetadata ||
+                (!(col._id || col.id) &&
+                  Array.isArray((col as any).fieldPermissions) &&
+                  (col as any).fieldPermissions.length > 0)
+              ) {
+                await this.writeNestedFieldPermissionsMongo({
+                  permissions: (col as any).fieldPermissions,
+                  subjectFk: 'column',
+                  subjectFkValue: colObjectId,
+                });
+              }
             }
           }
           stepLog(
@@ -467,8 +544,15 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
                   });
                 for (const inv of inverseRels) {
                   this.assertNotAborted();
-                  if (inv.sourceTableName)
+                  if (inv.sourceTableName) {
                     affectedTableNames.add(inv.sourceTableName);
+                  } else if (inv.sourceTable) {
+                    const invTable = await this.queryBuilderService.findOne({
+                      table: 'enfyra_table',
+                      where: { _id: inv.sourceTable },
+                    });
+                    if (invTable?.name) affectedTableNames.add(invTable.name);
+                  }
                   await this.mongoService
                     .getDb()
                     .collection('enfyra_field_permission')
@@ -502,6 +586,12 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
                 this.assertNotAborted();
                 if (inverse.sourceTableName) {
                   affectedTableNames.add(inverse.sourceTableName);
+                } else if (inverse.sourceTable) {
+                  const invTable = await this.queryBuilderService.findOne({
+                    table: 'enfyra_table',
+                    where: { _id: inverse.sourceTable },
+                  });
+                  if (invTable?.name) affectedTableNames.add(invTable.name);
                 }
                 await this.mongoService
                   .getDb()
@@ -662,11 +752,13 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
               }
               let relObjectId;
               if (relId) {
-                await this.queryBuilderService.update(
-                  'enfyra_relation',
-                  relId,
-                  relationData,
-                );
+                if (!this.isMongoRecordUnchanged(existingRel, relationData)) {
+                  await this.queryBuilderService.update(
+                    'enfyra_relation',
+                    relId,
+                    relationData,
+                  );
+                }
                 relObjectId =
                   typeof relId === 'string' ? new ObjectId(relId) : relId;
               } else {
@@ -680,11 +772,18 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
                     : inserted._id;
               }
               relationIds.push(relObjectId);
-              await this.writeNestedFieldPermissionsMongo({
-                permissions: (rel as any).fieldPermissions,
-                subjectFk: 'relation',
-                subjectFkValue: relObjectId,
-              });
+              if (
+                !skipUnchangedPolicyMetadata ||
+                (!relId &&
+                  Array.isArray((rel as any).fieldPermissions) &&
+                  (rel as any).fieldPermissions.length > 0)
+              ) {
+                await this.writeNestedFieldPermissionsMongo({
+                  permissions: (rel as any).fieldPermissions,
+                  subjectFk: 'relation',
+                  subjectFkValue: relObjectId,
+                });
+              }
               if (rel.inversePropertyName && !(rel._id || rel.id)) {
                 if (mappedByProperty) {
                   throw new ValidationException(
@@ -726,6 +825,8 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
                   type: inverseType,
                   sourceTable: targetTableObjectId,
                   targetTable: queryId,
+                  sourceTableName: resolvedTargetTableName,
+                  targetTableName: exists.name,
                   mappedBy: relObjectId,
                   isNullable: rel.isNullable ?? true,
                   isSystem: false,
@@ -756,9 +857,10 @@ export class MongoTableUpdateService extends MongoTableHandlerService {
                   inverseData,
                 );
                 const invTargetName =
-                  typeof rel.targetTable === 'string'
+                  resolvedTargetTableName ||
+                  (typeof rel.targetTable === 'string'
                     ? rel.targetTable
-                    : rel.targetTable?.name;
+                    : rel.targetTable?.name);
                 if (invTargetName) affectedTableNames.add(invTargetName);
                 this.logger.log(
                   `Auto-created inverse relation '${rel.inversePropertyName}'`,

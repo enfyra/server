@@ -5,6 +5,7 @@ import { RuntimeRegistryService } from '../../../engines/cache';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { normalizeMongoDocument } from '../../../engines/mongo/utils/normalize-mongo-document.util';
 import { DefaultPagePolicyService } from './default-page-policy.service';
+import { normalizeAuthOrigin } from '../../auth/utils/auth-origin.util';
 import {
   assertGraphqlPermissionScope,
   assertNoPublicPermissionOverlap,
@@ -265,32 +266,14 @@ export class SystemSafetyAuditorService {
       }
     }
 
-    if (tableName === 'enfyra_auth_header') {
-      // A delete carries no payload, so the lowercase contract can only be
-      // checked against a supplied or existing value on create/update.
-      if (operation !== 'delete') {
-        const headerKey =
-          operation === 'update'
-            ? data?.headerKey ?? fullExisting?.headerKey
-            : data?.headerKey;
-        if (typeof headerKey !== 'string' || headerKey.trim() !== headerKey.toLowerCase()) {
-          throw new Error('enfyra_auth_header.headerKey must be normalized lowercase');
-        }
-      }
-
-      if (operation === 'update' && fullExisting?.isSystem) {
-        const allowed = this.schemaMigrationValidatorService.getAllowedFields([
-          'description',
-          'priority',
-        ]);
-        const disallowed = changedFields.filter((field) => !allowed.includes(field));
-        if (disallowed.length > 0) {
-          throw new Error(
-            `Cannot modify system auth header (only allowed: ${allowed.join(', ')}): ${disallowed.join(', ')}`,
-          );
-        }
+    if (tableName === 'enfyra_auth_origin' && operation !== 'delete') {
+      const value = operation === 'update' && !('value' in (data ?? {})) ? fullExisting?.value : data?.value;
+      const origin = normalizeAuthOrigin(value);
+      if (!origin || origin !== value) {
+        throw new Error('Auth origin must be a normalized HTTP or HTTPS origin without credentials, path, query or fragment');
       }
     }
+
 
     if (tableName === 'enfyra_table') {
       const isSystem = fullExisting?.isSystem;

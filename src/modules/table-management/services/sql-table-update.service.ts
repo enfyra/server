@@ -252,6 +252,11 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
         }
       }
 
+      const skipUnchangedPolicyMetadata =
+        (context as any)?.$schemaContract?.contract?.context?.diff
+          ?.policyMetadataChanged === false;
+      let postUpdateMetadata: any = null;
+
       if (isPostgres) {
         // === PG PATH: metadata writes + DDL in same transaction ===
         stepLog(`STEP 6 PG: opening transaction...`);
@@ -265,6 +270,7 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
             body,
             exists,
             affectedTableNames,
+            { skipUnchangedPolicyMetadata },
           );
           stepLog(`STEP 8 PG: metadata written (+${lap()}ms)`);
 
@@ -273,6 +279,7 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
               trx,
               exists.id,
             );
+          postUpdateMetadata = updatedFullMetadata;
           stepLog(`STEP 9 PG: reloaded metadata in trx (+${lap()}ms)`);
           if (!updatedFullMetadata) {
             throw new Error(
@@ -301,7 +308,9 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
           const schemaChanged = decision.details?.schemaChanged === true;
           if (schemaChanged) {
             stepLog(`STEP 11 PG: running DDL inside metadata transaction...`);
+            await trx.raw(`SET LOCAL lock_timeout = '5s'`);
             await trx.raw(`SET LOCAL statement_timeout = '90s'`);
+            await trx.raw(`SET LOCAL maintenance_work_mem = '512MB'`);
             const pendingUpdate: any =
               await this.schemaMigrationService.updateTable(
                 exists.name,
@@ -310,6 +319,7 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
                 trx,
                 this.extractPrecompiledPlan(context),
               );
+            await trx.raw(`SET LOCAL lock_timeout = '0'`);
             await trx.raw(`SET LOCAL statement_timeout = '0'`);
             stepLog(`STEP 11 PG: DDL done (+${lap()}ms)`);
             if (pendingUpdate?.pendingMetadataUpdate) {
@@ -400,6 +410,7 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
                 body,
                 exists,
                 affectedTableNames,
+                { skipUnchangedPolicyMetadata },
               );
               await trx.commit();
               metadataWritten = true;
@@ -484,6 +495,7 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
               body,
               exists,
               affectedTableNames,
+              { skipUnchangedPolicyMetadata },
             );
             await trx.commit();
             stepLog(`STEP 9 ${dbType}: metadata committed (+${lap()}ms)`);
@@ -501,10 +513,12 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
       // === POST-MIGRATION (common) ===
       if (body.isSingleRecord === true && !exists.isSingleRecord) {
         const fullMetadata =
-          await this.sqlTableMetadataBuilderService.getFullTableMetadataInTransaction(
+          postUpdateMetadata ??
+          (await this.sqlTableMetadataBuilderService.getFullTableMetadataInTransaction(
             knex,
             exists.id,
-          );
+          ));
+        postUpdateMetadata = fullMetadata;
         await ensureSqlSingleRecord({
           knex,
           tableName: exists.name,
@@ -523,19 +537,26 @@ export class SqlTableUpdateService extends SqlTableHandlerService {
         stepLog(`enfyra_graphql sync done (+${lap()}ms)`);
       }
 
-      const latestMetadata =
-        await this.sqlTableMetadataBuilderService.getFullTableMetadataInTransaction(
-          knex,
-          exists.id,
-        );
-      if (latestMetadata) {
-        await ensureSqlM2mJunctionTables({
-          knex,
-          tableMetadata: latestMetadata,
-          dbType,
-          metadataCacheService: this.metadataCacheService,
-        });
-        stepLog(`m2m junction tables verified (+${lap()}ms)`);
+      const hasOwningM2mRelation = bodyRelations.some(
+        (rel: any) =>
+          rel.type === 'many-to-many' && !rel.mappedBy && !rel.mappedById,
+      );
+      if (hasOwningM2mRelation) {
+        const latestMetadata =
+          postUpdateMetadata ??
+          (await this.sqlTableMetadataBuilderService.getFullTableMetadataInTransaction(
+            knex,
+            exists.id,
+          ));
+        if (latestMetadata) {
+          await ensureSqlM2mJunctionTables({
+            knex,
+            tableMetadata: latestMetadata,
+            dbType,
+            metadataCacheService: this.metadataCacheService,
+          });
+          stepLog(`m2m junction tables verified (+${lap()}ms)`);
+        }
       }
 
       return {

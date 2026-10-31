@@ -71,7 +71,6 @@ function runtimeContainer(bootstrapOverrides: Record<string, unknown> = {}) {
     fieldPermissionCacheBuilder: cacheService(),
     columnRuleCacheBuilder: cacheService(),
     settingCacheService: cacheService(),
-    authHeaderCacheBuilder: cacheService(),
     storageConfigCacheBuilder: cacheService(),
     oauthConfigCacheBuilder: cacheService(),
     websocketCacheBuilder: cacheService(),
@@ -191,7 +190,7 @@ it('activates flows only after runtime snapshots and SQL functions are ready', a
     },
   );
   container.cradle.flowRuntimeService.init.mockImplementation(async () => {
-    expect(snapshots).toBe(17);
+    expect(snapshots).toBe(16);
     expect(sqlReady).toBe(true);
   });
   await init(container);

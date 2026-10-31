@@ -16,7 +16,6 @@ import { SettingCacheService } from './setting-cache.service';
 import { StorageConfigCacheBuilder } from './storage-config-cache-builder.service';
 import { OAuthConfigCacheBuilder } from './oauth-config-cache-builder.service';
 import { CorsOriginCacheBuilder } from './cors-origin-cache-builder.service';
-import { AuthHeaderCacheBuilder } from './auth-header-cache-builder.service';
 import { FolderTreeCacheService } from './folder-tree-cache.service';
 import { FieldPermissionCacheBuilder } from './field-permission-cache-builder.service';
 import { ColumnRuleCacheBuilder } from './column-rule-cache-builder.service';
@@ -54,7 +53,6 @@ const FLOW_PRIORITY = [
   'route',
   'fieldPermission',
   'setting',
-  'authHeader',
   'guard',
   'flow',
   'websocket',
@@ -80,7 +78,6 @@ type ReloadStepName =
   | 'package'
   | 'helper'
   | 'setting'
-  | 'authHeader'
   | 'storage'
   | 'oauth'
   | 'corsOrigin'
@@ -175,7 +172,6 @@ export const RELOAD_CHAINS: Record<string, ReloadStepName[]> = {
   [SYSTEM_TABLES.columnRule]: ['column-rule'],
 
   [SYSTEM_TABLES.setting]: ['setting', 'settingGraphql'],
-  [SYSTEM_TABLES.authHeader]: ['authHeader'],
   [SYSTEM_TABLES.storageConfig]: ['storage'],
   [SYSTEM_TABLES.oauthConfig]: ['oauth'],
   [SYSTEM_TABLES.corsOrigin]: ['corsOrigin'],
@@ -208,7 +204,6 @@ export class CacheOrchestratorService implements LifecycleAware {
   private readonly packageCacheService: PackageCacheService;
   private readonly sharedHelperCacheService: SharedHelperCacheService;
   private readonly settingCacheService: SettingCacheService;
-  private readonly authHeaderCacheBuilder: AuthHeaderCacheBuilder;
   private readonly storageConfigCacheBuilder: StorageConfigCacheBuilder;
   private readonly oauthConfigCacheBuilder: OAuthConfigCacheBuilder;
   private readonly corsOriginCacheBuilder: CorsOriginCacheBuilder;
@@ -261,7 +256,6 @@ export class CacheOrchestratorService implements LifecycleAware {
     packageCacheService: PackageCacheService;
     sharedHelperCacheService: SharedHelperCacheService;
     settingCacheService: SettingCacheService;
-    authHeaderCacheBuilder: AuthHeaderCacheBuilder;
     storageConfigCacheBuilder: StorageConfigCacheBuilder;
     oauthConfigCacheBuilder: OAuthConfigCacheBuilder;
     corsOriginCacheBuilder: CorsOriginCacheBuilder;
@@ -288,7 +282,6 @@ export class CacheOrchestratorService implements LifecycleAware {
     this.packageCacheService = deps.packageCacheService;
     this.sharedHelperCacheService = deps.sharedHelperCacheService;
     this.settingCacheService = deps.settingCacheService;
-    this.authHeaderCacheBuilder = deps.authHeaderCacheBuilder;
     this.storageConfigCacheBuilder = deps.storageConfigCacheBuilder;
     this.oauthConfigCacheBuilder = deps.oauthConfigCacheBuilder;
     this.corsOriginCacheBuilder = deps.corsOriginCacheBuilder;
@@ -325,12 +318,6 @@ export class CacheOrchestratorService implements LifecycleAware {
         ),
       setting: (p, options) =>
         this.reloadSimple(this.settingCacheService, p, options?.sharedReplay),
-      authHeader: (p, options) =>
-        this.reloadSimple(
-          this.authHeaderCacheBuilder,
-          p,
-          options?.sharedReplay,
-        ),
       storage: (p, options) =>
         this.reloadSimple(
           this.storageConfigCacheBuilder,
@@ -405,6 +392,11 @@ export class CacheOrchestratorService implements LifecycleAware {
       this.debounceResolvers.push({ table: payload.table, resolve, reject });
       this.mergePayload(payload);
       if (this.debounceTimer) clearTimeout(this.debounceTimer);
+      if (payload.critical) {
+        this.debounceTimer = null;
+        queueMicrotask(() => void this.flushInvalidations());
+        return;
+      }
       this.debounceTimer = setTimeout(
         () => void this.flushInvalidations(),
         CACHE_ORCHESTRATOR_DEFAULTS.invalidationDebounceMs,
@@ -467,6 +459,16 @@ export class CacheOrchestratorService implements LifecycleAware {
     if (!pending.critical && payload.critical !== undefined) {
       pending.critical = payload.critical;
     }
+    if (pending.policyMetadataChanged !== true) {
+      if (payload.policyMetadataChanged === true) {
+        pending.policyMetadataChanged = true;
+      } else if (
+        pending.policyMetadataChanged === undefined &&
+        payload.policyMetadataChanged === false
+      ) {
+        pending.policyMetadataChanged = false;
+      }
+    }
     pending.timestamp = Math.max(pending.timestamp, payload.timestamp);
     const tables = new Set([...(pending.affectedTables ?? []), ...(payload.affectedTables ?? [])]);
     if (tables.size) pending.affectedTables = [...tables];
@@ -486,14 +488,36 @@ export class CacheOrchestratorService implements LifecycleAware {
     payload: TCacheInvalidationPayload,
     publish: boolean,
   ): Promise<void> {
-    const chain = RELOAD_CHAINS[payload.table];
-    if (!chain) {
+    const baseChain = RELOAD_CHAINS[payload.table];
+    if (!baseChain) {
       this.logger.debug(`No reload chain for table: ${payload.table}`);
       return;
     }
 
     const sharedRuntimeCache = this.usesSharedRuntimeCache();
     const sharedReplay = !publish && sharedRuntimeCache;
+    const canSkipPolicyAndGuardSteps =
+      !sharedReplay &&
+      (payload.table === SYSTEM_TABLES.table ||
+        payload.table === SYSTEM_TABLES.column ||
+        payload.table === SYSTEM_TABLES.relation) &&
+      payload.scope === 'partial' &&
+      payload.policyMetadataChanged === false &&
+      !payload.tableRenames?.length &&
+      this.runtimeRegistryService?.getEntry(CACHE_IDENTIFIERS.FIELD_PERMISSION)
+        ?.status === 'activated' &&
+      this.runtimeRegistryService?.getEntry(CACHE_IDENTIFIERS.COLUMN_RULE)
+        ?.status === 'activated' &&
+      this.runtimeRegistryService?.getEntry(CACHE_IDENTIFIERS.GUARD)?.status ===
+        'activated';
+    const chain = canSkipPolicyAndGuardSteps
+      ? baseChain.filter(
+          (step) =>
+            step !== 'fieldPermission' &&
+            step !== 'column-rule' &&
+            step !== 'guard',
+        )
+      : baseChain;
 
     if (publish && !sharedRuntimeCache) {
       await this.publishSignal(payload);
@@ -669,17 +693,6 @@ export class CacheOrchestratorService implements LifecycleAware {
         });
         throw error;
       } finally {
-        if (
-          !reloadFailed &&
-          elapsed < CACHE_ORCHESTRATOR_DEFAULTS.minimumClientReloadStatusMs
-        ) {
-          await new Promise((r) =>
-            setTimeout(
-              r,
-              CACHE_ORCHESTRATOR_DEFAULTS.minimumClientReloadStatusMs - elapsed,
-            ),
-          );
-        }
         this.notifyClients(
           reloadFailed ? 'failed' : 'done',
           flow,
@@ -907,12 +920,6 @@ export class CacheOrchestratorService implements LifecycleAware {
           identifier: CACHE_IDENTIFIERS.SETTING,
           service: this
             .settingCacheService as unknown as RuntimeCacheViewSource,
-        };
-      case 'authHeader':
-        return {
-          identifier: CACHE_IDENTIFIERS.AUTH_HEADER,
-          service: this
-            .authHeaderCacheBuilder as unknown as RuntimeCacheViewSource,
         };
       case 'storage':
         return {
@@ -1263,7 +1270,6 @@ export class CacheOrchestratorService implements LifecycleAware {
         'websocket',
         'package',
         'setting',
-        'authHeader',
         'storage',
         'oauth',
         'corsOrigin',
@@ -1363,13 +1369,6 @@ export class CacheOrchestratorService implements LifecycleAware {
               sharedReplay
                 ? this.settingCacheService.syncFromSharedCache()
                 : this.settingCacheService.reload(false),
-          },
-          {
-            name: 'authHeader',
-            run: () =>
-              sharedReplay
-                ? this.authHeaderCacheBuilder.syncFromSharedCache()
-                : this.authHeaderCacheBuilder.reload(false),
           },
           {
             name: 'storage',

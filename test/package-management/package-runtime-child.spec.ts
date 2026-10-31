@@ -375,8 +375,12 @@ describe('package runtime child', () => {
 
       expect(sendResult.ok).toBe(true);
       expect(sendResult.value).toEqual({
-        accepted: ['user@test.com'],
-        subject: 'Welcome: User: Hello',
+        __pkgCallValue: {
+          accepted: ['user@test.com'],
+          subject: 'Welcome: User: Hello',
+        },
+        __pkgCallRefresh: { prefix: 'Welcome: User: ' },
+        __pkgCallInvalidate: false,
       });
     } finally {
       child.kill();

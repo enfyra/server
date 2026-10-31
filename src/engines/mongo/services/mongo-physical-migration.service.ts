@@ -174,7 +174,11 @@ export class MongoPhysicalMigrationService {
       );
     }
 
-    const collection = this.mongoService.getDb().collection(tableName);
+    const rawDb =
+      typeof (this.mongoService as any).getRawDb === 'function'
+        ? this.mongoService.getRawDb()
+        : this.mongoService.getDb();
+    const collection = rawDb.collection(tableName);
     const validRenames = renames.filter(
       (rename) =>
         rename.oldName &&
@@ -184,6 +188,17 @@ export class MongoPhysicalMigrationService {
     const validRemovedFields = [
       ...new Set(removedFields.filter((field) => field && field !== '_id')),
     ];
+
+    const approxDocs =
+      typeof collection.estimatedDocumentCount === 'function'
+        ? await collection.estimatedDocumentCount()
+        : 0;
+    if (approxDocs > 50_000) {
+      if (validRenames.length > 0) {
+        await this.enqueueFieldRenames(tableName, validRenames);
+      }
+      return;
+    }
 
     for (const rename of validRenames) {
       const conflicts = await collection.countDocuments({
@@ -206,10 +221,24 @@ export class MongoPhysicalMigrationService {
         { $rename: { [rename.oldName]: rename.newName } },
       );
     }
-    for (const field of validRemovedFields) {
+    if (validRemovedFields.length === 1) {
+      const field = validRemovedFields[0]!;
       await collection.updateMany(
         { [field]: { $exists: true } },
         { $unset: { [field]: '' } },
+      );
+    } else if (validRemovedFields.length > 1) {
+      await collection.updateMany(
+        {
+          $or: validRemovedFields.map((field) => ({
+            [field]: { $exists: true },
+          })),
+        },
+        {
+          $unset: Object.fromEntries(
+            validRemovedFields.map((field) => [field, '']),
+          ),
+        },
       );
     }
 

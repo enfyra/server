@@ -69,6 +69,7 @@ export function generateDefaultValue(column: {
       return false;
 
     case 'date':
+      return new Date().toISOString().slice(0, 10);
     case 'datetime':
     case 'timestamp':
       return new Date().toISOString();

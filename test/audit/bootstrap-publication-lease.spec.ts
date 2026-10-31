@@ -31,6 +31,7 @@ function publicationFixture(lossAt?: 'attestation' | 'publication') {
       runExplicitRepairs: noop,
     },
     routeDefinitionProcessor: { ensureMissingHandlers: noop },
+    routeMethodConfigBackfillService: { run: noop },
     snapshotTargetVerifierService: {
       assertSchemaTargetState: noop,
       assertDataTargetState: async () => {

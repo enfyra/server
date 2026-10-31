@@ -216,13 +216,22 @@ export class MongoSchemaMigrationService {
     );
     for (const [relId, newRel] of newRelMap) {
       const oldRel = oldRelMap.get(relId);
-      if (oldRel && oldRel.propertyName !== newRel.propertyName) {
-        propertyNameRenames.set(oldRel.propertyName, newRel.propertyName);
+      if (!oldRel) continue;
+      const oldField = oldRel.foreignKeyColumn || oldRel.propertyName;
+      const newField = newRel.foreignKeyColumn || newRel.propertyName;
+      if (oldField && newField && oldField !== newField) {
+        propertyNameRenames.set(oldField, newField);
       }
     }
     if (columnRenames.size > 0 || propertyNameRenames.size > 0) {
+      const baseUniques = Array.isArray(newMetadata.uniques)
+        ? newMetadata.uniques
+        : oldMetadata.uniques || [];
+      const baseIndexes = Array.isArray(newMetadata.indexes)
+        ? newMetadata.indexes
+        : oldMetadata.indexes || [];
       let updatedUniques = this.schemaDiffService.updateConstraintColumns(
-        oldMetadata.uniques || [],
+        baseUniques,
         columnRenames,
       );
       updatedUniques = this.schemaDiffService.updateConstraintColumns(
@@ -230,12 +239,39 @@ export class MongoSchemaMigrationService {
         propertyNameRenames,
       );
       let updatedIndexes = this.schemaDiffService.updateConstraintColumns(
-        oldMetadata.indexes || [],
+        baseIndexes,
         columnRenames,
       );
       updatedIndexes = this.schemaDiffService.updateConstraintColumns(
         updatedIndexes,
         propertyNameRenames,
+      );
+      const knownFields = new Set<string>([
+        '_id',
+        'id',
+        'createdAt',
+        'updatedAt',
+      ]);
+      for (const col of newMetadata.columns || []) {
+        if (col?.name) knownFields.add(col.name);
+      }
+      for (const rel of newMetadata.relations || []) {
+        if (!rel?.mappedBy && !rel?.mappedById) {
+          if (rel?.propertyName) knownFields.add(rel.propertyName);
+          if (rel?.foreignKeyColumn) knownFields.add(rel.foreignKeyColumn);
+        }
+      }
+      updatedUniques = (updatedUniques || []).filter(
+        (group: any) =>
+          Array.isArray(group) &&
+          group.length > 0 &&
+          group.every((field: string) => knownFields.has(field)),
+      );
+      updatedIndexes = (updatedIndexes || []).filter(
+        (group: any) =>
+          Array.isArray(group) &&
+          group.length > 0 &&
+          group.every((field: string) => knownFields.has(field)),
       );
       const metadataUpdate: any = {};
       if (

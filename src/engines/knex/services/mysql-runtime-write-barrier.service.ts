@@ -10,6 +10,8 @@ const FENCE_TABLE = 'system_runtime_write_fence';
 const WRITER_TABLE = 'system_runtime_active_writes';
 const FENCE_LEASE_MS = 30_000;
 const FENCE_RENEWAL_MS = 5_000;
+const WRITER_LEASE_MS = 15_000;
+const WRITER_RENEWAL_MS = 5_000;
 const RECOVERY_WAIT_MS = FENCE_LEASE_MS + 10_000;
 
 export class MySqlRuntimeWriteBarrierService {
@@ -38,7 +40,7 @@ export class MySqlRuntimeWriteBarrierService {
     await this.ensureReady();
     const knex = this.deps.knexService.getSystemKnex();
     const token = randomUUID();
-    const leaseMs = 10 * 60 * 1000;
+    const leaseMs = WRITER_LEASE_MS;
     const now = new Date();
     await this.runControlTransaction(knex, async (trx) => {
       await trx(WRITER_TABLE).where('expiresAt', '<=', now).delete();
@@ -75,7 +77,7 @@ export class MySqlRuntimeWriteBarrierService {
         .catch(() => {
           leaseLost = true;
         });
-    }, 30_000);
+    }, WRITER_RENEWAL_MS);
 
     try {
       const result = await this.writerContext.run(true, callback);
@@ -207,14 +209,19 @@ export class MySqlRuntimeWriteBarrierService {
     }
 
     const lease = this.startFenceHeartbeat(knex, token);
+    let released = false;
     try {
       await this.waitForWritersToDrain(knex);
       const result = await this.schemaOwnerContext.run(true, callback);
       await this.assertFenceOwnership(knex, token, lease);
       await this.releaseFence(knex, token);
+      released = true;
       return result;
     } finally {
       lease.stop();
+      if (!released) {
+        await this.releaseFence(knex, token).catch(() => {});
+      }
     }
   }
 

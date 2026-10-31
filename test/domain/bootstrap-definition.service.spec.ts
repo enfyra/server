@@ -93,6 +93,24 @@ describe('BootstrapDefinitionService', () => {
     expect(Object.isFrozen(definition.snapshot)).toBe(true);
   });
 
+  it('retains the historical column type data target as well as the current upgrade target', () => {
+    const steps = bootstrapSourceArtifacts.dataMigrations;
+    const historical = steps.find((step) => step.toVersion === '2.3.0');
+    const current = steps.find((step) => step.toVersion === '2.4.0');
+    expect(historical?.data.enfyra_column).toHaveLength(1);
+    expect(current?.data.enfyra_column).toHaveLength(1);
+    const definition = new BootstrapDefinitionService().resolveForVersion('2.2.19-patch-1');
+    const targets = definition.dataMigration.enfyra_column.filter(
+      (record: any) => record._unique?._and?.some(
+        (condition: any) => condition?.table?.name?._eq === 'enfyra_column',
+      ) && record._unique?._and?.some(
+        (condition: any) => condition?.name?._eq === 'type',
+      ),
+    );
+    expect(targets).toHaveLength(2);
+    expect(targets[0]).toEqual(targets[1]);
+  });
+
   it('merges both declared schema and data steps from 2.2.19-patch-1', () => {
     const service = new BootstrapDefinitionService();
     const definition = service.resolveForVersion('2.2.19-patch-1');
@@ -239,8 +257,8 @@ describe('BootstrapDefinitionService', () => {
       (table) => table._unique.name._eq === 'enfyra_column',
     )?.columnsToModify?.find((column) => column.from.name === 'type');
 
-    expect(steps.map((step) => step.toVersion)).toEqual(['2.3.0', '2.3.1', '2.3.2', '2.3.3']);
-    expect(steps.at(-1)?.schema.tables?.find(table => table._unique.name._eq === 'enfyra_flow_step')).toMatchObject({ columnsToRemove: ['config'] });
+    expect(steps.map((step) => step.toVersion)).toEqual(['2.3.0', '2.3.1', '2.3.2', '2.3.3', '2.4.0', '2.4.1']);
+    expect(steps.find(step => step.toVersion === '2.3.3')?.schema.tables?.find(table => table._unique.name._eq === 'enfyra_flow_step')).toMatchObject({ columnsToRemove: ['config'] });
     expect(typeChange?.from.type).toBe('varchar');
     expect(typeChange?.to.type).toBe('enum');
     expect(typeChange?.to.options).toContain('simple-json');

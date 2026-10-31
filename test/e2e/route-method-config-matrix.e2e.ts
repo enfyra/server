@@ -18,6 +18,7 @@ import { replaceSqlJunctionRows } from '../../src/domain/bootstrap/utils/sql-jun
 import { init, initBootstrap, shutdown } from '../../src/init';
 import { getCurrentDatabaseSchema } from '../../src/engines/knex/utils/provision/schema-comparison';
 import { getShortSqlIdentifier } from '../../src/engines/knex/utils/sql-physical-schema-contract';
+import { getEnfyraVersion } from '../../src/shared/utils/enfyra-version.util';
 
 type Database = 'postgres' | 'mysql' | 'mongodb';
 type SqlDatabase = Exclude<Database, 'mongodb'>;
@@ -141,6 +142,8 @@ function buildLegacyArtifacts(oldest = false): BootstrapSourceArtifacts {
   const snapshot = sources.snapshot;
   delete snapshot.enfyra_route_method_config;
   delete snapshot.enfyra_route_method_config_file_field;
+  delete sources.dataCorrections.enfyra_route_method_config;
+  delete sources.dataCorrections.enfyra_route_method_config_file_field;
   sources.defaultData.enfyra_route = (sources.defaultData.enfyra_route as any[]).filter(
     (route) => !['/enfyra_route_method_config', '/enfyra_route_method_config_file_field'].includes(route.path),
   );
@@ -165,12 +168,8 @@ function buildLegacyArtifacts(oldest = false): BootstrapSourceArtifacts {
     (unique: string[]) =>
       !unique.some((field) => field === 'routeMethodConfig'),
   );
-  sources.migrations = sources.migrations.filter(
-    (migration) => migration.toVersion !== '2.3.1',
-  );
-  sources.dataMigrations = sources.dataMigrations.filter(
-    (migration) => migration.toVersion !== '2.3.1',
-  );
+  sources.migrations = [];
+  sources.dataMigrations = [];
   if (oldest) {
     sources.migrations = [];
     sources.dataMigrations = [];
@@ -337,7 +336,7 @@ async function assertOldestUpgradeSchema(queryBuilderService: any): Promise<void
     fields: ['enfyraVersion', 'isInit'],
     limit: 1,
   });
-  assert.equal(settings.data?.[0]?.enfyraVersion, '2.3.1');
+  assert.equal(settings.data?.[0]?.enfyraVersion, getEnfyraVersion());
   assert.equal(settings.data?.[0]?.isInit, true);
   if (queryBuilderService.isMongoDb()) {
     const row = await queryBuilderService.getMongoDb().collection('enfyra_setting').findOne({});

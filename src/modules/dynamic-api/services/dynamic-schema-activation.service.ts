@@ -4,6 +4,7 @@ import type { TCacheInvalidationPayload } from '../../../shared/types/cache.type
 import type { RuntimeMetadataSchemaMutationResult } from '../../table-management/types/runtime-metadata-schema-router.types';
 import { EventEmitter2 } from 'eventemitter2';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
+import { ServiceUnavailableException } from '../../../domain/exceptions/custom-exceptions';
 
 export class DynamicSchemaActivationService {
   constructor(
@@ -20,13 +21,18 @@ export class DynamicSchemaActivationService {
     opts: { ids?: (string | number)[] },
   ): Promise<void> {
     const mutationId = mutation.mutationId;
+    const reloadIds =
+      mutation.ownerTableId != null ? [mutation.ownerTableId] : opts.ids;
     if (!mutationId) {
       await this.reload({
-        ...(opts.ids !== undefined ? { ids: opts.ids } : {}),
+        ...(reloadIds !== undefined ? { ids: reloadIds } : {}),
         ...(mutation.affectedTables !== undefined
           ? { affectedTables: mutation.affectedTables }
           : {}),
         critical: true,
+        ...(mutation.policyMetadataChanged !== undefined
+          ? { policyMetadataChanged: mutation.policyMetadataChanged }
+          : {}),
         ...(mutation.tableRenames !== undefined
           ? { tableRenames: mutation.tableRenames }
           : {}),
@@ -39,11 +45,14 @@ export class DynamicSchemaActivationService {
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         await this.reload({
-          ...(opts.ids !== undefined ? { ids: opts.ids } : {}),
+          ...(reloadIds !== undefined ? { ids: reloadIds } : {}),
           ...(mutation.affectedTables !== undefined
             ? { affectedTables: mutation.affectedTables }
             : {}),
           critical: true,
+          ...(mutation.policyMetadataChanged !== undefined
+            ? { policyMetadataChanged: mutation.policyMetadataChanged }
+            : {}),
           ...(mutation.tableRenames !== undefined
             ? { tableRenames: mutation.tableRenames }
             : {}),
@@ -60,10 +69,8 @@ export class DynamicSchemaActivationService {
     }
 
     this.runtimeSchemaActivationGateService?.fail(mutationId, lastError);
-    const message =
-      lastError instanceof Error ? lastError.message : String(lastError);
-    throw new Error(
-      `Schema mutation committed but cache activation failed; instance fenced: ${message}`,
+    throw new ServiceUnavailableException(
+      'schema mutation committed but cache activation failed; instance fenced',
     );
   }
 
@@ -71,6 +78,7 @@ export class DynamicSchemaActivationService {
     ids?: (string | number)[];
     affectedTables?: string[];
     tableRenames?: TCacheInvalidationPayload['tableRenames'];
+    policyMetadataChanged?: boolean;
     critical?: boolean;
   }) {
     const payload: TCacheInvalidationPayload = {
@@ -83,6 +91,9 @@ export class DynamicSchemaActivationService {
         ? { affectedTables: opts.affectedTables }
         : {}),
       ...(opts?.critical !== undefined ? { critical: opts.critical } : {}),
+      ...(opts?.policyMetadataChanged !== undefined
+        ? { policyMetadataChanged: opts.policyMetadataChanged }
+        : {}),
       ...(opts?.tableRenames !== undefined
         ? { tableRenames: opts.tableRenames }
         : {}),

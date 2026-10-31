@@ -4,6 +4,7 @@ import { MetadataCacheService } from '../../cache';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { addColumnToTable } from '../utils/migration/column-operations';
+import { ensureSqlEnumTypes } from '../utils/sql-enum.util';
 import { dropAllForeignKeysReferencingTable } from '../utils/migration/foreign-key-operations';
 import {
   generateSQLFromDiff,
@@ -234,6 +235,12 @@ export class SqlSchemaMigrationService {
           }
         }
       }
+      await ensureSqlEnumTypes(
+        knex,
+        tableName,
+        tableMetadata.columns || [],
+        this.queryBuilderService.getDatabaseType(),
+      );
       await knex.schema.createTable(tableName, (table) => {
         for (const col of tableMetadata.columns || []) {
           addColumnToTable(
@@ -662,7 +669,9 @@ export class SqlSchemaMigrationService {
           journalContext,
         );
       }
-      await this.compareMetadataWithActualSchema(activeTableName, newMetadata);
+      if (!precompiled) {
+        await this.compareMetadataWithActualSchema(activeTableName, newMetadata);
+      }
 
       return {
         pendingMetadataUpdate: { tableName: activeTableName, diff: schemaDiff },

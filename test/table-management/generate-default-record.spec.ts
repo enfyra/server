@@ -16,19 +16,19 @@ describe('generateDefaultValue for required columns', () => {
     },
   );
 
-  it('preserves the instant for every required temporal column', () => {
-    expect(generateDefaultValue(column('date'))).toMatch(/T/);
-    expect(generateDefaultValue(column('datetime'))).toMatch(/T/);
+  it('generates a calendar day and a UTC instant for the respective types', () => {
+    expect(generateDefaultValue(column('date'))).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(generateDefaultValue(column('datetime'))).toMatch(/T.*Z$/);
   });
 
   it('uses canonical enum option arrays for required defaults', () => {
     expect(generateDefaultValue(column('enum', { options: ['draft', 'active'] }))).toBe('draft');
   });
 
-  it('materializes Mongo singleton temporal defaults as BSON dates', async () => {
+  it('keeps Mongo singleton calendar defaults as strings and instants as BSON dates', async () => {
     let inserted: any;
-    await ensureMongoSingleRecord({ mongoService: { getDb: () => ({ collection: () => ({ countDocuments: async () => 0, insertOne: async (record: any) => { inserted = record; } }) }) } as any, tableName: 'settings', columns: [column('date'), { ...column('timestamp', { defaultValue: 'now' }), name: 'startedAt' }] });
-    expect(inserted.value).toBeInstanceOf(Date);
+    await ensureMongoSingleRecord({ mongoService: { getDb: () => ({ collection: () => ({ countDocuments: async () => 0, insertOne: async (record: any) => { inserted = record; } }) }) } as any, tableName: 'settings', columns: [column('date'), { ...column('datetime', { defaultValue: 'now' }), name: 'startedAt' }] });
+    expect(inserted.value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(inserted.startedAt).toBeInstanceOf(Date);
   });
 

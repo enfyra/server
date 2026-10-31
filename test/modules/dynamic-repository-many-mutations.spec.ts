@@ -4,6 +4,7 @@ import { DynamicRepository } from '../../src/modules/dynamic-api';
 function makeRepo(tableName = 'project_task') {
   const queryBuilderService = {
     getPkField: vi.fn(() => 'id'),
+    getDatabaseType: vi.fn(() => 'postgres'),
     find: vi.fn().mockResolvedValue({
       data: [
         { id: 11, title: 'First' },

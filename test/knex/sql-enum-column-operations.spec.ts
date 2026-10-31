@@ -36,6 +36,7 @@ describe('SQL enum column operations', () => {
       ['sepay', 'paypal', 'apipay'],
       {
         useNative: true,
+        existingType: true,
         enumName: 'referral_credit_rewards_paymentProvider_enum',
       },
     );

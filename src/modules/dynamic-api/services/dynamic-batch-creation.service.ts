@@ -6,6 +6,7 @@ import type { TableRouteRouter } from '../repositories/table-route.router';
 import type { RuntimeMetadataSchemaRouterService } from '../../table-management/services/runtime-metadata-schema-router.service';
 import type { QueryBuilderService } from '@enfyra/kernel';
 import type { DynamicBatchCreateResult } from '../types/dynamic-mutation-lifecycle.types';
+import { coerceTemporalContractValue, isTemporalColumnType } from '../../../shared/utils/temporal-write.util';
 
 export class DynamicBatchCreationService {
   constructor(
@@ -49,6 +50,17 @@ export class DynamicBatchCreationService {
           strategy,
         ),
       );
+    }
+
+    const temporalColumns = (tableMetadata?.columns ?? []).filter(
+      (column: any) => isTemporalColumnType(column.type),
+    );
+    for (const body of preparedRows) {
+      for (const column of temporalColumns) {
+        if (Object.prototype.hasOwnProperty.call(body, column.name)) {
+          coerceTemporalContractValue(body[column.name], column.type);
+        }
+      }
     }
 
     for (const body of preparedRows) {

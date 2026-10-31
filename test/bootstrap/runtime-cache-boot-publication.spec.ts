@@ -33,7 +33,7 @@ it('keeps all boot cache producers inside one publication through activation', a
   const cache = () => ({ reload: vi.fn(async () => { expect(publishing).toBe(true); }), getCacheAsync: async () => [] });
   const cradle: any = new Proxy({}, { get(target: any, name: string) { return target[name] ??= new Proxy({}, { get: () => async () => {} }); } });
   Object.assign(cradle, { databaseConfigService: { getDbType: () => 'mongodb' }, firstRunInitializer: { isNeeded: async () => false }, eventEmitter: { emit: () => {} }, redisRuntimeCacheStore: shared, runtimeRegistryService: { init: async () => {}, publishFromCache: async () => {}, stageSnapshotFromCache: async () => { expect(publishing).toBe(true); return {}; }, activateSnapshots: () => { expect(commits).toBe(1); } } });
-  for (const name of ['metadataCacheService', 'sharedHelperCacheService', 'routeCacheService', 'fieldPermissionCacheBuilder', 'columnRuleCacheBuilder', 'settingCacheService', 'authHeaderCacheBuilder', 'storageConfigCacheBuilder', 'oauthConfigCacheBuilder', 'corsOriginCacheBuilder', 'websocketCacheBuilder', 'flowCacheBuilder', 'packageCacheService', 'folderTreeCacheService', 'guardCacheBuilder', 'gqlDefinitionCacheService']) cradle[name] = cache();
+  for (const name of ['metadataCacheService', 'sharedHelperCacheService', 'routeCacheService', 'fieldPermissionCacheBuilder', 'columnRuleCacheBuilder', 'settingCacheService', 'storageConfigCacheBuilder', 'oauthConfigCacheBuilder', 'corsOriginCacheBuilder', 'websocketCacheBuilder', 'flowCacheBuilder', 'packageCacheService', 'folderTreeCacheService', 'guardCacheBuilder', 'gqlDefinitionCacheService']) cradle[name] = cache();
   await init({ cradle } as any);
   expect(commits).toBe(1);
 });

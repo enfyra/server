@@ -9,6 +9,7 @@ beforeEach(() => {
   config.mockReset();
   vi.stubEnv('DOTENV_QUIET', undefined);
   vi.stubEnv('DOTENV_CONFIG_QUIET', undefined);
+  vi.stubEnv('DOTENV_CONFIG_PATH', undefined);
 });
 
 describe('typed environment preload', () => {
@@ -17,16 +18,31 @@ describe('typed environment preload', () => {
     expect(config).toHaveBeenCalledExactlyOnceWith({ quiet: true });
   });
 
-  it.each(['false', 'FALSE', '0', 'no', 'off', ''])('preserves explicit logging opt-in %j', async value => {
-    vi.stubEnv('DOTENV_QUIET', value);
-    await import('../../src/load-env');
-    expect(config).toHaveBeenCalledExactlyOnceWith({ quiet: false });
-  });
+  it.each(['false', 'FALSE', '0', 'no', 'off', ''])(
+    'preserves explicit logging opt-in %j',
+    async (value) => {
+      vi.stubEnv('DOTENV_QUIET', value);
+      await import('../../src/load-env');
+      expect(config).toHaveBeenCalledExactlyOnceWith({ quiet: false });
+    },
+  );
 
-  it.each(['true', '1', 'yes', 'on'])('preserves quiet values %j', async value => {
-    vi.stubEnv('DOTENV_QUIET', value);
+  it.each(['true', '1', 'yes', 'on'])(
+    'preserves quiet values %j',
+    async (value) => {
+      vi.stubEnv('DOTENV_QUIET', value);
+      await import('../../src/load-env');
+      expect(config).toHaveBeenCalledExactlyOnceWith({ quiet: true });
+    },
+  );
+
+  it('uses the explicit dotenv path for isolated runs', async () => {
+    vi.stubEnv('DOTENV_CONFIG_PATH', '/dev/null');
     await import('../../src/load-env');
-    expect(config).toHaveBeenCalledExactlyOnceWith({ quiet: true });
+    expect(config).toHaveBeenCalledExactlyOnceWith({
+      quiet: true,
+      path: '/dev/null',
+    });
   });
 
   it('keeps the current env name ahead of its legacy fallback', async () => {

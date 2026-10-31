@@ -10,26 +10,6 @@ const defaultData = {
     "projectName": "Enfyra CMS",
     "projectDescription": "Description for Enfyra CMS"
   },
-  "enfyra_auth_header": [
-    {
-      "headerKey": "x-enfyra-pat",
-      "credentialType": "pat",
-      "scheme": "raw",
-      "priority": 0,
-      "isEnabled": true,
-      "isSystem": true,
-      "description": "Built-in Enfyra personal access token header"
-    },
-    {
-      "headerKey": "authorization",
-      "credentialType": "jwt",
-      "scheme": "bearer",
-      "priority": 1,
-      "isEnabled": true,
-      "isSystem": true,
-      "description": "Built-in Bearer access token header"
-    }
-  ],
   "enfyra_method": [
     {
       "buttonColor": "#dbeafe",
@@ -158,17 +138,13 @@ const defaultData = {
       ]
     },
     {
-      "path": "/enfyra_auth_header",
-      "mainTable": "enfyra_auth_header",
+      "path": "/enfyra_auth_origin",
+      "mainTable": "enfyra_auth_origin",
       "isEnabled": true,
       "isSystem": true,
-      "icon": "lucide:key-round",
-      "availableMethods": [
-        "GET",
-        "POST",
-        "PATCH",
-        "DELETE"
-      ]
+      "icon": "lucide:shield-check",
+      "publicMethods": ["GET"],
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
     },
     {
       "path": "/enfyra_cors_origin",
@@ -626,16 +602,6 @@ const defaultData = {
       "isSystem": true,
       "icon": "lucide:list-ordered",
       "description": "Reorder menu records in one operation",
-      "availableMethods": [
-        "POST"
-      ]
-    },
-    {
-      "path": "/admin/auth-header/reorder",
-      "isEnabled": true,
-      "isSystem": true,
-      "icon": "lucide:list-ordered",
-      "description": "Reorder authentication header mappings in one operation",
       "availableMethods": [
         "POST"
       ]
@@ -1176,12 +1142,6 @@ const defaultData = {
             "methods": [
               "GET"
             ]
-          },
-          {
-            "route": "/enfyra_auth_header",
-            "methods": [
-              "GET"
-            ]
           }
         ]
       }
@@ -1383,28 +1343,6 @@ const defaultData = {
     },
     {
       "type": "Menu",
-      "label": "Authentication Headers",
-      "icon": "lucide:key-round",
-      "path": "/settings/auth-headers",
-      "isEnabled": true,
-      "isPublic": false,
-      "isSystem": true,
-      "description": "Configure accepted authentication header keys and their priority",
-      "order": 12,
-      "parent": "Settings",
-      "permission": {
-        "or": [
-          {
-            "route": "/enfyra_auth_header",
-            "methods": [
-              "GET"
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "type": "Menu",
       "label": "Server Logs",
       "icon": "lucide:file-text",
       "path": "/settings/logs",
@@ -1530,7 +1468,7 @@ const defaultData = {
       "isEnabled": true,
       "isPublic": false,
       "isSystem": true,
-      "description": "OAuth provider configuration and linked accounts",
+      "description": "OAuth provider configuration, linked accounts and trusted auth origins",
       "order": 11,
       "parent": "Settings",
       "permission": {
@@ -1546,6 +1484,10 @@ const defaultData = {
             "methods": [
               "GET"
             ]
+          },
+          {
+            "route": "/enfyra_auth_origin",
+            "methods": ["GET"]
           }
         ]
       }
@@ -1593,6 +1535,19 @@ const defaultData = {
           }
         ]
       }
+    },
+    {
+      "type": "Menu",
+      "label": "Auth Origins",
+      "icon": "lucide:shield-check",
+      "path": "/settings/oauth/origins",
+      "isEnabled": true,
+      "isPublic": false,
+      "isSystem": true,
+      "description": "Trusted application origins for authentication redirects",
+      "order": 3,
+      "parent": "OAuth",
+      "permission": { "or": [{ "route": "/enfyra_auth_origin", "methods": ["GET"] }] }
     },
     {
       "type": "Dropdown Menu",

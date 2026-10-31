@@ -49,6 +49,14 @@ export const standingDataCorrections = {
   ],
   enfyra_menu: [
     {
+      _unique: { path: { _eq: '/settings/oauth' } },
+      permission: { or: [
+        { route: '/enfyra_oauth_config', methods: ['GET'] },
+        { route: '/enfyra_oauth_account', methods: ['GET'] },
+        { route: '/enfyra_auth_origin', methods: ['GET'] },
+      ] },
+    },
+    {
       _unique: { path: { _eq: '/settings/admin/logs' } },
       description: 'Trace system errors and user script logs',
       path: '/settings/logs',
@@ -71,21 +79,18 @@ export const standingDataCorrections = {
   ],
   enfyra_route: [
     {
+      _unique: { path: { _eq: '/enfyra_auth_origin' } },
+      isSystem: true,
+      publicMethods: ['GET'],
+      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    },
+    {
       _unique: {
         path: {
           _eq: '/enfyra_relation',
         },
       },
       availableMethods: ['GET'],
-    },
-    {
-      _unique: {
-        path: {
-          _eq: '/enfyra_auth_header',
-        },
-      },
-      isSystem: true,
-      availableMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
     },
     {
       _unique: {
@@ -154,15 +159,6 @@ export const standingDataCorrections = {
       _unique: {
         path: {
           _eq: '/admin/menu/reorder',
-        },
-      },
-      isSystem: true,
-      availableMethods: ['POST'],
-    },
-    {
-      _unique: {
-        path: {
-          _eq: '/admin/auth-header/reorder',
         },
       },
       isSystem: true,
@@ -874,6 +870,28 @@ const dataMigrations: VersionedDataMigration[] = [
         { table: 'enfyra_route', filter: { path: { _eq: '/enfyra_bootstrap_script' } } },
         { table: 'enfyra_menu', filter: { path: { _eq: '/settings/bootstrap' } } },
         { table: 'enfyra_menu', filter: { path: { _eq: '/settings/extensions' } } },
+      ],
+    },
+  },
+  {
+    fromVersion: '2.3.3',
+    toVersion: '2.4.0',
+    data: {
+      enfyra_column: [{
+        _unique: { _and: [{ table: { name: { _eq: 'enfyra_column' } } }, { name: { _eq: 'type' } }] },
+        sqlType: { type: 'enum', options: [...ENFYRA_COLUMN_TYPE_OPTIONS] },
+        mongoType: { type: 'enum', options: [...MONGO_COLUMN_TYPE_OPTIONS] },
+      }],
+    },
+  },
+  {
+    fromVersion: '2.4.0',
+    toVersion: '2.4.1',
+    data: {
+      _deletedRecords: [
+        { table: 'enfyra_route', filter: { path: { _eq: '/enfyra_auth_header' } } },
+        { table: 'enfyra_route', filter: { path: { _eq: '/admin/auth-header/reorder' } } },
+        { table: 'enfyra_menu', filter: { path: { _eq: '/settings/auth-headers' } } },
       ],
     },
   },

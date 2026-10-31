@@ -32,8 +32,8 @@ async function boot(uri: string, namespace: string, expected: number, backend: s
     child.on('error', (error) => { clearTimeout(timer); stop(); reject(error); });
     child.on('close', (code) => { clearTimeout(timer); stop(); fulfill({ code, output }); });
   });
-  const log = `/tmp/enfyra-storage-${backend}-${label}.log`;
-  writeFileSync(log, result.output);
+  const log = `/tmp/enfyra-storage-${backend}-${label}-${randomUUID()}.log`;
+  writeFileSync(log, result.output, { flag: 'wx', mode: 0o600 });
   assert.equal(result.code, 0, `${backend} ${label} failed; see ${log}: ${result.output.slice(-1500)}`);
   const marker = result.output.match(/STORAGE_BOOT_RESULT (\{[^\n]+\})/);
   assert.ok(marker, `${backend} ${label} missing boot result`);

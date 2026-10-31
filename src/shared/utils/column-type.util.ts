@@ -31,15 +31,16 @@ export {
  * Every contract entry whose two labels differ is one upgrade mapping, so this
  * list cannot drift from the contract.
  */
-export const MONGO_COLUMN_TYPE_MIGRATIONS = Object.values(COLUMN_TYPE_CONTRACT)
-  .filter((entry) => entry.sqlType !== entry.mongoType)
-  .map((entry) => ({
-    from: entry.sqlType,
-    to: entry.mongoType,
-  })) as readonly MongoColumnTypeMigration[];
+export const MONGO_COLUMN_TYPE_MIGRATIONS = [
+  ...Object.values(COLUMN_TYPE_CONTRACT)
+    .filter((entry) => entry.sqlType !== entry.mongoType)
+    .map((entry) => ({ from: entry.sqlType, to: entry.mongoType })),
+  { from: 'datetime', to: 'date' },
+  { from: 'timestamp', to: 'date' },
+] as readonly MongoColumnTypeMigration[];
 
 const MONGO_TYPE_BY_LEGACY_TYPE = new Map<string, string>(
-  MONGO_COLUMN_TYPE_MIGRATIONS.map(({ from, to }) => [from, to]),
+  Object.values(COLUMN_TYPE_CONTRACT).map(({ sqlType, mongoType }) => [sqlType, mongoType]),
 );
 
 export function toMongoTargetColumnType(type: unknown): string {
@@ -164,8 +165,9 @@ export function toMongoTargetMigration(
   migration: SchemaMigrationDef | null,
 ): SchemaMigrationDef | null {
   if (!migration) return null;
+  const { sqlColumnTypesToModify: _sqlOnly, ...mongoMigration } = migration;
   return {
-    ...migration,
+    ...mongoMigration,
     ...(migration.mongoColumnTypesToModify
       ? { mongoColumnTypesToModify: [...migration.mongoColumnTypesToModify] }
       : {}),

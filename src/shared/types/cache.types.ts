@@ -21,6 +21,7 @@ export interface TCacheInvalidationPayload {
   ids?: (string | number)[];
   affectedTables?: string[];
   critical?: boolean;
+  policyMetadataChanged?: boolean;
   tableRenames?: Array<{
     id: string | number;
     oldName: string;

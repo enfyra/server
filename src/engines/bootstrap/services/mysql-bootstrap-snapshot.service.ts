@@ -115,7 +115,10 @@ export class MySqlBootstrapSnapshotService {
     await this.ensureJournalTables(knex);
     await this.recoverPendingLocked(knex, connection);
 
-    const txId = `bootstrap-${randomUUID()}`;
+    const isScopedRuntime = Boolean(context.runtimeContract?.context);
+    const txId = isScopedRuntime
+      ? `runtime-${randomUUID()}`
+      : `bootstrap-${randomUUID()}`;
     await knex(TRANSACTION_TABLE).insert({
       txId,
       mutationId: context.mutationId ?? null,
@@ -128,7 +131,7 @@ export class MySqlBootstrapSnapshotService {
 
     let phase: SnapshotRunPhase = 'planning';
     try {
-      await this.capture(knex, txId);
+      await this.capture(knex, txId, context);
       await knex(TRANSACTION_TABLE).where({ txId }).update({
         status: 'running',
         updatedAt: new Date(),
@@ -258,6 +261,11 @@ export class MySqlBootstrapSnapshotService {
         if (error?.code !== 'ER_DUP_FIELDNAME') throw error;
       }
     }
+    if (!(await knex.schema.hasColumn(TRANSACTION_TABLE, 'runtimeCreatedTablesJson'))) {
+      await knex.schema.alterTable(TRANSACTION_TABLE, table => {
+        table.text('runtimeCreatedTablesJson', 'longtext').nullable();
+      });
+    }
     if (!(await knex.schema.hasColumn(SNAPSHOT_TABLE, 'rowCount'))) {
       try {
         await knex.schema.alterTable(SNAPSHOT_TABLE, (table) => {
@@ -269,10 +277,31 @@ export class MySqlBootstrapSnapshotService {
     }
   }
 
-  private async capture(knex: Knex, txId: string): Promise<void> {
-    const tableNames = await this.listApplicationTables(knex);
+  private async capture(
+    knex: Knex,
+    txId: string,
+    context: MySqlBootstrapSnapshotContext = {},
+  ): Promise<void> {
+    const tableNames = context.runtimeContract?.context
+      ? await this.resolveRuntimeScopedTables(knex, context.runtimeContract)
+      : await this.listApplicationTables(knex);
+    let runtimeCreatedTablesJson: string | null = null;
+    if (context.runtimeContract?.context) {
+      const existingTables = new Set(await this.listApplicationTables(knex));
+      const target = context.runtimeContract.context.target;
+      const candidates = [
+        target?.name,
+        ...(target?.relations ?? []).map(relation => relation.junctionTableName),
+      ];
+      runtimeCreatedTablesJson = JSON.stringify([
+        ...new Set(candidates.filter(
+          (name): name is string => typeof name === 'string' && name.length > 0 && !existingTables.has(name),
+        )),
+      ].sort());
+    }
     await knex(TRANSACTION_TABLE).where({ txId }).update({
       snapshotTableCount: tableNames.length,
+      runtimeCreatedTablesJson,
       updatedAt: new Date(),
     });
     for (const [ordinal, tableName] of tableNames.entries()) {
@@ -290,7 +319,7 @@ export class MySqlBootstrapSnapshotService {
         ordinal,
       });
       await knex.raw('CREATE TABLE ?? LIKE ??', [backupTableName, tableName]);
-      if (columns.length > 0) {
+      if (columns.length > 0 && rowCount > 0) {
         await knex.raw('INSERT INTO ?? (??) SELECT ?? FROM ??', [
           backupTableName,
           columns,
@@ -298,16 +327,74 @@ export class MySqlBootstrapSnapshotService {
           tableName,
         ]);
       }
-      const backupRowCount = await this.readTableRowCount(
-        knex,
-        backupTableName,
-      );
+      const backupRowCount =
+        rowCount === 0
+          ? 0
+          : await this.readTableRowCount(knex, backupTableName);
       if (backupRowCount !== rowCount) {
         throw new Error(
           `MySQL bootstrap snapshot row count mismatch for '${tableName}': expected ${rowCount}, captured ${backupRowCount}`,
         );
       }
     }
+  }
+
+  private async resolveRuntimeScopedTables(
+    knex: Knex,
+    contract: NonNullable<MySqlBootstrapSnapshotContext['runtimeContract']>,
+  ): Promise<string[]> {
+    const allTables = new Set(await this.listApplicationTables(knex));
+    const candidates = new Set<string>([
+      'enfyra_table',
+      'enfyra_column',
+      'enfyra_relation',
+      'enfyra_migration_journal',
+    ]);
+    const ctx = contract.context;
+    const physicalOwners = new Set<string>();
+    for (const table of [ctx.source, ctx.target]) {
+      if (table?.name) {
+        candidates.add(table.name);
+        physicalOwners.add(table.name);
+      }
+      for (const relation of table?.relations ?? []) {
+        if (relation.junctionTableName) candidates.add(relation.junctionTableName);
+        if (relation.targetTableName) candidates.add(relation.targetTableName);
+      }
+    }
+    if (physicalOwners.size > 0) {
+      const names = [...physicalOwners];
+      const [incoming] = await knex.raw(
+        `SELECT DISTINCT TABLE_NAME AS tableName
+           FROM information_schema.KEY_COLUMN_USAGE
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND REFERENCED_TABLE_SCHEMA = DATABASE()
+            AND REFERENCED_TABLE_NAME IN (${names.map(() => '?').join(', ')})`,
+        names,
+      );
+      for (const row of incoming) candidates.add(String(row.tableName));
+    }
+    const isUpdate = ctx.operation === 'update';
+    const tableRenamed =
+      Boolean(ctx.source?.name && ctx.target?.name) &&
+      ctx.source?.name !== ctx.target?.name;
+
+    if (!isUpdate || ctx.diff.policyMetadataChanged !== false) {
+      candidates.add('enfyra_field_permission');
+      candidates.add('enfyra_column_rule');
+      candidates.add('j_c72a28fd6494');
+      candidates.add('enfyra_field_permission_allowedUsers_enfyra_user');
+    }
+    if (!isUpdate || tableRenamed) {
+      candidates.add('enfyra_route');
+      candidates.add('enfyra_route_method_config');
+      candidates.add('enfyra_route_handler');
+      candidates.add('enfyra_graphql');
+    } else if (ctx.source?.graphqlEnabled !== ctx.target?.graphqlEnabled) {
+      candidates.add('enfyra_graphql');
+    }
+
+    return [...candidates].filter((name) => allTables.has(name)).sort();
   }
 
   private async restore(
@@ -327,19 +414,21 @@ export class MySqlBootstrapSnapshotService {
     const escapeId = (value: string) => activeConnection.escapeId(value);
     let foreignKeyChecksDisabled = false;
     try {
-      await this.assertSnapshotRestorable(
+      const runtimeCreatedTables = await this.assertSnapshotRestorable(
         activeConnection,
         txId,
         entries,
         query,
         escapeId,
       );
-      const currentTables =
-        await this.listApplicationTablesOnConnection(activeConnection);
+      const isScopedRuntime = txId.startsWith('runtime-');
+      const currentTables = isScopedRuntime
+        ? [...new Set([...entries.map((entry) => entry.tableName), ...runtimeCreatedTables])]
+        : await this.listApplicationTablesOnConnection(activeConnection);
 
       await query('SET FOREIGN_KEY_CHECKS = 0');
       foreignKeyChecksDisabled = true;
-      for (const tableName of currentTables.reverse()) {
+      for (const tableName of [...currentTables].reverse()) {
         await query(`DROP TABLE IF EXISTS ${escapeId(tableName)}`);
       }
       for (const entry of entries) {
@@ -365,11 +454,13 @@ export class MySqlBootstrapSnapshotService {
           );
         }
       }
-      const remaining =
-        await this.listApplicationTablesOnConnection(activeConnection);
-      for (const tableName of remaining) {
-        if (!originalNames.has(tableName)) {
-          await query(`DROP TABLE IF EXISTS ${escapeId(tableName)}`);
+      if (!isScopedRuntime) {
+        const remaining =
+          await this.listApplicationTablesOnConnection(activeConnection);
+        for (const tableName of remaining) {
+          if (!originalNames.has(tableName)) {
+            await query(`DROP TABLE IF EXISTS ${escapeId(tableName)}`);
+          }
         }
       }
     } finally {
@@ -505,9 +596,9 @@ export class MySqlBootstrapSnapshotService {
     entries: BootstrapSnapshotEntry[],
     query: (sql: string, bindings?: any[]) => Promise<any>,
     escapeId: (value: string) => string,
-  ): Promise<void> {
+  ): Promise<string[]> {
     const [transactionRows] = await query(
-      `SELECT snapshotTableCount FROM ${escapeId(TRANSACTION_TABLE)} WHERE txId = ? LIMIT 1`,
+      `SELECT snapshotTableCount, runtimeCreatedTablesJson FROM ${escapeId(TRANSACTION_TABLE)} WHERE txId = ? LIMIT 1`,
       [txId],
     );
     const expectedTableCount = Number(
@@ -525,6 +616,20 @@ export class MySqlBootstrapSnapshotService {
       );
     }
 
+    let runtimeCreatedTables: string[] = [];
+    if (txId.startsWith('runtime-')) {
+      const raw = transactionRows?.[0]?.runtimeCreatedTablesJson;
+      let parsed: unknown;
+      try {
+        parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      } catch {
+        throw new Error(`MySQL runtime snapshot '${txId}' has invalid created-table metadata`);
+      }
+      if (!Array.isArray(parsed) || parsed.some(name => typeof name !== 'string' || !/^[a-z0-9_]+$/.test(name) || name.startsWith('system_') || entries.some(entry => entry.tableName === name))) {
+        throw new Error(`MySQL runtime snapshot '${txId}' has invalid created-table metadata`);
+      }
+      runtimeCreatedTables = parsed;
+    }
     for (const entry of entries) {
       let columns: unknown;
       try {
@@ -590,6 +695,7 @@ export class MySqlBootstrapSnapshotService {
         );
       }
     }
+    return runtimeCreatedTables;
   }
 
   private getBackupTableName(

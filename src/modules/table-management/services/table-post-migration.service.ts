@@ -6,6 +6,7 @@ import { buildSqlJunctionTableContractFromRelation } from '../../../engines/knex
 import { getPrimaryKeyTypeForTable } from '../../../engines/knex/utils/migration/pk-type.util';
 import { coerceMongoLongWriteValue } from '../../../engines/mongo/utils/mongo-long-write.util';
 import { ValidationException } from '../../../domain/exceptions';
+import { coerceTemporalContractValue } from '../../../shared/utils/temporal-write.util';
 
 export async function ensureSqlSingleRecord(input: {
   knex: Knex;
@@ -22,11 +23,7 @@ export async function ensureSqlSingleRecord(input: {
       const value = record[column.name];
       if (typeof value === 'string' && ['date', 'datetime', 'timestamp'].includes(column.type)) {
         if (/^(?:now(?:\(\))?|current_timestamp(?:\([0-6]?\))?|current_date|current_time)$/i.test(value)) delete record[column.name];
-        else {
-          const instant = new Date(value);
-          if (Number.isNaN(instant.getTime())) throw new ValidationException(`Invalid temporal default for '${column.name}'`);
-          record[column.name] = instant;
-        }
+        else record[column.name] = coerceTemporalContractValue(value, column.type);
       }
     }
     await knex(tableName).insert(record);
@@ -147,9 +144,11 @@ export async function ensureMongoSingleRecord(input: {
       const value = record[column.name];
       if (value == null) continue;
       if (['date', 'datetime', 'timestamp'].includes(column.type)) {
-        const instant = typeof value === 'string' && /^(?:now(?:\(\))?|current_timestamp(?:\([0-6]?\))?|current_date|current_time)$/i.test(value) ? new Date() : new Date(value);
-        if (Number.isNaN(instant.getTime())) throw new ValidationException(`Invalid temporal default for '${column.name}'`);
-        record[column.name] = instant;
+        const isCurrent = typeof value === 'string' && /^(?:now(?:\(\))?|current_timestamp(?:\([0-6]?\))?|current_date|current_time)$/i.test(value);
+        const resolved = isCurrent
+          ? column.type === 'date' ? new Date().toISOString().slice(0, 10) : new Date()
+          : value;
+        record[column.name] = coerceTemporalContractValue(resolved, column.type);
       } else if (column.type === 'long' || column.type === 'bigint') {
         record[column.name] = coerceMongoLongWriteValue(value);
       }

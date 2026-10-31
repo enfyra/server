@@ -159,7 +159,8 @@ export class SqlSchemaDiffService {
             newName: newCol.name,
             column: newCol,
           });
-        } else if (this.hasColumnChanged(oldCol, newCol)) {
+        }
+        if (this.hasColumnChanged(oldCol, newCol)) {
           diff.columns.update.push({
             oldColumn: oldCol,
             newColumn: newCol,
@@ -232,12 +233,19 @@ export class SqlSchemaDiffService {
     }
 
     if (columnRenames.size > 0 || propertyNameRenames.size > 0) {
+      const baseUniques = Array.isArray(newMetadata.uniques)
+        ? newMetadata.uniques
+        : oldUniques;
+      const baseIndexes = Array.isArray(newMetadata.indexes)
+        ? newMetadata.indexes
+        : oldMetadata.indexes || [];
+
       const updatedUniquesByColumn = this.updateConstraintColumns(
-        oldUniques,
+        baseUniques,
         columnRenames,
       );
       const updatedIndexesByColumn = this.updateConstraintColumns(
-        oldMetadata.indexes || [],
+        baseIndexes,
         columnRenames,
       );
 
@@ -250,8 +258,14 @@ export class SqlSchemaDiffService {
         propertyNameRenames,
       );
 
-      const finalUniques = updatedUniquesByProperty;
-      const finalIndexes = updatedIndexesByProperty;
+      const finalUniques = this.filterLogicalConstraintsToKnownFields(
+        newMetadata,
+        updatedUniquesByProperty,
+      );
+      const finalIndexes = this.filterLogicalConstraintsToKnownFields(
+        newMetadata,
+        updatedIndexesByProperty,
+      );
       const finalPhysicalUniques = buildSqlUniqueContracts(
         newMetadata.name,
         { ...newMetadata, uniques: finalUniques },
@@ -380,6 +394,32 @@ export class SqlSchemaDiffService {
   private filterIndexesToKnownColumns(metadata: any, indexes: string[][]): string[][] {
     const knownColumns = this.getKnownPhysicalColumns(metadata);
     return indexes.filter((cols) => cols.every((col) => knownColumns.has(col)));
+  }
+
+  private filterLogicalConstraintsToKnownFields(
+    metadata: any,
+    constraints: any[],
+  ): string[][] {
+    if (!Array.isArray(constraints)) return [];
+    const known = this.getKnownLogicalFields(metadata);
+    return constraints
+      .map((entry) => (Array.isArray(entry) ? entry : entry?.value))
+      .filter(
+        (cols): cols is string[] =>
+          Array.isArray(cols) &&
+          cols.length > 0 &&
+          cols.every((col) => known.has(col)),
+      );
+  }
+
+  private getKnownLogicalFields(metadata: any): Set<string> {
+    const known = this.getKnownPhysicalColumns(metadata);
+    for (const rel of metadata.relations || []) {
+      if (rel?.propertyName && !this.isInverseRelation(rel)) {
+        known.add(rel.propertyName);
+      }
+    }
+    return known;
   }
 
   private getKnownPhysicalColumns(metadata: any): Set<string> {

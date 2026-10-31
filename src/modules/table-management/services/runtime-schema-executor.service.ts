@@ -143,6 +143,7 @@ export class RuntimeSchemaExecutorService {
       outputs: new Map(),
       affectedTables,
       recordId: (result as any).recordId,
+      policyMetadataChanged: contract.context.diff.policyMetadataChanged,
       tableRenames: (result as any).tableRenames,
     };
   }
@@ -188,8 +189,17 @@ export class RuntimeSchemaExecutorService {
         ? hashCanonical(normalizedBody.contract)
         : null;
       if (bodyRevision !== expectedBodyRevision) {
+        const expectedContract =
+          contract.context.executionTarget ?? contract.context.target;
+        const details =
+          expectedContract && normalizedBody
+            ? formatRuntimeSchemaContractDiff(
+                expectedContract,
+                normalizedBody.contract,
+              )
+            : 'diff-unavailable';
         throw new Error(
-          `Schema mutation execution body does not match target revision: expected=${expectedBodyRevision}, body=${bodyRevision ?? 'unavailable'}`,
+          `Schema mutation execution body does not match target revision: expected=${expectedBodyRevision}, body=${bodyRevision ?? 'unavailable'}, diff=${details}`,
         );
       }
     }

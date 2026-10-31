@@ -140,12 +140,13 @@ describe('buildZodFromMetadata — column types', () => {
     expect(s.safeParse({ meta: [1, 2] }).success).toBe(true);
   });
 
-  it('date accepts string or Date', () => {
+  it('accepts calendar dates but rejects instants and invalid days', () => {
     const s = build(
       makeMeta({ columns: [col('d', 'date', { isNullable: false })] }),
     );
     expect(s.safeParse({ d: '2024-01-01' }).success).toBe(true);
-    expect(s.safeParse({ d: new Date() }).success).toBe(true);
+    expect(s.safeParse({ d: '2024-02-30' }).success).toBe(false);
+    expect(s.safeParse({ d: new Date() }).success).toBe(false);
     expect(s.safeParse({ d: 123 }).success).toBe(false);
   });
 });
