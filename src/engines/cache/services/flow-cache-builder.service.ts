@@ -1,3 +1,4 @@
+import type { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { DatabaseConfigService } from '../../../shared/services';
 import type { EventEmitter2 } from 'eventemitter2';
 import { BaseCacheService, type CacheConfig } from './base-cache.service';
@@ -39,12 +40,66 @@ export class FlowCacheBuilder extends BaseCacheService<FlowDefinition[]> {
     this.cache = [];
   }
 
-  protected async loadFromDb(): Promise<any> {
+  override supportsPartialReload(): boolean {
+    return true;
+  }
+
+  protected override async applyPartialUpdate(
+    payload: TCacheInvalidationPayload,
+  ): Promise<void> {
+    const ids = payload.ids ?? [];
+    if (!ids.length) return;
+    const idField = DatabaseConfigService.getPkField();
+    const owners = new Map<string, string | number>();
+    if (payload.table === 'enfyra_flow') {
+      for (const id of ids) owners.set(String(id), id);
+    } else if (
+      payload.table === 'enfyra_flow_step' ||
+      payload.table === 'enfyra_flow_trigger'
+    ) {
+      const idSet = new Set(ids.map(String));
+      const children =
+        payload.table === 'enfyra_flow_step' ? 'steps' : 'triggers';
+      for (const flow of this.cache) {
+        if ((flow[children] ?? []).some((child) => idSet.has(String(child.id))))
+          owners.set(String(flow.id), flow.id);
+      }
+      const result = await this.queryBuilderService.find({
+        table: payload.table,
+        fields: [`flow.${idField}`],
+        filter: { [idField]: { _in: ids } },
+        limit: -1,
+      });
+      for (const row of result.data) {
+        const owner = row.flow?.[idField] ?? row.flowId;
+        if (owner != null) owners.set(String(owner), owner);
+      }
+    } else {
+      await this.reloadFromPartial();
+      return;
+    }
+    if (!owners.size) return;
+    const updates = await this.loadFlows([...owners.values()]);
+    this.cache = [
+      ...this.cache.filter((flow) => !owners.has(String(flow.id))),
+      ...updates,
+    ];
+  }
+
+  protected async loadFromDb(): Promise<FlowDefinition[]> {
+    return this.loadFlows();
+  }
+
+  private async loadFlows(
+    ids?: (string | number)[],
+  ): Promise<FlowDefinition[]> {
     const idField = DatabaseConfigService.getPkField();
 
     const flowsData = await this.loadAllPages({
       table: 'enfyra_flow',
-      filter: { isEnabled: { _eq: true } },
+      filter: ids
+        ? { _and: [{ isEnabled: { _eq: true } }, { [idField]: { _in: ids } }] }
+        : { isEnabled: { _eq: true } },
       fields: ['*'],
     });
 

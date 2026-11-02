@@ -65,6 +65,7 @@ export class WebsocketCacheBuilder extends BaseCacheService<
       table: 'enfyra_websocket',
       fields: ['*'],
       filter: { isEnabled: { _eq: true } },
+      limit: -1,
     });
 
     const gateways = result.data || [];

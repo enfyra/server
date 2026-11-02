@@ -1,5 +1,24 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
+
+const tempRoot = vi.hoisted(() => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  return fs.mkdtempSync(
+    path.join(os.tmpdir(), 'enfyra-package-loader-test-'),
+  ) as string;
+});
+
+vi.mock('os', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('os')>()),
+  tmpdir: () => tempRoot,
+}));
+
+afterAll(() => {
+  fs.rmSync(tempRoot, { recursive: true, force: true });
+});
+
 import { EventEmitter2 } from 'eventemitter2';
 import {
   PackageCacheService,
@@ -11,7 +30,10 @@ import {
   CACHE_IDENTIFIERS,
 } from '../../src/shared/utils/cache-events.constants';
 import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../src/shared/utils/constant';
-import { isNativeCdnImport, parseCdnPackageSpecifier } from '../../src/engines/cache/utils/package-cdn-loader.util';
+import {
+  isNativeCdnImport,
+  parseCdnPackageSpecifier,
+} from '../../src/engines/cache/utils/package-cdn-loader.util';
 
 function response(body: string, ok = true, status = 200) {
   return {
@@ -24,6 +46,7 @@ function response(body: string, ok = true, status = 200) {
 
 describe('PackageCdnLoaderService', () => {
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -31,8 +54,22 @@ describe('PackageCdnLoaderService', () => {
     expect(parseCdnPackageSpecifier('/')).toBeNull();
     expect(parseCdnPackageSpecifier('/@scope')).toBeNull();
     expect(parseCdnPackageSpecifier('local')).toBeNull();
-    expect(parseCdnPackageSpecifier('/demo@1.2.3/node/main.mjs?target=node')).toEqual({ name: 'demo', version: '1.2.3', packagePath: '/demo@1.2.3/node/main.mjs', query: 'target=node' });
-    expect(parseCdnPackageSpecifier('/@scope/demo@1.2.3/node/main.mjs')).toEqual({ name: '@scope/demo', version: '1.2.3', packagePath: '/@scope/demo@1.2.3/node/main.mjs', query: '' });
+    expect(
+      parseCdnPackageSpecifier('/demo@1.2.3/node/main.mjs?target=node'),
+    ).toEqual({
+      name: 'demo',
+      version: '1.2.3',
+      packagePath: '/demo@1.2.3/node/main.mjs',
+      query: 'target=node',
+    });
+    expect(
+      parseCdnPackageSpecifier('/@scope/demo@1.2.3/node/main.mjs'),
+    ).toEqual({
+      name: '@scope/demo',
+      version: '1.2.3',
+      packagePath: '/@scope/demo@1.2.3/node/main.mjs',
+      query: '',
+    });
     expect(isNativeCdnImport('/native.node?target=node')).toBe(true);
     expect(isNativeCdnImport('')).toBe(false);
   });
@@ -249,7 +286,7 @@ describe('PackageRuntimeService CDN preload', () => {
       lazyRef: { dynamicWebSocketGateway: {} } as any,
     });
 
-    packageRuntime.init();
+    await packageRuntime.init();
     await packageCache.reload();
     await new Promise((resolve) => setImmediate(resolve));
 

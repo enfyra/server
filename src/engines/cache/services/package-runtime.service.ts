@@ -8,29 +8,17 @@ import {
   CACHE_IDENTIFIERS,
 } from '../../../shared/utils/cache-events.constants';
 import type { Cradle } from '../../../container';
+import type { PackageRuntimeStatus } from '../../../shared/types/package-runtime.types';
 import {
   PackageCdnLoaderService,
   extractErrorMessage,
 } from './package-cdn-loader.service';
 
+export type { PackageRuntimeStatus } from '../../../shared/types/package-runtime.types';
+
 const SYSTEM_EVENT_PREFIX = '$system:package';
 const RECOVERY_PACKAGE_STATUSES = ['failed', 'installing', 'updating'];
 const PRELOAD_PACKAGE_STATUSES = ['installed', ...RECOVERY_PACKAGE_STATUSES];
-
-export interface PackageRuntimeStatus {
-  initialized: boolean;
-  systemReady: boolean;
-  preloadRunning: boolean;
-  preloadRequested: boolean;
-  lastPreload?: {
-    status: 'running' | 'ok' | 'degraded';
-    startedAt: string;
-    completedAt?: string;
-    loaded?: number;
-    failed?: number;
-    error?: string;
-  };
-}
 
 export class PackageRuntimeService {
   private readonly logger = new Logger(PackageRuntimeService.name);
@@ -39,6 +27,7 @@ export class PackageRuntimeService {
   private readonly eventEmitter: EventEmitter2;
   private readonly lazyRef: Cradle;
   private initialized = false;
+  private initializationPromise: Promise<void> | undefined;
   private systemReady = false;
   private preloadScheduled = false;
   private preloadRunning = false;
@@ -57,8 +46,8 @@ export class PackageRuntimeService {
     this.lazyRef = deps.lazyRef;
   }
 
-  init(): void {
-    if (this.initialized) return;
+  init(): Promise<void> {
+    if (this.initializationPromise) return this.initializationPromise;
     this.initialized = true;
     this.eventEmitter.on(
       CACHE_EVENTS.RUNTIME_CACHE_ACTIVATED,
@@ -72,7 +61,24 @@ export class PackageRuntimeService {
       this.systemReady = true;
       this.schedulePackagePreload();
     });
-    this.schedulePackagePreload();
+    this.preloadRunning = true;
+    this.initializationPromise = this.preloadPackagesFromCdn(true)
+      .catch((error) => {
+        this.lastPreload = {
+          status: 'degraded',
+          startedAt: this.lastPreload?.startedAt ?? new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+          error: getErrorMessage(error),
+        };
+        throw error;
+      })
+      .finally(() => {
+        this.preloadRunning = false;
+        if (this.preloadRequested && this.lastPreload?.status === 'ok') {
+          this.schedulePackagePreload();
+        }
+      });
+    return this.initializationPromise;
   }
 
   schedulePackagePreload(): void {
@@ -130,6 +136,15 @@ export class PackageRuntimeService {
     }
   }
 
+  private emitPackageCacheInvalidation() {
+    this.eventEmitter.emit(CACHE_EVENTS.INVALIDATE, {
+      table: 'enfyra_package',
+      action: 'reload',
+      scope: 'full',
+      timestamp: Date.now(),
+    });
+  }
+
   private async updatePackageStatus(
     id: string | number,
     status: string,
@@ -147,23 +162,18 @@ export class PackageRuntimeService {
     }
   }
 
-  private async preloadPackagesFromCdn(): Promise<void> {
+  private async preloadPackagesFromCdn(required = false): Promise<void> {
     const startedAt = new Date().toISOString();
     this.lastPreload = { status: 'running', startedAt };
 
     const packagesWithMeta = await this.loadPackagesForSync();
-    // Installed packages are already known-good, so they are warmed as soon as
-    // the service initializes to cut cold-start latency. Recovery statuses are
-    // CDN retries and wait until the system is ready.
-    const allowedStatuses = this.systemReady
-      ? PRELOAD_PACKAGE_STATUSES
-      : PRELOAD_PACKAGE_STATUSES.filter(
-          (status) => !RECOVERY_PACKAGE_STATUSES.includes(status),
-        );
+    const allowedStatuses =
+      required || !this.systemReady ? ['installed'] : PRELOAD_PACKAGE_STATUSES;
     const toPreload = packagesWithMeta.filter(
       (pkg) =>
-        !this.packageCdnLoaderService.isLoaded(pkg.name, pkg.version) &&
-        allowedStatuses.includes(pkg.status),
+        allowedStatuses.includes(pkg.status) &&
+        (RECOVERY_PACKAGE_STATUSES.includes(pkg.status) ||
+          !this.packageCdnLoaderService.isLoaded(pkg.name, pkg.version)),
     );
 
     if (toPreload.length === 0) {
@@ -194,13 +204,19 @@ export class PackageRuntimeService {
 
     let loaded = 0;
     let failed = 0;
+    let membershipChanged = false;
 
     for (const pkg of toPreload) {
       try {
-        await this.packageCdnLoaderService.loadPackage(pkg.name, pkg.version);
-        await this.updatePackageStatus(pkg.id, 'installed', {
-          lastError: null,
-        });
+        if (!this.packageCdnLoaderService.isLoaded(pkg.name, pkg.version)) {
+          await this.packageCdnLoaderService.loadPackage(pkg.name, pkg.version);
+        }
+        if (!required) {
+          await this.updatePackageStatus(pkg.id, 'installed', {
+            lastError: null,
+          });
+        }
+        membershipChanged ||= RECOVERY_PACKAGE_STATUSES.includes(pkg.status);
         this.emitEvent('installed', {
           id: pkg.id,
           name: pkg.name,
@@ -209,10 +225,17 @@ export class PackageRuntimeService {
         loaded++;
       } catch (error) {
         const errorDetail = extractErrorMessage(error);
+        if (required) {
+          throw new Error(
+            `Required package unavailable at startup: ${pkg.name}@${pkg.version}: ${errorDetail}`,
+            { cause: error },
+          );
+        }
         this.logger.error(`CDN preload failed for ${pkg.name}: ${errorDetail}`);
         await this.updatePackageStatus(pkg.id, 'failed', {
           lastError: errorDetail,
         });
+        membershipChanged ||= pkg.status === 'installed';
         this.emitEvent('failed', {
           id: pkg.id,
           name: pkg.name,
@@ -222,6 +245,10 @@ export class PackageRuntimeService {
         });
         failed++;
       }
+    }
+
+    if (membershipChanged) {
+      this.emitPackageCacheInvalidation();
     }
 
     this.lastPreload = {
@@ -251,6 +278,7 @@ export class PackageRuntimeService {
         isEnabled: true,
         type: 'Server',
       },
+      limit: -1,
     });
 
     return result.data.map((p: any) => ({

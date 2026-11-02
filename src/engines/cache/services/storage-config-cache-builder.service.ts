@@ -1,3 +1,4 @@
+import type { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { DatabaseConfigService } from '../../../shared/services';
 import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '@enfyra/kernel';
@@ -25,11 +26,45 @@ export class StorageConfigCacheBuilder extends BaseCacheService<
     this.queryBuilderService = deps.queryBuilderService;
   }
 
+  override supportsPartialReload(): boolean {
+    return true;
+  }
+
+  protected override async applyPartialUpdate(
+    payload: TCacheInvalidationPayload,
+  ): Promise<void> {
+    if (payload.table !== 'enfyra_storage_config') {
+      await this.reloadFromPartial();
+      return;
+    }
+    const ids = payload.ids ?? [];
+    if (!ids.length) return;
+    const result = await this.queryBuilderService.find({
+      table: 'enfyra_storage_config',
+      fields: ['*'],
+      filter: {
+        _and: [
+          { isEnabled: { _eq: true } },
+          { [DatabaseConfigService.getPkField()]: { _in: ids } },
+        ],
+      },
+      limit: -1,
+    });
+    const updates = this.transformData(result.data);
+    const changed = new Set(ids.map(String));
+    const next = new Map(
+      [...this.cache].filter(([id]) => !changed.has(String(id))),
+    );
+    for (const [id, value] of updates) next.set(id, value);
+    this.cache = next;
+  }
+
   protected async loadFromDb(): Promise<any[]> {
     const result = await this.queryBuilderService.find({
       table: 'enfyra_storage_config',
       filter: { isEnabled: { _eq: true } },
       fields: ['*'],
+      limit: -1,
     });
 
     return result.data || [];

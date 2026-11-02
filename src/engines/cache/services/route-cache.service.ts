@@ -74,8 +74,21 @@ const ROUTE_CACHE_ROUTE_FIELDS = [
   'methodConfigs.routePermissions.description',
   'methodConfigs.routePermissions.role.id',
   'methodConfigs.routePermissions.allowedUsers.id',
-  'methodConfigs.preHooks.id',
-  'methodConfigs.postHooks.id',
+  ...['preHooks', 'postHooks'].flatMap((kind) =>
+    [
+      'id',
+      'name',
+      'priority',
+      'isEnabled',
+      'isGlobal',
+      'description',
+      'isSystem',
+      'sourceCode',
+      'scriptLanguage',
+      'compiledCode',
+      'methods',
+    ].map((field) => `methodConfigs.${kind}.${field}`),
+  ),
   'methodConfigs.fileFields.id',
   'methodConfigs.fileFields.name',
   'methodConfigs.fileFields.required',
@@ -129,8 +142,8 @@ const ROUTE_CACHE_ROUTE_DEEP = {
     limit: -1,
     deep: {
       routePermissions: { limit: -1, deep: { allowedUsers: { limit: -1 } } },
-      preHooks: { limit: -1 },
-      postHooks: { limit: -1 },
+      preHooks: { limit: -1, deep: { methods: { limit: -1 } } },
+      postHooks: { limit: -1, deep: { methods: { limit: -1 } } },
       fileFields: { limit: -1 },
     },
   },
@@ -168,6 +181,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   private methodById = new Map<string, any>();
   private globalPreHooks: any[] = [];
   private globalPostHooks: any[] = [];
+  private sharedRouteChanges: Set<string> | null = null;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
@@ -197,6 +211,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       await this.reloadFromPartial();
       return;
     }
+    this.sharedRouteChanges = new Set();
     this.setMethodCache(this.cache.methodDefinitions);
     this.globalPreHooks = this.cache.globalPreHooks;
     this.globalPostHooks = this.cache.globalPostHooks;
@@ -210,41 +225,41 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     ) {
       const isMongoDB = this.queryBuilderService.isMongoDb();
       const idField = DatabaseConfigService.getPkField();
-      const filter = isMongoDB
-        ? { mainTable: { _id: { _in: payload.ids } } }
-        : { mainTableId: { _in: payload.ids } };
-
+      const owners = new Set(payload.ids.map(String));
+      const filter = {
+        _or: [
+          isMongoDB
+            ? { mainTable: { _id: { _in: payload.ids } } }
+            : { mainTableId: { _in: payload.ids } },
+          ...(affectedTableNames.size
+            ? [{ mainTable: { name: { _in: [...affectedTableNames] } } }]
+            : []),
+        ],
+      };
       const result = await this.queryBuilderService.find({
         table: 'enfyra_route',
         filter,
         fields: [idField],
+        limit: -1,
       });
-      const routeIds = result.data.map((r: any) => r[idField]).filter(Boolean);
-      if (routeIds.length > 0) {
-        await this.reloadSpecificRoutes(routeIds);
-        return;
+      const routeIds = new Map<string, string | number>();
+      for (const route of result.data) {
+        const id = DatabaseConfigService.getRecordId(route);
+        if (id != null) routeIds.set(String(id), id);
       }
       for (const route of this.cache.routes) {
-        const mainTableId = isMongoDB
-          ? String(route.mainTable?._id)
-          : route.mainTable?.id;
-        if (payload.ids.some((id) => String(id) === String(mainTableId))) {
-          affectedTableNames.add(route.mainTable?.name);
+        const owner = route.mainTable;
+        if (
+          owner &&
+          (owners.has(String(DatabaseConfigService.getRecordId(owner))) ||
+            affectedTableNames.has(owner.name))
+        ) {
+          const id = DatabaseConfigService.getRecordId(route);
+          if (id != null) routeIds.set(String(id), id);
         }
       }
-      if (affectedTableNames.size > 0) {
-        const cachedRouteIds: (string | number)[] = [];
-        for (const route of this.cache.routes) {
-          if (affectedTableNames.has(route.mainTable?.name)) {
-            const rid = DatabaseConfigService.getRecordId(route);
-            if (rid != null) cachedRouteIds.push(rid);
-          }
-        }
-        if (cachedRouteIds.length > 0) {
-          await this.reloadSpecificRoutes(cachedRouteIds);
-        }
-        return;
-      }
+      if (routeIds.size)
+        await this.reloadSpecificRoutes([...routeIds.values()]);
       return;
     }
 
@@ -253,14 +268,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       return;
     }
 
-    if (payload.table === 'enfyra_route_method_config_file_field') {
-      await this.reloadFromPartial();
-      return;
-    }
-
     if (
       [
         'enfyra_route_method_config',
+        'enfyra_route_method_config_file_field',
         'enfyra_route_handler',
         'enfyra_route_permission',
       ].includes(payload.table) &&
@@ -277,11 +288,29 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     }
 
     if (['enfyra_pre_hook', 'enfyra_post_hook'].includes(payload.table)) {
-      const routeIds = payload.ids?.length
-        ? await this.resolveAffectedRouteIds(payload.table, payload.ids)
-        : [];
-      await this.reloadGlobalHooksAndMerge();
+      if (!payload.ids?.length) {
+        await this.reloadFromPartial();
+        return;
+      }
+      const ids = new Set(payload.ids.map(String));
+      const previousGlobals =
+        payload.table === 'enfyra_pre_hook'
+          ? this.globalPreHooks
+          : this.globalPostHooks;
+      const fresh = await this.loadChildOwners(payload.table, payload.ids);
+      const routeIds = this.mergeAffectedRouteIds(
+        payload.table,
+        payload.ids,
+        fresh,
+      );
+      const globalChanged =
+        previousGlobals.some((hook) =>
+          ids.has(String(DatabaseConfigService.getRecordId(hook))),
+        ) || fresh.some((record) => record.isGlobal === true);
+      if (globalChanged) await this.reloadGlobalHooksAndMerge();
       if (routeIds.length > 0) await this.reloadSpecificRoutes(routeIds);
+      if (!globalChanged && routeIds.length === 0)
+        await this.reloadFromPartial();
       return;
     }
 
@@ -322,6 +351,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       },
       fields: ROUTE_CACHE_ROUTE_FIELDS,
       deep: ROUTE_CACHE_ROUTE_DEEP,
+      limit: -1,
     });
 
     const updatedRoutes = result.data;
@@ -343,40 +373,97 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       }),
     );
 
-    this.cache.routes = this.cache.routes.filter((r: any) => {
-      const rid = String(DatabaseConfigService.getRecordId(r));
-      return !routeIdSet.has(rid);
-    });
-
-    this.cache.routes.push(...updatedRoutes);
+    const replacements = new Map(
+      updatedRoutes.map((route: any) => [
+        String(DatabaseConfigService.getRecordId(route)),
+        route,
+      ]),
+    );
+    const nextRoutes: any[] = [];
+    for (const route of this.cache.routes) {
+      const id = String(DatabaseConfigService.getRecordId(route));
+      if (!routeIdSet.has(id)) nextRoutes.push(route);
+      else if (replacements.has(id)) {
+        nextRoutes.push(replacements.get(id));
+        replacements.delete(id);
+      }
+    }
+    nextRoutes.push(...replacements.values());
+    this.cache.routes = nextRoutes;
+    for (const id of routeIdSet) this.sharedRouteChanges?.add(id);
 
     if (!this.usesSharedRuntimeCache()) {
       this.buildRouteEngine(this.cache.routes);
     }
   }
 
+  private async loadChildOwners(
+    tableName: string,
+    ids: (string | number)[],
+  ): Promise<any[]> {
+    const idField = DatabaseConfigService.getPkField();
+    const fileField = tableName === 'enfyra_route_method_config_file_field';
+    const hook =
+      tableName === 'enfyra_pre_hook' || tableName === 'enfyra_post_hook';
+    const permission = tableName === 'enfyra_route_permission';
+    const result = await this.queryBuilderService.find({
+      table: tableName,
+      filter: { [idField]: { _in: ids } },
+      fields: fileField
+        ? [`routeMethodConfig.route.${idField}`]
+        : [
+            `route.${idField}`,
+            ...(hook ? ['isGlobal'] : []),
+            ...(hook || permission
+              ? [`routeMethodConfigs.route.${idField}`]
+              : []),
+          ],
+      ...(hook || permission
+        ? { deep: { routeMethodConfigs: { limit: -1 } } }
+        : {}),
+      limit: -1,
+    });
+    return result.data;
+  }
+
   private async findRouteIdsForChildRecords(
     tableName: string,
     ids: (string | number)[],
   ): Promise<(string | number)[]> {
-    const isMongoDB = this.queryBuilderService.isMongoDb();
-    const idField = DatabaseConfigService.getPkField();
-    const routeField = 'route';
+    return this.mergeAffectedRouteIds(
+      tableName,
+      ids,
+      await this.loadChildOwners(tableName, ids),
+    );
+  }
 
-    const result = await this.queryBuilderService.find({
-      table: tableName,
-      filter: { [idField]: { _in: ids } },
-      fields: [`${routeField}.*`],
-    });
-
-    const routeIds = new Set<string | number>();
-    for (const record of result.data) {
-      const routeId = isMongoDB
-        ? record[routeField]?._id || record[routeField]
-        : record[routeField]?.id || record[`${routeField}Id`];
-      if (routeId) routeIds.add(routeId);
+  private mergeAffectedRouteIds(
+    tableName: string,
+    ids: (string | number)[],
+    records: any[],
+  ): (string | number)[] {
+    const routeIds = new Map<string, string | number>();
+    for (const record of records) {
+      const owners = [
+        record.route,
+        record.routeMethodConfig?.route,
+        ...(record.routeMethodConfigs ?? []).map(
+          (operation: any) => operation.route,
+        ),
+      ];
+      for (const owner of owners) {
+        const id =
+          owner && typeof owner === 'object'
+            ? DatabaseConfigService.getRecordId(owner)
+            : owner;
+        if (id != null) routeIds.set(String(id), id);
+      }
+      if (record.routeId != null)
+        routeIds.set(String(record.routeId), record.routeId);
     }
-    return [...routeIds];
+    for (const id of this.findCachedRouteIdsForChildRecords(tableName, ids))
+      routeIds.set(String(id), id);
+    return [...routeIds.values()];
   }
 
   private getChildArrayKeyForTable(tableName: string): string | null {
@@ -389,6 +476,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
         return 'handlers';
       case 'enfyra_route_permission':
         return 'routePermissions';
+      case 'enfyra_route_method_config':
+        return 'methodConfigs';
+      case 'enfyra_route_method_config_file_field':
+        return 'fileFields';
       default:
         return null;
     }
@@ -403,9 +494,21 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     const idSet = new Set(ids.map(String));
     const routeIds = new Map<string, string | number>();
     for (const route of this.cache.routes) {
-      const children = route?.[arrayKey];
-      if (!Array.isArray(children)) continue;
+      const children = [
+        ...(Array.isArray(route?.[arrayKey]) ? route[arrayKey] : []),
+        ...(route.methodConfigs ?? []).flatMap((operation: any) =>
+          arrayKey === 'handlers'
+            ? [operation.handler].filter(Boolean)
+            : (operation[arrayKey] ?? []),
+        ),
+      ];
       for (const child of children) {
+        if (
+          (tableName === 'enfyra_pre_hook' ||
+            tableName === 'enfyra_post_hook') &&
+          child.isGlobal === true
+        )
+          continue;
         const childId = DatabaseConfigService.getRecordId(child);
         if (childId == null) continue;
         if (idSet.has(String(childId))) {
@@ -422,15 +525,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     tableName: string,
     ids: (string | number)[],
   ): Promise<(string | number)[]> {
-    const [fresh, cached] = await Promise.all([
-      this.findRouteIdsForChildRecords(tableName, ids),
-      Promise.resolve(this.findCachedRouteIdsForChildRecords(tableName, ids)),
-    ]);
-    const merged = new Map<string, string | number>();
-    for (const rid of [...fresh, ...cached]) {
-      if (rid != null) merged.set(String(rid), rid);
-    }
-    return [...merged.values()];
+    return this.findRouteIdsForChildRecords(tableName, ids);
   }
 
   private async reloadGlobalHooksAndMerge(): Promise<void> {
@@ -456,6 +551,9 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
         isMongoDB,
       );
       this.finalizeRouteMethodConfigs(route);
+      this.sharedRouteChanges?.add(
+        String(DatabaseConfigService.getRecordId(route)),
+      );
     }
 
     if (!this.usesSharedRuntimeCache()) {
@@ -464,6 +562,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   protected async loadFromDb(): Promise<any> {
+    this.sharedRouteChanges = null;
     const isMongoDB = this.queryBuilderService.isMongoDb();
 
     const [
@@ -475,12 +574,14 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       this.queryBuilderService.find({
         table: 'enfyra_method',
         fields: ['id', 'name'],
+        limit: -1,
       }),
       this.queryBuilderService.find({
         table: 'enfyra_route',
         filter: { isEnabled: { _eq: true } },
         fields: ROUTE_CACHE_ROUTE_FIELDS,
         deep: ROUTE_CACHE_ROUTE_DEEP,
+        limit: -1,
       }),
       this.loadGlobalHooks('enfyra_pre_hook'),
       this.loadGlobalHooks('enfyra_post_hook'),
@@ -526,6 +627,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       fields: ROUTE_CACHE_HOOK_FIELDS,
       deep: { methods: { limit: -1 } },
       sort: ['priority'],
+      limit: -1,
     });
 
     return result.data || [];
@@ -553,20 +655,26 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     globalPostHooks: any[],
     isMongoDB: boolean,
   ): void {
-    const enabledRoutePreHooks = Array.isArray(route.preHooks)
-      ? route.preHooks.filter(
-          (h: any) => h?.isEnabled === true && h?.isGlobal === false,
-        )
-      : [];
+    const enabledRoutePreHooks = [
+      ...(route.preHooks ?? []),
+      ...(route.methodConfigs ?? []).flatMap(
+        (operation: any) => operation.preHooks ?? [],
+      ),
+    ].filter(
+      (hook: any) => hook?.isEnabled === true && hook?.isGlobal === false,
+    );
 
     const allPreHooks = [...globalPreHooks, ...enabledRoutePreHooks];
     route.preHooks = this.uniqueHooks(allPreHooks, isMongoDB);
 
-    const enabledRoutePostHooks = Array.isArray(route.postHooks)
-      ? route.postHooks.filter(
-          (h: any) => h?.isEnabled === true && h?.isGlobal === false,
-        )
-      : [];
+    const enabledRoutePostHooks = [
+      ...(route.postHooks ?? []),
+      ...(route.methodConfigs ?? []).flatMap(
+        (operation: any) => operation.postHooks ?? [],
+      ),
+    ].filter(
+      (hook: any) => hook?.isEnabled === true && hook?.isGlobal === false,
+    );
 
     const allPostHooks = [...globalPostHooks, ...enabledRoutePostHooks];
     route.postHooks = this.uniqueHooks(allPostHooks, isMongoDB);
@@ -599,6 +707,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   private hydrateMethodRef(ref: any): any {
+    if (ref == null) return ref;
     const id = DatabaseConfigService.getRecordId(ref);
     if (id == null) return ref;
     return this.methodById.get(String(id)) ?? ref;
@@ -618,6 +727,11 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     for (const operation of route.methodConfigs || []) {
       operation.method = this.hydrateMethodRef(operation.method);
+      for (const hook of [
+        ...(operation.preHooks ?? []),
+        ...(operation.postHooks ?? []),
+      ])
+        this.hydrateMethodList(hook.methods);
     }
     for (const handler of route.handlers || []) {
       handler.method = this.hydrateMethodRef(handler.method);
@@ -638,11 +752,6 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     for (const operation of route.methodConfigs) {
       const methodName = operation.method?.name;
-      const handler = operation.handler;
-      if (handler?.sourceCode || handler?.compiledCode || handler?.logic) {
-        const code = this.resolveScriptCode('enfyra_route_handler', handler);
-        if (code) handler.logic = code;
-      }
       const preHookIds = new Set(
         (Array.isArray(operation.preHooks) ? operation.preHooks : [])
           .map((hook: any) => DatabaseConfigService.getRecordId(hook))
@@ -714,8 +823,13 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   private async transformRouteCode(route: any): Promise<void> {
-    if (route.handlers && Array.isArray(route.handlers)) {
-      for (const handler of route.handlers) {
+    const handlers = Array.isArray(route.methodConfigs)
+      ? route.methodConfigs
+          .map((operation: any) => operation.handler)
+          .filter(Boolean)
+      : route.handlers;
+    if (Array.isArray(handlers)) {
+      for (const handler of handlers) {
         if (!handler.sourceCode && !handler.compiledCode && !handler.logic) {
           continue;
         }
@@ -874,10 +988,13 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   private async persistRedisRouteLookup(routes: any[]): Promise<void> {
     if (!this.usesSharedRuntimeCache()) return;
     const entries: RedisRouteMatchIndexEntry[] = [];
-    await this.redisRuntimeCacheStore!.deleteAuxByPrefix(
-      this.config.cacheIdentifier,
-      'route:',
-    );
+    const changes = this.sharedRouteChanges;
+    if (changes === null)
+      await this.redisRuntimeCacheStore!.deleteAuxByPrefix(
+        this.config.cacheIdentifier,
+        'route:',
+      );
+    const remaining = new Set(changes ?? []);
     for (let i = 0; i < routes.length; i++) {
       const route = routes[i];
       const key = String(DatabaseConfigService.getRecordId(route) ?? i);
@@ -888,12 +1005,20 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
         methods,
         order: i,
       });
-      await this.redisRuntimeCacheStore!.setAux(
+      remaining.delete(key);
+      if (changes === null || changes.has(key)) {
+        await this.redisRuntimeCacheStore!.setAux(
+          this.config.cacheIdentifier,
+          `route:${key}`,
+          route,
+        );
+      }
+    }
+    for (const key of remaining)
+      await this.redisRuntimeCacheStore!.deleteAux(
         this.config.cacheIdentifier,
         `route:${key}`,
-        route,
       );
-    }
     await this.redisRuntimeCacheStore!.setAux(
       this.config.cacheIdentifier,
       'match-index',

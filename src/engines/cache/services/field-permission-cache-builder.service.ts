@@ -122,7 +122,14 @@ export class FieldPermissionCacheBuilder extends BaseCacheService<
     payload: TCacheInvalidationPayload,
     publish = true,
   ): Promise<void> {
-    if (payload.table !== 'enfyra_field_permission') {
+    if (
+      ![
+        'enfyra_field_permission',
+        'enfyra_table',
+        'enfyra_column',
+        'enfyra_relation',
+      ].includes(payload.table)
+    ) {
       await this.reload(publish);
       return;
     }
@@ -137,6 +144,62 @@ export class FieldPermissionCacheBuilder extends BaseCacheService<
     }
     const ids = (payload.ids ?? []).map(String);
     if (ids.length === 0) return;
+    if (payload.table !== 'enfyra_field_permission') {
+      const metadata = await this.metadataCacheService.getMetadata();
+      const owners = new Set(ids);
+      const names = new Set(payload.affectedTables ?? []);
+      for (const rename of payload.tableRenames ?? []) {
+        names.add(rename.oldName);
+        names.add(rename.newName);
+      }
+      const tables = metadata.tablesList.filter(
+        (table: any) =>
+          owners.has(String(table._id ?? table.id)) || names.has(table.name),
+      );
+      for (const table of tables) names.add(table.name);
+      const columnIds = tables.flatMap((table: any) =>
+        (table.columns ?? []).map(toIdString).filter(Boolean),
+      );
+      const relationIds = tables.flatMap((table: any) =>
+        (table.relations ?? []).map(toIdString).filter(Boolean),
+      );
+      const subjects = [
+        ...(columnIds.length ? [{ column: { id: { _in: columnIds } } }] : []),
+        ...(relationIds.length
+          ? [{ relation: { id: { _in: relationIds } } }]
+          : []),
+      ];
+      const rows = subjects.length
+        ? (
+            await this.queryBuilderService.find({
+              table: 'enfyra_field_permission',
+              fields: FIELD_PERMISSION_CACHE_FIELDS,
+              filter: { _or: subjects },
+              deep: { allowedUsers: { limit: -1 } },
+              limit: -1,
+            })
+          ).data
+        : [];
+      const currentNames = new Set(
+        metadata.tablesList.map((table: any) => table.name),
+      );
+      const next = new Map(
+        [...this.cache].filter(
+          ([, bucket]) =>
+            !bucket.rules.some(
+              (rule) =>
+                names.has(rule.tableName) || !currentNames.has(rule.tableName),
+            ),
+        ),
+      );
+      const index = this.buildMetadataIndex(metadata);
+      for (const row of rows) {
+        const rule = this.rowToRule(row, index);
+        if (rule?.isEnabled) this.upsertRuleIntoMap(next, rule);
+      }
+      this.cache = next;
+      return;
+    }
 
     const result = await this.queryBuilderService.find({
       table: 'enfyra_field_permission',
@@ -156,8 +219,17 @@ export class FieldPermissionCacheBuilder extends BaseCacheService<
     const metadataIndex = this.buildMetadataIndex(
       await this.metadataCacheService.getMetadata(),
     );
+    const changed = new Set(ids);
+    for (const [key, bucket] of this.cache) {
+      const retained = bucket.rules.filter(
+        (rule) => !changed.has(String(rule.id)),
+      );
+      if (retained.length === bucket.rules.length) continue;
+      bucket.rules = retained;
+      if (!retained.length) this.cache.delete(key);
+      else this.rebuildBucketIndexes(bucket);
+    }
     for (const id of ids) {
-      this.removeRuleFromAllBuckets(id);
       const row = fetchedById.get(id);
       if (!row) continue;
       const rule = this.rowToRule(row, metadataIndex);
@@ -325,19 +397,6 @@ export class FieldPermissionCacheBuilder extends BaseCacheService<
     bucket.unconditionalDeniedColumns.clear();
     bucket.unconditionalDeniedRelations.clear();
     for (const r of bucket.rules) this.indexRuleIntoBucket(bucket, r);
-  }
-
-  private removeRuleFromAllBuckets(ruleId: string): void {
-    for (const [key, bucket] of this.cache.entries()) {
-      const idx = bucket.rules.findIndex((r) => String(r.id) === ruleId);
-      if (idx === -1) continue;
-      bucket.rules.splice(idx, 1);
-      if (bucket.rules.length === 0) {
-        this.cache.delete(key);
-      } else {
-        this.rebuildBucketIndexes(bucket);
-      }
-    }
   }
 
   protected override getLogCount(): string {

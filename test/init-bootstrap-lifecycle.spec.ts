@@ -53,7 +53,10 @@ function runtimeContainer(bootstrapOverrides: Record<string, unknown> = {}) {
       markInterruptedReloadsFailed: vi.fn(async () => undefined),
     },
     cacheOrchestratorService: { init: vi.fn(async () => undefined) },
-    redisRuntimeCacheStore: { runWithPublication: async (work: () => Promise<void>) => work(), commitPublication: async () => {} },
+    redisRuntimeCacheStore: {
+      runWithPublication: async (work: () => Promise<void>) => work(),
+      commitPublication: async () => {},
+    },
     runtimeRegistryService: {
       init: vi.fn(async () => undefined),
       publishFromCache: vi.fn(async () => undefined),
@@ -173,6 +176,49 @@ describe('initBootstrap lifecycle', () => {
     expect(container.cradle.cacheOrchestratorService.init).toHaveBeenCalled();
     expect(container.cradle.metadataCacheService.reload).toHaveBeenCalled();
   });
+});
+
+it('does not publish readiness until installed package artifacts are prepared', async () => {
+  const { container } = runtimeContainer();
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let entered = false;
+  container.cradle.packageRuntimeService.init.mockImplementation(async () => {
+    entered = true;
+    await blocked;
+  });
+  let ready = false;
+  container.cradle.eventEmitter.emit.mockImplementation((event: string) => {
+    if (event === 'system:ready') ready = true;
+  });
+  const initialization = init(container);
+  try {
+    await vi.waitFor(() => {
+      expect(entered).toBe(true);
+    });
+    expect(container.cradle.packageCacheService.reload).not.toHaveBeenCalled();
+    expect(ready).toBe(false);
+  } finally {
+    release();
+    await initialization;
+  }
+  expect(ready).toBe(true);
+});
+
+it('rejects boot before cache publication when package preparation fails', async () => {
+  const { container } = runtimeContainer();
+  const failure = new Error('installed package unavailable');
+  container.cradle.packageRuntimeService.init.mockRejectedValue(failure);
+  await expect(init(container)).rejects.toBe(failure);
+  expect(container.cradle.packageCacheService.reload).not.toHaveBeenCalled();
+  expect(
+    container.cradle.runtimeRegistryService.publishFromCache,
+  ).toHaveBeenCalledTimes(1);
+  expect(
+    container.cradle.runtimeNamespaceLifecycleService.renewCurrentNamespaceKeys,
+  ).not.toHaveBeenCalled();
 });
 
 it('activates flows only after runtime snapshots and SQL functions are ready', async () => {

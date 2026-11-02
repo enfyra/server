@@ -1,3 +1,4 @@
+import type { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import type { EventEmitter2 } from 'eventemitter2';
 import type { QueryBuilderService } from '@enfyra/kernel';
 import { BaseCacheService } from './base-cache.service';
@@ -30,6 +31,39 @@ export class SharedHelperCacheService extends BaseCacheService<
     this.queryBuilderService = deps.queryBuilderService;
   }
 
+  override supportsPartialReload(): boolean {
+    return true;
+  }
+
+  protected override async applyPartialUpdate(
+    payload: TCacheInvalidationPayload,
+  ): Promise<void> {
+    if (payload.table !== 'enfyra_helper') {
+      await this.reloadFromPartial();
+      return;
+    }
+    const ids = payload.ids ?? [];
+    if (!ids.length) return;
+    const result = await this.queryBuilderService.find({
+      table: 'enfyra_helper',
+      filter: { [DatabaseConfigService.getPkField()]: { _in: ids } },
+      fields: ['*'],
+      limit: -1,
+    });
+    const changed = new Set(ids.map(String));
+    const retained = this.cache.filter(
+      (helper) => !changed.has(String(helper.id)),
+    );
+    const updates = this.prepareRecords(result.data);
+    const names = new Set(retained.map((helper) => helper.name));
+    for (const helper of updates) {
+      if (names.has(helper.name))
+        throw new Error(`Duplicate helper name: ${helper.name}`);
+      names.add(helper.name);
+    }
+    this.cache = [...retained, ...updates];
+  }
+
   protected async loadFromDb(): Promise<SharedHelperDefinition[]> {
     const records: SharedHelperDefinition[] = [];
     const pageSize = 1000;
@@ -51,6 +85,12 @@ export class SharedHelperCacheService extends BaseCacheService<
       records.push(...result.data);
       if (result.data.length < pageSize) break;
     }
+    return this.prepareRecords(records);
+  }
+
+  private prepareRecords(
+    records: SharedHelperDefinition[],
+  ): SharedHelperDefinition[] {
     const names = new Set<string>();
     return records.map((record: SharedHelperDefinition) => {
       assertSharedHelperName(record.name);
@@ -69,8 +109,12 @@ export class SharedHelperCacheService extends BaseCacheService<
         name: record.name,
         isEnabled: enabled,
         code: code ?? '',
-        ...(record.sourceCode !== undefined ? { sourceCode: record.sourceCode } : {}),
-        ...(record.scriptLanguage !== undefined ? { scriptLanguage: record.scriptLanguage } : {}),
+        ...(record.sourceCode !== undefined
+          ? { sourceCode: record.sourceCode }
+          : {}),
+        ...(record.scriptLanguage !== undefined
+          ? { scriptLanguage: record.scriptLanguage }
+          : {}),
       };
     });
   }

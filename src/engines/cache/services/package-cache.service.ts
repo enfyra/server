@@ -37,6 +37,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
         type: 'Server',
         status: 'installed',
       },
+      limit: -1,
     });
 
     return result.data.map((p: any) => p.name);

@@ -61,7 +61,10 @@ export class MetadataCacheService implements IMetadataCache {
   }
 
   async reload(publish = true): Promise<void> {
-    if (this.usesSharedRuntimeCache()) return this.redisRuntimeCacheStore!.runWithPublication(() => this.reloadLocal(publish));
+    if (this.usesSharedRuntimeCache())
+      return this.redisRuntimeCacheStore!.runWithPublication(() =>
+        this.reloadLocal(publish),
+      );
     return this.reloadLocal(publish);
   }
 
@@ -102,11 +105,16 @@ export class MetadataCacheService implements IMetadataCache {
   }
 
   async partialReload(payload: TCacheInvalidationPayload): Promise<void> {
-    if (this.usesSharedRuntimeCache()) return this.redisRuntimeCacheStore!.runWithPublication(() => this.partialReloadLocal(payload));
+    if (this.usesSharedRuntimeCache())
+      return this.redisRuntimeCacheStore!.runWithPublication(() =>
+        this.partialReloadLocal(payload),
+      );
     return this.partialReloadLocal(payload);
   }
 
-  private async partialReloadLocal(payload: TCacheInvalidationPayload): Promise<void> {
+  private async partialReloadLocal(
+    payload: TCacheInvalidationPayload,
+  ): Promise<void> {
     if (this.isLoading && this.loadingPromise) {
       await this.loadingPromise;
     }
@@ -260,8 +268,8 @@ export class MetadataCacheService implements IMetadataCache {
       relationIdMap.set(relId, rel);
     }
 
-    const existingRelations = this.inMemoryCache.tablesList.flatMap(
-      (t: any) => (t.relations || []).map((relation: any) => ({ ...relation })),
+    const existingRelations = this.inMemoryCache.tablesList.flatMap((t: any) =>
+      (t.relations || []).map((relation: any) => ({ ...relation })),
     );
     const reloadedSourceTableIds = new Set(uniqueTableIds);
     for (const rel of existingRelations) {
@@ -284,6 +292,11 @@ export class MetadataCacheService implements IMetadataCache {
     );
 
     const columnsByTable = new Map<string, any[]>();
+    for (const table of this.inMemoryCache.tablesList) {
+      const id = String(DatabaseConfigService.getRecordId(table));
+      if (!reloadedSourceTableIds.has(id))
+        columnsByTable.set(id, table.columns ?? []);
+    }
     for (const col of columnsResult) {
       const key = String(isMongoDB ? col.table : col.tableId);
       if (!columnsByTable.has(key)) columnsByTable.set(key, []);
@@ -817,7 +830,11 @@ export class MetadataCacheService implements IMetadataCache {
       await this.setLoadedMetadata(metadata);
       return metadata;
     };
-    this.initialLoadPromise = (this.usesSharedRuntimeCache() ? this.redisRuntimeCacheStore!.runWithPublication(load) : load()).finally(() => {
+    this.initialLoadPromise = (
+      this.usesSharedRuntimeCache()
+        ? this.redisRuntimeCacheStore!.runWithPublication(load)
+        : load()
+    ).finally(() => {
       this.initialLoadPromise = null;
     });
     return this.initialLoadPromise;
@@ -948,7 +965,8 @@ export class MetadataCacheService implements IMetadataCache {
 
     const lockValue =
       await this.redisRuntimeCacheStore!.acquireRefreshLockWithWait('metadata');
-    if (!lockValue) throw new Error('Metadata shared cache refresh lock timed out');
+    if (!lockValue)
+      throw new Error('Metadata shared cache refresh lock timed out');
 
     try {
       return await this.loadMetadataFromDb();

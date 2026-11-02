@@ -1,6 +1,9 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { RuntimeCacheCommittedReadScope, RuntimeCachePublicationScope } from '../types/runtime-cache-publication.types';
+import type {
+  RuntimeCacheCommittedReadScope,
+  RuntimeCachePublicationScope,
+} from '../types/runtime-cache-publication.types';
 import { serialize, deserialize } from 'node:v8';
 import type { Redis } from 'ioredis';
 import { EnvService } from '../../../shared/services';
@@ -13,40 +16,44 @@ export interface RedisRuntimeCacheSnapshot<T> {
   data: T;
 }
 
-function normalizeForSnapshot(value: any): any {
-  if (Array.isArray(value)) {
-    return value.map((item) => normalizeForSnapshot(item));
-  }
-  if (value instanceof Map) {
-    return new Map(
-      Array.from(value.entries()).map(([key, item]) => [
-        normalizeForSnapshot(key),
-        normalizeForSnapshot(item),
-      ]),
-    );
-  }
-  if (value instanceof Set) {
-    return new Set(
-      Array.from(value.values()).map((item) => normalizeForSnapshot(item)),
-    );
-  }
+function normalizeForSnapshot(
+  value: any,
+  seen = new WeakMap<object, any>(),
+): any {
+  if (value === null || typeof value !== 'object') return value;
   if (value instanceof Date) return value;
-  if (
-    value &&
-    typeof value === 'object' &&
-    typeof value.toHexString === 'function' &&
-    value._bsontype === 'ObjectId'
-  ) {
+  if (typeof value.toHexString === 'function' && value._bsontype === 'ObjectId')
     return value.toHexString();
-  }
-  if (value && typeof value === 'object') {
-    const out: Record<string, any> = {};
-    for (const [key, item] of Object.entries(value)) {
-      out[key] = normalizeForSnapshot(item);
+  if (seen.has(value)) return seen.get(value);
+  if (Array.isArray(value)) {
+    const out = new Array(value.length);
+    seen.set(value, out);
+    for (let index = 0; index < value.length; index++) {
+      if (index in value) out[index] = normalizeForSnapshot(value[index], seen);
     }
     return out;
   }
-  return value;
+  if (value instanceof Map) {
+    const out = new Map();
+    seen.set(value, out);
+    for (const [key, item] of value)
+      out.set(
+        normalizeForSnapshot(key, seen),
+        normalizeForSnapshot(item, seen),
+      );
+    return out;
+  }
+  if (value instanceof Set) {
+    const out = new Set();
+    seen.set(value, out);
+    for (const item of value) out.add(normalizeForSnapshot(item, seen));
+    return out;
+  }
+  const out: Record<string, any> = {};
+  seen.set(value, out);
+  for (const [key, item] of Object.entries(value))
+    out[key] = normalizeForSnapshot(item, seen);
+  return out;
 }
 
 function decodeLegacyJsonValue(value: any): any {
@@ -85,11 +92,14 @@ function escapeRedisGlob(value: string): string {
 
 export class RedisRuntimeCacheStore {
   private readonly redis: Redis;
-  private readonly publication = new AsyncLocalStorage<RuntimeCachePublicationScope>();
-  private readonly committedRead = new AsyncLocalStorage<RuntimeCacheCommittedReadScope>();
+  private readonly publication =
+    new AsyncLocalStorage<RuntimeCachePublicationScope>();
+  private readonly committedRead =
+    new AsyncLocalStorage<RuntimeCacheCommittedReadScope>();
   private readonly nodeName: string;
   private readonly enabled: boolean;
-  private readonly runtimeNamespaceLifecycleService: RuntimeNamespaceLifecycleService | undefined;
+  private readonly runtimeNamespaceLifecycleService:
+    RuntimeNamespaceLifecycleService | undefined;
 
   constructor(deps: {
     redis: Redis;
@@ -145,6 +155,11 @@ export class RedisRuntimeCacheStore {
     }
   }
 
+  getCommittedSnapshotRevision(cacheIdentifier: string): string | null {
+    const raw = this.getActiveCommittedRead()?.snapshots.get(cacheIdentifier);
+    return raw ? createHash('sha256').update(raw).digest('hex') : null;
+  }
+
   private getActivePublication(): RuntimeCachePublicationScope | undefined {
     const scope = this.publication.getStore();
     return scope?.active ? scope : undefined;
@@ -153,7 +168,9 @@ export class RedisRuntimeCacheStore {
   async runWithPublication<T>(work: () => Promise<T>): Promise<T> {
     if (!this.enabled) return work();
     if (this.getActiveCommittedRead()) {
-      throw new Error('Runtime cache publication is not allowed during committed snapshot replay');
+      throw new Error(
+        'Runtime cache publication is not allowed during committed snapshot replay',
+      );
     }
     if (this.getActivePublication()) return work();
     const token = await this.acquireRefreshLockWithWait('publication');
@@ -166,7 +183,15 @@ export class RedisRuntimeCacheStore {
       deletedAuxiliary: new Set(),
     };
     const heartbeat = setInterval(() => {
-      void this.redis.eval(`if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) end return 0`, 1, this.lockKey('publication'), token, 30000).catch(() => undefined);
+      void this.redis
+        .eval(
+          `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) end return 0`,
+          1,
+          this.lockKey('publication'),
+          token,
+          30000,
+        )
+        .catch(() => undefined);
     }, 10000);
     heartbeat.unref();
     try {
@@ -214,17 +239,44 @@ export class RedisRuntimeCacheStore {
       redis.call('pexpire', KEYS[2], ARGV[2])
       return 1
     `;
-    const writtenKeys = [this.committedKey(), ...snapshots.map(([id]) => this.cacheKey(id)), ...auxiliary.map(([key]) => key)];
-    const keys = [this.lockKey('publication'), ...writtenKeys, ...deletedAuxiliary];
-    const committed = await this.redis.eval(script, keys.length, ...keys, scope.token!, ttl, snapshots.length, auxiliary.length, ...snapshots.flatMap(([id, data]) => [id, data]), ...auxiliary.map(([, data]) => data));
-    if (committed !== 1) throw new Error('Runtime cache publication lease lost');
+    const writtenKeys = [
+      this.committedKey(),
+      ...snapshots.map(([id]) => this.cacheKey(id)),
+      ...auxiliary.map(([key]) => key),
+    ];
+    const keys = [
+      this.lockKey('publication'),
+      ...writtenKeys,
+      ...deletedAuxiliary,
+    ];
+    const committed = await this.redis.eval(
+      script,
+      keys.length,
+      ...keys,
+      scope.token!,
+      ttl,
+      snapshots.length,
+      auxiliary.length,
+      ...snapshots.flatMap(([id, data]) => [id, data]),
+      ...auxiliary.map(([, data]) => data),
+    );
+    if (committed !== 1)
+      throw new Error('Runtime cache publication lease lost');
     scope.committed = true;
     await this.redis
       .set(this.generationKey(), String(Date.now()), 'PX', ttl)
       .catch(() => undefined);
-    for (const key of writtenKeys) await this.runtimeNamespaceLifecycleService?.registerManagedKey(key);
-    await this.runtimeNamespaceLifecycleService?.registerManagedKey(this.generationKey());
-    for (const key of deletedAuxiliary) await this.runtimeNamespaceLifecycleService?.unregisterManagedKey(key);
+    const lifecycle = this.runtimeNamespaceLifecycleService;
+    const managedKeys = [...writtenKeys, this.generationKey()];
+    if (lifecycle?.registerManagedKeys)
+      await lifecycle.registerManagedKeys(managedKeys);
+    else
+      for (const key of managedKeys) await lifecycle?.registerManagedKey(key);
+    if (lifecycle?.unregisterManagedKeys)
+      await lifecycle.unregisterManagedKeys(deletedAuxiliary);
+    else
+      for (const key of deletedAuxiliary)
+        await lifecycle?.unregisterManagedKey(key);
   }
 
   private keySegment(value: string): string {
@@ -280,7 +332,14 @@ export class RedisRuntimeCacheStore {
     const key = this.cacheKey(cacheIdentifier);
     const staged = this.getActivePublication()?.snapshots.get(cacheIdentifier);
     const pinned = this.getActiveCommittedRead()?.snapshots;
-    const raw = staged ?? (pinned ? pinned.get(cacheIdentifier) : await this.redis.hgetBuffer(this.committedKey(), cacheIdentifier) ?? await this.getBuffer(key));
+    const raw =
+      staged ??
+      (pinned
+        ? pinned.get(cacheIdentifier)
+        : ((await this.redis.hgetBuffer(
+            this.committedKey(),
+            cacheIdentifier,
+          )) ?? (await this.getBuffer(key))));
     if (!raw) return null;
     await this.touchLifecycleKey(key);
     await this.touchLifecycleKey(this.committedKey());
@@ -299,8 +358,12 @@ export class RedisRuntimeCacheStore {
     };
     if (!this.enabled) return snapshot;
     const staged = this.getActivePublication();
-    if (!staged) return this.runWithPublication(() => this.setSnapshot(cacheIdentifier, data));
-    if (staged.committed) throw new Error('Runtime cache publication is already committed');
+    if (!staged)
+      return this.runWithPublication(() =>
+        this.setSnapshot(cacheIdentifier, data),
+      );
+    if (staged.committed)
+      throw new Error('Runtime cache publication is already committed');
     staged.snapshots.set(cacheIdentifier, this.encode(snapshot));
     return snapshot;
   }
@@ -311,7 +374,14 @@ export class RedisRuntimeCacheStore {
     const scope = this.getActivePublication();
     if (scope?.deletedAuxiliary.has(redisKey)) return null;
     const pinned = this.getActiveCommittedRead()?.snapshots;
-    const raw = scope?.auxiliary.get(redisKey) ?? (pinned ? pinned.get(`aux:${redisKey}`) : await this.redis.hgetBuffer(this.committedKey(), `aux:${redisKey}`) ?? await this.getBuffer(redisKey));
+    const raw =
+      scope?.auxiliary.get(redisKey) ??
+      (pinned
+        ? pinned.get(`aux:${redisKey}`)
+        : ((await this.redis.hgetBuffer(
+            this.committedKey(),
+            `aux:${redisKey}`,
+          )) ?? (await this.getBuffer(redisKey))));
     if (!raw) return null;
     await this.touchLifecycleKey(redisKey);
     return this.decode<T>(raw);
@@ -325,10 +395,28 @@ export class RedisRuntimeCacheStore {
     if (!this.enabled) return;
     const redisKey = this.auxKey(cacheIdentifier, key);
     const staged = this.getActivePublication();
-    if (!staged) return this.runWithPublication(() => this.setAux(cacheIdentifier, key, value));
-    if (staged.committed) throw new Error('Runtime cache publication is already committed');
+    if (!staged)
+      return this.runWithPublication(() =>
+        this.setAux(cacheIdentifier, key, value),
+      );
+    if (staged.committed)
+      throw new Error('Runtime cache publication is already committed');
     staged.deletedAuxiliary.delete(redisKey);
     staged.auxiliary.set(redisKey, this.encode(value));
+  }
+
+  async deleteAux(cacheIdentifier: string, key: string): Promise<void> {
+    if (!this.enabled) return;
+    const scope = this.getActivePublication();
+    if (!scope)
+      return this.runWithPublication(() =>
+        this.deleteAux(cacheIdentifier, key),
+      );
+    if (scope.committed)
+      throw new Error('Runtime cache publication is already committed');
+    const redisKey = this.auxKey(cacheIdentifier, key);
+    scope.auxiliary.delete(redisKey);
+    scope.deletedAuxiliary.add(redisKey);
   }
 
   async deleteAuxByPrefix(
@@ -337,12 +425,17 @@ export class RedisRuntimeCacheStore {
   ): Promise<void> {
     if (!this.enabled) return;
     const scope = this.getActivePublication();
-    if (!scope) return this.runWithPublication(() => this.deleteAuxByPrefix(cacheIdentifier, keyPrefix));
-    if (scope.committed) throw new Error('Runtime cache publication is already committed');
+    if (!scope)
+      return this.runWithPublication(() =>
+        this.deleteAuxByPrefix(cacheIdentifier, keyPrefix),
+      );
+    if (scope.committed)
+      throw new Error('Runtime cache publication is already committed');
     const prefix = this.auxKey(cacheIdentifier, keyPrefix);
     const committed = await this.redis.hgetallBuffer(this.committedKey());
     for (const field of Object.keys(committed)) {
-      if (field.startsWith(`aux:${prefix}`)) scope.deletedAuxiliary.add(field.slice(4));
+      if (field.startsWith(`aux:${prefix}`))
+        scope.deletedAuxiliary.add(field.slice(4));
     }
     for (const key of scope.auxiliary.keys()) {
       if (key.startsWith(prefix)) {
@@ -350,10 +443,19 @@ export class RedisRuntimeCacheStore {
         scope.deletedAuxiliary.add(key);
       }
     }
-    const pattern = this.auxKey(cacheIdentifier, `${escapeRedisGlob(keyPrefix)}*`);
+    const pattern = this.auxKey(
+      cacheIdentifier,
+      `${escapeRedisGlob(keyPrefix)}*`,
+    );
     let cursor = '0';
     do {
-      const [nextCursor, keys] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+      const [nextCursor, keys] = await this.redis.scan(
+        cursor,
+        'MATCH',
+        pattern,
+        'COUNT',
+        100,
+      );
       for (const key of keys) scope.deletedAuxiliary.add(key);
       cursor = nextCursor;
     } while (cursor !== '0');

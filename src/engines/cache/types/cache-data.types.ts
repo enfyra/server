@@ -12,6 +12,8 @@ import type {
 
 export interface TGqlDefinition {
   id: string;
+  tableId?: string;
+  permissionIds?: string[];
   isEnabled: boolean;
   isSystem: boolean;
   description: string | null;
