@@ -16,6 +16,7 @@ import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants'
 import {
   ENFYRA_ADMIN_ROOT_WEBSOCKET_ROOM,
   ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+  ENFYRA_RUNTIME_MONITOR_WEBSOCKET_ROOM,
 } from '../../../shared/utils/constant';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { RedisAdminService } from '../../admin/services/redis-admin.service';
@@ -656,13 +657,47 @@ export class DynamicWebSocketGateway {
     const user = await this.loadSocketUser(socket);
     if (user?.isRootAdmin) {
       socket.join(ENFYRA_ADMIN_ROOT_WEBSOCKET_ROOM);
-      this.redisAdminService
-        .getOverview()
-        .then((overview) => {
-          socket.emit('$system:redis:overview', overview);
-        })
-        .catch(() => {});
     }
+    let subscriptionRevision = 0;
+    socket.on(
+      '$system:runtime:subscribe',
+      async (_payload: unknown, ack: unknown) => {
+        const revision = ++subscriptionRevision;
+        try {
+          const currentUser = await this.loadSocketUser(socket);
+          if (!currentUser?.isRootAdmin)
+            throw new Error('Root admin access required');
+          if (revision !== subscriptionRevision) return;
+          await socket.join(ENFYRA_RUNTIME_MONITOR_WEBSOCKET_ROOM);
+          if (revision !== subscriptionRevision) {
+            await socket.leave(ENFYRA_RUNTIME_MONITOR_WEBSOCKET_ROOM);
+            return;
+          }
+          if (typeof ack === 'function') ack({ success: true });
+        } catch (error) {
+          if (typeof ack === 'function') {
+            ack({
+              success: false,
+              error: {
+                message:
+                  getErrorMessage(error) || 'Runtime subscription failed',
+              },
+            });
+          }
+        }
+      },
+    );
+    socket.on(
+      '$system:runtime:unsubscribe',
+      async (_payload: unknown, ack: unknown) => {
+        subscriptionRevision++;
+        await socket.leave(ENFYRA_RUNTIME_MONITOR_WEBSOCKET_ROOM);
+        if (typeof ack === 'function') ack({ success: true });
+      },
+    );
+    socket.on('disconnect', () => {
+      subscriptionRevision++;
+    });
 
     socket.on(
       '$system:runtime:metrics:get',
@@ -671,14 +706,16 @@ export class DynamicWebSocketGateway {
           const user = await this.loadSocketUser(socket);
           if (!user?.isRootAdmin) throw new Error('Root admin access required');
           if (typeof ack !== 'function') return;
-          const data = await this.lazyRef.runtimeMonitorService.getClusterSnapshot();
+          const data =
+            await this.lazyRef.runtimeMonitorService.getClusterSnapshot();
           ack({ success: true, data });
         } catch (error) {
           if (typeof ack === 'function') {
             ack({
               success: false,
               error: {
-                message: getErrorMessage(error) || 'Runtime metrics request failed',
+                message:
+                  getErrorMessage(error) || 'Runtime metrics request failed',
               },
             });
           }
@@ -947,8 +984,12 @@ export class DynamicWebSocketGateway {
     await this.yieldToEventLoop();
   }
 
-  private localNamespaceRoomSize(path: string, room: string) {
+  localNamespaceRoomSize(path: string, room: string) {
     return this.server.of(path).adapter.rooms.get(room)?.size || 0;
+  }
+
+  emitToLocalNamespaceRoom(path: string, room: string, event: string, data: unknown) {
+    this.server.of(path).local.to(room).emit(event, data);
   }
 
   private yieldToEventLoop() {

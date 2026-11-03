@@ -2,6 +2,7 @@ import { Logger } from '../../../shared/logger';
 import {
   ENFYRA_ADMIN_ROOT_WEBSOCKET_ROOM,
   ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+  ENFYRA_RUNTIME_MONITOR_WEBSOCKET_ROOM,
 } from '../../../shared/utils/constant';
 import { DynamicWebSocketGateway } from '../../websocket';
 import {
@@ -195,15 +196,15 @@ export class RuntimeMonitorService {
   }
 
   async emitRedisOverview(): Promise<void> {
-    const listeners = await this.dynamicWebSocketGateway.namespaceRoomSize(
+    const listeners = await this.dynamicWebSocketGateway.localNamespaceRoomSize(
       ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
-      ENFYRA_ADMIN_ROOT_WEBSOCKET_ROOM,
+      ENFYRA_RUNTIME_MONITOR_WEBSOCKET_ROOM,
     );
     if (listeners === 0) return;
     const overview = await this.redisAdminService.getOverview();
-    this.dynamicWebSocketGateway.emitToNamespaceRoom(
+    this.dynamicWebSocketGateway.emitToLocalNamespaceRoom(
       ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
-      ENFYRA_ADMIN_ROOT_WEBSOCKET_ROOM,
+      ENFYRA_RUNTIME_MONITOR_WEBSOCKET_ROOM,
       '$system:redis:overview',
       overview,
     );
