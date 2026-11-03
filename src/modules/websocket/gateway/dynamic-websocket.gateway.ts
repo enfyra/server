@@ -988,7 +988,12 @@ export class DynamicWebSocketGateway {
     return this.server.of(path).adapter.rooms.get(room)?.size || 0;
   }
 
-  emitToLocalNamespaceRoom(path: string, room: string, event: string, data: unknown) {
+  emitToLocalNamespaceRoom(
+    path: string,
+    room: string,
+    event: string,
+    data: unknown,
+  ) {
     this.server.of(path).local.to(room).emit(event, data);
   }
 
