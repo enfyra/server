@@ -51,6 +51,10 @@ export class PackageCdnLoaderService {
     string,
     CdnPackageDependencyManifest
   >();
+  private readonly artifactManifests = new Map<
+    string,
+    { stamp: string; manifest: { name?: string; version?: string } }
+  >();
 
   constructor() {
     if (!fs.existsSync(CACHE_DIR)) {
@@ -139,12 +143,31 @@ export class PackageCdnLoaderService {
   }
 
   getPackageSources(names: string[]): PackageRuntimeDescriptor[] {
+    if (names.length === 0) return [];
+    const prefixes = new Set(names.map(name => `${name.replace(/[^a-zA-Z0-9]/g, '_')}@`));
+    const selected = new Map<string, { directory: string; stat: fs.Stats }>();
+    try {
+      for (const file of fs.readdirSync(CACHE_DIR)) {
+        const prefix = file.slice(0, file.lastIndexOf('@') + 1);
+        if (!prefixes.has(prefix)) continue;
+        try {
+          const directory = path.join(CACHE_DIR, file);
+          const stat = fs.statSync(path.join(directory, MAIN_FILE));
+          const current = selected.get(prefix);
+          if (!current || stat.mtimeMs > current.stat.mtimeMs) {
+            selected.set(prefix, { directory, stat });
+          }
+        } catch {}
+      }
+    } catch {
+      return [];
+    }
     const results: PackageRuntimeDescriptor[] = [];
     for (const name of names) {
       try {
-        const packageDir = this.findLatestPackageArtifactDir(name);
-        const descriptor = packageDir
-          ? this.getDescriptorFromArtifactDir(packageDir, name)
+        const artifact = selected.get(`${name.replace(/[^a-zA-Z0-9]/g, '_')}@`);
+        const descriptor = artifact
+          ? this.getDescriptorFromArtifactDir(artifact.directory, name, undefined, artifact.stat)
           : null;
         if (descriptor) results.push(descriptor);
       } catch {}
@@ -153,6 +176,7 @@ export class PackageCdnLoaderService {
   }
 
   invalidateAll(): void {
+    this.artifactManifests.clear();
     try {
       const files = fs.readdirSync(CACHE_DIR);
       for (const file of files) {
@@ -192,18 +216,36 @@ export class PackageCdnLoaderService {
     packageDir: string,
     fallbackName?: string,
     fallbackVersion?: string,
+    fileStat?: fs.Stats,
   ): PackageRuntimeDescriptor | null {
     const filePath = path.join(packageDir, MAIN_FILE);
-    if (!fs.existsSync(filePath)) return null;
+    if (!fileStat && !fs.existsSync(filePath)) return null;
 
     let manifest: { name?: string; version?: string } = {};
     try {
-      manifest = JSON.parse(
-        fs.readFileSync(path.join(packageDir, MANIFEST_FILE), 'utf-8'),
-      );
-    } catch {}
+      const manifestPath = path.join(packageDir, MANIFEST_FILE);
+      const metadata = fs.statSync(manifestPath, { bigint: true });
+      const stamp = `${metadata.dev}:${metadata.ino}:${metadata.size}:${metadata.mtimeNs}:${metadata.ctimeNs}`;
+      const cached = this.artifactManifests.get(packageDir);
+      if (cached?.stamp === stamp) {
+        manifest = cached.manifest;
+      } else {
+        manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+        this.artifactManifests.delete(packageDir);
+        if (metadata.size <= 64n * 1024n) {
+          this.artifactManifests.set(packageDir, { stamp, manifest });
+        }
+        while (this.artifactManifests.size > 500) {
+          const oldest = this.artifactManifests.keys().next().value;
+          if (oldest === undefined) break;
+          this.artifactManifests.delete(oldest);
+        }
+      }
+    } catch {
+      this.artifactManifests.delete(packageDir);
+    }
 
-    const stat = fs.statSync(filePath);
+    const stat = fileStat ?? fs.statSync(filePath);
     const name =
       manifest.name ??
       fallbackName ??
@@ -253,6 +295,9 @@ export class PackageCdnLoaderService {
   private deletePackageArtifacts(name: string): void {
     const safeName = name.replace(/[^a-zA-Z0-9]/g, '_');
     const prefix = `${safeName}@`;
+    for (const directory of this.artifactManifests.keys()) {
+      if (path.basename(directory).startsWith(prefix)) this.artifactManifests.delete(directory);
+    }
     try {
       const files = fs.readdirSync(CACHE_DIR);
       for (const file of files) {
@@ -314,13 +359,77 @@ export class PackageCdnLoaderService {
         'utf-8',
       );
 
+      await this.publishArtifact(tempDir, packageDir);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+
+  private async publishArtifact(tempDir: string, packageDir: string): Promise<void> {
+    const lockDir = path.join(
+      path.dirname(tempDir),
+      `publish-${path.basename(packageDir).split('@')[0]}.lock`,
+    );
+    const ownerFile = path.join(lockDir, `owner-${process.pid}`);
+    const deadline = performance.now() + 5000;
+    while (true) {
+      try {
+        fs.mkdirSync(lockDir);
+        try {
+          fs.writeFileSync(ownerFile, '', { flag: 'wx' });
+        } catch (error) {
+          fs.rmdirSync(lockDir);
+          throw error;
+        }
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        if (this.reclaimPublicationLock(lockDir)) continue;
+        if (performance.now() >= deadline) {
+          throw new Error('Package artifact publication lock timed out; inspect its owner before recovery');
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+    try {
       try {
         fs.renameSync(tempDir, packageDir);
       } catch (error) {
-        if (!fs.existsSync(path.join(packageDir, MAIN_FILE))) throw error;
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== 'ENOTEMPTY' && code !== 'EEXIST') throw error;
+        if (fs.existsSync(path.join(packageDir, MAIN_FILE))) return;
+        // All publishers hold this lock before inspecting or replacing the destination.
+        fs.rmSync(packageDir, { recursive: true, force: true });
+        fs.renameSync(tempDir, packageDir);
       }
     } finally {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fs.unlinkSync(ownerFile);
+      fs.rmdirSync(lockDir);
+    }
+  }
+
+  private reclaimPublicationLock(lockDir: string): boolean {
+    try {
+      const owners = fs.readdirSync(lockDir);
+      if (owners.length !== 1) return false;
+      const owner = owners[0];
+      if (!owner || !/^owner-[1-9]\d*$/.test(owner)) return false;
+      const pid = Number(owner.slice(6));
+      if (!Number.isSafeInteger(pid)) return false;
+      try {
+        process.kill(pid, 0);
+        return false;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return false;
+      }
+      fs.unlinkSync(path.join(lockDir, owner));
+      fs.rmdirSync(lockDir);
+      return true;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return true;
+      if (code === 'ENOTEMPTY' || code === 'EEXIST') return false;
+      throw error;
     }
   }
 

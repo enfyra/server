@@ -12,6 +12,7 @@ export * from './graphql.types';
 export * from './cache.types';
 export * from './column-type.types';
 export * from './runtime-metrics.types';
+export * from './route-match.types';
 export * from './package-runtime.types';
 export * from './system-tables.types';
 export * from './shared-helper.types';

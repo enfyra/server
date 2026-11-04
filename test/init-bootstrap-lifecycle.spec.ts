@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { init, initBootstrap } from '../src/init';
+import { EventEmitter2 } from 'eventemitter2';
+import { PackageRuntimeService } from '../src/engines/cache/services/package-runtime.service';
 
 function bootstrapContainer(overrides: Record<string, unknown> = {}) {
   const calls: string[] = [];
@@ -178,47 +180,57 @@ describe('initBootstrap lifecycle', () => {
   });
 });
 
-it('does not publish readiness until installed package artifacts are prepared', async () => {
+it.each(['query', 'download', 'failure'])('publishes readiness independently of package %s', async (stage) => {
   const { container } = runtimeContainer();
+  const eventEmitter = new EventEmitter2();
   let release!: () => void;
-  const blocked = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  let entered = false;
-  container.cradle.packageRuntimeService.init.mockImplementation(async () => {
-    entered = true;
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  let available = false;
+  const row = { id: 1, name: 'background-fixture', version: '1.0.0', status: 'installed' };
+  const queryBuilderService = {
+    find: vi.fn(async () => {
+      if (stage === 'query') await blocked;
+      return { data: [row] };
+    }),
+    update: vi.fn(async (_table, _id, data) => { row.status = data.status; }),
+  };
+  const loadPackage = vi.fn(async () => {
+    if (stage === 'failure') throw new Error('fixture CDN unavailable');
     await blocked;
+    available = true;
   });
+  const runtime = new PackageRuntimeService({
+    eventEmitter,
+    queryBuilderService: queryBuilderService as any,
+    packageCdnLoaderService: { isLoaded: () => available, loadPackage } as any,
+    lazyRef: { dynamicWebSocketGateway: {} } as any,
+  });
+  container.cradle.eventEmitter = eventEmitter;
+  container.cradle.packageRuntimeService = runtime;
   let ready = false;
-  container.cradle.eventEmitter.emit.mockImplementation((event: string) => {
-    if (event === 'system:ready') ready = true;
-  });
-  const initialization = init(container);
+  eventEmitter.once('system:ready', () => { ready = true; });
+  let booted = false;
+  const initialization = init(container).then(() => { booted = true; });
   try {
-    await vi.waitFor(() => {
-      expect(entered).toBe(true);
-    });
-    expect(container.cradle.packageCacheService.reload).not.toHaveBeenCalled();
-    expect(ready).toBe(false);
+    await vi.waitFor(() => expect(booted).toBe(true));
+    expect(ready).toBe(true);
+    expect(container.cradle.packageCacheService.reload).toHaveBeenCalledTimes(1);
+    expect(container.cradle.runtimeRegistryService.publishFromCache).toHaveBeenCalledTimes(16);
+    await vi.waitFor(() => expect(queryBuilderService.find).toHaveBeenCalled());
+    if (stage === 'download') {
+      await vi.waitFor(() => expect(loadPackage).toHaveBeenCalled());
+      expect(available).toBe(false);
+    }
   } finally {
     release();
     await initialization;
+    await vi.waitFor(() => {
+      expect(runtime.getStatus().preloadRunning).toBe(false);
+      expect(runtime.getStatus().preloadRequested).toBe(false);
+      expect(runtime.getStatus().lastPreload?.completedAt).toBeDefined();
+    });
   }
-  expect(ready).toBe(true);
-});
-
-it('rejects boot before cache publication when package preparation fails', async () => {
-  const { container } = runtimeContainer();
-  const failure = new Error('installed package unavailable');
-  container.cradle.packageRuntimeService.init.mockRejectedValue(failure);
-  await expect(init(container)).rejects.toBe(failure);
-  expect(container.cradle.packageCacheService.reload).not.toHaveBeenCalled();
-  expect(
-    container.cradle.runtimeRegistryService.publishFromCache,
-  ).toHaveBeenCalledTimes(1);
-  expect(
-    container.cradle.runtimeNamespaceLifecycleService.renewCurrentNamespaceKeys,
-  ).not.toHaveBeenCalled();
+  expect(runtime.getStatus().lastPreload?.status).toBe(stage === 'failure' ? 'degraded' : 'ok');
 });
 
 it('activates flows only after runtime snapshots and SQL functions are ready', async () => {

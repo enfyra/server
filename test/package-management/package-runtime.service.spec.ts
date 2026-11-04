@@ -120,7 +120,8 @@ describe('PackageRuntimeService', () => {
 
     await service.init();
     await vi.waitFor(() => {
-      expect(service.getStatus().lastPreload).toBeDefined();
+      expect(service.getStatus().preloadRunning).toBe(false);
+      expect(service.getStatus().lastPreload?.completedAt).toBeDefined();
     });
     expect(invalidations).toEqual([]);
 
@@ -152,6 +153,10 @@ describe('PackageRuntimeService', () => {
     });
 
     await service.init();
+    await vi.waitFor(() => {
+      expect(service.getStatus().preloadRunning).toBe(false);
+      expect(service.getStatus().lastPreload?.completedAt).toBeDefined();
+    });
     packageCdnLoaderService.loadPackage.mockRejectedValue(
       new Error('cdn missing'),
     );

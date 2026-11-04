@@ -1,6 +1,7 @@
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFileSync } from 'node:child_process';
 
 const tempRoot = vi.hoisted(() => {
   const fs = require('fs');
@@ -9,6 +10,11 @@ const tempRoot = vi.hoisted(() => {
   return fs.mkdtempSync(
     path.join(os.tmpdir(), 'enfyra-cdn-publication-test-'),
   ) as string;
+});
+
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return { ...actual, renameSync: vi.fn(actual.renameSync) };
 });
 
 vi.mock('os', async (importOriginal) => ({
@@ -51,7 +57,7 @@ afterAll(() => {
 });
 
 describe('package artifact publication', () => {
-  it('executes the first package call after cold preparation with the installed kernel', async () => {
+  it('executes a package call after background preparation completes with the installed kernel', async () => {
     const loader = new PackageCdnLoaderService();
     const eventEmitter = new EventEmitter2();
     const registry = new RuntimeRegistryService({ eventEmitter });
@@ -77,7 +83,11 @@ describe('package artifact publication', () => {
       row.name,
       async () => 'export default { value: () => 42 };',
     );
-    await runtime.init();
+    runtime.init();
+    await vi.waitFor(() => {
+      expect(runtime.getStatus().preloadRunning).toBe(false);
+      expect(runtime.getStatus().lastPreload?.status).toBe('ok');
+    });
     await cache.reload(false);
     await registry.publishFromCache(CACHE_IDENTIFIERS.PACKAGE, cache);
     const executor = new IsolatedExecutorService({
@@ -170,6 +180,102 @@ describe('package artifact publication', () => {
       release();
       await settled;
     }
+  });
+
+  it('recovers a nonempty artifact directory with no published entrypoint', async () => {
+    const loader = new PackageCdnLoaderService();
+    const directory = path.join(cacheDir, 'incomplete_fixture@1.0.0');
+    fs.mkdirSync(path.join(directory, 'deps'), { recursive: true });
+    fs.writeFileSync(path.join(directory, 'deps', 'partial.mjs'), 'incomplete');
+    mockBundleFetch('incomplete-fixture', async () => 'export default 42;');
+
+    const descriptor = await loader.loadPackage('incomplete-fixture', '1.0.0');
+
+    expect(fs.readFileSync(descriptor.filePath, 'utf-8')).toContain('export default 42;');
+    expect(fs.existsSync(path.join(directory, 'deps', 'partial.mjs'))).toBe(false);
+    expect(fs.readdirSync(path.join(cacheDir, '.staging'))).toEqual([]);
+  });
+
+  it('preserves the first complete publication while concurrent loaders recover an incomplete directory', async () => {
+    const first = new PackageCdnLoaderService();
+    const second = new PackageCdnLoaderService();
+    const directory = path.join(cacheDir, 'incomplete_race_fixture@1.0.0');
+    fs.mkdirSync(path.join(directory, 'deps'), { recursive: true });
+    fs.writeFileSync(path.join(directory, 'deps', 'partial.mjs'), 'incomplete');
+    let calls = 0;
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    mockBundleFetch('incomplete-race-fixture', async () => {
+      const value = ++calls;
+      if (value === 2) await blocked;
+      return `export default ${value};`;
+    });
+    const firstLoad = first.loadPackage('incomplete-race-fixture', '1.0.0');
+    const secondLoad = second.loadPackage('incomplete-race-fixture', '1.0.0');
+    const settled = Promise.allSettled([firstLoad, secondLoad]);
+    try {
+      const descriptor = await firstLoad;
+      const original = fs.readFileSync(descriptor.filePath, 'utf-8');
+      release();
+      expect((await settled).every((outcome) => outcome.status === 'fulfilled')).toBe(true);
+      expect(fs.readFileSync(descriptor.filePath, 'utf-8')).toBe(original);
+      expect(fs.readdirSync(path.join(cacheDir, '.staging'))).toEqual([]);
+    } finally {
+      release();
+      await settled;
+    }
+  });
+
+  it('does not treat a non-collision publication error as a competing publisher', async () => {
+    const loader = new PackageCdnLoaderService();
+    const directory = path.join(cacheDir, 'permission_fixture@1.0.0');
+    mockBundleFetch('permission-fixture', async () => {
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(path.join(directory, 'main.mjs'), 'export default 7;');
+      return 'export default 42;';
+    });
+    const rename = (await vi.importActual<typeof import('fs')>('fs')).renameSync;
+    vi.mocked(fs.renameSync).mockImplementationOnce((from, to) => {
+      if (to === directory) throw Object.assign(new Error('publication denied'), { code: 'EACCES' });
+      return rename(from, to);
+    });
+
+    await expect(loader.loadPackage('permission-fixture', '1.0.0')).rejects.toThrow('publication denied');
+    expect(fs.readFileSync(path.join(directory, 'main.mjs'), 'utf-8')).toBe('export default 7;');
+    expect(fs.readdirSync(path.join(cacheDir, '.staging'))).toEqual([]);
+  });
+
+  it('reclaims only a publication lock whose recorded owner has exited', async () => {
+    const deadPid = Number(execFileSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf-8', timeout: 5000 }));
+    const loader = new PackageCdnLoaderService();
+    const lock = path.join(cacheDir, '.staging', 'publish-dead_owner_fixture.lock');
+    fs.mkdirSync(lock, { recursive: true });
+    fs.writeFileSync(path.join(lock, `owner-${deadPid}`), '');
+    mockBundleFetch('dead-owner-fixture', async () => 'export default 42;');
+    await expect(loader.loadPackage('dead-owner-fixture', '1.0.0')).resolves.toMatchObject({ name: 'dead-owner-fixture' });
+    expect(fs.existsSync(lock)).toBe(false);
+    expect(fs.readdirSync(path.join(cacheDir, '.staging'))).toEqual([]);
+  });
+
+  it('waits for a live publication owner without deleting its lock', async () => {
+    const loader = new PackageCdnLoaderService();
+    const lock = path.join(cacheDir, '.staging', 'publish-live_owner_fixture.lock');
+    const owner = path.join(lock, `owner-${process.pid}`);
+    fs.mkdirSync(lock, { recursive: true });
+    fs.writeFileSync(owner, '');
+    mockBundleFetch('live-owner-fixture', async () => 'export default 42;');
+    let settled = false;
+    const loading = loader.loadPackage('live-owner-fixture', '1.0.0').finally(() => { settled = true; });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(settled).toBe(false);
+      expect(fs.existsSync(owner)).toBe(true);
+    } finally {
+      fs.unlinkSync(owner);
+      fs.rmdirSync(lock);
+      await loading;
+    }
+    expect(fs.readdirSync(path.join(cacheDir, '.staging'))).toEqual([]);
   });
 
   it('settles started dependency writes before discarding a failed candidate', async () => {
