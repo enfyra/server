@@ -115,7 +115,7 @@ async function makeIsolatedSqlDb(config: (typeof SQL_DBS)[number]) {
     const db = knex({
       client: config.client,
       connection: config.connection,
-      searchPath: [schema, 'public'],
+      searchPath: [schema],
     });
     return {
       db,

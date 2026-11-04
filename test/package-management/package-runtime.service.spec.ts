@@ -53,7 +53,7 @@ describe('PackageRuntimeService', () => {
       ],
     });
 
-    service.init();
+    await service.init();
 
     await vi.waitFor(() => {
       expect(packageCdnLoaderService.loadPackage).toHaveBeenCalledWith(
@@ -89,7 +89,7 @@ describe('PackageRuntimeService', () => {
       },
     });
 
-    service.init();
+    await service.init();
     eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
     eventEmitter.emit(CACHE_EVENTS.RUNTIME_CACHE_ACTIVATED, {
       identifier: CACHE_IDENTIFIERS.PACKAGE,
@@ -105,5 +105,91 @@ describe('PackageRuntimeService', () => {
       2,
       expect.objectContaining({ status: 'failed' }),
     );
+  });
+
+  it('invalidates the package cache when a recovered package rejoins the installed set', async () => {
+    const invalidations: any[] = [];
+    const { eventEmitter, service } = createRuntime({
+      packages: [
+        { id: 1, name: 'undici', version: '8.10.0', status: 'failed' },
+      ],
+    });
+    eventEmitter.on(CACHE_EVENTS.INVALIDATE, (payload: any) => {
+      invalidations.push(payload);
+    });
+
+    await service.init();
+    await vi.waitFor(() => {
+      expect(service.getStatus().preloadRunning).toBe(false);
+      expect(service.getStatus().lastPreload?.completedAt).toBeDefined();
+    });
+    expect(invalidations).toEqual([]);
+
+    eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
+
+    await vi.waitFor(() => {
+      expect(service.getStatus().lastPreload).toEqual(
+        expect.objectContaining({ status: 'ok', loaded: 1 }),
+      );
+    });
+    expect(invalidations).toEqual([
+      expect.objectContaining({
+        table: 'enfyra_package',
+        action: 'reload',
+        scope: 'full',
+      }),
+    ]);
+  });
+
+  it('invalidates the package cache when an installed package drops out', async () => {
+    const invalidations: any[] = [];
+    const { eventEmitter, packageCdnLoaderService, service } = createRuntime({
+      packages: [
+        { id: 1, name: 'lodash', version: '4.17.21', status: 'installed' },
+      ],
+    });
+    eventEmitter.on(CACHE_EVENTS.INVALIDATE, (payload: any) => {
+      invalidations.push(payload);
+    });
+
+    await service.init();
+    await vi.waitFor(() => {
+      expect(service.getStatus().preloadRunning).toBe(false);
+      expect(service.getStatus().lastPreload?.completedAt).toBeDefined();
+    });
+    packageCdnLoaderService.loadPackage.mockRejectedValue(
+      new Error('cdn missing'),
+    );
+    eventEmitter.emit(CACHE_EVENTS.RUNTIME_CACHE_ACTIVATED, {
+      identifier: CACHE_IDENTIFIERS.PACKAGE,
+    });
+
+    await vi.waitFor(() => {
+      expect(invalidations.length).toBeGreaterThan(0);
+    });
+    expect(invalidations[0]).toEqual(
+      expect.objectContaining({ table: 'enfyra_package', scope: 'full' }),
+    );
+  });
+
+  it('does not invalidate the package cache when the installed set is unchanged', async () => {
+    const invalidations: any[] = [];
+    const { eventEmitter, service } = createRuntime({
+      packages: [
+        { id: 1, name: 'lodash', version: '4.17.21', status: 'installed' },
+      ],
+    });
+    eventEmitter.on(CACHE_EVENTS.INVALIDATE, (payload: any) => {
+      invalidations.push(payload);
+    });
+
+    await service.init();
+    await vi.waitFor(() => {
+      expect(service.getStatus().lastPreload).toEqual(
+        expect.objectContaining({ status: 'ok', loaded: 1 }),
+      );
+    });
+
+    expect(invalidations).toEqual([]);
   });
 });

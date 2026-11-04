@@ -287,7 +287,7 @@ describe('Mongo aggregation builder contracts', () => {
     const aggregate = vi.fn(() => ({ toArray: async () => [] }));
     await expect(executeAggregationPipeline({ aggregate } as any, {
       table: 'posts',
-      deep: { comments: { limit: -1 } },
+      deep: { comments: { limit: -2 } },
       mongoFieldsExpanded: { scalarFields: ['_id'], relations: [{
         propertyName: 'comments', targetTable: 'comments', localField: '_id', foreignField: 'postId', type: 'many', nestedFields: ['name'],
       }] },

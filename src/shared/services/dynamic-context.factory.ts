@@ -247,9 +247,9 @@ export class DynamicContextFactory {
 
   private createEnvSnapshot(): NonNullable<TDynamicContext['$env']> {
     const out: NonNullable<TDynamicContext['$env']> = {};
-    for (const [key, value] of Object.entries(process.env)) {
+    for (const key of Object.keys(process.env)) {
       if (ENV_EXPOSE_DENY_KEYS.has(key)) continue;
-      out[key] = value;
+      out[key] = process.env[key];
     }
     return out;
   }

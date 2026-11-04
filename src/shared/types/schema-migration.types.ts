@@ -120,6 +120,7 @@ export interface SchemaMigrationDef {
    * Mongo-only metadata type migrations applied to every persisted column.
    */
   mongoColumnTypesToModify?: MongoColumnTypeMigration[];
+  sqlColumnTypesToModify?: MongoColumnTypeMigration[];
 
   /**
    * Core metadata tables must be renamed before any normal metadata query.

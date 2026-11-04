@@ -236,7 +236,15 @@ describe('SQL field expansion contracts', () => {
     ]);
   });
 
-  it.each([null, false, '', ' '])(
+  it('treats a null low-level relation limit as omitted', async () => {
+    const result = await expandFieldsToJoinsAndSelect(
+      'users', ['team.id'], metadataGetter, 'postgres', undefined,
+      { team: { limit: null } },
+    );
+    expect(result.batchFetchDescriptors[0]?.limit).toBeUndefined();
+  });
+
+  it.each([false, '', ' '])(
     'rejects coercible invalid relation limits %#',
     async (limit) => {
       await expect(

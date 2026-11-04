@@ -65,8 +65,8 @@ it('allows a method-budgeted pre-hook beyond the default task tolerance', async 
   const next = vi.fn();
   try {
     await dynamicInterceptorBegin(executor as any)(req, res as any, next);
-    expect(json).toHaveBeenCalledWith({ ready: true });
-    expect(next).not.toHaveBeenCalled();
+    expect(json).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledOnce();
   } finally {
     res.writableEnded = true;
     res.writableFinished = true;

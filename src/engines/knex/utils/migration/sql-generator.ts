@@ -86,19 +86,12 @@ export function generateColumnDefinition(
         definition = 'BOOLEAN';
       }
       break;
+    case 'date':
+      definition = 'DATE';
+      break;
     case 'datetime':
     case 'timestamp':
-    case 'date':
-      // Every logical temporal type is an instant, including the historical `date`
-      // name whose columns are expiry and lifecycle stamps. Postgres keeps the zone
-      // with `TIMESTAMPTZ`; MySQL has no zone-bearing column type, so it stores the
-      // same instant as a UTC wall clock in `DATETIME` (the connection pins the
-      // session to UTC), which also avoids the `TIMESTAMP` 2038 ceiling.
-      if (dbType === 'postgres') {
-        definition = 'TIMESTAMPTZ';
-      } else {
-        definition = 'DATETIME';
-      }
+      definition = dbType === 'postgres' ? 'TIMESTAMPTZ' : 'DATETIME(3)';
       break;
     case 'decimal':
       definition = `DECIMAL(${col.options?.precision || 10}, ${col.options?.scale || 2})`;

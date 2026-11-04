@@ -37,7 +37,7 @@ function makeKnex(methodRows: any[] = []) {
         }),
         first: jest.fn(() =>
           Promise.resolve({
-            junctionTableName: `j_${propertyName}`,
+            junctionTableName: routeMethodJunction(propertyName),
             junctionSourceColumn: 'sourceId',
             junctionTargetColumn: 'targetId',
           }),

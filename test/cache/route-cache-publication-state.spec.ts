@@ -101,7 +101,7 @@ describe('route candidate build inputs', () => {
   ])(
     'removes deleted global $field from method arrays (shared=$shared)',
     async ({ shared, table, field, id }) => {
-      const { build, setHooks } = fixture(shared);
+      const { build, setHooks, find } = fixture(shared);
       const cache = build();
       await cache.reload(false);
       const initial = await cache.getCacheAsync();
@@ -110,6 +110,7 @@ describe('route candidate build inputs', () => {
         table === 'enfyra_pre_hook' ? [] : initial.globalPreHooks,
         table === 'enfyra_post_hook' ? [] : initial.globalPostHooks,
       );
+      find.mockClear();
       await cache.partialReload(
         {
           table,
@@ -121,6 +122,9 @@ describe('route candidate build inputs', () => {
         false,
       );
       const data = await cache.getCacheAsync();
+      expect(
+        find.mock.calls.filter(([query]) => query.table === 'enfyra_route'),
+      ).toHaveLength(0);
       expect(data.routes[0][field]).toEqual([]);
       expect(data.routes[0].methodConfigs[0][field]).toEqual([]);
       const untouched = field === 'preHooks' ? 'postHooks' : 'preHooks';

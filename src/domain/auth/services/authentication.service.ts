@@ -7,43 +7,32 @@ import {
 } from '../../../shared/utils/load-user-with-role.util';
 import type { PatVerifierService } from './pat-verifier.service';
 import type { JwtVerifierService } from './jwt-verifier.service';
-import type { RuntimeRegistryService } from '../../../engines/cache/services/runtime-registry.service';
-import type {
-  AuthenticatedRequest,
-  AuthenticationInput,
-  AuthTokenPayload,
-  AuthHeaderConfig,
-  AuthHeaderCredentialType,
+import {
+  ENFYRA_PAT_HEADER,
+  type AuthenticatedRequest,
+  type AuthenticationInput,
+  type AuthTokenPayload,
 } from '../types/auth.types';
-import { SYSTEM_AUTH_HEADER_CONFIGS as DEFAULT_AUTH_HEADER_CONFIGS } from '../types/auth.types';
 
 export class AuthenticationService {
   private readonly queryBuilder: IQueryBuilder;
   private readonly patVerifierService: PatVerifierService;
   private readonly jwtVerifierService: JwtVerifierService;
-  private readonly runtimeRegistryService: RuntimeRegistryService | undefined;
   private readonly cacheService: ICache | undefined;
-  private authHeaderConfigSource: readonly AuthHeaderConfig[] | null = null;
-  private authHeaderConfigs: readonly AuthHeaderConfig[] = [];
-  private configuredHeaderKeys = new Set<string>();
 
   constructor(deps: {
     queryBuilderService: IQueryBuilder;
     patVerifierService: PatVerifierService;
     jwtVerifierService: JwtVerifierService;
-    runtimeRegistryService?: RuntimeRegistryService;
     cacheService?: ICache;
   }) {
     this.queryBuilder = deps.queryBuilderService;
     this.patVerifierService = deps.patVerifierService;
     this.jwtVerifierService = deps.jwtVerifierService;
-    this.runtimeRegistryService = deps.runtimeRegistryService;
     this.cacheService = deps.cacheService;
   }
 
-  hasCredentials(
-    headers: AuthenticationInput['headers'],
-  ): boolean {
+  hasCredentials(headers: AuthenticationInput['headers']): boolean {
     return this.resolveHeaderCredentials(headers).hasCredential;
   }
 
@@ -78,6 +67,10 @@ export class AuthenticationService {
 
     const accessToken = readBearerToken(input.authorization);
     if (!accessToken) return null;
+    if (!isCompactJwt(accessToken)) {
+      if (input.allowAnonymous) return null;
+      throw new InvalidTokenException();
+    }
 
     let payload: AuthTokenPayload | null;
     try {
@@ -109,82 +102,21 @@ export class AuthenticationService {
       return { hasCredential: false, patToken: null, authorization: null };
     }
 
-    const configs = this.getAuthHeaderConfigs();
-    if (configs.length === 0) {
-      return { hasCredential: false, patToken: null, authorization: null };
+    const rawPat = readHeaderValue(headers, ENFYRA_PAT_HEADER);
+    const authorization = readHeaderValue(headers, 'authorization');
+    if (rawPat === '' || authorization === '') {
+      return { hasCredential: true, patToken: null, authorization: null };
+    }
+    if (rawPat?.startsWith('efy_pat_')) {
+      return { hasCredential: true, patToken: rawPat, authorization: null };
     }
 
-    if (isHeadersObject(headers)) {
-      const values = collectConfiguredHeaderValues(
-        headers,
-        this.configuredHeaderKeys,
-      );
-      if (values.size === 0) {
-        return { hasCredential: false, patToken: null, authorization: null };
-      }
-
-      let hasConfiguredCredential = false;
-      for (const config of configs) {
-        const rawValue = normalizeHeaderValue(values.get(config.headerKey));
-        if (!rawValue) continue;
-
-        const token = extractHeaderToken(rawValue, config);
-        if (!token) continue;
-        hasConfiguredCredential = true;
-        const detectedCredentialType = detectCredentialType(token);
-        if (detectedCredentialType !== config.credentialType) continue;
-
-        if (config.credentialType === 'pat') {
-          return { hasCredential: true, patToken: token, authorization: null };
-        }
-
-        return {
-          hasCredential: true,
-          patToken: null,
-          authorization: `Bearer ${token}`,
-        };
-      }
-
-      return { hasCredential: hasConfiguredCredential, patToken: null, authorization: null };
-    }
-
-    let hasConfiguredCredential = false;
-    for (const config of configs) {
-      const rawValue = readHeaderValue(headers, config.headerKey);
-      if (!rawValue) continue;
-
-      const token = extractHeaderToken(rawValue, config);
-      if (!token) continue;
-      hasConfiguredCredential = true;
-      const detectedCredentialType = detectCredentialType(token);
-      if (detectedCredentialType !== config.credentialType) continue;
-
-      if (config.credentialType === 'pat') {
-        return { hasCredential: true, patToken: token, authorization: null };
-      }
-
-      return {
-        hasCredential: true,
-        patToken: null,
-        authorization: `Bearer ${token}`,
-      };
-    }
-
-    return { hasCredential: hasConfiguredCredential, patToken: null, authorization: null };
-  }
-
-  private getAuthHeaderConfigs(): readonly AuthHeaderConfig[] {
-    const configs =
-      this.runtimeRegistryService?.getAuthHeaderConfigs() ??
-      DEFAULT_AUTH_HEADER_CONFIGS;
-    if (configs === this.authHeaderConfigSource) return this.authHeaderConfigs;
-
-    this.authHeaderConfigSource = configs;
-    this.authHeaderConfigs = configs;
-    this.configuredHeaderKeys = new Set(
-      configs.map((config) => config.headerKey.toLowerCase()),
-    );
-    return this.authHeaderConfigs;
+    const token = readBearerToken(authorization);
+    return {
+      hasCredential: rawPat !== null || authorization !== null,
+      patToken: null,
+      authorization: token && isCompactJwt(token) ? `Bearer ${token}` : null,
+    };
   }
 
   private async hydrate(
@@ -215,58 +147,15 @@ function readHeaderValue(
   name: string,
 ): string | null {
   if ('get' in headers && typeof headers.get === 'function') {
-    const value = headers.get(name);
-    return typeof value === 'string' && value.trim() ? value.trim() : null;
+    return normalizeToken(headers.get(name));
   }
 
-  const entries = headers as Record<string, unknown>;
-  const matchedKey = Object.keys(entries).find(
-    (key) => key.toLowerCase() === name.toLowerCase(),
+  const entries = Object.entries(headers).filter(
+    ([key]) => key.toLowerCase() === name,
   );
-  if (!matchedKey) return null;
-
-  const rawValue = entries[matchedKey];
-  const value = Array.isArray(rawValue) ? rawValue[0] : rawValue;
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
-function isHeadersObject(
-  headers: NonNullable<AuthenticationInput['headers']>,
-): headers is Record<string, unknown> {
-  return !('get' in headers && typeof headers.get === 'function');
-}
-
-function collectConfiguredHeaderValues(
-  headers: Record<string, unknown>,
-  configuredHeaderKeys: ReadonlySet<string>,
-): Map<string, unknown> {
-  if (configuredHeaderKeys.size === 0) return new Map();
-
-  const values = new Map<string, unknown>();
-  for (const [key, value] of Object.entries(headers)) {
-    const normalizedKey = key.toLowerCase();
-    if (!configuredHeaderKeys.has(normalizedKey) || values.has(normalizedKey)) {
-      continue;
-    }
-    values.set(normalizedKey, value);
-  }
-  return values;
-}
-
-function normalizeHeaderValue(rawValue: unknown): string | null {
-  const value = Array.isArray(rawValue) ? rawValue[0] : rawValue;
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
-function extractHeaderToken(value: string, config: AuthHeaderConfig): string | null {
-  if (config.scheme === 'raw') return value.trim() || null;
-  const match = value.match(/^Bearer\s+(.+)$/i);
-  return match?.[1]?.trim() || null;
-}
-
-function detectCredentialType(token: string): AuthHeaderCredentialType | null {
-  if (token.startsWith('efy_pat_')) return 'pat';
-  return isCompactJwt(token) ? 'jwt' : null;
+  if (entries.length !== 1) return entries.length > 1 ? '' : null;
+  const value = entries[0]?.[1];
+  return Array.isArray(value) ? '' : normalizeToken(value);
 }
 
 function isCompactJwt(token: string): boolean {

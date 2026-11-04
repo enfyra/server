@@ -40,9 +40,10 @@ describe('decideCorsOrigin', () => {
     ).toEqual({ allowed: false });
   });
 
-  it('allows an unconfigured allow-list without granting CORS', () => {
+  it('grants public CORS when the allow-list is empty', () => {
     expect(decideCorsOrigin('https://a.test', EMPTY_LIST)).toEqual({
       allowed: true,
+      corsOrigin: '*',
     });
   });
 
@@ -148,18 +149,24 @@ describe('corsOriginMiddleware', () => {
     expect(res.headers.has('Access-Control-Allow-Origin')).toBe(false);
   });
 
-  it('allows an unconfigured allow-list without granting CORS', async () => {
+  it.each(['GET', 'OPTIONS'])('grants wildcard without credentials for %s', async (method) => {
     const middleware = corsOriginMiddleware(makeRegistry(EMPTY_LIST));
     const res = createRes();
     const next = vi.fn();
 
     await middleware(
-      { method: 'GET', headers: { origin: 'https://a.test' } } as any,
+      { method, headers: { origin: 'https://a.test', ...(method === 'OPTIONS' ? { 'access-control-request-method': 'POST', 'access-control-request-headers': 'authorization, x-enfyra-pat' } : {}) } } as any,
       res as any,
       next,
     );
 
-    expect(next).toHaveBeenCalledWith();
-    expect(res.headers.has('Access-Control-Allow-Origin')).toBe(false);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(res.headers.has('Access-Control-Allow-Credentials')).toBe(false);
+    if (method === 'OPTIONS') {
+      expect(res.statusCode).toBe(204);
+      expect(res.headers.get('Access-Control-Allow-Headers')).toBe('authorization, x-enfyra-pat');
+    } else {
+      expect(next).toHaveBeenCalledWith();
+    }
   });
 });

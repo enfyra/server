@@ -67,22 +67,31 @@ export class MongoSchemaDiffService {
       update: [] as { oldColumn: any; newColumn: any }[],
     };
 
+    const getColId = (c: any): string | null => {
+      const raw = c?.id ?? c?._id;
+      return raw != null ? String(raw) : null;
+    };
     const oldColMap = new Map(
-      oldColumns.filter((c) => c.id != null).map((c) => [c.id, c]),
+      oldColumns
+        .map((c) => [getColId(c), c] as const)
+        .filter((entry): entry is [string, any] => entry[0] !== null),
     );
     const newColMap = new Map(
-      newColumns.filter((c) => c.id != null).map((c) => [c.id, c]),
+      newColumns
+        .map((c) => [getColId(c), c] as const)
+        .filter((entry): entry is [string, any] => entry[0] !== null),
     );
     const oldColNameMap = new Map(oldColumns.map((c) => [c.name, c]));
 
     for (const newCol of newColumns) {
-      if (newCol.id == null) {
+      const newColId = getColId(newCol);
+      if (newColId === null) {
         if (!oldColNameMap.has(newCol.name)) {
           result.create.push(newCol);
         }
         continue;
       }
-      const oldCol = oldColMap.get(newCol.id);
+      const oldCol = oldColMap.get(newColId);
       if (!oldCol) {
         if (oldColNameMap.has(newCol.name)) continue;
         result.create.push(newCol);
@@ -90,8 +99,9 @@ export class MongoSchemaDiffService {
     }
 
     for (const oldCol of oldColumns) {
-      if (oldCol.id == null) continue;
-      const newCol = newColMap.get(oldCol.id);
+      const oldColId = getColId(oldCol);
+      if (oldColId === null) continue;
+      const newCol = newColMap.get(oldColId);
       if (!newCol) {
         if (['id', 'createdAt', 'updatedAt', '_id'].includes(oldCol.name)) {
         } else {
@@ -104,7 +114,8 @@ export class MongoSchemaDiffService {
             newName: newCol.name,
             column: newCol,
           });
-        } else if (this.hasMongoColumnChanged(oldCol, newCol)) {
+        }
+        if (this.hasMongoColumnChanged(oldCol, newCol)) {
           result.update.push({ oldColumn: oldCol, newColumn: newCol });
         }
       }
@@ -119,7 +130,8 @@ export class MongoSchemaDiffService {
       oldCol.isNullable !== newCol.isNullable ||
       oldCol.isGenerated !== newCol.isGenerated ||
       JSON.stringify(oldCol.defaultValue) !==
-        JSON.stringify(newCol.defaultValue)
+        JSON.stringify(newCol.defaultValue) ||
+      JSON.stringify(oldCol.options) !== JSON.stringify(newCol.options)
     );
   }
 
@@ -335,6 +347,101 @@ export class MongoSchemaDiffService {
           } else {
             throw new Error(`Failed to drop index ${indexName}: ${error.message}`);
           }
+        }
+      }
+    }
+
+    for (const { oldColumn, newColumn } of diff.columns.update) {
+      const checkFieldName =
+        oldColumn?.name &&
+        newColumn?.name &&
+        oldColumn.name !== newColumn.name
+          ? oldColumn.name
+          : newColumn?.name;
+      const isEnumExpansion =
+        oldColumn?.type === 'enum' &&
+        Array.isArray(oldColumn.options) &&
+        oldColumn.options.length > 0 &&
+        Array.isArray(newColumn?.options) &&
+        oldColumn.options.every((option: string) =>
+          newColumn.options.includes(option),
+        );
+      if (
+        newColumn?.type === 'enum' &&
+        !isEnumExpansion &&
+        checkFieldName &&
+        Array.isArray(newColumn.options)
+      ) {
+        const invalidDoc = await db.collection(activeCollectionName).findOne(
+          {
+            [checkFieldName]: {
+              $exists: true,
+              $nin: [...newColumn.options, null],
+            },
+          },
+          { projection: { _id: 1 } },
+        );
+        if (invalidDoc) {
+          throw new Error(
+            `Cannot update ${activeCollectionName}.${newColumn.name} enum: unsupported persisted values`,
+          );
+        }
+      }
+      if (
+        oldColumn?.isNullable !== false &&
+        newColumn?.isNullable === false &&
+        checkFieldName
+      ) {
+        const coll = db.collection(activeCollectionName);
+        if (typeof coll.findOne === 'function') {
+          const nullDoc = await coll.findOne(
+            {
+              $or: [
+                { [checkFieldName]: null },
+                { [checkFieldName]: { $exists: false } },
+              ],
+            },
+            { projection: { _id: 1 } },
+          );
+          if (nullDoc) {
+            throw new Error(
+              `Cannot update ${activeCollectionName}.${newColumn.name} to NOT NULL: column contains null values`,
+            );
+          }
+        }
+      }
+    }
+
+    const rawDb =
+      typeof (this.mongoService as any).getRawDb === 'function'
+        ? this.mongoService.getRawDb()
+        : db;
+    for (const newColumn of diff.columns.create) {
+      if (!newColumn?.name || newColumn.isPrimary || newColumn.isGenerated) {
+        continue;
+      }
+      const coll = rawDb.collection(activeCollectionName);
+      const hasDefaultValue =
+        newColumn.defaultValue !== null &&
+        newColumn.defaultValue !== undefined;
+      if (
+        !hasDefaultValue &&
+        newColumn.isNullable === false &&
+        typeof coll.findOne === 'function'
+      ) {
+        const missingDoc = await coll.findOne(
+          {
+            $or: [
+              { [newColumn.name]: null },
+              { [newColumn.name]: { $exists: false } },
+            ],
+          },
+          { projection: { _id: 1 } },
+        );
+        if (missingDoc) {
+          throw new Error(
+            `Cannot add NOT NULL column ${activeCollectionName}.${newColumn.name} without default value to non-empty collection`,
+          );
         }
       }
     }

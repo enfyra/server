@@ -2,6 +2,7 @@ import { QueryBuilderService } from '@enfyra/kernel';
 import type { Knex } from 'knex';
 import { normalizeMongoPrimaryKeyColumn } from '../../../../modules/table-management/utils/mongo-primary-key.util';
 import { addColumnToTable } from '../../../knex/utils/migration/column-operations';
+import { ensureSqlEnumTypes } from '../../../knex/utils/sql-enum.util';
 import type { SchemaHealingSnapshot } from '../../types/schema-healing.types';
 import {
   buildExpectedRelations,
@@ -43,6 +44,12 @@ export class SystemMetadataHealingService {
       for (const column of columns) {
         if (!column?.name || column.isPrimary) continue;
         if (await knex.schema.hasColumn(tableDef.name, column.name)) continue;
+        await ensureSqlEnumTypes(
+          knex,
+          tableDef.name,
+          [column],
+          this.queryBuilderService.getDatabaseType(),
+        );
         await knex.schema.alterTable(
           tableDef.name,
           (table: Knex.TableBuilder) => {
@@ -79,6 +86,12 @@ export class SystemMetadataHealingService {
       for (const column of tableDef.columns) {
         if (!column?.name || column.isPrimary) continue;
         if (await knex.schema.hasColumn(tableName, column.name)) continue;
+        await ensureSqlEnumTypes(
+          knex,
+          tableName,
+          [column],
+          this.queryBuilderService.getDatabaseType(),
+        );
         await knex.schema.alterTable(tableName, (table: Knex.TableBuilder) => {
           addColumnToTable(
             table as any,

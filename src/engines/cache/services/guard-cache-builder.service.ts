@@ -1,3 +1,4 @@
+import type { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
@@ -55,6 +56,67 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
     };
   }
 
+  override supportsPartialReload(): boolean {
+    return true;
+  }
+
+  protected override async applyPartialUpdate(
+    payload: TCacheInvalidationPayload,
+  ): Promise<void> {
+    if (payload.table !== 'enfyra_guard_rule') {
+      await this.reloadFromPartial();
+      return;
+    }
+    const ids = payload.ids ?? [];
+    if (!ids.length) return;
+    const result = await this.queryBuilderService.find({
+      table: 'enfyra_guard_rule',
+      fields: ['*', 'guard', 'users.id', 'users._id'],
+      filter: { id: { _in: ids } },
+      deep: { users: { limit: -1 } },
+      limit: -1,
+    });
+    const candidate = structuredClone(this.cache);
+    const nodes = new Map<string, GuardNode>();
+    const visit = (node: GuardNode) => {
+      nodes.set(String(node.id), node);
+      node.children.forEach(visit);
+    };
+    for (const value of Object.values(candidate)) {
+      for (const node of value instanceof Map
+        ? [...value.values()].flat()
+        : value)
+        visit(node);
+    }
+    const changed = new Set(ids.map(String));
+    for (const node of nodes.values())
+      node.rules = node.rules.filter((rule) => !changed.has(String(rule.id)));
+    for (const row of result.data) {
+      if (row.isEnabled === false || row.isEnabled === 0) continue;
+      const owner = row.guard?._id ?? row.guard?.id ?? row.guardId ?? row.guard;
+      const node = nodes.get(String(owner));
+      if (!node) {
+        await this.reloadFromPartial();
+        return;
+      }
+      const rule: GuardRuleNode = {
+        id: row._id ?? row.id,
+        type: row.type,
+        config:
+          typeof row.config === 'string' ? JSON.parse(row.config) : row.config,
+        priority: row.priority ?? 0,
+        isEnabled: true,
+        userIds: (row.users ?? []).map((user: any) =>
+          String(user._id ?? user.id ?? user),
+        ),
+      };
+      node.rules.push(rule);
+    }
+    for (const node of nodes.values())
+      node.rules.sort((a, b) => a.priority - b.priority);
+    this.cache = candidate;
+  }
+
   protected async loadFromDb(): Promise<any> {
     const [guardsResult, rulesResult] = await Promise.all([
       this.queryBuilderService.find({
@@ -73,13 +135,21 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
           'excludeRoutes.id',
           'excludeRoutes.path',
         ],
+        deep: {
+          methods: { limit: -1 },
+          routeMethodConfigs: { limit: -1 },
+          excludeRoutes: { limit: -1 },
+        },
         sort: ['priority'],
+        limit: -1,
       }),
       this.queryBuilderService.find({
         table: 'enfyra_guard_rule',
         filter: { isEnabled: { _eq: true } },
         fields: ['*', 'guard', 'users.id', 'users._id'],
+        deep: { users: { limit: -1 } },
         sort: ['priority'],
+        limit: -1,
       }),
     ]);
 
@@ -136,7 +206,9 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
             ? guard.routeMethodConfigs.map((config: any) => config?.method)
             : guard.methods;
       const methods = Array.isArray(configuredMethods)
-        ? configuredMethods.map((method: any) => method?.name ?? method).filter(Boolean)
+        ? configuredMethods
+            .map((method: any) => method?.name ?? method)
+            .filter(Boolean)
         : [];
       const methodIds = Array.isArray(configuredMethods)
         ? (configuredMethods
@@ -151,7 +223,9 @@ export class GuardCacheBuilder extends BaseCacheService<GuardCache> {
         .filter((id: number | null): id is number => id != null);
       const excludeRoutePaths = excludeRoutes
         .map((r: any) => r?.path)
-        .filter((path: any): path is string => typeof path === 'string' && !!path);
+        .filter(
+          (path: any): path is string => typeof path === 'string' && !!path,
+        );
 
       nodeMap.set(id, {
         id,

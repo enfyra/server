@@ -1,4 +1,23 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import * as fs from 'fs';
+
+const tempRoot = vi.hoisted(() => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  return fs.mkdtempSync(
+    path.join(os.tmpdir(), 'enfyra-package-fallback-test-'),
+  ) as string;
+});
+
+vi.mock('os', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('os')>()),
+  tmpdir: () => tempRoot,
+}));
+
+afterAll(() => {
+  fs.rmSync(tempRoot, { recursive: true, force: true });
+});
 import { PackageCdnLoaderService } from '../../src/engines/cache';
 
 function response(body: string, ok = true, status = 200) {
@@ -12,6 +31,7 @@ function response(body: string, ok = true, status = 200) {
 
 describe('PackageCdnLoaderService worker runtime fallback', () => {
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 

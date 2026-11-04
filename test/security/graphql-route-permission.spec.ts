@@ -59,6 +59,9 @@ function makeResolver(definition: any = baseDefinition) {
       })),
     },
     authenticationService,
+    mutationBodyValidationService: {
+      validate: vi.fn(async ({ body }) => ({ body })),
+    },
     guardCacheBuilder: {
       ensureGuardsLoaded: vi.fn().mockResolvedValue(undefined),
     },

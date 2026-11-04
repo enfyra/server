@@ -33,27 +33,23 @@ export class CorsOriginCacheBuilder extends BaseCacheService<CorsOriginPolicy> {
   }
 
   protected async loadFromDb(): Promise<any[]> {
-    try {
-      const result = await this.queryBuilderService.find({
-        table: SYSTEM_TABLES.corsOrigin,
-        fields: ['value', 'isEnabled'],
-        limit: -1,
-      });
-      return Array.isArray(result.data) ? result.data : [];
-    } catch (error) {
-      this.logger.warn(
-        `CORS origin table is unavailable; treating the allow-list as unset: ${String(error)}`,
-      );
-      return [];
-    }
+    const result = await this.queryBuilderService.find({
+      table: SYSTEM_TABLES.corsOrigin,
+      fields: ['value', 'isEnabled'],
+      limit: -1,
+    });
+    if (!Array.isArray(result.data)) throw new Error('Invalid CORS origin list');
+    return result.data;
   }
 
   protected transformData(rawData: any[]): CorsOriginPolicy {
-    const origins = rawData
-      .filter((record) => record?.isEnabled !== false)
-      .map((record) => normalizeAllowedOrigin(record?.value))
-      .filter((origin): origin is string => origin !== null);
-
+    const origins: string[] = [];
+    for (const record of rawData) {
+      if (record?.isEnabled === false) continue;
+      const origin = normalizeAllowedOrigin(record?.value);
+      if (!origin) throw new Error('Invalid enabled CORS origin');
+      origins.push(origin);
+    }
     return { loaded: true, origins: [...new Set(origins)] };
   }
 }

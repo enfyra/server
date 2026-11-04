@@ -7,7 +7,6 @@ export const SYSTEM_TABLES = {
   oauthConfig: 'enfyra_oauth_config',
   oauthAccount: 'enfyra_oauth_account',
   setting: 'enfyra_setting',
-  authHeader: 'enfyra_auth_header',
   corsOrigin: 'enfyra_cors_origin',
   route: 'enfyra_route',
   routeMethodConfig: 'enfyra_route_method_config',

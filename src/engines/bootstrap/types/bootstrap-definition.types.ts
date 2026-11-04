@@ -52,6 +52,10 @@ export type BootstrapSchemaOperation =
       mappings: Array<{ from: string; to: string }>;
     })
   | (BootstrapSchemaOperationBase & {
+      kind: 'modify-sql-column-types';
+      mappings: Array<{ from: string; to: string }>;
+    })
+  | (BootstrapSchemaOperationBase & {
       kind: 'rename-core-table';
       rename: TableRenameDef;
     })
@@ -98,6 +102,10 @@ export type BootstrapSchemaOperation =
     });
 
 interface BootstrapSchemaCommandOperations {
+  'modify-sql-column-types': Extract<
+    BootstrapSchemaOperation,
+    { kind: 'modify-sql-column-types' }
+  >;
   'modify-mongo-column-types': Extract<
     BootstrapSchemaOperation,
     { kind: 'modify-mongo-column-types' }

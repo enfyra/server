@@ -702,6 +702,8 @@ export class KnexService implements LifecycleAware {
   }
 
   private columnTypesLoading = new Map<string, Promise<void>>();
+  private relationTargetMap = new Map<string, string | null>();
+  private relationTargetLoading = new Map<string, Promise<string | null>>();
 
   private async loadColumnTypesForTable(tableName: string): Promise<void> {
     if (this.columnTypesMap.has(tableName)) {
@@ -711,8 +713,26 @@ export class KnexService implements LifecycleAware {
     const existing = this.columnTypesLoading.get(tableName);
     if (existing) return existing;
 
-    const promise = (async () => {
+    const promise = Promise.resolve().then(async () => {
       try {
+        const cachedMeta =
+          this.lazyRef.runtimeRegistryService?.getTableMetadata?.(tableName) ??
+          (await this.lazyRef.metadataCacheService?.getTableMetadata?.(
+            tableName,
+          ));
+        if (cachedMeta?.columns && Array.isArray(cachedMeta.columns)) {
+          const columnTypes = new Map<string, string>();
+          for (const col of cachedMeta.columns) {
+            if (col?.name && col?.type) {
+              columnTypes.set(col.name, col.type);
+            }
+          }
+          if (columnTypes.size > 0) {
+            this.columnTypesMap.set(tableName, columnTypes);
+            return;
+          }
+        }
+
         const connection = this.getActiveKnex();
         const tableDef = await connection('enfyra_table')
           .where('name', tableName)
@@ -741,7 +761,7 @@ export class KnexService implements LifecycleAware {
       } finally {
         this.columnTypesLoading.delete(tableName);
       }
-    })();
+    });
 
     this.columnTypesLoading.set(tableName, promise);
     return promise;
@@ -850,54 +870,83 @@ export class KnexService implements LifecycleAware {
       }
     }
 
-    try {
-      const tableMetadata =
-        this.lazyRef.runtimeRegistryService.getTableMetadata(parentTableName);
-      if (tableMetadata && tableMetadata.relations) {
-        const relation = tableMetadata.relations.find(
-          (r: any) => r.propertyName === relationName,
-        );
-        const targetTableName =
-          relation?.targetTableName || relation?.targetTable;
-        if (targetTableName) {
-          return targetTableName;
-        }
-      }
-
-      const connection = this.getActiveKnex();
-      const tableDef = await connection('enfyra_table')
-        .where('name', parentTableName)
-        .first();
-
-      if (!tableDef) {
-        return null;
-      }
-
-      const relationDef = await connection('enfyra_relation')
-        .where('sourceTableId', tableDef.id)
-        .where('propertyName', relationName)
-        .first();
-
-      if (!relationDef) {
-        return null;
-      }
-
-      const targetTableDef = await connection('enfyra_table')
-        .where('id', relationDef.targetTableId)
-        .first();
-
-      if (!targetTableDef) {
-        return null;
-      }
-
-      return targetTableDef.name;
-    } catch (error) {
-      if (this.knexContext.getStore()) throw error;
-      this.logger.warn(
-        `[getTargetTableNameFromRelation] Failed to resolve relation '${relationName}' from '${parentTableName}'`,
-      );
-      return null;
+    const cacheKey = `${parentTableName}.${relationName}`;
+    const inflight = this.relationTargetLoading.get(cacheKey);
+    if (inflight) {
+      return inflight;
     }
+
+    const lookupPromise = Promise.resolve().then(
+      async (): Promise<string | null> => {
+        try {
+          const tableMetadata =
+            this.lazyRef.runtimeRegistryService?.getTableMetadata?.(
+              parentTableName,
+            ) ??
+            (await this.lazyRef.metadataCacheService?.getTableMetadata?.(
+              parentTableName,
+            ));
+          if (tableMetadata?.relations) {
+            const relation = tableMetadata.relations.find(
+              (r: any) => r.propertyName === relationName,
+            );
+            const targetTableName =
+              relation?.targetTableName ||
+              (typeof relation?.targetTable === 'string'
+                ? relation.targetTable
+                : relation?.targetTable?.name);
+            if (
+              typeof targetTableName === 'string' &&
+              targetTableName.length > 0
+            ) {
+              return targetTableName;
+            }
+          }
+
+          if (this.relationTargetMap.has(cacheKey)) {
+            return this.relationTargetMap.get(cacheKey)!;
+          }
+          const connection = this.getActiveKnex();
+          const tableDef = await connection('enfyra_table')
+            .where('name', parentTableName)
+            .first();
+
+          if (!tableDef) {
+            this.relationTargetMap.set(cacheKey, null);
+            return null;
+          }
+
+          const relationDef = await connection('enfyra_relation')
+            .where('sourceTableId', tableDef.id)
+            .where('propertyName', relationName)
+            .first();
+
+          if (!relationDef) {
+            this.relationTargetMap.set(cacheKey, null);
+            return null;
+          }
+
+          const targetTableDef = await connection('enfyra_table')
+            .where('id', relationDef.targetTableId)
+            .first();
+
+          const resolved = targetTableDef?.name ?? null;
+          this.relationTargetMap.set(cacheKey, resolved);
+          return resolved;
+        } catch (error) {
+          if (this.knexContext.getStore()) throw error;
+          this.logger.warn(
+            `[getTargetTableNameFromRelation] Failed to resolve relation '${relationName}' from '${parentTableName}'`,
+          );
+          return null;
+        } finally {
+          this.relationTargetLoading.delete(cacheKey);
+        }
+      },
+    );
+
+    this.relationTargetLoading.set(cacheKey, lookupPromise);
+    return lookupPromise;
   }
 
   async runWithPolicy<T>(

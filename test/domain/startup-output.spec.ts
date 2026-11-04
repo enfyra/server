@@ -235,6 +235,17 @@ it('keeps concurrent log scopes isolated and restores an outer scope after neste
   expect(getBootstrapLogMode()).toBeUndefined();
 });
 
+it('runs quiet startup steps without collecting per-step timing', async () => {
+  jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+  const now = jest.spyOn(performance, 'now');
+  const run = jest.fn(async () => {});
+  await startup.runWithStartupOutput(() =>
+    startup.runStartupSteps([{ label: 'runtime', run }]),
+  );
+  expect(run).toHaveBeenCalledTimes(1);
+  expect(now).not.toHaveBeenCalled();
+});
+
 it('clears the active bar before raw errors and preserves error visibility', async () => {
   const write = jest
     .spyOn(process.stdout, 'write')

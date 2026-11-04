@@ -553,6 +553,7 @@ export function isTypeCompatible(
   ) {
     return true;
   }
+  if (type1 === 'date' || type2 === 'date') return type1 === type2;
   if (isPostgres) {
     // The snapshot side carries the logical name while the catalog side carries
     // the physical one, so both spellings resolve to the same contract: a logical

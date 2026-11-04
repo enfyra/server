@@ -41,6 +41,15 @@ describe('DynamicBatchCreationService', () => {
     expect(queryBuilderService.insert).not.toHaveBeenCalled();
   });
 
+  it('rejects invalid temporal values before enqueueing any row', async () => {
+    const { service, queryBuilderService } = createService();
+    await expect(service.createBatch('events', { columns: [{ name: 'day', type: 'date' }, { name: 'occurredAt', type: 'datetime' }] }, [
+      { day: '2024-02-29', occurredAt: '2026-10-27T00:00:00Z' },
+      { day: '2024-02-30', occurredAt: '2026-10-27T00:00:00Z' },
+    ])).rejects.toThrow(/calendar date/);
+    expect(queryBuilderService.insert).not.toHaveBeenCalled();
+  });
+
   it('prepares every row before inserting it in batch mode', async () => {
     const { service, mutationPreparationService, queryBuilderService } =
       createService();

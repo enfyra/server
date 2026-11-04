@@ -639,10 +639,14 @@ export class SnapshotTargetVerifierService {
                kcu.COLUMN_NAME AS columnName,
                kcu.REFERENCED_TABLE_NAME AS targetTable,
                kcu.REFERENCED_COLUMN_NAME AS targetColumn,
-               rc.DELETE_RULE AS onDelete
+               CASE
+                 WHEN UPPER(rc.DELETE_RULE) = 'NO ACTION' THEN 'RESTRICT'
+                 ELSE rc.DELETE_RULE
+               END AS onDelete
         FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
         JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
           ON kcu.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA
+         AND kcu.TABLE_NAME = rc.TABLE_NAME
          AND kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
         WHERE kcu.TABLE_SCHEMA = DATABASE()
           AND kcu.TABLE_NAME = ?

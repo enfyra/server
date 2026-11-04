@@ -22,9 +22,19 @@ export class SqlTableMetadataWriterService {
     body: TCreateTableBody,
     exists: any,
     affectedTableNames: Set<string>,
+    options?: { skipUnchangedPolicyMetadata?: boolean },
   ): Promise<void> {
     const uniques = body.uniques ?? exists.uniques;
     const indexes = body.indexes;
+    const skipUnchangedPolicy = options?.skipUnchangedPolicyMetadata === true;
+    let cachedAllowedUsersJunction: any | null | undefined;
+    const resolveAllowedUsersJunction = async () => {
+      if (cachedAllowedUsersJunction === undefined) {
+        cachedAllowedUsersJunction =
+          await this.getFieldPermissionAllowedUsersJunction(queryRunner);
+      }
+      return cachedAllowedUsersJunction;
+    };
 
     await queryRunner('enfyra_table')
       .where({ id })
@@ -60,7 +70,10 @@ export class SqlTableMetadataWriterService {
       );
       const existingColumns = await queryRunner('enfyra_column')
         .where({ tableId: id })
-        .select('id');
+        .select('*');
+      const existingColumnById = new Map<string, any>(
+        (existingColumns || []).map((c: any) => [String(c.id), c]),
+      );
       const deletedColumnIds = getDeletedIds(existingColumns, bodyColumns);
       if (deletedColumnIds.length > 0) {
         await queryRunner('enfyra_column')
@@ -97,9 +110,12 @@ export class SqlTableMetadataWriterService {
         };
         let columnId: number | string;
         if (col.id) {
-          await queryRunner('enfyra_column')
-            .where({ id: col.id })
-            .update(columnData);
+          const existingCol = existingColumnById.get(String(col.id));
+          if (!this.isSqlRecordUnchanged(existingCol, columnData)) {
+            await queryRunner('enfyra_column')
+              .where({ id: col.id })
+              .update(columnData);
+          }
           columnId = col.id;
         } else {
           columnId = await this.insertAndGetId(
@@ -108,16 +124,24 @@ export class SqlTableMetadataWriterService {
             columnData,
           );
         }
-        await this.writeNestedRules(queryRunner, {
-          rules: (col as any).rules,
-          fkField: 'columnId',
-          fkValue: columnId,
-        });
-        await this.writeNestedFieldPermissions(queryRunner, {
-          permissions: (col as any).fieldPermissions,
-          subjectFk: 'columnId',
-          subjectFkValue: columnId,
-        });
+        if (!skipUnchangedPolicy || (!col.id && Array.isArray((col as any).rules) && (col as any).rules.length > 0)) {
+          await this.writeNestedRules(queryRunner, {
+            rules: (col as any).rules,
+            fkField: 'columnId',
+            fkValue: columnId,
+          });
+        }
+        if (!skipUnchangedPolicy || (!col.id && Array.isArray((col as any).fieldPermissions) && (col as any).fieldPermissions.length > 0)) {
+          await this.writeNestedFieldPermissions(
+            queryRunner,
+            {
+              permissions: (col as any).fieldPermissions,
+              subjectFk: 'columnId',
+              subjectFkValue: columnId,
+            },
+            resolveAllowedUsersJunction,
+          );
+        }
       }
     }
 
@@ -321,9 +345,11 @@ export class SqlTableMetadataWriterService {
         }
         let relationId: number | string;
         if (rel.id) {
-          await queryRunner('enfyra_relation')
-            .where({ id: rel.id })
-            .update(relationData);
+          if (!this.isSqlRecordUnchanged(existingRel, relationData)) {
+            await queryRunner('enfyra_relation')
+              .where({ id: rel.id })
+              .update(relationData);
+          }
           relationId = rel.id;
         } else {
           relationId = await this.insertAndGetId(
@@ -332,11 +358,17 @@ export class SqlTableMetadataWriterService {
             relationData,
           );
         }
-        await this.writeNestedFieldPermissions(queryRunner, {
-          permissions: (rel as any).fieldPermissions,
-          subjectFk: 'relationId',
-          subjectFkValue: relationId,
-        });
+        if (!skipUnchangedPolicy || (!rel.id && Array.isArray((rel as any).fieldPermissions) && (rel as any).fieldPermissions.length > 0)) {
+          await this.writeNestedFieldPermissions(
+            queryRunner,
+            {
+              permissions: (rel as any).fieldPermissions,
+              subjectFk: 'relationId',
+              subjectFkValue: relationId,
+            },
+            resolveAllowedUsersJunction,
+          );
+        }
 
         if (!rel.id && rel.inversePropertyName) {
           if (rel.mappedBy) {
@@ -494,6 +526,33 @@ export class SqlTableMetadataWriterService {
     }
   }
 
+  private isSqlRecordUnchanged(
+    existing: Record<string, any> | null | undefined,
+    nextData: Record<string, any>,
+  ): boolean {
+    if (!existing || typeof existing !== 'object') return false;
+    const keys = Object.keys(nextData);
+    if (!keys.some((key) => key !== 'id' && existing[key] !== undefined)) {
+      return false;
+    }
+    return keys.every((key) => {
+      const expected = nextData[key];
+      const current = existing[key];
+      if (expected === undefined) return current === null || current === undefined;
+      if (typeof expected === 'boolean' && typeof current === 'number') {
+        return expected === (current === 1);
+      }
+      if (
+        (key === 'tableId' || key === 'sourceTableId' || key === 'targetTableId' || key === 'mappedById') &&
+        current != null &&
+        expected != null
+      ) {
+        return String(current) === String(expected);
+      }
+      return current === expected;
+    });
+  }
+
   private async writeNestedFieldPermissions(
     queryRunner: any,
     opts: {
@@ -501,10 +560,12 @@ export class SqlTableMetadataWriterService {
       subjectFk: 'columnId' | 'relationId';
       subjectFkValue: number | string;
     },
+    resolveJunction?: () => Promise<any | null>,
   ): Promise<void> {
     if (!Array.isArray(opts.permissions)) return;
-    const allowedUsersJunction =
-      await this.getFieldPermissionAllowedUsersJunction(queryRunner);
+    const allowedUsersJunction = resolveJunction
+      ? await resolveJunction()
+      : await this.getFieldPermissionAllowedUsersJunction(queryRunner);
     const existing = await queryRunner('enfyra_field_permission')
       .where({ [opts.subjectFk]: opts.subjectFkValue })
       .select('id');

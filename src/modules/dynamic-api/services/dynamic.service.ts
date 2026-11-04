@@ -367,6 +367,21 @@ export class DynamicService {
         routeData.context.$res = res as unknown as DynamicResponse;
       }
 
+      if (!routeData.__preHooksExecuted) {
+        routeData.__preHooksExecuted = true;
+        for (const hook of routeData.preHooks ?? []) {
+          if (!hook.code) continue;
+          this.executorEngineService.register(req, {
+            code: hook.code,
+            sourceCode: hook.sourceCode ?? hook.code,
+            scriptLanguage: hook.scriptLanguage ?? 'typescript',
+            scriptId: hook.id,
+            ...(this.runtimeScriptRepairService ? { onCompiledCodeRepair: this.repairCompiledCode('enfyra_pre_hook', hook)! } : {}),
+            type: 'preHook',
+          });
+        }
+      }
+
       this.executorEngineService.register(req, {
         code: handler,
         sourceCode: routeData.handlerRecord?.sourceCode ?? handler,
@@ -380,6 +395,7 @@ export class DynamicService {
       } as any);
 
       const postHooks = routeData.postHooks;
+      routeData.__postHooksExecuted = true;
       if (postHooks?.length) {
         for (const hook of postHooks) {
           if (!hook.code) continue;
@@ -398,13 +414,11 @@ export class DynamicService {
       }
 
       let value: any;
-      let shortCircuit = false;
       try {
         const result = res
           ? await runDynamicRouteBatch(req, res, this.executorEngineService)
           : await this.executorEngineService.runBatch(req, routeData.routeMethodConfig?.timeout || undefined);
         value = result.value;
-        shortCircuit = result.shortCircuit;
       } catch (error) {
         if (res && isDynamicExecutionTimeout(error)) {
           recordDynamicExecutionFailure(res, error);
@@ -412,25 +426,13 @@ export class DynamicService {
         throw error;
       } finally {
         completeDynamicRouteExecution(req);
+        routeData.__codeBlocks = [];
         delete routeData.context.$res;
+        if (routeData.context.$body !== undefined) req.body = routeData.context.$body;
+        if (routeData.context.$query !== undefined) req.query = routeData.context.$query;
       }
 
       this.persistScriptLogs(req, Number(routeData.res?.statusCode) || 200);
-
-      if (shortCircuit) {
-        const httpRes = routeData.res;
-        if (httpRes && !httpRes.headersSent) {
-          let response = routeData.context.$share.$logs.length
-            ? { result: value, logs: routeData.context.$share.$logs }
-            : value;
-          const debug: any = (req as any)._debug;
-          if (debug && routeData.context.$query?.debugMode) {
-            response = { ...response, debug: debug.toJSON() };
-          }
-          httpRes.status(200).json(response);
-        }
-        return undefined;
-      }
 
       return value;
     } catch (error) {

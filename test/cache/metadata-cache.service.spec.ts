@@ -20,10 +20,7 @@ function makeKnex(rowsByTable: Record<string, any[]>) {
   };
 }
 
-function makeService(
-  rowsByTable: Record<string, any[]>,
-  dbType = 'postgres',
-) {
+function makeService(rowsByTable: Record<string, any[]>, dbType = 'postgres') {
   const getKnexOptions: any[] = [];
   const service = new MetadataCacheService({
     databaseConfigService: { getDbType: () => dbType } as any,
@@ -237,7 +234,9 @@ describe('MetadataCacheService', () => {
   it('resolves inverse FK metadata from existing cache during partial reload', async () => {
     const service = makeService({
       enfyra_table: [{ id: 2, name: 'teachers', indexes: '[]', uniques: '[]' }],
-      enfyra_column: [{ id: 20, tableId: 2, name: 'id', type: 'int', isPrimary: true }],
+      enfyra_column: [
+        { id: 20, tableId: 2, name: 'id', type: 'int', isPrimary: true },
+      ],
       enfyra_relation: [
         {
           id: 41,
@@ -328,19 +327,97 @@ describe('MetadataCacheService', () => {
 
   it('preserves hydrated Mongo inverse relations during repeated unrelated partial reloads', async () => {
     DatabaseConfigService.overrideForTesting('mongodb');
-    const service = new MetadataCacheService({ databaseConfigService: { getDbType: () => 'mongodb' }, lazyRef: {} } as any);
-    const owner = { _id: 'owner', sourceTable: 'a', targetTable: 'b', propertyName: 'parent', type: 'many-to-one', mappedBy: null, mappedByRelationId: null };
-    const inverse = { _id: 'inverse', sourceTable: 'b', targetTable: 'a', propertyName: 'children', type: 'one-to-many', mappedBy: 'parent', mappedByRelationId: 'owner' };
-    const tables = [{ _id: 'a', name: 'a', columns: [], relations: [owner] }, { _id: 'b', name: 'b', columns: [], relations: [inverse] }, { _id: 'c', name: 'c', columns: [], relations: [] }];
-    (service as any).inMemoryCache = { tables: new Map(tables.map(table => [table.name, table])), tablesList: tables, version: 1, timestamp: new Date() };
-    vi.spyOn(service as any, 'loadTablesByIds').mockImplementation(async () => [{ _id: 'c', name: 'c', columns: [], relations: [] }]);
+    const service = new MetadataCacheService({
+      databaseConfigService: { getDbType: () => 'mongodb' },
+      lazyRef: {},
+    } as any);
+    const owner = {
+      _id: 'owner',
+      sourceTable: 'a',
+      targetTable: 'b',
+      propertyName: 'parent',
+      type: 'many-to-one',
+      mappedBy: null,
+      mappedByRelationId: null,
+    };
+    const inverse = {
+      _id: 'inverse',
+      sourceTable: 'b',
+      targetTable: 'a',
+      propertyName: 'children',
+      type: 'one-to-many',
+      mappedBy: 'parent',
+      mappedByRelationId: 'owner',
+    };
+    const tables = [
+      { _id: 'a', name: 'a', columns: [], relations: [owner] },
+      { _id: 'b', name: 'b', columns: [], relations: [inverse] },
+      { _id: 'c', name: 'c', columns: [], relations: [] },
+    ];
+    (service as any).inMemoryCache = {
+      tables: new Map(tables.map((table) => [table.name, table])),
+      tablesList: tables,
+      version: 1,
+      timestamp: new Date(),
+    };
+    vi.spyOn(service as any, 'loadTablesByIds').mockImplementation(async () => [
+      { _id: 'c', name: 'c', columns: [], relations: [] },
+    ]);
     vi.spyOn(service as any, 'loadColumnsByTableIds').mockResolvedValue([]);
-    vi.spyOn(service as any, 'loadRelationsBySourceTableIds').mockResolvedValue([]);
+    vi.spyOn(service as any, 'loadRelationsBySourceTableIds').mockResolvedValue(
+      [],
+    );
     for (let i = 0; i < 2; i++) {
-      await service.partialReload({ table: 'enfyra_table', action: 'reload', scope: 'partial', ids: ['c'], timestamp: Date.now() });
-      expect((await service.getMetadata()).tables.get('b')?.relations[0]).toMatchObject({ mappedBy: 'parent', mappedByRelationId: 'owner' });
-      expect(inverse).toMatchObject({ mappedBy: 'parent', mappedByRelationId: 'owner' });
+      await service.partialReload({
+        table: 'enfyra_table',
+        action: 'reload',
+        scope: 'partial',
+        ids: ['c'],
+        timestamp: Date.now(),
+      });
+      expect(
+        (await service.getMetadata()).tables.get('b')?.relations[0],
+      ).toMatchObject({ mappedBy: 'parent', mappedByRelationId: 'owner' });
+      expect(inverse).toMatchObject({
+        mappedBy: 'parent',
+        mappedByRelationId: 'owner',
+      });
     }
+  });
+
+  it('retains target primary-key types when only the owning table reloads', async () => {
+    const service = makeService({
+      enfyra_table: [
+        { id: 1, name: 'entries' },
+        { id: 2, name: 'subjects' },
+      ],
+      enfyra_column: [
+        { id: 1, tableId: 1, name: 'id', type: 'int', isPrimary: true },
+        { id: 2, tableId: 2, name: 'id', type: 'uuid', isPrimary: true },
+      ],
+      enfyra_relation: [
+        {
+          id: 3,
+          sourceTableId: 1,
+          targetTableId: 2,
+          propertyName: 'subject',
+          type: 'many-to-one',
+        },
+      ],
+    });
+    await service.reload();
+    await service.partialReload({
+      table: 'enfyra_table',
+      ids: [1],
+      scope: 'partial',
+      action: 'reload',
+      timestamp: 0,
+    });
+    expect(
+      (await service.getMetadata()).tables
+        .get('entries')
+        .columns.find((column: any) => column.name === 'subjectId').type,
+    ).toBe('uuid');
   });
 
   it('normalizes Mongo column identities so runtime lookups can key on strings', async () => {
@@ -348,9 +425,7 @@ describe('MetadataCacheService', () => {
     const tableId = new ObjectId('000000000000000000000001');
     const columnId = new ObjectId('000000000000000000000002');
     const collections: Record<string, any[]> = {
-      enfyra_table: [
-        { _id: tableId, name: 'items', indexes: [], uniques: [] },
-      ],
+      enfyra_table: [{ _id: tableId, name: 'items', indexes: [], uniques: [] }],
       enfyra_column: [
         {
           _id: columnId,

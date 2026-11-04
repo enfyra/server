@@ -90,6 +90,18 @@ export class RuntimeNamespaceLifecycleService {
       .exec();
   }
 
+  async registerManagedKeys(keys: string[]): Promise<void> {
+    if (!keys.length) return;
+    const transaction = this.redis.multi();
+    for (const key of keys)
+      transaction.hset(this.managedKeyRegistry(), key, '1');
+    await transaction.pexpire(this.managedKeyRegistry(), this.keyTtlMs).exec();
+  }
+
+  async unregisterManagedKeys(keys: string[]): Promise<void> {
+    if (keys.length) await this.redis.hdel(this.managedKeyRegistry(), ...keys);
+  }
+
   async unregisterManagedKey(key: string): Promise<void> {
     if (!key) return;
     await this.redis.hdel(this.managedKeyRegistry(), key);

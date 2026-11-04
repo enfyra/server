@@ -1285,7 +1285,7 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
     expect(fields['title']).toBeDefined();
   });
 
-  it('non-nullable column produces GraphQLNonNull wrapper', () => {
+  it('keeps policy-prunable scalar output nullable despite physical non-nullability', () => {
     const table = makeGqlTable('tasks', [
       {
         name: 'id',
@@ -1311,7 +1311,7 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
     ]);
     const def = buildTableGraphQLDef(table, new Set(['tasks']), new Map());
     const fields = (def!.type as any)._fields();
-    expect(fields['required'].type).toBeInstanceOf(GraphQLNonNull);
+    expect(fields['required'].type).toBe(GraphQLString);
     expect(fields['optional'].type).toBe(GraphQLString);
   });
 
@@ -1411,7 +1411,8 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
     const fields = (def!.type as any)._fields();
     const tasksField = fields['tasks'];
     expect(tasksField).toBeDefined();
-    expect(tasksField.type).toBeInstanceOf(GraphQLNonNull);
+    expect(tasksField.type).toBeInstanceOf(GraphQLList);
+    expect(tasksField.type.ofType).toBeInstanceOf(GraphQLNonNull);
   });
 
   it('many-to-one relation produces object type', () => {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { buildContainer } from '../../../src/container';
 import { init, shutdown } from '../../../src/init';
 import { getEnfyraVersion } from '../../../src/shared/utils/enfyra-version.util';
+import { verifyTemporalRuntime } from '../utils/temporal-runtime.util';
 
 async function main() {
   const container = buildContainer();
@@ -28,6 +29,10 @@ async function main() {
     assert.ok(extension.compiledCode.length > 0);
     assert.equal(Boolean(extension.isSystem), false);
     assert.equal(String(setting.defaultPage?.[pk] ?? setting.defaultPage), String(menu[pk]));
+    if (process.env.TEMPORAL_RUNTIME_PROBES === '1') {
+      const checks = await verifyTemporalRuntime(container.cradle);
+      console.log('TEMPORAL_RUNTIME_RESULT ' + JSON.stringify({ backend: query.getDatabaseType(), checks, passed: true }));
+    }
     console.log('STORAGE_BOOT_RESULT ' + JSON.stringify({ bootstrapRuns, version: setting.enfyraVersion, dashboardLinked: true }));
   } finally {
     await shutdown(container);

@@ -24,6 +24,7 @@ export interface RuntimeSchemaExecutionResult {
   affectedTables: readonly string[];
   recordId?: string | number;
   preview?: Record<string, unknown>;
+  policyMetadataChanged?: boolean;
   tableRenames?: Array<{ id: string | number; oldName: string; newName: string }>;
 }
 

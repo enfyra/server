@@ -1,17 +1,6 @@
-/**
- * The physical PostgreSQL target for Enfyra's logical temporal column types.
- *
- * Every logical temporal type — `datetime`, `timestamp` and `date` — holds an
- * instant. The `date` name is historical: the columns that use it are expiry and
- * lifecycle stamps (`expiredAt`, `expiresAt`, `lastUsedAt`, `startedAt`,
- * `completedAt`), and `enfyra_session.expiredAt` even defaults to `now`, which a
- * calendar-day type would truncate to midnight. So all three resolve to the same
- * zone-bearing physical type; a zone-less `timestamp` or a truncated `DATE` stores
- * something that compares differently depending on how a client spells its offset.
- */
 export const POSTGRES_TEMPORAL_PHYSICAL_TYPE = 'TIMESTAMPTZ';
 
-const LOGICAL_TEMPORAL_TYPES = new Set(['datetime', 'timestamp', 'date']);
+const LOGICAL_TEMPORAL_TYPES = new Set(['datetime', 'timestamp']);
 
 const AWARE_PHYSICAL_TYPES = new Set([
   'timestamptz',
@@ -51,8 +40,7 @@ export function postgresTemporalPhysicalType(type: unknown): string | null {
   if (
     LOGICAL_TEMPORAL_TYPES.has(normalized) ||
     AWARE_PHYSICAL_TYPES.has(normalized) ||
-    NAIVE_PHYSICAL_TYPES.has(normalized) ||
-    normalized === 'date'
+    NAIVE_PHYSICAL_TYPES.has(normalized)
   ) {
     return POSTGRES_TEMPORAL_PHYSICAL_TYPE;
   }

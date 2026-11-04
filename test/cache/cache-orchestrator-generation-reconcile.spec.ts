@@ -26,7 +26,6 @@ function createOrchestrator(overrides: Record<string, any> = {}) {
     packageCacheService: cacheMock(),
     sharedHelperCacheService: cacheMock(),
     settingCacheService: cacheMock(),
-    authHeaderCacheBuilder: cacheMock(),
     storageConfigCacheBuilder: cacheMock(),
     oauthConfigCacheBuilder: cacheMock(),
     corsOriginCacheBuilder: cacheMock(),

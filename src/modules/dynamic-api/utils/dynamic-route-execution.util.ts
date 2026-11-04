@@ -133,7 +133,5 @@ export async function runDynamicRouteBatch(
     throw error;
   } finally {
     state.activeBatches--;
-    if (res.writableFinished && state.activeBatches === 0)
-      completeDynamicRouteExecution(req);
   }
 }

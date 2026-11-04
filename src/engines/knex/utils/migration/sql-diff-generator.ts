@@ -225,7 +225,10 @@ export async function generateSQLFromDiff(
   let activeTableName = tableName;
   const plannedColumns = new Set<string>();
   const plannedUniqueGroups = new Set<string>();
+  const plannedIndexGroups = new Set<string>();
   const uniqueGroupKey = (columns: string[]) => JSON.stringify(columns);
+  const indexGroupKey = (columns: string[]) =>
+    JSON.stringify(columns.map((column) => column.toLowerCase()));
   const canIndexColumns = async (cols: string[]): Promise<boolean> => {
     for (const col of cols) {
       if (plannedColumns.has(col)) continue;
@@ -441,29 +444,33 @@ export async function generateSQLFromDiff(
       }
     }
     if (
-      col.type === 'datetime' ||
-      col.type === 'timestamp' ||
-      col.type === 'date'
+      !diff.constraintNames?.indexes &&
+      !col.isUnique &&
+      !plannedUniqueGroups.has(uniqueGroupKey([col.name])) &&
+      (col.type === 'datetime' ||
+        col.type === 'timestamp' ||
+        col.type === 'date')
     ) {
-      const indexName = desiredConstraintName('indexes', [col.name, 'id']);
-      sqlStatements.push(
-        generateAddIndexSQL(
-          activeTableName,
-          indexName,
-          [col.name, 'id'],
-          dbType,
-        ),
-      );
-      logger.log(`  Added index on datetime column: ${col.name}`);
+      const idxCols = [col.name, 'id'];
+      const groupKey = indexGroupKey(idxCols);
+      if (!plannedIndexGroups.has(groupKey)) {
+        plannedIndexGroups.add(groupKey);
+        const indexName = desiredConstraintName('indexes', idxCols);
+        sqlStatements.push(
+          generateAddIndexSQL(
+            activeTableName,
+            indexName,
+            idxCols,
+            dbType,
+          ),
+        );
+        logger.log(`  Added index on datetime column: ${col.name}`);
+      }
     }
   }
   const processedUpdates = new Set<string>();
   for (const update of ensureArray(columnDiff.update)) {
     const colName = update.newColumn.name;
-    if (renamedColumns.has(colName)) {
-      logger.log(`  Skipping MODIFY for ${colName} - column was renamed`);
-      continue;
-    }
     if (processedUpdates.has(colName)) {
       logger.log(`  Skipping duplicate MODIFY for ${colName}`);
       continue;
@@ -476,6 +483,7 @@ export async function generateSQLFromDiff(
           activeTableName,
           update.oldColumn,
           update.newColumn,
+          tableName,
         )),
       );
       continue;
@@ -490,8 +498,8 @@ export async function generateSQLFromDiff(
       dbType === 'postgres'
         ? await getPhysicalColumnType(
             knex,
-            activeTableName,
-            update.newColumn.name,
+            tableName,
+            update.oldColumn?.name || update.newColumn.name,
           )
         : undefined,
     );
@@ -528,7 +536,10 @@ export async function generateSQLFromDiff(
       ? indexGroup
       : indexGroup?.value || [];
     if (cols.length === 0) continue;
+    const groupKey = indexGroupKey(cols);
+    if (plannedIndexGroups.has(groupKey)) continue;
     if (!(await canIndexColumns(cols))) continue;
+    plannedIndexGroups.add(groupKey);
     const indexName = desiredConstraintName('indexes', cols);
     sqlStatements.push(
       generateAddIndexSQL(activeTableName, indexName, cols, dbType),

@@ -149,10 +149,7 @@ export function getKnexColumnType(columnDef: ColumnDef): string {
     longtext: 'longtext',
     boolean: 'boolean',
     bool: 'boolean',
-    // Every logical temporal type holds an instant, including the historical
-    // `date` name: its columns are expiry and lifecycle stamps (`expiredAt`,
-    // `startedAt`, ...), and `enfyra_session.expiredAt` defaults to `now`.
-    date: 'timestamp',
+    date: 'date',
     datetime: 'datetime',
     timestamp: 'timestamp',
     'simple-json': 'longtext',

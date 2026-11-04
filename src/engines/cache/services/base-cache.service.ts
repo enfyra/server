@@ -44,7 +44,10 @@ export abstract class BaseCacheService<T> {
   }
 
   async reload(publish = true): Promise<void> {
-    if (this.usesSharedRuntimeCache()) return this.redisRuntimeCacheStore!.runWithPublication(() => this.reloadLocal(publish));
+    if (this.usesSharedRuntimeCache())
+      return this.redisRuntimeCacheStore!.runWithPublication(() =>
+        this.reloadLocal(publish),
+      );
     return this.reloadLocal(publish);
   }
 
@@ -105,15 +108,23 @@ export abstract class BaseCacheService<T> {
     return this.loadingPromise;
   }
 
-  async partialReload(payload: TCacheInvalidationPayload, publish = true): Promise<void> {
-    if (this.usesSharedRuntimeCache()) return this.redisRuntimeCacheStore!.runWithPublication(() => this.partialReloadLocal(payload, publish));
+  async partialReload(
+    payload: TCacheInvalidationPayload,
+    publish = true,
+  ): Promise<void> {
+    if (this.usesSharedRuntimeCache())
+      return this.redisRuntimeCacheStore!.runWithPublication(() =>
+        this.partialReloadLocal(payload, publish),
+      );
     return this.partialReloadLocal(payload, publish);
   }
 
-  private async partialReloadLocal(payload: TCacheInvalidationPayload, _publish: boolean): Promise<void> {
+  private async partialReloadLocal(
+    payload: TCacheInvalidationPayload,
+    _publish: boolean,
+  ): Promise<void> {
     if (this.isLoading && this.loadingPromise) {
       await this.loadingPromise;
-      return;
     }
     try {
       const start = Date.now();
@@ -137,10 +148,9 @@ export abstract class BaseCacheService<T> {
           );
         }
         this.sharedRefreshLockValue = lockValue;
-        const snapshot =
-          await this.redisRuntimeCacheStore!.getSnapshot<T>(
-            this.config.cacheIdentifier,
-          );
+        const snapshot = await this.redisRuntimeCacheStore!.getSnapshot<T>(
+          this.config.cacheIdentifier,
+        );
         if (!snapshot) {
           await this.releaseActiveSharedLock();
           await this.reload(_publish);
@@ -148,7 +158,7 @@ export abstract class BaseCacheService<T> {
         }
         this.cache = snapshot.data;
       }
-      await runWithCacheVerboseTrace(
+      const changed = await runWithCacheVerboseTrace(
         {
           cacheName: this.config.cacheName,
           cacheIdentifier: this.config.cacheIdentifier,
@@ -156,15 +166,15 @@ export abstract class BaseCacheService<T> {
         },
         () => this.applyPartialUpdate(payload),
       );
+      if (changed === false) return;
       this.logger.verbose(
         `cache-reload phase=transformed type=partial id=${this.config.cacheIdentifier} shape=${summarizeCacheValue(this.cache)}`,
       );
       if (this.usesSharedRuntimeCache()) {
         if (this.cache === undefined) {
-          const snapshot =
-            await this.redisRuntimeCacheStore!.getSnapshot<T>(
-              this.config.cacheIdentifier,
-            );
+          const snapshot = await this.redisRuntimeCacheStore!.getSnapshot<T>(
+            this.config.cacheIdentifier,
+          );
           if (!snapshot) {
             throw new Error(
               `${this.config.cacheName} shared cache is unavailable after reload`,
@@ -214,7 +224,7 @@ export abstract class BaseCacheService<T> {
 
   protected async applyPartialUpdate(
     _payload: TCacheInvalidationPayload,
-  ): Promise<void> {
+  ): Promise<void | false> {
     throw new Error('applyPartialUpdate not implemented');
   }
 
@@ -256,10 +266,9 @@ export abstract class BaseCacheService<T> {
 
   protected async ensureLoaded(): Promise<void> {
     if (this.usesSharedRuntimeCache()) {
-      const snapshot =
-        await this.redisRuntimeCacheStore!.getSnapshot<T>(
-          this.config.cacheIdentifier,
-        );
+      const snapshot = await this.redisRuntimeCacheStore!.getSnapshot<T>(
+        this.config.cacheIdentifier,
+      );
       if (snapshot) {
         this.cacheLoaded = true;
         return;
@@ -289,19 +298,17 @@ export abstract class BaseCacheService<T> {
 
   async getCacheAsync(): Promise<T> {
     if (this.usesSharedRuntimeCache()) {
-      const snapshot =
-        await this.redisRuntimeCacheStore!.getSnapshot<T>(
-          this.config.cacheIdentifier,
-        );
+      const snapshot = await this.redisRuntimeCacheStore!.getSnapshot<T>(
+        this.config.cacheIdentifier,
+      );
       if (snapshot) {
         this.cacheLoaded = true;
         return snapshot.data;
       }
       await this.reload();
-      const refreshed =
-        await this.redisRuntimeCacheStore!.getSnapshot<T>(
-          this.config.cacheIdentifier,
-        );
+      const refreshed = await this.redisRuntimeCacheStore!.getSnapshot<T>(
+        this.config.cacheIdentifier,
+      );
       if (!refreshed) {
         throw new Error(`${this.config.cacheName} shared cache is unavailable`);
       }
@@ -324,11 +331,10 @@ export abstract class BaseCacheService<T> {
       await this.reload(false);
       return;
     }
-    const snapshot =
-      await this.redisRuntimeCacheStore!.waitForSnapshot<T>(
-        this.config.cacheIdentifier,
-        timeoutMs,
-      );
+    const snapshot = await this.redisRuntimeCacheStore!.waitForSnapshot<T>(
+      this.config.cacheIdentifier,
+      timeoutMs,
+    );
     if (!snapshot) {
       throw new Error(`${this.config.cacheName} shared cache is unavailable`);
     }
@@ -347,10 +353,14 @@ export abstract class BaseCacheService<T> {
       return this.transformData(rawData);
     }
 
-    const lockValue = await this.redisRuntimeCacheStore!.acquireRefreshLockWithWait(
-      this.config.cacheIdentifier,
-    );
-    if (!lockValue) throw new Error(`${this.config.cacheName} shared cache refresh lock timed out`);
+    const lockValue =
+      await this.redisRuntimeCacheStore!.acquireRefreshLockWithWait(
+        this.config.cacheIdentifier,
+      );
+    if (!lockValue)
+      throw new Error(
+        `${this.config.cacheName} shared cache refresh lock timed out`,
+      );
 
     try {
       await this.beforeLoad();

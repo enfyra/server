@@ -32,7 +32,7 @@ import { BadRequestException, DatabaseException } from '../../../domain/exceptio
 import type { MongoHookContext } from '../types/mongo-hook.types';
 import { isGeneratedScriptPersistenceField } from '../../../shared/utils/script-persistence-contract.util';
 import {
-  coerceTemporalWriteValue,
+  coerceTemporalContractValue,
   isTemporalColumnType,
 } from '../../../shared/utils/temporal-write.util';
 import {
@@ -1076,7 +1076,7 @@ export class MongoService {
           continue;
         }
         if (isTemporalColumnType(column.type)) {
-          result[fieldName] = coerceTemporalWriteValue(fieldValue);
+          result[fieldName] = coerceTemporalContractValue(fieldValue, column.type);
           continue;
         }
         if (
@@ -1110,6 +1110,9 @@ export class MongoService {
           }
         } else {
           result[column.name] = column.defaultValue;
+        }
+        if (isTemporalColumnType(column.type)) {
+          result[column.name] = coerceTemporalContractValue(result[column.name], column.type);
         }
       }
 
@@ -1357,10 +1360,10 @@ export class MongoService {
     if (!tableMetadata) return data;
 
     const validFields = buildMongoWritableFieldSet(tableMetadata);
-    const temporalFields = new Set(
+    const temporalFields = new Map<string, string>(
       (tableMetadata.columns || [])
         .filter((col: any) => isTemporalColumnType(col?.type))
-        .map((col: any) => col.name),
+        .map((col: any) => [col.name, col.type]),
     );
 
     const stripped = { ...data };
@@ -1370,7 +1373,7 @@ export class MongoService {
         continue;
       }
       if (temporalFields.has(key)) {
-        stripped[key] = coerceTemporalWriteValue(stripped[key]);
+        stripped[key] = coerceTemporalContractValue(stripped[key], temporalFields.get(key)!);
       }
     }
     return stripped;
@@ -1613,6 +1616,10 @@ export class NativeSessionCollection<T extends Document = Document> {
     });
   }
 
+  estimatedDocumentCount(options?: any) {
+    return this.base.estimatedDocumentCount(options);
+  }
+
   listIndexes(options?: any) {
     return this.base.listIndexes({ ...options, session: this.session });
   }
@@ -1707,6 +1714,13 @@ export class SagaCollection<_T extends Document = Document> {
 
   countDocuments(filter?: any) {
     return this.session().countDocuments(this.name, filter || {});
+  }
+
+  estimatedDocumentCount(options?: any) {
+    return this.mongo
+      .getRawDb()
+      .collection(this.name)
+      .estimatedDocumentCount(options);
   }
 
   async insertOne(doc: any, options?: any) {

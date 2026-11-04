@@ -8,29 +8,17 @@ import {
   CACHE_IDENTIFIERS,
 } from '../../../shared/utils/cache-events.constants';
 import type { Cradle } from '../../../container';
+import type { PackageRuntimeStatus } from '../../../shared/types/package-runtime.types';
 import {
   PackageCdnLoaderService,
   extractErrorMessage,
 } from './package-cdn-loader.service';
 
+export type { PackageRuntimeStatus } from '../../../shared/types/package-runtime.types';
+
 const SYSTEM_EVENT_PREFIX = '$system:package';
 const RECOVERY_PACKAGE_STATUSES = ['failed', 'installing', 'updating'];
 const PRELOAD_PACKAGE_STATUSES = ['installed', ...RECOVERY_PACKAGE_STATUSES];
-
-export interface PackageRuntimeStatus {
-  initialized: boolean;
-  systemReady: boolean;
-  preloadRunning: boolean;
-  preloadRequested: boolean;
-  lastPreload?: {
-    status: 'running' | 'ok' | 'degraded';
-    startedAt: string;
-    completedAt?: string;
-    loaded?: number;
-    failed?: number;
-    error?: string;
-  };
-}
 
 export class PackageRuntimeService {
   private readonly logger = new Logger(PackageRuntimeService.name);
@@ -72,7 +60,7 @@ export class PackageRuntimeService {
       this.systemReady = true;
       this.schedulePackagePreload();
     });
-    this.schedulePackagePreload();
+    this.startPackagePreload();
   }
 
   schedulePackagePreload(): void {
@@ -82,26 +70,28 @@ export class PackageRuntimeService {
     this.preloadScheduled = true;
     setImmediate(() => {
       this.preloadScheduled = false;
-      this.preloadRunning = true;
-      this.preloadRequested = false;
-      this.preloadPackagesFromCdn()
-        .catch((error) => {
-          const message = getErrorMessage(error);
-          this.lastPreload = {
-            status: 'degraded',
-            startedAt: this.lastPreload?.startedAt ?? new Date().toISOString(),
-            completedAt: new Date().toISOString(),
-            error: message,
-          };
-          this.logger.error(`CDN preload failed (non-blocking): ${message}`);
-        })
-        .finally(() => {
-          this.preloadRunning = false;
-          if (this.preloadRequested) {
-            this.schedulePackagePreload();
-          }
-        });
+      this.startPackagePreload();
     });
+  }
+
+  private startPackagePreload(): void {
+    this.preloadRunning = true;
+    this.preloadRequested = false;
+    this.preloadPackagesFromCdn()
+      .catch((error) => {
+        const message = getErrorMessage(error);
+        this.lastPreload = {
+          status: 'degraded',
+          startedAt: this.lastPreload?.startedAt ?? new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+          error: message,
+        };
+        this.logger.error(`CDN preload failed (non-blocking): ${message}`);
+      })
+      .finally(() => {
+        this.preloadRunning = false;
+        if (this.preloadRequested) this.schedulePackagePreload();
+      });
   }
 
   getStatus(): PackageRuntimeStatus {
@@ -130,6 +120,15 @@ export class PackageRuntimeService {
     }
   }
 
+  private emitPackageCacheInvalidation() {
+    this.eventEmitter.emit(CACHE_EVENTS.INVALIDATE, {
+      table: 'enfyra_package',
+      action: 'reload',
+      scope: 'full',
+      timestamp: Date.now(),
+    });
+  }
+
   private async updatePackageStatus(
     id: string | number,
     status: string,
@@ -152,18 +151,12 @@ export class PackageRuntimeService {
     this.lastPreload = { status: 'running', startedAt };
 
     const packagesWithMeta = await this.loadPackagesForSync();
-    // Installed packages are already known-good, so they are warmed as soon as
-    // the service initializes to cut cold-start latency. Recovery statuses are
-    // CDN retries and wait until the system is ready.
-    const allowedStatuses = this.systemReady
-      ? PRELOAD_PACKAGE_STATUSES
-      : PRELOAD_PACKAGE_STATUSES.filter(
-          (status) => !RECOVERY_PACKAGE_STATUSES.includes(status),
-        );
+    const allowedStatuses = this.systemReady ? PRELOAD_PACKAGE_STATUSES : ['installed'];
     const toPreload = packagesWithMeta.filter(
       (pkg) =>
-        !this.packageCdnLoaderService.isLoaded(pkg.name, pkg.version) &&
-        allowedStatuses.includes(pkg.status),
+        allowedStatuses.includes(pkg.status) &&
+        (RECOVERY_PACKAGE_STATUSES.includes(pkg.status) ||
+          !this.packageCdnLoaderService.isLoaded(pkg.name, pkg.version)),
     );
 
     if (toPreload.length === 0) {
@@ -194,34 +187,54 @@ export class PackageRuntimeService {
 
     let loaded = 0;
     let failed = 0;
+    let membershipChanged = false;
 
-    for (const pkg of toPreload) {
-      try {
-        await this.packageCdnLoaderService.loadPackage(pkg.name, pkg.version);
-        await this.updatePackageStatus(pkg.id, 'installed', {
-          lastError: null,
-        });
-        this.emitEvent('installed', {
-          id: pkg.id,
-          name: pkg.name,
-          version: pkg.version,
-        });
-        loaded++;
-      } catch (error) {
-        const errorDetail = extractErrorMessage(error);
-        this.logger.error(`CDN preload failed for ${pkg.name}: ${errorDetail}`);
-        await this.updatePackageStatus(pkg.id, 'failed', {
-          lastError: errorDetail,
-        });
-        this.emitEvent('failed', {
-          id: pkg.id,
-          name: pkg.name,
-          version: pkg.version,
-          error: errorDetail,
-          operation: 'preload',
-        });
-        failed++;
+    let nextPackage = 0;
+    const prepare = async () => {
+      while (nextPackage < toPreload.length) {
+        const pkg = toPreload[nextPackage++]!;
+        try {
+          if (!this.packageCdnLoaderService.isLoaded(pkg.name, pkg.version)) {
+            await this.packageCdnLoaderService.loadPackage(pkg.name, pkg.version);
+          }
+          if (RECOVERY_PACKAGE_STATUSES.includes(pkg.status)) {
+            await this.updatePackageStatus(pkg.id, 'installed', {
+              lastError: null,
+            });
+          }
+          membershipChanged ||= RECOVERY_PACKAGE_STATUSES.includes(pkg.status);
+          this.emitEvent('installed', {
+            id: pkg.id,
+            name: pkg.name,
+            version: pkg.version,
+          });
+          loaded++;
+        } catch (error) {
+          const errorDetail = extractErrorMessage(error);
+          this.logger.error(`CDN preload failed for ${pkg.name}: ${errorDetail}`);
+          await this.updatePackageStatus(pkg.id, 'failed', {
+            lastError: errorDetail,
+          });
+          membershipChanged ||= pkg.status === 'installed';
+          this.emitEvent('failed', {
+            id: pkg.id,
+            name: pkg.name,
+            version: pkg.version,
+            error: errorDetail,
+            operation: 'preload',
+          });
+          failed++;
+        }
       }
+    };
+    const outcomes = await Promise.allSettled(
+      Array.from({ length: Math.min(3, toPreload.length) }, prepare),
+    );
+    const failure = outcomes.find((outcome) => outcome.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
+
+    if (membershipChanged) {
+      this.emitPackageCacheInvalidation();
     }
 
     this.lastPreload = {
@@ -251,6 +264,7 @@ export class PackageRuntimeService {
         isEnabled: true,
         type: 'Server',
       },
+      limit: -1,
     });
 
     return result.data.map((p: any) => ({

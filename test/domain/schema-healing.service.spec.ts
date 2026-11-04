@@ -32,6 +32,8 @@ function makeTable(
 function makeQb(findImpl: (args: any) => any, updateMock: any) {
   const knex: any = vi.fn(() => ({
     leftJoin: vi.fn().mockReturnThis(),
+    join: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
     select: vi.fn().mockResolvedValue([]),
   }));
   knex.schema = {
@@ -682,6 +684,13 @@ describe('SchemaHealingService.runIfNeeded', () => {
       }
       if (tableName === 'enfyra_relation') {
         return { where: vi.fn().mockReturnValue(relationTable()) };
+      }
+      if (tableName === 'enfyra_column as c') {
+        return {
+          join: vi.fn().mockReturnThis(),
+          where: vi.fn().mockReturnThis(),
+          select: vi.fn().mockResolvedValue([]),
+        };
       }
       throw new Error(`Unexpected table ${tableName}`);
     });

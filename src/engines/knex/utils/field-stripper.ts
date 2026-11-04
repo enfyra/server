@@ -1,7 +1,7 @@
 import type { RuntimeRegistryService } from '../../cache';
 import { isGeneratedScriptPersistenceField } from '../../../shared/utils/script-persistence-contract.util';
 import {
-  coerceTemporalWriteValue,
+  coerceTemporalContractValue,
   isTemporalColumnType,
 } from '../../../shared/utils/temporal-write.util';
 
@@ -35,10 +35,10 @@ export class FieldStripper {
         }
       }
     }
-    const temporalColumns = new Set(
+    const temporalColumns = new Map<string, string>(
       (tableMeta.columns || [])
         .filter((col: any) => isTemporalColumnType(col?.type))
-        .map((col: any) => col.name),
+        .map((col: any) => [col.name, col.type]),
     );
     const stripped = { ...data };
     for (const key of Object.keys(stripped)) {
@@ -47,9 +47,7 @@ export class FieldStripper {
         continue;
       }
       if (temporalColumns.has(key)) {
-        stripped[key] = coerceTemporalWriteValue(stripped[key], {
-          dateOnlyAsString: true,
-        });
+        stripped[key] = coerceTemporalContractValue(stripped[key], temporalColumns.get(key)!);
       }
     }
     delete stripped._m2mRelations;

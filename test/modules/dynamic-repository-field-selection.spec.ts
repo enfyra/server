@@ -609,9 +609,8 @@ describe('dynamic read field selection', () => {
 
     const result = await repo.find();
 
-    expect(queryBuilderService.find).toHaveBeenCalledWith(
-      expect.objectContaining({ fields: undefined }),
-    );
+    expect(queryBuilderService.find).toHaveBeenCalledOnce();
+    expect(queryBuilderService.find.mock.calls[0][0].fields).toBeUndefined();
     expect(result.data[0]).toMatchObject({ id: 2, name: 'Cloud R2' });
   });
 
@@ -623,9 +622,8 @@ describe('dynamic read field selection', () => {
 
     const result = await repo.find();
 
-    expect(queryBuilderService.find).toHaveBeenCalledWith(
-      expect.objectContaining({ fields: undefined }),
-    );
+    expect(queryBuilderService.find).toHaveBeenCalledOnce();
+    expect(queryBuilderService.find.mock.calls[0][0].fields).toBeUndefined();
     expect(result.data[0]).toMatchObject({ id: 2, name: 'Cloud R2' });
   });
 
