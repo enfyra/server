@@ -43,9 +43,17 @@ export function extractErrorMessage(error: any): string {
 
 export class PackageCdnLoaderService {
   private readonly logger = new Logger(PackageCdnLoaderService.name);
+  private readonly packageLoads = new Map<
+    string,
+    Promise<PackageRuntimeDescriptor>
+  >();
   private readonly dependencyManifestCache = new Map<
     string,
     CdnPackageDependencyManifest
+  >();
+  private readonly artifactManifests = new Map<
+    string,
+    { stamp: string; manifest: { name?: string; version?: string } }
   >();
 
   constructor() {
@@ -82,18 +90,27 @@ export class PackageCdnLoaderService {
     version: string,
   ): Promise<PackageRuntimeDescriptor> {
     const filePath = this.getMainFilePath(name, version);
+    const pending = this.packageLoads.get(filePath);
+    if (pending) return pending;
 
-    if (!fs.existsSync(filePath)) {
-      await this.fetchAndWriteBundle(name, version, 'node');
+    const loading = (async () => {
+      if (!fs.existsSync(filePath)) {
+        await this.fetchAndWriteBundle(name, version, 'node');
+      }
+      const descriptor = this.getPackageDescriptor(name, version);
+      if (!descriptor) {
+        throw new Error(
+          `Package artifact missing after CDN load: ${name}@${version}`,
+        );
+      }
+      return descriptor;
+    })();
+    this.packageLoads.set(filePath, loading);
+    try {
+      return await loading;
+    } finally {
+      this.packageLoads.delete(filePath);
     }
-
-    const descriptor = this.getPackageDescriptor(name, version);
-    if (!descriptor) {
-      throw new Error(
-        `Package artifact missing after CDN load: ${name}@${version}`,
-      );
-    }
-    return descriptor;
   }
 
   async preloadPackages(
@@ -126,12 +143,31 @@ export class PackageCdnLoaderService {
   }
 
   getPackageSources(names: string[]): PackageRuntimeDescriptor[] {
+    if (names.length === 0) return [];
+    const prefixes = new Set(names.map(name => `${name.replace(/[^a-zA-Z0-9]/g, '_')}@`));
+    const selected = new Map<string, { directory: string; stat: fs.Stats }>();
+    try {
+      for (const file of fs.readdirSync(CACHE_DIR)) {
+        const prefix = file.slice(0, file.lastIndexOf('@') + 1);
+        if (!prefixes.has(prefix)) continue;
+        try {
+          const directory = path.join(CACHE_DIR, file);
+          const stat = fs.statSync(path.join(directory, MAIN_FILE));
+          const current = selected.get(prefix);
+          if (!current || stat.mtimeMs > current.stat.mtimeMs) {
+            selected.set(prefix, { directory, stat });
+          }
+        } catch {}
+      }
+    } catch {
+      return [];
+    }
     const results: PackageRuntimeDescriptor[] = [];
     for (const name of names) {
       try {
-        const packageDir = this.findLatestPackageArtifactDir(name);
-        const descriptor = packageDir
-          ? this.getDescriptorFromArtifactDir(packageDir, name)
+        const artifact = selected.get(`${name.replace(/[^a-zA-Z0-9]/g, '_')}@`);
+        const descriptor = artifact
+          ? this.getDescriptorFromArtifactDir(artifact.directory, name, undefined, artifact.stat)
           : null;
         if (descriptor) results.push(descriptor);
       } catch {}
@@ -140,6 +176,7 @@ export class PackageCdnLoaderService {
   }
 
   invalidateAll(): void {
+    this.artifactManifests.clear();
     try {
       const files = fs.readdirSync(CACHE_DIR);
       for (const file of files) {
@@ -179,18 +216,36 @@ export class PackageCdnLoaderService {
     packageDir: string,
     fallbackName?: string,
     fallbackVersion?: string,
+    fileStat?: fs.Stats,
   ): PackageRuntimeDescriptor | null {
     const filePath = path.join(packageDir, MAIN_FILE);
-    if (!fs.existsSync(filePath)) return null;
+    if (!fileStat && !fs.existsSync(filePath)) return null;
 
     let manifest: { name?: string; version?: string } = {};
     try {
-      manifest = JSON.parse(
-        fs.readFileSync(path.join(packageDir, MANIFEST_FILE), 'utf-8'),
-      );
-    } catch {}
+      const manifestPath = path.join(packageDir, MANIFEST_FILE);
+      const metadata = fs.statSync(manifestPath, { bigint: true });
+      const stamp = `${metadata.dev}:${metadata.ino}:${metadata.size}:${metadata.mtimeNs}:${metadata.ctimeNs}`;
+      const cached = this.artifactManifests.get(packageDir);
+      if (cached?.stamp === stamp) {
+        manifest = cached.manifest;
+      } else {
+        manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+        this.artifactManifests.delete(packageDir);
+        if (metadata.size <= 64n * 1024n) {
+          this.artifactManifests.set(packageDir, { stamp, manifest });
+        }
+        while (this.artifactManifests.size > 500) {
+          const oldest = this.artifactManifests.keys().next().value;
+          if (oldest === undefined) break;
+          this.artifactManifests.delete(oldest);
+        }
+      }
+    } catch {
+      this.artifactManifests.delete(packageDir);
+    }
 
-    const stat = fs.statSync(filePath);
+    const stat = fileStat ?? fs.statSync(filePath);
     const name =
       manifest.name ??
       fallbackName ??
@@ -240,6 +295,9 @@ export class PackageCdnLoaderService {
   private deletePackageArtifacts(name: string): void {
     const safeName = name.replace(/[^a-zA-Z0-9]/g, '_');
     const prefix = `${safeName}@`;
+    for (const directory of this.artifactManifests.keys()) {
+      if (path.basename(directory).startsWith(prefix)) this.artifactManifests.delete(directory);
+    }
     try {
       const files = fs.readdirSync(CACHE_DIR);
       for (const file of files) {
@@ -260,48 +318,119 @@ export class PackageCdnLoaderService {
     const spec = `${name}@${version}`;
     const entryPath = `/${spec}?bundle&target=${target}`;
     const packageDir = this.getPackageArtifactDir(name, version);
-    const tempDir = `${packageDir}.tmp-${process.pid}-${Date.now()}`;
+    const stagingDir = path.join(CACHE_DIR, '.staging');
+    fs.mkdirSync(stagingDir, { recursive: true });
+    const tempDir = fs.mkdtempSync(path.join(stagingDir, 'package-'));
 
     this.logger.log(`Fetching from CDN: ${spec} (${target})`);
 
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    fs.mkdirSync(path.join(tempDir, DEPS_DIR), { recursive: true });
+    try {
+      fs.mkdirSync(path.join(tempDir, DEPS_DIR), { recursive: true });
+      const dependencyHints: CdnDependencyHints = new Map();
+      const optionalPeerDependencies = new Set<string>();
+      const code = await this.fetchAndPrepareCdnModule(
+        entryPath,
+        name,
+        version,
+        tempDir,
+        tempDir,
+        new Set<string>(),
+        new Map<string, Promise<string>>(),
+        dependencyHints,
+        optionalPeerDependencies,
+      );
 
-    const dependencyHints: CdnDependencyHints = new Map();
-    const optionalPeerDependencies = new Set<string>();
-    const code = await this.fetchAndPrepareCdnModule(
-      entryPath,
-      name,
-      version,
-      tempDir,
-      tempDir,
-      new Set<string>(),
-      new Map<string, Promise<string>>(),
-      dependencyHints,
-      optionalPeerDependencies,
+      fs.writeFileSync(path.join(tempDir, MAIN_FILE), code, 'utf-8');
+      fs.writeFileSync(
+        path.join(tempDir, MANIFEST_FILE),
+        JSON.stringify(
+          {
+            name,
+            version,
+            main: MAIN_FILE,
+            deps: DEPS_DIR,
+            source: CDN_BASE,
+            target,
+            installedAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+        'utf-8',
+      );
+
+      await this.publishArtifact(tempDir, packageDir);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+
+  private async publishArtifact(tempDir: string, packageDir: string): Promise<void> {
+    const lockDir = path.join(
+      path.dirname(tempDir),
+      `publish-${path.basename(packageDir).split('@')[0]}.lock`,
     );
+    const ownerFile = path.join(lockDir, `owner-${process.pid}`);
+    const deadline = performance.now() + 5000;
+    while (true) {
+      try {
+        fs.mkdirSync(lockDir);
+        try {
+          fs.writeFileSync(ownerFile, '', { flag: 'wx' });
+        } catch (error) {
+          fs.rmdirSync(lockDir);
+          throw error;
+        }
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        if (this.reclaimPublicationLock(lockDir)) continue;
+        if (performance.now() >= deadline) {
+          throw new Error('Package artifact publication lock timed out; inspect its owner before recovery');
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+    try {
+      try {
+        fs.renameSync(tempDir, packageDir);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== 'ENOTEMPTY' && code !== 'EEXIST') throw error;
+        if (fs.existsSync(path.join(packageDir, MAIN_FILE))) return;
+        // All publishers hold this lock before inspecting or replacing the destination.
+        fs.rmSync(packageDir, { recursive: true, force: true });
+        fs.renameSync(tempDir, packageDir);
+      }
+    } finally {
+      fs.unlinkSync(ownerFile);
+      fs.rmdirSync(lockDir);
+    }
+  }
 
-    fs.writeFileSync(path.join(tempDir, MAIN_FILE), code, 'utf-8');
-    fs.writeFileSync(
-      path.join(tempDir, MANIFEST_FILE),
-      JSON.stringify(
-        {
-          name,
-          version,
-          main: MAIN_FILE,
-          deps: DEPS_DIR,
-          source: CDN_BASE,
-          target,
-          installedAt: new Date().toISOString(),
-        },
-        null,
-        2,
-      ),
-      'utf-8',
-    );
-
-    fs.rmSync(packageDir, { recursive: true, force: true });
-    fs.renameSync(tempDir, packageDir);
+  private reclaimPublicationLock(lockDir: string): boolean {
+    try {
+      const owners = fs.readdirSync(lockDir);
+      if (owners.length !== 1) return false;
+      const owner = owners[0];
+      if (!owner || !/^owner-[1-9]\d*$/.test(owner)) return false;
+      const pid = Number(owner.slice(6));
+      if (!Number.isSafeInteger(pid)) return false;
+      try {
+        process.kill(pid, 0);
+        return false;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return false;
+      }
+      fs.unlinkSync(path.join(lockDir, owner));
+      fs.rmdirSync(lockDir);
+      return true;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return true;
+      if (code === 'ENOTEMPTY' || code === 'EEXIST') return false;
+      throw error;
+    }
   }
 
   private async fetchAndPrepareCdnModule(
@@ -438,7 +567,7 @@ export class PackageCdnLoaderService {
     );
 
     const replacements = new Map<string, string>();
-    await Promise.all(
+    const results = await Promise.allSettled(
       [...specifiers].map(async (specifier) => {
         const resolvedSpecifier = applyDependencyHintToCdnSpecifier(
           resolveCdnImportSpecifier(specifier, sourceSpecifier),
@@ -454,11 +583,7 @@ export class PackageCdnLoaderService {
           parsedDependency &&
           optionalPeerDependencies.has(parsedDependency.name)
         ) {
-          fs.writeFileSync(
-            depPath,
-            OPTIONAL_PEER_CDN_STUB_SOURCE,
-            'utf-8',
-          );
+          fs.writeFileSync(depPath, OPTIONAL_PEER_CDN_STUB_SOURCE, 'utf-8');
         } else if (isNativeCdnImport(resolvedSpecifier)) {
           fs.writeFileSync(depPath, NATIVE_CDN_STUB_SOURCE, 'utf-8');
         } else if (!fs.existsSync(depPath)) {
@@ -478,6 +603,8 @@ export class PackageCdnLoaderService {
         replacements.set(specifier, toRelativeImport(depPath, currentDir));
       }),
     );
+    const failure = results.find((result) => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
 
     return code.replace(importPattern, (full, prefix, specifier, suffix) => {
       const replacement = replacements.get(specifier);

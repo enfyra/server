@@ -48,6 +48,7 @@ export function registerExtensionRoutes(
     const dynamicService =
       req.scope?.cradle?.dynamicService ?? container.cradle.dynamicService;
     const result = await dynamicService.runHandler(req);
+    if (res.headersSent) return;
     return res.json(result);
   });
 
@@ -68,6 +69,7 @@ export function registerExtensionRoutes(
     const dynamicService =
       req.scope?.cradle?.dynamicService ?? container.cradle.dynamicService;
     const result = await dynamicService.runHandler(req);
+    if (res.headersSent) return;
     return res.json(result);
   });
 }

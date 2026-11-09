@@ -1,21 +1,19 @@
-export interface RouteMatchResult {
-  route: any;
-  params: Record<string, string>;
-}
+import type {
+  RouteMatchResult,
+  RouteMatchIndexEntry,
+} from '../types/route-match.types';
 
-export interface RouteMatchIndexEntry {
-  key?: string;
-  path: string;
-  methods: string[];
-  order?: number;
-}
+export type {
+  RouteMatchResult,
+  RouteMatchIndexEntry,
+} from '../types/route-match.types';
 
 export function matchRouteInRoutes(
   routes: any[],
   method: string,
   path: string,
 ): RouteMatchResult | null {
-  const normalizedPath = normalizeRoutePath(path);
+  const pathSegments = splitRoutePath(normalizeRoutePath(path));
   let best: {
     route: any;
     params: Record<string, string>;
@@ -27,7 +25,7 @@ export function matchRouteInRoutes(
     const route = routes[i];
     if (!isRouteMethodAvailable(route, method)) continue;
     for (const candidate of getRouteCandidatePaths(route, method)) {
-      const match = matchRoutePattern(candidate, normalizedPath);
+      const match = matchRouteSegments(candidate, pathSegments);
       if (!match) continue;
       const score = scoreRoutePattern(candidate);
       if (!best || score > best.score) {
@@ -44,7 +42,7 @@ export function matchRouteIndexEntry(
   method: string,
   path: string,
 ): { entry: RouteMatchIndexEntry; params: Record<string, string> } | null {
-  const normalizedPath = normalizeRoutePath(path);
+  const pathSegments = splitRoutePath(normalizeRoutePath(path));
   let best: {
     entry: RouteMatchIndexEntry;
     params: Record<string, string>;
@@ -55,7 +53,7 @@ export function matchRouteIndexEntry(
   for (const [i, entry] of entries.entries()) {
     if (!entry.methods.includes(method)) continue;
     for (const candidate of getRouteCandidatePaths(entry, method)) {
-      const match = matchRoutePattern(candidate, normalizedPath);
+      const match = matchRouteSegments(candidate, pathSegments);
       if (!match) continue;
       const score = scoreRoutePattern(candidate);
       const order = entry.order ?? i;
@@ -110,18 +108,27 @@ export function matchRoutePattern(
   pattern: string,
   path: string,
 ): Record<string, string> | null {
-  const patternSegments = splitRoutePath(normalizeRoutePath(pattern));
-  const pathSegments = splitRoutePath(path);
-  const params: Record<string, string> = {};
+  return matchRouteSegments(pattern, splitRoutePath(path));
+}
 
-  for (const [i, patternSegment] of patternSegments.entries()) {
+function matchRouteSegments(
+  pattern: string,
+  pathSegments: string[],
+): Record<string, string> | null {
+  const patternSegments = splitRoutePath(normalizeRoutePath(pattern));
+  let params: Record<string, string> | undefined;
+
+  for (let i = 0; i < patternSegments.length; i++) {
+    const patternSegment = patternSegments[i]!;
     const pathSegment = pathSegments[i];
     if (patternSegment === '*' || patternSegment.startsWith('*')) {
+      params ??= {};
       params.splat = pathSegments.slice(i).join('/');
       return params;
     }
     if (pathSegment === undefined) return null;
     if (patternSegment.startsWith(':')) {
+      params ??= {};
       const paramName = patternSegment.slice(1);
       try {
         params[paramName] = decodeURIComponent(pathSegment);
@@ -133,7 +140,7 @@ export function matchRoutePattern(
     if (patternSegment.toLowerCase() !== pathSegment.toLowerCase()) return null;
   }
 
-  return patternSegments.length === pathSegments.length ? params : null;
+  return patternSegments.length === pathSegments.length ? (params ?? {}) : null;
 }
 
 export function scoreRoutePattern(pattern: string): number {

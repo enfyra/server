@@ -48,6 +48,23 @@ describe('BaseCacheService', () => {
     expect(c.loadCalls).toBe(1);
   });
 
+  it('applies a partial invalidation after an already-running full load', async () => {
+    const c = new TestCache();
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(c as any, 'loadFromDb').mockImplementation(async () => {
+      await blocked;
+      return { k: 'v' };
+    });
+    const full = c.reload(false);
+    const partial = c.partialReload({ ids: ['new'] }, false);
+    release();
+    await Promise.all([full, partial]);
+    expect(c.partialCalls).toBe(1);
+  });
+
   it('partialReload on failure falls back to full reload', async () => {
     const c = new TestCache();
     c.failPartial = true;

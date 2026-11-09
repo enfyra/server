@@ -75,10 +75,21 @@ function mergeTableMigrations(
                 : nextTableChange,
             }
           : {}),
-        columnsToModify: [
-          ...(existing.columnsToModify ?? []),
-          ...(table.columnsToModify ?? []),
-        ],
+        columnsToModify: (() => {
+          const modifications = [...(existing.columnsToModify ?? [])];
+          for (const next of table.columnsToModify ?? []) {
+            const index = modifications.findIndex((prior) => prior.to.name === next.from.name);
+            if (index < 0) modifications.push(next);
+            else {
+              const prior = modifications[index]!;
+              modifications[index] = {
+                from: { ...next.from, ...prior.from },
+                to: { ...prior.to, ...next.to },
+              };
+            }
+          }
+          return modifications;
+        })(),
         columnsToRemove: [
           ...(existing.columnsToRemove ?? []),
           ...(table.columnsToRemove ?? []),
@@ -97,18 +108,33 @@ function mergeTableMigrations(
   return [...merged.values()];
 }
 
+function composeTypeMappings(
+  steps: readonly VersionedSchemaMigration[],
+  key: 'sqlColumnTypesToModify' | 'mongoColumnTypesToModify',
+): Array<{ from: string; to: string }> {
+  const sources = new Set(steps.flatMap((step) => (step.schema[key] ?? []).map((mapping) => mapping.from)));
+  return [...sources].flatMap((from) => {
+    let to = from;
+    for (const step of steps) {
+      for (const mapping of step.schema[key] ?? []) {
+        if (mapping.from === to) to = mapping.to;
+      }
+    }
+    return from === to ? [] : [{ from, to }];
+  });
+}
+
 function mergeSteps(
   steps: readonly VersionedSchemaMigration[],
 ): SchemaMigrationDef {
   return {
+    ...(steps.some((step) => (step.schema.sqlColumnTypesToModify ?? []).length > 0)
+      ? { sqlColumnTypesToModify: composeTypeMappings(steps, 'sqlColumnTypesToModify') }
+      : {}),
     ...(steps.some(
       (step) => (step.schema.mongoColumnTypesToModify ?? []).length > 0,
     )
-      ? {
-          mongoColumnTypesToModify: steps.flatMap(
-            (step) => step.schema.mongoColumnTypesToModify ?? [],
-          ),
-        }
+      ? { mongoColumnTypesToModify: composeTypeMappings(steps, 'mongoColumnTypesToModify') }
       : {}),
     coreTablesToRename: steps.flatMap(
       (step) => step.schema.coreTablesToRename ?? [],

@@ -1,4 +1,5 @@
 import { types as pgTypes } from 'pg';
+import { BadRequestException } from '../../domain/exceptions';
 
 export const TEMPORAL_COLUMN_TYPES = new Set(['date', 'datetime', 'timestamp']);
 
@@ -24,22 +25,32 @@ export function registerPgDateTypeParser(): void {
 }
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const UTC_DATETIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
 
-/**
- * Clients send temporal values as ISO-8601 strings because JSON has no date
- * type, and reads hand back the same ISO-8601 form. The write path has to
- * convert that string to a Date before it reaches the driver: MySQL DATETIME
- * rejects the `T`/`Z` form outright, and MongoDB's `$jsonSchema` validator
- * requires a BSON date rather than a string. Leaving the value as a string
- * makes a temporal column impossible to round-trip on either backend.
- *
- * `dateOnlyAsString` is set by the SQL engines only. A date-only string
- * (`2024-05-20`) parses as UTC midnight and mysql2 serializes a Date from its
- * *local* components, so on a host behind UTC the stored day would shift back
- * one (2024-05-19); the SQL drivers accept the date-only form verbatim, which
- * keeps the calendar day intact. Mongo has no such form — its validator demands
- * a BSON date — so it always receives a Date.
- */
+export function isCalendarDate(value: unknown): boolean {
+  if (typeof value !== 'string' || !DATE_ONLY_PATTERN.test(value) || value.startsWith('0000-')) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+export function isUtcDateTime(value: unknown): boolean {
+  if (value instanceof Date) return Number.isFinite(value.getTime()) && value.getUTCFullYear() >= 1 && value.getUTCFullYear() <= 9999;
+  if (typeof value !== 'string' || !UTC_DATETIME_PATTERN.test(value) || value.startsWith('0000-')) return false;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 19) === value.slice(0, 19);
+}
+
+export function coerceTemporalContractValue(value: unknown, type: string): unknown {
+  if (value === null || value === undefined) return value;
+  if (type === 'date') {
+    if (!isCalendarDate(value)) throw new BadRequestException('Date must be a valid calendar date in YYYY-MM-DD format');
+    return value;
+  }
+  if (!isUtcDateTime(value)) throw new BadRequestException('Datetime must be a valid UTC timestamp ending in Z');
+  return value instanceof Date ? value : new Date(value as string);
+}
+
+/** Permissive conversion for legacy temporal values during healing. */
 export function coerceTemporalWriteValue(
   value: unknown,
   options: { dateOnlyAsString?: boolean } = {},

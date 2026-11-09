@@ -727,72 +727,6 @@ snapshot
   });
 
 snapshot
-  .table('enfyra_auth_header', {
-    description: 'Configures request headers accepted for authentication',
-    system: true,
-  })
-  .columns({
-    id: col
-      .sqlType({ type: 'int' })
-      .mongoType({ type: 'objectId' })
-      .primary()
-      .generated()
-      .notNull()
-      .system()
-      .description('Primary key identifier'),
-    headerKey: col
-      .sqlType({ type: 'varchar' })
-      .mongoType({ type: 'string' })
-      .notNull()
-      .system()
-      .description('Request header name, normalized to lowercase'),
-    credentialType: col
-      .sqlType({ type: 'enum', options: ['pat', 'jwt'] })
-      .mongoType({ type: 'enum', options: ['pat', 'jwt'] })
-      .notNull()
-      .system()
-      .default('pat')
-      .description('Credential verifier used for this header'),
-    scheme: col
-      .sqlType({ type: 'enum', options: ['raw', 'bearer'] })
-      .mongoType({ type: 'enum', options: ['raw', 'bearer'] })
-      .notNull()
-      .system()
-      .default('raw')
-      .description('Whether the header contains a raw token or a Bearer token'),
-    priority: col
-      .sqlType({ type: 'int' })
-      .mongoType({ type: 'int' })
-      .notNull()
-      .system()
-      .default(0)
-      .description(
-        'Lower values are checked first when multiple headers are present',
-      ),
-    isEnabled: col
-      .sqlType({ type: 'boolean' })
-      .mongoType({ type: 'bool' })
-      .notNull()
-      .system()
-      .default(true)
-      .description('Whether this header mapping is active'),
-    isSystem: col
-      .sqlType({ type: 'boolean' })
-      .mongoType({ type: 'bool' })
-      .notNull()
-      .system()
-      .default(false)
-      .description('Whether this mapping is built-in and immutable'),
-    description: col
-      .sqlType({ type: 'text' })
-      .mongoType({ type: 'string' })
-      .system()
-      .nullable()
-      .description('Description of this authentication header mapping'),
-  })
-  .relations({});
-
-snapshot
   .table('enfyra_cors_origin', {
     description:
       'Allowed CORS origins served by the public /enfyra_cors_origin endpoint',
@@ -826,6 +760,20 @@ snapshot
       .system()
       .nullable()
       .description('Optional note for this origin entry'),
+  })
+  .relations({})
+  .uniques([['value']]);
+
+snapshot
+  .table('enfyra_auth_origin', {
+    description: 'Trusted application origins for authentication return URLs, independent of API CORS',
+    system: true,
+  })
+  .columns({
+    id: col.sqlType({ type: 'int' }).mongoType({ type: 'objectId' }).primary().generated().notNull().system().description('Primary key identifier'),
+    value: col.sqlType({ type: 'varchar' }).mongoType({ type: 'string' }).notNull().system().description('Exact trusted HTTP or HTTPS origin'),
+    isEnabled: col.sqlType({ type: 'boolean' }).mongoType({ type: 'bool' }).notNull().system().default(true).description('Whether authentication may return to this origin'),
+    description: col.sqlType({ type: 'text' }).mongoType({ type: 'string' }).system().nullable().description('Optional note for this trusted application'),
   })
   .relations({})
   .uniques([['value']]);
@@ -1565,8 +1513,8 @@ snapshot
       .system()
       .description('Unique session identifier'),
     expiredAt: col
-      .sqlType({ type: 'date' })
-      .mongoType({ type: 'date' })
+      .sqlType({ type: 'datetime' })
+      .mongoType({ type: 'datetime' })
       .notNull()
       .system()
       .default('now')
@@ -1641,14 +1589,14 @@ snapshot
       .system()
       .description('Safe final token characters for display'),
     expiresAt: col
-      .sqlType({ type: 'date' })
-      .mongoType({ type: 'date' })
+      .sqlType({ type: 'datetime' })
+      .mongoType({ type: 'datetime' })
       .system()
       .nullable()
       .description('When the API token expires; null means never expires'),
     lastUsedAt: col
-      .sqlType({ type: 'date' })
-      .mongoType({ type: 'date' })
+      .sqlType({ type: 'datetime' })
+      .mongoType({ type: 'datetime' })
       .system()
       .nullable()
       .description('When the API token was last exchanged for an access token'),
@@ -1732,13 +1680,13 @@ snapshot
       .nullable()
       .description('Error details if migration failed'),
     startedAt: col
-      .sqlType({ type: 'date' })
-      .mongoType({ type: 'date' })
+      .sqlType({ type: 'datetime' })
+      .mongoType({ type: 'datetime' })
       .system()
       .description('When migration started executing'),
     completedAt: col
-      .sqlType({ type: 'date' })
-      .mongoType({ type: 'date' })
+      .sqlType({ type: 'datetime' })
+      .mongoType({ type: 'datetime' })
       .system()
       .nullable()
       .description('When migration completed or was rolled back'),
@@ -3027,14 +2975,14 @@ snapshot
       .nullable()
       .description('Error details if execution failed'),
     startedAt: col
-      .sqlType({ type: 'date' })
-      .mongoType({ type: 'date' })
+      .sqlType({ type: 'datetime' })
+      .mongoType({ type: 'datetime' })
       .system()
       .nullable()
       .description('When the execution started'),
     completedAt: col
-      .sqlType({ type: 'date' })
-      .mongoType({ type: 'date' })
+      .sqlType({ type: 'datetime' })
+      .mongoType({ type: 'datetime' })
       .system()
       .nullable()
       .description('When the execution completed'),
@@ -3528,14 +3476,14 @@ snapshot
       .nullable()
       .description('Terminal failure reason'),
     startedAt: col
-      .sqlType({ type: 'date' })
-      .mongoType({ type: 'date' })
+      .sqlType({ type: 'datetime' })
+      .mongoType({ type: 'datetime' })
       .notNull()
       .system()
       .description('When reload processing started'),
     completedAt: col
-      .sqlType({ type: 'date' })
-      .mongoType({ type: 'date' })
+      .sqlType({ type: 'datetime' })
+      .mongoType({ type: 'datetime' })
       .system()
       .nullable()
       .description('When reload reached activated or failed terminal status'),
@@ -3570,7 +3518,7 @@ snapshot
       .updatable(false),
     occurredAt: col
       .sqlType({ type: 'datetime' })
-      .mongoType({ type: 'date' })
+      .mongoType({ type: 'datetime' })
       .notNull()
       .system()
       .updatable(false),
@@ -3679,7 +3627,7 @@ snapshot
       .updatable(false),
     occurredAt: col
       .sqlType({ type: 'datetime' })
-      .mongoType({ type: 'date' })
+      .mongoType({ type: 'datetime' })
       .notNull()
       .system()
       .updatable(false),

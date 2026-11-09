@@ -1,6 +1,7 @@
 import { Knex } from 'knex';
 import { supportsSqlColumnDefault } from './sql-generator';
 import { addSqlEnumColumn } from '../sql-enum.util';
+import { normalizeEnumOptionsValue } from '../../../../shared/utils/json-field-normalizer.util';
 
 export function addColumnToTable(
   table: Knex.CreateTableBuilder,
@@ -43,7 +44,10 @@ export function addColumnToTable(
       column = table.boolean(col.name);
       break;
     case 'datetime':
-      column = table.dateTime(col.name);
+      column =
+        dbType === 'postgres' || dbType === 'pg'
+          ? table.timestamp(col.name, { useTz: true })
+          : table.dateTime(col.name, { precision: 3 });
       break;
     case 'timestamp':
       column = table.timestamp(col.name);
@@ -64,24 +68,16 @@ export function addColumnToTable(
     case 'simple-json':
       column = table.text(col.name, 'longtext');
       break;
-    case 'enum':
-      if (
-        !tableName ||
-        !Array.isArray(col.options) ||
-        col.options.length === 0
-      ) {
+    case 'enum': {
+      const options = normalizeEnumOptionsValue(col.options);
+      if (!tableName || !Array.isArray(options) || options.length === 0) {
         throw new Error(
           `Enum column ${col.name} requires table identity and options`,
         );
       }
-      column = addSqlEnumColumn(
-        table,
-        tableName,
-        col.name,
-        col.options,
-        dbType,
-      );
+      column = addSqlEnumColumn(table, tableName, col.name, options, dbType);
       break;
+    }
     default:
       column = table.string(col.name);
   }

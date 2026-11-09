@@ -278,7 +278,7 @@ for (const boundary of ['handler', 'pre-hook']) {
             expect(rows).toEqual([]);
             expect(hostAborted).toBe(false);
             expect(nextCalls).toBe(0);
-            expect(ordinaryRuns).toBe(boundary === 'handler' ? 1 : 0);
+            expect(ordinaryRuns).toBe(1);
             await vi.waitFor(
               () => expect(isolated.getMetrics().pool.activeTasks).toBe(0),
               { timeout: 1000 },

@@ -16,7 +16,6 @@ import { SettingCacheService } from './setting-cache.service';
 import { StorageConfigCacheBuilder } from './storage-config-cache-builder.service';
 import { OAuthConfigCacheBuilder } from './oauth-config-cache-builder.service';
 import { CorsOriginCacheBuilder } from './cors-origin-cache-builder.service';
-import { AuthHeaderCacheBuilder } from './auth-header-cache-builder.service';
 import { FolderTreeCacheService } from './folder-tree-cache.service';
 import { FieldPermissionCacheBuilder } from './field-permission-cache-builder.service';
 import { ColumnRuleCacheBuilder } from './column-rule-cache-builder.service';
@@ -54,7 +53,6 @@ const FLOW_PRIORITY = [
   'route',
   'fieldPermission',
   'setting',
-  'authHeader',
   'guard',
   'flow',
   'websocket',
@@ -80,7 +78,6 @@ type ReloadStepName =
   | 'package'
   | 'helper'
   | 'setting'
-  | 'authHeader'
   | 'storage'
   | 'oauth'
   | 'corsOrigin'
@@ -175,7 +172,6 @@ export const RELOAD_CHAINS: Record<string, ReloadStepName[]> = {
   [SYSTEM_TABLES.columnRule]: ['column-rule'],
 
   [SYSTEM_TABLES.setting]: ['setting', 'settingGraphql'],
-  [SYSTEM_TABLES.authHeader]: ['authHeader'],
   [SYSTEM_TABLES.storageConfig]: ['storage'],
   [SYSTEM_TABLES.oauthConfig]: ['oauth'],
   [SYSTEM_TABLES.corsOrigin]: ['corsOrigin'],
@@ -208,7 +204,6 @@ export class CacheOrchestratorService implements LifecycleAware {
   private readonly packageCacheService: PackageCacheService;
   private readonly sharedHelperCacheService: SharedHelperCacheService;
   private readonly settingCacheService: SettingCacheService;
-  private readonly authHeaderCacheBuilder: AuthHeaderCacheBuilder;
   private readonly storageConfigCacheBuilder: StorageConfigCacheBuilder;
   private readonly oauthConfigCacheBuilder: OAuthConfigCacheBuilder;
   private readonly corsOriginCacheBuilder: CorsOriginCacheBuilder;
@@ -218,10 +213,12 @@ export class CacheOrchestratorService implements LifecycleAware {
   private readonly gqlDefinitionCacheService: GqlDefinitionCacheService;
   private readonly repoRegistryService: RepoRegistryService;
   private readonly runtimeRegistryService: RuntimeRegistryService | undefined;
-  private readonly runtimeReloadAuditService: RuntimeReloadAuditService | undefined;
+  private readonly runtimeReloadAuditService:
+    RuntimeReloadAuditService | undefined;
   private readonly graphqlService: GraphqlService;
   private readonly dynamicWebSocketGateway: DynamicWebSocketGateway;
-  private readonly runtimeMetricsCollectorService: RuntimeMetricsCollectorService | undefined;
+  private readonly runtimeMetricsCollectorService:
+    RuntimeMetricsCollectorService | undefined;
   private readonly redisRuntimeCacheStore: RedisRuntimeCacheStore | undefined;
   private stepMap: Record<CacheBuilderReloadStepName, ReloadStep>;
   private messageHandler: ((channel: string, message: string) => void) | null =
@@ -246,6 +243,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   private signalRetryCounts: Map<string, number> = new Map();
   private signalFirstFailures: Map<string, number> = new Map();
   private appliedSharedGeneration: string | null = null;
+  private readonly appliedSnapshotRevisions = new Map<string, string>();
   private reconcilingSharedGeneration = false;
   private generationReconciler: ReturnType<typeof setInterval> | null = null;
 
@@ -261,7 +259,6 @@ export class CacheOrchestratorService implements LifecycleAware {
     packageCacheService: PackageCacheService;
     sharedHelperCacheService: SharedHelperCacheService;
     settingCacheService: SettingCacheService;
-    authHeaderCacheBuilder: AuthHeaderCacheBuilder;
     storageConfigCacheBuilder: StorageConfigCacheBuilder;
     oauthConfigCacheBuilder: OAuthConfigCacheBuilder;
     corsOriginCacheBuilder: CorsOriginCacheBuilder;
@@ -288,7 +285,6 @@ export class CacheOrchestratorService implements LifecycleAware {
     this.packageCacheService = deps.packageCacheService;
     this.sharedHelperCacheService = deps.sharedHelperCacheService;
     this.settingCacheService = deps.settingCacheService;
-    this.authHeaderCacheBuilder = deps.authHeaderCacheBuilder;
     this.storageConfigCacheBuilder = deps.storageConfigCacheBuilder;
     this.oauthConfigCacheBuilder = deps.oauthConfigCacheBuilder;
     this.corsOriginCacheBuilder = deps.corsOriginCacheBuilder;
@@ -325,12 +321,6 @@ export class CacheOrchestratorService implements LifecycleAware {
         ),
       setting: (p, options) =>
         this.reloadSimple(this.settingCacheService, p, options?.sharedReplay),
-      authHeader: (p, options) =>
-        this.reloadSimple(
-          this.authHeaderCacheBuilder,
-          p,
-          options?.sharedReplay,
-        ),
       storage: (p, options) =>
         this.reloadSimple(
           this.storageConfigCacheBuilder,
@@ -405,6 +395,11 @@ export class CacheOrchestratorService implements LifecycleAware {
       this.debounceResolvers.push({ table: payload.table, resolve, reject });
       this.mergePayload(payload);
       if (this.debounceTimer) clearTimeout(this.debounceTimer);
+      if (payload.critical) {
+        this.debounceTimer = null;
+        queueMicrotask(() => void this.flushInvalidations());
+        return;
+      }
       this.debounceTimer = setTimeout(
         () => void this.flushInvalidations(),
         CACHE_ORCHESTRATOR_DEFAULTS.invalidationDebounceMs,
@@ -467,11 +462,27 @@ export class CacheOrchestratorService implements LifecycleAware {
     if (!pending.critical && payload.critical !== undefined) {
       pending.critical = payload.critical;
     }
+    if (pending.policyMetadataChanged !== true) {
+      if (payload.policyMetadataChanged === true) {
+        pending.policyMetadataChanged = true;
+      } else if (
+        pending.policyMetadataChanged === undefined &&
+        payload.policyMetadataChanged === false
+      ) {
+        pending.policyMetadataChanged = false;
+      }
+    }
     pending.timestamp = Math.max(pending.timestamp, payload.timestamp);
-    const tables = new Set([...(pending.affectedTables ?? []), ...(payload.affectedTables ?? [])]);
+    const tables = new Set([
+      ...(pending.affectedTables ?? []),
+      ...(payload.affectedTables ?? []),
+    ]);
     if (tables.size) pending.affectedTables = [...tables];
     else delete pending.affectedTables;
-    const renames = [...(pending.tableRenames ?? []), ...(payload.tableRenames ?? [])];
+    const renames = [
+      ...(pending.tableRenames ?? []),
+      ...(payload.tableRenames ?? []),
+    ];
     if (renames.length) pending.tableRenames = renames;
     else delete pending.tableRenames;
     if (payload.scope === 'full' || pending.scope === 'full') {
@@ -479,21 +490,45 @@ export class CacheOrchestratorService implements LifecycleAware {
       delete pending.ids;
       return;
     }
-    pending.ids = [...new Set([...(pending.ids ?? []), ...(payload.ids ?? [])])];
+    pending.ids = [
+      ...new Set([...(pending.ids ?? []), ...(payload.ids ?? [])]),
+    ];
   }
 
   private async executeChain(
     payload: TCacheInvalidationPayload,
     publish: boolean,
   ): Promise<void> {
-    const chain = RELOAD_CHAINS[payload.table];
-    if (!chain) {
+    const baseChain = RELOAD_CHAINS[payload.table];
+    if (!baseChain) {
       this.logger.debug(`No reload chain for table: ${payload.table}`);
       return;
     }
 
     const sharedRuntimeCache = this.usesSharedRuntimeCache();
     const sharedReplay = !publish && sharedRuntimeCache;
+    const canSkipPolicyAndGuardSteps =
+      !sharedReplay &&
+      (payload.table === SYSTEM_TABLES.table ||
+        payload.table === SYSTEM_TABLES.column ||
+        payload.table === SYSTEM_TABLES.relation) &&
+      payload.scope === 'partial' &&
+      payload.policyMetadataChanged === false &&
+      !payload.tableRenames?.length &&
+      this.runtimeRegistryService?.getEntry(CACHE_IDENTIFIERS.FIELD_PERMISSION)
+        ?.status === 'activated' &&
+      this.runtimeRegistryService?.getEntry(CACHE_IDENTIFIERS.COLUMN_RULE)
+        ?.status === 'activated' &&
+      this.runtimeRegistryService?.getEntry(CACHE_IDENTIFIERS.GUARD)?.status ===
+        'activated';
+    const chain = canSkipPolicyAndGuardSteps
+      ? baseChain.filter(
+          (step) =>
+            step !== 'fieldPermission' &&
+            step !== 'column-rule' &&
+            step !== 'guard',
+        )
+      : baseChain;
 
     if (publish && !sharedRuntimeCache) {
       await this.publishSignal(payload);
@@ -573,7 +608,9 @@ export class CacheOrchestratorService implements LifecycleAware {
 
         const middleSteps = chain.filter(
           (step): step is Exclude<CacheBuilderReloadStepName, 'metadata'> =>
-            step !== 'metadata' && isCacheBuilderReloadStep(step),
+            step !== 'metadata' &&
+            step !== 'graphql' &&
+            isCacheBuilderReloadStep(step),
         );
         if (middleSteps.length > 0) {
           const s = Date.now();
@@ -585,7 +622,9 @@ export class CacheOrchestratorService implements LifecycleAware {
               }
             }),
           );
-          const failure = results.find((result) => result.status === 'rejected');
+          const failure = results.find(
+            (result) => result.status === 'rejected',
+          );
           if (failure?.status === 'rejected') throw failure.reason;
           stepTimings.push(`[${middleSteps.join('+')}]:${Date.now() - s}ms`);
         }
@@ -669,17 +708,6 @@ export class CacheOrchestratorService implements LifecycleAware {
         });
         throw error;
       } finally {
-        if (
-          !reloadFailed &&
-          elapsed < CACHE_ORCHESTRATOR_DEFAULTS.minimumClientReloadStatusMs
-        ) {
-          await new Promise((r) =>
-            setTimeout(
-              r,
-              CACHE_ORCHESTRATOR_DEFAULTS.minimumClientReloadStatusMs - elapsed,
-            ),
-          );
-        }
         this.notifyClients(
           reloadFailed ? 'failed' : 'done',
           flow,
@@ -690,19 +718,28 @@ export class CacheOrchestratorService implements LifecycleAware {
     }, sharedReplay);
   }
 
-  private async runWithReloadLock(run: () => Promise<void>, sharedReplay = false): Promise<void> {
+  private async runWithReloadLock(
+    run: () => Promise<void>,
+    sharedReplay = false,
+  ): Promise<void> {
     const execute = async () => {
       this.stagedRepoAliases = undefined;
-      try { await run(); } finally { this.stagedRepoAliases = undefined; }
+      try {
+        await run();
+      } finally {
+        this.stagedRepoAliases = undefined;
+      }
     };
     const previous = this.reloadLock;
     const current = (previous ?? Promise.resolve())
       .catch(() => undefined)
-      .then(() => this.redisRuntimeCacheStore?.isEnabled()
-        ? sharedReplay
-          ? this.redisRuntimeCacheStore.runWithCommittedSnapshots(execute)
-          : this.redisRuntimeCacheStore.runWithPublication(execute)
-        : execute());
+      .then(() =>
+        this.redisRuntimeCacheStore?.isEnabled()
+          ? sharedReplay
+            ? this.redisRuntimeCacheStore.runWithCommittedSnapshots(execute)
+            : this.redisRuntimeCacheStore.runWithPublication(execute)
+          : execute(),
+      );
     this.reloadLock = current;
     try {
       await current;
@@ -821,7 +858,7 @@ export class CacheOrchestratorService implements LifecycleAware {
       await this.gqlDefinitionCacheService.syncFromSharedCache();
       return;
     }
-    await this.gqlDefinitionCacheService.reload(false);
+    await this.reloadSimple(this.gqlDefinitionCacheService, payload);
   }
 
   private async reloadSimple(
@@ -907,12 +944,6 @@ export class CacheOrchestratorService implements LifecycleAware {
           identifier: CACHE_IDENTIFIERS.SETTING,
           service: this
             .settingCacheService as unknown as RuntimeCacheViewSource,
-        };
-      case 'authHeader':
-        return {
-          identifier: CACHE_IDENTIFIERS.AUTH_HEADER,
-          service: this
-            .authHeaderCacheBuilder as unknown as RuntimeCacheViewSource,
         };
       case 'storage':
         return {
@@ -1033,7 +1064,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     steps: string[],
     payload?: TCacheInvalidationPayload,
   ): Promise<void> {
-    if (RUNTIME_ARTIFACT_STEPS.has('graphql') && steps.includes('graphql')) {
+    if (steps.includes('graphql') || steps.includes('graphqlArtifact')) {
       await this.graphqlService?.reloadSchema?.(payload);
     } else if (
       RUNTIME_ARTIFACT_STEPS.has('settingGraphql') &&
@@ -1043,7 +1074,9 @@ export class CacheOrchestratorService implements LifecycleAware {
     }
   }
 
-  private formatReloadError(error: unknown): Pick<CacheReloadStepMetric, 'error'> {
+  private formatReloadError(
+    error: unknown,
+  ): Pick<CacheReloadStepMetric, 'error'> {
     return error
       ? { error: error instanceof Error ? error.message : String(error) }
       : {};
@@ -1242,7 +1275,11 @@ export class CacheOrchestratorService implements LifecycleAware {
     if (!this.usesSharedRuntimeCache()) {
       await this.publishSignal(payload);
     }
-    await this.reloadAllLocal(true, false, this.usesSharedRuntimeCache() ? payload : undefined);
+    await this.reloadAllLocal(
+      true,
+      false,
+      this.usesSharedRuntimeCache() ? payload : undefined,
+    );
   }
 
   private async reloadAllLocal(
@@ -1263,7 +1300,6 @@ export class CacheOrchestratorService implements LifecycleAware {
         'websocket',
         'package',
         'setting',
-        'authHeader',
         'storage',
         'oauth',
         'corsOrigin',
@@ -1272,6 +1308,33 @@ export class CacheOrchestratorService implements LifecycleAware {
         'columnRule',
         'graphql',
       ];
+      const revisions = new Map<string, string>();
+      const changedSteps =
+        sharedReplay &&
+        this.redisRuntimeCacheStore?.getCommittedSnapshotRevision
+          ? steps.filter((step) => {
+              if (step === 'repoRegistry') return false;
+              const target = this.getRuntimeCachePublishTarget(step);
+              if (!target) return true;
+              const revision =
+                this.redisRuntimeCacheStore!.getCommittedSnapshotRevision(
+                  target.identifier,
+                );
+              if (revision) revisions.set(target.identifier, revision);
+              return (
+                !revision ||
+                this.appliedSnapshotRevisions.get(target.identifier) !==
+                  revision
+              );
+            })
+          : [...steps];
+      if (
+        changedSteps.includes('metadata') &&
+        !changedSteps.includes('repoRegistry')
+      )
+        changedSteps.push('repoRegistry');
+      if (sharedReplay && changedSteps.length === 0) return;
+      const activeSteps = new Set(changedSteps);
       const stepMetrics: Array<{
         name: string;
         durationMs: number;
@@ -1310,16 +1373,18 @@ export class CacheOrchestratorService implements LifecycleAware {
           instanceId: this.instanceService.getInstanceId(),
         });
         if (notify) this.notifyClients('pending', 'all', steps, reloadId);
-        await runStep('metadata', () =>
-          sharedReplay
-            ? this.metadataCacheService.syncFromSharedCache()
-            : this.metadataCacheService.reload(),
-        );
-        await runStep('helper', () =>
-          sharedReplay
-            ? this.sharedHelperCacheService.syncFromSharedCache()
-            : this.sharedHelperCacheService.reload(false),
-        );
+        if (activeSteps.has('metadata'))
+          await runStep('metadata', () =>
+            sharedReplay
+              ? this.metadataCacheService.syncFromSharedCache()
+              : this.metadataCacheService.reload(),
+          );
+        if (activeSteps.has('helper'))
+          await runStep('helper', () =>
+            sharedReplay
+              ? this.sharedHelperCacheService.syncFromSharedCache()
+              : this.sharedHelperCacheService.reload(false),
+          );
         const builderSteps = [
           { name: 'repoRegistry', run: () => this.reloadRepoRegistry() },
           {
@@ -1363,13 +1428,6 @@ export class CacheOrchestratorService implements LifecycleAware {
               sharedReplay
                 ? this.settingCacheService.syncFromSharedCache()
                 : this.settingCacheService.reload(false),
-          },
-          {
-            name: 'authHeader',
-            run: () =>
-              sharedReplay
-                ? this.authHeaderCacheBuilder.syncFromSharedCache()
-                : this.authHeaderCacheBuilder.reload(false),
           },
           {
             name: 'storage',
@@ -1422,17 +1480,37 @@ export class CacheOrchestratorService implements LifecycleAware {
           },
         ];
         await this.runBoundedReloadSteps(
-          builderSteps,
+          builderSteps.filter((step) => activeSteps.has(step.name)),
           CACHE_ORCHESTRATOR_DEFAULTS.fullReloadBuilderConcurrency,
           (step) => runStep(step.name, step.run),
         );
-        await this.commitRuntimeReloadTransaction(steps, undefined, signalPayload);
+        const commitSteps = [...changedSteps];
+        if (
+          sharedReplay &&
+          activeSteps.has('metadata') &&
+          !activeSteps.has('graphql')
+        )
+          commitSteps.push('graphqlArtifact');
+        if (
+          sharedReplay &&
+          activeSteps.has('setting') &&
+          !activeSteps.has('graphql') &&
+          !activeSteps.has('metadata')
+        )
+          commitSteps.push('settingGraphql');
+        await this.commitRuntimeReloadTransaction(
+          commitSteps,
+          undefined,
+          signalPayload,
+        );
+        for (const [identifier, revision] of revisions)
+          this.appliedSnapshotRevisions.set(identifier, revision);
         await this.runtimeReloadAuditService?.markActivated({
           reloadId,
           durationMs: Date.now() - start,
           steps: stepMetrics,
         });
-        await this.markSharedGenerationApplied();
+        if (!sharedReplay) await this.markSharedGenerationApplied();
       } catch (error) {
         reloadError = error;
         this.logger.error('Admin reload ALL failed:', error);
@@ -1521,10 +1599,14 @@ export class CacheOrchestratorService implements LifecycleAware {
           if (this.usesSharedRuntimeCache()) {
             await this.reloadAllLocal(false, true);
             const clientSteps = RELOAD_CHAINS[signal.payload?.table]?.filter(
-              step => step === 'menu' || step === 'extension',
+              (step) => step === 'menu' || step === 'extension',
             );
             if (clientSteps?.length) {
-              this.notifyClients('done', this.resolveFlowName(clientSteps), clientSteps);
+              this.notifyClients(
+                'done',
+                this.resolveFlowName(clientSteps),
+                clientSteps,
+              );
             }
           } else if (signal.payload?.table === '__admin_reload_all') {
             await this.reloadAllLocal(false, false);
@@ -1658,7 +1740,10 @@ export class CacheOrchestratorService implements LifecycleAware {
       await this.reloadAllLocal(false, true);
       this.appliedSharedGeneration = generation;
     } catch (error) {
-      this.logger.error('Shared runtime cache generation reconcile failed:', error);
+      this.logger.error(
+        'Shared runtime cache generation reconcile failed:',
+        error,
+      );
     } finally {
       this.reconcilingSharedGeneration = false;
     }

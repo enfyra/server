@@ -42,6 +42,51 @@ function makeService(gateways: any[], events: any[]) {
 }
 
 describe('WebsocketCacheBuilder partial reload', () => {
+  it.each(['full', 'gateway', 'event'])(
+    'loads all events without a per-gateway cap on %s reload',
+    async (mode) => {
+      const gateways = [{ id: 1, path: '/chat', isEnabled: true }];
+      const events = Array.from({ length: 125 }, (_, index) => ({
+        id: index + 1,
+        eventName: `event:${index}`,
+        isEnabled: true,
+        gateway: { id: 1 },
+      }));
+      const { svc, qb } = makeService(gateways, events);
+      qb.find.mockImplementation(async (options: any) => {
+        if (options.table === 'enfyra_websocket')
+          return { data: structuredClone(gateways) };
+        const ids = options.filter?.id?._in;
+        const rows = ids
+          ? events.filter((event) => ids.includes(event.id))
+          : events;
+        return {
+          data: structuredClone(
+            options.limit > 0 ? rows.slice(0, options.limit) : rows,
+          ),
+        };
+      });
+      await svc.reload(false);
+      if (mode !== 'full')
+        await svc.partialReload(
+          {
+            table:
+              mode === 'gateway'
+                ? 'enfyra_websocket'
+                : 'enfyra_websocket_event',
+            action: 'reload',
+            timestamp: 0,
+            scope: 'partial',
+            ids: [mode === 'gateway' ? 1 : 125],
+          },
+          false,
+        );
+      const cached = await svc.getCacheAsync();
+      expect(cached[0].events).toHaveLength(125);
+      expect(cached[0].events[124].eventName).toBe('event:124');
+    },
+  );
+
   it('supports partial reload', () => {
     const { svc } = makeService([], []);
     expect(svc.supportsPartialReload()).toBe(true);

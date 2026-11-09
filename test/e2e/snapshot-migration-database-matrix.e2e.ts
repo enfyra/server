@@ -132,6 +132,7 @@ function serverEnvironment(
 ): NodeJS.ProcessEnv {
   return {
     ...process.env,
+    DOTENV_CONFIG_PATH: '/dev/null',
     DB_URI: dbUri,
     REDIS_URI: redisUri(),
     PORT: String(port),
@@ -282,7 +283,7 @@ async function crashServerAtProgress(
 async function clearProvisionLock(nodeName: string): Promise<void> {
   const redis = new Redis(redisUri(), { maxRetriesPerRequest: 1 });
   try {
-    await redis.del(`${nodeName}:${PROVISION_LOCK_KEY}`, PROVISION_LOCK_KEY);
+    await redis.del(`${nodeName}:${PROVISION_LOCK_KEY}`);
   } finally {
     await redis.quit();
   }
@@ -301,7 +302,8 @@ const BOOTSTRAP_CRASH_CHECKPOINTS = [
   'applying data migrations',
   'attesting data target state',
   'finalizing',
-];
+].filter((checkpoint) => !process.env.MATRIX_CRASH_CHECKPOINTS || process.env.MATRIX_CRASH_CHECKPOINTS.split(',').includes(checkpoint));
+if (process.env.MATRIX_CRASH_CHECKPOINTS) assert.equal(BOOTSTRAP_CRASH_CHECKPOINTS.length, new Set(process.env.MATRIX_CRASH_CHECKPOINTS.split(',')).size, 'Unknown bootstrap crash checkpoint');
 
 function migrationDefinition(): SchemaMigrationDef {
   return {
@@ -1599,7 +1601,7 @@ async function runMongoRenameConflict(): Promise<void> {
   }
 }
 
-async function runMongoUserRolesMigration(): Promise<void> {
+async function runMongoRelationRemovalPreservesRoles(): Promise<void> {
   const mongoUser = encodeURIComponent(required('MATRIX_MONGO_USER'));
   const mongoPassword = encodeURIComponent(required('MATRIX_MONGO_PASSWORD'));
   const mongoHost = process.env.MATRIX_MONGO_HOST || '127.0.0.1';
@@ -1632,21 +1634,18 @@ async function runMongoUserRolesMigration(): Promise<void> {
         { _id: 'user-2', role: 'role-2' },
         { _id: 'user-3' },
       ]);
+    const junction = getJunctionTableName('enfyra_user', 'roles', 'enfyra_role');
+    const links = [
+      { sourceId: 'user-1', targetId: 'role-1' },
+      { sourceId: 'user-2', targetId: 'role-2' },
+    ];
+    await db.collection(junction).insertMany(links);
+    const before = await db.collection(junction).find({}).sort({ sourceId: 1 }).toArray();
     await applyMongoSchemaMigrations(db, migration);
     await applyMongoSchemaMigrations(db, migration);
 
-    const userRoles = await db
-      .collection('enfyra_user_roles')
-      .find({})
-      .sort({ userId: 1 })
-      .toArray();
-    assert.deepEqual(
-      userRoles.map(({ _id, ...role }) => role),
-      [
-        { userId: 'user-1', roleId: 'role-1' },
-        { userId: 'user-2', roleId: 'role-2' },
-      ],
-    );
+    assert.deepEqual(await db.collection(junction).find({}).sort({ sourceId: 1 }).toArray(), before);
+    assert.equal((await db.listCollections({ name: 'enfyra_user_roles' }).toArray()).length, 0);
     assert.deepEqual(
       await db.collection('enfyra_user').find({}).sort({ _id: 1 }).toArray(),
       [{ _id: 'user-1' }, { _id: 'user-2' }, { _id: 'user-3' }],
@@ -1906,11 +1905,13 @@ async function main(): Promise<void> {
       console.log('MongoDB snapshot migration E2E passed');
       await runMongoRenameConflict();
       console.log('MongoDB conflict and retry E2E passed');
-      await runMongoUserRolesMigration();
-      console.log('MongoDB user roles migration E2E passed');
+      await runMongoRelationRemovalPreservesRoles();
+      console.log('MongoDB declared relation removal preserves existing roles E2E passed');
     }
-    await runMongoBoot(18107);
-    console.log('MongoDB full bootstrap E2E passed');
+    if (process.env.MATRIX_MIGRATION_ONLY !== '1') {
+      await runMongoBoot(18107);
+      console.log('MongoDB full bootstrap E2E passed');
+    }
   }
 }
 

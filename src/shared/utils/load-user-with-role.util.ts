@@ -61,8 +61,8 @@ function normalizeRoleLookupId(
 ): unknown | null {
   const roleId =
     rawRole && typeof rawRole === 'object' && !(rawRole instanceof ObjectId)
-      ? (rawRole as { _id?: unknown; id?: unknown })._id ??
-        (rawRole as { id?: unknown }).id
+      ? ((rawRole as { _id?: unknown; id?: unknown })._id ??
+        (rawRole as { id?: unknown }).id)
       : rawRole;
   if (roleId === undefined || roleId === null) return null;
   return queryBuilder.isMongoDb() ? toMongoObjectId(roleId) : toSqlId(roleId);
@@ -80,6 +80,7 @@ export async function loadUserWithRoles(
     table: 'enfyra_user',
     where: { [idField]: idValue },
     fields: ['*', 'roles.*'],
+    deep: { roles: { limit: -1 } },
   });
   if (!user) return null;
 
@@ -118,10 +119,7 @@ export async function loadCachedUserWithRoles(
   const cacheKey = userCacheKey(idValue);
   const cachedUser = localUserCache.get(cacheKey);
   if (cachedUser) {
-    if (
-      cachedUser.revision === revision &&
-      cachedUser.expiresAt > Date.now()
-    ) {
+    if (cachedUser.revision === revision && cachedUser.expiresAt > Date.now()) {
       return cachedUser.user;
     }
     localUserCache.delete(cacheKey);
@@ -205,11 +203,7 @@ async function getOrCreateUserAuthorizationRevision(
     if (typeof current === 'string' && current) return current;
 
     const revision = randomUUID();
-    await cacheService.set(
-      key,
-      revision,
-      USER_AUTHORIZATION_REVISION_TTL_MS,
-    );
+    await cacheService.set(key, revision, USER_AUTHORIZATION_REVISION_TTL_MS);
     return revision;
   } catch {
     return null;

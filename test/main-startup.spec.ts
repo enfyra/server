@@ -55,12 +55,15 @@ vi.mock('http', () => ({
     };
   },
 }));
-vi.mock('../src/init', async () => {
-  const { runStartupSteps, startupProgressWrite, formatStartupProgressLine } =
-    await import('../src/shared/startup-log');
+vi.mock('../src/init', () => {
   return {
     shutdown: vi.fn(),
     init: async (_container: unknown, finalSteps: any[]) => {
+      const {
+        runStartupSteps,
+        startupProgressWrite,
+        formatStartupProgressLine,
+      } = await import('../src/shared/startup-log');
       await runStartupSteps([
         {
           label: 'runtime',
@@ -203,17 +206,45 @@ describe('main startup output', () => {
     );
   });
 
+  it('prints only the completion line even when a quiet cold start takes fourteen seconds', async () => {
+    let clock = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => clock);
+    vi.spyOn(Date, 'now').mockImplementation(() => 1793750000000 + clock);
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await import('../src/main');
+    await vi.waitFor(() => expect(mocks.holdQueue).toBeTypeOf('function'));
+    expect(log).not.toHaveBeenCalled();
+    clock = 14000;
+    mocks.holdQueue!();
+    await vi.waitFor(() =>
+      expect(log.mock.calls.flat().join(' ')).toContain(
+        'Cold Start completed! Total: 14000ms',
+      ),
+    );
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(log.mock.calls.flat().join(' ')).not.toContain('Slow startup steps');
+    expect(log.mock.calls.flat().join(' ')).not.toContain(
+      'kernel worker noise',
+    );
+  });
+
   it('exposes HTTP readiness diagnostics without progress bars in verbose mode', async () => {
     vi.stubEnv('STARTUP_VERBOSE', '1');
-    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stdout = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     await import('../src/main');
     await vi.waitFor(() => expect(mocks.holdQueue).toBeTypeOf('function'));
     expect(log.mock.calls.flat().join(' ')).toContain('HTTP listening on port');
     expect(log.mock.calls.flat().join(' ')).toContain('kernel worker noise');
     mocks.holdQueue!();
-    await vi.waitFor(() => expect(log.mock.calls.flat().join(' ')).toContain('Cold Start completed!'));
+    await vi.waitFor(() =>
+      expect(log.mock.calls.flat().join(' ')).toContain(
+        'Cold Start completed!',
+      ),
+    );
     expect(stdout).not.toHaveBeenCalled();
   });
-
 });

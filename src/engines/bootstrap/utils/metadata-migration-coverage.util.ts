@@ -149,10 +149,12 @@ export function validateSnapshotMigrationCoverage(
         continue;
       }
 
-      const declaredMongoType = migration?.mongoColumnTypesToModify?.find(
-        (entry) => entry.from === currentColumn.type,
-      )?.to;
-      const bulkTypeDeclared = declaredMongoType === targetColumn.type;
+      const mappings = migration?.mongoColumnTypesToModify ?? migration?.sqlColumnTypesToModify ?? [];
+      let declaredType = currentColumn.type;
+      for (const entry of mappings) {
+        if (entry.from === declaredType) declaredType = entry.to;
+      }
+      const bulkTypeDeclared = declaredType !== currentColumn.type && declaredType === targetColumn.type;
       const changed = excludeHealable(
         changedFields(
           currentColumn,

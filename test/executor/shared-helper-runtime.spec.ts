@@ -193,7 +193,7 @@ describe('Server-owned same-task helper execution on the installed Kernel', () =
     ).rejects.toThrow(/call limit/i);
   });
 
-  it('supports post-hook-only batches and preserves pre-hook short-circuit behavior', async () => {
+  it('supports post-hook-only batches and continues after a pre-hook return', async () => {
     const { service, context } = fixture();
     await service.runBatch(
       {
@@ -221,11 +221,11 @@ describe('Server-owned same-task helper execution on the installed Kernel', () =
             },
             {
               type: 'handler',
-              code: 'throw new Error("handler must not run");',
+              code: 'return { handler: true };',
             },
             {
               type: 'postHook',
-              code: 'throw new Error("post-hook must not run");',
+              code: 'return { ...$ctx.$data, post: true };',
             },
           ],
         },
@@ -233,8 +233,8 @@ describe('Server-owned same-task helper execution on the installed Kernel', () =
       3000,
     );
     expect(result).toMatchObject({
-      shortCircuit: true,
-      value: { params: 'short' },
+      shortCircuit: false,
+      value: { handler: true, post: true },
     });
     await expect(
       service.runBatch(

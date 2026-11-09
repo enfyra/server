@@ -278,7 +278,7 @@ describe('QueryPlanner contracts', () => {
     { limit: 1.5 },
     { limit: Number.POSITIVE_INFINITY },
     { limit: Number.MAX_SAFE_INTEGER + 1 },
-    { limit: -1 },
+    { limit: -2 },
     { page: '2x', limit: 10 },
     { page: 1.5, limit: 10 },
     { page: 0, limit: 10 },

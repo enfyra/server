@@ -235,6 +235,9 @@ export class MongoTableHandlerService {
     }
     for (const rel of body.relations || []) {
       if (rel?.propertyName) fields.add(rel.propertyName);
+      if ((rel as any)?.foreignKeyColumn) {
+        fields.add((rel as any).foreignKeyColumn);
+      }
     }
     return fields;
   }
@@ -269,12 +272,14 @@ export class MongoTableHandlerService {
       const oldRel = oldRelationsById.get(
         String((rel as any).id ?? (rel as any)._id),
       );
-      if (
-        oldRel?.propertyName &&
-        rel.propertyName &&
-        oldRel.propertyName !== rel.propertyName
-      ) {
-        renames.set(oldRel.propertyName, rel.propertyName);
+      if (!oldRel) continue;
+      const oldField = oldRel.foreignKeyColumn || oldRel.propertyName;
+      const newField =
+        (rel as any).foreignKeyColumn ||
+        oldRel.foreignKeyColumn ||
+        rel.propertyName;
+      if (oldField && newField && oldField !== newField) {
+        renames.set(oldField, newField);
       }
     }
     return renames;

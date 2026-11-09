@@ -13,6 +13,7 @@ import { globalExceptionMiddleware } from './domain/exceptions';
 
 import { bodyParserMiddleware } from './http/middlewares/body-parser.middleware';
 import { corsOriginMiddleware } from './http/middlewares/cors-origin.middleware';
+import { dynamicInterceptorBegin } from './http/middlewares/dynamic-interceptor.middleware';
 import {
   pipelinePreRouting,
   pipelineGuardsAuth,
@@ -126,7 +127,8 @@ export function buildExpressApp(container: AwilixContainer<Cradle>, isStartupCom
   for (const mw of pipelineRequestHandling(c, container)) app.use(mw);
 
   // ── Built-in routes ───────────────────────────────────────────────
-  const nativeRoutes = createNativeRouteRegistrar(app);
+  const beforeNative = dynamicInterceptorBegin(c.executorEngineService, c.runtimeScriptRepairService, c.dynamicCancellationService);
+  const nativeRoutes = createNativeRouteRegistrar(app, beforeNative);
   registerAuthRoutes(nativeRoutes, container);
   registerOAuthRoutes(nativeRoutes, container);
   registerAdminRoutes(nativeRoutes, container);
@@ -141,7 +143,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>, isStartupCom
 
   // ── GraphQL ───────────────────────────────────────────────────────
   c.graphqlService.getYogaApp();
-  app.use('/graphql', (req: RuntimeRequest, res: Response) => {
+  app.use('/graphql', beforeNative, (req: RuntimeRequest, res: Response) => {
     const yogaApp = c.graphqlService.getYogaApp();
     return yogaApp(req, res, {
       clientIp: resolveClientIpFromRequest(req),

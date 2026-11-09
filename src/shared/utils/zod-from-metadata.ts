@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { TColumnRule } from '../../engines/cache';
 import { isExactInt64 } from './int64.util';
+import { isCalendarDate, isUtcDateTime } from './temporal-write.util';
 
 const AUTO_MANAGED_COLUMNS = new Set(['id', '_id', 'createdAt', 'updatedAt']);
 
@@ -135,9 +136,11 @@ function buildColumnZod(
       s = z.string();
       break;
     case 'date':
+      s = z.string().refine(isCalendarDate, 'Expected a valid calendar date in YYYY-MM-DD format');
+      break;
     case 'datetime':
     case 'timestamp':
-      s = z.union([z.string(), z.date()]);
+      s = z.union([z.string(), z.date()]).refine(isUtcDateTime, 'Expected a valid UTC datetime ending in Z');
       break;
     case 'uuid':
     case 'objectId':

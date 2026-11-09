@@ -34,20 +34,31 @@ describe('RuntimeMonitorService', () => {
     const metrics = {
       instance: { eventLoopLagMs: 10000, heapUsedMb: 99, heapLimitMb: 100 },
       executor: {
-        pool: { waitingTasks: 200, workers: [] }, maxHeapRatio: 0.99,
-        p99TaskMs: 10000, p99QueueWaitMs: 10000, rotationsTotal: 20,
+        pool: { waitingTasks: 200, workers: [] },
+        maxHeapRatio: 0.99,
+        p99TaskMs: 10000,
+        p99QueueWaitMs: 10000,
+        rotationsTotal: 20,
       },
-      queues: { flow: { waiting: 2000, failed: 0 }, websocket: { waiting: 2000, failed: 0 } },
+      queues: {
+        flow: { waiting: 2000, failed: 0 },
+        websocket: { waiting: 2000, failed: 0 },
+      },
       db: { pool: { pending: 200 } },
       app: { database: { totalSlow: 200 }, flows: { rows: [] } },
     };
     expect(Object.values((service as any).evaluateHealth(metrics))).toEqual(
       Array.from({ length: 5 }, () => ({ severity: 'ok', messages: [] })),
     );
-    metrics.app.database = { totalSlow: 200, totalErrors: 1, totalPoolAcquireTimeouts: 2 } as any;
+    metrics.app.database = {
+      totalSlow: 200,
+      totalErrors: 1,
+      totalPoolAcquireTimeouts: 2,
+    } as any;
     const health = (service as any).evaluateHealth(metrics);
     expect(health.database).toEqual({
-      severity: 'error', messages: ['2 DB pool acquire timeouts.', '1 DB query error.'],
+      severity: 'error',
+      messages: ['2 DB pool acquire timeouts.', '1 DB query error.'],
     });
   });
 
@@ -67,7 +78,9 @@ describe('RuntimeMonitorService', () => {
         onDestroy: vi.fn().mockResolvedValue(undefined),
       },
       clusterTelemetryService: {
-        publish: vi.fn(() => { receivedAt.push(Date.now()); }),
+        publish: vi.fn(() => {
+          receivedAt.push(Date.now());
+        }),
         clearCurrentInstance: vi.fn().mockResolvedValue(undefined),
       },
     });
@@ -105,7 +118,9 @@ describe('RuntimeMonitorService', () => {
           onDestroy: vi.fn().mockResolvedValue(undefined),
         },
         clusterTelemetryService: {
-          publish: vi.fn(() => { receivedAt.push(Date.now()); }),
+          publish: vi.fn(() => {
+            receivedAt.push(Date.now());
+          }),
           clearCurrentInstance: vi.fn().mockResolvedValue(undefined),
         },
       });
@@ -153,6 +168,38 @@ describe('RuntimeMonitorService', () => {
     );
   });
 
+  it('collects Redis only for local runtime monitor subscribers and stops after they leave', async () => {
+    let listeners = 0;
+    const getOverview = vi.fn().mockResolvedValue({});
+    const localNamespaceRoomSize = vi.fn(async () => listeners);
+    const emitToLocalNamespaceRoom = vi.fn();
+    const service = makeService({
+      dynamicWebSocketGateway: {
+        localNamespaceRoomSize,
+        emitToLocalNamespaceRoom,
+      },
+      redisAdminService: { getOverview },
+    });
+    await service.emitRedisOverview();
+    expect(getOverview).not.toHaveBeenCalled();
+    listeners = 1;
+    await service.emitRedisOverview();
+    expect(getOverview).toHaveBeenCalledOnce();
+    expect(localNamespaceRoomSize).toHaveBeenCalledWith(
+      '/enfyra-admin',
+      '$system:runtime-monitor',
+    );
+    expect(emitToLocalNamespaceRoom).toHaveBeenCalledWith(
+      '/enfyra-admin',
+      '$system:runtime-monitor',
+      '$system:redis:overview',
+      {},
+    );
+    listeners = 0;
+    await service.emitRedisOverview();
+    expect(getOverview).toHaveBeenCalledOnce();
+  });
+
   it('returns every active instance in one cluster snapshot without collecting another sample', async () => {
     const instances = [
       { instanceId: 'a', payload: { instance: { id: 'a' } } },
@@ -162,9 +209,12 @@ describe('RuntimeMonitorService', () => {
     const service = makeService({ clusterTelemetryService: { readCluster } });
     const getSnapshot = vi.spyOn(service, 'getSnapshot');
     expect(await service.getClusterSnapshot()).toEqual({
-      intervalMs: 2000, instances: instances.map((item) => item.payload),
+      intervalMs: 2000,
+      instances: instances.map((item) => item.payload),
     });
-    expect(readCluster).toHaveBeenCalledWith('runtime-monitor:metrics', { ttlMs: 10000 });
+    expect(readCluster).toHaveBeenCalledWith('runtime-monitor:metrics', {
+      ttlMs: 10000,
+    });
     expect(getSnapshot).not.toHaveBeenCalled();
   });
 

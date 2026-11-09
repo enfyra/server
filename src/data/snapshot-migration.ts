@@ -50,6 +50,15 @@ function jsonColumnModifications(
   }));
 }
 
+const LEGACY_SQL_COLUMN_TYPES = [
+  'int', 'varchar', 'text', 'longtext', 'boolean', 'uuid', 'ObjectId', 'bigint',
+  'date', 'datetime', 'timestamp', 'enum', 'simple-json', 'code', 'array-select', 'richtext', 'float',
+];
+const LEGACY_MONGO_COLUMN_TYPES = [
+  'int', 'string', 'bool', 'uuid', 'objectId', 'long', 'date', 'enum', 'json',
+  'code', 'array-select', 'richtext', 'double', 'object', 'array',
+];
+
 const snapshotMigrations: VersionedSchemaMigration[] = [
   {
     fromVersion: '2.2.19-patch-1',
@@ -74,11 +83,11 @@ const snapshotMigrations: VersionedSchemaMigration[] = [
                 name: 'type',
                 sqlType: {
                   type: 'enum',
-                  options: [...ENFYRA_COLUMN_TYPE_OPTIONS],
+                  options: [...LEGACY_SQL_COLUMN_TYPES],
                 },
                 mongoType: {
                   type: 'enum',
-                  options: [...MONGO_COLUMN_TYPE_OPTIONS],
+                  options: [...LEGACY_MONGO_COLUMN_TYPES],
                 },
               },
             },
@@ -491,6 +500,34 @@ const snapshotMigrations: VersionedSchemaMigration[] = [
         },
       ],
     },
+  },
+  {
+    fromVersion: '2.3.3',
+    toVersion: '2.4.0',
+    schema: {
+      sqlColumnTypesToModify: [{ from: 'date', to: 'datetime' }, { from: 'timestamp', to: 'datetime' }],
+      mongoColumnTypesToModify: [{ from: 'date', to: 'datetime' }, { from: 'timestamp', to: 'datetime' }],
+      tables: [{
+        _unique: { name: { _eq: 'enfyra_column' } },
+        columnsToModify: [{
+          from: {
+            name: 'type',
+            sqlType: { type: 'enum', options: LEGACY_SQL_COLUMN_TYPES },
+            mongoType: { type: 'enum', options: LEGACY_MONGO_COLUMN_TYPES },
+          },
+          to: {
+            name: 'type',
+            sqlType: { type: 'enum', options: [...ENFYRA_COLUMN_TYPE_OPTIONS] },
+            mongoType: { type: 'enum', options: [...MONGO_COLUMN_TYPE_OPTIONS] },
+          },
+        }],
+      }],
+    },
+  },
+  {
+    fromVersion: '2.4.0',
+    toVersion: '2.4.1',
+    schema: { tables: [], tablesToDrop: ['enfyra_auth_header'] },
   },
 ];
 

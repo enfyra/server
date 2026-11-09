@@ -1,3 +1,4 @@
+import type { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '@enfyra/kernel';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
@@ -23,21 +24,52 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
     this.queryBuilderService = deps.queryBuilderService;
   }
 
+  override supportsPartialReload(): boolean {
+    return true;
+  }
+
+  protected override async applyPartialUpdate(
+    payload: TCacheInvalidationPayload,
+  ): Promise<void> {
+    if (payload.table !== 'enfyra_folder') {
+      await this.reloadFromPartial();
+      return;
+    }
+    const ids = payload.ids ?? [];
+    if (!ids.length) return;
+    const changed = new Set(ids.map(String));
+    const updates = await this.loadFolders(ids);
+    this.cache = this.transformData(
+      [...this.cache.folders.values()]
+        .filter((folder) => !changed.has(String(folder.id)))
+        .concat(updates),
+    );
+  }
+
   protected async loadFromDb(): Promise<FolderNode[]> {
+    return this.loadFolders();
+  }
+
+  private async loadFolders(ids?: (string | number)[]): Promise<FolderNode[]> {
     const result = await this.queryBuilderService.find({
       table: 'enfyra_folder',
       fields: ['id', 'name', 'slug', 'order', 'icon', 'description', 'parent'],
       sort: ['order'],
+      ...(ids ? { filter: { id: { _in: ids } } } : {}),
+      limit: -1,
     });
 
     return result.data.map((f: any) => ({
-      id: f.id,
+      id: String(f._id ?? f.id),
       name: f.name,
       slug: f.slug,
       order: f.order,
       icon: f.icon,
       description: f.description,
-      parentId: f.parent?.id ?? null,
+      parentId:
+        f.parent == null
+          ? null
+          : String(f.parent?._id ?? f.parent?.id ?? f.parent),
     }));
   }
 

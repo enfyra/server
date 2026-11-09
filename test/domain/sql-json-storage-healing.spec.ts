@@ -10,7 +10,11 @@ vi.mock('../../src/engines/knex/utils/provision/schema-comparison', () => ({
   getCurrentDatabaseSchema: vi.fn(),
 }));
 
-function service(physicalType: string, dbType = 'mysql') {
+function service(
+  physicalType: string,
+  dbType = 'mysql',
+  checks: string[] = [],
+) {
   const rows = [{ tableName: 'posts', columnName: 'payload' }];
   const knex: any = () => ({
     join: () => ({
@@ -18,6 +22,11 @@ function service(physicalType: string, dbType = 'mysql') {
     }),
   });
   knex.schema = { hasTable: async () => true, hasColumn: async () => true };
+  knex.raw = vi.fn(async (query: string) =>
+    query.includes('VERSION()')
+      ? [[{ version: '11.8.9-MariaDB' }]]
+      : [checks.map((clause) => ({ clause }))],
+  );
   knex.client = { config: { client: dbType === 'mysql' ? 'mysql2' : 'pg' } };
   vi.mocked(getCurrentDatabaseSchema).mockResolvedValue({
     columns: [
@@ -54,7 +63,11 @@ describe('SQL JSON storage healing', () => {
     expect(applySqlColumnModifications).toHaveBeenCalledWith(
       expect.anything(),
       'posts',
-      [expect.objectContaining({ to: { name: 'payload', type: 'simple-json' } })],
+      [
+        expect.objectContaining({
+          to: { name: 'payload', type: 'simple-json' },
+        }),
+      ],
       'mysql2',
     );
   });
@@ -65,31 +78,64 @@ describe('SQL JSON storage healing', () => {
     expect(applySqlColumnModifications).not.toHaveBeenCalled();
   });
 
+  it('converges the MariaDB JSON alias even though its physical type is longtext', async () => {
+    vi.mocked(applySqlColumnModifications).mockClear();
+    await expect(
+      service('longtext', 'mysql', [
+        'json_valid(`payload`)',
+      ]).repairSqlJsonColumns(),
+    ).resolves.toBe(1);
+    expect(applySqlColumnModifications).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    'json_valid(`other`)',
+    'json_valid(`payload`) and char_length(`payload`) < 100',
+  ])('preserves an unrelated check %s', async (check) => {
+    vi.mocked(applySqlColumnModifications).mockClear();
+    await expect(
+      service('longtext', 'mysql', [check]).repairSqlJsonColumns(),
+    ).resolves.toBe(0);
+    expect(applySqlColumnModifications).not.toHaveBeenCalled();
+  });
+
   it('converges a legacy native JSON column onto the text contract', async () => {
     vi.mocked(applySqlColumnModifications).mockClear();
     await expect(service('json').repairSqlJsonColumns()).resolves.toBe(1);
     expect(applySqlColumnModifications).toHaveBeenCalledWith(
       expect.anything(),
       'posts',
-      [expect.objectContaining({ from: expect.objectContaining({ type: 'json' }) })],
+      [
+        expect.objectContaining({
+          from: expect.objectContaining({ type: 'json' }),
+        }),
+      ],
       'mysql2',
     );
   });
 
   it('converges a PostgreSQL native JSON column onto text', async () => {
     vi.mocked(applySqlColumnModifications).mockClear();
-    await expect(service('json', 'postgres').repairSqlJsonColumns()).resolves.toBe(1);
+    await expect(
+      service('json', 'postgres').repairSqlJsonColumns(),
+    ).resolves.toBe(1);
     expect(applySqlColumnModifications).toHaveBeenCalledWith(
       expect.anything(),
       'posts',
-      [expect.objectContaining({ to: { name: 'payload', type: 'simple-json' } })],
+      [
+        expect.objectContaining({
+          to: { name: 'payload', type: 'simple-json' },
+        }),
+      ],
       'pg',
     );
   });
 
   it('leaves PostgreSQL text alone', async () => {
     vi.mocked(applySqlColumnModifications).mockClear();
-    await expect(service('text', 'postgres').repairSqlJsonColumns()).resolves.toBe(0);
+    await expect(
+      service('text', 'postgres').repairSqlJsonColumns(),
+    ).resolves.toBe(0);
     expect(applySqlColumnModifications).not.toHaveBeenCalled();
   });
 });

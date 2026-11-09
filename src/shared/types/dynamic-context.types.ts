@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import type { DynamicCodeBlock } from './dynamic-script-execution.types';
 import type { UploadedFileInfo } from './file-management.types';
 import type { UploadedFileFields } from './multipart-upload.types';
 import type { CryptoHelper } from '../helpers/crypto.helper';
@@ -312,6 +313,9 @@ export interface RequestWithRouteData extends Request {
     routePermissions?: any[];
     preHooks: any[];
     postHooks: any[];
+    __preHooksExecuted?: boolean;
+    __postHooksExecuted?: boolean;
+    __codeBlocks?: DynamicCodeBlock[];
     isPublic: boolean;
     mainTable?: any;
     route?: any;

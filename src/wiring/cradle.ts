@@ -68,7 +68,6 @@ import type {
 } from '../engines/mongo';
 import type { SqlFunctionService } from '../engines/sql';
 import type {
-  AuthHeaderCacheBuilder,
   CacheOrchestratorService,
   FieldPermissionCacheBuilder,
   ColumnRuleCacheBuilder,
@@ -292,7 +291,6 @@ export interface Cradle {
   guardEvaluatorService: GuardEvaluatorService;
   guardAlertService: GuardAlertService;
   settingCacheService: SettingCacheService;
-  authHeaderCacheBuilder: AuthHeaderCacheBuilder;
   fieldPermissionCacheBuilder: FieldPermissionCacheBuilder;
   columnRuleCacheBuilder: ColumnRuleCacheBuilder;
   gqlDefinitionCacheService: GqlDefinitionCacheService;

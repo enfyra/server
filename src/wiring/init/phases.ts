@@ -35,7 +35,6 @@ type ParallelCacheReloadPhaseCradle = Pick<
   | 'fieldPermissionCacheBuilder'
   | 'columnRuleCacheBuilder'
   | 'settingCacheService'
-  | 'authHeaderCacheBuilder'
   | 'storageConfigCacheBuilder'
   | 'oauthConfigCacheBuilder'
   | 'corsOriginCacheBuilder'
@@ -56,7 +55,6 @@ type ActivatedSnapshotPhaseCradle = Pick<
   | 'fieldPermissionCacheBuilder'
   | 'columnRuleCacheBuilder'
   | 'settingCacheService'
-  | 'authHeaderCacheBuilder'
   | 'storageConfigCacheBuilder'
   | 'oauthConfigCacheBuilder'
   | 'corsOriginCacheBuilder'
@@ -234,9 +232,6 @@ export async function phaseParallelCacheReload(
     runInitStep('settingCacheService.reload', () =>
       c.settingCacheService.reload(),
     ),
-    runInitStep('authHeaderCacheBuilder.reload', () =>
-      c.authHeaderCacheBuilder.reload(),
-    ),
     runInitStep('storageConfigCacheBuilder.reload', () =>
       c.storageConfigCacheBuilder.reload(),
     ),
@@ -280,7 +275,6 @@ export async function phasePublishActivatedSnapshots(
       [CACHE_IDENTIFIERS.FIELD_PERMISSION, c.fieldPermissionCacheBuilder],
       [CACHE_IDENTIFIERS.COLUMN_RULE, c.columnRuleCacheBuilder],
       [CACHE_IDENTIFIERS.SETTING, c.settingCacheService],
-      [CACHE_IDENTIFIERS.AUTH_HEADER, c.authHeaderCacheBuilder],
       [CACHE_IDENTIFIERS.STORAGE, c.storageConfigCacheBuilder],
       [CACHE_IDENTIFIERS.OAUTH_CONFIG, c.oauthConfigCacheBuilder],
       [CACHE_IDENTIFIERS.CORS_ORIGIN, c.corsOriginCacheBuilder],

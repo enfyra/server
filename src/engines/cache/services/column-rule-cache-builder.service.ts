@@ -6,6 +6,7 @@ import {
 } from '../../../shared/utils/cache-events.constants';
 import { BaseCacheService } from './base-cache.service';
 import { RedisRuntimeCacheStore } from './redis-runtime-cache-store.service';
+import type { MetadataCacheService } from './metadata-cache.service';
 
 export type TColumnRuleType =
   | 'min'
@@ -36,11 +37,13 @@ export class ColumnRuleCacheBuilder extends BaseCacheService<
   Map<string, TColumnRule[]>
 > {
   private readonly queryBuilderService: QueryBuilderService;
+  private readonly metadataCacheService: MetadataCacheService | undefined;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter: EventEmitter2;
     redisRuntimeCacheStore?: RedisRuntimeCacheStore;
+    metadataCacheService?: MetadataCacheService;
   }) {
     super(
       {
@@ -52,12 +55,16 @@ export class ColumnRuleCacheBuilder extends BaseCacheService<
       deps.redisRuntimeCacheStore,
     );
     this.queryBuilderService = deps.queryBuilderService;
+    this.metadataCacheService = deps.metadataCacheService;
   }
 
   protected async loadFromDb(): Promise<any> {
     const result = await this.queryBuilderService.find({
       table: 'enfyra_column_rule',
-      fields: ['*', this.queryBuilderService.isMongoDb() ? 'column._id' : 'column.id'],
+      fields: [
+        '*',
+        this.queryBuilderService.isMongoDb() ? 'column._id' : 'column.id',
+      ],
       filter: { isEnabled: { _eq: true } },
       limit: 100000,
     });
@@ -87,7 +94,14 @@ export class ColumnRuleCacheBuilder extends BaseCacheService<
     payload: TCacheInvalidationPayload,
     publish = true,
   ): Promise<void> {
-    if (payload.table !== 'enfyra_column_rule') {
+    if (
+      ![
+        'enfyra_column_rule',
+        'enfyra_table',
+        'enfyra_column',
+        'enfyra_relation',
+      ].includes(payload.table)
+    ) {
       await this.reload(publish);
       return;
     }
@@ -103,10 +117,58 @@ export class ColumnRuleCacheBuilder extends BaseCacheService<
     const ids = (payload.ids ?? []).map(String);
     if (ids.length === 0) return;
     const idField = this.queryBuilderService.isMongoDb() ? '_id' : 'id';
+    if (payload.table !== 'enfyra_column_rule') {
+      if (!this.metadataCacheService) {
+        await this.reloadFromPartial();
+        return;
+      }
+      const metadata = await this.metadataCacheService.getMetadata();
+      const owners = new Set(ids);
+      const names = new Set(payload.affectedTables ?? []);
+      const tables = metadata.tablesList.filter(
+        (table: any) =>
+          owners.has(String(table._id ?? table.id)) || names.has(table.name),
+      );
+      const columns = tables.flatMap((table: any) =>
+        (table.columns ?? []).map(toIdString).filter(Boolean),
+      );
+      const knownColumns = new Set(
+        metadata.tablesList.flatMap((table: any) =>
+          (table.columns ?? []).map(toIdString).filter(Boolean),
+        ),
+      );
+      const changedColumns = new Set(columns);
+      const rows = columns.length
+        ? (
+            await this.queryBuilderService.find({
+              table: 'enfyra_column_rule',
+              fields: ['*', `column.${idField}`],
+              filter: { column: { [idField]: { _in: columns } } },
+              limit: -1,
+            })
+          ).data
+        : [];
+      const next = new Map(
+        [...this.cache].filter(
+          ([columnId]) =>
+            knownColumns.has(columnId) && !changedColumns.has(columnId),
+        ),
+      );
+      for (const [columnId, rules] of this.transformData(rows))
+        next.set(
+          columnId,
+          rules.filter((rule) => rule.isEnabled),
+        );
+      this.cache = next;
+      return;
+    }
 
     const result = await this.queryBuilderService.find({
       table: 'enfyra_column_rule',
-      fields: ['*', this.queryBuilderService.isMongoDb() ? 'column._id' : 'column.id'],
+      fields: [
+        '*',
+        this.queryBuilderService.isMongoDb() ? 'column._id' : 'column.id',
+      ],
       filter: { [idField]: { _in: ids } },
       limit: ids.length,
     });
@@ -118,8 +180,14 @@ export class ColumnRuleCacheBuilder extends BaseCacheService<
       if (rid) fetchedById.set(rid, row);
     }
 
+    const changed = new Set(ids);
+    for (const [columnId, rules] of this.cache) {
+      const retained = rules.filter((rule) => !changed.has(String(rule.id)));
+      if (!retained.length) this.cache.delete(columnId);
+      else if (retained.length !== rules.length)
+        this.cache.set(columnId, retained);
+    }
     for (const id of ids) {
-      this.removeRuleFromAllBuckets(id);
       const row = fetchedById.get(id);
       if (!row) continue;
       const rule = this.rowToRule(row);
@@ -127,15 +195,6 @@ export class ColumnRuleCacheBuilder extends BaseCacheService<
       const bucket = this.cache.get(rule.columnId);
       if (bucket) bucket.push(rule);
       else this.cache.set(rule.columnId, [rule]);
-    }
-  }
-
-  private removeRuleFromAllBuckets(ruleId: string): void {
-    for (const [columnId, rules] of this.cache.entries()) {
-      const idx = rules.findIndex((r) => String(r.id) === ruleId);
-      if (idx === -1) continue;
-      rules.splice(idx, 1);
-      if (rules.length === 0) this.cache.delete(columnId);
     }
   }
 

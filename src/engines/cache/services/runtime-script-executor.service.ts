@@ -9,16 +9,7 @@ import { logStore } from '../../../shared/log-store';
 import type { RuntimeRegistryService } from './runtime-registry.service';
 import type { SharedHelperDefinition } from '../../../shared/types/shared-helper.types';
 
-type RepairCallback = (compiledCode: string) => unknown | Promise<unknown>;
-
-type CodeBlock = {
-  code: string;
-  sourceCode?: string | null;
-  scriptLanguage?: string | null;
-  scriptId?: string | number | null;
-  onCompiledCodeRepair?: RepairCallback;
-  type: 'preHook' | 'handler' | 'postHook';
-};
+import type { DynamicCodeBlock as CodeBlock, ScriptRepairCallback as RepairCallback } from '../../../shared/types/dynamic-script-execution.types';
 
 type RunOptions = {
   sourceKind?: string;

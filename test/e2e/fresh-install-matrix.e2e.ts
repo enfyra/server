@@ -43,10 +43,11 @@ async function boot(
   namespace: string,
   expectedRuns: number,
   logPath: string,
+  legacyAuthOrigins = false,
 ): Promise<void> {
   const child = spawn(
     'yarn',
-    ['tsx', 'test/e2e/fixtures/storage-contract-boot.ts'],
+    ['tsx', process.env.AUTH_ORIGIN_RUNTIME_PROBES === '1' ? 'test/e2e/fixtures/auth-origin-boot.ts' : 'test/e2e/fixtures/storage-contract-boot.ts'],
     {
       cwd: join(import.meta.dirname, '../..'),
       detached: true,
@@ -58,8 +59,9 @@ async function boot(
         NODE_NAME: namespace,
         INSTANCE_ID: `${namespace}-boot`,
         NODE_ENV: 'test',
-        NODE_OPTIONS: '--no-node-snapshot',
+        NODE_OPTIONS: `--no-node-snapshot${process.env.ENFYRA_TEST_KERNEL_DIR ? ` --require ${join(import.meta.dirname, 'fixtures/kernel-test-artifact.cjs')}` : ''}`,
         DOTENV_CONFIG_PATH: '/dev/null',
+        TEMPORAL_RUNTIME_PROBES: process.env.TEMPORAL_RUNTIME_PROBES === '1' && expectedRuns === 1 ? '1' : '0',
         ADMIN_EMAIL: 'fresh-matrix@localhost.test',
         ADMIN_PASSWORD:
           process.env.ADMIN_PASSWORD || randomBytes(24).toString('hex'),
@@ -67,6 +69,7 @@ async function boot(
         SQL_POOL_MIN: '0',
         SQL_POOL_MAX: '4',
         EXPECTED_BOOTSTRAP_RUNS: String(expectedRuns),
+        AUTH_ORIGIN_LEGACY_TARGET: legacyAuthOrigins ? '1' : '0',
         STARTUP_VERBOSE: '1',
         BOOTSTRAP_VERBOSE: '1',
         REDIS_RUNTIME_CACHE: 'false',
@@ -122,6 +125,12 @@ async function boot(
     };
     assert.equal(result.bootstrapRuns, expectedRuns);
     assert.equal(result.dashboardLinked, true);
+    if (process.env.TEMPORAL_RUNTIME_PROBES === '1' && expectedRuns === 1) {
+      const temporal = redacted.match(/TEMPORAL_RUNTIME_RESULT (\{[^\n]+\})/);
+      assert.ok(temporal, `${backend} missing temporal runtime attestation; see ${logPath}`);
+      assert.equal(JSON.parse(temporal[1]).passed, true);
+      console.log('PASS', backend, temporal[0]);
+    }
   } finally {
     clearTimeout(timeout);
     stop();
@@ -201,6 +210,15 @@ async function verifyBackend(
       await sql!.raw('CREATE DATABASE ??', [database]);
       created = true;
     }
+    if (backend === 'postgres' && process.env.AUTH_ORIGIN_RUNTIME_PROBES === '1') {
+      const target = knex({ client: 'pg', connection: uri.href, pool: { min: 0, max: 1 } });
+      try {
+        await target.raw("CREATE TYPE ?? AS ENUM ('raw', 'bearer')", ['enfyra_auth_header_scheme_enum']);
+        await target.raw("CREATE TYPE ?? AS ENUM ('pat', 'jwt')", ['enfyra_auth_header_credentialType_enum']);
+      } finally {
+        await target.destroy();
+      }
+    }
     await boot(
       backend,
       uri.href,
@@ -208,6 +226,7 @@ async function verifyBackend(
       namespace,
       1,
       join(directory, `${backend}-fresh.log`),
+      process.env.AUTH_ORIGIN_RUNTIME_PROBES === '1',
     );
     console.log(
       'PASS',
@@ -221,6 +240,7 @@ async function verifyBackend(
       namespace,
       0,
       join(directory, `${backend}-stable.log`),
+      process.env.AUTH_ORIGIN_RUNTIME_PROBES === '1',
     );
     console.log('PASS', backend, 'stable boot skips bootstrap');
     if (client) {

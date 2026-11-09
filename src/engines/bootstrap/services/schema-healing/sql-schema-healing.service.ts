@@ -184,6 +184,15 @@ export class SqlSchemaHealingService {
         tableName: 'table_def.name',
         columnName: 'column_def.name',
       });
+    const isMariaDb =
+      dbType === 'mysql' &&
+      jsonColumns.length > 0 &&
+      /mariadb/i.test(
+        String(
+          (await knex.raw('SELECT VERSION() AS version'))[0]?.[0]?.version ??
+            '',
+        ),
+      );
     const repairs: Array<{ tableName: string; modification: ColumnModifyDef }> =
       [];
 
@@ -199,7 +208,25 @@ export class SqlSchemaHealingService {
         (column) => column.name === columnName,
       );
       if (!physical) continue;
-      if (String(physical.type ?? '').toLowerCase() === targetType) continue;
+      if (String(physical.type ?? '').toLowerCase() === targetType) {
+        if (!isMariaDb) continue;
+        const checks = await knex.raw(
+          `SELECT CHECK_CLAUSE AS clause
+           FROM information_schema.CHECK_CONSTRAINTS
+           WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = ?
+             AND CONSTRAINT_NAME = ? AND UPPER(LEVEL) = 'COLUMN'`,
+          [tableName, columnName],
+        );
+        const jsonCheck = `json_valid(\`${columnName.replaceAll('`', '``')}\`)`;
+        if (
+          !checks[0].some(
+            (check: { clause: string }) =>
+              String(check.clause).replace(/\s+/g, '').toLowerCase() ===
+              jsonCheck.toLowerCase(),
+          )
+        )
+          continue;
+      }
 
       repairs.push({
         tableName,
@@ -253,10 +280,22 @@ export class SqlSchemaHealingService {
 
     const managedTables = await this.collectManagedTableNames(snapshot);
     if (managedTables.size === 0) return 0;
+    const coreNames = await this.systemCoreTableResolver.getNames();
+    const columns = await knex(`${coreNames.column} as c`)
+      .join(`${coreNames.table} as t`, 't.id', 'c.tableId')
+      .where('c.type', 'datetime')
+      .select({ tableName: 't.name', columnName: 'c.name' });
+    const datetimeColumns = new Set<string>(
+      columns.map((column: any) => `${column.tableName}\0${column.columnName}`),
+    );
+    for (const tableName of managedTables) {
+      datetimeColumns.add(`${tableName}\0createdAt`);
+      datetimeColumns.add(`${tableName}\0updatedAt`);
+    }
 
     return dbType === 'postgres'
-      ? this.repairPostgresTemporalColumns(managedTables)
-      : this.repairMySqlTemporalColumns(managedTables);
+      ? this.repairPostgresTemporalColumns(datetimeColumns)
+      : this.repairMySqlTemporalColumns(datetimeColumns);
   }
 
   private async collectManagedTableNames(
@@ -280,7 +319,7 @@ export class SqlSchemaHealingService {
   }
 
   private async repairPostgresTemporalColumns(
-    managedTables: Set<string>,
+    datetimeColumns: Set<string>,
   ): Promise<number> {
     const knex = this.queryBuilderService.getKnex();
     const columns = await knex.raw(`
@@ -299,7 +338,7 @@ export class SqlSchemaHealingService {
       const tableName = String(row.tableName ?? '');
       const columnName = String(row.columnName ?? '');
       if (!tableName || !columnName) continue;
-      if (!managedTables.has(tableName)) continue;
+      if (!datetimeColumns.has(`${tableName}\0${columnName}`)) continue;
 
       const reference = `"${columnName}"`;
       const using = postgresTemporalUsingExpression(
@@ -323,23 +362,22 @@ export class SqlSchemaHealingService {
   }
 
   private async repairMySqlTemporalColumns(
-    managedTables: Set<string>,
+    datetimeColumns: Set<string>,
   ): Promise<number> {
     const knex = this.queryBuilderService.getKnex();
-    // `date` lost the time component and `timestamp` is re-read through the session
-    // zone with a 2038 ceiling; DATETIME holds the UTC wall clock verbatim. A
-    // `datetime` column already satisfies the contract.
     const columns = await knex.raw(`
       SELECT TABLE_NAME AS tableName,
              COLUMN_NAME AS columnName,
              DATA_TYPE AS dataType,
+             DATETIME_PRECISION AS datetimePrecision,
              IS_NULLABLE AS isNullable,
              COLUMN_DEFAULT AS columnDefault,
              EXTRA AS extra,
              COLUMN_COMMENT AS columnComment
       FROM INFORMATION_SCHEMA.COLUMNS
       WHERE TABLE_SCHEMA = DATABASE()
-        AND DATA_TYPE IN ('date', 'timestamp')
+        AND (DATA_TYPE IN ('date', 'timestamp')
+             OR (DATA_TYPE = 'datetime' AND DATETIME_PRECISION < 3))
       ORDER BY TABLE_NAME, ORDINAL_POSITION
     `);
 
@@ -348,18 +386,43 @@ export class SqlSchemaHealingService {
       const tableName = String(row.tableName ?? '');
       const columnName = String(row.columnName ?? '');
       if (!tableName || !columnName) continue;
-      if (!managedTables.has(tableName)) continue;
+      if (!datetimeColumns.has(`${tableName}\0${columnName}`)) continue;
 
       const nullable =
         String(row.isNullable).toUpperCase() === 'NO' ? 'NOT NULL' : 'NULL';
-      const defaultClause = this.buildMySqlTemporalDefaultClause(row);
-      const extra = String(row.extra ?? '').toUpperCase();
-      const extraClause = extra.includes('ON UPDATE') ? ` ${row.extra}` : '';
+      const sourcePrecision = Number(row.datetimePrecision ?? 0);
+      if (
+        !Number.isInteger(sourcePrecision) ||
+        sourcePrecision < 0 ||
+        sourcePrecision > 6
+      ) {
+        throw new Error(
+          `Invalid temporal precision for ${tableName}.${columnName}`,
+        );
+      }
+      const precision = Math.max(3, sourcePrecision);
+      const defaultClause = this.buildMySqlTemporalDefaultClause(
+        row,
+        precision,
+      );
+      const extra = String(row.extra ?? '');
+      const update = extra.match(
+        /\bon update\s+(?:current_timestamp|now|localtime|localtimestamp)(?:\(\d*\))?/i,
+      );
+      if (/\bon update\b/i.test(extra) && !update) {
+        throw new Error(
+          `Unsupported temporal update expression for ${tableName}.${columnName}`,
+        );
+      }
+      const extraClause = update
+        ? ` ON UPDATE CURRENT_TIMESTAMP(${precision})`
+        : '';
       const comment = row.columnComment
         ? ` COMMENT '${String(row.columnComment).replace(/'/g, "''")}'`
         : '';
       await knex.raw(
-        `ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${columnName}\` DATETIME ${nullable}${defaultClause}${extraClause}${comment}`,
+        `ALTER TABLE ?? MODIFY COLUMN ?? DATETIME(${precision}) ${nullable}${defaultClause}${extraClause}${comment}`,
+        [tableName, columnName],
       );
       this.log(
         `Promoted ${tableName}.${columnName} to DATETIME for zone-aware temporal storage`,
@@ -370,15 +433,19 @@ export class SqlSchemaHealingService {
     return repaired;
   }
 
-  private buildMySqlTemporalDefaultClause(row: any): string {
+  private buildMySqlTemporalDefaultClause(row: any, precision: number): string {
     if (row.columnDefault === null || row.columnDefault === undefined) {
       return '';
     }
     const raw = String(row.columnDefault).trim();
     if (raw.toUpperCase() === 'NULL') return '';
     // `CURRENT_TIMESTAMP` and its synonyms are expressions, not string literals.
-    if (/^(CURRENT_TIMESTAMP|NOW\(\)|LOCALTIME|LOCALTIMESTAMP)/i.test(raw)) {
-      return ` DEFAULT ${raw}`;
+    if (
+      /^(?:CURRENT_TIMESTAMP|NOW|LOCALTIME|LOCALTIMESTAMP)(?:\(\d*\))?$/i.test(
+        raw,
+      )
+    ) {
+      return ` DEFAULT CURRENT_TIMESTAMP(${precision})`;
     }
     const value =
       raw.startsWith("'") && raw.endsWith("'")

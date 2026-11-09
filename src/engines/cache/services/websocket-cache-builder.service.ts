@@ -65,6 +65,7 @@ export class WebsocketCacheBuilder extends BaseCacheService<
       table: 'enfyra_websocket',
       fields: ['*'],
       filter: { isEnabled: { _eq: true } },
+      limit: -1,
     });
 
     const gateways = result.data || [];
@@ -231,7 +232,7 @@ export class WebsocketCacheBuilder extends BaseCacheService<
           },
         ],
       },
-      limit: Math.max(gatewayIds.length * 100, 100),
+      limit: -1,
     });
 
     for (const event of eventResult?.data ?? []) {

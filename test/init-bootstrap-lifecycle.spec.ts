@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { init, initBootstrap } from '../src/init';
+import { EventEmitter2 } from 'eventemitter2';
+import { PackageRuntimeService } from '../src/engines/cache/services/package-runtime.service';
 
 function bootstrapContainer(overrides: Record<string, unknown> = {}) {
   const calls: string[] = [];
@@ -53,7 +55,10 @@ function runtimeContainer(bootstrapOverrides: Record<string, unknown> = {}) {
       markInterruptedReloadsFailed: vi.fn(async () => undefined),
     },
     cacheOrchestratorService: { init: vi.fn(async () => undefined) },
-    redisRuntimeCacheStore: { runWithPublication: async (work: () => Promise<void>) => work(), commitPublication: async () => {} },
+    redisRuntimeCacheStore: {
+      runWithPublication: async (work: () => Promise<void>) => work(),
+      commitPublication: async () => {},
+    },
     runtimeRegistryService: {
       init: vi.fn(async () => undefined),
       publishFromCache: vi.fn(async () => undefined),
@@ -71,7 +76,6 @@ function runtimeContainer(bootstrapOverrides: Record<string, unknown> = {}) {
     fieldPermissionCacheBuilder: cacheService(),
     columnRuleCacheBuilder: cacheService(),
     settingCacheService: cacheService(),
-    authHeaderCacheBuilder: cacheService(),
     storageConfigCacheBuilder: cacheService(),
     oauthConfigCacheBuilder: cacheService(),
     websocketCacheBuilder: cacheService(),
@@ -176,6 +180,59 @@ describe('initBootstrap lifecycle', () => {
   });
 });
 
+it.each(['query', 'download', 'failure'])('publishes readiness independently of package %s', async (stage) => {
+  const { container } = runtimeContainer();
+  const eventEmitter = new EventEmitter2();
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  let available = false;
+  const row = { id: 1, name: 'background-fixture', version: '1.0.0', status: 'installed' };
+  const queryBuilderService = {
+    find: vi.fn(async () => {
+      if (stage === 'query') await blocked;
+      return { data: [row] };
+    }),
+    update: vi.fn(async (_table, _id, data) => { row.status = data.status; }),
+  };
+  const loadPackage = vi.fn(async () => {
+    if (stage === 'failure') throw new Error('fixture CDN unavailable');
+    await blocked;
+    available = true;
+  });
+  const runtime = new PackageRuntimeService({
+    eventEmitter,
+    queryBuilderService: queryBuilderService as any,
+    packageCdnLoaderService: { isLoaded: () => available, loadPackage } as any,
+    lazyRef: { dynamicWebSocketGateway: {} } as any,
+  });
+  container.cradle.eventEmitter = eventEmitter;
+  container.cradle.packageRuntimeService = runtime;
+  let ready = false;
+  eventEmitter.once('system:ready', () => { ready = true; });
+  let booted = false;
+  const initialization = init(container).then(() => { booted = true; });
+  try {
+    await vi.waitFor(() => expect(booted).toBe(true));
+    expect(ready).toBe(true);
+    expect(container.cradle.packageCacheService.reload).toHaveBeenCalledTimes(1);
+    expect(container.cradle.runtimeRegistryService.publishFromCache).toHaveBeenCalledTimes(16);
+    await vi.waitFor(() => expect(queryBuilderService.find).toHaveBeenCalled());
+    if (stage === 'download') {
+      await vi.waitFor(() => expect(loadPackage).toHaveBeenCalled());
+      expect(available).toBe(false);
+    }
+  } finally {
+    release();
+    await initialization;
+    await vi.waitFor(() => {
+      expect(runtime.getStatus().preloadRunning).toBe(false);
+      expect(runtime.getStatus().preloadRequested).toBe(false);
+      expect(runtime.getStatus().lastPreload?.completedAt).toBeDefined();
+    });
+  }
+  expect(runtime.getStatus().lastPreload?.status).toBe(stage === 'failure' ? 'degraded' : 'ok');
+});
+
 it('activates flows only after runtime snapshots and SQL functions are ready', async () => {
   const { container } = runtimeContainer();
   let snapshots = 0;
@@ -191,7 +248,7 @@ it('activates flows only after runtime snapshots and SQL functions are ready', a
     },
   );
   container.cradle.flowRuntimeService.init.mockImplementation(async () => {
-    expect(snapshots).toBe(17);
+    expect(snapshots).toBe(16);
     expect(sqlReady).toBe(true);
   });
   await init(container);

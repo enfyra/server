@@ -37,12 +37,16 @@ export class RuntimeSchemaUnitOfWorkService {
         if (!contract) {
           throw new Error('MySQL runtime schema UOW requires its immutable contract');
         }
+        const snapshotContext = contract.context
+          ? { mutationId: contract.mutationId, runtimeContract: contract }
+          : { mutationId: contract.mutationId };
         return this.mySqlRuntimeWriteBarrierService.runExclusive(
           { mutationId: contract.mutationId },
           () =>
-            this.mySqlBootstrapSnapshotService.run(() => callback({}), {
-              mutationId: contract.mutationId,
-            }),
+            this.mySqlBootstrapSnapshotService.run(
+              () => callback({}),
+              snapshotContext,
+            ),
         );
       }
       return this.knexService.transaction(async () => callback({}));

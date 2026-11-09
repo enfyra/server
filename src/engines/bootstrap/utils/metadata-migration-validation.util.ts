@@ -110,6 +110,15 @@ export function validateMigrationDefinition(
     false,
     errors,
   );
+  const sqlTypeMappings = migration.sqlColumnTypesToModify ?? [];
+  for (const source of duplicateValues(sqlTypeMappings.map((mapping) => mapping.from))) {
+    errors.push(`duplicate SQL column type migration source ${source}`);
+  }
+  for (const mapping of sqlTypeMappings) {
+    if (!mapping.from || !mapping.to || mapping.from === mapping.to) {
+      errors.push('SQL column type migrations require distinct non-empty from and to values');
+    }
+  }
   const mongoTypeMappings = migration.mongoColumnTypesToModify ?? [];
   for (const source of duplicateValues(
     mongoTypeMappings.map((mapping) => mapping.from),
