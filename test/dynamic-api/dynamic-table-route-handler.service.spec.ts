@@ -68,11 +68,12 @@ describe('DynamicTableRouteHandlerService', () => {
     });
   });
 
-  it('synchronizes legacy route method flags into canonical configs', async () => {
-    const update = vi.fn(async () => ({}));
+  it('initializes canonical cells from persisted legacy relations when creating a route', async () => {
+    const update = vi.fn();
     const service = createService({
       find: vi
         .fn()
+        .mockResolvedValueOnce({ data: [{ id: 10 }, { id: 11 }, { id: 12 }] })
         .mockResolvedValueOnce({
           data: [
             {
@@ -85,21 +86,143 @@ describe('DynamicTableRouteHandlerService', () => {
         })
         .mockResolvedValueOnce({
           data: [
-            { id: 100, method: { id: 10 } },
-            { id: 101, method: { id: 11 } },
-            { id: 102, method: { id: 12 } },
+            { id: 100, method: { id: 10 }, available: false },
+            { id: 101, method: { id: 11 }, available: false },
+            { id: 102, method: { id: 12 }, available: false },
           ],
         }),
       update,
     });
 
-    await service.syncRouteMethodConfigFlags(1, {});
+    await service.createRouteMethodConfigsForRoute(1, false);
 
     expect(update.mock.calls.map(([, , data]) => data)).toEqual([
       { available: true, isPublic: false, skipRoleGuard: false },
       { available: false, isPublic: true, skipRoleGuard: false },
       { available: false, isPublic: false, skipRoleGuard: true },
     ]);
+  });
+
+  it('does not apply access flags if persisted route methods cannot be read', async () => {
+    const update = vi.fn();
+    const service = createService({
+      find: vi.fn().mockResolvedValue({ data: [] }),
+      update,
+    });
+
+    await expect(
+      service.syncRouteMethodConfigFlags(1, { publicMethods: [{ id: 10 }] }),
+    ).rejects.toThrow('Cannot read persisted route methods');
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('does not copy unpersisted or unavailable selections onto method configs', async () => {
+    const update = vi.fn();
+    const service = createService({
+      find: vi
+        .fn()
+        .mockResolvedValueOnce({ data: [{ _id: 'route', publicMethods: [{ _id: 'disabled' }] }] })
+        .mockResolvedValueOnce({ data: [
+          { _id: 'cell-1', method: { _id: 'disabled' }, available: false, isPublic: false, skipRoleGuard: true },
+          { _id: 'cell-2', method: { _id: 'unpersisted' }, available: true, isPublic: false, skipRoleGuard: false },
+        ] }),
+      getPkField: vi.fn(() => '_id'),
+      update,
+    });
+
+    await service.syncRouteMethodConfigFlags('route', {
+      publicMethods: [{ _id: 'disabled' }, { _id: 'unpersisted' }],
+    });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('resets inherited access when availability changes and preserves it on unchanged cells', async () => {
+    const update = vi.fn();
+    const service = createService({
+      find: vi.fn()
+        .mockResolvedValueOnce({ data: [{
+          id: 1,
+          availableMethods: [{ id: 11 }, { id: 12 }],
+          publicMethods: [{ id: 11 }],
+          skipRoleGuardMethods: [{ id: 11 }],
+        }] })
+        .mockResolvedValueOnce({ data: [
+          { id: 100, method: { id: 10 }, available: true, isPublic: true, skipRoleGuard: true },
+          { id: 101, method: { id: 11 }, available: false, isPublic: true, skipRoleGuard: true },
+          { id: 102, method: { id: 12 }, available: true, isPublic: true, skipRoleGuard: false },
+        ] }),
+      update,
+    });
+
+    await service.syncRouteMethodConfigFlags(1, {
+      availableMethods: [{ id: 11 }, { id: 12 }],
+    });
+
+    expect(update.mock.calls).toEqual([
+      ['enfyra_route_method_config', 100, { available: false, isPublic: false, skipRoleGuard: false }],
+      ['enfyra_route_method_config', 101, { available: true, isPublic: false, skipRoleGuard: false }],
+    ]);
+  });
+
+  it('uses availability from the same patch for explicitly selected access flags', async () => {
+    const find = vi.fn();
+    const update = vi.fn();
+    const service = createService({ find, update });
+    const patch = {
+      availableMethods: [{ id: 10 }, { id: 11 }],
+      publicMethods: [{ id: 10 }, { id: 12 }],
+      skipRoleGuardMethods: [{ id: 11 }, { id: 12 }],
+    };
+
+    await service.normalizeRouteMethodPatch(1, patch);
+    expect(find).not.toHaveBeenCalled();
+    expect(patch.publicMethods).toEqual([{ id: 10 }]);
+    expect(patch.skipRoleGuardMethods).toEqual([{ id: 11 }]);
+
+    find
+      .mockResolvedValueOnce({ data: [{ id: 1, ...patch }] })
+      .mockResolvedValueOnce({
+        data: [10, 11, 12].map((id) => ({
+          id: id + 90,
+          method: { id },
+          available: false,
+          isPublic: false,
+          skipRoleGuard: false,
+        })),
+      });
+
+    await service.syncRouteMethodConfigFlags(1, patch);
+
+    expect(update.mock.calls).toEqual([
+      ['enfyra_route_method_config', 100, { available: true, isPublic: true }],
+      ['enfyra_route_method_config', 101, { available: true, skipRoleGuard: true }],
+    ]);
+  });
+
+  it('clears an explicitly empty RoleGuard exemption list without writing public access', async () => {
+    const update = vi.fn();
+    const service = createService({
+      find: vi.fn()
+        .mockResolvedValueOnce({ data: [{ id: 1, skipRoleGuardMethods: [] }] })
+        .mockResolvedValueOnce({ data: [
+          { id: 100, method: { id: 10 }, available: true, isPublic: true, skipRoleGuard: true },
+        ] }),
+      update,
+    });
+
+    await service.syncRouteMethodConfigFlags(1, { skipRoleGuardMethods: [] });
+    expect(update.mock.calls).toEqual([
+      ['enfyra_route_method_config', 100, { skipRoleGuard: false }],
+    ]);
+  });
+
+  it('rejects malformed legacy method lists rather than interpreting them as a clear', async () => {
+    const find = vi.fn();
+    const service = createService({ find });
+
+    await expect(service.normalizeRouteMethodPatch(1, { publicMethods: null }))
+      .rejects.toThrow('publicMethods must be an array');
+    expect(find).not.toHaveBeenCalled();
   });
 
   it('creates a disabled method config for every route when a method is created', async () => {

@@ -6,6 +6,8 @@ function createHandlers(overrides: Record<string, unknown> = {}): any {
     isSchemaRoutedTable: vi.fn(() => false),
     isTableDefinition: vi.fn(() => false),
     normalizeRouteMethods: vi.fn(),
+    normalizeRouteMethodPatch: vi.fn(),
+    syncRouteMethodConfigFlags: vi.fn(),
     normalizeExtension: vi.fn(),
     assertColumnRuleUnique: vi.fn(),
     assertGuardCreate: vi.fn(),

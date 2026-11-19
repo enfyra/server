@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DynamicRepository } from '../../src/modules/dynamic-api';
 import { GuardValidationService } from '../../src/modules/dynamic-api/services/guard-validation.service';
+import { CascadeHandler } from '../../src/engines/knex/utils/cascade-handler';
 
 /**
  * Regression tests for table-route side-effect ordering.
@@ -20,6 +21,9 @@ function makeRepo(
 ) {
   const queryBuilderService = {
     getPkField: vi.fn(() => 'id'),
+    getDatabaseType: vi.fn(() => 'postgres'),
+    isSql: vi.fn(() => true),
+    transaction: vi.fn(async (fn: () => Promise<unknown>) => fn()),
     find: vi.fn(async (query: any) => {
       const ids = query?.filter?.id?._in;
       if (Array.isArray(ids)) {
@@ -35,6 +39,7 @@ function makeRepo(
     update: vi.fn().mockResolvedValue(undefined),
     delete: vi.fn().mockResolvedValue(undefined),
     runWithPolicy: vi.fn(async (_check: any, fn: any) => fn()),
+    runWithFieldPermissionCheck: vi.fn(async (_check: unknown, fn: () => Promise<unknown>) => fn()),
   };
   const runtimeRegistryService = {
     requireMetadata: vi.fn(() => ({
@@ -95,6 +100,131 @@ function makeRepo(
 }
 
 describe('DynamicRepository table-route side-effect ordering', () => {
+  it.each([
+    { publicMethods: [{ id: 4 }], isPublic: true },
+    { publicMethods: [], isPublic: false },
+  ])(
+    'syncs publicMethods=$publicMethods before reload after SQL consumes relations',
+    async ({ publicMethods, isPublic }) => {
+      const { repo, queryBuilderService } = makeRepo('enfyra_route');
+      const legacyRoute = { id: 42, availableMethods: [], publicMethods: [{ id: 4 }] };
+      const configs = [
+        { id: 1037, method: { id: 4 }, available: true, isPublic: !isPublic, skipRoleGuard: false },
+        { id: 1038, method: { id: 5 }, available: true, isPublic: false, skipRoleGuard: true },
+      ];
+      const cascade = new CascadeHandler(
+        {} as any,
+        {
+          getMetadata: () => ({
+            tables: new Map([['enfyra_route', {
+              relations: [{ propertyName: 'publicMethods', type: 'many-to-many' }],
+            }]]),
+          }),
+        } as any,
+        {} as any,
+      );
+      queryBuilderService.find.mockImplementation(async ({ table }) => ({
+        data: table === 'enfyra_route_method_config' ? configs : [legacyRoute],
+        count: table === 'enfyra_route_method_config' ? configs.length : 1,
+      }));
+      queryBuilderService.update.mockImplementation(async (table, id, data) => {
+        if (table === 'enfyra_route') {
+          legacyRoute.publicMethods = data.publicMethods;
+          await cascade.syncManyToManyRelations(table, data);
+          return;
+        }
+        Object.assign(configs.find((config) => config.id === id)!, data);
+      });
+      let state = 'outside';
+      queryBuilderService.transaction.mockImplementation(async (write) => {
+        state = 'writing';
+        const result = await write();
+        expect(configs[0].isPublic).toBe(isPublic);
+        state = 'committed';
+        return result;
+      });
+      const reload = vi.spyOn(repo as any, 'reload').mockImplementation(async () => {
+        expect(state).toBe('committed');
+        expect(configs[0]).toMatchObject({ available: true, isPublic, skipRoleGuard: false });
+        expect(configs[1]).toMatchObject({ available: true, isPublic: false, skipRoleGuard: true });
+      });
+
+      await repo.update({ id: 42, data: { publicMethods } });
+
+      expect(legacyRoute.publicMethods).toEqual(publicMethods);
+      expect(reload).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(['enfyra_route', 'enfyra_route_method_config'])(
+    'does not enter the compatibility transaction for ordinary updates to %s',
+    async (tableName) => {
+      const { repo, queryBuilderService } = makeRepo(tableName);
+      const patch = tableName === 'enfyra_route'
+        ? { description: 'Updated' }
+        : { isPublic: false };
+      vi.spyOn(repo as any, 'reload').mockResolvedValue(undefined);
+
+      await repo.update({ id: 42, data: patch });
+
+      expect(queryBuilderService.transaction).not.toHaveBeenCalled();
+      expect(queryBuilderService.update.mock.calls).toEqual([[tableName, 42, patch]]);
+    },
+  );
+
+  it('does not synchronize a legacy access field removed by caller field permissions', async () => {
+    const { repo, queryBuilderService } = makeRepo('enfyra_route', {
+      enforceFieldPermission: true,
+      runtimeRegistryService: {
+        lookupTableByName: vi.fn().mockResolvedValue({
+          relations: [{ propertyName: 'publicMethods', isPublished: false }],
+        }),
+        getFieldPermissionPoliciesFor: vi.fn().mockReturnValue([]),
+      } as any,
+    });
+    queryBuilderService.runWithFieldPermissionCheck.mockImplementation(async (_check, fn) => fn());
+    const legacyRoute = { id: 42, publicMethods: [{ id: 4 }] };
+    queryBuilderService.find.mockResolvedValue({ data: [legacyRoute], count: 1 });
+    vi.spyOn(repo as any, 'reload').mockResolvedValue(undefined);
+
+    await repo.update({ id: 42, data: { publicMethods: [{ id: 4 }] } });
+
+    expect(queryBuilderService.update.mock.calls).toEqual([['enfyra_route', 42, {}]]);
+    expect(queryBuilderService.find).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not publish a SQL route patch if updating the canonical config fails', async () => {
+    const { repo, queryBuilderService } = makeRepo('enfyra_route');
+    const route = { id: 42, publicMethods: [{ id: 4 }] };
+    const config = { id: 100, method: { id: 4 }, available: true, isPublic: true };
+    queryBuilderService.find.mockImplementation(async ({ table }) => ({
+      data: table === 'enfyra_route_method_config' ? [config] : [route],
+      count: 1,
+    }));
+    queryBuilderService.transaction.mockImplementation(async (write) => {
+      const original = route.publicMethods;
+      try {
+        return await write();
+      } catch (error) {
+        route.publicMethods = original;
+        throw error;
+      }
+    });
+    queryBuilderService.update.mockImplementation(async (table, _id, data) => {
+      if (table !== 'enfyra_route') throw new Error('method config write failed');
+      route.publicMethods = data.publicMethods;
+    });
+    const reload = vi.spyOn(repo as any, 'reload').mockResolvedValue(undefined);
+
+    await expect(repo.update({ id: 42, data: { publicMethods: [] } })).rejects.toThrow();
+
+    expect(queryBuilderService.update).toHaveBeenCalledWith(
+      'enfyra_route_method_config', 100, { isPublic: false },
+    );
+    expect(route.publicMethods).toEqual([{ id: 4 }]);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
   it('rejects nested guard rules before the cascade insert boundary', async () => {
     const guardValidationService = new GuardValidationService({
       queryBuilderService: {} as any,

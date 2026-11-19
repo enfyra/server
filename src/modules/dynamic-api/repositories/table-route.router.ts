@@ -3,6 +3,7 @@ import type {
   TableRouteHandlers,
   TableRouteStrategy,
 } from '../types/table-route.types';
+import { hasRouteMethodSelections } from '../utils/route-method-selections.util';
 
 export class TableRouteRouter {
   private readonly strategies = new Map<string, TableRouteStrategy>();
@@ -15,17 +16,8 @@ export class TableRouteRouter {
         handlers.normalizeRouteMethods(body, null, 'publicMethods');
         handlers.normalizeRouteMethods(body, null, 'skipRoleGuardMethods');
       },
-      normalizeUpdate(body, existing) {
-        if (body.publicMethods) {
-          handlers.normalizeRouteMethods(body, existing, 'publicMethods');
-        }
-        if (body.skipRoleGuardMethods) {
-          handlers.normalizeRouteMethods(
-            body,
-            existing,
-            'skipRoleGuardMethods',
-          );
-        }
+      normalizeUpdate(body, _existing, id) {
+        return handlers.normalizeRouteMethodPatch(id, body);
       },
       async afterCreateWrite(ctx) {
         try {
@@ -40,15 +32,8 @@ export class TableRouteRouter {
         }
       },
       async afterUpdateWrite(ctx) {
-        if (
-          ['availableMethods', 'publicMethods', 'skipRoleGuardMethods'].some(
-            (field) => Object.prototype.hasOwnProperty.call(ctx.body, field),
-          )
-        ) {
-          await handlers.syncRouteMethodConfigFlags(ctx.id, {
-            ...ctx.existing,
-            ...ctx.body,
-          });
+        if (hasRouteMethodSelections(ctx.body)) {
+          await handlers.syncRouteMethodConfigFlags(ctx.id, ctx.body);
         }
       },
     });

@@ -400,14 +400,18 @@ export class DynamicMutationLifecycleService {
         tableName,
         tableMetadata,
       });
+      const strategy = routeRouter.getStrategy(tableName);
+      if (tableName === 'enfyra_route') {
+        await strategy.normalizeUpdate?.(body, exists, id);
+      }
       await mutationAuthorizationService.assertMutationSafety(
         'update',
         body,
         exists,
       );
-
-      const strategy = routeRouter.getStrategy(tableName);
-      await strategy.normalizeUpdate?.(body, exists, id);
+      if (tableName !== 'enfyra_route') {
+        await strategy.normalizeUpdate?.(body, exists, id);
+      }
       Object.assign(
         body,
         mutationPreparationService.normalizeUpdate(tableName, body, exists),
@@ -436,7 +440,7 @@ export class DynamicMutationLifecycleService {
       const ctx = {
         tableName,
         id,
-        body,
+        body: tableName === 'enfyra_route' ? { ...body } : body,
         existing: exists,
       };
 

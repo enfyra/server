@@ -315,6 +315,24 @@ async function assertRuntimeMutations(container: ReturnType<typeof buildContaine
   const cached = (await routeCacheService.getRoutes()).find((route: any) => route.path === path);
   const cachedCell = cached?.methodConfigs.find((candidate: any) => String(relationId(candidate.method)) === String(methodId));
   assert.deepEqual([cachedCell?.available, cachedCell?.isPublic, cachedCell?.timeout], [true, true, 12_345]);
+
+  const methods = [{ [idField]: methodId }];
+  for (const isPublic of [false, true]) {
+    await routeRepo.update({ id: routeId, data: { publicMethods: isPublic ? methods : [] } });
+    const persisted = await queryBuilderService.find({
+      table: 'enfyra_route_method_config',
+      filter: { [idField]: { _eq: cell[idField] } },
+      fields: ['available', 'isPublic', 'timeout'],
+      limit: 1,
+    });
+    const route = (await routeCacheService.getRoutes()).find((entry: any) => entry.path === path);
+    const operation = route?.methodConfigs.find((entry: any) => String(relationId(entry.method)) === String(methodId));
+    assert.deepEqual(
+      [persisted.data[0]?.available, persisted.data[0]?.isPublic, persisted.data[0]?.timeout],
+      [true, isPublic, 12_345],
+    );
+    assert.deepEqual([operation?.available, operation?.isPublic, operation?.timeout], [true, isPublic, 12_345]);
+  }
 }
 
 async function assertOldestUpgradeSchema(queryBuilderService: any): Promise<void> {
