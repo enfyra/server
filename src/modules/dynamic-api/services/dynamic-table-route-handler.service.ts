@@ -5,6 +5,7 @@ import {
 import { autoSlug } from '../../../shared/utils/auto-slug.helper';
 import type { TableRouteHandlers } from '../types/table-route.types';
 import type { DynamicTableRouteHandlerDependencies } from '../types/dynamic-table-route-handler.types';
+import { ROUTE_METHOD_SELECTION_FIELDS } from '../utils/route-method-selections.util';
 
 export class DynamicTableRouteHandlerService implements TableRouteHandlers {
   constructor(
@@ -46,6 +47,31 @@ export class DynamicTableRouteHandlerService implements TableRouteHandlers {
       const id = this.getItemId(item);
       return id != null && availableIds.has(String(id));
     });
+  }
+
+  async normalizeRouteMethodPatch(
+    routeId: string | number,
+    body: Record<string, any>,
+  ): Promise<void> {
+    for (const field of ROUTE_METHOD_SELECTION_FIELDS) {
+      if (Object.hasOwn(body, field) && !Array.isArray(body[field])) {
+        throw new BadRequestException(`${field} must be an array of methods.`);
+      }
+    }
+    const accessFields = (['publicMethods', 'skipRoleGuardMethods'] as const)
+      .filter((field) => Object.hasOwn(body, field) && body[field].length > 0);
+    if (accessFields.length === 0) return;
+
+    const existing = Object.hasOwn(body, 'availableMethods')
+      ? null
+      : {
+          availableMethods: (await this.findRouteMethodConfigs(routeId))
+            .filter((config: any) => config.available === true)
+            .map((config: any) => config.method),
+        };
+    for (const field of accessFields) {
+      this.normalizeRouteMethods(body, existing, field);
+    }
   }
 
   async normalizeExtension(
@@ -206,7 +232,7 @@ export class DynamicTableRouteHandlerService implements TableRouteHandlers {
         isSystem,
       })),
     );
-    await this.syncRouteMethodConfigFlags(routeId, routeState);
+    await this.syncRouteMethodConfigFlags(routeId, routeState, 'create');
   }
 
   async createRouteMethodConfigsForMethod(
@@ -230,63 +256,80 @@ export class DynamicTableRouteHandlerService implements TableRouteHandlers {
   async syncRouteMethodConfigFlags(
     routeId: string | number,
     routeState: Record<string, any>,
+    operation: 'create' | 'update' = 'update',
   ): Promise<void> {
+    const isCreate = operation === 'create';
+    const fields = isCreate
+      ? ROUTE_METHOD_SELECTION_FIELDS
+      : ROUTE_METHOD_SELECTION_FIELDS.filter((field) =>
+          Object.hasOwn(routeState, field) && Array.isArray(routeState[field]),
+        );
+    if (fields.length === 0) return;
+
     const idField = this.dependencies.queryBuilderService.getPkField();
     const routeResult = await this.dependencies.queryBuilderService.find({
       table: 'enfyra_route',
       filter: { [idField]: { _eq: routeId } },
-      fields: [
-        idField,
-        'availableMethods.id',
-        'publicMethods.id',
-        'skipRoleGuardMethods.id',
-      ],
+      fields: [idField, ...fields.map((field) => `${field}.id`)],
       limit: 1,
     });
-    const currentRoute = routeResult.data?.[0] ?? routeState;
-    const available = new Set(
-      this.toMethodIds(
-        Array.isArray(currentRoute.availableMethods)
-          ? currentRoute.availableMethods
-          : [],
-      ),
+    const currentRoute = routeResult.data?.[0];
+    if (!currentRoute && !isCreate) {
+      throw new ConflictException('Cannot read persisted route methods.', {
+        routeId,
+      });
+    }
+    const selections = new Map(
+      fields.map((field) => [
+        field,
+        new Set(this.toMethodIds((currentRoute ?? routeState)[field])),
+      ] as const),
     );
-    const publicMethods = new Set(
-      this.toMethodIds(
-        Array.isArray(currentRoute.publicMethods)
-          ? currentRoute.publicMethods
-          : [],
-      ),
-    );
-    const skipRoleGuard = new Set(
-      this.toMethodIds(
-        Array.isArray(currentRoute.skipRoleGuardMethods)
-          ? currentRoute.skipRoleGuardMethods
-          : [],
-      ),
-    );
-    const configs = await this.dependencies.queryBuilderService.find({
-      table: 'enfyra_route_method_config',
-      filter: { route: { [idField]: { _eq: routeId } } },
-      fields: [idField, 'method.id'],
-      limit: 0,
-    });
+    const available = selections.get('availableMethods');
+    const publicMethods = selections.get('publicMethods');
+    const skipRoleGuard = selections.get('skipRoleGuardMethods');
 
-    for (const config of configs.data) {
+    for (const config of await this.findRouteMethodConfigs(routeId)) {
       const configId = config[idField];
       const methodId = this.getItemId(config.method);
       if (configId == null || methodId == null) continue;
       const key = String(methodId);
+      const wasAvailable = config.available === true;
+      const nextAvailable = available?.has(key) ?? wasAvailable;
+      const availabilityChanged = nextAvailable !== wasAvailable;
+      const accessAllowed = isCreate || nextAvailable;
+      const flags = {
+        ...(available ? { available: nextAvailable } : {}),
+        ...(publicMethods || availabilityChanged
+          ? { isPublic: accessAllowed && publicMethods?.has(key) === true }
+          : {}),
+        ...(skipRoleGuard || availabilityChanged
+          ? { skipRoleGuard: accessAllowed && skipRoleGuard?.has(key) === true }
+          : {}),
+      };
+      const changes = isCreate
+        ? flags
+        : Object.fromEntries(
+            Object.entries(flags).filter(([flag, value]) => config[flag] !== value),
+          );
+      if (Object.keys(changes).length === 0) continue;
       await this.dependencies.queryBuilderService.update(
         'enfyra_route_method_config',
         configId,
-        {
-          available: available.has(key),
-          isPublic: publicMethods.has(key),
-          skipRoleGuard: skipRoleGuard.has(key),
-        },
+        changes,
       );
     }
+  }
+
+  private async findRouteMethodConfigs(routeId: string | number) {
+    const idField = this.dependencies.queryBuilderService.getPkField();
+    const result = await this.dependencies.queryBuilderService.find({
+      table: 'enfyra_route_method_config',
+      filter: { route: { [idField]: { _eq: routeId } } },
+      fields: [idField, 'method.id', 'available', 'isPublic', 'skipRoleGuard'],
+      limit: 0,
+    });
+    return result.data;
   }
 
   async removeIncompleteRouteMethodMatrix(

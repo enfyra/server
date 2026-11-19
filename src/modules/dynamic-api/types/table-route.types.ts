@@ -34,6 +34,10 @@ export interface TableRouteHandlers {
     existing: any,
     field: 'publicMethods' | 'skipRoleGuardMethods',
   ) => void;
+  normalizeRouteMethodPatch: (
+    routeId: string | number,
+    body: Record<string, any>,
+  ) => Promise<void>;
   normalizeExtension: (body: any, method: 'POST' | 'PATCH') => Promise<void>;
   assertColumnRuleUnique: (
     body: any,

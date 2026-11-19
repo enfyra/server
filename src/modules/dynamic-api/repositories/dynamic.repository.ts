@@ -38,6 +38,7 @@ import type { RuntimeSchemaActivationGateService } from '../../table-management'
 import { TableRouteRouter } from './table-route.router';
 import { deferDynamicTransactionEffect, runWithDeferredDynamicTransactionEffects } from '../../../shared/utils/dynamic-transaction-effects.util';
 import { isInDynamicTransactionScope } from '../../../shared/utils/dynamic-transaction-scope.util';
+import { hasRouteMethodSelections } from '../utils/route-method-selections.util';
 
 export class DynamicRepository {
   public context: TDynamicContext;
@@ -244,7 +245,19 @@ export class DynamicRepository {
 
   async update(opt: DynamicUpdateOptions) {
     await this.ensureInit();
-    return this.executeUpdate(opt, this.getMutationRuntime());
+    const execute = () => this.executeUpdate(opt, this.getMutationRuntime());
+    if (
+      this.tableName === 'enfyra_route' &&
+      opt.data &&
+      hasRouteMethodSelections(opt.data) &&
+      this.queryBuilderService.isSql() &&
+      !isInDynamicTransactionScope(this.context)
+    ) {
+      return runWithDeferredDynamicTransactionEffects(this.context, execute, (attempt) =>
+        this.queryBuilderService.transaction(attempt),
+      );
+    }
+    return execute();
   }
 
   private executeUpdate(opt: DynamicUpdateOptions, runtime: DynamicMutationRuntime) {
